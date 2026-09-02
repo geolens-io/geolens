@@ -85,10 +85,14 @@ produces, so a clean mapping write is spelled ``headers[pair[0]] = pair[1]`` or
 Provenance also requires the call to BE the shared helper (fix(#1756 codex
 round 5)). A bare name counts only when the module imports it from
 ``app.core.service_tokens`` and nothing shadows it at the call site; an
-attribute call counts only when its base is that module. A local
-``def build_credential_header`` or an ``other.build_credential_header(...)``
-therefore confers nothing, which matters because the whole point of the rule is
-that one function validates the inputs.
+attribute call counts only when its base names that module AND that base is
+itself unshadowed (fix(#1756 codex round 6)), so an alias rebound by a
+parameter or an assignment buys nothing. A local
+``def build_credential_header`` and an ``other.build_credential_header(...)``
+therefore confer nothing either, which matters because the whole point of the
+rule is that one function validates the inputs. A plain ``import a.b.c`` binds
+the package ``a`` as a namespace and cannot point it at another value, so it is
+not read as a shadow; ``import x as a`` and ``from x import a`` are.
 
 A name resolves to its latest binding BEFORE the use site, so a later
 ``line = anything_else`` revokes it, and a parameter, loop target, ``with``
@@ -526,7 +530,19 @@ def _opaque_names(node: ast.AST, imports: _Imports) -> list[str]:
     if isinstance(node, (ast.Import, ast.ImportFrom)):
         if id(node) in imports.policy_imports:
             return []
-        return [alias.asname or alias.name.split(".")[0] for alias in node.names]
+        names = []
+        for alias in node.names:
+            if alias.asname:
+                names.append(alias.asname)
+            elif isinstance(node, ast.Import) and "." in alias.name:
+                # `import a.b.c` binds the package `a` as a namespace. It
+                # cannot point `a` at another value, so it is not a shadow of
+                # a fully qualified policy call (fix(#1756 codex round 6));
+                # `import x as a` and `from x import a` still are.
+                continue
+            else:
+                names.append(alias.name)
+        return names
     if isinstance(node, _NESTED_SCOPES) and not isinstance(node, ast.Lambda):
         return [node.name]
     return []
@@ -607,11 +623,18 @@ def _resolves_to_policy(
         base = _dotted_path(func.value)
         if base is None:
             return False
-        if base in ctx.imports.module_paths:
-            return True
         # `import app.core.service_tokens` binds the root package, so the call
         # is spelled out in full.
-        return base == POLICY_MODULE and POLICY_MODULE in ctx.imports.module_paths
+        known = base in ctx.imports.module_paths or (
+            base == POLICY_MODULE and POLICY_MODULE in ctx.imports.module_paths
+        )
+        if not known:
+            return False
+        # fix(#1756 codex round 6): the base needs the same shadow check the
+        # bare name gets. `from app.core import service_tokens as policy` plus
+        # a parameter called `policy` would otherwise make anything that
+        # object returns authoritative.
+        return not _is_shadowed(base.split(".")[0], ctx, limit)
     return False
 
 
@@ -1154,6 +1177,79 @@ def test_guard_a_lookalike_helper_confers_nothing() -> None:
         imported=False,
     )
     assert sum(unimported.unguarded_headers.values()) == 1
+
+
+def test_guard_a_shadowed_module_alias_confers_nothing() -> None:
+    """fix(#1756 codex round 6): the base needs the same check as the name.
+
+    ``from app.core import service_tokens as policy`` is authoritative right
+    up until something else in the scope is also called ``policy``, at which
+    point ``policy.build_credential_header(...)`` is whatever that object
+    returns. The blessed twin is the same module with nothing shadowing it.
+    """
+    alias_import = f"from {POLICY_PACKAGE} import {POLICY_MODULE_TAIL} as policy\n"
+    call = f"    pair = policy.{CREDENTIAL_BUILDER}(auth)\n"
+
+    unshadowed = _scan_synthetic(
+        alias_import
+        + "def f(auth, client, url):\n"
+        + call
+        + "    client.get(url, headers={pair[0]: pair[1]})\n",
+        imported=False,
+    )
+    assert unshadowed.header_sites == 1
+    assert not unshadowed.unguarded_headers
+
+    by_parameter = _scan_synthetic(
+        alias_import
+        + "def f(auth, policy, client, url):\n"
+        + call
+        + "    client.get(url, headers={pair[0]: pair[1]})\n",
+        imported=False,
+    )
+    assert by_parameter.header_sites == 1
+    assert sum(by_parameter.unguarded_headers.values()) == 1
+
+    by_assignment = _scan_synthetic(
+        alias_import + "def f(auth, impostor, client, url):\n"
+        "    policy = impostor\n"
+        + call
+        + "    client.get(url, headers={pair[0]: pair[1]})\n",
+        imported=False,
+    )
+    assert by_assignment.header_sites == 1
+    assert sum(by_assignment.unguarded_headers.values()) == 1
+
+    # The fully qualified spelling resolves through its root name, so that
+    # name is checked too.
+    shadowed_root = _scan_synthetic(
+        f"import {POLICY_MODULE}\n"
+        "def f(auth, app, client, url):\n"
+        f"    pair = {POLICY_MODULE}.{CREDENTIAL_BUILDER}(auth)\n"
+        "    client.get(url, headers={pair[0]: pair[1]})\n",
+        imported=False,
+    )
+    assert shadowed_root.header_sites == 1
+    assert sum(shadowed_root.unguarded_headers.values()) == 1
+
+
+def test_guard_a_namespace_import_is_not_read_as_a_shadow() -> None:
+    """``import app.core.config`` beside the policy import is not a rebinding.
+
+    The root name it binds is a package, and a package cannot be the impostor
+    the shadow check is looking for. Reading it as one would reject a
+    correctly written module.
+    """
+    scan = _scan_synthetic(
+        f"import {POLICY_MODULE}\n"
+        "import app.core.config\n"
+        "def f(auth, client, url):\n"
+        f"    pair = {POLICY_MODULE}.{CREDENTIAL_BUILDER}(auth)\n"
+        "    client.get(url, headers={pair[0]: pair[1]})\n",
+        imported=False,
+    )
+    assert scan.header_sites == 1
+    assert not scan.unguarded_headers
 
 
 def test_guard_rebinding_the_imported_helper_confers_nothing() -> None:
