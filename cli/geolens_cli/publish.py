@@ -81,6 +81,17 @@ _DUPLICATE_DETAIL_NEEDLE = "already processed"
 _DEFAULT_POLL_INTERVAL_SECONDS: float = 1.0
 _DEFAULT_POLL_TIMEOUT_SECONDS: float = 120.0
 
+#: fix(#1778, codex round 5): bound for the ONE-SHOT follow-up read a
+#: caller makes after a "timeout" or "poll_failed" PollOutcome, to check
+#: for a dataset_id that resolved a moment too late (fix(#685 review)) or
+#: a status that has since gone terminal (fix(#1778) round 4). The SDK
+#: client's generated transport defaults to timeout=None — unbounded — so
+#: without this, a stalled connection on that read would hang the command
+#: forever instead of reporting the outcome it already has. A few seconds
+#: is enough for a status lookup; this is a diagnostic extra, not worth
+#: waiting long for.
+_SNAPSHOT_REQUEST_TIMEOUT_SECONDS: float = 5.0
+
 #: fix(#1778): job statuses that mean "this job will never produce a
 #: dataset_id through this endpoint". Previously only "failed" was terminal
 #: here, so --wait polled a cancelled job for the full timeout. "cancelled"

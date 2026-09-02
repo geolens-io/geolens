@@ -1186,6 +1186,55 @@ class TestPublishWaitTerminalOutcomes:
         assert "still running" in result.output
         assert "has not finished" in result.output
 
+    def test_wait_snapshot_read_timeout_does_not_hang_and_reports_original_outcome(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        """fix(#1778, codex round 5): sdk.client's generated transport
+        defaults to timeout=None (unbounded), so a stalled connection on
+        the follow-up diagnostic read could hang the command forever
+        instead of reporting the timeout it already reached. The read is
+        now bound (_SNAPSHOT_REQUEST_TIMEOUT_SECONDS); when it ALSO times
+        out, the command must not hang or crash — it falls back to the
+        original outcome. resolve_dataset_id is mocked directly (so this
+        test cannot itself hang on the real 120s poll); the SDK call the
+        real job_snapshot() makes is mocked to raise httpx.TimeoutException,
+        standing in for the bound actually firing.
+        """
+        import httpx
+
+        from geolens_cli import publish as _publish
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(), preview=_ok_preview(), commit=_ok_commit()
+        )
+        monkeypatch.setattr(
+            "geolens_cli.publish.resolve_dataset_id",
+            lambda c, j, **kw: _publish.PollOutcome(
+                status="running", stopped_because="timeout"
+            ),
+        )
+
+        def boom(**kw):
+            raise httpx.TimeoutException("stalled")
+
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            boom,
+        )
+
+        result = runner.invoke(app, ["publish", str(sample_geojson)])
+        assert result.exit_code == 1, result.output
+        assert "still running" in result.output
+        assert "has not finished" in result.output
+
     def test_wait_token_expired_mid_poll_exits_auth(
         self,
         runner,

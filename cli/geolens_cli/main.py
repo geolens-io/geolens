@@ -29,7 +29,14 @@ from . import publish as _publish
 from . import refresh as _refresh
 from . import replace as _replace
 from . import scan as _scan
-from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_USAGE, call_sdk, unwrap
+from ._sdk_helpers import (
+    EXIT_AUTH,
+    EXIT_GENERIC,
+    EXIT_NETWORK,
+    EXIT_USAGE,
+    call_sdk,
+    unwrap,
+)
 
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich", help="GeoLens CLI")
 export_app = typer.Typer(no_args_is_help=True, help="Export commands")
@@ -756,9 +763,26 @@ def publish(
                 # is skipped for "terminal" (a terminal status cannot later
                 # gain a dataset_id) and "token_expired" (retrying the same
                 # dead token is pointless).
-                late_status, late_dataset_id = _analysis.job_snapshot(
-                    sdk.client, job_id
+                #
+                # fix(#1778, codex round 5): sdk.client's generated transport
+                # defaults to timeout=None (unbounded), so a stalled
+                # connection on THIS read would hang the command forever
+                # instead of reporting the outcome the poll already reached.
+                # Bind it to a short, named bound; if that ALSO times out,
+                # treat this one-shot diagnostic read as unreadable rather
+                # than letting the network error abort the command outright
+                # — the original outcome is still worth reporting.
+                snapshot_client = sdk.client.with_timeout(
+                    _publish._SNAPSHOT_REQUEST_TIMEOUT_SECONDS
                 )
+                try:
+                    late_status, late_dataset_id = _analysis.job_snapshot(
+                        snapshot_client, job_id
+                    )
+                except typer.Exit as exc:
+                    if exc.exit_code != EXIT_NETWORK:
+                        raise
+                    late_status, late_dataset_id = None, None
                 if late_dataset_id:
                     dataset_id = late_dataset_id
             if dataset_id is None:
@@ -1472,9 +1496,26 @@ def analysis_materialize(
             # re-read used to be reported as a false timeout). This extra
             # read is skipped for "terminal" and "token_expired" for the
             # same reasons as there.
-            late_status, late_dataset_id = _analysis.job_snapshot(
-                poll_client, job_id
+            #
+            # fix(#1778, codex round 5): use a FRESH, short-bound client
+            # rather than poll_client, which may be unbounded (the default
+            # --wait with no --timeout) or bound to a long caller-supplied
+            # --timeout — either way a stalled connection on this one-shot
+            # diagnostic read would hang the command past the outcome it
+            # already reached. If it ALSO times out, treat the read as
+            # unreadable rather than letting the network error abort the
+            # command — see publish()'s equivalent comment above.
+            snapshot_client = sdk.client.with_timeout(
+                _publish._SNAPSHOT_REQUEST_TIMEOUT_SECONDS
             )
+            try:
+                late_status, late_dataset_id = _analysis.job_snapshot(
+                    snapshot_client, job_id
+                )
+            except typer.Exit as exc:
+                if exc.exit_code != EXIT_NETWORK:
+                    raise
+                late_status, late_dataset_id = None, None
             if late_dataset_id:
                 # The job finished between the poll's last look and this one
                 # (fix(#685 review)). Reporting a completed job as
