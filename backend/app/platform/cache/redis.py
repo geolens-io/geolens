@@ -90,9 +90,27 @@ class RedisCacheProvider:
             self._record_failure()
             await self._fallback.set(key, value, ttl)
 
+    # fix(#1778): codebase audit 2026-08-30, "Cache invalidation never reaches
+    # the in-memory fallback, so a revoked embed token can be served as valid
+    # during the next Redis blip".
+    #
+    # Reads and writes route to ONE store: whichever the circuit says is live.
+    # Eviction must not, because the two stores are populated at different
+    # times. A validation that ran while the circuit was open wrote its result
+    # into the process-local fallback; the circuit then closed, an admin revoked
+    # the capability, the delete went to Redis alone, and the fallback copy
+    # survived. The next blip inside that entry's TTL serves it again. The
+    # embed-token positive entry ({"is_valid": True, ...}, TTL up to 300s) is
+    # the concrete case, and every authorization-shaped value cached through
+    # this provider has the same shape.
+    #
+    # So every eviction hits BOTH stores in BOTH circuit states. The fallback is
+    # an in-process dict, so the extra call costs nothing and cannot fail in a
+    # way Redis's own error path does not already cover.
+
     async def delete(self, key: str) -> None:
+        await self._fallback.delete(key)
         if self._is_circuit_open():
-            await self._fallback.delete(key)
             return
         try:
             await self._client.delete(key)
@@ -100,7 +118,6 @@ class RedisCacheProvider:
         except Exception:  # broad: redis circuit breaker — any Redis error falls back to in-memory cache
             logger.warning("redis_cache_delete_failed", key=key, exc_info=True)
             self._record_failure()
-            await self._fallback.delete(key)
 
     async def delete_many(self, *keys: str) -> None:
         # fix(#1543): DEL is variadic and executes as one command, so the whole
@@ -109,8 +126,8 @@ class RedisCacheProvider:
         # network round-trip between every pair of keys.
         if not keys:
             return
+        await self._fallback.delete_many(*keys)
         if self._is_circuit_open():
-            await self._fallback.delete_many(*keys)
             return
         try:
             await self._client.delete(*keys)
@@ -120,11 +137,10 @@ class RedisCacheProvider:
                 "redis_cache_delete_many_failed", keys=list(keys), exc_info=True
             )
             self._record_failure()
-            await self._fallback.delete_many(*keys)
 
     async def delete_pattern(self, pattern: str) -> None:
+        await self._fallback.delete_pattern(pattern)
         if self._is_circuit_open():
-            await self._fallback.delete_pattern(pattern)
             return
         try:
             async for key in self._client.scan_iter(match=pattern):
@@ -137,7 +153,6 @@ class RedisCacheProvider:
                 exc_info=True,
             )
             self._record_failure()
-            await self._fallback.delete_pattern(pattern)
 
     async def health_check(self) -> None:
         """Verify Redis is reachable via PING.

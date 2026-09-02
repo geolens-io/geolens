@@ -362,3 +362,95 @@ def test_update_sync_cache_key_allowlist_covers_new_rate_limits():
     assert "basemap_proxy_rate_limit" in src, (
         "'basemap_proxy_rate_limit' must be in PersistentConfig._update_sync_cache"
     )
+
+
+# --- fix(#1778): eviction must reach BOTH stores in BOTH circuit states ---
+#
+# Codebase audit 2026-08-30, "Cache invalidation never reaches the in-memory
+# fallback, so a revoked embed token can be served as valid during the next
+# Redis blip". Reads and writes route to one store; eviction used to as well,
+# so an entry written into the fallback during an outage outlived a delete
+# issued after recovery and came back on the next blip.
+#
+# Counterfactual: restore the "if self._is_circuit_open(): await
+# self._fallback.delete(key); return" shape in RedisCacheProvider and each of
+# these fails with the stale value still readable.
+
+
+@pytest.mark.asyncio
+async def test_delete_while_closed_also_evicts_the_fallback(cb_redis):
+    # Entry landed in the fallback during an outage.
+    await cb_redis._fallback.set("embed_token:abc", {"is_valid": True}, 300)
+
+    # Circuit is closed again; the capability is revoked.
+    await cb_redis.delete("embed_token:abc")
+
+    # Next blip: reads route to the fallback, which must no longer hold it.
+    cb_redis._failure_count = 3
+    cb_redis._circuit_open_until = time.monotonic() + 300
+    assert await cb_redis.get("embed_token:abc") is None
+
+
+@pytest.mark.asyncio
+async def test_delete_many_while_closed_also_evicts_the_fallback(cb_redis):
+    await cb_redis._fallback.set("embed_token:a", {"is_valid": True}, 300)
+    await cb_redis._fallback.set("embed_token:b", {"is_valid": True}, 300)
+
+    await cb_redis.delete_many("embed_token:a", "embed_token:b")
+
+    cb_redis._failure_count = 3
+    cb_redis._circuit_open_until = time.monotonic() + 300
+    assert await cb_redis.get("embed_token:a") is None
+    assert await cb_redis.get("embed_token:b") is None
+
+
+@pytest.mark.asyncio
+async def test_delete_pattern_while_closed_also_evicts_the_fallback(cb_redis):
+    await cb_redis._fallback.set("embed_token:a", {"is_valid": True}, 300)
+    await cb_redis._fallback.set("other:keep", 1, 300)
+
+    await cb_redis.delete_pattern("embed_token:*")
+
+    cb_redis._failure_count = 3
+    cb_redis._circuit_open_until = time.monotonic() + 300
+    assert await cb_redis.get("embed_token:a") is None
+    assert await cb_redis.get("other:keep") == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_while_open_still_evicts_the_fallback(cb_redis):
+    """The pre-existing open-circuit behaviour is unchanged."""
+    await cb_redis._fallback.set("embed_token:abc", {"is_valid": True}, 300)
+    cb_redis._failure_count = 3
+    cb_redis._circuit_open_until = time.monotonic() + 300
+
+    await cb_redis.delete("embed_token:abc")
+    assert await cb_redis.get("embed_token:abc") is None
+
+
+@pytest.mark.asyncio
+async def test_delete_still_reaches_redis_while_closed(cb_redis):
+    """Adding the fallback eviction must not drop the Redis one."""
+    await cb_redis.set("k", "v", ttl=60)
+    await cb_redis.delete("k")
+    assert await cb_redis._client.get("k") is None
+
+
+@pytest.mark.asyncio
+async def test_a_failing_redis_delete_still_evicts_the_fallback():
+    """A delete that raises must not leave the fallback copy behind."""
+    provider = RedisCacheProvider.__new__(RedisCacheProvider)
+    mock_client = AsyncMock()
+    mock_client.delete.side_effect = ConnectionError("Redis unavailable")
+    provider._client = mock_client
+    provider._max_failures = 5
+    provider._cooldown_seconds = 30
+    provider._failure_count = 0
+    provider._circuit_open_until = 0.0
+    provider._fallback = InMemoryCacheProvider()
+
+    await provider._fallback.set("embed_token:abc", {"is_valid": True}, 300)
+    await provider.delete("embed_token:abc")
+
+    assert await provider._fallback.get("embed_token:abc") is None
+    assert provider._failure_count == 1
