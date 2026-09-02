@@ -1366,6 +1366,61 @@
         "title": "ApproveRequest",
         "type": "object"
       },
+      "ArcGISSignInRequest": {
+        "description": "Portal address plus the credentials one generateToken call needs.\n\nNo character policy on the two credential fields, deliberately. They are\nform-encoded into the outbound body, which percent-escapes every value,\nso neither a control character nor a separator can smuggle a second field\ninto the request the way one can into a header line. The length bounds\nare here to keep an absurd body from reaching the portal at all.",
+        "properties": {
+          "portal_url": {
+            "description": "ArcGIS portal URL, for example https://your-org.maps.arcgis.com. The /sharing/rest base is accepted too.",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Portal Url",
+            "type": "string"
+          },
+          "username": {
+            "description": "ArcGIS account name to sign in with.",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Username",
+            "type": "string"
+          },
+          "password": {
+            "description": "Password for that ArcGIS account.",
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "portal_url",
+          "username",
+          "password"
+        ],
+        "title": "ArcGISSignInRequest",
+        "type": "object"
+      },
+      "ArcGISSignInResponse": {
+        "description": "The minted portal token and nothing else about the account.",
+        "properties": {
+          "token": {
+            "description": "Short-lived ArcGIS portal token. Use it as the `token` field on probe, preview, commit and refresh.",
+            "title": "Token",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "UTC instant at which the portal stops accepting the token.",
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "expires_at"
+        ],
+        "title": "ArcGISSignInResponse",
+        "type": "object"
+      },
       "AttributeMetadataListResponse": {
         "properties": {
           "attributes": {
@@ -52826,6 +52881,168 @@
         "summary": "Get Saved Search Endpoint",
         "tags": [
           "Search"
+        ]
+      }
+    },
+    "/services/arcgis/signin/": {
+      "post": {
+        "description": "Sign in to an ArcGIS portal and return a short-lived token.\n\nAsks the portal's own token service for a token valid for 60 minutes and\nreturns it. Put that token in the `token` field on probe, preview, commit\nand refresh; an import that runs longer than the token lives fails with a\ncredential error and has to start over.\n\nAn account that signs in through an identity provider, or that has\nmultifactor authentication turned on, cannot use this. Paste a token or\nan API key instead. A portal on a private network is unreachable either\nway.",
+        "operationId": "arcgis_signin_services_arcgis_signin__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArcGISSignInRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArcGISSignInResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad gateway \u2014 the ArcGIS portal could not be reached or did not answer with a sign-in response"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Gateway timeout \u2014 the ArcGIS portal did not respond in time"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Arcgis Signin",
+        "tags": [
+          "Datasets"
         ]
       }
     },

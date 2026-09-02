@@ -39,6 +39,8 @@ from .api_key_list_item import ApiKeyListItem
 from .api_key_list_response import ApiKeyListResponse
 from .api_key_status_response import ApiKeyStatusResponse
 from .approve_request import ApproveRequest
+from .arc_gis_sign_in_request import ArcGISSignInRequest
+from .arc_gis_sign_in_response import ArcGISSignInResponse
 from .attribute_metadata_list_response import AttributeMetadataListResponse
 from .attribute_metadata_response import AttributeMetadataResponse
 from .attribute_metadata_update import AttributeMetadataUpdate
@@ -794,6 +796,8 @@ __all__ = (
     "ApiKeyListResponse",
     "ApiKeyStatusResponse",
     "ApproveRequest",
+    "ArcGISSignInRequest",
+    "ArcGISSignInResponse",
     "AttributeMetadataListResponse",
     "AttributeMetadataResponse",
     "AttributeMetadataUpdate",

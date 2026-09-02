@@ -838,6 +838,58 @@ export type ApproveRequest = {
 };
 
 /**
+ * ArcGISSignInRequest
+ *
+ * Portal address plus the credentials one generateToken call needs.
+ *
+ * No character policy on the two credential fields, deliberately. They are
+ * form-encoded into the outbound body, which percent-escapes every value,
+ * so neither a control character nor a separator can smuggle a second field
+ * into the request the way one can into a header line. The length bounds
+ * are here to keep an absurd body from reaching the portal at all.
+ */
+export type ArcGisSignInRequest = {
+    /**
+     * Portal Url
+     *
+     * ArcGIS portal URL, for example https://your-org.maps.arcgis.com. The /sharing/rest base is accepted too.
+     */
+    portal_url: string;
+    /**
+     * Username
+     *
+     * ArcGIS account name to sign in with.
+     */
+    username: string;
+    /**
+     * Password
+     *
+     * Password for that ArcGIS account.
+     */
+    password: string;
+};
+
+/**
+ * ArcGISSignInResponse
+ *
+ * The minted portal token and nothing else about the account.
+ */
+export type ArcGisSignInResponse = {
+    /**
+     * Token
+     *
+     * Short-lived ArcGIS portal token. Use it as the `token` field on probe, preview, commit and refresh.
+     */
+    token: string;
+    /**
+     * Expires At
+     *
+     * UTC instant at which the portal stops accepting the token.
+     */
+    expires_at: string;
+};
+
+/**
  * AttributeMetadataListResponse
  */
 export type AttributeMetadataListResponse = {
@@ -25371,6 +25423,71 @@ export type GetSavedSearchEndpointSearchSavedSearchIdGetResponses = {
 };
 
 export type GetSavedSearchEndpointSearchSavedSearchIdGetResponse = GetSavedSearchEndpointSearchSavedSearchIdGetResponses[keyof GetSavedSearchEndpointSearchSavedSearchIdGetResponses];
+
+export type ArcgisSigninServicesArcgisSigninPostData = {
+    body: ArcGisSignInRequest;
+    path?: never;
+    query?: never;
+    url: '/services/arcgis/signin/';
+};
+
+export type ArcgisSigninServicesArcgisSigninPostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Bad gateway — the ArcGIS portal could not be reached or did not answer with a sign-in response
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+    /**
+     * Gateway timeout — the ArcGIS portal did not respond in time
+     */
+    504: ProblemDetail;
+};
+
+export type ArcgisSigninServicesArcgisSigninPostError = ArcgisSigninServicesArcgisSigninPostErrors[keyof ArcgisSigninServicesArcgisSigninPostErrors];
+
+export type ArcgisSigninServicesArcgisSigninPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: ArcGisSignInResponse;
+};
+
+export type ArcgisSigninServicesArcgisSigninPostResponse = ArcgisSigninServicesArcgisSigninPostResponses[keyof ArcgisSigninServicesArcgisSigninPostResponses];
 
 export type ListConnectorsEndpointServicesConnectorsGetData = {
     body?: never;

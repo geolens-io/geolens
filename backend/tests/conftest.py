@@ -200,6 +200,7 @@ _TENANCY_GLOBAL_STATE_MODULES = {
     "test_dp_single_tenant_byte_identical",
     "test_dormant_tenancy_migration_roundtrip",
     "test_dormant_tenancy_schema",
+    "test_arcgis_signin_tenancy",
     "test_audit_job_tenant_isolation",
     "test_entitlement_port",
     "test_extension_api_version",

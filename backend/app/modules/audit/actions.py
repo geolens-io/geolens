@@ -28,6 +28,11 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
     {
         "api_key.create",
         "api_key.revoke",
+        # One row per ArcGIS sign-in attempt. Carries the portal host and the
+        # outcome, never a username: the outcome keeps the invalid/locked
+        # distinction the caller-facing message deliberately collapses, which
+        # is what makes someone walking accounts visible to an operator.
+        "arcgis_signin",
         "attribute.edit",
         "attribute.reset",
         "audit.export",

@@ -8,8 +8,9 @@ from urllib.parse import urljoin
 
 import httpx
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import ValidationError
+from slowapi.util import get_remote_address
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,9 +28,26 @@ from app.modules.catalog.sources.adapters.arcgis import (
     fetch_arcgis_layer_preview,
     normalize_arcgis_url,
 )
+from app.modules.catalog.sources.arcgis_signin import (
+    AUDIT_SUCCESS,
+    ArcGISSignInError,
+    open_portal_signin,
+    portal_host,
+    signin_account_key,
+)
 from app.modules.catalog.sources.preview import build_gdal_source, run_service_preview
+from app.modules.catalog.sources.signin_guard import (
+    _signin_audit,
+    _signin_budgets_spent,
+    _signin_in_progress,
+    _signin_locks,
+    _signin_rate_limited,
+    _signin_refusal,
+)
 from app.modules.catalog.sources.probe import ServiceNotRecognized, detect_service_type
 from app.modules.catalog.sources.schemas import (
+    ArcGISSignInRequest,
+    ArcGISSignInResponse,
     ConnectorDefinitionResponse,
     ConnectorDiscoverRequest,
     ConnectorDiscoverResponse,
@@ -43,6 +61,7 @@ from app.modules.catalog.sources.schemas import (
     ServicePreviewResponse,
     service_credential_from_request,
 )
+from app.platform.ratelimit import limiter
 from app.platform.service_auth import bearer_token_for_credential
 from app.platform.security import (
     PROBE_TIMEOUT,
@@ -51,7 +70,11 @@ from app.platform.security import (
     validate_url_for_ssrf,
 )
 from app.platform.dataset_origin import service_layer_identity
-from app.standards.ogc.errors import ERROR_RESPONSES_WRITE, PROBLEM_RESPONSE
+from app.standards.ogc.errors import (
+    ERROR_RESPONSES_WRITE,
+    PROBLEM_RESPONSE,
+    RATE_LIMIT_RESPONSE,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 IngestionError = get_catalog_port().ingestion_error_class()
@@ -1089,3 +1112,253 @@ async def preview_service_layer(
     # Step 5/6: Create IngestJob, audit-log, and build the response.
     job = await _create_preview_job(db, request, preview_data, user.id)
     return _build_preview_response(request, preview_data, job)
+
+
+# --------------------------------------------------------------------------
+# ArcGIS sign in
+# --------------------------------------------------------------------------
+#
+# This endpoint sends a password to a third party on an authenticated user's
+# say-so, which makes it a lockout amplifier and a username oracle before it
+# is anything else. ArcGIS locks a built-in account after five failed
+# sign-ins in fifteen minutes, so without a limit a GeoLens user who knows a
+# colleague's ArcGIS username can lock that colleague out of ArcGIS from
+# inside GeoLens, with GeoLens as the proximate cause.
+#
+# Five controls, in the order they apply:
+#
+# 1. `create_layers`, the same permission `probe_service_url` requires. A
+#    read-only account has no reason to reach this.
+# 2. Two slowapi limits, three attempts per fifteen minutes keyed on the user
+#    and on (user, portal host). PER PROCESS, and that is the whole reason
+#    they are not the enforcement: slowapi's storage is in-memory per uvicorn
+#    worker and `docker-compose.prod.yml:294` starts two, so on a stock
+#    install these three are three per worker. They are the cheap first layer
+#    that keeps a flood off the database.
+# 3. A PostgreSQL advisory lock per (user, portal host), held across the
+#    mint, so the count below cannot be read by two workers at once.
+# 4. The same three attempts per fifteen minutes counted from the audit rows
+#    this endpoint already writes, which is shared state on a stock install.
+#    Valkey is not: `REDIS_URL` is unset by default, so a Valkey-backed
+#    limiter would be no enforcement at all on the installs that most need
+#    it. Strictly below Esri's five failed sign-ins in fifteen minutes, so
+#    GeoLens can never be what locks an account and the user keeps two
+#    attempts of their own.
+# 5. One POST per attempt and never a retry, in `arcgis_signin.py`.
+#
+# fix(#1758 codex r1): controls 3 and 4 replaced a process-local set and a
+# pair of process-local counters that a two-worker install multiplied by two.
+#
+# Two names for one slowapi number, because they are two limits rather than
+# one. Both keys carry the user id, so while the numbers are equal the
+# per-user limit is always the one that binds; the per-portal limit is what
+# still holds if the per-user number is ever raised, and naming them apart is
+# also what lets each be exercised on its own.
+_ARCGIS_SIGNIN_USER_LIMIT = "3/15minutes"
+_ARCGIS_SIGNIN_PORTAL_LIMIT = "3/15minutes"
+
+
+# fix(#1758 codex r17): a worker-wide ceiling on sign-ins that are inside
+# their network phases, set below the database pool so they cannot take it.
+# Production runs 10 pooled connections plus 3 overflow (13), and a sign-in
+# holds its request connection across discovery and the mint for up to the
+# 45-second budget, so 13 concurrent sign-ins for distinct scopes could
+# occupy the whole pool and time out unrelated API requests. Four leaves nine
+# for everything else.
+#
+# This BOUNDS that saturation, it does not remove it: the connection is still
+# held across external I/O. The reservation redesign that removes it is
+# tracked separately; see the PR body.
+_ARCGIS_SIGNIN_CONCURRENCY = 4
+_signin_slots = asyncio.Semaphore(_ARCGIS_SIGNIN_CONCURRENCY)
+
+_require_create_layers = require_permission("create_layers")
+
+
+def _arcgis_signin_user_limit(_request: Request | None = None) -> str:
+    return _ARCGIS_SIGNIN_USER_LIMIT
+
+
+def _arcgis_signin_portal_limit(_request: Request | None = None) -> str:
+    return _ARCGIS_SIGNIN_PORTAL_LIMIT
+
+
+async def _rate_limit_scoped_signin(
+    request: Request,
+    body: ArcGISSignInRequest,
+    user: Identity = Depends(_require_create_layers),
+) -> Identity:
+    """Resolve the caller and stash what the two rate-limit keys need.
+
+    FastAPI resolves dependencies before invoking the (slowapi-wrapped)
+    endpoint, so both key functions below always see these values for an
+    authenticated request. The body is parsed once per request and shared
+    with the handler, so reading the portal URL here costs nothing.
+    """
+    request.state.arcgis_signin_user_id = str(user.id)
+    request.state.arcgis_signin_portal_host = portal_host(body.portal_url)
+    return user
+
+
+def _signin_user_key(request: Request) -> str:
+    """Per-user rate-limit key; falls back to the remote address."""
+    user_id = getattr(request.state, "arcgis_signin_user_id", None)
+    return f"user:{user_id}" if user_id else get_remote_address(request)
+
+
+def _signin_portal_key(request: Request) -> str:
+    """Per-user-and-portal rate-limit key; falls back to the remote address."""
+    user_id = getattr(request.state, "arcgis_signin_user_id", None)
+    host = getattr(request.state, "arcgis_signin_portal_host", None)
+    if user_id and host:
+        return f"user:{user_id}:portal:{host}"
+    return get_remote_address(request)
+
+
+# fix(#1758 codex r3): the router-level ERROR_RESPONSES_WRITE covers 4xx and
+# 500 only, so the 429 this route raises and the 502/504 mint_portal_token
+# returns were undocumented. That is not cosmetic: the generated Python SDK
+# returns None or raises UnexpectedStatus for a status the spec does not
+# declare, and the TypeScript error union omits it, so a caller cannot
+# distinguish "the portal is unreachable" from a bug in their own code.
+_ARCGIS_SIGNIN_RESPONSES = {
+    429: RATE_LIMIT_RESPONSE,
+    502: {
+        **PROBLEM_RESPONSE,
+        "description": "Bad gateway — the ArcGIS portal could not be reached "
+        "or did not answer with a sign-in response",
+    },
+    504: {
+        **PROBLEM_RESPONSE,
+        "description": "Gateway timeout — the ArcGIS portal did not respond in time",
+    },
+}
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator, see /probe above.
+@router.post(
+    "/arcgis/signin",
+    response_model=ArcGISSignInResponse,
+    responses=_ARCGIS_SIGNIN_RESPONSES,
+    include_in_schema=False,
+)
+@router.post(
+    "/arcgis/signin/",
+    response_model=ArcGISSignInResponse,
+    responses=_ARCGIS_SIGNIN_RESPONSES,
+)
+@limiter.limit(_arcgis_signin_user_limit, key_func=_signin_user_key)
+@limiter.limit(_arcgis_signin_portal_limit, key_func=_signin_portal_key)
+async def arcgis_signin(
+    request: Request,
+    body: ArcGISSignInRequest,
+    user: Identity = Depends(_rate_limit_scoped_signin),
+    db: AsyncSession = Depends(get_db),
+) -> ArcGISSignInResponse:
+    """Sign in to an ArcGIS portal and return a short-lived token.
+
+    Asks the portal's own token service for a token valid for 60 minutes and
+    returns it. Put that token in the `token` field on probe, preview, commit
+    and refresh; an import that runs longer than the token lives fails with a
+    credential error and has to start over.
+
+    An account that signs in through an identity provider, or that has
+    multifactor authentication turned on, cannot use this. Paste a token or
+    an API key instead. A portal on a private network is unreachable either
+    way.
+    """
+    # fix(#1758 codex r7): phase one resolves WHERE the password would go, and
+    # every limit below is keyed on that rather than on the address the caller
+    # typed. fix(#1758 codex r11): "where" is the installation, not just the
+    # hostname, so the scope is host:port/webadaptor: two Enterprise portals
+    # can share a name and differ only by port or adaptor path, and they are
+    # separate account stores. `authInfo.tokenServicesUrl` may legitimately name another host,
+    # so a caller who owns a wildcard domain could otherwise point a hundred
+    # portal hostnames at one victim's token service and collect a hundred
+    # fresh three-attempt buckets against a single ArcGIS account. Discovery
+    # is a credential-free GET under the same deadline, and it runs before any
+    # lock is taken so a portal that cannot be resolved costs nobody a lock.
+    #
+    # fix(#1758 codex r8): the resolved identity is held OUTSIDE the block, so
+    # the handler below can charge a failure to it. A cancellation is the case
+    # that makes this necessary: the deadline converts it at the context
+    # boundary rather than where it fired, so a POST cut short by a
+    # slow-dripping portal unwinds past the inner handler and lands there.
+    # Charged to `unknown` that outcome spent nothing, and a caller could
+    # repeat credential POSTs against a real account forever without the
+    # ledger ever moving.
+    resolved_host: str | None = None
+    resolved_account_key: str | None = None
+    resolved_note: str | None = None
+    # fix(#1758 codex r17): refuse rather than queue. Waiting here would hold
+    # the request's own pooled connection while waiting, which is the resource
+    # this bound exists to protect; the caller gets the same 429 the attempt
+    # budget uses and the client already maps.
+    if _signin_slots.locked():
+        await _signin_refusal(
+            db,
+            user.id,
+            "unknown",
+            signin_account_key("unknown", body.username),
+            _signin_rate_limited(),
+        )
+    try:
+        async with _signin_slots, open_portal_signin(body.portal_url) as portal:
+            # fix(#1758 codex r3): the account lock and both budgets are keyed
+            # on the ARCGIS account, not on the GeoLens caller. The username
+            # reaches this line and goes no further: what is stored, locked on
+            # and counted is the digest.
+            resolved_host = host = portal.scope
+            resolved_account_key = account_key = signin_account_key(host, body.username)
+            resolved_note = portal.discovery_note
+
+            # fix(#1758 codex r5): two locks, taken user-and-host FIRST and
+            # account SECOND, and that order is the whole of the deadlock
+            # argument. The account lock alone left the per-user budget racy:
+            # one caller signing in to three different accounts on one host
+            # took three different account locks, so all three read the same
+            # pre-attempt count and all three passed a limit of three.
+            #
+            # fix(#1758 codex r6/r10): both on the request's own session, so
+            # a sign-in costs one pooled connection rather than three.
+            async with _signin_locks(
+                db, f"user:{user.id}:host:{host}", f"account:{account_key}"
+            ) as locked:
+                if not locked:
+                    await _signin_refusal(
+                        db, user.id, host, account_key, _signin_in_progress()
+                    )
+                if await _signin_budgets_spent(db, user.id, host, account_key):
+                    await _signin_refusal(
+                        db, user.id, host, account_key, _signin_rate_limited()
+                    )
+                try:
+                    minted = await portal.mint(body.username, body.password)
+                except ArcGISSignInError as exc:
+                    await _signin_refusal(
+                        db, user.id, host, account_key, exc, resolved_note
+                    )
+
+                # Inside both locks, so the row is committed before the next
+                # attempt against this account, or by this caller against this
+                # token service, can read either counter.
+                logger.info("ArcGIS sign-in succeeded", token_service_host=host)
+                await _signin_audit(
+                    db, user.id, host, AUDIT_SUCCESS, account_key, resolved_note
+                )
+    except ArcGISSignInError as exc:
+        # A mint failure was already turned into an HTTPException above, inside
+        # the locks, so what reaches here is either a phase-one failure or a
+        # cancellation that unwound past the inner handler. `unknown` is only
+        # ever correct for the first: once discovery has named a destination,
+        # every outcome after it is charged to that account, ledger row
+        # included, because by then a credential POST may well have gone out.
+        await _signin_refusal(
+            db,
+            user.id,
+            resolved_host or "unknown",
+            resolved_account_key or signin_account_key("unknown", body.username),
+            exc,
+            resolved_note,
+        )
+    return ArcGISSignInResponse(token=minted.token, expires_at=minted.expires_at)

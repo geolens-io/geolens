@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@/test/test-utils';
+import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import type { OGCRecordResponse } from '@/types/api';
 import { VrtCreatorForm } from '../VrtCreatorForm';
@@ -301,5 +301,48 @@ describe('VrtCreatorForm', () => {
     // Title is empty — submit should be disabled
     const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
     expect(submitButton).toBeDisabled();
+  });
+
+  it('clears the search blur timer on unmount so it cannot fire into a torn-down tree', () => {
+    // fix(#1758): the 150 ms blur delay used to outlive the component. Nothing
+    // cleared it, so unmounting inside its window left it queued, and on the CI
+    // runner it fired after jsdom teardown and threw `window is not defined`
+    // out of react-dom's scheduler. That failed the whole vitest run while
+    // every test in it passed, which is the shape of failure hardest to
+    // attribute to the file that caused it.
+    vi.useFakeTimers();
+    try {
+      const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+      const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+      const { unmount } = render(<VrtCreatorForm />);
+      const searchInput = screen.getByPlaceholderText('vrt.searchPlaceholder');
+
+      // The blur delay is the only 150 ms timer this component schedules.
+      const blurTimerIds = () =>
+        setTimeoutSpy.mock.calls
+          .map(
+            (call, index) => [call[1], setTimeoutSpy.mock.results[index]?.value] as const,
+          )
+          .filter(([delay]) => delay === 150)
+          .map(([, id]) => id);
+
+      fireEvent.focusOut(searchInput);
+      expect(blurTimerIds()).toHaveLength(1);
+
+      // A second blur replaces the pending timer rather than queuing a second.
+      fireEvent.focusOut(searchInput);
+      const [first, second] = blurTimerIds();
+      expect(second).not.toBe(first);
+      expect(clearTimeoutSpy).toHaveBeenCalledWith(first);
+
+      unmount();
+
+      // The survivor is cleared on the way out, so the callback never runs.
+      expect(clearTimeoutSpy).toHaveBeenCalledWith(second);
+      expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
+    } finally {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    }
   });
 });

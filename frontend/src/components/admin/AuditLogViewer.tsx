@@ -66,6 +66,7 @@ const RESOURCE_ROUTES: Record<string, string> = {
 const CURRENT_AUDIT_ACTIONS = [
   'api_key.create',
   'api_key.revoke',
+  'arcgis_signin',
   'attribute.edit',
   'attribute.reset',
   'audit.export',

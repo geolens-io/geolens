@@ -4314,6 +4314,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/services/arcgis/signin/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Arcgis Signin
+         * @description Sign in to an ArcGIS portal and return a short-lived token.
+         *
+         *     Asks the portal's own token service for a token valid for 60 minutes and
+         *     returns it. Put that token in the `token` field on probe, preview, commit
+         *     and refresh; an import that runs longer than the token lives fails with a
+         *     credential error and has to start over.
+         *
+         *     An account that signs in through an identity provider, or that has
+         *     multifactor authentication turned on, cannot use this. Paste a token or
+         *     an API key instead. A portal on a private network is unreachable either
+         *     way.
+         */
+        post: operations["arcgis_signin_services_arcgis_signin__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/services/connectors/": {
         parameters: {
             query?: never;
@@ -5905,6 +5935,50 @@ export interface components {
              * @description Role to assign to the approved user: 'admin', 'editor', or 'viewer'.
              */
             role: string;
+        };
+        /**
+         * ArcGISSignInRequest
+         * @description Portal address plus the credentials one generateToken call needs.
+         *
+         *     No character policy on the two credential fields, deliberately. They are
+         *     form-encoded into the outbound body, which percent-escapes every value,
+         *     so neither a control character nor a separator can smuggle a second field
+         *     into the request the way one can into a header line. The length bounds
+         *     are here to keep an absurd body from reaching the portal at all.
+         */
+        ArcGISSignInRequest: {
+            /**
+             * Portal Url
+             * @description ArcGIS portal URL, for example https://your-org.maps.arcgis.com. The /sharing/rest base is accepted too.
+             */
+            portal_url: string;
+            /**
+             * Username
+             * @description ArcGIS account name to sign in with.
+             */
+            username: string;
+            /**
+             * Password
+             * @description Password for that ArcGIS account.
+             */
+            password: string;
+        };
+        /**
+         * ArcGISSignInResponse
+         * @description The minted portal token and nothing else about the account.
+         */
+        ArcGISSignInResponse: {
+            /**
+             * Token
+             * @description Short-lived ArcGIS portal token. Use it as the `token` field on probe, preview, commit and refresh.
+             */
+            token: string;
+            /**
+             * Expires At
+             * Format: date-time
+             * @description UTC instant at which the portal stops accepting the token.
+             */
+            expires_at: string;
         };
         /** AttributeMetadataListResponse */
         AttributeMetadataListResponse: {
@@ -36324,6 +36398,131 @@ export interface operations {
             };
             /** @description Service unavailable — the database could not serve the request */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    arcgis_signin_services_arcgis_signin__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArcGISSignInRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArcGISSignInResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Bad gateway — the ArcGIS portal could not be reached or did not answer with a sign-in response */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Gateway timeout — the ArcGIS portal did not respond in time */
+            504: {
                 headers: {
                     [name: string]: unknown;
                 };
