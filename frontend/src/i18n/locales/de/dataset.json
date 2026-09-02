@@ -803,7 +803,7 @@
     "healthDetail": {
       "not_found": "Die Quellressource wurde nicht gefunden.",
       "item_withdrawn": "Das STAC-Element wurde zurückgezogen.",
-      "unauthorized": "Die Quelle hat die Anfrage abgelehnt, weil sie Anmeldedaten erfordert, die der Datensatz nicht besitzt. Aktualisieren Sie mit Anmeldedaten, um fortzufahren.",
+      "unauthorized": "Die Quelle hat die Anfrage abgelehnt, weil sie Anmeldedaten erfordert, die dieser Datensatz nicht besitzt.",
       "server_error": "Die Quelle hat einen Serverfehler zurückgegeben.",
       "unexpected_status": "Die Quelle hat eine unerwartete Antwort zurückgegeben.",
       "timeout": "Die Quelle hat nicht rechtzeitig geantwortet.",

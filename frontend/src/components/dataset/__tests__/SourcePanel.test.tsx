@@ -461,7 +461,7 @@ describe('SourcePanel', () => {
     expect(screen.getByText('https://origin.test/FeatureServer')).toBeInTheDocument();
     expect(
       screen.getByText(
-        'The source refused the request because it requires credentials the dataset does not carry. Refresh with credentials to continue.',
+        'The source refused the request because it requires credentials this dataset does not carry.',
       ),
     ).toBeInTheDocument();
     expect(screen.getByText('Drift detected')).toBeInTheDocument();
@@ -492,7 +492,7 @@ describe('SourcePanel', () => {
     // service token: it covers any 401/403 from a general origin.
     expect(
       screen.queryByText(
-        'The source refused the request because it requires credentials the dataset does not carry. Refresh with credentials to continue.',
+        'The source refused the request because it requires credentials this dataset does not carry.',
       ),
     ).not.toBeInTheDocument();
   });

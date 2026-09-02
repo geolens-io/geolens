@@ -803,7 +803,7 @@
     "healthDetail": {
       "not_found": "La ressource source est introuvable.",
       "item_withdrawn": "L’élément STAC a été retiré.",
-      "unauthorized": "La source a refusé la requête car elle exige des identifiants que le jeu de données ne possède pas. Actualisez avec des identifiants pour continuer.",
+      "unauthorized": "La source a refusé la requête car elle exige des identifiants que ce jeu de données ne possède pas.",
       "server_error": "La source a renvoyé une erreur serveur.",
       "unexpected_status": "La source a renvoyé une réponse inattendue.",
       "timeout": "La source n’a pas répondu à temps.",

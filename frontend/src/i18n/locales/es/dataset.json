@@ -803,7 +803,7 @@
     "healthDetail": {
       "not_found": "No se encontró el recurso de origen.",
       "item_withdrawn": "El elemento STAC fue retirado.",
-      "unauthorized": "La fuente rechazó la solicitud porque requiere credenciales que el conjunto de datos no tiene. Actualiza con credenciales para continuar.",
+      "unauthorized": "La fuente rechazó la solicitud porque requiere credenciales que este conjunto de datos no tiene.",
       "server_error": "La fuente devolvió un error del servidor.",
       "unexpected_status": "La fuente devolvió una respuesta inesperada.",
       "timeout": "La fuente no respondió a tiempo.",
