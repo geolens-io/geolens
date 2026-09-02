@@ -1,6 +1,6 @@
 """The raster tile cache key must not vary on an arg the active stretch mode
 ignores, and a cache HIT must never change what an uncached request would
-answer (#1778, codebase audit 2026-08-30; codex rounds 1-4 on #1791).
+answer (#1778, codebase audit 2026-08-30; codex rounds 1-5 on #1791).
 
 frontend/nginx.conf's raster_cache proxy_cache_key used to hold
 $arg_pmin/$arg_pmax/$arg_sigma unconditionally. In
@@ -44,6 +44,24 @@ blind spots). When non-canonical, $geolens_raster_cache_extra folds the
 ENTIRE raw $args into the cache key, so correctness there is independent of
 any per-parameter reasoning: two requests share a key in the non-canonical
 case if and only if their raw query strings are identical.
+
+Round 5 found round 3's well-formedness check was stricter than it needed
+to be, in a way that reopened the exact cache-amplification vector this
+whole fix exists to close. It required a value to be WELL-FORMED AND IN THE
+RANGE THAT MATTERS FOR THE ACTIVE MODE (0-100 for pmin/pmax, positive for
+sigma) before blanking it under an inactive one -- a round-1 leftover from
+before round 2 made the API ignore an inactive value outright. Since the API
+never applies that range check to a value it never reads that far into, an
+out-of-range-but-syntactically-valid value (pmin=101, pmin=102, ...) stayed
+RAW, so an anonymous caller could still mint a distinct one-hour cache entry
+per distinct out-of-range value, all holding the identical tile.
+
+The round-5 rule: when the query is canonical and the parameter is
+inactive, blank every value FastAPI's float coercion would ACCEPT --
+matching its grammar (optional sign, digits, decimal point, exponent), not
+its semantic range -- and keep raw only what FastAPI cannot parse at all
+(its 422 path, unaffected by round 5, still covered by
+test_malformed_float_under_an_inactive_mode_stays_raw).
 
 These are structural (they read the conf and simulate nginx's own map
 evaluation in Python), because there is no nginx binary in this test
@@ -366,16 +384,36 @@ def test_sigma_still_varies_the_key_under_stddev():
     )
 
 
-def test_out_of_range_value_under_a_canonical_inactive_mode_stays_raw():
-    """A value the well-formedness check rejects (out of [0, 100] for
-    pmin/pmax, not > 0 for sigma) stays RAW even under an exact canonical
-    inactive spelling."""
+def test_out_of_range_but_syntactically_valid_value_under_a_canonical_inactive_mode_blanks():
+    """fix(#1778 codex r5): the API IGNORES an inactive pmin/pmax/sigma
+    outright (fix(#1778 codex r2)), so it never applies a [0, 100] / positive
+    range check to a value it never reads that far into. The previous
+    range-restricted well-formedness check left every out-of-range-but-
+    parseable value RAW, so an anonymous caller could mint a distinct
+    one-hour cache entry per distinct out-of-range value (101, 102, 103, ...)
+    even though every one of them renders the IDENTICAL tile -- the exact
+    cache-amplification vector this whole fix exists to close, reopened
+    through a side door. Range is irrelevant for an inactive parameter;
+    only a value FastAPI cannot parse as a float AT ALL stays raw (see
+    test_malformed_float_under_an_inactive_mode_stays_raw right below)."""
     conf = _conf()
-    for bad in ("200", "-5", "101", "100.5"):
-        assert _derive(conf, "pmin", _qs(stretch="minmax", pmin=bad)) == bad
-        assert _derive(conf, "pmax", _qs(stretch="minmax", pmax=bad)) == bad
-    for bad in ("-1", "0", "0.0", "0.000"):
-        assert _derive(conf, "sigma", _qs(stretch="minmax", sigma=bad)) == bad
+    for value in ("200", "-5", "101", "100.5", "1e3", "-1e10", "+5"):
+        assert _derive(conf, "pmin", _qs(stretch="minmax", pmin=value)) == ""
+        assert _derive(conf, "pmax", _qs(stretch="minmax", pmax=value)) == ""
+    for value in ("-1", "0", "0.0", "0.000", "-3.5e2"):
+        assert _derive(conf, "sigma", _qs(stretch="minmax", sigma=value)) == ""
+
+
+def test_the_coordinators_named_out_of_range_examples_collapse_to_the_blank_key():
+    """fix(#1778 codex r5): the literal cases named in the finding --
+    pmin=101, pmin=-5, sigma=0, pmax=1e3 under an inactive mode all blank,
+    and pmin=abc (unparseable, not merely out of range) still stays raw."""
+    conf = _conf()
+    assert _derive(conf, "pmin", _qs(stretch="minmax", pmin="101")) == ""
+    assert _derive(conf, "pmin", _qs(stretch="minmax", pmin="-5")) == ""
+    assert _derive(conf, "sigma", _qs(stretch="minmax", sigma="0")) == ""
+    assert _derive(conf, "pmax", _qs(stretch="minmax", pmax="1e3")) == ""
+    assert _derive(conf, "pmin", _qs(stretch="minmax", pmin="abc")) == "abc"
 
 
 # ---------------------------------------------------------------------------
@@ -579,9 +617,10 @@ def test_duplicated_stretch_falls_back_to_the_raw_value_instead_of_blanking():
 
 def test_non_duplicated_stretch_is_unaffected_by_the_guard():
     """The guard must not blank the fast path: an ordinary, non-duplicated
-    request keeps collapsing exactly as before, and an out-of-range value
-    still stays raw for the reason ordinary well-formedness does."""
+    request keeps collapsing exactly as before, an out-of-range-but-valid
+    value ALSO blanks (fix(#1778 codex r5) -- range no longer matters for an
+    inactive parameter), and the active mode still keeps a value raw."""
     conf = _conf()
     assert _derive(conf, "pmin", "stretch=minmax&pmin=5") == ""
-    assert _derive(conf, "pmin", "stretch=minmax&pmin=200") == "200"
+    assert _derive(conf, "pmin", "stretch=minmax&pmin=200") == ""
     assert _derive(conf, "pmin", "stretch=percentile&pmin=5") == "5"
