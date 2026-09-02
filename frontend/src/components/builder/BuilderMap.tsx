@@ -361,7 +361,7 @@ export const BuilderMap = memo(function BuilderMap({
     () => isBlank
       ? toMaplibreStyle(BLANK_BASEMAP_ID)
       : toMaplibreStyle(basemapEntry?.url ?? fallbackUrl, basemapEntry?.attribution),
-    [isBlank, basemapEntry?.url, basemapEntry?.attribution],
+    [isBlank, basemapEntry?.url, basemapEntry?.attribution, fallbackUrl],
   );
   // chore(#835): shared fetch-and-sanitize path (see use-remote-basemap-style).
   // Builder-specific behavior rides the callbacks: reset the SF-08 first-load
