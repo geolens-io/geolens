@@ -931,6 +931,23 @@ def replace(
     )
 
     try:
+        # Stage 0: fetch the dataset so origin and record_type gate the flow
+        # before any upload request reaches the server.
+        dataset_resp = _replace.fetch_dataset(sdk.client, dataset_uuid)
+        dataset = _replace.unwrap_or_raise(
+            dataset_resp, expected=_replace.GET_DATASET_OK_STATUS
+        )
+
+        refusal = _replace.origin_refusal_message(getattr(dataset, "origin", None))
+        if refusal is not None:
+            state.output.error(refusal)
+            raise typer.Exit(EXIT_GENERIC)
+
+        is_raster = _replace.is_raster_dataset(dataset)
+        if is_raster and layer is not None:
+            state.output.error("--layer does not apply to raster datasets.")
+            raise typer.Exit(EXIT_USAGE)
+
         # Stage 1: Upload (multipart workaround; BUG-034-style network mapping).
         upload_resp = call_sdk(
             _replace.upload_file, client=sdk.client, dataset_id=dataset_uuid, path=file
@@ -938,28 +955,39 @@ def replace(
         upload = _replace.unwrap_or_raise(upload_resp, expected=_replace.UPLOAD_OK_STATUS)
         job_id = upload.job_id
 
-        # Stage 2: Preview.
-        preview_resp = call_sdk(
-            _rpreview.sync_detailed,
-            dataset_id=dataset_uuid,
-            job_id=job_id,
-            client=sdk.client,
-            body=_replace.build_preview_request(layer),
-        )
-        preview = _replace.unwrap_or_raise(
-            preview_resp, expected=_replace.PREVIEW_OK_STATUS
-        )
+        if is_raster:
+            # Raster datasets have no schema to preview (router_reupload.py);
+            # the supported flow is upload then commit with nothing between.
+            state.output.info("Raster dataset: committing without preview.")
+            summary: dict[str, Any] = {
+                "layer_name": None,
+                "feature_count": None,
+                "srid": None,
+                "geometry_type": None,
+            }
+        else:
+            # Stage 2: Preview.
+            preview_resp = call_sdk(
+                _rpreview.sync_detailed,
+                dataset_id=dataset_uuid,
+                job_id=job_id,
+                client=sdk.client,
+                body=_replace.build_preview_request(layer),
+            )
+            preview = _replace.unwrap_or_raise(
+                preview_resp, expected=_replace.PREVIEW_OK_STATUS
+            )
 
-        layers = _replace.layer_summaries(preview)
-        if layers and layer is None:
-            state.output.error(_replace.multi_layer_refusal_message(layers))
-            raise typer.Exit(EXIT_USAGE)
+            layers = _replace.layer_summaries(preview)
+            if layers and layer is None:
+                state.output.error(_replace.multi_layer_refusal_message(layers))
+                raise typer.Exit(EXIT_USAGE)
 
-        summary = _replace.preview_summary(preview)
-        state.output.info(
-            f"Layer '{summary['layer_name']}': {summary['feature_count']} "
-            f"features, SRID {summary['srid'] if summary['srid'] is not None else 'unknown'}"
-        )
+            summary = _replace.preview_summary(preview)
+            state.output.info(
+                f"Layer '{summary['layer_name']}': {summary['feature_count']} "
+                f"features, SRID {summary['srid'] if summary['srid'] is not None else 'unknown'}"
+            )
 
         if not yes and not typer.confirm(
             f"Replace dataset {dataset_uuid}'s data with {file}?"

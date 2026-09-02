@@ -24,7 +24,7 @@ from typing import Any, Optional
 from uuid import UUID
 
 from . import publish as _publish
-from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_SERVER
+from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_SERVER, call_sdk
 from .refresh import _problem_detail
 
 #: Upload returns 201 Created (ReuploadResponse). Cited:
@@ -37,6 +37,12 @@ PREVIEW_OK_STATUS = 200
 
 #: Commit returns 202 Accepted (ReuploadCommitResponse with status="pending").
 COMMIT_OK_STATUS = 202
+
+#: GET /datasets/{id} returns 200 OK (DatasetResponse).
+GET_DATASET_OK_STATUS = 200
+
+#: `record_type` value for raster datasets (schemas.py DatasetResponse).
+RASTER_RECORD_TYPE = "raster_dataset"
 
 
 @dataclass(frozen=True)
@@ -79,6 +85,56 @@ def upload_file(client: Any, dataset_id: UUID, path: Path) -> Any:
         headers=raw.headers,
         parsed=parsed,
     )
+
+
+# ---------------------------------------------------------------------------
+# Dataset pre-fetch (origin and record_type gates, checked before upload)
+# ---------------------------------------------------------------------------
+
+
+def fetch_dataset(client: Any, dataset_id: UUID) -> Any:
+    """GET /datasets/{id}, fetched up front so origin and record_type can
+    gate the flow before an upload request ever reaches the server.
+
+    Uses the same read-side authorization as every other dataset read, so a
+    404/403 here gets the same plain-message treatment as the other doors
+    (`unwrap_or_raise` + `replace_request_error`).
+    """
+    from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as _get
+
+    return call_sdk(_get.sync_detailed, dataset_id=dataset_id, client=client)
+
+
+def is_raster_dataset(dataset: Any) -> bool:
+    """True for a raster dataset, which has no reupload preview step.
+
+    `reupload_preview` returns 400 for `raster_dataset` by design
+    (`router_reupload.py`: "Raster datasets have no schema to preview.
+    Commit the replacement directly."). The supported raster flow is
+    upload then commit with nothing in between.
+    """
+    return getattr(dataset, "record_type", None) == RASTER_RECORD_TYPE
+
+
+def origin_refusal_message(origin: Optional[str]) -> Optional[str]:
+    """Refuse before uploading when the dataset's origin is not a file.
+
+    The reupload worker always rebinds a committed dataset to the `upload`
+    origin (`platform/dataset_origin.set_dataset_origin`), so replacing a
+    service-bound or registered-table dataset through this door would
+    silently sever its refresh source on the first successful commit.
+    Both are refreshed in place instead of replaced from a file; returns
+    None for every other origin (`upload`, `created`, or none at all).
+    """
+    if origin == "service":
+        return _REFUSAL_MESSAGES["refresh_not_applicable"]
+    if origin == "postgis":
+        return (
+            "This dataset is a registered database table, not an upload. "
+            "It is refreshed in place; run `geolens refresh <dataset-id>` "
+            "instead of replacing it with a file."
+        )
+    return None
 
 
 # ---------------------------------------------------------------------------

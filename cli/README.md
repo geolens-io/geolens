@@ -43,9 +43,11 @@ prints the preview (layer, feature count, detected SRID) before committing
 and asks for confirmation once; pass `--yes` to skip the prompt for scripted
 use, and `--wait` to poll the job to a terminal state and fail loudly on a
 bad import. A file with more than one layer needs `--layer`, since omitting
-it would otherwise commit the first layer without telling you. `replace`
-only accepts a local file. A dataset whose data comes from a remote service
-origin cannot be replaced this way; use `geolens refresh` for that instead.
+it would otherwise commit the first layer without telling you. A raster
+dataset has no layer to preview, so `replace` uploads and commits it directly
+and `--layer` is rejected. `replace` only accepts a local file. A dataset
+whose data comes from a remote service origin, or a registered database
+table, cannot be replaced this way; use `geolens refresh` for that instead.
 
 `geolens refresh <dataset-id>` is the explicit data-refresh path. It re-pulls
 the dataset from the origin binding stored by GeoLens, without accepting a URL,

@@ -262,6 +262,68 @@ class TestUnwrapOrRaise:
             unwrap_or_raise(_problem(404, "Dataset not found"), expected=200)
 
 
+class TestIsRasterDataset:
+    def test_true_for_raster_record_type(self) -> None:
+        from geolens_cli.replace import is_raster_dataset
+
+        assert is_raster_dataset(SimpleNamespace(record_type="raster_dataset")) is True
+
+    def test_false_for_vector_record_type(self) -> None:
+        from geolens_cli.replace import is_raster_dataset
+
+        assert is_raster_dataset(SimpleNamespace(record_type="vector_dataset")) is False
+
+    def test_false_when_record_type_missing(self) -> None:
+        from geolens_cli.replace import is_raster_dataset
+
+        assert is_raster_dataset(SimpleNamespace()) is False
+
+
+class TestOriginRefusalMessage:
+    def test_service_origin_points_at_refresh(self) -> None:
+        from geolens_cli.replace import origin_refusal_message
+
+        message = origin_refusal_message("service")
+        assert message is not None
+        assert "geolens refresh" in message
+
+    def test_postgis_origin_explains_registered_table(self) -> None:
+        from geolens_cli.replace import origin_refusal_message
+
+        message = origin_refusal_message("postgis")
+        assert message is not None
+        assert "registered database table" in message
+        assert "geolens refresh" in message
+
+    @pytest.mark.parametrize("origin", ["upload", "created", None])
+    def test_other_origins_are_not_refused(self, origin: str | None) -> None:
+        from geolens_cli.replace import origin_refusal_message
+
+        assert origin_refusal_message(origin) is None
+
+
+class TestFetchDataset:
+    def test_forwards_dataset_id_and_client(self, monkeypatch) -> None:
+        from geolens_cli.replace import fetch_dataset
+
+        seen: dict = {}
+
+        def fake_sync_detailed(**kw):
+            seen.update(kw)
+            return SimpleNamespace(status_code=HTTPStatus.OK, parsed="dataset")
+
+        monkeypatch.setattr(
+            "geolens.api.datasets.get_single_dataset_datasets_dataset_id_get.sync_detailed",
+            fake_sync_detailed,
+        )
+
+        client = object()
+        result = fetch_dataset(client, DATASET_ID)
+
+        assert seen == {"dataset_id": DATASET_ID, "client": client}
+        assert result.parsed == "dataset"
+
+
 # ---------------------------------------------------------------------------
 # CLI-level dispatch tests
 # ---------------------------------------------------------------------------
@@ -345,6 +407,24 @@ def _patch_job_status(monkeypatch, *, status: str, error_message: str | None = N
     )
 
 
+def _ok_dataset(
+    *, origin: str | None = "upload", record_type: str = "vector_dataset"
+) -> SimpleNamespace:
+    from geolens_cli import replace as _replace
+
+    return SimpleNamespace(
+        status_code=HTTPStatus(_replace.GET_DATASET_OK_STATUS),
+        parsed=SimpleNamespace(origin=origin, record_type=record_type),
+    )
+
+
+def _patch_dataset(monkeypatch, dataset) -> None:
+    monkeypatch.setattr(
+        "geolens.api.datasets.get_single_dataset_datasets_dataset_id_get.sync_detailed",
+        lambda **kw: dataset,
+    )
+
+
 class TestReplaceSingleLayerHappyPath:
     def test_success_without_wait_prints_job_id(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
@@ -352,6 +432,7 @@ class TestReplaceSingleLayerHappyPath:
         from geolens_cli.main import app
 
         _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset())
         _patch_upload(monkeypatch, _ok_upload())
         _patch_preview(monkeypatch, _ok_preview())
         _patch_commit(monkeypatch, _ok_commit())
@@ -369,6 +450,7 @@ class TestReplaceSingleLayerHappyPath:
         from geolens_cli.main import app
 
         _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset())
         _patch_upload(monkeypatch, _ok_upload())
         _patch_preview(monkeypatch, _ok_preview())
         _patch_commit(monkeypatch, _ok_commit())
@@ -389,6 +471,7 @@ class TestReplaceSingleLayerHappyPath:
         from geolens_cli.main import app
 
         _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset())
         _patch_upload(monkeypatch, _ok_upload())
         _patch_preview(monkeypatch, _ok_preview())
         _patch_commit(monkeypatch, _ok_commit())
@@ -409,6 +492,7 @@ class TestReplaceMultiLayerRefusal:
         from geolens_cli._sdk_helpers import EXIT_USAGE
 
         _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset())
         _patch_upload(monkeypatch, _ok_upload())
         _patch_preview(monkeypatch, _ok_preview(all_layers=_multi_layer_items()))
 
@@ -435,6 +519,7 @@ class TestReplaceMultiLayerRefusal:
         from geolens_cli.main import app
 
         _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset())
         _patch_upload(monkeypatch, _ok_upload())
         _patch_preview(
             monkeypatch,
@@ -475,6 +560,7 @@ class TestReplaceSridFlag:
         from geolens_cli.main import app
 
         _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset())
         _patch_upload(monkeypatch, _ok_upload())
         _patch_preview(monkeypatch, _ok_preview())
         captured: dict = {}
@@ -512,6 +598,7 @@ class TestReplaceWaitFailure:
         from geolens_cli.main import app
 
         _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset())
         _patch_upload(monkeypatch, _ok_upload())
         _patch_preview(monkeypatch, _ok_preview())
         _patch_commit(monkeypatch, _ok_commit())
@@ -532,6 +619,7 @@ class TestReplaceConfirmationPrompt:
         from geolens_cli.main import app
 
         _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset())
         _patch_upload(monkeypatch, _ok_upload())
         _patch_preview(monkeypatch, _ok_preview())
         _patch_commit(monkeypatch, _ok_commit())
@@ -550,6 +638,7 @@ class TestReplaceConfirmationPrompt:
         from geolens_cli.main import app
 
         _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset())
         _patch_upload(monkeypatch, _ok_upload())
         _patch_preview(monkeypatch, _ok_preview())
 
@@ -575,6 +664,7 @@ class TestReplaceConfirmationPrompt:
         from geolens_cli.main import app
 
         _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset())
         _patch_upload(monkeypatch, _ok_upload())
         _patch_preview(monkeypatch, _ok_preview())
         _patch_commit(monkeypatch, _ok_commit())
@@ -593,6 +683,9 @@ class TestReplace409Hint:
         from geolens_cli.main import app
 
         _seed_login(mock_keyring)
+        # Upload-origin at fetch time; the 409 below is the fallback for a
+        # race where the origin changed after the pre-check ran.
+        _patch_dataset(monkeypatch, _ok_dataset())
         _patch_upload(
             monkeypatch,
             _problem(
@@ -617,6 +710,7 @@ class TestReplace409Hint:
         from geolens_cli.main import app
 
         _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset())
         _patch_upload(
             monkeypatch,
             _problem(409, {"code": "dataset_busy", "message": "backend detail"}),
@@ -631,13 +725,22 @@ class TestReplace409Hint:
 
 
 class TestReplace404And403:
+    """These land on the dataset pre-fetch: the first request the command
+    issues (gh#1767 review), so it is what a missing/forbidden dataset
+    actually hits before any upload is attempted."""
+
     def test_404_prints_plain_server_message(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
     ) -> None:
         from geolens_cli.main import app
 
         _seed_login(mock_keyring)
-        _patch_upload(monkeypatch, _problem(404, "Dataset not found"))
+        _patch_dataset(monkeypatch, _problem(404, "Dataset not found"))
+
+        def must_not_upload(*a, **k):  # pragma: no cover - guard
+            raise AssertionError("upload must not be attempted for a missing dataset")
+
+        monkeypatch.setattr("geolens_cli.replace.upload_file", must_not_upload)
 
         result = runner.invoke(
             app, ["replace", str(DATASET_ID), str(sample_geojson), "--yes"]
@@ -653,7 +756,12 @@ class TestReplace404And403:
         from geolens_cli._sdk_helpers import EXIT_AUTH
 
         _seed_login(mock_keyring)
-        _patch_upload(monkeypatch, _problem(403, "Permission denied"))
+        _patch_dataset(monkeypatch, _problem(403, "Permission denied"))
+
+        def must_not_upload(*a, **k):  # pragma: no cover - guard
+            raise AssertionError("upload must not be attempted without permission")
+
+        monkeypatch.setattr("geolens_cli.replace.upload_file", must_not_upload)
 
         result = runner.invoke(
             app, ["replace", str(DATASET_ID), str(sample_geojson), "--yes"]
@@ -673,3 +781,131 @@ class TestReplaceInvalidDatasetId:
         result = runner.invoke(app, ["replace", "not-a-uuid", str(sample_geojson)])
 
         assert result.exit_code == 2, result.output
+
+
+class TestReplaceOriginGuard:
+    """gh#1767 review P2: a service or registered-table origin is refused
+    before any upload request, since the reupload worker always rebinds a
+    committed dataset to `upload` and would silently sever the refresh
+    source."""
+
+    def test_service_origin_is_refused_with_no_upload_request(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset(origin="service"))
+
+        def must_not_upload(*a, **k):  # pragma: no cover - guard
+            raise AssertionError("upload must not be attempted for a service origin")
+
+        monkeypatch.setattr("geolens_cli.replace.upload_file", must_not_upload)
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson), "--yes"]
+        )
+
+        assert result.exit_code == 1, result.output
+        assert "geolens refresh" in result.output
+
+    def test_registered_table_origin_is_refused_with_no_upload_request(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset(origin="postgis"))
+
+        def must_not_upload(*a, **k):  # pragma: no cover - guard
+            raise AssertionError(
+                "upload must not be attempted for a registered table origin"
+            )
+
+        monkeypatch.setattr("geolens_cli.replace.upload_file", must_not_upload)
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson), "--yes"]
+        )
+
+        assert result.exit_code == 1, result.output
+        assert "registered database table" in result.output
+        assert "geolens refresh" in result.output
+
+    def test_upload_origin_proceeds(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset(origin="upload"))
+        _patch_upload(monkeypatch, _ok_upload())
+        _patch_preview(monkeypatch, _ok_preview())
+        _patch_commit(monkeypatch, _ok_commit())
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson), "--yes"]
+        )
+
+        assert result.exit_code == 0, result.output
+
+
+class TestReplaceRasterDataset:
+    """gh#1767 review P1: `reupload_preview` 400s for a raster dataset by
+    design (router_reupload.py); the supported flow is upload then commit
+    with no preview step."""
+
+    def test_raster_dataset_skips_preview_and_commits(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset(record_type="raster_dataset"))
+        _patch_upload(monkeypatch, _ok_upload())
+        _patch_commit(monkeypatch, _ok_commit())
+
+        def must_not_preview(**kw):  # pragma: no cover - guard
+            raise AssertionError("preview must not be called for a raster dataset")
+
+        monkeypatch.setattr(
+            "geolens.api.datasets_reupload."
+            "reupload_preview_datasets_dataset_id_reupload_job_id_preview_post.sync_detailed",
+            must_not_preview,
+        )
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson), "--yes"]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "without preview" in result.output.lower()
+
+    def test_layer_flag_on_raster_is_a_usage_error(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+        from geolens_cli._sdk_helpers import EXIT_USAGE
+
+        _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset(record_type="raster_dataset"))
+
+        def must_not_upload(*a, **k):  # pragma: no cover - guard
+            raise AssertionError("--layer on a raster must fail before uploading")
+
+        monkeypatch.setattr("geolens_cli.replace.upload_file", must_not_upload)
+
+        result = runner.invoke(
+            app,
+            [
+                "replace",
+                str(DATASET_ID),
+                str(sample_geojson),
+                "--layer",
+                "roads",
+                "--yes",
+            ],
+        )
+
+        assert result.exit_code == EXIT_USAGE, result.output
+        assert "--layer" in result.output
