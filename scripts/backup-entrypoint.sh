@@ -215,6 +215,15 @@ run_backup() {
     prune_orphaned_companions "$DAILY_DIR"
     prune_orphaned_companions "$WEEKLY_DIR"
 
+    # fix(#1778): the offsite copies get the same retention as their local
+    # counterparts. Runs regardless of this cycle's upload outcome, for the
+    # same reason local pruning does — a transient S3 hiccup on THIS cycle's
+    # upload must not stop last cycle's objects from being pruned.
+    if [ "$BACKUP_S3_ENABLED" = "true" ]; then
+        prune_s3_prefix "daily" "$BACKUP_RETENTION_DAILY" || cycle_failed=1
+        prune_s3_prefix "weekly" "$BACKUP_RETENTION_WEEKLY" || cycle_failed=1
+    fi
+
     # Surface the S3 failure now that retention has run, so the cycle is still
     # reported as failed (non-zero) to the cron / sleep-loop caller.
     if [ "$cycle_failed" -eq 1 ]; then
@@ -434,6 +443,109 @@ upload_to_s3() {
         log "ERROR: S3 upload failed for ${s3_key}"
         return 1
     fi
+}
+
+# ---------------------------------------------------------------------------
+# fix(#1778): S3 retention pruning
+# ---------------------------------------------------------------------------
+# upload_to_s3 only ever adds objects under backups/<prefix>/ — nothing ever
+# removed one, so with BACKUP_S3_ENABLED=true the offsite copies grow without
+# bound while RUNBOOK documents a fixed "N daily / N weekly" retention. This
+# mirrors that local policy against the S3 prefix: keep the newest `keep`
+# *.dump objects by their embedded timestamp (same sort key dump_listing
+# uses), then drop any *.sql/*.tar.gz companion whose paired dump is no
+# longer among the kept set (the S3 analogue of prune_orphaned_companions).
+#
+# No new env var: this is gated by the same BACKUP_S3_ENABLED an operator
+# already opted into for the upload itself, and uses the same
+# BACKUP_RETENTION_DAILY / BACKUP_RETENTION_WEEKLY counts as the local path.
+prune_s3_prefix() {
+    local prefix="$1"
+    local keep="$2"
+
+    if [ -z "${S3_BUCKET:-}" ] || [ -z "${S3_ACCESS_KEY_ID:-}" ] || [ -z "${S3_SECRET_ACCESS_KEY:-}" ]; then
+        log "ERROR: BACKUP_S3_ENABLED=true but S3_BUCKET / S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY are not all set — cannot prune offsite retention"
+        return 1
+    fi
+
+    export AWS_ACCESS_KEY_ID="${S3_ACCESS_KEY_ID}"
+    export AWS_SECRET_ACCESS_KEY="${S3_SECRET_ACCESS_KEY}"
+    export AWS_DEFAULT_REGION="${S3_REGION:-us-east-1}"
+    aws configure set default.s3.signature_version s3v4
+    aws configure set default.s3.addressing_style "${S3_ADDRESSING_STYLE:-auto}"
+
+    local aws_args=()
+    if [ -n "${S3_ENDPOINT:-}" ]; then
+        aws_args+=(--endpoint-url "$S3_ENDPOINT")
+    fi
+    aws_args+=(--region "${S3_REGION:-us-east-1}")
+
+    # A listing failure (bad creds, unreachable endpoint, missing
+    # s3:ListBucket) must not be swallowed: unlike a single upload retrying
+    # next cycle, a listing that silently returns nothing every cycle would
+    # mean retention never runs at all — precisely the bug this fixes.
+    local ls_output ls_rc=0
+    ls_output="$(aws s3 ls "s3://${S3_BUCKET}/backups/${prefix}/" "${aws_args[@]}" 2>&1)" || ls_rc=$?
+    if [ "$ls_rc" -ne 0 ]; then
+        log "ERROR: could not list s3://${S3_BUCKET}/backups/${prefix}/ for retention pruning (exit ${ls_rc}) — offsite objects were not pruned this cycle"
+        return 1
+    fi
+
+    # "<timestamp>\t<name>" for every *.dump object, oldest first. A `[[ ]]`
+    # glob test (not `case`, and not `grep`) filters the suffix, and
+    # `sed -nE ...p` (not `grep -oE`) extracts the timestamp — two separate
+    # bash pitfalls, both real:
+    #   - this file runs under `set -euo pipefail`, and a `grep` that matches
+    #     nothing exits 1 — on the ordinary "nothing to prune yet" cycle that
+    #     would abort the whole backup, not just skip pruning. `[[ ]]` and
+    #     `sed -n` both exit 0 regardless of whether anything matched, the
+    #     same reason dump_listing() below uses `find` (never errors on zero
+    #     matches) and `sed -nE`.
+    #   - a `case`/`esac` block that both sits inside a `$( )` command
+    #     substitution AND contains its own nested `$( )` confuses bash's
+    #     parser (measured on bash 5.2: "syntax error near unexpected token
+    #     `newline'") — `[[ ]]` sidesteps it entirely.
+    local dumps name ts
+    dumps="$(
+        printf '%s\n' "$ls_output" | awk '{print $NF}' \
+            | while IFS= read -r name; do
+                if [[ "$name" == *.dump ]]; then
+                    ts="$(printf '%s' "$name" | sed -nE 's/^.*[_-]([0-9]{8}_[0-9]{6})\.dump$/\1/p')"
+                    [ -n "$ts" ] || continue
+                    printf '%s\t%s\n' "$ts" "$name"
+                fi
+            done | sort
+    )"
+
+    if [ -n "$dumps" ]; then
+        local count
+        count="$(printf '%s\n' "$dumps" | wc -l | tr -d ' ')"
+        if [ "$count" -gt "$keep" ]; then
+            local to_remove=$((count - keep))
+            log "Pruning ${to_remove} old offsite backup(s) from s3://${S3_BUCKET}/backups/${prefix}/"
+            printf '%s\n' "$dumps" | head -n "$to_remove" | cut -f2 \
+                | while IFS= read -r name; do
+                    aws s3 rm "s3://${S3_BUCKET}/backups/${prefix}/${name}" "${aws_args[@]}" > /dev/null \
+                        || log "ERROR: could not delete s3://${S3_BUCKET}/backups/${prefix}/${name}"
+                done
+            dumps="$(printf '%s\n' "$dumps" | tail -n "+$((to_remove + 1))")"
+        fi
+    fi
+    local kept_ts
+    kept_ts="$(printf '%s\n' "$dumps" | cut -f1)"
+
+    printf '%s\n' "$ls_output" | awk '{print $NF}' \
+        | while IFS= read -r name; do
+            if [[ "$name" == *.sql || "$name" == *.tar.gz ]]; then
+                ts="$(printf '%s' "$name" | sed -nE 's/^.*[_-]([0-9]{8}_[0-9]{6})\.(sql|tar\.gz)$/\1/p')"
+                [ -n "$ts" ] || continue
+                if ! printf '%s\n' "$kept_ts" | grep -qx "$ts"; then
+                    log "Pruning orphaned s3://${S3_BUCKET}/backups/${prefix}/${name} (its dump aged out)"
+                    aws s3 rm "s3://${S3_BUCKET}/backups/${prefix}/${name}" "${aws_args[@]}" > /dev/null \
+                        || log "ERROR: could not delete s3://${S3_BUCKET}/backups/${prefix}/${name}"
+                fi
+            fi
+        done
 }
 
 # ---------------------------------------------------------------------------

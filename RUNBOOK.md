@@ -128,6 +128,14 @@ local retention pruning has run — the local dump is kept and pruned normally e
 when the offsite copy fails, so the failure is visible in container logs without
 sacrificing the local backup.
 
+The offsite copies get the **same retention** as the local ones —
+`BACKUP_RETENTION_DAILY` / `BACKUP_RETENTION_WEEKLY` daily and weekly sets,
+applied to the `backups/daily/` and `backups/weekly/` prefixes with the same
+pairing rule (a companion is pruned when the dump it belongs with ages out).
+There is no separate knob for offsite retention. A failure to list or delete
+objects for pruning is logged as an `ERROR` and fails the cycle the same way
+an upload failure does.
+
 ### Scope caveat
 
 The staging archive captures the **local `upload_staging` Docker volume only**.
