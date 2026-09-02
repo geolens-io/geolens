@@ -16,6 +16,25 @@ four other domains import this module.
 ``_global_rate_limit`` is a callable rather than a literal because the global
 limit is admin-editable at runtime; SlowAPI re-evaluates the default per
 request, so a settings change takes effect without a restart.
+
+fix(#1778): ``key_style="endpoint"`` keys the counter on (client IP, handler)
+instead of (client IP, request path), which is slowapi's default. Under the
+default every distinct URL got its own budget, so a path-parameterised route
+handed one IP a fresh "Global Rate Limit (per second)" allowance per dataset
+id and per z/x/y. The setting operators read as a cap on anonymous request
+cost bounded nothing the caller could not multiply for free by varying a path
+segment. Handlers are enumerated by the route table, so the remaining
+multiplier is fixed at deploy time rather than chosen by the caller.
+
+Two things move with it, both recorded rather than papered over. The
+trailing-slash aliases of a dual-shape route now share one bucket, which is
+strictly stricter and is what the guard in ``tests/test_admin_rate_limit.py``
+was always asking for. Two methods on one path no longer share theirs, which
+is looser by the number of methods the route table declares; that number is
+fixed, unlike the number of URLs. Requests matching no route are unaffected
+either way: slowapi's middleware exempts a request whose handler it cannot
+resolve before key style is ever consulted
+(``slowapi/middleware.py::_should_exempt``).
 """
 
 from fastapi import Request
@@ -29,4 +48,8 @@ def _global_rate_limit(_request: Request | None = None) -> str:
     return f"{get_cached_global_rate_limit()}/second"
 
 
-limiter = Limiter(key_func=get_remote_address, default_limits=[_global_rate_limit])
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=[_global_rate_limit],
+    key_style="endpoint",
+)
