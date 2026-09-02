@@ -150,6 +150,74 @@ describe('LineGradientControls — UI', () => {
     expect(lastExpr[7]).toBe(1);
   });
 
+  it('ui: repeated Add stop clicks bisect the widest gap instead of converging on the last stop (fix #1778)', async () => {
+    const onPaintProp = vi.fn();
+    const onBuilderChange = vi.fn();
+    const user = userEvent.setup();
+    let stops: Array<{ position: number; color: string; id?: string }> = [
+      { position: 0, color: '#000' },
+      { position: 1, color: '#fff' },
+    ];
+    const { rerender } = render(
+      <LineGradientControls
+        paint={{ 'line-gradient': stopsToLineGradientExpression(stops) }}
+        styleConfig={{ builder: { lineGradient: { stops } } } as unknown as StyleConfig}
+        onPaintProp={onPaintProp}
+        onBuilderChange={onBuilderChange}
+        t={t}
+      />,
+    );
+    const addButton = () => screen.getByRole('button', { name: 'style.lineGradient.addStop' });
+    // Click enough times that the old last-pair-bisection scheme would have
+    // duplicated the endpoint (previously reproduced by click 7), rerendering
+    // with each commit so liveStops actually accumulates like the real app.
+    for (let i = 0; i < 7; i++) {
+      // eslint-disable-next-line no-await-in-loop -- each click depends on the previous commit's rerender
+      await user.click(addButton());
+      const lastBuilderCall = onBuilderChange.mock.calls[onBuilderChange.mock.calls.length - 1];
+      stops = lastBuilderCall[0].lineGradient.stops;
+      rerender(
+        <LineGradientControls
+          paint={{ 'line-gradient': stopsToLineGradientExpression(stops) }}
+          styleConfig={{ builder: { lineGradient: { stops } } } as unknown as StyleConfig}
+          onPaintProp={onPaintProp}
+          onBuilderChange={onBuilderChange}
+          t={t}
+        />,
+      );
+    }
+    // Strictly ascending, no duplicates — the invariant maplibre-gl enforces.
+    for (let i = 1; i < stops.length; i++) {
+      expect(stops[i].position).toBeGreaterThan(stops[i - 1].position);
+    }
+    expect(stops.length).toBe(9); // 2 initial + 7 added
+  });
+
+  it('ui: typing a duplicate stop position refuses the commit instead of writing a rejected expression (fix #1778)', () => {
+    const onPaintProp = vi.fn();
+    const onBuilderChange = vi.fn();
+    const stops = [{ position: 0, color: '#000' }, { position: 1, color: '#fff' }];
+    const expr = stopsToLineGradientExpression(stops);
+    render(
+      <LineGradientControls
+        paint={{ 'line-gradient': expr }}
+        styleConfig={{ builder: { lineGradient: { stops } } } as unknown as StyleConfig}
+        onPaintProp={onPaintProp}
+        onBuilderChange={onBuilderChange}
+        t={t}
+      />,
+    );
+    const positionInputs = screen.getAllByRole('spinbutton', { name: 'style.lineGradient.position' });
+    // Type 0 into the second stop, duplicating the first stop's position.
+    fireEvent.change(positionInputs[1], { target: { value: '0' } });
+    // Neither callback fired a commit with the duplicate — commitStops refused it.
+    const gradientCalls = onPaintProp.mock.calls.filter((c: unknown[]) => c[0] === 'line-gradient');
+    expect(gradientCalls).toHaveLength(0);
+    expect(onBuilderChange).not.toHaveBeenCalled();
+    // The duplicate-position warning still surfaces so the user sees why.
+    expect(screen.getByText('style.lineGradient.duplicatePosition')).toBeInTheDocument();
+  });
+
   it('ui: line-gradient remove buttons are disabled at the minimum of 2 stops', () => {
     const expr = stopsToLineGradientExpression([{ position: 0, color: '#000' }, { position: 1, color: '#fff' }]);
     render(<LineGradientControls paint={{ 'line-gradient': expr }} styleConfig={{ builder: { lineGradient: { stops: [{ position: 0, color: '#000' }, { position: 1, color: '#fff' }] } } } as unknown as StyleConfig} onPaintProp={vi.fn()} onBuilderChange={vi.fn()} t={t} />);

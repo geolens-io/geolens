@@ -183,6 +183,16 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
   const isCustomExpression = paintExpr != null && parsedFromPaint == null;
 
   function commitStops(nextStops: WorkingStop[]) {
+    // fix(#1778): refuse a non-ascending (equal or descending) stop list
+    // before it reaches paint. maplibre-gl's `interpolate` parser rejects the
+    // whole expression when adjacent positions are not STRICTLY ascending
+    // (`stops[i][0] >= label` is an error, so equal positions fail too), and
+    // an invalid expression would otherwise persist into the saved
+    // style_config. Leave pendingPositionEdits untouched here so a typed
+    // duplicate value still surfaces the duplicatePosition warning below.
+    for (let i = 1; i < nextStops.length; i++) {
+      if (nextStops[i].position <= nextStops[i - 1].position) return;
+    }
     // Compose the next paint snapshot once and pass it to both callbacks so the
     // upstream save sees a single consistent state. Without `nextPaint`,
     // `onBuilderChange` would resolve `paint` from a stale closure and shadow
@@ -244,17 +254,33 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
 
   function addStop() {
     if (!liveStops || liveStops.length < 2) return;
-    const last = liveStops[liveStops.length - 1];
-    const prev = liveStops[liveStops.length - 2];
-    const newPosition = Math.round(((prev.position + last.position) / 2) * 100) / 100;
+    // fix(#1778): bisect the WIDEST gap, not always the last pair. Bisecting
+    // the last pair repeatedly (0.5, 0.75, 0.88, ...) converges on the final
+    // stop's position — the 7th click used to duplicate it outright, and
+    // every click after that kept doing so.
+    const sorted = [...liveStops].sort((a, b) => a.position - b.position);
+    let gapIndex = 1;
+    let gapSize = -Infinity;
+    for (let i = 1; i < sorted.length; i++) {
+      const size = sorted[i].position - sorted[i - 1].position;
+      if (size > gapSize) {
+        gapSize = size;
+        gapIndex = i;
+      }
+    }
+    // Refuse when no gap has room for a new, distinct rounded position — with
+    // the 0.01 UI rounding step, a narrower gap collapses onto a neighbor and
+    // commitStops's ascending-order guard would refuse it anyway.
+    if (gapSize < 0.02) return;
+    const before = sorted[gapIndex - 1];
+    const after = sorted[gapIndex];
+    const newPosition = Math.round(((before.position + after.position) / 2) * 100) / 100;
     // Keep stops in sorted (monotonically increasing position) order so the
     // canonical interpolate-linear-line-progress expression renders correctly.
     const next: WorkingStop[] = [
-      ...liveStops,
-      { position: newPosition, color: last.color, id: crypto.randomUUID() },
-    ]
-      .slice()
-      .sort((a, b) => a.position - b.position);
+      ...sorted,
+      { position: newPosition, color: after.color, id: crypto.randomUUID() },
+    ].sort((a, b) => a.position - b.position);
     commitStops(next);
   }
 
