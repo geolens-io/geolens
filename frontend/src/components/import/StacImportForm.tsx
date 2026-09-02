@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import {
@@ -17,8 +17,8 @@ import {
   connectStac,
   fetchStacCollections,
   searchStacItems,
-  importStacItems,
 } from '@/api/stac';
+import { startStacImport, peekStacImport, clearStacImport } from '@/api/stac-import-session';
 import type {
   StacConnectResponse,
   StacCollectionSummary,
@@ -54,6 +54,19 @@ export function StacImportForm() {
     results: StacImportResult[];
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // fix(#1712): a mount that STARTED the import must not act on its own
+  // settlement after it unmounts — `handleImport`'s function body keeps
+  // running past an unmount (unlike the request itself, nothing cancels
+  // it), and without this guard it would call setStep/clearStacImport for a
+  // tree that no longer exists, clearing the session before the NEXT mount
+  // ever gets to adopt it. Same pattern as UrlImportForm's mountedRef.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const items = searchResult.items;
   const matchedCount = searchResult.matched;
@@ -69,6 +82,12 @@ export function StacImportForm() {
     setSelectedItems(new Set());
     setImportResult(null);
     setError(null);
+    // fix(#1712): defensive symmetry with the success/failure settlement
+    // paths above, which already clear on their own — reset is not
+    // reachable while an import is actually in flight (no control renders
+    // during the 'importing' step), but this keeps the invariant explicit
+    // rather than implicit.
+    clearStacImport();
   };
 
   // ── Step 1: Connect ──
@@ -177,8 +196,18 @@ export function StacImportForm() {
         keywords: selectedCollection?.keywords ?? [],
       }));
 
+    // fix(#1712): the request lives at module scope so its outcome is not
+    // lost if this form unmounts before it settles (see
+    // api/stac-import-session.ts for why this is the one STAC call worth
+    // protecting). Awaiting the SAME promise the session holds means this
+    // mount still learns the real outcome; only a remount changes anything.
+    const session = startStacImport(catalogInfo!.url, importItems);
     try {
-      const result = await importStacItems(catalogInfo!.url, importItems);
+      const result = await session.promise;
+      // fix(#1712): if this mount unmounted while the request was in
+      // flight, the session is now what the NEXT mount adopts — leave it
+      // alone rather than clearing it out from under that adoption.
+      if (!mountedRef.current) return;
       setImportResult({
         created: result.created,
         skipped: result.skipped,
@@ -186,6 +215,8 @@ export function StacImportForm() {
         results: result.results,
       });
       setStep('done');
+      // Nothing left for this session to protect — the result is shown.
+      clearStacImport();
       if (result.created > 0) {
         toast.success(t('stac.importedCount', { count: result.created }));
       } else if (result.errors > 0) {
@@ -195,12 +226,59 @@ export function StacImportForm() {
         toast.error(firstError ?? t('stac.failedCount', { count: result.errors }));
       }
     } catch (err) {
+      if (!mountedRef.current) return;
       const msg = err instanceof ApiError ? err.message : t('stac.importFailed');
       setError(msg);
       setStep('items');
       toast.error(msg);
+      clearStacImport();
     }
   };
+
+  // fix(#1712): re-attach to an import that was running (or finished) while
+  // this form was unmounted. Without this, a tab switch mid-import loses
+  // the created/skipped/error counts even though the datasets it created
+  // are real (see the module docstring for why this is milder than the
+  // Upload/Service job-strand case, and worth fixing anyway).
+  useEffect(() => {
+    const session = peekStacImport();
+    if (!session) return;
+    setStep('importing');
+    session.promise.then(
+      (result) => {
+        if (!mountedRef.current) return;
+        setImportResult({
+          created: result.created,
+          skipped: result.skipped,
+          errors: result.errors,
+          results: result.results,
+        });
+        setStep('done');
+        clearStacImport();
+        if (result.created > 0) {
+          toast.success(t('stac.importedCount', { count: result.created }));
+        }
+      },
+      (err) => {
+        if (!mountedRef.current) return;
+        // The collection/item list this step needs to rebuild 'items' does
+        // not survive an unmount (only the import response is sessioned
+        // here), so a failure discovered on remount surfaces at the URL
+        // step instead of a step this mount cannot reconstruct. The
+        // still-mounted path above returns to 'items' because it still has
+        // that context.
+        const msg = err instanceof ApiError ? err.message : t('stac.importFailed');
+        setError(msg);
+        setStep('idle');
+        toast.error(msg);
+        clearStacImport();
+      },
+    );
+    // Deliberately mount-only, matching url-import-session.ts's re-attach
+    // effect: re-running on every render would re-enter a session already
+    // being displayed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Confirm step (EW-05) ──
   if (step === 'confirm' && selectedCollection && catalogInfo) {

@@ -42,4 +42,32 @@ test.describe('Upload Flow', () => {
       timeout: 30_000,
     });
   });
+
+  // fix(#1712): a tab switch used to unmount UploadForm entirely, dropping
+  // whatever the in-flight upload+preview had produced. The module-scoped
+  // upload-session (api/upload-session.ts) keeps that work reachable, so
+  // switching away and back shows the same batch instead of a job-less
+  // dropzone.
+  test('a tab switch mid-upload does not strand the batch', async ({ page }) => {
+    test.slow();
+
+    await page.goto('/import');
+
+    const fileInput = page.locator('input[type="file"]');
+    await fileInput.setInputFiles(
+      path.join(__dirname, 'fixtures/sample.geojson'),
+    );
+
+    // Switch away, then back, before asserting anything about the upload —
+    // exercising a switch that can land mid-upload or mid-preview rather
+    // than waiting for either to settle first.
+    await page.locator('button').filter({ hasText: /STAC/i }).first().click();
+    await page.locator('button').filter({ hasText: /Upload/i }).first().click();
+
+    // The upload and preview kept running server-side while the tab was
+    // hidden; the Upload tab shows the resumed batch's progress rather than
+    // an empty dropzone with no memory of the drop.
+    await expect(page.getByText('sample')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Using embedded geometry')).toBeVisible({ timeout: 30_000 });
+  });
 });
