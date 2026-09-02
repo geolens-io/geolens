@@ -151,4 +151,4 @@ v5, Tailwind, and shadcn/ui primitives in `components/ui/`.
 - **Don't import split service internals across domains** — go through the domain facade (enforced by `test_layering.py`).
 - **Locale parity is a CI gate** — a new `t()` key needs all 4 locale files, not just a `defaultValue`.
 - **The worker is Postgres-backed** (procrastinate) — no Redis/RabbitMQ broker to run.
-- **Tests run in the container:** `make test` for the backend (a bare `docker compose exec api pytest` fails against the container's read-only uv cache — CONTRIBUTING.md has the filtered-run recipe) / `docker compose exec frontend npm test`. E2E (Playwright) is local-only by policy.
+- **Tests run in the container:** `make test` for the backend (a bare `docker compose exec api pytest` fails against the container's read-only uv cache — CONTRIBUTING.md has the filtered-run recipe) / `docker compose exec frontend npm test`. E2E (Playwright): `e2e:smoke:core` gates PRs that touch the stack; the full matrix runs nightly (see CONTRIBUTING.md's End-to-end section).

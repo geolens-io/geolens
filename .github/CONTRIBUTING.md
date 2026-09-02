@@ -106,19 +106,18 @@ If a change touches accessibility, the public viewer, the demo seed, or record d
 Code style is enforced by linters and formatters. Run them before submitting a PR:
 
 - **Backend:** `ruff check` and `ruff format` (configured in `pyproject.toml`)
-- **Frontend:** ESLint and Prettier (configured in project root)
+- **Frontend:** ESLint (configured in `frontend/eslint.config.js`)
 - **All user-facing strings** must be added to all 4 locale files (en, fr, es, de) under `frontend/src/i18n/locales/`
 
 Check both before committing:
 
 ```bash
-# Backend
-docker compose exec api ruff check .
-docker compose exec api ruff format --check .
+# Backend (host; ruff is a dev-only dependency the api container doesn't install)
+cd backend && uv run ruff check . && uv run ruff format --check .
 
 # Frontend
 docker compose exec frontend npx eslint src/
-docker compose exec frontend npx prettier --check src/
+docker compose exec frontend npm run typecheck
 ```
 
 ## Commit Messages

@@ -5,9 +5,11 @@ how to run it with no outbound internet access.
 
 ## Default posture
 
-A stock `docker compose up` install makes **no outbound internet calls**. GeoLens
-ships no usage telemetry or phone-home. Every egress in the matrix below is
-opt-in: nothing in it runs unless you configure it.
+A stock `docker compose up` install makes **no server-side outbound calls**.
+GeoLens ships no usage telemetry or phone-home. Every row in the matrix below
+is opt-in except Basemaps: until an admin replaces the default basemap list
+(Admin Settings > Map), the browser fetches map tiles and glyphs from
+`tiles.openfreemap.org`. See the Air-gap checklist below to close that off.
 
 ## Egress matrix
 
@@ -16,7 +18,7 @@ opt-in: nothing in it runs unless you configure it.
 | AI chat / descriptions | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENAI_BASE_URL` | LLM provider API (Anthropic / OpenAI-compatible) | Optional | Point `OPENAI_BASE_URL` at an in-network LLM (e.g. a self-hosted Ollama at `http://host.docker.internal:11434/v1`), or leave AI unconfigured. |
 | Embeddings / semantic search | `EMBEDDING_BASE_URL`, `EMBEDDING_MODEL`, `OPENAI_API_KEY` | Embedding endpoint | Optional | Point at an in-network embedding server, or leave unset to disable semantic search. Falls back to `OPENAI_BASE_URL` when empty. |
 | SSO login | OAuth/OIDC client credentials (Google / Microsoft / generic, configured in admin settings) | Identity provider | Optional | Use an in-network IdP, or use built-in password auth. |
-| Basemaps | Basemap config + provider keys (Mapbox / Stadia / MapTiler) | Tile CDN | Optional | Ship offline / self-hosted basemap tiles. Raster rendered from your own COGs needs no external basemap tiles. |
+| Basemaps | Admin Settings > Map basemap list (add provider keys for Mapbox / Stadia / MapTiler, or replace the defaults) | Tile CDN (`tiles.openfreemap.org` by default) | Default-on | Ship offline / self-hosted basemap tiles and remove the OpenFreeMap/OpenStreetMap presets. Raster rendered from your own COGs needs no external basemap tiles. |
 | CDN tile delivery | `CDN_BASE_URL` | CDN origin | Optional | Leave unset to serve tiles directly from the app. |
 | Remote datasets / COGs / STAC | Per-dataset source URL (set when you register a remote source) | Wherever you register | User-driven | Only fetched if you register remote sources. Uploaded data stays local. |
 | Object storage | `S3_ENDPOINT` (when `STORAGE_PROVIDER=s3`) | S3 / MinIO | Optional | Use the in-cluster MinIO (`--profile cloud-dev`) or `STORAGE_PROVIDER=local` for fully local storage. |
@@ -31,7 +33,7 @@ opt-in: nothing in it runs unless you configure it.
 - Keep `BACKUP_S3_ENABLED=false` (the default); backups then never leave the local `backup_data` volume.
 - Use `STORAGE_PROVIDER=local`, or in-cluster MinIO for S3-compatible storage.
 - Register only local datasets (uploaded files); skip remote COG/STAC sources.
-- Use self-hosted basemap tiles instead of a commercial tile CDN.
+- Replace the default basemap list (Admin Settings > Map) with self-hosted tiles; the OpenFreeMap/OpenStreetMap presets are enabled out of the box.
 - Pull the release images into a private registry; the installer pulls prebuilt
   images, so no build-time egress is required.
 
