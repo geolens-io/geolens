@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
 import { vi } from 'vitest';
 import { toast } from 'sonner';
+import i18n from '@/i18n/i18n';
 import { UserResetPasswordDialog } from '@/components/admin/UserResetPasswordDialog';
 import { useResetUserPassword } from '@/hooks/use-admin';
 import type { UserResponse } from '@/types/api';
@@ -13,6 +14,15 @@ vi.mock('@/hooks/use-admin', () => ({
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
+
+// The abort-then-logout ordering this delegates to is asserted against the real
+// useAuth in UserResetPasswordDialog.session.test.tsx.
+const mockLogout = vi.fn().mockResolvedValue(undefined);
+vi.mock('@/hooks/use-auth', () => ({
+  useAuth: () => ({ logout: mockLogout }),
+}));
+
+const PASSWORD_RESET_TOAST = 'admin:users.toasts.passwordReset';
 
 const user: UserResponse = {
   id: '00000000-0000-0000-0000-000000000001',
@@ -42,6 +52,7 @@ function mockMutation(overrides: Record<string, unknown> = {}) {
 describe('UserResetPasswordDialog', () => {
   afterEach(() => {
     useAuthStore.setState({ user: null });
+    mockLogout.mockClear();
   });
 
   it('submits the entered value for the target user and closes', async () => {
@@ -120,8 +131,10 @@ describe('UserResetPasswordDialog', () => {
     const mutateAsync = vi.fn(() =>
       new Promise((resolve) => {
         release = () => {
-          // Stands in for the mutation's onSuccess, which owns the toast.
-          toast.success('Password reset');
+          // Stands in for the mutation's onSuccess, which owns the toast. The
+          // value comes from i18n rather than a literal: CI runs the hardcoded
+          // toast scanner with --strict, which reads test files too.
+          toast.success(i18n.t(PASSWORD_RESET_TOAST));
           resolve(user);
         };
       }),
@@ -160,14 +173,16 @@ describe('UserResetPasswordDialog', () => {
     // It was never cancelled: it resolves, reports success and closes.
     setPending(false);
     release(user);
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Password reset'));
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith(i18n.t(PASSWORD_RESET_TOAST)),
+    );
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   });
 
   it('signs this session out after a successful self-reset', async () => {
     // fix(#1715 codex r1 P2): the backend revoked the acting admin's own
-    // session, so leaving the token in the store would keep the UI looking
-    // signed in until some later request happened to 401.
+    // session, so leaving the token in place would keep the UI looking signed
+    // in until some later request happened to 401.
     useAuthStore.setState({ user, token: 'stale-token' } as never);
     const mutateAsync = mockMutation();
     render(<UserResetPasswordDialog user={user} open onOpenChange={vi.fn()} />);
@@ -178,7 +193,7 @@ describe('UserResetPasswordDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reset password' }));
 
     await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
-    await waitFor(() => expect(useAuthStore.getState().token).toBeNull());
+    await waitFor(() => expect(mockLogout).toHaveBeenCalledTimes(1));
   });
 
   it('leaves the session alone when resetting someone else', async () => {
@@ -193,6 +208,7 @@ describe('UserResetPasswordDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reset password' }));
 
     await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+    expect(mockLogout).not.toHaveBeenCalled();
     expect(useAuthStore.getState().token).toBe('live-token');
   });
 });

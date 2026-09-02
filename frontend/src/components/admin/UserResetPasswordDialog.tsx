@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import { useResetUserPassword } from '@/hooks/use-admin';
 import { useAuthStore } from '@/stores/auth-store';
+import { useAuth } from '@/hooks/use-auth';
 import type { UserResponse } from '@/types/api';
 import { Button } from '@/components/ui/button';
 import {
@@ -37,6 +38,7 @@ export function UserResetPasswordDialog({ user, open, onOpenChange }: UserResetP
   const [password, setPassword] = useState('');
 
   const resetPassword = useResetUserPassword();
+  const { logout } = useAuth();
   const isSelf = user.id === currentUserId;
 
   useEffect(() => {
@@ -70,10 +72,17 @@ export function UserResetPasswordDialog({ user, open, onOpenChange }: UserResetP
         // fix(#1715 codex r1 P2): the reset revoked this very session, so the
         // persisted token is already dead. Without this the UI keeps rendering
         // as signed in until some later request happens to 401, contradicting
-        // the warning this dialog just showed. logout() drops the token and
-        // ProtectedRoute redirects; the query cache is cleared by the identity
-        // subscription in wireAuthCacheReset.
-        useAuthStore.getState().logout();
+        // the warning this dialog just showed.
+        //
+        // fix(#1715 codex r2 P2): this goes through useAuth's logout, not the
+        // store's. The store action only bumps sessionEpoch, which stops a
+        // late refresh writing tokens back but does NOT stop the browser
+        // processing its Set-Cookie: a refresh still in flight could land
+        // after the admin signs in again and overwrite the new refresh cookie
+        // with the one this reset revoked. useAuth's logout calls
+        // abortInflightRefresh() first, and is the single place that ends a
+        // session properly (cache teardown and the redirect come with it).
+        await logout();
       }
     } catch {
       // error displayed inline and as a toast from the mutation
