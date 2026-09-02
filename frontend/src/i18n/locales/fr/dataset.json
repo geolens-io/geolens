@@ -632,7 +632,6 @@
       "continual": "Continue",
       "daily": "Quotidienne",
       "weekly": "Hebdomadaire",
-      "fortnightly": "Toutes les deux semaines",
       "monthly": "Mensuelle",
       "quarterly": "Trimestrielle",
       "biannually": "Semestrielle",
@@ -643,11 +642,10 @@
       "unknown": "Inconnue"
     },
     "sensitivityOptions": {
-      "unclassified": "Non classifié",
-      "restricted": "Restreinte",
+      "public": "Public",
+      "internal": "Interne",
       "confidential": "Confidentielle",
-      "secret": "Secrète",
-      "topSecret": "Très secret"
+      "restricted": "Restreinte"
     },
     "themeCategories": {
       "farming": "Agriculture",

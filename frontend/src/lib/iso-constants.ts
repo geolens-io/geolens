@@ -1,12 +1,17 @@
 /**
  * ISO 19115 constants shared across dataset detail components.
+ *
+ * Both option lists below must stay a subset of the records CHECK constraints
+ * they feed (chk_records_update_frequency / chk_records_sensitivity in
+ * backend/app/modules/catalog/datasets/domain/models.py) -- an option the
+ * constraint rejects 500s the whole pending-edit batch on save. See
+ * backend/tests/test_iso_option_drift.py.
  */
 
 export const UPDATE_FREQUENCY_OPTIONS = [
   'continual',
   'daily',
   'weekly',
-  'fortnightly',
   'monthly',
   'quarterly',
   'biannually',
@@ -18,11 +23,10 @@ export const UPDATE_FREQUENCY_OPTIONS = [
 ] as const;
 
 export const SENSITIVITY_OPTIONS = [
-  'unclassified',
-  'restricted',
+  'public',
+  'internal',
   'confidential',
-  'secret',
-  'topSecret',
+  'restricted',
 ] as const;
 
 export const THEME_CATEGORIES = [
