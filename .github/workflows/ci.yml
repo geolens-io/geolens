@@ -202,6 +202,14 @@ jobs:
               - 'frontend/src/lib/__tests__/public-urls.test.ts'
               - 'frontend/src/lib/normalize-style-config.ts'
               - 'frontend/vite.config.ts'
+              # fix(#1778): test_settings_key_drift.py reads these by
+              # literal path (the settings-key subset guard: frontend_keys
+              # is a subset of backend registry keys) and
+              # test_iso_option_drift.py reads iso-constants.ts (the ISO
+              # dropdown-option subset guard).
+              - 'frontend/src/api/settings.ts'
+              - 'frontend/src/components/admin/settings/Settings*Tab.tsx'
+              - 'frontend/src/lib/iso-constants.ts'
               # test_embed_framing_csp.py::test_e2e_sec_audit_s08_skips_when_no_share_token
               # reads this spec by literal path to pin the S08 test block; the
               # 'e2e' filter alone does not trigger Backend Tests.
