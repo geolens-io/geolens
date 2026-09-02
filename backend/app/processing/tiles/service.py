@@ -112,36 +112,95 @@ def _simplify_tolerance_degrees(z: int) -> float | None:
     return _SIMPLIFY_SUBPIXEL_FACTOR * 360.0 / (_MVT_EXTENT * (2**z))
 
 
+def _effective_attr_names(
+    columns: list[dict],
+    z: int,
+    *,
+    tile_columns: list[str] | None,
+    additional_columns: list[str] | None,
+    mode: str,
+) -> set[str]:
+    """The attribute names this request would actually emit into the MVT.
+
+    ``_select_tile_columns`` resolves the zoom budget and the allowlist, and
+    then each query builder drops the names its own output cannot carry:
+    ``_build_attr_columns`` drops ``_EXCLUDED_COLUMNS``, and the cluster
+    builder drops those plus ``_CLUSTER_RESERVED_COLUMNS``, whose names the
+    cluster query emits itself. Mirroring both here is what makes this the
+    projection rather than the request.
+    """
+    excluded = _EXCLUDED_COLUMNS
+    if mode == "cluster":
+        excluded = excluded | _CLUSTER_RESERVED_COLUMNS
+    selected = _select_tile_columns(
+        columns,
+        z,
+        tile_columns=tile_columns,
+        additional_columns=additional_columns,
+    )
+    return {
+        name
+        for col in selected
+        if isinstance(col, dict)
+        and isinstance(name := col.get("name"), str)
+        and name not in excluded
+        and _COLUMN_NAME_RE.match(name)
+    }
+
+
 def parse_cols_param(
-    cols: str | None, columns: list[dict] | None
+    cols: str | None,
+    columns: list[dict] | None,
+    z: int,
+    *,
+    tile_columns: list[str] | None = None,
+    mode: str = "vector",
 ) -> tuple[list[str] | None, str]:
     """Normalize a `cols=` query param into (additional_columns, cache_key).
 
-    Sorted + deduped so the tile cache key is deterministic across param
-    permutations (`cols=a,b` and `cols=b,a` hit the same entry). Shared by the
-    vector and cluster endpoints (fix(#403)).
+    The returned list is the caller's request, validated: the names that exist
+    on this dataset, sorted and deduped. The returned key is not the request at
+    all. It is what the request ADDS to the projection the tile would have had
+    without it, so two requests that produce the same SQL produce one cache
+    entry (fix(#403) asked only for the sorted-and-deduped half of that).
 
-    fix(#1778): ``columns`` is the dataset's ``column_info``, and the result is
-    the SUBSET of the request's names that exists on it. This used to hand back
-    the caller's string verbatim and leave validation to
-    ``_select_tile_columns``, which drops an unknown name silently. The two
-    together meant `?cols=<random>` produced a fresh tile cache key holding
-    bytes byte-identical to the unfiltered tile: an anonymous caller on any
-    public dataset could loop it, miss the byte cache every time, run the full
-    ST_AsMVT behind each miss, and write an entry that evicts a legitimate tile
-    from the in-memory provider's LRU. Two requests that provably produce the
-    same bytes now produce the same key, and the key space is a function of the
-    dataset's own schema rather than of arbitrary caller input.
+    fix(#1778): both halves used to be the caller's own string, which meant the
+    key varied on input the projection ignores. Three ways that happened, and
+    the key now collapses all three:
 
-    An all-unknown `cols=` therefore returns ``(None, "")`` and is answered from
-    the same cache entry as a request with no `cols=` at all, which is what its
-    bytes were already equal to.
+    * `?cols=<random>`. ``_select_tile_columns`` drops an unknown name
+      silently, so the tile was byte-identical to the unfiltered one under a
+      fresh key.
+    * `?cols=<any valid subset>` at or above ``_DEFAULT_NO_ATTR_BELOW_ZOOM``,
+      where the zoom default already projects EVERY column. Every subset of a
+      wide table produced the same bytes under a different key, which is
+      exponentially many keys per tile rather than one bogus name at a time.
+      A name already on an explicit ``tile_columns`` allowlist is the same
+      case at any zoom.
+    * `?cols=gid`, or a cluster-reserved name on the cluster route, which no
+      query builder emits at any zoom.
+
+    Each of those cost a full ``ST_AsMVT`` on an anonymous, ``@limiter.exempt``
+    route serving public datasets, and then WROTE the result. The default
+    production stack has no Valkey, so the writes land in an
+    ``LRUCache(maxsize=50_000)`` and evict legitimate tiles.
+
+    ``z``, ``tile_columns`` and ``mode`` are what make the answer the effective
+    projection; the caller passes what it will pass to ``get_tile`` or
+    ``get_cluster_tile``. ``z`` is positional and required so a third tile
+    endpoint cannot quietly go back to keying on the request. The zoom is
+    already a cache-key segment of its own, so this suffix only has to
+    separate requests at ONE tile, which is why it carries the difference
+    rather than the whole projection: an empty suffix keeps meaning "whatever
+    this tile projects by default" and stays byte-identical to the key a
+    no-`cols=` request has always used.
     """
     if not cols:
         return None, ""
+    resolved = columns or []
     known = {
         name
-        for col in columns or []
+        for col in resolved
         if isinstance(col, dict)
         and isinstance(name := col.get("name"), str)
         and _COLUMN_NAME_RE.match(name)
@@ -150,12 +209,22 @@ def parse_cols_param(
         return None, ""
     # The raw string is bounded by the server's request-line limit, and the
     # result by the dataset's column count, so neither side of this is caller-
-    # chosen. Names are compared, never interpolated: _build_attr_columns
-    # revalidates every name it emits regardless of what reaches it.
+    # chosen. Names are compared, never interpolated: the query builders
+    # revalidate every name they emit regardless of what reaches them.
     additional = sorted({c.strip() for c in cols.split(",")} & known)
     if not additional:
         return None, ""
-    return additional, ",".join(additional)
+
+    projection = {"tile_columns": tile_columns, "mode": mode}
+    baseline = _effective_attr_names(resolved, z, additional_columns=None, **projection)
+    effective = _effective_attr_names(
+        resolved, z, additional_columns=additional, **projection
+    )
+    # `additional_columns` only ever UNIONS into the base selection, so
+    # `effective` is a superset of `baseline` and the difference identifies it
+    # uniquely for this dataset at this zoom. An empty difference means the
+    # request changed nothing, which is the no-`cols=` entry.
+    return additional, ",".join(sorted(effective - baseline))
 
 
 def _select_tile_columns(

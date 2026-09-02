@@ -2331,7 +2331,17 @@ async def cluster_tile_endpoint(
     # for.
     _ensure_clusterable_dataset(meta)
 
-    additional_columns, cols_cache_key = parse_cols_param(cols, meta.column_info)
+    # fix(#1778): keyed on the effective projection, so `z`, the allowlist and
+    # the mode all reach it. They decide what the request actually changes:
+    # the cluster query emits its own `point_count`/`cluster_id` names, so a
+    # `cols=` naming one of those changes nothing at any zoom.
+    additional_columns, cols_cache_key = parse_cols_param(
+        cols,
+        meta.column_info,
+        z,
+        tile_columns=meta.tile_columns,
+        mode="cluster",
+    )
 
     cache_ttl = meta.tile_cache_ttl or settings.tile_cache_ttl
 
@@ -2494,11 +2504,15 @@ async def tile_endpoint(
     # Get column info for attribute selection
     columns = meta.column_info
 
-    # fix(#1778): `columns` gates the cache key, not just the projection. The
-    # docstring above is the published operation description, so the mechanism
-    # is written down at `parse_cols_param` instead of churning every generated
-    # SDK to say it.
-    additional_columns, cols_cache_key = parse_cols_param(cols, columns)
+    # fix(#1778): the cache key comes from the EFFECTIVE projection, not from
+    # the request, so `z` and the allowlist have to reach it. At z >= 10 the
+    # zoom default already projects every column and every valid subset
+    # collapses onto one entry. The docstring above is the published operation
+    # description, so the mechanism is written down at `parse_cols_param`
+    # instead of churning every generated SDK to say it.
+    additional_columns, cols_cache_key = parse_cols_param(
+        cols, columns, z, tile_columns=meta.tile_columns
+    )
 
     # Use per-dataset cache TTL when set, else global default
     cache_ttl = meta.tile_cache_ttl or settings.tile_cache_ttl

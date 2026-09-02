@@ -4326,8 +4326,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # lines say at the `cols=` call site that the dataset's column set now gates
     # the cache key, since the handler docstring above it is the published
     # operation description and saying it there churns every generated SDK.
+    # fix(#1778 codex P1): +14 — that call site now hands `parse_cols_param` the
+    # zoom, the allowlist and the route mode, because validating the names was
+    # not enough: at z >= 10 the zoom default already projects every column, so
+    # every valid subset of a wide table produced one set of bytes under its own
+    # key. The key comes from the effective projection now, and each call site
+    # says which of its inputs decide that.
     # Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2625,
+    "backend/app/processing/tiles/router.py": 2639,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),
