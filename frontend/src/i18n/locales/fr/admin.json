@@ -103,6 +103,7 @@
       "title": "Réinitialiser le mot de passe",
       "description": "Définissez un nouveau mot de passe pour \"{{username}}\" et communiquez-le à cette personne.",
       "passwordLabel": "Nouveau mot de passe",
+      "passwordPlaceholder": "Minimum 12 caractères",
       "hint": "L'ancien mot de passe cesse de fonctionner, tout comme les sessions et les clés d'API du compte.",
       "selfWarning": "Il s'agit de votre propre compte, donc l'enregistrement vous déconnectera ici aussi.",
       "submit": "Réinitialiser le mot de passe",
@@ -138,7 +139,7 @@
     "placeholders": {
       "username": "Nom d'utilisateur",
       "email": "utilisateur@exemple.com",
-      "password": "Minimum 8 caractères"
+      "password": "Minimum 12 caractères"
     },
     "roles": {
       "viewer": "Lecteur",

@@ -103,6 +103,7 @@
       "title": "Passwort zurücksetzen",
       "description": "Legen Sie ein neues Passwort für \"{{username}}\" fest und teilen Sie es der Person mit.",
       "passwordLabel": "Neues Passwort",
+      "passwordPlaceholder": "Mindestens 12 Zeichen",
       "hint": "Das alte Passwort funktioniert nicht mehr, ebenso wenig die bestehenden Sitzungen und API-Schlüssel des Kontos.",
       "selfWarning": "Dies ist Ihr eigenes Konto, das Speichern meldet Sie also auch hier ab.",
       "submit": "Passwort zurücksetzen",
@@ -138,7 +139,7 @@
     "placeholders": {
       "username": "Benutzername",
       "email": "benutzer@beispiel.de",
-      "password": "Mindestens 8 Zeichen"
+      "password": "Mindestens 12 Zeichen"
     },
     "roles": {
       "viewer": "Betrachter",

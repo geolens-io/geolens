@@ -103,6 +103,7 @@
       "title": "Restablecer contraseña",
       "description": "Defina una nueva contraseña para \"{{username}}\" y comuníquesela.",
       "passwordLabel": "Nueva contraseña",
+      "passwordPlaceholder": "Mínimo 12 caracteres",
       "hint": "La contraseña anterior deja de funcionar, al igual que las sesiones y las claves de API de la cuenta.",
       "selfWarning": "Esta es su propia cuenta, por lo que al guardar también se cerrará su sesión aquí.",
       "submit": "Restablecer contraseña",
@@ -138,7 +139,7 @@
     "placeholders": {
       "username": "Nombre de usuario",
       "email": "usuario@ejemplo.com",
-      "password": "Mínimo 8 caracteres"
+      "password": "Mínimo 12 caracteres"
     },
     "roles": {
       "viewer": "Lector",

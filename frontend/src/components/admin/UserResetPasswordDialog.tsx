@@ -71,7 +71,12 @@ export function UserResetPasswordDialog({ user, open, onOpenChange }: UserResetP
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+              // The client floor stays at the schema's fast-fail minimum, not
+              // the policy's 12: PASSWORD_MIN_LENGTH is configurable, and an
+              // instance that lowered it must not have valid values blocked
+              // here. The placeholder states the default the API describes.
               minLength={8}
+              placeholder={t('users.resetPasswordDialog.passwordPlaceholder')}
               // fix(#1746): autoComplete="off" alone does not stop Chrome from
               // offering a saved password on a password-type field. This value
               // belongs to someone else's account, so opt out of every password
