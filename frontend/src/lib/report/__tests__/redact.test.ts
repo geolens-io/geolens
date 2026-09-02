@@ -53,6 +53,12 @@ describe('redact', () => {
     expect(out).toContain('/m/[redacted]');
   });
 
+  it('strips the raw embed token query param (fix #1778)', () => {
+    const out = redact('https://geolens.io/m/2fXkR9m3pL8qW4vN7tY?embed=true&et=et_9abf3c1d2e5f6071');
+    expect(out).not.toContain('et_9abf3c1d2e5f6071');
+    expect(out).toContain('et=[redacted]');
+  });
+
   it('does not redact the /maps/:id builder route', () => {
     expect(redact('https://geolens.io/maps/42')).toContain('/maps/42');
   });

@@ -38,6 +38,12 @@ const SENSITIVE_KEYS = [
   'phpsessid',
   'sid',
   'cookie',
+  // fix(#1778): the embed viewer's `et=` query param (embed-tokens/service.py
+  // mints `et_<token>`, not JWT-shaped, so the eyJ… rule misses it). The `\b`
+  // anchor above keeps this two-letter key from matching inside words like
+  // `target` or `street`.
+  'et',
+  'embed_token',
 ].join('|');
 
 const RULES: RedactionRule[] = [
