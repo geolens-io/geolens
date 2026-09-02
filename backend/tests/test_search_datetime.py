@@ -233,6 +233,74 @@ async def test_datetime_no_filter_returns_all(
 
 
 # ---------------------------------------------------------------------------
+# fix(#1778): a null-temporal record (no temporal_start/temporal_end) matched
+# ANY datetime filter unconditionally via the bare `.is_(None)` OR-arm in
+# _apply_common_filters (service_filters.py) -- datetime=1900-01-01 matched a
+# record actually created in 2026. dataset_to_ogc_record advertises
+# datetime=created_at for these records, so compare that same fallback
+# instant instead, mirroring the already-fixed STAC peer
+# (stac/router.py _apply_datetime_filter).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_datetime_1900_excludes_null_temporal_record_via_ogc_items(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    datetime_datasets: dict,
+):
+    """GET /collections/datasets/items?datetime=1900-01-01 must not match a
+    null-temporal record created now."""
+    resp = await client.get(
+        "/collections/datasets/items",
+        params={"datetime": "1900-01-01", "limit": 100},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    ids = [f["id"] for f in resp.json()["features"]]
+    assert str(datetime_datasets["ds_none"].id) not in ids
+
+
+@pytest.mark.anyio
+async def test_datetime_1900_excludes_null_temporal_record_via_search(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    datetime_datasets: dict,
+):
+    """Same fix, same shared filter, via /search/datasets/ directly."""
+    resp = await client.get(
+        "/search/datasets/",
+        params={"datetime": "1900-01-01", "limit": 100},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    ids = [f["id"] for f in resp.json()["features"]]
+    assert str(datetime_datasets["ds_none"].id) not in ids
+
+
+@pytest.mark.anyio
+async def test_datetime_own_day_still_matches_null_temporal_record(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    datetime_datasets: dict,
+    test_db_session,
+):
+    """BA-13 intent preserved: the record's own advertised fallback instant
+    (created_at) still matches -- the fix narrows the match, it does not
+    remove the fallback."""
+    record = await test_db_session.get(Record, datetime_datasets["ds_none"].record_id)
+    own_day = record.created_at.date().isoformat()
+    resp = await client.get(
+        "/collections/datasets/items",
+        params={"datetime": own_day, "limit": 100},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    ids = [f["id"] for f in resp.json()["features"]]
+    assert str(datetime_datasets["ds_none"].id) in ids
+
+
+# ---------------------------------------------------------------------------
 # fix(#315): malformed datetime -> 400 (not 500) on every datetime chokepoint
 # ---------------------------------------------------------------------------
 

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import uuid as uuid_mod
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Literal, TypedDict
 
 from fastapi import HTTPException, status
-from sqlalchemy import exists, func, literal_column, or_, select
+from sqlalchemy import and_, exists, func, literal_column, or_, select
 from sqlalchemy.orm import aliased
 
 from app.core.geo import make_bbox_filter
@@ -308,13 +308,39 @@ def _apply_common_filters(stmt, filters: SearchFilters, *, skip_text: bool = Fal
         stmt = stmt.where(Record.source_organization == filters.source_organization)
     if filters.datetime_param:
         dt_start, dt_end = parse_ogc_datetime(filters.datetime_param)
+        # fix(#1778): the bare `.is_(None)` arms below matched a record with
+        # NO temporal extent at all for ANY datetime filter, unconditionally
+        # -- datetime=1900-01-01 returned a record created in 2026. The STAC
+        # peer (stac/router.py _apply_datetime_filter) hit the same bug and
+        # was fixed by comparing the record's own advertised fallback
+        # instant (created_at, see build_time in record_metadata.py) instead
+        # of admitting every null-temporal row. Port that fix here, keeping
+        # the existing open-ended reading (temporal_end/temporal_start NULL
+        # with the OTHER bound set) for records that do have a defined start
+        # or end.
+        null_temporal = Record.temporal_start.is_(None) & Record.temporal_end.is_(None)
         if dt_start is not None:
             stmt = stmt.where(
-                or_(Record.temporal_end >= dt_start, Record.temporal_end.is_(None))
+                or_(
+                    Record.temporal_end >= dt_start,
+                    and_(
+                        Record.temporal_end.is_(None), Record.temporal_start.isnot(None)
+                    ),
+                    and_(null_temporal, Record.created_at >= dt_start),
+                )
             )
         if dt_end is not None:
             stmt = stmt.where(
-                or_(Record.temporal_start <= dt_end, Record.temporal_start.is_(None))
+                or_(
+                    Record.temporal_start <= dt_end,
+                    and_(
+                        Record.temporal_start.is_(None), Record.temporal_end.isnot(None)
+                    ),
+                    and_(
+                        null_temporal,
+                        Record.created_at < dt_end + timedelta(days=1),
+                    ),
+                )
             )
     if filters.collection_id is not None:
         stmt = stmt.where(

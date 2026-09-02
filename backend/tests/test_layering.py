@@ -1998,6 +1998,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # each branch here inverts, so the pair can be kept in step by reading
         # rather than by running the equivalence suite. Cap 372 -> 433, exact.
         "backend/app/platform/extensions/defaults_extensions.py": 433,
+        # fix(#1778): +16 over the 350 default -- _apply_common_filters'
+        # datetime block replaces two bare `.is_(None)` OR-arms (which
+        # unconditionally matched every null-temporal record for ANY
+        # datetime filter) with the same null_temporal & created_at
+        # fallback comparison the already-fixed STAC peer uses, while
+        # preserving the existing open-ended reading for records that do
+        # have one bound set. Cap 350 -> 366, exact.
+        "backend/app/modules/catalog/search/service_filters.py": 366,
     }
 
     files_to_check = list(facade_line_budgets)
