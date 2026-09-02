@@ -9,6 +9,7 @@
  */
 import { render, screen, act, waitFor } from '@/test/test-utils';
 import { UploadForm } from '../UploadForm';
+import { clearUploadBatch } from '@/api/upload-session';
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -112,6 +113,11 @@ const mockPreviewFile = vi.mocked(previewFile);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // fix(#1712): UploadForm now drives uploads through the module-scoped
+  // upload-session singleton — reset it so a batch left in-flight (most of
+  // these tests never commit or remove their dropped file) is not ADOPTED
+  // by the next test's render() instead of starting from the dropzone.
+  clearUploadBatch();
   mockConfig = { data: null, isFetching: false };
   mockUploadFile.mockResolvedValue({ job_id: 'job-1' } as never);
   mockPreviewFile.mockResolvedValue({
@@ -122,6 +128,10 @@ beforeEach(() => {
     crs: null,
     latlon_candidates: null,
   } as never);
+});
+
+afterEach(() => {
+  clearUploadBatch();
 });
 
 describe('UploadForm — queued drops during config fetch', () => {

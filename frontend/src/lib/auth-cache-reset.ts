@@ -3,6 +3,8 @@ import { useAuthStore } from '@/stores/auth-store';
 import { clearReportEntries } from '@/lib/report';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { useSearchStore } from '@/stores/search-store';
+import { clearUploadBatch } from '@/api/upload-session';
+import { clearStacImport } from '@/api/stac-import-session';
 
 /**
  * fix(#430 codex r6): user-scoped queries (dataset search, map search, map
@@ -47,5 +49,15 @@ export function wireAuthCacheReset(queryClient: QueryClient): () => void {
     useDrawingStore.getState().bumpSessionEpoch();
     useDrawingStore.getState().clearDrawing();
     useSearchStore.getState().clearIdentityScopedFilters();
+
+    // fix(#1712): the Upload and STAC tabs' module-scoped in-flight
+    // sessions are the same kind of identity-scoped residue — each records
+    // the user id that started it and refuses adoption by a different one
+    // (`peekUploadBatch`/`peekStacImport`), but that check only runs when
+    // something next tries to adopt. Tearing down here, at the one identity
+    // choke point, closes the window between a logout/switch and whatever
+    // mounts next, rather than leaving it to be caught lazily.
+    clearUploadBatch();
+    clearStacImport();
   });
 }
