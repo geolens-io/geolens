@@ -354,6 +354,11 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   const handleSheetChange = async (entryId: string, layerName: string) => {
     const entry = entries.find((e) => e.id === entryId);
     if (!entry?.jobId) return;
+    // fix(#1778): mirrors UrlImportForm.tsx's handleLayerChange guard
+    // (#1708 r24): re-previewing mid-commit drove the entry back to
+    // 'preview' unconditionally, which re-enabled the commit button
+    // against a request already in flight for the same job.
+    if (entry.status === 'committing' || entry.status === 'tracking') return;
 
     updateEntry(entryId, { status: 'previewing' });
     try {

@@ -10,8 +10,13 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        // fix(#1778): destructive-foreground is tuned dark-on-dark for the
+        // solid light fill; composited at dark:bg-destructive/60 it drops
+        // to 2.61:1 against WCAG's 4.5:1 floor. text-white keeps the
+        // translucent dark fill (matches upstream shadcn) at 6.24:1, and
+        // stays >5.9:1 on the light-mode solid fill too.
         destructive:
-          "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive dark:bg-destructive/60",
+          "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive dark:bg-destructive/60",
         outline:
           "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
         secondary:

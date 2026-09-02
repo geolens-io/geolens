@@ -146,238 +146,251 @@ test.describe('Accessibility - WCAG 2AA', () => {
     });
   });
 
-  test('public search page has no accessibility violations', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
+  // fix(#1778): every gating axe scan below runs in both color schemes.
+  // playwright.config.ts's `use` block sets no colorScheme, so Playwright
+  // defaults to light and the ThemeProvider's "system" default
+  // (main.tsx:106) resolves off that media query -- the dark palette was
+  // structurally unreachable to axe. beforeAll/afterAll above are shared
+  // across both passes so the fixture dataset/map/collection are seeded
+  // once, not once per scheme.
+  for (const colorScheme of ['light', 'dark'] as const) {
+    test.describe(`(${colorScheme} mode)`, () => {
+      test.use({ colorScheme });
 
-    const results = await new AxeBuilder({ page })
-      .withTags(wcagTags)
-      .analyze();
+      test('public search page has no accessibility violations', async ({ page }) => {
+        await page.goto('/');
+        await page.waitForLoadState('networkidle');
 
-    expect(results.violations, formatViolations(results.violations)).toEqual([]);
-  });
+        const results = await new AxeBuilder({ page })
+          .withTags(wcagTags)
+          .analyze();
 
-  test.describe('logged-out routes', () => {
-    test.use({ storageState: { cookies: [], origins: [] } });
-
-    test('login page has no accessibility violations', async ({ page }) => {
-      await page.goto('/login');
-      await page.waitForLoadState('networkidle');
-
-      const results = await new AxeBuilder({ page })
-        .withTags(wcagTags)
-        .analyze();
-
-      expect(results.violations, formatViolations(results.violations)).toEqual([]);
-    });
-
-    test('public saved-map output has no accessibility violations', async ({ page }) => {
-      await page.goto(`/m/${shareToken}`);
-      await expect(page.getByText(builderMapName)).toBeVisible({ timeout: 15_000 });
-      await page.getByRole('button', { name: 'Map data' }).click();
-      const dataDialog = page.getByRole('dialog', { name: 'Map data' });
-      await expect(dataDialog).toBeVisible();
-      await expect(dataDialog.getByText(datasetTitle).first()).toBeVisible();
-      await expect(
-        dataDialog.getByRole('region', { name: 'Map layer and feature data' }),
-      ).toBeVisible();
-      await expect(dataDialog.getByText('E2E Test Point', { exact: true })).toBeVisible({
-        timeout: 15_000,
-      });
-      await page.waitForLoadState('networkidle').catch(() => {
-        /* MapLibre/background tile requests may keep the page active. */
+        expect(results.violations, formatViolations(results.violations)).toEqual([]);
       });
 
-      const results = await new AxeBuilder({ page })
-        .withTags(wcagTags)
-        .exclude('.maplibregl-canvas')
-        .exclude('.maplibregl-control-container')
-        .exclude('.maplibregl-ctrl-attrib-inner')
-        .analyze();
+      test.describe('logged-out routes', () => {
+        test.use({ storageState: { cookies: [], origins: [] } });
 
-      expect(results.violations, formatViolations(results.violations)).toEqual([]);
-    });
-  });
+        test('login page has no accessibility violations', async ({ page }) => {
+          await page.goto('/login');
+          await page.waitForLoadState('networkidle');
 
-  test('dataset detail page has no accessibility violations', async ({ page }) => {
-    await page.goto(`/datasets/${datasetId}`);
-    await page.waitForLoadState('networkidle');
+          const results = await new AxeBuilder({ page })
+            .withTags(wcagTags)
+            .analyze();
 
-    // Wait for dataset detail to load
-    await expect(
-      page.getByRole('heading', { name: datasetTitle, exact: true }),
-    ).toBeVisible();
-    await page.waitForLoadState('networkidle');
+          expect(results.violations, formatViolations(results.violations)).toEqual([]);
+        });
 
-    // Exclude MapLibre canvas -- WebGL canvases cannot be inspected by axe
-    const results = await new AxeBuilder({ page })
-      .withTags(wcagTags)
-      .exclude('.maplibregl-map')
-      .analyze();
+        test('public saved-map output has no accessibility violations', async ({ page }) => {
+          await page.goto(`/m/${shareToken}`);
+          await expect(page.getByText(builderMapName)).toBeVisible({ timeout: 15_000 });
+          await page.getByRole('button', { name: 'Map data' }).click();
+          const dataDialog = page.getByRole('dialog', { name: 'Map data' });
+          await expect(dataDialog).toBeVisible();
+          await expect(dataDialog.getByText(datasetTitle).first()).toBeVisible();
+          await expect(
+            dataDialog.getByRole('region', { name: 'Map layer and feature data' }),
+          ).toBeVisible();
+          await expect(dataDialog.getByText('E2E Test Point', { exact: true })).toBeVisible({
+            timeout: 15_000,
+          });
+          await page.waitForLoadState('networkidle').catch(() => {
+            /* MapLibre/background tile requests may keep the page active. */
+          });
 
-    expect(results.violations, formatViolations(results.violations)).toEqual([]);
-  });
+          const results = await new AxeBuilder({ page })
+            .withTags(wcagTags)
+            .exclude('.maplibregl-canvas')
+            .exclude('.maplibregl-control-container')
+            .exclude('.maplibregl-ctrl-attrib-inner')
+            .analyze();
 
-  test('collection detail page has no accessibility violations', async ({ page }) => {
-    await page.goto(`/collections/${collectionId}`);
-    await expect(
-      page.getByRole('heading', { name: collectionName, exact: true }),
-    ).toBeVisible();
-    await page.waitForLoadState('networkidle');
+          expect(results.violations, formatViolations(results.violations)).toEqual([]);
+        });
+      });
 
-    const results = await new AxeBuilder({ page })
-      .withTags(wcagTags)
-      .analyze();
+      test('dataset detail page has no accessibility violations', async ({ page }) => {
+        await page.goto(`/datasets/${datasetId}`);
+        await page.waitForLoadState('networkidle');
 
-    expect(results.violations, formatViolations(results.violations)).toEqual([]);
-  });
+        // Wait for dataset detail to load
+        await expect(
+          page.getByRole('heading', { name: datasetTitle, exact: true }),
+        ).toBeVisible();
+        await page.waitForLoadState('networkidle');
 
-  test('maps listing page has no accessibility violations', async ({ page }) => {
-    await page.goto('/maps');
-    await page.waitForLoadState('networkidle');
+        // Exclude MapLibre canvas -- WebGL canvases cannot be inspected by axe
+        const results = await new AxeBuilder({ page })
+          .withTags(wcagTags)
+          .exclude('.maplibregl-map')
+          .analyze();
 
-    const results = await new AxeBuilder({ page })
-      .withTags(wcagTags)
-      .analyze();
+        expect(results.violations, formatViolations(results.violations)).toEqual([]);
+      });
 
-    expect(results.violations, formatViolations(results.violations)).toEqual([]);
-  });
+      test('collection detail page has no accessibility violations', async ({ page }) => {
+        await page.goto(`/collections/${collectionId}`);
+        await expect(
+          page.getByRole('heading', { name: collectionName, exact: true }),
+        ).toBeVisible();
+        await page.waitForLoadState('networkidle');
 
-  test('map builder page has no accessibility violations', async ({ page }) => {
-    await page.goto(`/maps/${builderMapId}`);
-    await page.waitForLoadState('networkidle');
+        const results = await new AxeBuilder({ page })
+          .withTags(wcagTags)
+          .analyze();
 
-    // Wait for builder sidebar to be present
-    await expect(
-      page.locator('input[type="text"]').first(),
-    ).toBeVisible({ timeout: 15_000 });
+        expect(results.violations, formatViolations(results.violations)).toEqual([]);
+      });
 
-    const results = await new AxeBuilder({ page })
-      .withTags(wcagTags)
-      .exclude('.maplibregl-canvas')
-      .exclude('.maplibregl-ctrl-attrib-inner')
-      .analyze();
+      test('maps listing page has no accessibility violations', async ({ page }) => {
+        await page.goto('/maps');
+        await page.waitForLoadState('networkidle');
 
-    expect(results.violations, formatViolations(results.violations)).toEqual([]);
-  });
+        const results = await new AxeBuilder({ page })
+          .withTags(wcagTags)
+          .analyze();
 
-  test('Add Dataset dialog has no accessibility violations', async ({ page }) => {
-    await page.goto(`/maps/${builderMapId}`);
-    await page.waitForLoadState('networkidle');
+        expect(results.violations, formatViolations(results.violations)).toEqual([]);
+      });
 
-    await expect(page.getByTestId('builder-sidebar')).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('button', { name: /add data/i }).first().click();
+      test('map builder page has no accessibility violations', async ({ page }) => {
+        await page.goto(`/maps/${builderMapId}`);
+        await page.waitForLoadState('networkidle');
 
-    const dialog = page.getByRole('dialog', { name: /add dataset/i });
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole('radio', { name: 'All' })).toBeVisible();
+        // Wait for builder sidebar to be present
+        await expect(
+          page.locator('input[type="text"]').first(),
+        ).toBeVisible({ timeout: 15_000 });
 
-    const results = await new AxeBuilder({ page })
-      .withTags(wcagTags)
-      .include('[role="dialog"]')
-      .analyze();
+        const results = await new AxeBuilder({ page })
+          .withTags(wcagTags)
+          .exclude('.maplibregl-canvas')
+          .exclude('.maplibregl-ctrl-attrib-inner')
+          .analyze();
 
-    expect(results.violations, formatViolations(results.violations)).toEqual([]);
-  });
+        expect(results.violations, formatViolations(results.violations)).toEqual([]);
+      });
 
-  // fix(#806 item 2): the builder-page test above scans the builder with the editor
-  // closed, so neither the analysis panel nor any layer-editor tab was ever covered
-  // — including the live-region work #784/#782/#804 added. Both surfaces are reached
-  // by interaction rather than by URL, so they follow the Add Dataset dialog's shape
-  // and scope with .include() to keep them off what the page test already owns.
-  test('analysis panel has no accessibility violations', async ({ page }) => {
-    await page.goto(`/maps/${builderMapId}`);
-    await page.waitForLoadState('networkidle');
-    await expect(page.getByTestId('builder-sidebar')).toBeVisible({ timeout: 15_000 });
+      test('Add Dataset dialog has no accessibility violations', async ({ page }) => {
+        await page.goto(`/maps/${builderMapId}`);
+        await page.waitForLoadState('networkidle');
 
-    await page.getByRole('button', { name: 'Analysis', exact: true }).click();
-    await expect(page.getByTestId('analysis-panel')).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByTestId('builder-sidebar')).toBeVisible({ timeout: 15_000 });
+        await page.getByRole('button', { name: /add data/i }).first().click();
 
-    // Scope to the rail panel, not the inner form: BuilderRail renders the panel
-    // title and close control as siblings of AnalysisPanel, and since the
-    // builder-page scan runs with the panel closed, that chrome would otherwise
-    // be covered nowhere.
-    const results = await new AxeBuilder({ page })
-      .withTags(wcagTags)
-      .include('[data-rail-panel]')
-      .analyze();
+        const dialog = page.getByRole('dialog', { name: /add dataset/i });
+        await expect(dialog).toBeVisible();
+        await expect(dialog.getByRole('radio', { name: 'All' })).toBeVisible();
 
-    expect(results.violations, formatViolations(results.violations)).toEqual([]);
-  });
+        const results = await new AxeBuilder({ page })
+          .withTags(wcagTags)
+          .include('[role="dialog"]')
+          .analyze();
 
-  // The seeded layer is vector, so LayerEditorPanel resolves all four tabs and one
-  // layer exposes the whole surface. Each tab renders its own panel body and only
-  // the active one is in the DOM, so every tab needs its own scan.
-  for (const tab of ['Style', 'Filter', 'Labels', 'Popup'] as const) {
-    test(`layer editor ${tab} tab has no accessibility violations`, async ({ page }) => {
-      await page.goto(`/maps/${builderMapId}`);
-      await page.waitForLoadState('networkidle');
-      await expect(page.getByTestId('builder-sidebar')).toBeVisible({ timeout: 15_000 });
+        expect(results.violations, formatViolations(results.violations)).toEqual([]);
+      });
 
-      await page
-        .locator('[id^="stack-row-"]:not([id="stack-row-basemap-group"])')
-        .first()
-        .click();
-      const editor = page.getByTestId('builder-layer-editor');
-      await expect(editor).toBeVisible({ timeout: 15_000 });
+      // fix(#806 item 2): the builder-page test above scans the builder with the editor
+      // closed, so neither the analysis panel nor any layer-editor tab was ever covered
+      // — including the live-region work #784/#782/#804 added. Both surfaces are reached
+      // by interaction rather than by URL, so they follow the Add Dataset dialog's shape
+      // and scope with .include() to keep them off what the page test already owns.
+      test('analysis panel has no accessibility violations', async ({ page }) => {
+        await page.goto(`/maps/${builderMapId}`);
+        await page.waitForLoadState('networkidle');
+        await expect(page.getByTestId('builder-sidebar')).toBeVisible({ timeout: 15_000 });
 
-      await editor.getByRole('tab', { name: tab }).click();
-      await expect(editor.getByRole('tab', { name: tab })).toHaveAttribute('aria-selected', 'true');
+        await page.getByRole('button', { name: 'Analysis', exact: true }).click();
+        await expect(page.getByTestId('analysis-panel')).toBeVisible({ timeout: 15_000 });
 
-      const results = await new AxeBuilder({ page })
-        .withTags(wcagTags)
-        .include('[data-testid="builder-layer-editor"]')
-        .analyze();
+        // Scope to the rail panel, not the inner form: BuilderRail renders the panel
+        // title and close control as siblings of AnalysisPanel, and since the
+        // builder-page scan runs with the panel closed, that chrome would otherwise
+        // be covered nowhere.
+        const results = await new AxeBuilder({ page })
+          .withTags(wcagTags)
+          .include('[data-rail-panel]')
+          .analyze();
 
-      expect(results.violations, formatViolations(results.violations)).toEqual([]);
+        expect(results.violations, formatViolations(results.violations)).toEqual([]);
+      });
+
+      // The seeded layer is vector, so LayerEditorPanel resolves all four tabs and one
+      // layer exposes the whole surface. Each tab renders its own panel body and only
+      // the active one is in the DOM, so every tab needs its own scan.
+      for (const tab of ['Style', 'Filter', 'Labels', 'Popup'] as const) {
+        test(`layer editor ${tab} tab has no accessibility violations`, async ({ page }) => {
+          await page.goto(`/maps/${builderMapId}`);
+          await page.waitForLoadState('networkidle');
+          await expect(page.getByTestId('builder-sidebar')).toBeVisible({ timeout: 15_000 });
+
+          await page
+            .locator('[id^="stack-row-"]:not([id="stack-row-basemap-group"])')
+            .first()
+            .click();
+          const editor = page.getByTestId('builder-layer-editor');
+          await expect(editor).toBeVisible({ timeout: 15_000 });
+
+          await editor.getByRole('tab', { name: tab }).click();
+          await expect(editor.getByRole('tab', { name: tab })).toHaveAttribute('aria-selected', 'true');
+
+          const results = await new AxeBuilder({ page })
+            .withTags(wcagTags)
+            .include('[data-testid="builder-layer-editor"]')
+            .analyze();
+
+          expect(results.violations, formatViolations(results.violations)).toEqual([]);
+        });
+      }
+
+      test('admin overview page has no accessibility violations', async ({ page }) => {
+        await page.goto('/admin');
+        await expect(
+          page.getByRole('heading', { level: 1 }),
+        ).toBeVisible();
+        await page.waitForLoadState('networkidle');
+
+        const results = await new AxeBuilder({ page })
+          .withTags(wcagTags)
+          .analyze();
+
+        expect(results.violations, formatViolations(results.violations)).toEqual([]);
+      });
+
+      // fix(#438): A11Y-12 — the audit found Import, Settings, and Collections
+      // uncovered. Same wcagTags contract as the routes above.
+      for (const { name, path } of [
+        { name: 'import', path: '/import' },
+        { name: 'settings', path: '/settings' },
+        { name: 'collections', path: '/collections' },
+      ]) {
+        test(`${name} page has no accessibility violations`, async ({ page }) => {
+          await page.goto(path);
+          await page.waitForLoadState('networkidle');
+
+          const results = await new AxeBuilder({ page })
+            .withTags(wcagTags)
+            .analyze();
+
+          expect(results.violations, formatViolations(results.violations)).toEqual([]);
+        });
+      }
+
+      test.describe('register (logged out)', () => {
+        test.use({ storageState: { cookies: [], origins: [] } });
+
+        test('register page has no accessibility violations', async ({ page }) => {
+          await page.goto('/register');
+          await page.waitForLoadState('networkidle');
+
+          const results = await new AxeBuilder({ page })
+            .withTags(wcagTags)
+            .analyze();
+
+          expect(results.violations, formatViolations(results.violations)).toEqual([]);
+        });
+      });
     });
   }
-
-  test('admin overview page has no accessibility violations', async ({ page }) => {
-    await page.goto('/admin');
-    await expect(
-      page.getByRole('heading', { level: 1 }),
-    ).toBeVisible();
-    await page.waitForLoadState('networkidle');
-
-    const results = await new AxeBuilder({ page })
-      .withTags(wcagTags)
-      .analyze();
-
-    expect(results.violations, formatViolations(results.violations)).toEqual([]);
-  });
-
-  // fix(#438): A11Y-12 — the audit found Import, Settings, and Collections
-  // uncovered. Same wcagTags contract as the routes above.
-  for (const { name, path } of [
-    { name: 'import', path: '/import' },
-    { name: 'settings', path: '/settings' },
-    { name: 'collections', path: '/collections' },
-  ]) {
-    test(`${name} page has no accessibility violations`, async ({ page }) => {
-      await page.goto(path);
-      await page.waitForLoadState('networkidle');
-
-      const results = await new AxeBuilder({ page })
-        .withTags(wcagTags)
-        .analyze();
-
-      expect(results.violations, formatViolations(results.violations)).toEqual([]);
-    });
-  }
-
-  test.describe('register (logged out)', () => {
-    test.use({ storageState: { cookies: [], origins: [] } });
-
-    test('register page has no accessibility violations', async ({ page }) => {
-      await page.goto('/register');
-      await page.waitForLoadState('networkidle');
-
-      const results = await new AxeBuilder({ page })
-        .withTags(wcagTags)
-        .analyze();
-
-      expect(results.violations, formatViolations(results.violations)).toEqual([]);
-    });
-  });
 });
