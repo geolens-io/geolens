@@ -30,6 +30,7 @@ import {
 } from '@/components/import/hooks/use-ingest';
 import { queryKeys } from '@/lib/query-keys';
 import { useAuthStore } from '@/stores/auth-store';
+import { ApiError } from '@/api/client';
 
 const mockUploadFile = vi.mocked(uploadFile);
 const mockGetJobStatus = vi.mocked(getJobStatus);
@@ -167,6 +168,32 @@ describe('useJobStatus', () => {
         await vi.advanceTimersByTimeAsync(10_000);
       });
       expect(mockGetJobStatus.mock.calls.length).toBeGreaterThan(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * fix(#1778): before this, refetchInterval only checked
+   * query.state.data?.status, so a query stuck in isError (data stays
+   * undefined) polled /jobs/{id} every 2s for the life of the tab.
+   */
+  it('stops polling once the status read settles a definitive 404', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockGetJobStatus.mockRejectedValue(new ApiError('Job not found', 404));
+
+      const { result } = renderHook(() => useJobStatus('j-gone'));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.isError).toBe(true);
+      expect(mockGetJobStatus).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(mockGetJobStatus).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }

@@ -367,6 +367,7 @@
   },
   "jobProgress": {
     "loadingStatus": "Cargando estado del trabajo...",
+    "statusError": "No se pudo cargar el estado de este trabajo. Es posible que haya expirado o se haya eliminado.",
     "created": "Creado:",
     "started": "Iniciado:",
     "completed": "Completado:",

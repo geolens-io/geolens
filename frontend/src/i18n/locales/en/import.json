@@ -415,6 +415,7 @@
   },
   "jobProgress": {
     "loadingStatus": "Loading job status...",
+    "statusError": "Could not load this job's status. It may have expired or been removed.",
     "created": "Created:",
     "started": "Started:",
     "completed": "Completed:",

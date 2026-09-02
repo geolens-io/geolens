@@ -367,6 +367,7 @@
   },
   "jobProgress": {
     "loadingStatus": "Chargement du statut de la tâche...",
+    "statusError": "Impossible de charger le statut de cette tâche. Elle a peut-être expiré ou été supprimée.",
     "created": "Créée :",
     "started": "Démarrée :",
     "completed": "Terminée :",

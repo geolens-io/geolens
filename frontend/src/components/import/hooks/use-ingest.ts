@@ -47,7 +47,15 @@ export function useJobStatus(jobId: string | null) {
     queryFn: () => getJobStatus(jobId!),
     enabled: !!jobId && hasToken,
     staleTime: 2000,
-    refetchInterval: (query) => (isTerminalJobStatus(query.state.data?.status) ? false : 2000),
+    // fix(#1778): a 401/403/404 on the status read is definitive (gone or no
+    // longer ours), matching AnalysisJobWatcher's `gone` check — stop polling
+    // rather than hammering the endpoint every 2s for the life of the tab.
+    refetchInterval: (query) => {
+      if (isTerminalJobStatus(query.state.data?.status)) return false;
+      const error = query.state.error;
+      if (error instanceof ApiError && [401, 403, 404].includes(error.status)) return false;
+      return 2000;
+    },
   });
 }
 

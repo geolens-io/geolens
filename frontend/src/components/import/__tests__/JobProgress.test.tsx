@@ -1,6 +1,7 @@
 import { render, screen } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { JobProgress } from '../JobProgress';
+import { ApiError } from '@/api/client';
 
 const { mockUseJobStatus, mockRetry } = vi.hoisted(() => ({
   mockUseJobStatus: vi.fn(),
@@ -76,6 +77,31 @@ describe('JobProgress retry capability', () => {
 
     expect(screen.getByText('Fresh service credentials are required.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start Over' })).toBeInTheDocument();
+  });
+});
+
+// fix(#1778): a failing GET /jobs/{id} used to fall into the isLoading/!job
+// branch (undefined data, isLoading false after retries exhaust), rendering
+// "Loading job status..." forever instead of a real error state.
+describe('JobProgress error branch', () => {
+  beforeEach(() => {
+    mockUseJobStatus.mockReset();
+    mockRetry.mockReset();
+  });
+
+  it('renders a failure card instead of an indefinite spinner when the status read errors', () => {
+    mockUseJobStatus.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new ApiError('Job not found', 404),
+    });
+
+    render(<JobProgress jobId="job-1" onReset={vi.fn()} />);
+
+    expect(screen.queryByText('Loading job status...')).not.toBeInTheDocument();
+    expect(screen.getByText('Job not found')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start Over' })).toBeInTheDocument();
   });
 });

@@ -367,6 +367,7 @@
   },
   "jobProgress": {
     "loadingStatus": "Auftragsstatus wird geladen...",
+    "statusError": "Der Status dieses Auftrags konnte nicht geladen werden. Er ist möglicherweise abgelaufen oder wurde entfernt.",
     "created": "Erstellt:",
     "started": "Gestartet:",
     "completed": "Abgeschlossen:",

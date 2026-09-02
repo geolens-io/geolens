@@ -89,7 +89,7 @@ function StatusBadge({ status }: { status: string }) {
 
 export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgressProps) {
   const { t } = useTranslation('import');
-  const { data: job, isLoading } = useJobStatus(jobId);
+  const { data: job, isLoading, isError, error } = useJobStatus(jobId);
   const retryMutation = useRetryJob();
   const warningShownRef = useRef(false);
 
@@ -119,6 +119,25 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
       toast.warning(job.warning_message);
     }
   }, [job?.status, job?.warning_message]);
+
+  // fix(#1778): a failing GET /jobs/{id} (401/403/404, or a retry-exhausted
+  // 5xx) used to leave `job` undefined forever, so this fell into the
+  // isLoading/!job branch and rendered an indefinite "Loading status…"
+  // spinner. Give it its own terminal render, same as the failed-job branch
+  // below, so the user sees a real message and onReset instead.
+  if (isError && !job) {
+    const msg = error instanceof ApiError ? error.message : t('jobProgress.statusError');
+    return (
+      <Card>
+        <CardContent className="space-y-3 py-6">
+          <p className="text-sm text-destructive">{msg}</p>
+          <Button variant="outline" onClick={onReset}>
+            {t('jobProgress.startOver')}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (isLoading || !job) {
     return (
