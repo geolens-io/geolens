@@ -1289,11 +1289,36 @@ async def raster_tile_proxy(
             detail=f"Unsupported tile format: {fmt!r}",
         )
 
-    # Resolve effective bounds (apply defaults so callers downstream always receive
-    # concrete values, not None).
-    eff_pmin: float = pmin if pmin is not None else 2.0
-    eff_pmax: float = pmax if pmax is not None else 98.0
-    eff_sigma: float = sigma if sigma is not None else _STDDEV_SIGMA
+    # Resolve effective bounds ONCE, right where activity is decided: an
+    # INACTIVE parameter's effective value is ALWAYS the same default used
+    # when the parameter is absent, never the raw request value; an ACTIVE
+    # parameter's effective value is the (validated below) request value, or
+    # that same default when absent. Every downstream consumer --
+    # _fetch_band_statistics, _compute_stretch_rescale, and the error
+    # details below -- reads ONLY these resolved values, never a raw
+    # pmin/pmax/sigma, so "inactive means ignored" can never be
+    # contradicted downstream the way T-1153-01/round-2 already promised
+    # nginx it would not be.
+    #
+    # fix(#1778 codex r8): eff_pmin/eff_pmax/eff_sigma used to be resolved
+    # from "was the parameter merely present", independent of stretch mode
+    # -- so `?stretch=stddev&pmin=1e309` (FastAPI's float coercion turns the
+    # literal into `inf`; the validation below never runs because pmin is
+    # inactive under stddev) still set eff_pmin=inf, which reached
+    # _fetch_band_statistics's `int(pmin)` and raised an uncaught
+    # OverflowError (500) -- while frontend/nginx.conf, which already
+    # treats a value it blanks as harmless (fix(#1778 codex r5)), found
+    # `1e309` well inside its canonical float grammar and blanked pmin,
+    # sharing a cache key with a plain stddev request: a cached 200 once
+    # warm, a 500 on the first, cold request. Gating eff_pmin/eff_pmax/
+    # eff_sigma on the SAME activity test the validation below already uses
+    # closes this: an inactive parameter's raw value is now never read by
+    # anything, matching what nginx has assumed all along.
+    _pmin_pmax_active = stretch == "percentile"
+    _sigma_active = stretch == "stddev"
+    eff_pmin: float = pmin if (_pmin_pmax_active and pmin is not None) else 2.0
+    eff_pmax: float = pmax if (_pmin_pmax_active and pmax is not None) else 98.0
+    eff_sigma: float = sigma if (_sigma_active and sigma is not None) else _STDDEV_SIGMA
 
     # T-1153-01: validate pmin/pmax/sigma BEFORE any Titiler call.
     #
@@ -1310,8 +1335,23 @@ async def raster_tile_proxy(
     # $arg_x reads the FIRST occurrence, this endpoint's scalar Query reads
     # the LAST): an inactive value is never read on either side, so it can
     # never matter which occurrence either side saw.
+    #
+    # fix(#1778 codex r8): explicit math.isfinite() checks, rather than
+    # relying on inf/nan's IEEE-754 comparison behavior (`inf < x` is
+    # False, any comparison against `nan` is False) to fail the bound
+    # check below -- that behavior does already reject inf/nan today, but
+    # leaving it implicit is exactly the kind of thing a future "simplify
+    # this condition" pass could break without anyone noticing a canonical
+    # `1e309` (well inside nginx's float grammar; see frontend/nginx.conf)
+    # is still in play. int(pmin)/int(pmax) inside _fetch_band_statistics,
+    # and round(lo, 4)/round(hi, 4) inside _compute_stretch_rescale, must
+    # never see a non-finite value on the ACTIVE path either.
     if stretch == "percentile" and (pmin is not None or pmax is not None):
-        if not (0 <= eff_pmin < eff_pmax <= 100):
+        if (
+            not math.isfinite(eff_pmin)
+            or not math.isfinite(eff_pmax)
+            or not (0 <= eff_pmin < eff_pmax <= 100)
+        ):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=(
@@ -1319,11 +1359,12 @@ async def raster_tile_proxy(
                     f"got pmin={eff_pmin}, pmax={eff_pmax}"
                 ),
             )
-    if stretch == "stddev" and sigma is not None and not (sigma > 0):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"sigma must be > 0; got sigma={sigma}",
-        )
+    if stretch == "stddev" and sigma is not None:
+        if not math.isfinite(eff_sigma) or not (eff_sigma > 0):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"sigma must be > 0; got sigma={eff_sigma}",
+            )
 
     # Reuse the auth-check logic to get the open path and render params
     auth_resp = await raster_auth_check(request, dataset_id, user, db)

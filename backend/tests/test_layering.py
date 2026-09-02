@@ -4458,8 +4458,22 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # blanks could still turn a cached 200 into what would have been a 422.
     # Most of the growth is the docstring and Query() description updates
     # recording that contract for both parameters and the endpoint.
+    # fix(#1778 codex r8): +41 — eff_pmin/eff_pmax/eff_sigma used to be
+    # resolved from "was the parameter merely present", independent of
+    # stretch mode, so an INACTIVE parameter's raw (unvalidated) request
+    # value still reached _fetch_band_statistics/_compute_stretch_rescale.
+    # `?stretch=stddev&pmin=1e309` (inf) reached `int(pmin)` there and
+    # raised an uncaught OverflowError, while nginx — which treats a value
+    # it blanks as harmless — found `1e309` inside its canonical float
+    # grammar and blanked it, sharing a cache key with a plain stddev
+    # request: a cached 200 once warm, a 500 cold. eff_pmin/eff_pmax/
+    # eff_sigma now gate on the SAME activity test the validation below
+    # already used, so an inactive parameter's raw value is never read by
+    # anything, and the validation itself now requires math.isfinite() on
+    # the active path explicitly rather than relying on inf/nan's
+    # comparison behavior to fail the existing bound check.
     # Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2665,
+    "backend/app/processing/tiles/router.py": 2706,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),
