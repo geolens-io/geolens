@@ -14,7 +14,7 @@ from app.core.service_tokens import (
     build_credential_header,
     credential_header_line,
 )
-from app.core.url_redaction import redact_url_credentials
+from app.core.url_redaction import redact_url_credentials, scrub_secret_value
 from app.platform.extensions import get_catalog_port
 from app.platform.service_auth import credential_input_rejection
 
@@ -134,6 +134,11 @@ async def run_service_preview(
     )
 
     header_file_path: str | None = None
+    # fix(#1746 B2b review r2): kept in scope past the block that composes it,
+    # because the failure handling below the `finally` is what needs it. The
+    # pattern-based redactors cannot see a credential in a header line, so the
+    # exact value is the only thing that can scrub an echo of one.
+    header_line: str | None = None
     try:
         # fix(#937): this env used to set GDAL_HTTP_FOLLOWLOCATION=NO as a
         # redirect defense. That is not a GDAL configuration option and never
@@ -264,7 +269,21 @@ async def run_service_preview(
 
     if proc.returncode != 0:
         error_msg = stderr.decode().strip() if stderr else "unknown error"
-        safe_error_msg = redact_url_credentials(error_msg)
+        # fix(#1746 B2b review r2): the exact-value scrub the worker task path
+        # already applies, brought to the preview path for the same reason.
+        # `redact_url_credentials` matches URL shapes and the stdlib log
+        # processor matches KEY names, and a credential echoed by the origin
+        # arrives as neither: GDAL prints the request it failed on, so an
+        # `Authorization: Basic <blob>` or a service-chosen API key can land in
+        # stderr as prose. `scrub_secret_value` needs no theory about the shape
+        # because it holds the value, and it covers the composed line, the
+        # scheme-prefixed half and the bare credential
+        # (`_secret_variants`). Applied BEFORE the log and before the exception
+        # is constructed, so every downstream reader of either sees the same
+        # scrubbed text.
+        safe_error_msg = scrub_secret_value(
+            redact_url_credentials(error_msg), header_line
+        )
         logger.error(
             "ogrinfo failed for service preview",
             gdal_source=redact_url_credentials(gdal_source),
@@ -273,7 +292,24 @@ async def run_service_preview(
         )
         raise IngestionError(f"ogrinfo failed: {safe_error_msg}")
 
-    data = json.loads(stdout.decode())
+    try:
+        data = json.loads(stdout.decode())
+    except (ValueError, UnicodeDecodeError):
+        # fix(#1746 B2b review r2): an exit-0 run whose stdout is not the JSON
+        # document this asked for used to raise the decoder's own exception,
+        # and a JSONDecodeError carries the document that failed to parse.
+        # That document is GDAL output too. This refusal says only that the
+        # output could not be read, and names no part of it. `from None` so
+        # the chained original cannot carry it either.
+        logger.error(
+            "ogrinfo returned unreadable output for service preview",
+            gdal_source=redact_url_credentials(gdal_source),
+            layer_name=layer_name,
+        )
+        raise IngestionError(
+            "ogrinfo returned output that could not be read as JSON"
+        ) from None
+
     layers = data.get("layers", [])
     if not layers:
         logger.warning(

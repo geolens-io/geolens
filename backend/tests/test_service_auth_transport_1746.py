@@ -737,3 +737,159 @@ class TestAFailedDispatchLeavesNoCredentialBehind:
 
         scrub_secret_from_exception(raised.value, line)
         assert blob not in str(raised.value)
+
+
+# ---------------------------------------------------------------------------
+# The preview path's own failure text
+# ---------------------------------------------------------------------------
+
+
+class TestAPreviewFailureCarriesNoCredential:
+    """fix(#1746 B2b review r2): the door path needed the worker's scrub too.
+
+    GDAL prints the request it failed on, so an origin that rejects a
+    credential can put the header line, or the encoded credential on its own,
+    into ogrinfo's stderr. Neither `redact_url_credentials`, which matches URL
+    shapes, nor the stdlib log processor, which matches key NAMES, can see a
+    credential arriving as prose under a `stderr` key. The exact-value scrub
+    can, because it holds the value, and it runs before the log line and
+    before the exception is built, so every downstream reader gets the same
+    text: the API log, the 502 the router raises, and the response body.
+    """
+
+    async def _failing_preview(self, monkeypatch, credential, stderr_text: str):
+        """Run a preview whose ogrinfo exits 1 with *stderr_text*."""
+        import structlog
+
+        async def _fake_exec(*cmd, **kwargs):
+            proc = MagicMock()
+            proc.returncode = 1
+
+            async def _communicate():
+                return (b"", stderr_text.encode())
+
+            proc.communicate = _communicate
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+        with structlog.testing.capture_logs() as captured:
+            with pytest.raises(Exception) as raised:  # noqa: PT011 - IngestionError is resolved through the port
+                await preview_mod.run_service_preview(
+                    f"WFS:{_WFS_URL}", "topp:parcels", credential=credential
+                )
+        return raised.value, captured
+
+    async def test_a_basic_credential_echoed_in_stderr_is_scrubbed(
+        self, monkeypatch
+    ) -> None:
+        credential, _username, password = _basic()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        line = f"{pair[0]}: {pair[1]}"
+        blob = pair[1].removeprefix("Basic ")
+
+        # Every shape an origin can echo: the whole line, the scheme-prefixed
+        # value, and the encoded credential on its own.
+        stderr_text = (
+            f"ERROR 1: HTTP error code 401 - sent '{line}' "
+            f"(header value '{pair[1]}', credential '{blob}')"
+        )
+        error, captured = await self._failing_preview(
+            monkeypatch, credential, stderr_text
+        )
+
+        for secret in (line, pair[1], blob, password):
+            assert secret not in str(error), secret
+            assert secret not in str(captured), secret
+
+    async def test_a_named_api_key_echoed_in_stderr_is_scrubbed(
+        self, monkeypatch
+    ) -> None:
+        credential, value = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        line = f"{pair[0]}: {pair[1]}"
+
+        error, captured = await self._failing_preview(
+            monkeypatch, credential, f"ERROR 1: rejected '{line}' / bare '{value}'"
+        )
+
+        for secret in (line, value):
+            assert secret not in str(error), secret
+            assert secret not in str(captured), secret
+
+    async def test_a_bearer_token_echoed_in_stderr_is_scrubbed(
+        self, monkeypatch
+    ) -> None:
+        """The shipping path keeps the guarantee the other two just gained."""
+        credential = _bearer()
+        token = credential.token
+        error, captured = await self._failing_preview(
+            monkeypatch,
+            credential,
+            f"ERROR 1: HTTP 401 for 'Authorization: Bearer {token}' / '{token}'",
+        )
+
+        assert token not in str(error)
+        assert token not in str(captured)
+
+    async def test_the_counterfactual(self, monkeypatch) -> None:
+        """The assertions above pass because of the scrub, not by accident.
+
+        Without a positive control an absence assertion is satisfied by a
+        preview that never reached the failure block at all. This drives the
+        same path with the scrub disabled and requires the credential to come
+        through, so the three tests above cannot be green for the wrong
+        reason.
+        """
+        monkeypatch.setattr(
+            preview_mod, "scrub_secret_value", lambda text, secret: text
+        )
+        credential, _username, _password = _basic()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        blob = pair[1].removeprefix("Basic ")
+
+        error, captured = await self._failing_preview(
+            monkeypatch, credential, f"ERROR 1: sent '{blob}'"
+        )
+
+        assert blob in str(error)
+        assert blob in str(captured)
+
+    async def test_unreadable_stdout_names_none_of_it(self, monkeypatch) -> None:
+        """An exit-0 run whose stdout is not JSON used to raise the decoder's.
+
+        A `JSONDecodeError` carries the document it could not parse, and that
+        document is GDAL output like any other.
+        """
+        import structlog
+
+        credential, _username, _password = _basic()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        blob = pair[1].removeprefix("Basic ")
+
+        async def _fake_exec(*cmd, **kwargs):
+            proc = MagicMock()
+            proc.returncode = 0
+
+            async def _communicate():
+                return (f"not json, and it quotes {blob}".encode(), b"")
+
+            proc.communicate = _communicate
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+        with structlog.testing.capture_logs() as captured:
+            with pytest.raises(Exception) as raised:  # noqa: PT011
+                await preview_mod.run_service_preview(
+                    f"WFS:{_WFS_URL}", "topp:parcels", credential=credential
+                )
+
+        assert blob not in str(raised.value)
+        assert blob not in str(captured)
+        # And the chained original cannot carry it either.
+        assert raised.value.__cause__ is None
