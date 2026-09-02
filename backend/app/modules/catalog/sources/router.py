@@ -1135,6 +1135,15 @@ async def preview_service_layer(
 #    worker and `docker-compose.prod.yml:294` starts two, so on a stock
 #    install these three are three per worker. They are the cheap first layer
 #    that keeps a flood off the database.
+#
+#    fix(#1778): three per worker is now the real number. slowapi scopes a
+#    limit by the request PATH unless the limiter is built with
+#    key_style="endpoint", and this route is dual-shape, so before that a
+#    caller alternating `/signin` with `/signin/` drew on two buckets and put
+#    six requests per worker onto control 4 instead of three. Measured, with
+#    control 4 raised out of the way: six 200s under the old keying, three
+#    200s then three 429s under the new. The key functions below were never
+#    the leak; they carry the user id in both.
 # 3. A PostgreSQL advisory lock per (user, portal host), held across the
 #    mint, so the count below cannot be read by two workers at once.
 # 4. The same three attempts per fifteen minutes counted from the audit rows

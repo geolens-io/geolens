@@ -28,6 +28,10 @@ from slowapi.wrappers import LimitGroup
 
 from app.platform.ratelimit import limiter
 
+# The signin-alias test below reuses the ArcGIS sign-in module's fixtures
+# (allow_ssrf and its per-test portal host) rather than duplicating them.
+pytest_plugins = ["tests.test_arcgis_signin"]
+
 pytestmark = pytest.mark.anyio
 
 
@@ -114,3 +118,82 @@ async def test_a_different_handler_keeps_its_own_bucket(client: AsyncClient):
         limiter.enabled = original_enabled
         limiter._default_limits = original_limits
         limiter._storage.reset()
+
+
+# ---------------------------------------------------------------------------
+# The per-route limits the key style also governs
+# ---------------------------------------------------------------------------
+#
+# A `@limiter.limit` decorator carries its own `key_func` but no `scope`, so
+# `__evaluate_limits` falls back to `lim.scope or endpoint` and counts under
+# (key_func(request), _endpoint_key). The key style therefore decides the
+# SECOND half of every per-route limit too, not just the global default.
+#
+# `POST /services/arcgis/signin/` (#1758) is where that matters most on the
+# current route table: it sends a password to a third party, so its comment
+# enumerates five controls and control 2 is "three attempts per fifteen
+# minutes". The route is dual-shape, so under URL keying the two spellings
+# were two buckets and control 2 admitted six requests per worker to the
+# database-backed control 4 behind it. Both key functions carry the user id
+# and were never the leak.
+
+
+async def test_the_arcgis_signin_aliases_share_one_bucket(
+    client: AsyncClient, admin_auth_header: dict, allow_ssrf, monkeypatch
+):
+    """Control 2 of #1758 admits three requests per worker, not six.
+
+    The database-backed budget (control 4) and the per-portal limit are raised
+    out of the way so the only thing that can refuse is the per-user slowapi
+    limit whose scope this change moves.
+    """
+    from app.modules.catalog.sources import router as sources_router, signin_guard
+
+    from tests.test_arcgis_signin import (
+        _Exchange,
+        _body,
+        _info_payload,
+        _install,
+        _json_response,
+        _token_payload,
+    )
+
+    monkeypatch.setattr(signin_guard, "_ARCGIS_SIGNIN_ATTEMPT_LIMIT", 100)
+    monkeypatch.setattr(sources_router, "_ARCGIS_SIGNIN_PORTAL_LIMIT", "100/15minutes")
+    exchange = _Exchange(
+        {
+            "info": _json_response(_info_payload()),
+            "generateToken": _json_response(_token_payload()),
+        }
+    )
+
+    original_enabled = limiter.enabled
+    try:
+        limiter.enabled = True
+        limiter._storage.reset()
+        with _install(exchange):
+            statuses = [
+                (
+                    await client.post(path, json=_body(), headers=admin_auth_header)
+                ).status_code
+                for path in (
+                    "/services/arcgis/signin/",
+                    "/services/arcgis/signin",
+                    "/services/arcgis/signin/",
+                    "/services/arcgis/signin",
+                    "/services/arcgis/signin/",
+                    "/services/arcgis/signin",
+                )
+            ]
+    finally:
+        limiter.enabled = original_enabled
+        limiter._storage.reset()
+
+    assert statuses == [200, 200, 200, 429, 429, 429], (
+        "alternating the two spellings of one handler must not buy a second "
+        f"three-attempt budget; got {statuses}"
+    )
+    assert len(exchange.posts) == 3, (
+        "and the refused half must never reach the portal; "
+        f"{len(exchange.posts)} sign-in POSTs went out"
+    )
