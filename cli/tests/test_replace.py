@@ -100,6 +100,45 @@ class TestPreviewSummary:
         }
 
 
+class TestEmitPreviewLine:
+    """gh#1767 review round 3 P2: Formatter.info() is silent under --json,
+    which would ask the user to confirm blind when the prompt is still
+    coming. emit_preview_line must bypass that only in exactly that case."""
+
+    def test_json_mode_without_yes_echoes_to_stderr(self, capsys) -> None:
+        from unittest.mock import MagicMock
+
+        from geolens_cli.replace import emit_preview_line
+
+        output = MagicMock()
+        emit_preview_line(output, "Layer 'roads': 42 features", json_mode=True, yes=False)
+
+        output.info.assert_not_called()
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Layer 'roads': 42 features" in captured.err
+
+    def test_json_mode_with_yes_uses_formatter_info(self) -> None:
+        from unittest.mock import MagicMock
+
+        from geolens_cli.replace import emit_preview_line
+
+        output = MagicMock()
+        emit_preview_line(output, "Layer 'roads': 42 features", json_mode=True, yes=True)
+
+        output.info.assert_called_once_with("Layer 'roads': 42 features")
+
+    def test_human_mode_uses_formatter_info_regardless_of_yes(self) -> None:
+        from unittest.mock import MagicMock
+
+        from geolens_cli.replace import emit_preview_line
+
+        output = MagicMock()
+        emit_preview_line(output, "Layer 'roads': 42 features", json_mode=False, yes=False)
+
+        output.info.assert_called_once_with("Layer 'roads': 42 features")
+
+
 class TestMultiLayerRefusalMessage:
     def test_lists_every_layer_with_feature_count(self) -> None:
         from geolens_cli.replace import multi_layer_refusal_message
@@ -724,6 +763,37 @@ class TestReplaceJsonModeConfirmation:
         )
 
         assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload["job_id"] == str(JOB_ID)
+
+    def test_json_interactive_preview_appears_on_stderr_before_the_prompt(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        """gh#1767 review round 3 P2: under --json without --yes, the user
+        must see the preview (layer, feature count, SRID) before answering
+        the confirm prompt, and stdout must still be pure JSON."""
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset())
+        _patch_upload(monkeypatch, _ok_upload())
+        _patch_preview(
+            monkeypatch, _ok_preview(layer_name="roads", feature_count=42, crs=4326)
+        )
+        _patch_commit(monkeypatch, _ok_commit())
+
+        result = runner.invoke(
+            app,
+            ["--json", "replace", str(DATASET_ID), str(sample_geojson)],
+            input="y\n",
+        )
+
+        assert result.exit_code == 0, result.output
+        preview_at = result.stderr.find("Layer 'roads': 42 features, SRID 4326")
+        prompt_at = result.stderr.find(f"Replace dataset {DATASET_ID}'s data with")
+        assert preview_at != -1, result.stderr
+        assert prompt_at != -1, result.stderr
+        assert preview_at < prompt_at
         payload = json.loads(result.stdout)
         assert payload["job_id"] == str(JOB_ID)
 

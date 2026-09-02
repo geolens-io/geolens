@@ -960,7 +960,12 @@ def replace(
         if is_raster:
             # Raster datasets have no schema to preview (router_reupload.py);
             # the supported flow is upload then commit with nothing between.
-            state.output.info("Raster dataset: committing without preview.")
+            _replace.emit_preview_line(
+                state.output,
+                "Raster dataset: committing without preview.",
+                json_mode=state.json_mode,
+                yes=yes,
+            )
             summary: dict[str, Any] = {
                 "layer_name": None,
                 "feature_count": None,
@@ -986,9 +991,12 @@ def replace(
                 raise typer.Exit(EXIT_USAGE)
 
             summary = _replace.preview_summary(preview)
-            state.output.info(
+            _replace.emit_preview_line(
+                state.output,
                 f"Layer '{summary['layer_name']}': {summary['feature_count']} "
-                f"features, SRID {summary['srid'] if summary['srid'] is not None else 'unknown'}"
+                f"features, SRID {summary['srid'] if summary['srid'] is not None else 'unknown'}",
+                json_mode=state.json_mode,
+                yes=yes,
             )
 
         if not yes and not typer.confirm(

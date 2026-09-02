@@ -239,6 +239,24 @@ def preview_summary(preview: Any) -> dict[str, Any]:
     }
 
 
+def emit_preview_line(output: Any, line: str, *, json_mode: bool, yes: bool) -> None:
+    """Print one preview line, keeping stdout pure JSON in --json mode.
+
+    `Formatter.info` is silent under --json (output.py), which would ask
+    the user to confirm a replacement blind while the prompt is still
+    coming (`not yes`). Route it to stderr in exactly that case, so a
+    human running `--json replace ...` interactively still sees what they
+    are about to replace. When `--yes` skips the prompt, behavior is
+    unchanged: the final JSON payload already carries the same summary.
+    """
+    if json_mode and not yes:
+        import typer
+
+        typer.echo(line, err=True)
+    else:
+        output.info(line)
+
+
 def multi_layer_refusal_message(layers: list[dict[str, Any]]) -> str:
     """Build the refusal text listing every layer, so the user can pick one."""
     lines = [
