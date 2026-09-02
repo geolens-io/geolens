@@ -801,6 +801,68 @@ class TestManifestApplyService:
         assert "checksum" not in result.message
         assert "raster updates are not supported" in result.message
 
+    async def test_changed_raster_checksum_errors_instead_of_skipping(
+        self, test_db_session, clean_tables
+    ):
+        """gh#1773 codex r5: fresh evidence from the round-4 docs fix itself.
+        The README/Field/CLI-schema text said a raster entry with a changed
+        checksum "still classifies as skip, not update" -- but
+        _classify_dataset does not look at source type, so a changed
+        checksum moves ANY entry's fingerprint and yields "update". For
+        raster_cog, _validate_existing_dataset_update then raises before any
+        staging happens, and apply_manifest's per-entry wrapper turns that
+        into an error result, not a skip. This pins the actual behavior so
+        the docs can't drift from it again.
+        """
+        user = await _admin_user(test_db_session)
+        original_request = _request(
+            _manifest_dataset(
+                key="manifest-raster-checksum-error",
+                source_type="raster_cog",
+                uri="rasters/tile-001.tif",
+                checksum=f"sha256:{'a' * 64}",
+            )
+        )
+        changed_request = _request(
+            _manifest_dataset(
+                key="manifest-raster-checksum-error",
+                source_type="raster_cog",
+                uri="rasters/tile-001.tif",
+                checksum=f"sha256:{'b' * 64}",
+            )
+        )
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=user.id,
+            name="Existing raster",
+        )
+        await _create_completed_manifest_job(
+            test_db_session,
+            user=user,
+            dataset=dataset,
+            manifest_dataset=original_request.datasets[0],
+        )
+
+        with (
+            patch(
+                "app.processing.ingest.manifest_service._stage_source_and_check_quota",
+                new=AsyncMock(),
+            ) as stage,
+            patch(
+                "app.processing.ingest.manifest_service._queue_reupload_job",
+                new=AsyncMock(),
+            ) as queue,
+        ):
+            response = await apply_manifest(
+                test_db_session, changed_request, user, _http_request()
+            )
+
+        result = response.results[0]
+        assert result.action == "error"
+        assert "raster updates are not supported" in result.message
+        stage.assert_not_awaited()
+        queue.assert_not_awaited()
+
     async def test_changed_checksum_reclassifies_skip_complete_as_update(
         self, test_db_session, clean_tables
     ):

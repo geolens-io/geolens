@@ -89,6 +89,15 @@ ManifestCrs = Annotated[str, Field(pattern=r"^EPSG:[0-9]{1,6}$")]
 # impossible recovery path. Scoped to vector sources here, in the CLI's
 # schema mirror, and in the README; manifest_service._skip_complete_message
 # gives a raster entry the matching guidance instead.
+#
+# gh#1773 codex r5: the round-4 fix said a changed raster checksum "cannot
+# be re-imported this way", which reads as a harmless no-op. It is not: a
+# changed fingerprint classifies as update regardless of source type, and
+# _validate_existing_dataset_update raises for raster_cog before any
+# staging happens, so apply reports that entry as action="error" with
+# "Manifest raster updates are not supported; create a new raster dataset
+# instead." -- not a skip. Worded below to say that plainly. An unchanged
+# raster entry, checksum included, still skips normally.
 ManifestChecksum = Annotated[
     str,
     Field(
@@ -102,9 +111,12 @@ ManifestChecksum = Annotated[
             "not verified against the fetched bytes. For a vector source, "
             "bump it when the file under a stable URI changes, to force "
             "apply to reclassify the entry as an update instead of "
-            "skipping it. Manifest raster updates are not supported, so a "
-            "raster_cog source with a changed checksum still cannot be "
-            "re-imported this way."
+            "skipping it. Manifest raster updates are not supported: do not "
+            "set or change checksum on a raster_cog source, because a "
+            "changed value there makes apply report that entry as an error "
+            "('Manifest raster updates are not supported; create a new "
+            "raster dataset instead.'), not a skip. An unchanged raster "
+            "entry, checksum included, still skips normally."
         ),
     ),
 ]
