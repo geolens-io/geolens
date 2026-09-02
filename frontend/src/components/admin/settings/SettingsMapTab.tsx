@@ -265,6 +265,12 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, s
                     className="h-7 text-xs max-w-xs"
                     placeholder={basemap.api_key ? '••••••••' : t('settings.basemaps.apiKeyPlaceholder', 'Enter API key')}
                     defaultValue={basemap.api_key ?? ''}
+                    // fix(#1755): admin secret, not a login credential, so opt
+                    // out of every password manager explicitly.
+                    autoComplete="new-password"
+                    data-1p-ignore
+                    data-lpignore="true"
+                    data-bwignore
                     onBlur={(e) => {
                       const val = e.target.value.trim();
                       if (val !== (basemap.api_key ?? '')) {
@@ -321,6 +327,12 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, s
                   placeholder={t('settings.basemaps.apiKeyPlaceholder', 'Optional — required if URL contains {api_key}')}
                   value={newApiKey}
                   onChange={(e) => setNewApiKey(e.target.value)}
+                  // fix(#1755): admin secret, not a login credential, so opt
+                  // out of every password manager explicitly.
+                  autoComplete="new-password"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  data-bwignore
                 />
                 <p className="text-xs text-muted-foreground">{t('settings.basemaps.apiKeyHelp', 'Use {api_key} in the tile URL as a placeholder. The key is interpolated server-side.')}</p>
               </div>

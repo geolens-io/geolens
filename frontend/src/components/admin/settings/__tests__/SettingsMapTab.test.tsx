@@ -2,7 +2,7 @@ import { render, screen } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { PMTiles } from 'pmtiles';
 import { SettingsMapTab } from '../SettingsMapTab';
-import type { SettingItem } from '@/api/settings';
+import type { BasemapEntry, SettingItem } from '@/api/settings';
 
 /**
  * feat(pmtiles): `isValidTileUrl` in SettingsMapTab.tsx is the client-side
@@ -147,5 +147,47 @@ describe('SettingsMapTab custom basemap URL validation', () => {
 
     expect(screen.getByText('https://tiles.example.com/{z}/{x}/{y}.png')).toBeInTheDocument();
     expect(screen.queryByText(/must contain/i)).not.toBeInTheDocument();
+  });
+});
+
+// fix(#1755): the basemap API key fields are admin secrets, not login
+// credentials -- they need the same password-manager opt-out attributes the
+// service-token inputs gained in #1750.
+describe('SettingsMapTab API key fields opt out of password managers', () => {
+  function expectOptedOut(input: HTMLElement) {
+    expect(input).toHaveAttribute('autocomplete', 'new-password');
+    expect(input).toHaveAttribute('data-1p-ignore');
+    expect(input).toHaveAttribute('data-lpignore', 'true');
+    expect(input).toHaveAttribute('data-bwignore');
+  }
+
+  it('opts out the new-basemap API key field', () => {
+    renderMapTab();
+    expectOptedOut(screen.getByLabelText(/api key/i));
+  });
+
+  it('opts out the API key field on an existing custom basemap', () => {
+    const existingBasemap: BasemapEntry = {
+      id: 'custom-1',
+      label: 'Authenticated Basemap',
+      url: 'https://example.com/{api_key}/{z}/{x}/{y}.png',
+      enabled: true,
+      is_preset: false,
+      api_key: 'existing-secret',
+    };
+    const settings: SettingItem[] = [
+      { key: 'basemaps', value: [existingBasemap], source: 'overridden', label: 'basemaps' },
+    ];
+    render(
+      <SettingsMapTab
+        settings={settings}
+        envOnly={false}
+        onSave={vi.fn()}
+        onReset={vi.fn()}
+        isSaving={false}
+      />,
+    );
+
+    expectOptedOut(screen.getByPlaceholderText('••••••••'));
   });
 });

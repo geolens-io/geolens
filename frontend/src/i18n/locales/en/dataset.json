@@ -754,7 +754,7 @@
     "healthDetail": {
       "not_found": "The source resource was not found.",
       "item_withdrawn": "The STAC item was withdrawn.",
-      "unauthorized": "The source now requires access GeoLens does not have.",
+      "unauthorized": "The source refused the request because it requires credentials the dataset does not carry. Refresh with credentials to continue.",
       "server_error": "The source returned a server error.",
       "unexpected_status": "The source returned an unexpected response.",
       "timeout": "The source did not respond in time.",
