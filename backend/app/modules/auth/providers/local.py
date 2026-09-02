@@ -54,7 +54,7 @@ class LocalAuthProvider:
         Raises AuthenticationError on any failure (wrong user, wrong password,
         or deactivated account).
         """
-        # fix(#1715 codex r4 P1): FOR SHARE, not a bare SELECT. An admin reset
+        # fix(#1715 codex r4 P1): a locking read, not a bare SELECT. An admin reset
         # (POST /admin/users/{id}/reset-password/) holds FOR UPDATE on this row
         # while it writes the new hash and revokes the account's credentials.
         # Without a lock here, a login that read the row before that commit
@@ -65,9 +65,17 @@ class LocalAuthProvider:
         # session. Blocking here means the verify below runs against whatever
         # the reset committed, so the old password fails and nothing is minted.
         #
-        # FOR SHARE rather than FOR UPDATE so concurrent logins for one account
-        # still run in parallel; it conflicts only with the reset's FOR UPDATE,
-        # which is the single writer this has to serialize against.
+        # FOR NO KEY UPDATE, not FOR SHARE. The login handler assigns
+        # user.last_login_at, and that UPDATE needs FOR NO KEY UPDATE: under a
+        # shared lock two concurrent logins to one account would each hold FOR
+        # SHARE and then each try to upgrade, which is a deadlock Postgres
+        # resolves by aborting one otherwise-valid login (fix(#1715 codex r5)).
+        # Taking the write-compatible mode up front makes those two serialize
+        # for the few milliseconds of verify-plus-mint instead. It still does
+        # not conflict with FOR KEY SHARE, so foreign-key checks from other
+        # tables -- including this request's own refresh_tokens insert -- are
+        # not blocked, and it still conflicts with the reset's FOR UPDATE,
+        # which is the writer this has to serialize against.
         #
         # The lock is held to the end of the request transaction, which is what
         # keeps it covering the mint: the router commits after create_access_
@@ -78,7 +86,7 @@ class LocalAuthProvider:
         result = await self.db.execute(
             select(User)
             .where(func.lower(User.username) == func.lower(username))
-            .with_for_update(read=True)
+            .with_for_update(key_share=True)
         )
         user = result.scalar_one_or_none()
 

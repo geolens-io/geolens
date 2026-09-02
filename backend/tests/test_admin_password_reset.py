@@ -545,3 +545,92 @@ async def test_reset_is_not_outrun_by_a_racing_password_login(
     # The admin's value is the only one that works.
     assert (await _login(client, username, admin_value)).status_code == 200
     assert (await _login(client, username, old_password)).status_code == 401
+
+
+@pytest.mark.anyio
+async def test_two_concurrent_logins_to_one_account_both_succeed(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    """Locking the login row must not deadlock two logins to the same account.
+
+    fix(#1715 codex r5): the first version of the lock took FOR SHARE. The
+    login handler then assigns user.last_login_at, whose UPDATE needs FOR NO
+    KEY UPDATE, so two concurrent logins each held a shared lock and each tried
+    to upgrade it. Postgres breaks that cycle by aborting one of them, turning
+    an ordinary simultaneous sign-in into a failed login.
+
+    Runs against the real database rather than a double, because the deadlock
+    is a property of the lock modes and a fake would not have any.
+    """
+    _, username, password = await _create_local_user(client, admin_auth_header)
+    statuses: list[int] = []
+
+    async def _login_once() -> None:
+        resp = await client.post(
+            "/auth/login", data={"username": username, "password": password}
+        )
+        statuses.append(resp.status_code)
+
+    with anyio.fail_after(30):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(_login_once)
+            tg.start_soon(_login_once)
+
+    assert statuses == [200, 200], statuses
+
+
+@pytest.mark.anyio
+async def test_login_does_not_deadlock_against_a_shared_lock_then_write(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+):
+    """A login must not race another transaction into a lock upgrade.
+
+    fix(#1715 codex r5): the first version of this lock took FOR SHARE, and the
+    login handler goes on to assign user.last_login_at, whose UPDATE needs FOR
+    NO KEY UPDATE. Two transactions that both hold a shared lock on one row and
+    then both write to it deadlock, and Postgres resolves that by aborting one
+    of them -- turning an ordinary sign-in into a failed login.
+
+    The other party here is a transaction that shares-locks the row and then
+    writes it, which is exactly the shape the old login had. Driving it from a
+    second session makes the interleaving deterministic; two real logins in one
+    event loop cannot reproduce it, because the bcrypt verify is synchronous
+    and serializes them before their lock windows can overlap.
+
+    With the login taking FOR NO KEY UPDATE it waits at its own SELECT instead,
+    so the holder finishes and the login then succeeds. No upgrade, no cycle.
+    """
+    user_id, username, password = await _create_local_user(client, admin_auth_header)
+    target_uuid = uuid.UUID(user_id)
+    holder_locked = anyio.Event()
+    login_status: list[int] = []
+
+    async def shared_lock_then_write() -> None:
+        # Exactly what the pre-fix login did: shared lock, then touch the row.
+        await test_db_session.execute(
+            select(User).where(User.id == target_uuid).with_for_update(read=True)
+        )
+        holder_locked.set()
+        await anyio.sleep(0.5)
+        await test_db_session.execute(
+            update(User).where(User.id == target_uuid).values(last_login_at=func.now())
+        )
+        await test_db_session.commit()
+
+    async def racing_login() -> None:
+        await holder_locked.wait()
+        resp = await client.post(
+            "/auth/login", data={"username": username, "password": password}
+        )
+        login_status.append(resp.status_code)
+
+    with anyio.fail_after(30):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(shared_lock_then_write)
+            tg.start_soon(racing_login)
+
+    # Neither side was aborted: the login waited its turn and then succeeded.
+    assert login_status == [200], login_status
