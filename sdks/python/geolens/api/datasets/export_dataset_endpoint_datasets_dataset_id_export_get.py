@@ -92,6 +92,11 @@ def _parse_response(
 
         return response_404
 
+    if response.status_code == 412:
+        response_412 = ProblemDetail.from_dict(response.json())
+
+        return response_412
+
     if response.status_code == 413:
         response_413 = ProblemDetail.from_dict(response.json())
 

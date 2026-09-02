@@ -48,6 +48,7 @@ from app.standards.ogc.errors import (
     FORBIDDEN_RESPONSE,
     NOT_FOUND_RESPONSE,
     PAYLOAD_TOO_LARGE_RESPONSE,
+    PRECONDITION_FAILED_RESPONSE,
 )
 
 router = APIRouter(
@@ -309,7 +310,14 @@ def _head_export_response(dataset_title: str, format_key: str) -> Response:
 # route documents nothing the canonical one does not, and publishing it would
 # churn both SDKs and the CLI.
 @router.head("/{dataset_id}/export", include_in_schema=False)
-@router.get("/{dataset_id}/export", response_class=FileResponse)
+@router.get(
+    "/{dataset_id}/export",
+    response_class=FileResponse,
+    # fix(#1778): the handler raises 412 on both the
+    # cache-hit and rebuild branches (If-Match no longer matching); the
+    # published contract omitted it.
+    responses={412: PRECONDITION_FAILED_RESPONSE},
+)
 async def export_dataset_endpoint(
     dataset_id: uuid.UUID,
     request: Request,

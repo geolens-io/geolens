@@ -11,6 +11,13 @@ It also guards the ``backend`` filter (fix(#1088)): every ``scripts/`` file a
 backend test reads by literal path must be in that filter, or the suite that
 asserts against the file skips on the very PR that changes it.
 
+fix(#1778): the currency check above only scanned for
+``scripts/...`` literals — it had no ``frontend/...`` or ``e2e/...`` half, so
+several frontend files and one e2e spec that backend cross-language/parity
+tests read by literal path drifted out of the ``backend`` filter with nothing
+noticing. Both halves now share one scanner (``_referenced_by_backend_tests``)
+parameterized by pattern.
+
 These tests run locally (filesystem + YAML parse only; no Docker, no DB).
 They are the locally-verifiable proof of the CI fix (OCG-02).
 
@@ -68,13 +75,14 @@ def _parse_alembic_filter_globs() -> list[str]:
     return _parse_filter_globs("alembic")
 
 
-def _scripts_referenced_by_backend_tests() -> dict[str, list[str]]:
-    """Map each ``scripts/`` path a backend test names to the tests naming it.
+def _referenced_by_backend_tests(pattern: re.Pattern[str]) -> dict[str, list[str]]:
+    """Map each path matching *pattern* that a backend test names to the tests
+    naming it.
 
-    Literal-path reads only. A test that shells out to a script it never names
-    is invisible here, which is the limit of this guard, not a reason to skip it.
+    Literal-path reads only. A test that shells out to (or imports) a path it
+    never names is invisible here, which is the limit of this guard, not a
+    reason to skip it.
     """
-    pattern = re.compile(r"scripts/[A-Za-z0-9_./-]+\.(?:sh|py|yml|yaml)")
     found: dict[str, list[str]] = {}
     tests_dir = REPO_ROOT / "backend" / "tests"
     for path in sorted(tests_dir.rglob("*")):
@@ -88,6 +96,30 @@ def _scripts_referenced_by_backend_tests() -> dict[str, list[str]]:
             if (REPO_ROOT / ref).is_file():
                 found.setdefault(ref, []).append(path.name)
     return found
+
+
+_SCRIPTS_PATTERN = re.compile(r"scripts/[A-Za-z0-9_./-]+\.(?:sh|py|yml|yaml)")
+
+# fix(#1778): ``tsx`` MUST precede ``ts`` in the
+# extension alternation. The greedy path class backtracks into whichever
+# alternative matches first, so ``ts`` before ``tsx`` silently resolves
+# ``AuditLogViewer.tsx`` to the nonexistent ``AuditLogViewer.ts`` — the
+# ``is_file()`` check below then drops it, which is exactly how this file
+# went uncovered by the scanner (and the filter) for as long as it did.
+_FRONTEND_PATTERN = re.compile(
+    r"(?:frontend|e2e)/[A-Za-z0-9_./-]+\.(?:tsx|ts|json|conf|js|html|md)"
+)
+
+
+def _scripts_referenced_by_backend_tests() -> dict[str, list[str]]:
+    """Map each ``scripts/`` path a backend test names to the tests naming it."""
+    return _referenced_by_backend_tests(_SCRIPTS_PATTERN)
+
+
+def _frontend_referenced_by_backend_tests() -> dict[str, list[str]]:
+    """Map each ``frontend/``/``e2e/`` path a backend test names to the tests
+    naming it."""
+    return _referenced_by_backend_tests(_FRONTEND_PATTERN)
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +339,51 @@ class TestBackendFilterCoversReferencedScripts:
             "'backend' paths-filter in .github/workflows/ci.yml. A PR changing "
             "only one of them skips Backend Tests, so the test that asserts "
             "against it never runs:\n"
+            + "\n".join(
+                f"  - {ref}  (read by {', '.join(sorted(tests))})"
+                for ref, tests in sorted(uncovered.items())
+            )
+            + "\n\nAdd each path to the 'backend' filter."
+        )
+
+    def test_frontend_or_e2e_paths_read_by_backend_tests_are_in_the_backend_filter(
+        self,
+    ):
+        """Every frontend/ or e2e/ file a backend test reads must trigger
+        Backend Tests.
+
+        fix(#1778): the currency check above only had a
+        scripts/ half. Several frontend files and one e2e spec that backend
+        cross-language/parity tests read by literal path — most notably
+        frontend/src/components/admin/AuditLogViewer.tsx, which
+        test_audit_action_registry.py's bidirectional audit-action parity
+        gate reads — were absent from the 'backend' filter with nothing
+        checking for it. A PR editing only that file matched the 'frontend'
+        filter but not 'backend', so Backend Tests skipped and the parity
+        gate never ran. Same "skipped required job reads as green" trap as
+        the scripts/ test above.
+        """
+        referenced = _frontend_referenced_by_backend_tests()
+        assert referenced, (
+            "Found no frontend/ or e2e/ references in backend/tests — the "
+            "scan is probably broken, since several tests read them by "
+            "literal path."
+        )
+
+        globs = _parse_filter_globs("backend")
+        covered: set[str] = set()
+        for pattern in globs:
+            for match in glob.glob(str(REPO_ROOT / pattern), recursive=True):
+                covered.add(str(pathlib.Path(match).relative_to(REPO_ROOT)))
+
+        uncovered = {
+            ref: tests for ref, tests in referenced.items() if ref not in covered
+        }
+        assert not uncovered, (
+            "These frontend/ or e2e/ files are read by backend tests but are "
+            "NOT in the 'backend' paths-filter in .github/workflows/ci.yml. A "
+            "PR changing only one of them skips Backend Tests, so the test "
+            "that asserts against it never runs:\n"
             + "\n".join(
                 f"  - {ref}  (read by {', '.join(sorted(tests))})"
                 for ref, tests in sorted(uncovered.items())

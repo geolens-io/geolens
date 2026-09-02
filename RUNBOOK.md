@@ -1751,7 +1751,9 @@ endpoint reachability before the next scheduled run.
 `db/postgresql.conf` sets `logging_collector = on`, which routes all PostgreSQL
 output — slow-query lines (`log_min_duration_statement = 1000`), `auto_explain`
 plans, checkpoint activity — into daily-rotated files inside the pgdata volume.
-Read them with:
+The filename is keyed by day of week and each day's file is truncated on
+rotation, so the directory holds at most 7 files regardless of volume. Read
+them with:
 
 ```bash
 docker compose exec db sh -c 'ls -t "$PGDATA/log/"'

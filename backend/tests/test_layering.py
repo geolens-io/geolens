@@ -2159,7 +2159,10 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # fix(#1204): +20 lines — the published-maps listing takes sort/order as
     # closed enums, with the descriptions that say which columns are absent
     # (link status) and why.
-    "backend/app/modules/admin/router_operations.py": 316,
+    # fix(#1778): +4 lines — POST /admin/api-keys/
+    # documents the 409 it raises for a pending/suspended/deactivated
+    # target user, closing a gap the repaired OpenAPI-contract gate surfaced.
+    "backend/app/modules/admin/router_operations.py": 320,
     # PRIV-1: +7 lines — GET /settings/branding/ also resolves and returns
     # PRIVACY_URL, so the login/register privacy-policy link is admin
     # configurable instead of a hardcoded getgeolens.com URL.
@@ -4484,7 +4487,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # through the existing PyJWTError path instead of falling through to the
     # new anonymous return None as if no token were supplied. Cap
     # 1490 -> 1548, exact.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1548,
+    # fix(#1778): +3 lines — download_cog documents the
+    # 412 its If-Match branch raises, closing a gap the repaired
+    # OpenAPI-contract gate surfaced. Cap 1548 -> 1551, exact.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1551,
     # fix(#1532 review r29): first entry — crossed _RATCHET_INCLUSION_LOC. The
     # export artifact cache: everything is in the key (stamp, size, digest,
     # nonce), freshness and reclamation read one publication bound that is a

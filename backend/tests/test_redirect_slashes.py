@@ -264,35 +264,60 @@ class TestAllTrailingSlashRoutesAcceptBothShapes:
     async def test_every_trailing_slash_route_has_no_slash_sibling(
         self,
     ) -> None:
-        """Enumerate app.routes and assert dual-shape coverage.
+        """Enumerate the flattened route table and assert dual-shape coverage.
 
         The sweep covers ALL trailing-slash registered routes under
         ``/api/``. Adding a new trailing-slash-only route without a
         sibling will fail this test, surfacing the missing alias.
-        """
-        from app.api.main import app
-        from fastapi.routing import APIRoute
 
-        # Collect (method, path) for every APIRoute.
+        fix(#1778): this used to walk ``app.routes``
+        directly (``isinstance(route, APIRoute)``), which fastapi 0.140
+        stopped flattening for included routers — the walk saw 0 of 168
+        real trailing-slash (method, path) pairs and stayed green
+        regardless of coverage. ``_iter_api_routes`` reads the flattened
+        table, and ``ctx.path`` (not ``ctx.route.path``) carries the
+        parent-router prefix nested includes drop. The floor assertions
+        below turn a future lazy-scan regression into a loud failure
+        rather than a silent no-op (same shape as
+        test_rule1_structural.py::test_route_walk_sees_the_full_route_table).
+        """
+        from app.api.main import _iter_api_routes, app
+
+        contexts = _iter_api_routes(app)
+
+        # Collect (method, path) for every APIRoute, from the flattened walk.
         registered: set[tuple[str, str]] = set()
-        for route in app.routes:
-            if not isinstance(route, APIRoute):
-                continue
-            for method in route.methods:
+        for ctx in contexts:
+            for method in ctx.route.methods:
                 if method in ("HEAD", "OPTIONS"):
                     # FastAPI auto-adds HEAD for GET routes; skip noise.
                     continue
-                registered.add((method, route.path))
+                registered.add((method, ctx.path))
 
         # For every trailing-slash route (excluding the root ``/``), the
         # no-slash sibling must also be registered for the same method.
         missing: list[tuple[str, str]] = []
+        trailing_slash_pairs = 0
         for method, path in sorted(registered):
             if not path.endswith("/") or path == "/":
                 continue
+            trailing_slash_pairs += 1
             no_slash = path.rstrip("/")
             if (method, no_slash) not in registered:
                 missing.append((method, path))
+
+        assert len(contexts) > 200, (
+            f"route walk saw only {len(contexts)} APIRoute contexts — "
+            "expected the flattened table (>200). fastapi's lazy "
+            "include_router behavior has likely changed; fix the walk "
+            "before trusting this test."
+        )
+        assert trailing_slash_pairs > 100, (
+            f"route walk saw only {trailing_slash_pairs} trailing-slash "
+            "(method, path) pairs — expected the flattened table (>100). "
+            "fastapi's lazy include_router behavior has likely changed; "
+            "fix the walk before trusting this test."
+        )
 
         assert not missing, (
             f"ROUTE-01 dual-shape coverage gap: {len(missing)} "

@@ -74,6 +74,7 @@ from app.platform.storage.titiler_url import resolve_storage_key
 from app.standards.ogc.errors import (
     ERROR_RESPONSES_PUBLIC,
     FORBIDDEN_RESPONSE,
+    PRECONDITION_FAILED_RESPONSE,
     SERVICE_UNAVAILABLE_RESPONSE,
 )
 from app.standards.ogc.utils import normalize_language_tag, parse_accept_languages
@@ -923,7 +924,9 @@ async def _resolve_download_user(
 @router.get(
     "/{dataset_id}/download/cog",
     response_class=Response,
-    responses={403: FORBIDDEN_RESPONSE},
+    # fix(#1778): the ranged-download branch raises 412
+    # on a failed If-Match; the published contract omitted it.
+    responses={403: FORBIDDEN_RESPONSE, 412: PRECONDITION_FAILED_RESPONSE},
 )
 async def download_cog(
     dataset_id: uuid.UUID,

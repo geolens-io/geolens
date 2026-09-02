@@ -7,8 +7,6 @@ import inspect
 import re
 import textwrap
 
-from fastapi.routing import APIRoute
-
 from app.api.main import _iter_api_routes, app
 
 
@@ -342,26 +340,43 @@ def test_internal_pagination_prefers_skip_with_deprecated_offset_alias() -> None
 
 
 def test_direct_route_http_exceptions_are_documented() -> None:
-    """Prevent direct handler raises from drifting beyond OpenAPI responses."""
+    """Prevent direct handler raises from drifting beyond OpenAPI responses.
+
+    fix(#1778): this used to walk ``app.routes``
+    directly, which fastapi 0.140 stopped flattening for included routers —
+    the walk saw 1 of 265 operations (``/health``, which raises nothing) and
+    stayed green regardless of what the other 264 handlers raised.
+    ``_iter_api_routes`` reads the flattened table instead, and the floor
+    assertion below turns any future lazy-scan regression into a loud
+    failure rather than a silent no-op (same shape as
+    test_rule1_structural.py::test_route_walk_sees_the_full_route_table).
+    """
     spec = _openapi()
     missing: list[str] = []
+    contexts = _iter_api_routes(app)
 
-    for route in app.routes:
-        if not isinstance(route, APIRoute) or not route.include_in_schema:
+    for ctx in contexts:
+        route = ctx.route
+        if not route.include_in_schema:
             continue
         raised = _direct_http_exception_statuses(route.endpoint)
         if not raised:
             continue
         for method in route.methods or ():
-            operation = spec["paths"][route.path_format].get(method.lower())
+            operation = spec["paths"][ctx.path_format].get(method.lower())
             if operation is None:
                 continue
             documented = {
                 int(code) for code in operation["responses"] if code.isdigit()
             }
             for status_code in sorted(raised - documented):
-                missing.append(f"{method} {route.path_format}: {status_code}")
+                missing.append(f"{method} {ctx.path_format}: {status_code}")
 
+    assert len(contexts) > 200, (
+        f"route walk saw only {len(contexts)} APIRoute contexts — expected "
+        "the flattened table (>200). fastapi's lazy include_router behavior "
+        "has likely changed; fix the walk before trusting this test."
+    )
     assert missing == []
 
 
