@@ -2664,6 +2664,18 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
         )
         return recorded
 
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
     @staticmethod
     def _pages(*nexts: str | None):
         """A handler serving one feature per page, each naming the next."""
@@ -2744,7 +2756,12 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
         pair = build_credential_header(credential)
         assert pair is not None
         recorded = self._transport(
-            monkeypatch, self._pages(f"{_FOREIGN}/oapif/collections/c1/items", None)
+            monkeypatch,
+            # `?page=1` so the foreign page is the LAST one. The chain has to
+            # end: otherwise the page cap refuses it (fix #1746 B2b review r18)
+            # and the leak this exists to demonstrate hides behind a different
+            # refusal.
+            self._pages(f"{_FOREIGN}/oapif/collections/c1/items?page=1", None),
         )
         monkeypatch.setattr(
             "app.platform.service_items.same_origin", lambda *args: True
@@ -2785,11 +2802,9 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
         assert len(document["features"]) == 2
         assert len(recorded) == 2
 
-    async def test_an_endless_chain_is_bounded(self, monkeypatch, tmp_path) -> None:
-        """A service that always answers `next` is a fetch loop holding a key."""
-        credential, _value_ = _header_key()
-        pair = build_credential_header(credential)
-        assert pair is not None
+    @staticmethod
+    def _endless(features_per_page: int = 0):
+        """A service that never stops offering `next`."""
         base = f"{_SVC_OAPIF}/collections/c1/items"
 
         def handle(request: httpx.Request) -> httpx.Response:
@@ -2797,23 +2812,89 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
             return _streamed(
                 {
                     "type": "FeatureCollection",
-                    "features": [],
+                    "features": [
+                        {
+                            "type": "Feature",
+                            "id": f"f{page}-{n}",
+                            "geometry": {"type": "Point", "coordinates": [0, 0]},
+                            "properties": {},
+                        }
+                        for n in range(features_per_page)
+                    ],
                     "links": [{"rel": "next", "href": f"{base}?page={page + 1}"}],
                 }
             )
 
-        recorded = self._transport(monkeypatch, handle)
+        return handle
+
+    async def test_a_chain_still_offering_next_at_the_cap_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """fix(#1746 B2b review r18): a prefix is not a collection.
+
+        The cap used to close the array and return the file, so a service that
+        only partly honours `limit`, or a collection past ten thousand pages,
+        produced a short extract that read as a complete one. The worker
+        imports what it is given and would have replaced a dataset with it.
+        """
+        recorded = self._transport(monkeypatch, self._endless(features_per_page=1))
         monkeypatch.setattr("app.platform.service_items.MAX_PAGES", 4)
 
-        path = await materialise_oapif_items(
-            _SVC_OAPIF,
-            "c1",
-            credential_line=f"{pair[0]}: {pair[1]}",
-            staging_dir=tmp_path,
-        )
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
 
         assert len(recorded) == 4
-        assert json.loads(pathlib.Path(path).read_text())["features"] == []
+        # Nothing to import, which is the point: a truncated read fails loud
+        # rather than arriving as data.
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_the_worker_refuses_rather_than_importing_a_prefix(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The side that would have written the truncation into a dataset."""
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        self._transport(monkeypatch, self._endless(features_per_page=1))
+        monkeypatch.setattr("app.platform.service_items.MAX_PAGES", 3)
+        monkeypatch.setattr(
+            "app.core.config.settings.upload_staging_dir", str(tmp_path)
+        )
+
+        async def _fake_exec(*cmd, **kwargs):
+            raise AssertionError("ogr2ogr must not run against a partial collection")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+        with pytest.raises(ItemFetchFailedError):
+            await run_ogr2ogr_service(
+                gdal_source=f"OAPIF:{_SVC_OAPIF}",
+                layer_name="c1",
+                table_name="t",
+                db_conn_str="PG:dummy",
+                service_type="ogcapi_features",
+                token=f"{pair[0]}: {pair[1]}",
+                schema="data",
+            )
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_preview_that_got_its_sample_still_succeeds(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The one caller allowed to stop with `next` still on offer.
+
+        A preview asked for five rows and has five rows. The endless chain
+        behind them is not its problem, and refusing here would make every
+        large collection unpreviewable.
+        """
+        self._transport(monkeypatch, self._endless(features_per_page=2))
+        monkeypatch.setattr("app.platform.service_items.MAX_PAGES", 4)
+
+        path = await self._materialise(tmp_path, feature_limit=5)
+
+        document = json.loads(pathlib.Path(path).read_text())
+        assert len(document["features"]) == 5
 
     async def test_a_next_that_will_not_parse_is_refused(
         self, monkeypatch, tmp_path

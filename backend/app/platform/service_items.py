@@ -67,6 +67,7 @@ logger = structlog.stdlib.get_logger(__name__)
 # written. Counting the output measured the wrong thing, because a page is
 # decoded before any feature of it is written and the decode is where the
 # memory goes.
+# Reaching either is a refusal, never a short answer: see `_walk_pages`.
 MAX_PAGES = 10_000
 MAX_BYTES = 2 * 1024 * 1024 * 1024
 
@@ -254,6 +255,14 @@ async def _walk_pages(
                 # paid with this credential.
                 raise ItemFetchFailedError("next page leaves the origin")
             page_url = following
+    if page_url is not None:
+        # fix(#1746 B2b review r18): the page cap was reached and the service
+        # still had more to give. Closing the array here would return a prefix
+        # that reads as a complete collection, and the worker would import it
+        # over an existing dataset: a silent truncation nothing downstream
+        # could detect. A preview that reached its sample size has already set
+        # `page_url` to None, so this only fires on a genuinely short read.
+        raise ItemFetchFailedError("collection exceeds the page cap")
     out.write("]}")
     return pages, written
 
@@ -291,8 +300,11 @@ async def materialise_oapif_items(
 
     Raises :class:`ItemFetchFailedError` for a page that cannot be read, a page
     that exceeds the size bound, a ``next`` that leaves the submitted origin,
-    and the deadline; the file is removed before any of them escape, so a
-    failure leaves nothing behind.
+    the deadline, and a chain still offering a ``next`` at ``MAX_PAGES``; the
+    file is removed before any of them escape, so a failure leaves nothing
+    behind. Every bound here refuses rather than stopping short, because the
+    caller cannot tell a prefix from a collection and the worker would import
+    one over an existing dataset.
     """
     headers = _credential_headers(credential_line)
     handle, path = tempfile.mkstemp(
