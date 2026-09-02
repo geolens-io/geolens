@@ -7772,7 +7772,7 @@ export interface components {
             source_health: string;
             /**
              * Source Health Detail
-             * @description Why the origin is not healthy, as one of a fixed set of GeoLens codes: blocked_by_policy, item_withdrawn, network_error, not_found, server_error, timeout, unauthorized, unexpected_status. Null when healthy or never probed. Never provider text, a URL, or a response body — nothing the origin sent is stored here.
+             * @description Why the origin is not healthy, as one of a fixed set of GeoLens codes: auth_required, blocked_by_policy, item_withdrawn, network_error, not_found, server_error, timeout, unauthorized, unexpected_status. Null when healthy or never probed. Never provider text, a URL, or a response body — nothing the origin sent is stored here.
              */
             source_health_detail?: string | null;
             /**
@@ -11992,7 +11992,7 @@ export interface components {
             source_health: "healthy" | "missing" | "inaccessible";
             /**
              * Source Health Detail
-             * @description Why the origin is not healthy, as one of a fixed set of GeoLens codes: blocked_by_policy, item_withdrawn, network_error, not_found, server_error, timeout, unauthorized, unexpected_status. Null when healthy or never probed. Never provider text, a URL, or a response body — nothing the origin sent is stored here.
+             * @description Why the origin is not healthy, as one of a fixed set of GeoLens codes: auth_required, blocked_by_policy, item_withdrawn, network_error, not_found, server_error, timeout, unauthorized, unexpected_status. Null when healthy or never probed. Never provider text, a URL, or a response body — nothing the origin sent is stored here.
              */
             source_health_detail?: string | null;
             /**

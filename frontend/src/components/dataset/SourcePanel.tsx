@@ -67,7 +67,10 @@ type HealthDetail =
   | 'unexpected_status'
   | 'timeout'
   | 'network_error'
-  | 'blocked_by_policy';
+  | 'blocked_by_policy'
+  // fix(#1746): separate from 'unauthorized', whose copy says the source "now
+  // requires" access — wrong for a service that has been org-only all along.
+  | 'auth_required';
 
 const HEALTH_DETAILS = new Set<HealthDetail>([
   'not_found',
@@ -78,6 +81,7 @@ const HEALTH_DETAILS = new Set<HealthDetail>([
   'timeout',
   'network_error',
   'blocked_by_policy',
+  'auth_required',
 ]);
 
 const healthClasses: Record<SourceHealth, string> = {

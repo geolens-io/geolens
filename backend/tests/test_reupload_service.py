@@ -49,6 +49,7 @@ async def _create_service_reupload_job(
     source_url: str = "https://example.com/wfs",
     source_layer: str = "roads",
     source_filename: str = "Roads Layer",
+    refresh: bool = False,
 ) -> IngestJob:
     job = IngestJob(
         dataset_id=dataset_id,
@@ -63,6 +64,10 @@ async def _create_service_reupload_job(
             "service_type": "WFS 2.0.0",
             "layer_id": None,
             "source_type": "service_url",
+            # fix(#1746): router_refresh stamps this; reupload_commit does
+            # not. It is the only thing separating the two doors inside a
+            # task that serves both.
+            **({"refresh": True} if refresh else {}),
         },
     )
     session.add(job)
@@ -136,10 +141,16 @@ class TestServiceReuploadCommitDispatch:
 
 
 class TestServiceReuploadWorker:
+    @pytest.mark.parametrize(
+        "worker_token",
+        ["runtime-token", None],
+        ids=["with_token", "without_token"],
+    )
     async def test_reupload_service_preserves_identity_and_increments_version(
         self,
         client: AsyncClient,  # ensures app.database.async_session points to test DB
         test_db_session,
+        worker_token: str | None,
     ):
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
@@ -289,7 +300,7 @@ class TestServiceReuploadWorker:
                 source_url=job.source_url or "",
                 source_layer=job.source_layer or "",
                 user_id=str(admin_id),
-                token="runtime-token",
+                token=worker_token,
             )
 
         await test_db_session.refresh(dataset)
@@ -301,6 +312,19 @@ class TestServiceReuploadWorker:
         assert dataset.source_url == "https://services.example.com/wfs"
         assert dataset.source_format == "wfs"
         assert dataset.source_filename == "roads_wfs"
+
+        # fix(#1746): the swap records that the pull needed a credential, as a
+        # boolean. True or ABSENT, never False — a token-less success stores
+        # the ref shape it stored before the key existed, which is also how a
+        # service that went public gets un-marked. The token itself is never
+        # written to the dataset row, in any form.
+        origin_ref = dataset.origin_ref or {}
+        if worker_token is None:
+            assert "auth_required" not in origin_ref
+        else:
+            assert origin_ref["auth_required"] is True
+        assert "runtime-token" not in str(origin_ref)
+        assert "runtime-token" not in str(dataset.origin_uri)
 
         table_exists = await test_db_session.execute(
             text(
@@ -347,11 +371,28 @@ class TestServiceReuploadWorker:
         mock_quality_score.assert_awaited_once()
         mock_invalidate_catalog.assert_awaited_once_with()
 
+    @pytest.mark.parametrize(
+        ("refresh", "expected"),
+        [
+            (False, "Retry the re-upload with a service token"),
+            (True, "Retry the refresh with a service token"),
+        ],
+        ids=["reupload_commit", "refresh"],
+    )
     async def test_reupload_service_without_token_returns_retry_guidance_on_auth_failure(
         self,
         client: AsyncClient,  # ensures app.database.async_session points to test DB
         test_db_session,
+        refresh: bool,
+        expected: str,
     ):
+        """fix(#1746): the copy names the door the operator actually used.
+
+        One task serves the refresh endpoint and the re-upload commit, and the
+        old string said "Retry commit" on both — advice about a door half the
+        callers never came through. It also names the request field that fixes
+        it, since a token is request-only and there is nothing to un-expire.
+        """
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
         job = await _create_service_reupload_job(
@@ -360,6 +401,7 @@ class TestServiceReuploadWorker:
             created_by=admin_id,
             source_url="https://protected.example.com/wfs",
             source_layer="roads",
+            refresh=refresh,
         )
 
         with (
@@ -385,9 +427,7 @@ class TestServiceReuploadWorker:
                 "ogr2ogr failed (exit 1): HTTP error code : 401 Unauthorized"
             )
 
-            with pytest.raises(
-                IngestionError, match="Retry commit with a service token"
-            ):
+            with pytest.raises(IngestionError, match=expected):
                 await reupload_service(
                     job_id=str(job.id),
                     attempt_id=str(job.attempt_id),
@@ -400,4 +440,7 @@ class TestServiceReuploadWorker:
 
         await test_db_session.refresh(job)
         assert job.status == "failed"
-        assert "Retry commit with a service token" in (job.error_message or "")
+        assert expected in (job.error_message or "")
+        assert "`token` field" in (job.error_message or "")
+        # The door that was NOT used is never named.
+        assert "Retry commit with a service token" not in (job.error_message or "")

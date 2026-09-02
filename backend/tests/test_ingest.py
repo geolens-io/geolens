@@ -1643,3 +1643,180 @@ class TestCommitImportDispatch:
         assert "title" in body["detail"]  # e.g. "body.title: Field required"
         assert "Field required" in body["detail"] or "required" in body["detail"]
         assert mock_ingest_task.await_count == 0
+
+
+# ---------------------------------------------------------------------------
+# fix(#1746): the auth_required marker on a first service import
+# ---------------------------------------------------------------------------
+
+
+class TestServiceImportAuthRequiredMarker:
+    """A token-bearing first import records that the origin wanted one.
+
+    The marker is what lets the refresh door refuse a credential-less refresh
+    of an org-only service instead of answering 202 and failing in the worker
+    half a second later. It is written HERE, at the swap, from the credential
+    the fetch actually used — a request door only ever knows a token was
+    offered, which is a different claim.
+    """
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "worker_token",
+        ["service-token", None],
+        ids=["with_token", "without_token"],
+    )
+    async def test_the_swap_marks_only_a_token_bearing_import(
+        self,
+        client: AsyncClient,  # points app.core.db.async_session at the test DB
+        test_db_session,
+        monkeypatch,
+        worker_token: str | None,
+    ) -> None:
+        from sqlalchemy import text
+
+        import app.core.db as db_module
+        from app.modules.catalog.datasets.domain.models import Dataset
+        from app.processing.ingest import tasks_vector
+        from app.platform.jobs.heartbeat import attempt_scoped_staging_table
+        from tests.factories import get_user_id
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        table_name = f"tbl_svc_{uuid.uuid4().hex[:8]}"
+
+        job = IngestJob(
+            source_filename="Roads",
+            source_url="https://services.example.com/svc/FeatureServer",
+            source_layer="0",
+            created_by=admin_id,
+            status="pending",
+            user_metadata={
+                "title": f"Roads {uuid.uuid4().hex[:6]}",
+                "visibility": "private",
+                "service_type": "ArcGIS FeatureServer",
+                "layer_id": "0",
+                "geometry_type": None,
+            },
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+        attempt_id = job.attempt_id
+        assert attempt_id is not None
+
+        staging = attempt_scoped_staging_table(table_name, attempt_id)
+
+        async def _fake_generate_table_name(*_args, **_kwargs):
+            return table_name, None
+
+        async def _fake_import(_import_fn, _source_layer, **_kwargs) -> None:
+            """Stands in for the whole fetch: just land the staging table."""
+            async with db_module.async_session() as session:
+                await session.execute(text(f'DROP TABLE IF EXISTS data."{staging}"'))
+                await session.execute(
+                    text(
+                        f'CREATE TABLE data."{staging}" '
+                        "(gid serial PRIMARY KEY, name text)"
+                    )
+                )
+                await session.commit()
+
+        async def _noop(*_args, **_kwargs) -> None:
+            return None
+
+        monkeypatch.setattr("app.platform.security.validate_url_for_ssrf", AsyncMock())
+        monkeypatch.setattr(
+            "app.processing.ingest.service.generate_table_name",
+            _fake_generate_table_name,
+        )
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr.build_pg_conn_str", lambda: "PG:"
+        )
+        monkeypatch.setattr(
+            tasks_vector, "_run_service_import_with_wfs_fallback", _fake_import
+        )
+        monkeypatch.setattr(tasks_vector, "_emit_billing_event", _noop)
+
+        with (
+            patch(
+                "app.processing.ingest.metadata.ensure_geom_column",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "app.processing.ingest.metadata.clip_to_mercator_bounds",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.processing.ingest.metadata.add_4326_column",
+                new_callable=AsyncMock,
+            ),
+            # Mocked so this never touches cluster-global role grants, which
+            # would force the module into the tenancy serialization group for
+            # one assertion about a JSONB key.
+            patch(
+                "app.processing.ingest.metadata.grant_reader_access",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.processing.ingest.metadata.extract_metadata",
+                new_callable=AsyncMock,
+                return_value={
+                    "srid": 4326,
+                    "geometry_type": "POINT",
+                    "feature_count": 3,
+                    "extent_wkt": "POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))",
+                    "column_info": [],
+                },
+            ),
+            patch(
+                "app.processing.ingest.metadata.get_sample_values",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch(
+                "app.processing.ingest.metadata.refresh_attribute_metadata",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.processing.ingest.metadata.compute_quality_score",
+                new_callable=AsyncMock,
+                return_value={"overall": 90},
+            ),
+        ):
+            try:
+                await tasks_vector.ingest_service.func(
+                    job_id=str(job.id),
+                    attempt_id=str(attempt_id),
+                    source_url="https://services.example.com/svc/FeatureServer",
+                    source_layer="0",
+                    user_id=str(admin_id),
+                    token=worker_token,
+                )
+
+                dataset = (
+                    await test_db_session.execute(
+                        select(Dataset).where(Dataset.table_name == table_name)
+                    )
+                ).scalar_one()
+
+                origin_ref = dataset.origin_ref or {}
+                if worker_token is None:
+                    # Absent, not False: an unauthenticated pull stores the
+                    # exact ref shape it stored before the key existed, which
+                    # is why no backfill is owed for existing rows.
+                    assert "auth_required" not in origin_ref
+                else:
+                    assert origin_ref["auth_required"] is True
+                # A boolean, never the credential, anywhere on the row.
+                assert "service-token" not in str(origin_ref)
+                assert "service-token" not in str(dataset.origin_uri)
+            finally:
+                async with db_module.async_session() as session:
+                    await session.execute(
+                        text(f'DROP TABLE IF EXISTS data."{table_name}" CASCADE')
+                    )
+                    await session.execute(
+                        text(f'DROP TABLE IF EXISTS data."{staging}" CASCADE')
+                    )
+                    await session.commit()

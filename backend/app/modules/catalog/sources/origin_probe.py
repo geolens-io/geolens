@@ -53,6 +53,10 @@ from typing import Any
 
 import httpx
 
+from app.modules.catalog.sources.adapters.arcgis import (
+    build_arcgis_count_query_url,
+)
+from app.modules.catalog.sources.adapters.wfs import build_capabilities_url
 from app.platform.security import (
     SSRFError,
     SSRFResolutionError,
@@ -86,6 +90,11 @@ UNEXPECTED_STATUS = "unexpected_status"  # any other >= 400
 TIMEOUT = "timeout"
 NETWORK_ERROR = "network_error"  # connect failure, DNS, TLS, bad redirect chain
 BLOCKED_BY_POLICY = "blocked_by_policy"  # SSRF validation refused the target
+# fix(#1746): the origin wants a credential we do not hold. Separate from
+# UNAUTHORIZED, whose shipped copy says the source "now requires" access —
+# that misdescribes a service which has been org-only since the day it was
+# imported, which is the common case for an ArcGIS 499.
+AUTH_REQUIRED = "auth_required"
 
 DETAIL_CODES: frozenset[str] = frozenset(
     {
@@ -97,8 +106,15 @@ DETAIL_CODES: frozenset[str] = frozenset(
         TIMEOUT,
         NETWORK_ERROR,
         BLOCKED_BY_POLICY,
+        AUTH_REQUIRED,
     }
 )
+
+# fix(#1746): the two ways an origin can say "you need a credential I do not
+# hold" — ArcGIS's error envelope inside a 200, and a plain 401/403 from
+# everything else. They are one fact to a caller deciding whether to ask for a
+# token, so the set is named once here rather than spelled out at each reader.
+AUTH_CHALLENGE_DETAILS: frozenset[str] = frozenset({UNAUTHORIZED, AUTH_REQUIRED})
 
 # "The origin answered and the resource is gone." 404 and 410 only.
 _GONE_STATUSES = frozenset({404, 410})
@@ -122,6 +138,13 @@ class OriginProbeResult:
     # SSRF refusal did contact the first hop, but under-stamping a contact
     # is recoverable while fabricating one is not.
     contacted: bool = True
+    # fix(#1746 codex post-rebase): the body came back sub-400 but exceeded
+    # `max_bytes`, so it was never parsed. Deliberately NOT a detail code: the
+    # persisted vocabulary is a wire contract every consumer enumerates, and
+    # this is an internal fact one caller needs to interpret its own silence.
+    # The verdict stays `inaccessible`/`unexpected_status` for everyone who
+    # does not ask.
+    oversized: bool = False
 
     @property
     def ok(self) -> bool:
@@ -234,10 +257,134 @@ async def probe_remote_uri(
     return _status_result(status_code)
 
 
+# ArcGIS reports auth refusals as an error envelope inside an HTTP 200 body:
+# 499 "Token Required" for an org-only service, 498 for a token it rejected.
+# A status-code probe reads both as healthy, which is the false positive this
+# closes (#1746 finding 12).
+_ARCGIS_AUTH_ERROR_CODES = frozenset({498, 499})
+
+
+async def probe_arcgis_origin(
+    uri: str, *, timeout: float = PROBE_TIMEOUT_SECONDS
+) -> OriginProbeResult:
+    """Probe an ArcGIS FeatureServer layer and read its error envelope.
+
+    Named for the question it asks, like its siblings ``probe_remote_uri`` and
+    ``probe_service_origin``: this is about an ORIGIN, a pointer GeoLens
+    already stored. Does it still answer, and is it asking us to authenticate.
+
+    Deliberately not ``probe_arcgis_service``, which is taken in this package
+    by the import-time DETECTOR in ``sources/adapters/arcgis.py`` — that one
+    takes a client and a token, asks whether a URL is a FeatureServer at all,
+    and answers with layer metadata. Two functions with one name in one
+    package is a trap, and it got closer once this module started importing
+    from ``adapters/`` for the WFS URL builder.
+
+    Reads the body, so it inherits ``fetch_json_document``'s size cap, and an
+    oversized sub-400 answer is resolved in the origin's favour — see the
+    comment at that branch.
+
+    fix(#1746 codex r6): probes ``<layer>/query``, not the layer document.
+    ``build_gdal_source`` composes ``<layer>/query?...`` and that is what the
+    worker fetches, while a deployment that serves layer METADATA publicly and
+    gates the query operation is ordinary. Probing the document would clear
+    such a service and hand it to the worker to fail on. ``uri`` is still the
+    stored layer pointer, because that is what both callers hold; the query
+    URL is composed from it by the one builder the count fetcher also uses.
+    """
+    try:
+        target = build_arcgis_count_query_url(uri)
+    except (ValueError, AttributeError):
+        # Let the fetch classify a malformed stored URL, rather than raising
+        # out of a handler that has already released its DB session.
+        target = uri
+    result, body, _final_url = await fetch_json_document(target, timeout=timeout)
+    if result.oversized:
+        # fix(#1746 codex post-rebase): the origin answered sub-400 with a
+        # body too big to parse. An ArcGIS auth envelope is a few hundred
+        # bytes and a returnCountOnly answer is smaller still, so whatever
+        # this is, it is not a refusal. Calling an origin that answered 200
+        # `inaccessible` because it answered at LENGTH is the false negative
+        # that mirrors the false positive this probe exists to close. The
+        # size limit stays where STAC needs it; only the reading of a hit
+        # limit changes.
+        return OriginProbeResult(HEALTHY)
+    if not result.ok:
+        return result
+    error = body.get("error") if isinstance(body, dict) else None
+    if isinstance(error, dict) and error.get("code") in _ARCGIS_AUTH_ERROR_CODES:
+        # No provider text: `source_health_detail` is served on every dataset
+        # read, and the closed vocabulary is what keeps it leak-proof.
+        return OriginProbeResult(INACCESSIBLE, AUTH_REQUIRED)
+    return result
+
+
+def service_probe_target(origin_ref: Any, origin_uri: str | None) -> str | None:
+    """The URL a probe of a service origin should contact, or ``None``.
+
+    fix(#1271 review): the target depends on the service type. Ingest stores
+    ``origin_uri`` as ``<base>/<layer identity>`` for provenance, and only
+    ArcGIS's flavor of that (``<base>/<numeric id>``) addresses a real HTTP
+    resource — the layer, from which :func:`probe_arcgis_origin` composes the
+    ``/query`` the worker actually reads (fix #1746 codex r6).
+    WFS and OGC API address layers through a typename or collection
+    parameter, so their enriched URI is a non-endpoint and probing it records
+    whatever the server's 404 fallback happens to say about a URL nobody
+    serves. For those two the canonical service base in ``origin_ref.url`` is
+    the thing whose reachability the answer describes, and for WFS the base
+    alone is not enough either: many servers 4xx a request without
+    ``service=WFS&request=GetCapabilities``, so the probe asks the same
+    question the import adapter asks, through the same URL builder. An OGC API
+    base is a plain JSON landing page and needs no parameters.
+
+    No fallback to ``origin_uri`` on the WFS and OGC API branches: migration
+    0036's legacy branch deliberately leaves ``url`` unset when the base is
+    not derivable, so the only value on hand is the non-endpoint, and probing
+    it would produce a false verdict. ``None`` means "nothing safe to probe",
+    which each caller answers in its own vocabulary.
+
+    fix(#1746): lifted out of ``router_health`` so the refresh door can decide
+    what to contact the same way the health endpoint does. It takes the two
+    stored columns rather than a ``Dataset`` so this module keeps its
+    independence from the catalog ORM.
+    """
+    ref = origin_ref if isinstance(origin_ref, dict) else {}
+    service_type = ref.get("service_type")
+    if service_type in ("wfs", "ogcapi_features"):
+        target = ref.get("url")
+        if target and service_type == "wfs":
+            target = build_capabilities_url(target)
+    else:
+        target = origin_uri or ref.get("url")
+    return target or None
+
+
+async def probe_service_origin(
+    target: str, service_type: str | None, *, timeout: float = PROBE_TIMEOUT_SECONDS
+) -> OriginProbeResult:
+    """Probe a service origin with the probe its service type needs.
+
+    fix(#1746): one place decides which probe answers for which service, so
+    the health endpoint and the refresh door cannot drift into disagreeing
+    about whether an ArcGIS 200 was healthy.
+    """
+    if service_type == "arcgis_featureserver":
+        return await probe_arcgis_origin(target, timeout=timeout)
+    return await probe_remote_uri(target, timeout=timeout)
+
+
 # "The origin answered, and what it said is not something GeoLens can act
-# on." One verdict for both shapes of that, because they are one fact to the
+# on." One VERDICT for both shapes of that, because they are one fact to the
 # person reading it and neither is a transport failure.
-_OVERSIZED_OR_UNREADABLE = OriginProbeResult(INACCESSIBLE, UNEXPECTED_STATUS)
+#
+# fix(#1746 codex post-rebase): two constants rather than one, because they
+# are no longer one fact to every CALLER. "Too big to parse" and "not JSON"
+# say different things about whether an ArcGIS auth envelope could have been
+# in there, and only the size case can be ruled out by arithmetic. The
+# health value and the detail code are identical, so nothing persisted or
+# served changes.
+_UNREADABLE_DOCUMENT = OriginProbeResult(INACCESSIBLE, UNEXPECTED_STATUS)
+_OVERSIZED_DOCUMENT = OriginProbeResult(INACCESSIBLE, UNEXPECTED_STATUS, oversized=True)
 
 
 async def fetch_json_document(
@@ -315,7 +462,7 @@ async def fetch_json_document(
                                 # Stop reading rather than stop the request:
                                 # leaving the context manager closes the
                                 # response, so nothing keeps arriving.
-                                return _OVERSIZED_OR_UNREADABLE, None, final_url
+                                return _OVERSIZED_DOCUMENT, None, final_url
     except (
         Exception
     ) as exc:  # broad: every transport failure means "could not determine"
@@ -336,7 +483,7 @@ async def fetch_json_document(
         # JSON is not a transport failure, and classifying it as one would
         # report `network_error` for an origin that answered perfectly well
         # with an HTML error page.
-        return _OVERSIZED_OR_UNREADABLE, None, final_url
+        return _UNREADABLE_DOCUMENT, None, final_url
 
 
 async def remote_asset_exists(asset_uri: str) -> bool:

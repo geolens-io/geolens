@@ -34,6 +34,7 @@ Six properties this suite exists to hold:
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -43,11 +44,13 @@ from httpx import AsyncClient
 
 from app.modules.catalog.sources.adapters.stac import self_link_href
 from app.modules.catalog.sources.origin_probe import (
+    AUTH_REQUIRED,
     BLOCKED_BY_POLICY,
     DETAIL_CODES,
     HEALTHY,
     INACCESSIBLE,
     ITEM_WITHDRAWN,
+    MAX_DOCUMENT_BYTES,
     MISSING,
     NETWORK_ERROR,
     NOT_FOUND,
@@ -55,6 +58,8 @@ from app.modules.catalog.sources.origin_probe import (
     TIMEOUT,
     UNAUTHORIZED,
     UNEXPECTED_STATUS,
+    fetch_json_document,
+    probe_arcgis_origin,
     probe_remote_uri,
     remote_asset_exists,
 )
@@ -100,6 +105,20 @@ def _status_map(mapping: dict[str, int], default: int = 200):
 
     def _handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(mapping.get(str(request.url), default))
+
+    return _handler
+
+
+def _json_body(payload, status: int = 200):
+    """fix(#1746): handler answering every URL with one JSON document.
+
+    The ArcGIS branch reads the body, so ``_status_map``'s empty response is
+    not a usable double for it — an empty body parses as neither an error
+    envelope nor a layer document.
+    """
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, json=payload)
 
     return _handler
 
@@ -846,12 +865,302 @@ class TestStacOriginProbe:
         assert resp.json()["source_health_detail"] == NOT_FOUND
 
 
+class TestArcgisAuthEnvelope:
+    """fix(#1746) finding 12: ArcGIS puts an auth refusal inside an HTTP 200.
+
+    A status-code probe reads 499 "Token Required" as healthy, so an org-only
+    layer that GeoLens can no longer read reports as fine. The health VALUE
+    stays ``inaccessible`` — the column's CHECK constraint pins three values
+    and a fourth would cost a migration — and the new information rides on
+    the detail code, which is a code and not a sentence for the same reason
+    every other one is.
+    """
+
+    _LAYER_URI = "https://origin.test/FeatureServer/0"
+
+    async def test_the_new_code_is_in_the_closed_vocabulary(self) -> None:
+        assert AUTH_REQUIRED in DETAIL_CODES
+
+    @pytest.mark.parametrize("code", [498, 499])
+    async def test_an_auth_envelope_inside_a_200_is_inaccessible(
+        self, probe_transport, code: int
+    ) -> None:
+        install, _ = probe_transport
+        install(_json_body({"error": {"code": code, "message": "Token Required"}}))
+        result = await probe_arcgis_origin(self._LAYER_URI)
+        assert result.health == INACCESSIBLE
+        assert result.detail == AUTH_REQUIRED
+        assert result.ok is False
+
+    async def test_a_public_layer_document_does_not_clear_a_gated_query(
+        self, probe_transport
+    ) -> None:
+        """fix(#1746 codex r6): the exact deployment the old target missed.
+
+        Serving layer metadata anonymously while requiring a token to run a
+        query is an ordinary ArcGIS configuration. The old probe read the
+        document, saw a healthy 200, and dispatched a refresh that the worker
+        could only fail — the metadata endpoint is not the one it reads.
+        """
+        install, recorded = probe_transport
+
+        def _public_metadata_gated_query(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/query"):
+                return httpx.Response(
+                    200, json={"error": {"code": 499, "message": "Token Required"}}
+                )
+            return httpx.Response(200, json={"id": 0, "name": "roads"})
+
+        install(_public_metadata_gated_query)
+        result = await probe_arcgis_origin(self._LAYER_URI)
+
+        assert result.health == INACCESSIBLE
+        assert result.detail == AUTH_REQUIRED
+        # And it never asked the endpoint that would have lied to it.
+        assert [r.url.path.endswith("/query") for r in recorded] == [True]
+
+    async def test_a_healthy_count_answer_probes_the_query_operation(
+        self, probe_transport
+    ) -> None:
+        """fix(#1746 codex r6): the probe asks what the WORKER asks.
+
+        ``build_gdal_source`` composes ``<layer>/query?...`` and that is what
+        ogr2ogr fetches. A service that serves the layer DOCUMENT publicly and
+        gates ``/query`` is an ordinary deployment, and probing the document
+        would clear it and hand it to the worker to fail on.
+        """
+        install, recorded = probe_transport
+        install(_json_body({"count": 4127}))
+        result = await probe_arcgis_origin(self._LAYER_URI)
+        assert result.health == HEALTHY
+        assert result.detail is None
+        assert len(recorded) == 1
+        assert recorded[0].url.path.endswith("/query")
+        assert recorded[0].url.params["returnCountOnly"] == "true"
+        assert recorded[0].url.params["where"] == "1=1"
+        assert recorded[0].url.params["f"] == "json"
+        # Token-less by construction: the door only probes when the request
+        # carried no token, and the health endpoint never has one.
+        assert "token" not in recorded[0].url.params
+
+    @pytest.mark.parametrize(
+        "stored",
+        ["?f=html", "/", "/query", "#frag"],
+        ids=["query_string", "trailing_slash", "already_query", "fragment"],
+    )
+    async def test_a_stored_pointer_is_normalized_before_the_query_is_composed(
+        self, probe_transport, stored: str
+    ) -> None:
+        """``origin_uri`` is provenance, not a curated endpoint.
+
+        It can arrive with a query string, a fragment, a trailing slash, or an
+        already-appended ``/query``. Every one of those has to compose to the
+        same endpoint rather than to ``.../0?f=html/query?...``.
+        """
+        install, recorded = probe_transport
+        install(_json_body({"count": 1}))
+        await probe_arcgis_origin(f"{self._LAYER_URI}{stored}")
+        assert str(recorded[0].url).startswith(f"{self._LAYER_URI}/query?")
+        assert recorded[0].url.params.get_list("f") == ["json"]
+        assert recorded[0].url.params["returnCountOnly"] == "true"
+
+    async def test_a_non_auth_envelope_is_left_alone(self, probe_transport) -> None:
+        """Only 498 and 499 are read.
+
+        Parsing the rest of the ArcGIS error space is the connector-
+        completeness contract ADR-002 leaves out of v1, and guessing at it
+        would report ``missing`` for services that still answer.
+        """
+        install, _ = probe_transport
+        install(_json_body({"error": {"code": 400, "message": "Invalid where"}}))
+        result = await probe_arcgis_origin(self._LAYER_URI)
+        assert result.health == HEALTHY
+
+    async def test_a_transport_verdict_still_wins(self, probe_transport) -> None:
+        """A 404 is still ``missing``; the envelope check runs after the status."""
+        install, _ = probe_transport
+        install(_status_map({}, default=404))
+        result = await probe_arcgis_origin(self._LAYER_URI)
+        assert result.health == MISSING
+        assert result.detail == NOT_FOUND
+
+    async def test_a_non_json_body_is_no_longer_called_healthy(
+        self, probe_transport
+    ) -> None:
+        """The accepted behavior change, pinned.
+
+        A FeatureServer answering ``?f=json`` with HTML is broken, and the
+        honest verdict is the new one rather than the ranged GET's ``healthy``.
+        """
+        install, _ = probe_transport
+
+        def _html(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text="<html>login</html>")
+
+        install(_html)
+        result = await probe_arcgis_origin(self._LAYER_URI)
+        assert result.health == INACCESSIBLE
+        assert result.detail == UNEXPECTED_STATUS
+
+    def _oversized_document(self) -> dict:
+        """A VALID ArcGIS document that runs past ``MAX_DOCUMENT_BYTES``.
+
+        Shaped as a layer with a long field list and coded-value domains,
+        because that is the real thing that gets there. The probe asks
+        ``/query`` now (fix #1746 codex r6), whose answer is a single count
+        and could never be this big — which is exactly why an oversized body
+        cannot be an auth envelope either, and is read as reachable.
+        """
+        return {
+            "id": 0,
+            "name": "roads",
+            "type": "Feature Layer",
+            "fields": [
+                {
+                    "name": f"field_{i}",
+                    "alias": f"Field number {i}",
+                    "type": "esriFieldTypeString",
+                    "domain": {
+                        "type": "codedValue",
+                        "name": f"domain_{i}",
+                        "codedValues": [
+                            {"name": f"coded value number {j}", "code": j}
+                            for j in range(60)
+                        ],
+                    },
+                }
+                for i in range(1200)
+            ],
+        }
+
+    async def test_a_body_too_large_to_parse_is_reachable_not_inaccessible(
+        self, probe_transport
+    ) -> None:
+        """fix(#1746 codex post-rebase): the false negative that mirrors the bug.
+
+        ``fetch_json_document`` stops reading at ``MAX_DOCUMENT_BYTES``, a cap
+        sized for STAC item documents. A real ArcGIS layer with a long field
+        list runs past it, and before this the probe reported that layer
+        ``inaccessible`` — a healthy HTTP 200 called unreachable because it
+        answered at length.
+
+        An auth envelope is a few hundred bytes, so a body too big to parse
+        cannot be one. That is the whole argument, and it is arithmetic rather
+        than a guess.
+        """
+        payload = self._oversized_document()
+        # Positive control on the fixture: if this stops exceeding the cap,
+        # the test below would pass while exercising nothing.
+        assert len(json.dumps(payload).encode()) > MAX_DOCUMENT_BYTES
+
+        install, recorded = probe_transport
+        install(_json_body(payload))
+        result = await probe_arcgis_origin(self._LAYER_URI)
+
+        assert result.health == HEALTHY
+        assert result.detail is None
+        assert result.ok is True
+        assert len(recorded) == 1
+
+    async def test_the_size_cap_still_stands_for_everyone_else(
+        self, probe_transport
+    ) -> None:
+        """The limit is not raised, only read differently by one caller.
+
+        STAC re-resolution needs the body it asked for, so an oversized item
+        document is still a verdict it cannot act on. Only the ArcGIS probe,
+        which reads the body for one specific small thing, resolves a hit cap
+        in the origin's favour.
+        """
+        install, _ = probe_transport
+        install(_json_body(self._oversized_document()))
+        result, body, _url = await fetch_json_document(_ITEM)
+
+        assert result.health == INACCESSIBLE
+        assert result.detail == UNEXPECTED_STATUS
+        assert body is None
+        # The internal signal the ArcGIS probe reads. Not a detail code: the
+        # persisted vocabulary is a wire contract, and this is not on it.
+        assert result.oversized is True
+        assert result.detail in DETAIL_CODES
+
+    async def test_an_unreadable_body_is_not_confused_with_an_oversized_one(
+        self, probe_transport
+    ) -> None:
+        """Same verdict, different fact, and the ArcGIS probe needs the split.
+
+        A short HTML error page is still ``inaccessible`` for ArcGIS: it fits
+        inside the cap, so it COULD have carried an envelope and did not.
+        """
+        install, _ = probe_transport
+
+        def _html(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text="<html>login</html>")
+
+        install(_html)
+        result, _body, _url = await fetch_json_document(_ITEM)
+        assert result.oversized is False
+
+        install(_html)
+        arcgis = await probe_arcgis_origin(self._LAYER_URI)
+        assert arcgis.health == INACCESSIBLE
+        assert arcgis.detail == UNEXPECTED_STATUS
+
+    async def test_end_to_end_an_oversized_layer_reports_healthy(
+        self, client, admin_auth_header, test_db_session, probe_transport
+    ) -> None:
+        install, _ = probe_transport
+        install(_json_body(self._oversized_document()))
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/source-health/", headers=admin_auth_header
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["source_health"] == HEALTHY
+        assert body["source_health_detail"] is None
+
+        await test_db_session.refresh(dataset)
+        assert dataset.source_health == HEALTHY
+        assert dataset.source_health_detail is None
+
+    async def test_end_to_end_persists_auth_required_and_leaks_nothing(
+        self, client, admin_auth_header, test_db_session, probe_transport
+    ) -> None:
+        install, _ = probe_transport
+        install(_json_body({"error": {"code": 499, "message": "Token Required"}}))
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/source-health/", headers=admin_auth_header
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["origin"] == "service"
+        assert body["source_health"] == INACCESSIBLE
+        assert body["source_health_detail"] == AUTH_REQUIRED
+        # The closed vocabulary is the leak guarantee: no provider text.
+        assert "Token Required" not in resp.text
+
+        await test_db_session.refresh(dataset)
+        assert dataset.source_health == INACCESSIBLE
+        assert dataset.source_health_detail in DETAIL_CODES
+        assert dataset.source_health_detail == AUTH_REQUIRED
+
+
 class TestServiceOriginProbe:
     async def test_reachable_service_endpoint_is_healthy(
         self, client, admin_auth_header, test_db_session, probe_transport
     ) -> None:
         install, recorded = probe_transport
-        install(_status_map({}, default=200))
+        # fix(#1746): the ArcGIS branch reads the body, so the double has to
+        # answer with a real document rather than an empty 200. fix(#1746
+        # codex r6): and the thing asked is the count query, so that is what
+        # comes back.
+        install(_json_body({"count": 4127}))
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _service_dataset(test_db_session, created_by=admin_id)
 
@@ -861,11 +1170,16 @@ class TestServiceOriginProbe:
         assert resp.status_code == 200, resp.text
         assert resp.json()["origin"] == "service"
         assert resp.json()["source_health"] == HEALTHY
-        # Bounded: the layer endpoint, once, ranged. For ArcGIS the enriched
-        # origin_uri IS the layer resource, so it is the sharper probe target.
+        # Bounded: one request, to the operation the worker depends on. The
+        # enriched origin_uri identifies the layer; the probe composes the
+        # `/query` from it. Asked as JSON rather than as a ranged GET, because
+        # the error envelope only exists in the JSON representation.
         assert len(recorded) == 1
-        assert str(recorded[0].url) == "https://origin.test/FeatureServer/0"
-        assert recorded[0].headers["Range"] == "bytes=0-0"
+        assert (
+            str(recorded[0].url) == "https://origin.test/FeatureServer/0/query"
+            "?where=1%3D1&returnCountOnly=true&f=json"
+        )
+        assert "Range" not in recorded[0].headers
 
     async def test_mid_probe_rebind_discards_the_stale_verdict(
         self, client, admin_auth_header, test_db_session, monkeypatch
@@ -881,13 +1195,16 @@ class TestServiceOriginProbe:
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _service_dataset(test_db_session, created_by=admin_id)
 
-        async def rebind_then_report_healthy(_uri) -> OriginProbeResult:
+        async def rebind_then_report_healthy(*_args, **_kwargs) -> OriginProbeResult:
             set_dataset_origin(dataset, "upload", filename="roads.gpkg")
             await test_db_session.commit()
             return OriginProbeResult(HEALTHY, None)
 
+        # fix(#1746): every service origin now goes through the one helper
+        # that picks a probe by service type, so this patches that rather than
+        # a specific probe and keeps asserting the rebind property.
         monkeypatch.setattr(
-            router_health, "probe_remote_uri", rebind_then_report_healthy
+            router_health, "probe_service_origin", rebind_then_report_healthy
         )
 
         resp = await client.post(
@@ -931,6 +1248,9 @@ class TestServiceOriginProbe:
             str(recorded[0].url)
             == "https://origin.test/wfs?service=WFS&request=GetCapabilities"
         )
+        # fix(#1746): still the ranged GET. Only the ArcGIS branch moved to a
+        # body-reading fetch; a WFS origin has no error envelope to read.
+        assert recorded[0].headers["Range"] == "bytes=0-0"
 
     async def test_legacy_wfs_row_without_a_base_url_refuses_to_probe(
         self, client, admin_auth_header, test_db_session, probe_transport

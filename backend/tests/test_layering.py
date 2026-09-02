@@ -3060,7 +3060,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # way a task can learn its own queue-row id) and the
     # `purge_token_on_failure` wrapper, plus the comment saying what the
     # context is for. Cap 1242 -> 1251, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1251,
+    # fix(#1746): +27 — the auth_required marker on the service swap's
+    # origin_ref (True or absent, never False, so a token-less pull stores the
+    # pre-marker ref shape and no backfill is owed), plus door-aware
+    # auth-failure copy. The old string said "Retry commit", which names a
+    # door neither caller came through: this task serves the refresh endpoint
+    # and the re-upload commit, and never a first import. Cap 1251 -> 1278,
+    # exact.
+    # fix(#1746 codex r1): +5 — the marker comment now states the claim
+    # narrowly ("the last successful pull was MADE with a token"), because the
+    # worker never sees a challenge on the happy path. Cap 1278 -> 1283, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1283,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -3083,7 +3093,43 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # business: an unverified first answer would be both adopted and recorded
     # as durable truth, and a caller who learns that immediately can act on
     # it, where one who learns it from a failed run cannot. Cap 1091 -> 1119.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1119,
+    # fix(#1746): +44 — the service_token_required 422, refusing a
+    # credential-less refresh of an origin whose last successful pull needed a
+    # token, before the SSRF resolve and before the run reservation. Extracted
+    # into its own helper rather than three lines in the handler, because
+    # refresh_dataset sits one branch under ruff's C901 ceiling and the repo's
+    # answer to that is extraction. Most of the addition is the docstring
+    # saying why the marker is not a permanent trap: the re-upload dialog with
+    # no token is the path that clears it. Cap 1119 -> 1163, exact.
+    # fix(#1746 codex r1): +37 — the marker records that a token was USED, not
+    # that the origin demanded one, so refusing on it alone locks a user who
+    # imported a public service while holding a token out of every token-less
+    # refresh. The guard now runs ONE token-less probe (through the health
+    # endpoint's own target and probe helpers, both lifted into origin_probe)
+    # and refuses only on an auth challenge; every other outcome falls through
+    # to the worker. Most of the addition is the docstring saying why it fails
+    # open. Cap 1163 -> 1200, exact.
+    # fix(#1746 codex r2): +82 — two corrections to the r1 guard. It probes
+    # only ArcGIS, whose target IS the layer the worker reads; WFS and OGC API
+    # are refused outright, because their probe target is GetCapabilities or
+    # the landing page and a public one of those in front of a protected
+    # GetFeature is an ordinary deployment, so a healthy answer would be
+    # evidence of nothing. And the probe path now releases the session across
+    # the outbound wait and re-reads after it, the way check_source_health
+    # does, so concurrent marked refreshes against a slow origin cannot
+    # exhaust the pool. Most of the addition is the docstring stating which
+    # services can be asked and why, plus the caller contract for the
+    # rollback. Cap 1200 -> 1282, exact.
+    # fix(#1746 codex r3): +62 — the marker is re-checked after the
+    # reservation. A token-less refresh could read an unmarked dataset, pass
+    # the guard, and have an authenticated re-upload of the same origin mark it
+    # inside the reservation window; the binding comparison there cannot see
+    # that, because `_ServiceOrigin` is the worker's binding and the origin did
+    # not move. Detects the TRANSITION rather than re-deciding, so a healthy
+    # ArcGIS probe is not overturned with no new evidence. Most of the addition
+    # is the docstring saying why it is not folded into the binding check and
+    # why it does not probe. Cap 1282 -> 1344, exact.
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1344,
     # fix(#1335): stac_resolve.py's 1040 lines were split along their natural
     # seams — verdict taxonomy, identity checks, the asset gate (SSRF + COG
     # probe), and the by-search fallback each moved into a sibling module,
@@ -3690,7 +3736,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # way a task can learn its own queue-row id) and the
     # `purge_token_on_failure` wrapper, plus the comment saying what the
     # context is for. Cap 1117 -> 1126, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1126,
+    # fix(#1746): +8 — the auth_required marker on a first service import's
+    # origin_ref, so a token-bearing import is refusable at the refresh door.
+    # One key and the comment saying why the value is True-or-None: absent
+    # means "not known to need auth", which is where every dataset imported
+    # before the marker sits. Cap 1126 -> 1134, exact.
+    # fix(#1746 codex r1): +9 — same narrowing of the marker comment, plus the
+    # note that the refresh door treats the key as a gate and not a verdict.
+    # Cap 1134 -> 1143, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1143,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern

@@ -2,7 +2,7 @@
 
 import asyncio
 import re
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 import httpx
 import structlog
@@ -258,6 +258,39 @@ async def enrich_arcgis_feature_counts(
     return list(enriched)
 
 
+def build_arcgis_count_query_url(layer_url: str, token: str | None = None) -> str:
+    """The bounded count query for one FeatureServer layer.
+
+    ``<layer>/query?where=1=1&returnCountOnly=true&f=json`` — the smallest
+    request that exercises the QUERY operation, which is the operation
+    ``build_gdal_source`` composes and the worker actually reads. It returns a
+    single integer no matter how large the layer is, so it is safe to issue
+    against anything.
+
+    fix(#1746 codex r6): extracted so the health probe can ask the same
+    question this function asks. A deployment that serves layer METADATA
+    publicly while gating ``/query`` is ordinary, and a probe of the layer
+    document would call it healthy and then fail in the worker. One builder,
+    so the probe and the count fetcher cannot drift into probing one endpoint
+    and depending on another.
+    """
+    # A stored origin_uri is provenance, not a curated endpoint: it can carry
+    # a query string, a fragment, or an already-appended /query. Strip all
+    # three before composing, the same way `normalize_arcgis_url` does, so the
+    # result is an endpoint rather than `.../0?f=html/query?...`.
+    clean = urlparse(layer_url)._replace(query="", fragment="").geturl().rstrip("/")
+    if clean.lower().endswith("/query"):
+        clean = clean[: -len("/query")].rstrip("/")
+    params: dict[str, str] = {
+        "where": "1=1",
+        "returnCountOnly": "true",
+        "f": "json",
+    }
+    if token:
+        params["token"] = token
+    return f"{clean}/query?{urlencode(params)}"
+
+
 async def fetch_arcgis_feature_count(
     base_url: str,
     layer_id: int | str,
@@ -267,15 +300,10 @@ async def fetch_arcgis_feature_count(
     """Fetch a layer feature count from ArcGIS REST query metadata."""
     base = base_url.rstrip("/")
     safe_layer_id = str(layer_id).strip("/")
-    params: dict[str, str] = {
-        "where": "1=1",
-        "returnCountOnly": "true",
-        "f": "json",
-    }
-    if token:
-        params["token"] = token
 
-    resp = await client.get(f"{base}/{safe_layer_id}/query", params=params)
+    resp = await client.get(
+        build_arcgis_count_query_url(f"{base}/{safe_layer_id}", token)
+    )
     resp.raise_for_status()
     data = resp.json()
     if "error" in data:

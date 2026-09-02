@@ -87,9 +87,9 @@ class DatasetResponse:
         source_health (str | Unset): healthy, missing, inaccessible, or unknown. 'unknown' means never probed, or an
             origin kind with nothing to probe. Default: 'unknown'.
         source_health_detail (None | str | Unset): Why the origin is not healthy, as one of a fixed set of GeoLens
-            codes: blocked_by_policy, item_withdrawn, network_error, not_found, server_error, timeout, unauthorized,
-            unexpected_status. Null when healthy or never probed. Never provider text, a URL, or a response body — nothing
-            the origin sent is stored here.
+            codes: auth_required, blocked_by_policy, item_withdrawn, network_error, not_found, server_error, timeout,
+            unauthorized, unexpected_status. Null when healthy or never probed. Never provider text, a URL, or a response
+            body — nothing the origin sent is stored here.
         schema_drift_status (str | Unset): none, drifted, or unknown. Set at refresh commit from the schema diff;
             'unknown' until a refresh has run. Default: 'unknown'.
         source_freshness (str | Unset): fresh, due, overdue, or unknown, computed from last_refreshed_at against the
