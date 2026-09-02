@@ -772,17 +772,33 @@ def publish(
                 # treat this one-shot diagnostic read as unreadable rather
                 # than letting the network error abort the command outright
                 # — the original outcome is still worth reporting.
-                snapshot_client = sdk.client.with_timeout(
+                #
+                # fix(#1778, codex round 6): `client.with_timeout()` MUTATES
+                # the already-constructed httpx transport in place before
+                # returning an "evolved" wrapper (sdks/python/geolens/
+                # client.py) — the evolved wrapper is a decoy; sdk.client's
+                # OWN transport keeps the 5s bound for the rest of the
+                # command's lifetime. Stage 5 (extras) reuses sdk.client, so
+                # that mutation silently capped every tags/collection
+                # request at 5s too. get_httpx_client() is the SDK's own
+                # public escape hatch (OCCLI-06, used the same way by
+                # upload_file() above); save its timeout, bound it for this
+                # one read, and restore it unconditionally.
+                snapshot_transport = sdk.client.get_httpx_client()
+                original_timeout = snapshot_transport.timeout
+                snapshot_transport.timeout = (
                     _publish._SNAPSHOT_REQUEST_TIMEOUT_SECONDS
                 )
                 try:
                     late_status, late_dataset_id = _analysis.job_snapshot(
-                        snapshot_client, job_id
+                        sdk.client, job_id
                     )
                 except typer.Exit as exc:
                     if exc.exit_code != EXIT_NETWORK:
                         raise
                     late_status, late_dataset_id = None, None
+                finally:
+                    snapshot_transport.timeout = original_timeout
                 if late_dataset_id:
                     dataset_id = late_dataset_id
             if dataset_id is None:
@@ -1497,25 +1513,40 @@ def analysis_materialize(
             # read is skipped for "terminal" and "token_expired" for the
             # same reasons as there.
             #
-            # fix(#1778, codex round 5): use a FRESH, short-bound client
-            # rather than poll_client, which may be unbounded (the default
-            # --wait with no --timeout) or bound to a long caller-supplied
-            # --timeout — either way a stalled connection on this one-shot
-            # diagnostic read would hang the command past the outcome it
-            # already reached. If it ALSO times out, treat the read as
-            # unreadable rather than letting the network error abort the
-            # command — see publish()'s equivalent comment above.
-            snapshot_client = sdk.client.with_timeout(
-                _publish._SNAPSHOT_REQUEST_TIMEOUT_SECONDS
-            )
+            # fix(#1778, codex round 5): bind a short timeout for this
+            # one-shot diagnostic read rather than reusing poll_client
+            # as-is, which may be unbounded (the default --wait with no
+            # --timeout) or bound to a long caller-supplied --timeout —
+            # either way a stalled connection here would hang the command
+            # past the outcome it already reached. If it ALSO times out,
+            # treat the read as unreadable rather than letting the network
+            # error abort the command — see publish()'s equivalent comment.
+            #
+            # fix(#1778, codex round 6): `client.with_timeout()` MUTATES
+            # the already-constructed httpx transport in place before
+            # returning an "evolved" wrapper (sdks/python/geolens/
+            # client.py) — the evolved wrapper is a decoy. Bind sdk.client
+            # (not poll_client, so this can't alias whatever transport the
+            # explicit-timeout path above already constructed) via its own
+            # transport directly: get_httpx_client() is the SDK's public
+            # escape hatch (OCCLI-06); save its timeout, bound it for this
+            # one read, and restore it unconditionally — matching
+            # publish()'s fix, and cheap insurance against a future
+            # materialize change reusing sdk.client after this block the
+            # way publish()'s Stage 5 already does.
+            snapshot_transport = sdk.client.get_httpx_client()
+            original_timeout = snapshot_transport.timeout
+            snapshot_transport.timeout = _publish._SNAPSHOT_REQUEST_TIMEOUT_SECONDS
             try:
                 late_status, late_dataset_id = _analysis.job_snapshot(
-                    snapshot_client, job_id
+                    sdk.client, job_id
                 )
             except typer.Exit as exc:
                 if exc.exit_code != EXIT_NETWORK:
                     raise
                 late_status, late_dataset_id = None, None
+            finally:
+                snapshot_transport.timeout = original_timeout
             if late_dataset_id:
                 # The job finished between the poll's last look and this one
                 # (fix(#685 review)). Reporting a completed job as

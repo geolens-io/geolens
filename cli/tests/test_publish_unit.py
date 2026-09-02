@@ -1235,6 +1235,77 @@ class TestPublishWaitTerminalOutcomes:
         assert "still running" in result.output
         assert "has not finished" in result.output
 
+    def test_wait_snapshot_read_does_not_leak_its_timeout_into_stage_5(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        """fix(#1778, codex round 6): `with_timeout()` MUTATES the shared
+        transport's timeout in place before returning an "evolved" client
+        that is really a decoy (sdks/python/geolens/client.py) — Stage 5
+        (--tags/--collection) reuses sdk.client, so binding the follow-up
+        snapshot read used to leave every metadata request capped at 5s
+        afterward too, reporting an otherwise-successful publish as a
+        partial failure. The shared transport's timeout must be back to
+        its ORIGINAL value by the time Stage 5 runs.
+
+        The httpx.Client is force-constructed before the command runs
+        (via ``.get_httpx_client()``) because the pre-round-6 bug only
+        mutates an ALREADY-CONSTRUCTED transport in place — a lazily
+        constructed one (the normal case, since every earlier stage is
+        mocked at the SDK-function level here) would not have exposed it.
+        """
+        import httpx
+        from geolens import GeolensClient
+
+        from geolens_cli import publish as _publish
+        from geolens_cli.main import app
+
+        instance = "https://x.example.com"
+        _seed_login(instance, mock_keyring)
+
+        real_sdk = GeolensClient(base_url=instance + "/api", bearer_token="tok-abc")
+        original_timeout = real_sdk.client.get_httpx_client().timeout
+        monkeypatch.setattr("geolens_cli.main.AppState.sdk", lambda self: real_sdk)
+
+        patch_sdk_for_publish(
+            upload=_ok_upload(),
+            preview=_ok_preview(),
+            commit=_ok_commit(),
+            job_status=_ok_job_status(
+                dataset_id="00000000-0000-0000-0000-000000000042", status="complete"
+            ),
+        )
+        monkeypatch.setattr(
+            "geolens_cli.publish.resolve_dataset_id",
+            lambda c, j, **kw: _publish.PollOutcome(
+                status="running", stopped_because="timeout"
+            ),
+        )
+
+        observed: dict = {}
+
+        def stage_5_extras(client, dataset_id, tags, collection):
+            observed["timeout"] = client.get_httpx_client().timeout
+            return []
+
+        monkeypatch.setattr(
+            "geolens_cli.publish.apply_publish_extras", stage_5_extras
+        )
+
+        result = runner.invoke(
+            app, ["publish", str(sample_geojson), "--tags", "hydro"]
+        )
+        assert result.exit_code == 0, result.output
+        assert observed["timeout"] == original_timeout
+        assert observed["timeout"] != httpx.Timeout(
+            _publish._SNAPSHOT_REQUEST_TIMEOUT_SECONDS
+        )
+
     def test_wait_token_expired_mid_poll_exits_auth(
         self,
         runner,

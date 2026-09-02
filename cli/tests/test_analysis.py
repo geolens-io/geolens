@@ -1029,6 +1029,66 @@ class TestAnalysisMaterializeCli:
         assert "still running" in result.output
         assert "has not finished" in result.output
 
+    def test_snapshot_read_does_not_leave_the_shared_client_mutated(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """fix(#1778, codex round 6): `with_timeout()` MUTATES the shared
+        transport's timeout in place before returning an "evolved" client
+        that is really a decoy (sdks/python/geolens/client.py). The shared
+        client's transport must be back to its ORIGINAL timeout once the
+        snapshot read completes, not left at the 5s snapshot bound — cheap
+        insurance against a future materialize change reusing sdk.client
+        after this point the way publish()'s Stage 5 already does.
+
+        No --timeout flag here deliberately: with one, the pre-existing
+        `poll_client = sdk.client.with_timeout(timeout)` construction
+        (unrelated to this fix) would ALSO mutate the shared transport,
+        which would make this test's assertion meaningless. The httpx
+        transport is force-constructed up front (.get_httpx_client())
+        because the pre-round-6 bug only mutates an ALREADY-CONSTRUCTED
+        one in place.
+        """
+        from geolens import GeolensClient
+
+        from geolens_cli import publish as _publish
+        from geolens_cli.main import app
+
+        instance = "https://x.example.com/api"
+        _seed_login(instance, mock_keyring)
+
+        real_sdk = GeolensClient(base_url=instance, bearer_token="tok-abc")
+        original_timeout = real_sdk.client.get_httpx_client().timeout
+        monkeypatch.setattr("geolens_cli.main.AppState.sdk", lambda self: real_sdk)
+
+        monkeypatch.setattr(
+            "geolens_cli.analysis.run_materialize", lambda c, d, r: _FakeJob()
+        )
+        monkeypatch.setattr(
+            "geolens_cli.publish.resolve_dataset_id",
+            lambda c, j, **kw: _publish.PollOutcome(
+                status="running", stopped_because="timeout"
+            ),
+        )
+        monkeypatch.setattr(
+            "geolens_cli.analysis.job_snapshot",
+            lambda c, j: ("complete", "ds-late"),
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "analysis",
+                "materialize",
+                "ds-1",
+                "--operation",
+                "centroid",
+                "--title",
+                "Centroids",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert real_sdk.client.get_httpx_client().timeout == original_timeout
+
     def test_the_default_wait_has_no_deadline(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
