@@ -21,6 +21,11 @@ Object.defineProperty(window, 'location', {
 
 function createMockMap() {
   const sources = new Map<string, { type: string; tiles?: string[] }>();
+  // fix(#1778): record the whole spec, not just the id. getStyle() on a real
+  // map reports each layer's `source`, and the orphan prune reads it to tell a
+  // managed data layer apart from a basemap layer that happens to be named
+  // `layer-*`.
+  const layerSpecs = new Map<string, { id: string; source?: string }>();
   const layerIds = new Set<string>();
   return {
     getSource: vi.fn((id: string) => sources.get(id) ?? null),
@@ -30,12 +35,14 @@ function createMockMap() {
     removeSource: vi.fn((id: string) => {
       sources.delete(id);
     }),
-    addLayer: vi.fn((layer: { id: string }) => {
+    addLayer: vi.fn((layer: { id: string; source?: string }) => {
       layerIds.add(layer.id);
+      layerSpecs.set(layer.id, layer);
     }),
     getLayer: vi.fn((id: string) => (layerIds.has(id) ? { id } : null)),
     removeLayer: vi.fn((id: string) => {
       layerIds.delete(id);
+      layerSpecs.delete(id);
     }),
     setLayoutProperty: vi.fn(),
     setPaintProperty: vi.fn(),
@@ -45,7 +52,7 @@ function createMockMap() {
     getFilter: vi.fn().mockReturnValue(null),
     isStyleLoaded: vi.fn(() => true),
     getStyle: vi.fn(() => ({
-      layers: Array.from(layerIds).map((id) => ({ id })),
+      layers: Array.from(layerIds).map((id) => layerSpecs.get(id) ?? { id }),
     })),
     moveLayer: vi.fn(),
     setLayerZoomRange: vi.fn(),
@@ -233,6 +240,54 @@ describe('syncLayersToMap dedupes addSource by dataset_table_name', () => {
 
     // The shared source must NOT be removed — the other layer still uses it.
     expect(map.removeSource).not.toHaveBeenCalledWith('source-data-reefs');
+  });
+
+  // fix(#1778): the source prune is keyed on the SOURCE, and the whole prune
+  // body sits behind `if (desiredSources.has(sourceId)) continue`. Under the
+  // SF-04 dedupe the deleted layer's source is still desired by its sibling, so
+  // nothing ever reclaimed the orphan layer rows. They kept rendering with no
+  // stack row, no legend entry and no way to remove them short of a reload.
+  // Counterfactual: on main the three assertions below all find the layers
+  // still present.
+  it('removes the layer rows of a deleted layer whose deduped source is still shared', () => {
+    const layers: SyncLayerInput[] = [
+      makeLayer({ id: 'l1', dataset_id: 'ds-reefs', dataset_table_name: 'reefs' }),
+      makeLayer({ id: 'l2', dataset_id: 'ds-reefs', dataset_table_name: 'reefs' }),
+    ];
+    const tokenMap = new Map<string, TileToken>([['ds-reefs', makeVectorToken()]]);
+
+    syncLayersToMap(map, layers, tokenMap, undefined, managedSourcesRef, { current: '' });
+    expect(map.getLayer('layer-l1')).toBeTruthy();
+
+    // The companions the delete path would normally have swept, left behind
+    // because removePerLayerCompanions ran mid-style-swap.
+    map.addLayer({ id: 'layer-l1-outline', type: 'line', source: 'source-data-reefs' } as never);
+    map.addLayer({ id: 'layer-l1-label', type: 'symbol', source: 'source-data-reefs' } as never);
+
+    syncLayersToMap(map, [layers[1]], tokenMap, undefined, managedSourcesRef, { current: '' });
+
+    expect(map.getLayer('layer-l1')).toBeNull();
+    expect(map.getLayer('layer-l1-outline')).toBeNull();
+    expect(map.getLayer('layer-l1-label')).toBeNull();
+    // The surviving sibling and the shared source are untouched.
+    expect(map.getLayer('layer-l2')).toBeTruthy();
+    expect(map.removeSource).not.toHaveBeenCalledWith('source-data-reefs');
+  });
+
+  it('leaves style layers outside the managed layer- namespace alone', () => {
+    const layers: SyncLayerInput[] = [
+      makeLayer({ id: 'l1', dataset_id: 'ds-reefs', dataset_table_name: 'reefs' }),
+    ];
+    const tokenMap = new Map<string, TileToken>([['ds-reefs', makeVectorToken()]]);
+    syncLayersToMap(map, layers, tokenMap, undefined, managedSourcesRef, { current: '' });
+
+    map.addLayer({ id: 'water', type: 'fill', source: 'openmaptiles' } as never);
+    map.addLayer({ id: 'ephemeral-result-fill', type: 'fill', source: 'ephemeral' } as never);
+
+    syncLayersToMap(map, layers, tokenMap, undefined, managedSourcesRef, { current: '' });
+
+    expect(map.getLayer('water')).toBeTruthy();
+    expect(map.getLayer('ephemeral-result-fill')).toBeTruthy();
   });
 
   it('two non-cluster vector layers on the SAME dataset BOTH render (2nd layer on a shared source still gets added)', () => {

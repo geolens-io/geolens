@@ -95,7 +95,17 @@ export function removePerLayerCompanions(
   layerIds: Iterable<string>,
   renderModeByLayerId?: Map<string, string>,
 ): void {
-  if (!map || !map.isStyleLoaded()) return;
+  if (!map) return;
+  // fix(#1778): a bare early return here left the companions on the map for the
+  // rest of the session. A delete during a basemap style swap is exactly when
+  // isStyleLoaded() is false, and nothing calls this again. Retry on idle,
+  // matching BuilderMap's sync effect and use-render-mode-layers. The ids are
+  // materialized first because the caller's Iterable may be single-pass.
+  if (!map.isStyleLoaded()) {
+    const pending = [...layerIds];
+    map.once?.('idle', () => removePerLayerCompanions(map, pending, renderModeByLayerId));
+    return;
+  }
   for (const id of layerIds) {
     const renderMode = renderModeByLayerId?.get(id) ?? null;
     const companionIds = deriveCompanionIds(id, renderMode);

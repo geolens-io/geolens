@@ -1313,6 +1313,47 @@ function removeStaleSourcesAndLayers(
   }
 }
 
+/** fix(#1778): remove managed data layers whose logical layer is gone even when
+ *  their SOURCE is still wanted.
+ *
+ *  removeStaleSourcesAndLayers is keyed on the source, so under the SF-04
+ *  dedupe (two layers on one dataset share `source-data-${table}`) deleting one
+ *  of them leaves the source DESIRED and its layer rows are never reclaimed.
+ *  The delete path's own cleanup (removePerLayerCompanions) is best-effort, so
+ *  this walk is the backstop that closes the class rather than one instance.
+ *
+ *  Scoped on three conditions at once, so a basemap layer that happens to be
+ *  named `layer-*` and anything a plugin added are left alone: the id starts
+ *  with the managed `layer-` prefix, the layer sits on a data source (every
+ *  managed layer does, including the label and color-relief companions), and
+ *  the id is absent from the companion-id expansion of the desired set. */
+function removeOrphanManagedLayers(
+  map: MaplibreMap,
+  desiredLayerIds: Iterable<string>,
+  sourcePrefix: string,
+  prefix: string | undefined,
+) {
+  const style = map.getStyle();
+  if (!style?.layers) return;
+  const managedPrefix = `${prefix ?? ''}layer-`;
+  const keep = new Set<string>();
+  for (const id of desiredLayerIds) {
+    const ids = getCompanionLayerIds(id, prefix);
+    for (const companion of [
+      ids.layer, ids.outline, ids.extrusion, ids.arrow, ids.label,
+      ids.colorRelief, ids.cluster, ids.clusterCount, ids.mixedLines, ids.mixedPoints,
+    ]) {
+      keep.add(companion);
+    }
+  }
+  for (const styleLayer of style.layers) {
+    if (!styleLayer.id.startsWith(managedPrefix)) continue;
+    if (isBasemapOwnedLayer(styleLayer, sourcePrefix)) continue;
+    if (keep.has(styleLayer.id)) continue;
+    if (map.getLayer(styleLayer.id)) map.removeLayer(styleLayer.id);
+  }
+}
+
 // ---------------------------------------------------------------------------
 
 /** Imperatively add/sync all data layers to the map. Safe to call repeatedly.
@@ -1420,6 +1461,11 @@ export function syncLayersToMap(
   }
 
   try {
+    // fix(#1778): layer-aware prune first, so an orphan on a still-shared
+    // deduped source is reclaimed. Ordered before the source prune because the
+    // source prune's removeLayersUsingSource depends on the layer set only for
+    // sources it is about to drop.
+    removeOrphanManagedLayers(map, renderableLayers.map((l) => l.id), sourcePrefix, prefix);
     removeStaleSourcesAndLayers(map, currentSources, desiredSources, sourcePrefix, prefix);
     managedSourcesRef.current = desiredSources;
   } catch (err) {
