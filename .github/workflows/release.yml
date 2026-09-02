@@ -23,9 +23,12 @@ permissions:
 jobs:
   release:
     name: Create GitHub Release
-    # Only for a SUCCESSFUL smoke of a vX.Y.Z tag. A manual workflow_dispatch
-    # smoke of `latest` has head_branch == the default branch (not a tag), so it
-    # is skipped here.
+    # Only for a SUCCESSFUL smoke of a vX.Y.Z tag. fix(#1778): the job-level
+    # startsWith(head_branch, 'v') gate is necessary but not sufficient — a
+    # workflow_dispatch smoke run also has head_branch set to the dispatched
+    # ref's name, so `--ref v1.18.0` matches this check exactly like a real
+    # tag push does. The step-level event check below is what actually
+    # excludes a dispatch.
     if: >
       github.event.workflow_run.conclusion == 'success' &&
       startsWith(github.event.workflow_run.head_branch, 'v')
@@ -33,13 +36,25 @@ jobs:
     env:
       TAG: ${{ github.event.workflow_run.head_branch }}
     steps:
-      # The job-level startsWith(head_branch, 'v') gate also matches ordinary
-      # branch names like `video-fix` smoked via workflow_dispatch. Only a
-      # semver-shaped tag (optional prerelease suffix) may create or update a
-      # GitHub Release — anything else reaching this job is an anomaly, so
-      # fail loudly rather than releasing from it.
+      # fix(#1778): the job-level startsWith(head_branch, 'v') gate also
+      # matches ordinary branch names like `video-fix` smoked via
+      # workflow_dispatch, and it matches a workflow_dispatch smoke of a real
+      # tag ref too — head_branch carries the dispatched ref's name either
+      # way, so it cannot on its own tell "this tag was smoked by a tag push"
+      # from "this tag was smoked on demand, with whatever image version the
+      # dispatch input happened to carry". Require workflow_run.event ==
+      # 'push' as well: only a smoke that itself ran because of a tag push
+      # proves the artifact under test is bound to this tag (prod-smoke.yml's
+      # own ref-binding fix). Anything else reaching this job is an anomaly,
+      # so fail loudly rather than releasing from it.
       - name: Assert semver-shaped tag
+        env:
+          SMOKE_EVENT: ${{ github.event.workflow_run.event }}
         run: |
+          if [ "${SMOKE_EVENT}" != "push" ]; then
+            echo "::error::triggering smoke run was a '${SMOKE_EVENT}', not a tag push; refusing to release"
+            exit 1
+          fi
           if ! printf '%s' "${TAG}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
             echo "::error::head_branch '${TAG}' is not a semver tag; refusing to release"
             exit 1
@@ -151,11 +166,13 @@ jobs:
             gh release create "${TAG}" \
               --title "${TAG}" \
               --notes-file release-notes.md \
+              --verify-tag \
               --prerelease
           else
             gh release create "${TAG}" \
               --title "${TAG}" \
-              --notes-file release-notes.md
+              --notes-file release-notes.md \
+              --verify-tag
           fi
 
       - name: Upload install script
