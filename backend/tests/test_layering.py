@@ -3587,7 +3587,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # are the r3 round: it is issued as SET LOCAL rather than as a startup
     # parameter, because standard PgBouncer rejects an unknown one and
     # DB_USE_EXTERNAL_POOLER=true is a supported topology.
-    "backend/app/core/config.py": 1513,
+    #
+    # fix(#1778): +24 more for the boot-time GEOLENS_ADMIN_PASSWORD byte bound
+    # and the BCRYPT_MAX_PASSWORD_BYTES constant it needs. core/ may not import
+    # from app.modules.*, so the number is restated here rather than imported
+    # from password_policy.py; tests/test_oversized_password_1778.py pins the
+    # two together. Cap 1513 -> 1537, exact.
+    "backend/app/core/config.py": 1537,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of

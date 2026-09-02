@@ -8,6 +8,7 @@ from pwdlib.exceptions import UnknownHashError
 from pwdlib.hashers.bcrypt import BcryptHasher
 
 from app.modules.auth.models import User
+from app.modules.auth.password_policy import BCRYPT_MAX_PASSWORD_BYTES
 from app.modules.auth.providers import AuthenticatedIdentity, AuthenticationError
 
 # ---------------------------------------------------------------------------
@@ -28,7 +29,27 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    """Verify a plaintext password against a stored hash."""
+    """Verify a plaintext password against a stored hash.
+
+    fix(#1778): an input longer than bcrypt's 72-byte limit is a NON-MATCH, not
+    an exception. pwdlib's BcryptHasher raises ValueError rather than
+    truncating, and the two callers that reach here with an unvalidated string
+    both turned that into a 500. POST /auth/login takes an
+    OAuth2PasswordRequestForm, which carries no schema at all, so any
+    unauthenticated caller could 500 it on demand and the user.login.failure
+    audit row was skipped with it (the handler catches AuthenticationError, and
+    a ValueError is not one). POST /auth/change-password/ bounds only
+    ``new_password``; ``current_password`` is capped at 256 CHARACTERS.
+
+    Refusing rather than truncating is the honest answer: register,
+    change-password, admin create and admin reset all run
+    validate_password_complexity, which caps the stored credential at
+    BCRYPT_MAX_PASSWORD_BYTES, so no hash in the database was derived from a
+    longer input and no correct password can be rejected here. Truncating would
+    instead accept the first 72 bytes of a longer string as the whole password.
+    """
+    if len(plain.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES:
+        return False
     return password_hash.verify(plain, hashed)
 
 
@@ -92,7 +113,7 @@ class LocalAuthProvider:
 
         if user is None:
             # Timing-attack prevention: still verify against a dummy hash
-            password_hash.verify(password, DUMMY_HASH)
+            verify_password(password, DUMMY_HASH)
             raise AuthenticationError("Invalid credentials")
 
         if user.password_hash is None:
@@ -106,7 +127,7 @@ class LocalAuthProvider:
             # real verify against the dummy hash for timing-attack parity
             # with the "user not found" branch above, then always fail --
             # there is no real password for this account to match.
-            password_hash.verify(password, DUMMY_HASH)
+            verify_password(password, DUMMY_HASH)
             raise AuthenticationError("Invalid credentials")
 
         try:
