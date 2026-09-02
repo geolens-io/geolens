@@ -105,6 +105,11 @@ class CrossOriginEndpointError(Exception):
         super().__init__(self.policy)
 
 
+# What one description document may cost. Read into memory whole to be parsed,
+# so this is the real per-request bound; the service chooses the size.
+MAX_DOCUMENT_BYTES = 32 * 1024 * 1024
+
+
 class EndpointCheckFailedError(Exception):
     """A credentialed source's description could not be read, so nothing is known.
 
@@ -184,7 +189,7 @@ def _credential_headers(credential_line: str) -> dict[str, str]:
 _WFS_ENDPOINT_ATTRIBUTES = frozenset({"href", "onlineresource"})
 
 
-def _wfs_operation_hrefs(xml_text: str) -> list[str]:
+def _wfs_operation_hrefs(xml_bytes: bytes) -> list[str]:
     """Every operation endpoint a capabilities document advertises.
 
     Namespace-agnostic by local name, the way ``parse_wfs_capabilities`` walks
@@ -193,7 +198,9 @@ def _wfs_operation_hrefs(xml_text: str) -> list[str]:
     definition, and it is the document the whole check exists to distrust.
     """
     hrefs: list[str] = []
-    root = ET.fromstring(xml_text)
+    # Bytes rather than str: `ET` refuses a `str` carrying an XML encoding
+    # declaration outright, and reads the declaration correctly from bytes.
+    root = ET.fromstring(xml_bytes)
     for element in root.iter():
         tag = element.tag.split("}")[-1] if "}" in element.tag else element.tag
         if tag not in ("Get", "Post"):
@@ -237,7 +244,7 @@ def _next_page(document: object, base: str) -> str | None:
     return None
 
 
-def _assert_same_origin(url: str, hrefs: list[str]) -> None:
+def _assert_same_origin(url: str, hrefs: list[str], base: str | None = None) -> None:
     """Refuse the first advertised endpoint that leaves the submitted origin.
 
     Relative hrefs resolve against the submitted URL, so a service that
@@ -248,7 +255,10 @@ def _assert_same_origin(url: str, hrefs: list[str]) -> None:
     """
     for href in hrefs:
         try:
-            resolved = urljoin(url, href)
+            # fix(#1746 B2b review r19): relative to the document, which after
+            # a canonical redirect is not the URL that was asked for. The
+            # origin compared against is still the submitted one.
+            resolved = urljoin(base or url, href)
         except ValueError:
             # fix(#1746 B2b review r16): `urljoin` raises on some malformed
             # absolute references, and the href comes out of a document this
@@ -261,8 +271,60 @@ def _assert_same_origin(url: str, hrefs: list[str]) -> None:
             raise CrossOriginEndpointError(_origin_of(resolved))
 
 
-async def _fetch(client: httpx.AsyncClient, url: str, headers: dict[str, str]) -> str:
-    """One description document, or a refusal.
+async def read_bounded_body(
+    response: httpx.Response,
+    budget: int,
+    *,
+    error: type[EndpointCheckFailedError] = EndpointCheckFailedError,
+) -> bytes:
+    """The body, or a refusal once more than ``budget`` bytes have arrived.
+
+    fix(#1746 B2b review r19): shared with `service_items`, which grew this in
+    r17 for item pages while the description reads beside it stayed buffered.
+    Both read documents chosen by the same untrusted service into the same
+    process, so they get the same bound from the same code.
+
+    The read stops at the bound rather than at the end of the response, so a
+    refusal costs one chunk past the budget instead of however much the service
+    felt like sending.
+
+    ``aiter_raw`` rather than ``aiter_bytes``, for the reason #1708 r11
+    recorded on the URL-import path: ``aiter_bytes`` transparently inflates a
+    ``Content-Encoding`` body, so a single wire chunk could materialise an
+    unbounded ``bytes`` BEFORE this check ran, which is a compression bomb
+    against the exact memory the bound exists to protect.
+
+    Returns bytes, never text. The callers hand them straight to a parser:
+    ``json.loads`` and ``ET.fromstring`` both take bytes, decoding once
+    internally, and ``ET`` needs them to honour an XML encoding declaration at
+    all. Decoding to ``str`` first would make the second full copy this exists
+    to avoid.
+    """
+    encoding = response.headers.get("Content-Encoding", "identity").lower()
+    if encoding not in ("", "identity"):
+        # Refused rather than decoded. `aiter_raw` hands back the compressed
+        # bytes, so the parser would fail on them with a message about the
+        # wrong thing.
+        raise error("compressed document")
+    declared = response.headers.get("Content-Length", "")
+    if declared.isdigit() and int(declared) > budget:
+        # Free when the service is honest; no help when it is not, which is
+        # what the running count below is for.
+        raise error("document exceeds the cap")
+    read = 0
+    chunks: list[bytes] = []
+    async for chunk in response.aiter_raw():
+        read += len(chunk)
+        if read > budget:
+            raise error("document exceeds the cap")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+async def _fetch(
+    client: httpx.AsyncClient, url: str, headers: dict[str, str]
+) -> tuple[bytes, str]:
+    """One description document and the URL it came from, or a refusal.
 
     THE request site for this module, and deliberately the only one: every
     document the validator reads goes through here, so the SSRF revalidation
@@ -286,16 +348,26 @@ async def _fetch(client: httpx.AsyncClient, url: str, headers: dict[str, str]) -
         # suppression query binds a marker to the line that follows it, so an
         # explanatory comment inserted between the two silently disarms it.
         # codeql[py/full-ssrf] fix(#1746): Rule 2 posture — validate_url_for_ssrf gates this exact URL immediately above, and make_safe_client's transport re-resolves, validates and pins the IP at connect time and revalidates every redirect hop
-        response = await client.get(url, headers=headers)
-        response.raise_for_status()
-        return response.text
+        async with client.stream("GET", url, headers=headers) as response:
+            if response.status_code >= 400:
+                # Read nothing: an error body from the service this module
+                # exists to distrust is not worth the bytes, and the status is
+                # the whole of what the refusal says.
+                raise EndpointCheckFailedError(f"HTTP {response.status_code}")
+            body = await read_bounded_body(response, MAX_DOCUMENT_BYTES)
+            # fix(#1746 B2b review r19): the URL the representation actually
+            # came from. A same-origin canonical redirect (`/wfs` to `/wfs/`)
+            # changes what a relative href in the body is relative to, and
+            # resolving against the pre-redirect URL asks for the wrong path.
+            final_url = str(response.url)
+        return body, final_url
     except (httpx.HTTPError, SSRFError, ValueError) as exc:
         raise EndpointCheckFailedError(str(exc)) from None
 
 
-def _parsed_json(text: str) -> object:
+def _parsed_json(body: bytes) -> object:
     try:
-        return json.loads(text)
+        return json.loads(body)
     except ValueError as exc:
         raise EndpointCheckFailedError(str(exc)) from None
 
@@ -303,12 +375,12 @@ def _parsed_json(text: str) -> object:
 async def _check_wfs(
     client: httpx.AsyncClient, url: str, headers: dict[str, str]
 ) -> None:
-    xml_text = await _fetch(client, _capabilities_url(url), headers)
+    xml_bytes, from_url = await _fetch(client, _capabilities_url(url), headers)
     try:
-        hrefs = _wfs_operation_hrefs(xml_text)
+        hrefs = _wfs_operation_hrefs(xml_bytes)
     except ET.ParseError as exc:
         raise EndpointCheckFailedError(str(exc)) from None
-    _assert_same_origin(url, hrefs)
+    _assert_same_origin(url, hrefs, from_url)
 
 
 async def _check_ogcapi(
@@ -317,9 +389,8 @@ async def _check_ogcapi(
     headers: dict[str, str],
     collection: str | None,
 ) -> None:
-    _assert_same_origin(
-        url, _ogcapi_link_hrefs(_parsed_json(await _fetch(client, url, headers)))
-    )
+    body, from_url = await _fetch(client, url, headers)
+    _assert_same_origin(url, _ogcapi_link_hrefs(_parsed_json(body)), from_url)
 
     if collection is not None:
         # fix(#1746 B2b review r14): the collection this import will actually
@@ -327,14 +398,13 @@ async def _check_ogcapi(
         # anything worth walking, so a check that only ever saw the first page
         # missed exactly the collection a user selected from a later one. This
         # path knows which one it is, so it does not need the listing at all.
-        document = _parsed_json(
-            await _fetch(
-                client,
-                f"{url.rstrip('/')}/collections/{quote(collection, safe='')}",
-                headers,
-            )
+        body, from_url = await _fetch(
+            client,
+            f"{url.rstrip('/')}/collections/{quote(collection, safe='')}",
+            headers,
         )
-        _assert_same_origin(url, _ogcapi_link_hrefs(document))
+        document = _parsed_json(body)
+        _assert_same_origin(url, _ogcapi_link_hrefs(document), from_url)
         return
 
     # The probe has no collection yet, so it walks the listing. Bounded, and
@@ -345,12 +415,14 @@ async def _check_ogcapi(
     for _page in range(_MAX_COLLECTION_PAGES):
         if page_url is None:
             return
-        listing = _parsed_json(await _fetch(client, page_url, headers))
-        _assert_same_origin(url, _ogcapi_link_hrefs(listing))
+        body, from_url = await _fetch(client, page_url, headers)
+        listing = _parsed_json(body)
+        _assert_same_origin(url, _ogcapi_link_hrefs(listing), from_url)
         collections = listing.get("collections") if isinstance(listing, dict) else None
         for entry in collections or []:
-            _assert_same_origin(url, _ogcapi_link_hrefs(entry))
-        page_url = _next_page(listing, page_url)
+            _assert_same_origin(url, _ogcapi_link_hrefs(entry), from_url)
+        # Resolved against the document's own URL as well, for the same reason.
+        page_url = _next_page(listing, from_url)
     if page_url is not None:
         logger.warning(
             "service endpoint check stopped at the collections page bound",

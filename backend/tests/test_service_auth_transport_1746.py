@@ -55,6 +55,7 @@ from app.platform import security
 from app.platform.security import SSRFError, make_safe_client
 from app.processing.ingest import tasks_vector
 from app.processing.ingest import ogr as ogr_mod
+from app.platform.service_endpoints import EndpointCheckFailedError
 from app.platform.service_items import ItemFetchFailedError, materialise_oapif_items
 from app.processing.ingest.ogr import run_ogr2ogr_service
 
@@ -1837,13 +1838,43 @@ _SVC_OAPIF = f"{_SVC_ORIGIN}/oapif"
 _FOREIGN = "https://collector.example"
 
 
-def _streamed(body: dict, *, chunk: int = 64) -> httpx.Response:
-    """An items page delivered in chunks, the way a real server delivers one.
+def _point(feature_id: str) -> dict:
+    return {
+        "type": "Feature",
+        "id": feature_id,
+        "geometry": {"type": "Point", "coordinates": [0, 0]},
+        "properties": {},
+    }
 
-    `httpx.Response(json=...)` is fully read at construction, so `aiter_raw`
-    over it raises `StreamConsumed`: a double built that way cannot exercise
-    the bounded streaming read at all (fix #1746 B2b review r17).
+
+def _as_stream(response: httpx.Response, *, chunk: int = 64) -> httpx.Response:
+    """Re-deliver a pre-read double as a response that actually streams.
+
+    `httpx.Response(json=...)` and `text=...` are read at construction, so
+    `aiter_raw` over one raises `StreamConsumed`. A real transport never hands
+    back a read response, so a double that does cannot exercise the bounded
+    streaming read the production code performs, and would fail on a
+    `RuntimeError` that says nothing about the behaviour under test
+    (fix #1746 B2b review r19).
+
+    Applied by every mock transport in this file rather than by each handler,
+    because the handler that forgets is the one that matters.
     """
+    if not response.is_stream_consumed:
+        return response
+    raw = response.content
+
+    async def _chunks():
+        for start in range(0, len(raw), chunk):
+            yield raw[start : start + chunk]
+
+    return httpx.Response(
+        response.status_code, headers=response.headers, content=_chunks()
+    )
+
+
+def _streamed(body: dict, *, chunk: int = 64) -> httpx.Response:
+    """An items page delivered in chunks, the way a real server delivers one."""
     raw = json.dumps(body).encode()
 
     async def _chunks():
@@ -1912,7 +1943,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
 
         def _handle(request: httpx.Request) -> httpx.Response:
             recorded.append(request)
-            return handler(request)
+            return _as_stream(handler(request))
 
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
@@ -2633,7 +2664,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
             for index, line in enumerate(lines)
             if "# codeql[py/full-ssrf]" in line
         )
-        assert "client.get(" in lines[marker + 1]
+        assert "client.stream(" in lines[marker + 1]
         # The revalidation is in the same function, above the call.
         assert "validate_url_for_ssrf(url)" in "\n".join(lines[marker - 12 : marker])
 
@@ -2654,7 +2685,7 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
 
         def _handle(request: httpx.Request) -> httpx.Response:
             recorded.append(request)
-            return handler(request)
+            return _as_stream(handler(request))
 
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
@@ -2952,7 +2983,7 @@ class TestOnePageCannotCostTheWholeProcess:
 
         def _handle(request: httpx.Request) -> httpx.Response:
             recorded.append(request)
-            return handler(request)
+            return _as_stream(handler(request))
 
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
@@ -3386,3 +3417,271 @@ class TestAFailedMaterialisationStillDatesTheContact:
         )
 
         assert contacted == [1]
+
+
+class TestOneDescriptionCannotCostTheWholeProcess:
+    """fix(#1746 B2b review r19): the sibling of the item-page bound.
+
+    r17 bounded the item pages and left the description reads beside them
+    buffered, which was the same exposure through the other door: a
+    capabilities or collections document is chosen by the same untrusted
+    service, read into the same process, and parsed whole. Both use one reader
+    now.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _check(self, service_format="wfs", collection=None):
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        await assert_endpoints_stay_on_origin(
+            _SVC_WFS if service_format == "wfs" else _SVC_OAPIF,
+            service_format=service_format,
+            credential_line=f"{pair[0]}: {pair[1]}",
+            collection=collection,
+        )
+
+    async def test_the_read_stops_at_the_bound_and_never_reaches_the_parser(
+        self, monkeypatch
+    ) -> None:
+        """Refused DURING the read, before any XML is parsed.
+
+        Shaped like the round-18 items test: what proves it is how few bytes
+        the service was ever asked for, not the size of what came back, since
+        a buffered read reaches the same final size and would pass a check on
+        that.
+        """
+        from app.platform import service_endpoints
+
+        produced = 0
+        chunk = b"<Get/>" * 200
+        parsed: list = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            async def _chunks():
+                nonlocal produced
+                for _ in range(1000):
+                    produced += len(chunk)
+                    yield chunk
+
+            return httpx.Response(200, content=_chunks())
+
+        self._transport(monkeypatch, handle)
+        monkeypatch.setattr(service_endpoints, "MAX_DOCUMENT_BYTES", 4000)
+        monkeypatch.setattr(
+            service_endpoints.ET,
+            "fromstring",
+            lambda *args, **kwargs: parsed.append(args) or [],
+        )
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check()
+
+        # More than a megabyte on offer, five kilobytes taken.
+        assert produced <= 5000
+        # And defusedxml was never handed any of it, which is where the second
+        # copy and the parse cost would have been.
+        assert parsed == []
+
+    async def test_an_honest_content_length_is_refused_without_reading(
+        self, monkeypatch
+    ) -> None:
+        from app.platform import service_endpoints
+
+        produced = 0
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            async def _chunks():
+                nonlocal produced
+                produced += 1
+                yield b"<x/>"
+
+            return httpx.Response(
+                200, headers={"Content-Length": "999999"}, content=_chunks()
+            )
+
+        self._transport(monkeypatch, handle)
+        monkeypatch.setattr(service_endpoints, "MAX_DOCUMENT_BYTES", 4000)
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check()
+
+        assert produced == 0
+
+    async def test_a_compressed_description_is_refused(self, monkeypatch) -> None:
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200, headers={"Content-Encoding": "gzip"}, text="<WFS_Capabilities/>"
+            )
+
+        self._transport(monkeypatch, handle)
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check()
+
+    async def test_an_ordinary_document_still_passes(self, monkeypatch) -> None:
+        """The counterfactual's other half: the bound is not refusing everything."""
+        recorded = self._transport(
+            monkeypatch,
+            lambda request: httpx.Response(
+                200,
+                text=(
+                    '<?xml version="1.0" encoding="UTF-8"?>'
+                    '<WFS_Capabilities xmlns:xlink="http://www.w3.org/1999/xlink">'
+                    '<OperationsMetadata><Operation name="GetFeature"><DCP><HTTP>'
+                    f'<Get xlink:href="{_SVC_WFS}"/>'
+                    "</HTTP></DCP></Operation></OperationsMetadata>"
+                    "</WFS_Capabilities>"
+                ),
+            ),
+        )
+
+        await self._check()
+
+        assert recorded
+
+
+class TestARelativeLinkIsResolvedAgainstTheDocument:
+    """fix(#1746 B2b review r19): a canonical redirect moves the base.
+
+    `/items` answering 301 to `/items/` makes a relative `next` of `page2`
+    mean `/items/page2`, not `/page2`. Resolving against the URL that was asked
+    for requests a path the service never offered, so the walk stops early and
+    the extract is a prefix. Both modules resolve against `response.url` now,
+    which the safe client has already revalidated per hop and refused to let
+    leave the origin.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        # The redirect hook resolves it through security's own namespace, so
+        # patching the two importers is not enough for a test that redirects.
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+        monkeypatch.setattr(
+            "app.platform.service_items.validate_url_for_ssrf", AsyncMock()
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def test_a_relative_next_follows_the_redirected_path(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        items = f"{_SVC_OAPIF}/collections/c1/items"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if path.endswith("/items"):
+                # The canonical form the service prefers.
+                return httpx.Response(301, headers={"Location": f"{items}/?limit=1000"})
+            if path.endswith("/items/"):
+                return _streamed(
+                    {
+                        "type": "FeatureCollection",
+                        "features": [_point("a")],
+                        "links": [{"rel": "next", "href": "page2"}],
+                    }
+                )
+            return _streamed(
+                {
+                    "type": "FeatureCollection",
+                    "features": [_point("b")],
+                    "links": [],
+                }
+            )
+
+        recorded = self._transport(monkeypatch, handle)
+
+        path = await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+        )
+
+        # `page2` relative to `/collections/c1/items/`, not to `/collections/c1/`.
+        assert [r.url.path for r in recorded] == [
+            "/oapif/collections/c1/items",
+            "/oapif/collections/c1/items/",
+            "/oapif/collections/c1/items/page2",
+        ]
+        document = json.loads(pathlib.Path(path).read_text())
+        assert [f["id"] for f in document["features"]] == ["a", "b"]
+
+    async def test_a_relative_endpoint_href_is_judged_from_the_document(
+        self, monkeypatch
+    ) -> None:
+        """The same rule in the description check, where it decides a refusal."""
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/"):
+                # The query survives the canonical redirect, as it must: the
+                # capabilities URL carries the WFS request parameters.
+                canonical = request.url.copy_with(path=request.url.path + "/")
+                return httpx.Response(301, headers={"Location": str(canonical)})
+            return httpx.Response(
+                200,
+                text=(
+                    '<?xml version="1.0" encoding="UTF-8"?>'
+                    '<WFS_Capabilities xmlns:xlink="http://www.w3.org/1999/xlink">'
+                    '<OperationsMetadata><Operation name="GetFeature"><DCP><HTTP>'
+                    '<Get xlink:href="deeper"/>'
+                    "</HTTP></DCP></Operation></OperationsMetadata>"
+                    "</WFS_Capabilities>"
+                ),
+            )
+
+        recorded = self._transport(monkeypatch, handle)
+        seen: list[str] = []
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.same_origin",
+            lambda base, resolved: seen.append(resolved) or True,
+        )
+
+        await assert_endpoints_stay_on_origin(
+            _SVC_WFS,
+            service_format="wfs",
+            credential_line=f"{pair[0]}: {pair[1]}",
+        )
+
+        # `deeper` resolved against the redirected document, not against the
+        # URL that was asked for. Same-origin either way, so the assertion has
+        # to be on the resolved path rather than on the outcome.
+        assert [r.url.path for r in recorded] == [
+            "/geoserver/wfs",
+            "/geoserver/wfs/",
+        ]
+        assert seen == [f"{_SVC_ORIGIN}/geoserver/wfs/deeper"]

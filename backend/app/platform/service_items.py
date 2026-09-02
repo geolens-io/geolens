@@ -55,7 +55,10 @@ from app.platform.security import (
     same_origin,
     validate_url_for_ssrf,
 )
-from app.platform.service_endpoints import EndpointCheckFailedError
+from app.platform.service_endpoints import (
+    EndpointCheckFailedError,
+    read_bounded_body,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -71,8 +74,8 @@ logger = structlog.stdlib.get_logger(__name__)
 MAX_PAGES = 10_000
 MAX_BYTES = 2 * 1024 * 1024 * 1024
 
-# What one page may cost, enforced while it streams and before anything is
-# decoded. A page is held whole in memory to be parsed, so this is the real
+# What one page may cost, enforced by the shared reader in `service_endpoints`
+# while it streams and before anything is decoded. A page is held whole in memory to be parsed, so this is the real
 # per-request memory bound and the total above cannot substitute for it: one
 # oversized response would exhaust the process long before a running total
 # noticed. 64 MiB against `PAGE_SIZE` features is ~64 KiB of JSON per feature,
@@ -136,44 +139,12 @@ def _next_href(document: object, base: str) -> str | None:
     return None
 
 
-async def _read_bounded(response: httpx.Response, budget: int) -> bytes:
-    """The body, or a refusal once more than ``budget`` bytes have arrived.
-
-    fix(#1746 B2b review r17): the read stops at the bound rather than at the
-    end of the response, so the refusal costs one chunk past the budget instead
-    of however much the service felt like sending.
-
-    ``aiter_raw`` rather than ``aiter_bytes``, for the reason #1708 r11
-    recorded on the URL-import path: ``aiter_bytes`` transparently inflates a
-    ``Content-Encoding`` body, so a single wire chunk could materialise an
-    unbounded ``bytes`` BEFORE this check ran, which is a compression bomb
-    against the exact memory the bound exists to protect.
-    """
-    encoding = response.headers.get("Content-Encoding", "identity").lower()
-    if encoding not in ("", "identity"):
-        # Refused rather than decoded. `aiter_raw` would hand back the
-        # compressed bytes and `json.loads` would fail on them with a message
-        # about the wrong thing, so the cause is named here instead.
-        raise ItemFetchFailedError("compressed page")
-    declared = response.headers.get("Content-Length", "")
-    if declared.isdigit() and int(declared) > budget:
-        # Free when the service is honest; no help when it is not, which is
-        # what the running count below is for.
-        raise ItemFetchFailedError("page exceeds the cap")
-    read = 0
-    chunks: list[bytes] = []
-    async for chunk in response.aiter_raw():
-        read += len(chunk)
-        if read > budget:
-            raise ItemFetchFailedError("page exceeds the cap")
-        chunks.append(chunk)
-    return b"".join(chunks)
-
-
 async def _fetch_page(
     client: httpx.AsyncClient, url: str, headers: dict, *, budget: int
-) -> tuple[object, int]:
-    """One items page and its wire size, or a refusal. THE request site here.
+) -> tuple[object, int, str]:
+    """One items page, its wire size and its URL, or a refusal.
+
+    THE request site for this module.
 
     Every page is revalidated immediately before the request, including pages
     the previous one named: a chain the service controls is exactly where a
@@ -201,8 +172,15 @@ async def _fetch_page(
                 # distrusts is not worth the bytes, and the status is the whole
                 # of what the refusal says.
                 raise ItemFetchFailedError(f"HTTP {response.status_code}")
-            body = await _read_bounded(response, budget)
-        return json.loads(body), len(body)
+            body = await read_bounded_body(response, budget, error=ItemFetchFailedError)
+            # fix(#1746 B2b review r19): the URL this page actually came from.
+            # A same-origin canonical redirect (`/items` to `/items/`) changes
+            # what a relative `next` is relative to, so resolving against the
+            # URL that was asked for requests the wrong path. The safe client
+            # revalidated every hop and refuses a cross-origin one carrying
+            # this header, so the final URL is bounded before it is used.
+            final_url = str(response.url)
+        return json.loads(body), len(body), final_url
     except (httpx.HTTPError, SSRFError, ValueError) as exc:
         raise ItemFetchFailedError(str(exc)) from None
 
@@ -232,7 +210,7 @@ async def _walk_pages(
             # on its first page has still reached the service, and leaving the
             # source's `last_checked_at` stale would report the opposite.
             on_first_request()
-        document, size = await _fetch_page(
+        document, size, from_url = await _fetch_page(
             client,
             page_url,
             headers,
@@ -248,7 +226,7 @@ async def _walk_pages(
                 page_url = None
                 break
         else:
-            following = _next_href(document, page_url)
+            following = _next_href(document, from_url)
             if following is not None and not same_origin(url, following):
                 # The whole reason this module exists. The page chose the next
                 # address; it does not get to choose a different service to be
