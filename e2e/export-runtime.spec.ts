@@ -289,6 +289,17 @@ function buildWherePredicate(
     allowedColumns.set(column.name.toLowerCase(), column.name);
   }
 
+  // fix(#1778): the threshold used to come from the FIRST feature's numeric
+  // value, returned on the spot. The seeded runtime fixture inserts
+  // value=10,20,30 in that order, so the clause was always `value >= 10` —
+  // every seeded row satisfies it, so a `where` param silently dropped
+  // (wrong column, inverted operator, ignored entirely) produced the same
+  // full result set as a correctly-applied filter. Scan every feature for
+  // the first numeric column and use its MAXIMUM observed value instead, so
+  // the clause is genuinely selective against the seeded fixture.
+  let numericColumn: { columnName: string; propertyKey: string } | null = null;
+  let maxValue = -Infinity;
+
   for (const feature of baseline.features) {
     const properties = feature.properties ?? {};
 
@@ -299,15 +310,13 @@ function buildWherePredicate(
       }
 
       if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
-        const threshold = Number(rawValue.toFixed(6));
-        return {
-          clause: `${columnName} >= ${threshold}`,
-          propertyKey,
-          evaluate: (candidate) => {
-            const value = candidate[propertyKey];
-            return typeof value === 'number' && Number.isFinite(value) && value >= threshold;
-          },
-        };
+        if (!numericColumn) {
+          numericColumn = { columnName, propertyKey };
+        }
+        if (numericColumn.propertyKey === propertyKey) {
+          maxValue = Math.max(maxValue, rawValue);
+        }
+        continue;
       }
 
       if (
@@ -321,6 +330,19 @@ function buildWherePredicate(
         };
       }
     }
+  }
+
+  if (numericColumn) {
+    const threshold = Number(maxValue.toFixed(6));
+    const { columnName, propertyKey } = numericColumn;
+    return {
+      clause: `${columnName} >= ${threshold}`,
+      propertyKey,
+      evaluate: (candidate) => {
+        const value = candidate[propertyKey];
+        return typeof value === 'number' && Number.isFinite(value) && value >= threshold;
+      },
+    };
   }
 
   if (nonNullFallback) {
@@ -708,7 +730,20 @@ test.describe('Runtime export integrity', () => {
       `bbox=${bboxParam}`,
     ]);
 
+    // fix(#1778): neither assertion below required a non-empty result, so a
+    // regression that made the bbox filter match nothing (inverted operator,
+    // wrong column, an SRID mismatch) passed this test — the `for` loop
+    // simply never ran. `toBeGreaterThan(0)` holds generally: the interior
+    // bbox keeps the central 60% of the extent on each axis, which excludes
+    // some geometry only when it also contains some.
+    expect(filtered.features.length).toBeGreaterThan(0);
     expect(filtered.features.length).toBeLessThanOrEqual(baseline.features.length);
+    if (ownedDataset) {
+      // Against the auto-seeded runtime fixture (west/center/east, evenly
+      // spaced) the 20% inset on each axis excludes west and east and keeps
+      // only center — pin the exact count rather than just "fewer than all".
+      expect(filtered.features.length).toBe(1);
+    }
 
     for (const feature of filtered.features) {
       const featureBBox = computeFeatureBBox(feature);
@@ -729,7 +764,18 @@ test.describe('Runtime export integrity', () => {
       `where=${encodeURIComponent(predicateValue.clause)}`,
     ]);
 
+    // fix(#1778): same empty-result gap as the bbox test above.
+    // buildWherePredicate's threshold is now the column's MAXIMUM observed
+    // value (see its comment), so the row that produced that maximum always
+    // satisfies `>=` — the result is never empty.
+    expect(filtered.features.length).toBeGreaterThan(0);
     expect(filtered.features.length).toBeLessThanOrEqual(baseline.features.length);
+    if (ownedDataset) {
+      // Against the auto-seeded runtime fixture, value=10/20/30 are
+      // distinct, so `value >= 30` is satisfied by exactly one feature —
+      // pin the exact count rather than just "fewer than all".
+      expect(filtered.features.length).toBe(1);
+    }
 
     for (const feature of filtered.features) {
       const properties = feature.properties ?? {};
