@@ -82,7 +82,7 @@ from app.processing.ingest.tasks_raster_swap import (
     archived_original_asset_key,
     upsert_archived_original_row,
     reserve_replacement_bytes,
-    _run_post_swap_followups,
+    run_post_swap_followups_best_effort,
     _upsert_managed_asset_rows,
     _write_swapped_fields,
 )
@@ -705,6 +705,22 @@ async def reupload_raster(
                 # never reach that decision.
                 swap_committed = True
                 absorb_cancellation(exc)
+                # fix(#1778 codex r2): standing down from the FAILURE handler
+                # is not standing down from the success work. This call is the
+                # only deletion of the superseded COG and quicklooks, and the
+                # committed pointer already names the new keys, so returning
+                # without it strands three objects no row references and no
+                # quota counts — once per lost acknowledgement, for the life of
+                # the dataset. The helper carries its own fence, so a followup
+                # that fails still ends in this return.
+                await run_post_swap_followups_best_effort(
+                    dataset_uuid=dataset_uuid,
+                    dataset_cls=Dataset,
+                    prior_physical_keys=prior_physical_keys,
+                    written_storage_keys=written_storage_keys,
+                    job_id=job_id,
+                    dataset_id=dataset_id,
+                )
                 return
             # fix(#1290 review): set in the same breath as the commit, and read
             # by the terminal cleanup instead of `final_status`. These are two
@@ -719,29 +735,20 @@ async def reupload_raster(
             final_status = "complete"
 
         # fix(#1290 review): everything from here is optional post-commit work,
-        # fenced so it cannot be mistaken for a failed replace. The swap is
-        # durable; a cache purge that cannot reach Valkey, a reap that cannot
-        # reach storage, or an embedding defer against a busy queue are all
-        # things to log and move on from, not reasons to fail a job whose
-        # outcome is already committed and already reported as succeeded in the
-        # run row. The `swap_committed` guard in the `finally` is the
-        # structural half of this: the fence keeps today's code from raising,
-        # and the guard keeps tomorrow's from destroying anything if it does.
-        try:
-            await _run_post_swap_followups(
-                dataset_uuid=dataset_uuid,
-                dataset_cls=Dataset,
-                prior_physical_keys=prior_physical_keys,
-                written_storage_keys=written_storage_keys,
-                job_id=job_id,
-            )
-        except Exception:  # broad: nothing after the commit may fail the job
-            logger.warning(
-                "raster_replace_post_swap_followup_failed",
-                job_id=job_id,
-                dataset_id=dataset_id,
-                exc_info=True,
-            )
+        # fenced so it cannot be mistaken for a failed replace. The
+        # `swap_committed` guard in the `finally` is the structural half of
+        # this: the fence keeps today's code from raising, and the guard keeps
+        # tomorrow's from destroying anything if it does. fix(#1778 codex r2):
+        # the fence itself lives in the helper now, because the stand-down
+        # path below needs the same one.
+        await run_post_swap_followups_best_effort(
+            dataset_uuid=dataset_uuid,
+            dataset_cls=Dataset,
+            prior_physical_keys=prior_physical_keys,
+            written_storage_keys=written_storage_keys,
+            job_id=job_id,
+            dataset_id=dataset_id,
+        )
 
     except Exception as exc:  # broad: spans GDAL/COG/storage — any step can fail
         # fix(#1778 codex r1): the other three tails guard this handler on

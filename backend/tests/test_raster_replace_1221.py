@@ -5653,6 +5653,11 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
         )
         dataset_id = live.dataset.id
         record_id = live.dataset.record_id
+        prior_keys = [
+            live.cog_key,
+            live.asset.quicklook_256_uri,
+            live.asset.quicklook_512_uri,
+        ]
 
         source = tmp_path / "replacement.tif"
         source.write_bytes(_geotiff_bytes(seed=91))
@@ -5719,6 +5724,18 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
                 "the refresh history must record what happened, not what the "
                 "lost acknowledgement suggested"
             )
+
+            # fix(#1778 codex r2). Standing down from the failure handler is
+            # not standing down from the success work: this is the ONLY
+            # deletion of the superseded objects, and the committed pointer
+            # already names the new ones, so skipping it strands three objects
+            # per lost acknowledgement outside quota accounting for the life of
+            # the dataset.
+            for key in prior_keys:
+                assert not await raster_storage.exists(key), (
+                    f"the superseded {key} survived the swap. Nothing "
+                    "references it and nothing counts it."
+                )
         finally:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
 
@@ -5956,6 +5973,14 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
             assert await raster_storage.exists(asset.asset_uri), (
                 f"{asset.asset_uri} was deleted after the commit that "
                 "published it — the VRT dataset now serves nothing"
+            )
+
+            # fix(#1778 codex r2): the superseded generation's object is the
+            # mirror obligation. The committed asset already names the new one,
+            # so a stand-down that skipped the reap would strand it outside
+            # quota accounting.
+            assert not await raster_storage.exists(prior_key), (
+                f"the superseded {prior_key} survived the generation swap"
             )
 
             # fix(#1778 codex r1). The reap was only the deletion. The failure

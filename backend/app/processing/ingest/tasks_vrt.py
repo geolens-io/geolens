@@ -47,6 +47,32 @@ from app.processing.ingest.tasks_raster_common import (
 )
 
 
+async def _reap_superseded_generation_objects(
+    *,
+    prior_storage_keys: list[str],
+    written_storage_keys: list[str],
+    job_id: str,
+) -> None:
+    """Delete the objects the published generation superseded.
+
+    fix(#1778 codex r2): named and shared because ``regenerate_vrt`` reaches
+    it from two places now, the ordinary success path and the stand-down a
+    lost commit acknowledgement takes. It is the ONLY deletion of the previous
+    generation's artifact, and the committed asset already names the new one,
+    so a path that skips it strands bytes no row references and no quota
+    counts.
+
+    The ``not in written`` filter is what makes a regeneration that produced
+    byte-identical output a no-op rather than a self-inflicted delete.
+    """
+    from app.processing.ingest.tasks_raster import _cleanup_orphaned_storage_keys
+
+    await _cleanup_orphaned_storage_keys(
+        [key for key in prior_storage_keys if key not in written_storage_keys],
+        job_id=job_id,
+    )
+
+
 def _prior_generation_storage_keys_to_reap(
     *,
     vrt_key: str,
@@ -635,6 +661,12 @@ async def ingest_vrt(
                     # same decision `regenerate_vrt` makes below. The dataset
                     # and its VRT object are durable, so the failure handler
                     # would be writing about a job that succeeded.
+                    #
+                    # fix(#1778 codex r2): and unlike `regenerate_vrt` there is
+                    # nothing to reap on the way out. A first build supersedes
+                    # no generation, so the followups this skips are the cache
+                    # purge and the embedding defer: both recoverable, neither
+                    # holding bytes that no row references.
                     publish_committed = True
                     absorb_cancellation(exc)
                     return
@@ -1286,19 +1318,25 @@ async def regenerate_vrt(
                     # not fenced the way the job and asset writes are.
                     publish_committed = True
                     absorb_cancellation(exc)
+                    # fix(#1778 codex r2): standing down from the FAILURE
+                    # handler is not standing down from the success work. This
+                    # is the only deletion of the superseded generation's
+                    # objects, and the committed asset already names the new
+                    # ones, so returning without it strands bytes no row
+                    # references and no quota counts. No guard: the reaper
+                    # swallows a missing provider and every per-key error, so
+                    # it cannot turn a durable publish back into a failure.
+                    await _reap_superseded_generation_objects(
+                        prior_storage_keys=prior_storage_keys,
+                        written_storage_keys=written_storage_keys,
+                        job_id=job_id,
+                    )
                     return
                 publish_committed = True
 
-                from app.processing.ingest.tasks_raster import (
-                    _cleanup_orphaned_storage_keys,
-                )
-
-                await _cleanup_orphaned_storage_keys(
-                    [
-                        key
-                        for key in prior_storage_keys
-                        if key not in written_storage_keys
-                    ],
+                await _reap_superseded_generation_objects(
+                    prior_storage_keys=prior_storage_keys,
+                    written_storage_keys=written_storage_keys,
                     job_id=job_id,
                 )
 

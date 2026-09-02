@@ -2999,7 +2999,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # redaction backstop, the pending-inclusive fence, the ingest_failed
     # notification) and why an empty name skips rather than logs a cleanup
     # failure on every VRT build failure. Cap 2380 -> 2395, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2395,
+    # fix(#1778 codex r2): +31 — `_cleanup_staging_on_failure` writes and
+    # commits the failure row BEFORE it attempts the staging DROP, and the drop
+    # rolls back its own wreckage. A DDL error aborts the whole PostgreSQL
+    # transaction, so with the drop first a lock or statement timeout took the
+    # failure write down with it and the job sat `running` with no reason. Most
+    # of the lines are the docstring and comment stating that the order is the
+    # contract. Cap 2395 -> 2426, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2426,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -3720,7 +3727,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # stated at the write and not only at the caller. Most of the lines are the
     # two handler comments naming the reader each false failure reaches.
     # Cap 1386 -> 1442, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1442,
+    # fix(#1778 codex r2): +38 — the superseded-generation reap is a named
+    # helper called from both the success path and the stand-down, because it
+    # is the only deletion of the previous generation's artifact and a
+    # stand-down that skipped it stranded bytes no row references and no quota
+    # counts. `ingest_vrt` records that it has nothing to reap on that path.
+    # Cap 1442 -> 1480, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1480,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.

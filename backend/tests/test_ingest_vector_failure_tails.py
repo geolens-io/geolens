@@ -234,3 +234,112 @@ class TestNoImportTailStillHandRollsItsFailureWrite:
                     "helper, so its failures emit no ingest_failed "
                     "notification"
                 )
+
+
+class TestACleanupFailureCannotSwallowTheFailureWrite:
+    """fix(#1778 codex r2): the order inside the shared helper.
+
+    PostgreSQL aborts the whole transaction on any statement error, so with
+    the staging DROP running first, a drop that hit a lock or statement
+    timeout left the session unusable and the failure UPDATE that followed it
+    raised `current transaction is aborted`. The job stayed `running` until
+    the stale sweep, and the reason nobody recorded was the one the user
+    needed. The failure row is written and committed first now.
+    """
+
+    @staticmethod
+    def _break_the_drop(monkeypatch) -> None:
+        """Make the DROP fail at the SERVER, which is what aborts the
+        transaction. A double raised in Python would leave the session healthy
+        and the reordering counterfactual would pass for the wrong reason."""
+        import app.processing.ingest.metadata as metadata_mod
+
+        real_qtable = metadata_mod._qtable
+
+        def _malformed(table_name: str, schema: str = "data") -> str:
+            real_qtable(table_name, schema=schema)  # keep the identifier checks
+            return '"data"."x" ,,,'
+
+        monkeypatch.setattr(metadata_mod, "_qtable", _malformed, raising=True)
+
+    async def test_the_job_still_records_the_original_failure(
+        self, test_db_session, monkeypatch
+    ) -> None:
+        from app.core.db import async_session
+        from app.processing.ingest.tasks_common import _cleanup_staging_on_failure
+
+        admin_id = await _admin_id(test_db_session)
+        job = IngestJob(
+            source_filename="points.geojson",
+            created_by=admin_id,
+            status="running",
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+        job_id = job.id
+        attempt_id = job.attempt_id
+
+        self._break_the_drop(monkeypatch)
+
+        try:
+            async with async_session() as err_session:
+                err_job = (
+                    await err_session.execute(
+                        select(IngestJob).where(IngestJob.id == job_id)
+                    )
+                ).scalar_one()
+                await _cleanup_staging_on_failure(
+                    err_session,
+                    staging_table="roads_staging_deadbeef",
+                    job=err_job,
+                    exc=RuntimeError("ogr2ogr could not read the layer"),
+                    task_name="ingest_file",
+                    attempt_id=attempt_id,
+                )
+
+            test_db_session.expire_all()
+            finished = (
+                await test_db_session.execute(
+                    select(IngestJob).where(IngestJob.id == job_id)
+                )
+            ).scalar_one()
+            assert finished.status == "failed", (
+                "a staging-table cleanup error swallowed the failure write, so "
+                "the job sits running with no reason until the stale sweep"
+            )
+            assert "could not read the layer" in (finished.error_message or "")
+            assert finished.completed_at is not None
+        finally:
+            await _drop_job(test_db_session, job_id)
+
+    def test_the_drop_runs_after_the_failure_commit(self) -> None:
+        """Structural, because the property is an ORDER and the behavioural
+        test above can only observe one half of it."""
+        import ast
+        import inspect
+
+        import app.processing.ingest.tasks_common as tc_mod
+
+        tree = ast.parse(inspect.getsource(tc_mod._cleanup_staging_on_failure))
+        drop_lines = [
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and "DROP TABLE IF EXISTS" in node.value
+        ]
+        status_lines = [
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.keyword)
+            and node.arg == "status"
+            and isinstance(node.value, ast.Constant)
+            and node.value.value == "failed"
+        ]
+        assert drop_lines and status_lines, "the helper's shape changed"
+        assert min(drop_lines) > min(status_lines), (
+            "the staging DROP runs before the failure UPDATE again. A DDL "
+            "error aborts the transaction, and every statement after it on "
+            "that session raises until a rollback."
+        )

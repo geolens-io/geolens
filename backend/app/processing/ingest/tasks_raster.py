@@ -648,6 +648,12 @@ async def ingest_raster(
                 # succeeded. `final_status` deliberately stays non-complete:
                 # it also licenses deleting the uploader's staged original,
                 # and a probe answer must never reach that decision.
+                #
+                # fix(#1778 codex r2): nothing to reap on the way out. A first
+                # ingest supersedes no asset, so the followups this skips are
+                # the completion notification, the cache purge, the embedding
+                # defer and the metering event: all recoverable, none of them
+                # holding bytes that no row references.
                 publish_committed = True
                 absorb_cancellation(exc)
                 return
