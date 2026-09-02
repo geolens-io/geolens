@@ -4,21 +4,131 @@ import asyncio
 import math
 import os
 
+import structlog
+
+from app.core.config import settings
+
 # fix(#909): build_pg_conn_str is deliberately NOT imported at module scope.
 # The test fixture redirects app.processing.ingest.ogr.build_pg_conn_str at
 # the origin; a module-scope `from ... import` here snapshots the dev-DB
 # helper past that patch, which once sent a test's ogr2ogr export at the dev
 # database (#898). Late-bind at call scope (test_layering.py enforces this).
 from app.processing.ingest.ogr import (
-    OGR2OGR_FILE_TIMEOUT_SECONDS,
     IngestionError,
     _communicate_with_timeout,
     _tenant_reader_subprocess_env,
 )
+from app.processing.ingest.url_fetch import EDGE_PROXY_READ_TIMEOUT_SECONDS
+
+logger = structlog.get_logger(__name__)
 
 
 class ExportError(Exception):
     """Raised when an ogr2ogr export subprocess fails."""
+
+
+# ---------------------------------------------------------------------------
+# The in-request export deadline
+# ---------------------------------------------------------------------------
+# fix(#1778): a synchronous export ran on a 3600s subprocess deadline behind a
+# 600s edge read timeout. This conversion runs inside the request, so the
+# deadline that governs it is the edge proxy's, not the worker's. The
+# module used to import the offline-ingest constant
+# ``OGR2OGR_FILE_TIMEOUT_SECONDS`` (3600s) and use it for both the subprocess
+# wall clock and the libpq ``statement_timeout``, six times the edge's own
+# read timeout: past 600s nginx severed the upstream read and answered 504
+# while this handler kept converting for up to another 50 minutes, holding a
+# pooled connection, an ogr2ogr child, a PostgreSQL backend and a multi-
+# gigabyte staging directory with nobody left to read the output.
+#
+# ``EDGE_PROXY_READ_TIMEOUT_SECONDS`` is imported rather than restated: the
+# URL importer derives its own synchronous budget from that constant, and
+# there is one edge read timeout (``proxy_read_timeout`` in frontend/
+# nginx.conf's ``location /api/``).
+
+# Every point where an export request checks a pooled connection out, each
+# able to wait up to ``settings.db_pool_timeout`` when the pool is exhausted:
+#
+#   1. The dependency and pre-conversion phase (get_optional_user, the
+#      access checks, the feature-count guard, the parquet plan) shares one
+#      checkout, which the route hands back immediately before this
+#      subprocess starts (see the rollback in export/router.py).
+#   2. The post-conversion audit row and its commit.
+#
+# The GeoParquet branch takes a third for its own row stream, but it runs no
+# subprocess and is not bounded by this deadline.
+EXPORT_POOL_CHECKOUTS_PER_REQUEST = 2
+
+# Reserved, beyond the pool waits, for what the response still owes after
+# ogr2ogr exits and before the first byte reaches the client: the
+# format-specific finish inside export_dataset (the shapefile ZIP, the
+# GeoPackage timestamp normalization), hashing the built file, publishing it
+# to object storage, and the audit commit. Sized for a multi-gigabyte
+# artifact against same-network object storage (reading 5 GB to hash it plus
+# a ~1 Gbps push is well under two minutes).
+#
+# A reservation, not a measurement: those steps have no deadline of their
+# own, so a slow one can still overrun. The cost of overrunning is the
+# severed response this budget exists to make rare, not a corrupted export,
+# and the bound that matters is the one on the step that dominates.
+EXPORT_POST_WORK_MARGIN_SECONDS = 120
+
+# A pathological pool timeout (DB_POOL_TIMEOUT=300 leaves 600 - 600 - 120 =
+# -120) must not yield a zero or negative deadline, and must not crash the
+# app at import over an operator setting. Clamp here instead and warn once,
+# so the operator sees a cause: at the floor every export times out promptly
+# instead of running past the proxy that is no longer listening.
+EXPORT_BUDGET_FLOOR_SECONDS = 1
+
+_export_budget_floor_warned = False
+
+
+def export_subprocess_timeout_seconds() -> int:
+    """Wall-clock ceiling for one in-request ogr2ogr export.
+
+        EDGE_PROXY
+          - EXPORT_POOL_CHECKOUTS_PER_REQUEST * db_pool_timeout
+          - EXPORT_POST_WORK_MARGIN,
+
+    clamped up to EXPORT_BUDGET_FLOOR_SECONDS.
+
+    Derived per call rather than fixed, for the reason
+    ``url_fetch.stage_total_budget_seconds`` gives: ``db_pool_timeout`` is
+    operator-settable, so a hardcoded figure silently breaks the arithmetic
+    the moment it is raised, and a test that reads the live setting cannot
+    catch that because CI only ever runs the default.
+
+    There is no separate upper ceiling. The URL importer needs one because
+    its preflight and fetch bounds assume a smaller number; nothing here
+    assumes one, and the post-work margin is what keeps a very small pool
+    timeout from pushing the response past the proxy.
+    """
+    global _export_budget_floor_warned
+
+    pool_timeout = settings.db_pool_timeout
+    derived = (
+        EDGE_PROXY_READ_TIMEOUT_SECONDS
+        - (EXPORT_POOL_CHECKOUTS_PER_REQUEST * pool_timeout)
+        - EXPORT_POST_WORK_MARGIN_SECONDS
+    )
+    if derived < EXPORT_BUDGET_FLOOR_SECONDS:
+        if not _export_budget_floor_warned:
+            _export_budget_floor_warned = True
+            logger.warning(
+                "export_subprocess_budget_floored",
+                db_pool_timeout=pool_timeout,
+                edge_proxy_read_timeout=EDGE_PROXY_READ_TIMEOUT_SECONDS,
+                derived_budget=derived,
+                floor=EXPORT_BUDGET_FLOOR_SECONDS,
+                detail=(
+                    "DB_POOL_TIMEOUT leaves no room for a synchronous export "
+                    "inside the edge proxy's read timeout; exports will time "
+                    "out. Lower DB_POOL_TIMEOUT or raise the proxy's "
+                    "proxy_read_timeout."
+                ),
+            )
+        return EXPORT_BUDGET_FLOOR_SECONDS
+    return derived
 
 
 # fix(#1532 review r9): the parquet media type lives HERE rather than in
@@ -261,16 +371,25 @@ async def run_ogr2ogr_export(
     # fix(#430 BA-06): bound the export subprocess wall-clock with a kill-on-timeout
     # (mirrors the ingest path) so a slow/large table can't hold an API worker;
     # also cap the server-side query via libpq statement_timeout so the DB query
-    # stops when the child is killed. `_communicate_with_timeout` below kills the
-    # child on cancellation too (a client disconnect), not only on timeout — see
-    # its docstring for why that branch has to exist.
+    # stops when the child is killed.
+    #
+    # fix(#1778): the bound is the request's, derived from the edge proxy.
+    # See export_subprocess_timeout_seconds. Read once so the wall clock and
+    # the statement_timeout cannot disagree.
+    #
+    # The note that used to sit here also said `_communicate_with_timeout`
+    # kills the child on a client disconnect. It does kill on cancellation,
+    # and the ingest caller gets that from Procrastinate's shutdown, but
+    # nothing cancels THIS task: uvicorn's `connection_lost` only marks the
+    # cycle disconnected and wakes `receive()`, and a GET handler never awaits
+    # `receive()`. A departed client is therefore invisible here, and the
+    # deadline below is what bounds the orphan.
+    export_timeout = export_subprocess_timeout_seconds()
     env = _tenant_reader_subprocess_env(
         schema,
         base_env={
             **os.environ,
-            "PGOPTIONS": (
-                f"-c statement_timeout={OGR2OGR_FILE_TIMEOUT_SECONDS * 1000}"
-            ),
+            "PGOPTIONS": f"-c statement_timeout={export_timeout * 1000}",
         },
     )
     assert env is not None  # base_env is always returned in single-tenant mode
@@ -282,7 +401,7 @@ async def run_ogr2ogr_export(
     )
     try:
         stdout, stderr = await _communicate_with_timeout(
-            proc, OGR2OGR_FILE_TIMEOUT_SECONDS, tool_name="ogr2ogr export"
+            proc, export_timeout, tool_name="ogr2ogr export"
         )
     except IngestionError as exc:
         raise ExportError(str(exc)) from exc
