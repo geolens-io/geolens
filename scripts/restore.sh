@@ -4,14 +4,23 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Source .env early so COMPOSE_FILE (and POSTGRES_* below) reflect the operator's
-# install. The prebuilt-prod installer pins COMPOSE_FILE=docker-compose.prod.yml;
-# source builds use the default docker-compose.yml.
+# shellcheck source=scripts/lib/common.sh
+. "$SCRIPT_DIR/lib/common.sh"
+
+# fix(#1778): read only the four values this script needs from .env with
+# get_env_value's awk parser, not by shell-sourcing the file. Compose's own
+# `.env` parser and `sh` disagree about the same file: install.sh writes
+# values verbatim (an operator-typed admin password can legally contain a
+# space), and `.` executes the rest of such a line as a command. Under
+# `set -e` that is a 127 exit before this disaster-recovery entry point has
+# validated anything; a value containing backticks or $(...) is executed
+# with the operator's privileges. Sourcing also pulled in every OTHER secret
+# in the file as a side effect, when only these four are ever read below.
 if [ -f "$PROJECT_ROOT/.env" ]; then
-    set -a
-    # shellcheck source=/dev/null
-    . "$PROJECT_ROOT/.env"
-    set +a
+    COMPOSE_FILE="$(get_env_value COMPOSE_FILE "$PROJECT_ROOT/.env")"
+    POSTGRES_USER="$(get_env_value POSTGRES_USER "$PROJECT_ROOT/.env")"
+    POSTGRES_DB="$(get_env_value POSTGRES_DB "$PROJECT_ROOT/.env")"
+    GEOLENS_RUNTIME_DB_ROLE="$(get_env_value GEOLENS_RUNTIME_DB_ROLE "$PROJECT_ROOT/.env")"
 fi
 COMPOSE=(docker compose -f "$PROJECT_ROOT/${COMPOSE_FILE:-docker-compose.yml}")
 
@@ -145,12 +154,34 @@ echo "Stopping API to prevent write conflicts during restore..."
 #      - nonzero with real ERROR lines in stderr → hard failure, abort
 #
 # The trap fires before the EXIT signal is delivered to the shell, so
-# api/worker are restarted regardless of whether the script exits normally,
-# via `exit 1` (hard pg_restore error), or via another `set -e` abort.
+# api/worker are restarted regardless of whether the script exits normally
+# or via another `set -e` abort.
+#
+# fix(#1778): that restart is only correct once the restore AND the mandatory
+# grant reconciliation below have both succeeded — RESTORE_SUCCEEDED gates it.
+# BUG-022's own trap comment said the restart runs "including on failure",
+# but it was never meant to cover the HARD pg_restore error path: there the
+# database has already been --clean-dropped and only partly repopulated, no
+# ACLs have been re-granted, and starting api/worker on top of it runs their
+# boot-time `alembic upgrade heads` against the wreckage — potentially
+# stamping revisions onto a half-restored schema. RUNBOOK.md says this
+# reconciliation step is mandatory and "start runtime services only after
+# that command succeeds"; the same reasoning applies if the reconciliation
+# itself fails or its grant is not verified. RESTORE_SUCCEEDED flips to 1
+# only after every one of those checks has passed.
+RESTORE_SUCCEEDED=0
 _cleanup() {
     echo ""
-    echo "Restarting services..."
-    "${COMPOSE[@]}" start api worker 2>/dev/null || true
+    if [ "$RESTORE_SUCCEEDED" = "1" ]; then
+        echo "Restarting services..."
+        "${COMPOSE[@]}" start api worker 2>/dev/null || true
+    else
+        echo "Leaving api/worker STOPPED: the database is in a partially-restored"
+        echo "state (pg_restore failed, or the mandatory grant reconciliation below"
+        echo "did not complete and verify). Starting the app now would run its"
+        echo "boot-time migrations against that wreckage."
+        echo "Re-run the restore, or restore a different dump."
+    fi
 }
 trap _cleanup EXIT
 
@@ -175,7 +206,9 @@ if [ "$RESTORE_RC" -ne 0 ]; then
         echo "ERROR: pg_restore failed (exit code ${RESTORE_RC}). Stderr:" >&2
         cat "$RESTORE_STDERR" >&2
         rm -f "$RESTORE_STDERR"
-        # _cleanup trap will restart api/worker before exit
+        # fix(#1778): RESTORE_SUCCEEDED is still 0 — the _cleanup trap leaves
+        # api/worker stopped rather than restarting them onto a half-restored
+        # database with no ACLs re-applied.
         exit 1
     else
         echo "pg_restore exited with code ${RESTORE_RC} (warnings only — --clean --if-exists on fresh DB is expected)."
@@ -223,6 +256,11 @@ if [ -n "${GEOLENS_RUNTIME_DB_ROLE:-}" ]; then
     fi
     echo "${GEOLENS_RUNTIME_DB_ROLE} least-privilege attributes verified."
 fi
+
+# fix(#1778): the mandatory reconciliation step (RUNBOOK.md: "start runtime
+# services only after that command succeeds") has now run and every grant it
+# makes has been verified — restarting api/worker on exit is safe from here.
+RESTORE_SUCCEEDED=1
 
 # Post-restore validation
 echo ""

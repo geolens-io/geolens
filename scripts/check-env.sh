@@ -4,12 +4,19 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Source .env if present
+# shellcheck source=scripts/lib/common.sh
+. "$SCRIPT_DIR/lib/common.sh"
+
+# fix(#1778): read only the values this check needs from .env with
+# get_env_value's awk parser, not by shell-sourcing the file — see
+# restore.sh for why: Compose's `.env` parser accepts values (a space, a
+# backtick, `$(...)`) that `sh` does not, and shell-sourcing them under
+# `set -e` either aborts on an operator-typed value or executes it.
 if [ -f "$PROJECT_ROOT/.env" ]; then
-    set -a
-    # shellcheck source=/dev/null
-    . "$PROJECT_ROOT/.env"
-    set +a
+    POSTGRES_USER="$(get_env_value POSTGRES_USER "$PROJECT_ROOT/.env")"
+    # shellcheck disable=SC2034  # read via `${!var}` in the Section 1 loop below
+    POSTGRES_PASSWORD="$(get_env_value POSTGRES_PASSWORD "$PROJECT_ROOT/.env")"
+    POSTGRES_DB="$(get_env_value POSTGRES_DB "$PROJECT_ROOT/.env")"
 fi
 
 ERRORS=0

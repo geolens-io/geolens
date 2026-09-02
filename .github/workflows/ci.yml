@@ -347,6 +347,8 @@ jobs:
             installer:
               - 'scripts/install.sh'
               - 'scripts/upgrade.sh'
+              - 'scripts/restore.sh'
+              - 'scripts/check-env.sh'
               - 'scripts/lib/common.sh'
               - 'scripts/backup-entrypoint.sh'
               - 'scripts/tests/test-install-tag-resolution.sh'
@@ -355,6 +357,8 @@ jobs:
               - 'scripts/tests/test-upgrade-order.sh'
               - 'scripts/tests/test-upgrading-doc-consistency.sh'
               - 'scripts/tests/test-backup-s3-signature.sh'
+              - 'scripts/tests/test-restore-trap-safety.sh'
+              - 'scripts/tests/test-restore-env-sourcing-safety.sh'
               - 'scripts/check_env_doc_drift.py'
               # check_env_doc_drift.py parses the Settings class out of this
               # file — a new Settings field must re-run the drift gate.
@@ -527,6 +531,12 @@ jobs:
 
       - name: Backup S3 signature regression test
         run: sh scripts/tests/test-backup-s3-signature.sh
+
+      - name: restore.sh EXIT trap safety regression test
+        run: sh scripts/tests/test-restore-trap-safety.sh
+
+      - name: restore.sh/check-env.sh .env sourcing safety regression test
+        run: sh scripts/tests/test-restore-env-sourcing-safety.sh
 
       - name: Environment contract drift gate
         run: python3 scripts/check_env_doc_drift.py
