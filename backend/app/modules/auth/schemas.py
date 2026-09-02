@@ -58,7 +58,10 @@ class UserCreate(BaseModel):
         # + 3-of-4 class diversity) is enforced by validate_password below.
         # Both errors are 422; the field-level message fires first when the
         # password is < 8 chars.
-        description="Plaintext password (policy: min 12 chars, 3+ character classes)",
+        description=(
+            "Plaintext password (policy: min 12 chars, 3+ character classes, "
+            "at most 72 bytes UTF-8)"
+        ),
         json_schema_extra={"example": "securePass123!"},
     )
     email: EmailStr | None = Field(
@@ -309,8 +312,9 @@ class ChangePasswordRequest(BaseModel):
         min_length=8,
         max_length=256,
         description="New password (policy: min 12 chars, 3+ character classes: "
-        "lowercase, uppercase, digits, symbols). The min_length=8 here is a "
-        "schema floor; the runtime validator enforces the full policy.",
+        "lowercase, uppercase, digits, symbols; at most 72 bytes UTF-8). The "
+        "min_length=8 here is a schema floor; the runtime validator enforces "
+        "the full policy.",
     )
 
     @field_validator("new_password", mode="after")

@@ -43,20 +43,54 @@ export function UserResetPasswordDialog({ user, open, onOpenChange }: UserResetP
     if (open) setPassword('');
   }, [open]);
 
+  // fix(#1715 codex r1 P2): a close while the request is in flight would unmount
+  // the dialog without stopping the reset, so the password would change and the
+  // account's credentials be revoked with the UI showing nothing at all. Every
+  // dismissal route (Cancel, the X, Escape, the overlay) goes through here, so
+  // refusing the close covers all of them.
+  //
+  // The request is deliberately NOT aborted. Aborting the fetch would not undo
+  // a commit the backend may already have made, so it would swap a confusing
+  // outcome for an unknowable one; blocking until it resolves is what keeps the
+  // dialog's report of what happened true.
+  function handleOpenChange(next: boolean) {
+    if (resetPassword.isPending && !next) return;
+    onOpenChange(next);
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     try {
       await resetPassword.mutateAsync({ userId: user.id, password });
       setPassword('');
+      // Not handleOpenChange: isPending can still read true in this tick, and
+      // the guard above would swallow the close it is meant to allow.
       onOpenChange(false);
+      if (isSelf) {
+        // fix(#1715 codex r1 P2): the reset revoked this very session, so the
+        // persisted token is already dead. Without this the UI keeps rendering
+        // as signed in until some later request happens to 401, contradicting
+        // the warning this dialog just showed. logout() drops the token and
+        // ProtectedRoute redirects; the query cache is cleared by the identity
+        // subscription in wireAuthCacheReset.
+        useAuthStore.getState().logout();
+      }
     } catch {
       // error displayed inline and as a toast from the mutation
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent
+        className="sm:max-w-md"
+        // Belt and braces with handleOpenChange: these stop the dismiss gesture
+        // at the primitive, so a pending reset cannot even begin to close.
+        showCloseButton={!resetPassword.isPending}
+        onEscapeKeyDown={(event) => { if (resetPassword.isPending) event.preventDefault(); }}
+        onPointerDownOutside={(event) => { if (resetPassword.isPending) event.preventDefault(); }}
+        onInteractOutside={(event) => { if (resetPassword.isPending) event.preventDefault(); }}
+      >
         <DialogHeader>
           <DialogTitle>{t('users.resetPasswordDialog.title')}</DialogTitle>
           <DialogDescription>
@@ -102,7 +136,12 @@ export function UserResetPasswordDialog({ user, open, onOpenChange }: UserResetP
             </p>
           )}
           <DialogFooter>
-            <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() => onOpenChange(false)}
+              disabled={resetPassword.isPending}
+            >
               {t('common:cancel')}
             </Button>
             <Button type="submit" disabled={resetPassword.isPending}>

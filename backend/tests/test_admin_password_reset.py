@@ -20,6 +20,7 @@ alembic migrations applied.
 import json
 import uuid
 
+import anyio
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, update
@@ -27,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.models import AuditLog
 from app.modules.auth.models import User
+from app.modules.auth.providers.local import hash_password
 
 
 def _synthetic_password(tag: str) -> str:
@@ -278,3 +280,191 @@ async def test_reset_password_audits_actor_and_target_without_the_password(
         }
     )
     assert new_password not in serialized
+
+
+# ---------------------------------------------------------------------------
+# bcrypt's 72-byte input limit (fix(#1715 codex r1))
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_reset_password_422_for_a_value_over_the_bcrypt_byte_limit(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    """73 ASCII characters is 73 bytes, one more than bcrypt accepts.
+
+    The schema permits 256 characters, so before the shared validator learned
+    the byte rule this reached BcryptHasher and raised ValueError there. The
+    refusal has to name the real constraint, and the account must be untouched.
+    """
+    user_id, username, password = await _create_local_user(client, admin_auth_header)
+    over_limit = "Abcdef1!" + "x" * 65
+    assert len(over_limit.encode("utf-8")) == 73
+
+    resp = await client.post(
+        f"/admin/users/{user_id}/reset-password/",
+        json={"password": over_limit},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 422, resp.text
+    assert "72 bytes" in resp.text
+    assert (await _login(client, username, password)).status_code == 200
+
+
+@pytest.mark.anyio
+async def test_reset_password_422_for_a_short_multibyte_value_over_the_limit(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    """43 characters, 83 bytes: the character count alone looks acceptable."""
+    user_id, username, password = await _create_local_user(client, admin_auth_header)
+    multibyte = "Aa1" + "é" * 40
+    assert len(multibyte) == 43
+    assert len(multibyte.encode("utf-8")) == 83
+
+    resp = await client.post(
+        f"/admin/users/{user_id}/reset-password/",
+        json={"password": multibyte},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 422, resp.text
+    assert "72 bytes" in resp.text
+    assert (await _login(client, username, password)).status_code == 200
+
+
+@pytest.mark.anyio
+async def test_reset_password_accepts_exactly_the_byte_limit(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    """72 bytes is the most bcrypt hashes, so it must still be a valid reset."""
+    user_id, username, _ = await _create_local_user(client, admin_auth_header)
+    at_limit = "Abcdef1!" + "x" * 64
+    assert len(at_limit.encode("utf-8")) == 72
+
+    resp = await client.post(
+        f"/admin/users/{user_id}/reset-password/",
+        json={"password": at_limit},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+    assert (await _login(client, username, at_limit)).status_code == 200
+
+
+@pytest.mark.anyio
+async def test_the_byte_limit_also_closed_the_two_pre_existing_entry_points(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    """POST /admin/users/ and POST /auth/change-password/ had the same gap.
+
+    Both call validate_password_from_settings, so putting the byte rule in the
+    shared policy fixed them at the same time. Both were measured before the
+    fix: admin-create turned the bcrypt ValueError into a 409 carrying the
+    library's own text, and on change-password the ValueError escaped the
+    handler entirely (nothing registers a ValueError handler, so a 500).
+    """
+    over_limit = "Abcdef1!" + "x" * 65
+
+    created = await client.post(
+        "/admin/users/",
+        json={
+            "username": f"bytes_{uuid.uuid4().hex[:8]}",
+            "password": over_limit,
+            "role": "viewer",
+        },
+        headers=admin_auth_header,
+    )
+    assert created.status_code == 422, created.text
+    assert "72 bytes" in created.text
+
+    _, username, password = await _create_local_user(client, admin_auth_header)
+    login = await _login(client, username, password)
+    assert login.status_code == 200
+    target_header = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    changed = await client.post(
+        "/auth/change-password/",
+        json={"current_password": password, "new_password": over_limit},
+        headers=target_header,
+    )
+    assert changed.status_code == 422, changed.text
+    assert "72 bytes" in changed.text
+
+
+# ---------------------------------------------------------------------------
+# Reset vs. self-service change-password (fix(#1715 codex r1 P1))
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_reset_is_not_overwritten_by_a_racing_change_password(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+):
+    """A holder of the old password cannot win the recovery by racing it.
+
+    The interleaving codex found: change_password verified the pre-reset hash
+    and assigned its replacement, then blocked inside revoke_all_tokens' own
+    FOR UPDATE. When the reset released the row, SQLAlchemy autoflush wrote the
+    self-service password on top of the admin's, so the account stayed under
+    the old holder's control while the admin saw a successful reset.
+
+    Reproduced by holding the target's row the way the reset does, starting a
+    change-password underneath it, then committing the admin's hash before
+    letting go. change_password now takes that same lock before it verifies, so
+    it re-reads the committed hash and refuses the stale current_password.
+    """
+    user_id, username, old_password = await _create_local_user(
+        client, admin_auth_header
+    )
+    login = await _login(client, username, old_password)
+    assert login.status_code == 200
+    target_header = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    admin_value = _synthetic_password("admin-set")
+    old_holder_value = _synthetic_password("old-holder")
+    target_uuid = uuid.UUID(user_id)
+    locked = anyio.Event()
+    change_password_status: list[int] = []
+
+    async def hold_the_row_then_commit_the_reset() -> None:
+        """Stand in for the admin reset: lock, write, commit."""
+        await test_db_session.execute(
+            select(User).where(User.id == target_uuid).with_for_update()
+        )
+        locked.set()
+        # Give the change-password request time to reach its own lock wait.
+        await anyio.sleep(0.5)
+        await test_db_session.execute(
+            update(User)
+            .where(User.id == target_uuid)
+            .values(password_hash=hash_password(admin_value))
+        )
+        await test_db_session.commit()
+
+    async def racing_change_password() -> None:
+        await locked.wait()
+        resp = await client.post(
+            "/auth/change-password/",
+            json={
+                "current_password": old_password,
+                "new_password": old_holder_value,
+            },
+            headers=target_header,
+        )
+        change_password_status.append(resp.status_code)
+
+    with anyio.fail_after(30):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(hold_the_row_then_commit_the_reset)
+            tg.start_soon(racing_change_password)
+
+    # The stale current_password is refused against the freshly committed hash.
+    assert change_password_status == [400]
+    # The admin's value is what the account ends up with.
+    assert (await _login(client, username, admin_value)).status_code == 200
+    assert (await _login(client, username, old_holder_value)).status_code == 401
+    assert (await _login(client, username, old_password)).status_code == 401

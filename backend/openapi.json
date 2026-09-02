@@ -673,7 +673,7 @@
         "description": "Request body for POST /admin/users/{user_id}/reset-password/.\n\nSingle-purpose for the same reason as SamlToLocalConversion above: the\ngeneric UserUpdate schema has no password field, so an admin-set password\nlands as its own audited action ('user.password_reset') rather than\ndisappearing into 'user.update'.",
         "properties": {
           "password": {
-            "description": "Replacement password for the account (policy: min 12 chars, 3+ character classes). The user can change this after their next login.",
+            "description": "Replacement password for the account (policy: min 12 chars, 3+ character classes, at most 72 bytes UTF-8). The user can change this after their next login.",
             "maxLength": 256,
             "minLength": 8,
             "title": "Password",
@@ -805,7 +805,7 @@
             "type": "string"
           },
           "password": {
-            "description": "Initial password (policy: min 12 chars, 3+ character classes). The user can change this after first login.",
+            "description": "Initial password (policy: min 12 chars, 3+ character classes, at most 72 bytes UTF-8). The user can change this after first login.",
             "maxLength": 256,
             "minLength": 8,
             "title": "Password",
@@ -2585,7 +2585,7 @@
             "type": "string"
           },
           "new_password": {
-            "description": "New password (policy: min 12 chars, 3+ character classes: lowercase, uppercase, digits, symbols). The min_length=8 here is a schema floor; the runtime validator enforces the full policy.",
+            "description": "New password (policy: min 12 chars, 3+ character classes: lowercase, uppercase, digits, symbols; at most 72 bytes UTF-8). The min_length=8 here is a schema floor; the runtime validator enforces the full policy.",
             "maxLength": 256,
             "minLength": 8,
             "title": "New Password",
@@ -17903,7 +17903,7 @@
             "type": "string"
           },
           "password": {
-            "description": "Plaintext password (policy: min 12 chars, 3+ character classes)",
+            "description": "Plaintext password (policy: min 12 chars, 3+ character classes, at most 72 bytes UTF-8)",
             "example": "securePass123!",
             "maxLength": 256,
             "minLength": 8,

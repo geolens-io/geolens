@@ -1230,6 +1230,23 @@ async def change_password(
     )  # LAZY — preserved per D-17
     from app.modules.auth.providers.local import hash_password, verify_password
 
+    # fix(#1715 codex r1 P1): lock and reload the row BEFORE reading anything
+    # off it. An admin reset (POST /admin/users/{id}/reset-password/) takes the
+    # same row lock, so without this the two interleave badly: this handler
+    # would verify against the pre-reset hash and assign its replacement, then
+    # block inside revoke_all_tokens' own FOR UPDATE, and autoflush would write
+    # the self-service password AFTER the reset committed. Whoever held the old
+    # password would silently win the recovery. Blocking here instead means the
+    # verify runs against the hash the reset just committed, so the stale
+    # current_password is refused with the usual 400.
+    #
+    # Lock ordering is safe: the reset takes the admin-lifecycle advisory lock
+    # and then this row lock, while this path only ever takes the row lock, so
+    # there is no cycle. current_user is attached to this same request session
+    # (get_current_user depends on the same get_db), so refresh() both waits on
+    # the lock and reloads the committed attributes.
+    await db.refresh(current_user, with_for_update=True)
+
     if current_user.auth_provider != "local":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

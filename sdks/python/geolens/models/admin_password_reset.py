@@ -20,8 +20,8 @@ class AdminPasswordReset:
     disappearing into 'user.update'.
 
         Attributes:
-            password (str): Replacement password for the account (policy: min 12 chars, 3+ character classes). The user can
-                change this after their next login.
+            password (str): Replacement password for the account (policy: min 12 chars, 3+ character classes, at most 72
+                bytes UTF-8). The user can change this after their next login.
     """
 
     password: str

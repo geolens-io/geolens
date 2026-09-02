@@ -436,7 +436,7 @@ export type AdminPasswordReset = {
     /**
      * Password
      *
-     * Replacement password for the account (policy: min 12 chars, 3+ character classes). The user can change this after their next login.
+     * Replacement password for the account (policy: min 12 chars, 3+ character classes, at most 72 bytes UTF-8). The user can change this after their next login.
      */
     password: string;
 };
@@ -510,7 +510,7 @@ export type AdminUserCreate = {
     /**
      * Password
      *
-     * Initial password (policy: min 12 chars, 3+ character classes). The user can change this after first login.
+     * Initial password (policy: min 12 chars, 3+ character classes, at most 72 bytes UTF-8). The user can change this after first login.
      */
     password: string;
     /**
@@ -1615,7 +1615,7 @@ export type ChangePasswordRequest = {
     /**
      * New Password
      *
-     * New password (policy: min 12 chars, 3+ character classes: lowercase, uppercase, digits, symbols). The min_length=8 here is a schema floor; the runtime validator enforces the full policy.
+     * New password (policy: min 12 chars, 3+ character classes: lowercase, uppercase, digits, symbols; at most 72 bytes UTF-8). The min_length=8 here is a schema floor; the runtime validator enforces the full policy.
      */
     new_password: string;
 };
@@ -10661,7 +10661,7 @@ export type UserCreate = {
     /**
      * Password
      *
-     * Plaintext password (policy: min 12 chars, 3+ character classes)
+     * Plaintext password (policy: min 12 chars, 3+ character classes, at most 72 bytes UTF-8)
      */
     password: string;
     /**

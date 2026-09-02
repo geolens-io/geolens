@@ -19,8 +19,8 @@ class AdminUserCreate:
     """
     Attributes:
         username (str): Login username (3-150 chars). Must be unique across the system.
-        password (str): Initial password (policy: min 12 chars, 3+ character classes). The user can change this after
-            first login.
+        password (str): Initial password (policy: min 12 chars, 3+ character classes, at most 72 bytes UTF-8). The user
+            can change this after first login.
         email (None | str | Unset): Optional email address. Used for OAuth account linking and notifications.
         role (str | Unset): User role: 'admin', 'editor', or 'viewer'. Defaults to 'viewer'. Default: 'viewer'.
     """

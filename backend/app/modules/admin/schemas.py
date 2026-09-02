@@ -83,7 +83,8 @@ class AdminUserCreate(BaseModel):
         # (PASSWORD_MIN_LENGTH / PASSWORD_REQUIRE_CLASSES) is enforced by
         # validate_password below. See UserCreate docstring in auth/schemas.py.
         description=(
-            "Initial password (policy: min 12 chars, 3+ character classes). "
+            "Initial password (policy: min 12 chars, 3+ character classes, "
+            "at most 72 bytes UTF-8). "
             "The user can change this after first login."
         ),
     )
@@ -182,8 +183,8 @@ class SamlToLocalConversion(BaseModel):
         # by validate_password below (SEC-S16, Phase 1062-01).
         description=(
             "Local-password for the converted account "
-            "(policy: min 12 chars, 3+ character classes). "
-            "The user can change this after first login."
+            "(policy: min 12 chars, 3+ character classes, at most 72 bytes "
+            "UTF-8). The user can change this after first login."
         ),
     )
 
@@ -208,8 +209,8 @@ class AdminPasswordReset(BaseModel):
         # by validate_password below (SEC-S16, Phase 1062-01).
         description=(
             "Replacement password for the account "
-            "(policy: min 12 chars, 3+ character classes). "
-            "The user can change this after their next login."
+            "(policy: min 12 chars, 3+ character classes, at most 72 bytes "
+            "UTF-8). The user can change this after their next login."
         ),
     )
 

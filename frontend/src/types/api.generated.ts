@@ -5665,7 +5665,7 @@ export interface components {
         AdminPasswordReset: {
             /**
              * Password
-             * @description Replacement password for the account (policy: min 12 chars, 3+ character classes). The user can change this after their next login.
+             * @description Replacement password for the account (policy: min 12 chars, 3+ character classes, at most 72 bytes UTF-8). The user can change this after their next login.
              */
             password: string;
         };
@@ -5715,7 +5715,7 @@ export interface components {
             username: string;
             /**
              * Password
-             * @description Initial password (policy: min 12 chars, 3+ character classes). The user can change this after first login.
+             * @description Initial password (policy: min 12 chars, 3+ character classes, at most 72 bytes UTF-8). The user can change this after first login.
              */
             password: string;
             /**
@@ -6552,7 +6552,7 @@ export interface components {
             current_password: string;
             /**
              * New Password
-             * @description New password (policy: min 12 chars, 3+ character classes: lowercase, uppercase, digits, symbols). The min_length=8 here is a schema floor; the runtime validator enforces the full policy.
+             * @description New password (policy: min 12 chars, 3+ character classes: lowercase, uppercase, digits, symbols; at most 72 bytes UTF-8). The min_length=8 here is a schema floor; the runtime validator enforces the full policy.
              */
             new_password: string;
         };
@@ -13312,7 +13312,7 @@ export interface components {
             username: string;
             /**
              * Password
-             * @description Plaintext password (policy: min 12 chars, 3+ character classes)
+             * @description Plaintext password (policy: min 12 chars, 3+ character classes, at most 72 bytes UTF-8)
              * @example securePass123!
              */
             password: string;
