@@ -37,11 +37,31 @@ The two shapes it watches, over the whole ``backend/app/`` tree:
    ``sources/adapters/``, which missed the composition in ``sources/router.py``
    entirely. Scope now comes from the key, not from the directory.
 
-Provenance is deliberately narrow: a value counts as guarded only when
-``build_credential_header`` is in its chain. ``credential_header_line`` alone
-does not qualify, because it only concatenates whatever pair it is handed, so
-crediting it would let ``credential_header_line(("Authorization", whatever))``
-through the gate with no validation at all (fix(#1756 codex round 1)).
+**Provenance is a whole-expression rule.** fix(#1756 codex round 2): it used
+to ask whether the written expression MENTIONED builder output anywhere, which
+passed ``f"Authorization: Bearer {line}"`` for a builder-derived ``line``, the
+exact double-prefix string this module exists to prevent. It now asks whether
+the whole expression is one of these projections of builder output, and
+nothing else is accepted:
+
+- ``build_credential_header(...)`` itself.
+- a name whose latest binding BEFORE the use site is an allowed expression, so
+  a later ``line = anything_else`` revokes it, and a parameter, loop target or
+  ``with`` target carries no provenance at all.
+- ``credential_header_line(<allowed>)``, one positional argument. The joiner
+  on its own only concatenates the pair it is handed, so
+  ``credential_header_line(("Authorization", value))`` is not allowed.
+- ``<allowed> + "\\n"``, or an f-string whose single interpolation is
+  ``<allowed>`` with no conversion and no format spec, and whose only literal
+  part, if any, is a trailing newline.
+- ``.encode()`` or ``.encode("ascii")`` on an allowed expression.
+- ``<allowed pair>[0]`` and ``[1]``, and a name unpacked from an allowed pair,
+  for the header-dict case.
+
+Any other operator, any extra literal text, a second interpolation, or a
+format spec fails. A credential that arrives as a parameter has no lexical
+provenance and is therefore reported: the fix is to compose it at the write
+site, not to widen this rule.
 
 Both allowlists are asserted EXACT in both directions and by count, so an
 entry whose site disappears fails loudly instead of going stale. Four of the
@@ -50,19 +70,20 @@ test is what tells it when the last one is gone.
 
 WHAT THIS DOES NOT CLAIM, in the same spirit as the Rule-2 guard. It is a
 lexical rule, not dataflow. A line built in one function and written in
-another (no such shape exists today), a header dict assembled through
-``update()`` from a value computed elsewhere, and a credential reaching a
-request as a pre-built parameter are all outside what an AST rule can answer.
-The provenance check follows names bound to a builder call within the same
-scope and no further. False alarms are cheap and visible; a silent miss is the
-failure that matters, so anything the resolver cannot classify is reported.
+another, a header dict assembled through ``update()`` from a value computed
+elsewhere, and a binding made under one branch of an ``if`` and used under the
+other are all outside what an AST rule can answer. Binding order is read from
+source position, which is the straight-line answer and not a control-flow one.
+False alarms are cheap and visible; a silent miss is the failure that matters,
+so anything the resolver cannot classify is reported.
 """
 
 from __future__ import annotations
 
 import ast
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
+from typing import NamedTuple
 
 APP_ROOT = Path(__file__).resolve().parent.parent / "app"
 
@@ -138,6 +159,11 @@ MIN_HEADER_FILE_WRITE_SITES = 2
 MIN_CREDENTIAL_HEADER_SITES = 4
 
 _MODULE_SCOPE = "<module>"
+_NESTED_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+
+# Before every statement in a scope, so a parameter never resolves to a
+# binding made later in the body.
+_SCOPE_START = (-1, -1)
 
 
 def _app_modules() -> list[tuple[str, ast.Module]]:
@@ -185,59 +211,216 @@ def _scope_calls(scope: ast.AST, name: str) -> bool:
     )
 
 
-def _from_builder(expr: ast.AST, bound: frozenset[str]) -> bool:
-    """Whether *expr*'s value came from ``build_credential_header``.
+def _pos(node: ast.AST) -> tuple[int, int]:
+    return (getattr(node, "lineno", 0), getattr(node, "col_offset", 0))
 
-    The joiner counts only when it is joining a builder pair. On its own it
-    concatenates any two strings, so crediting a bare
-    ``credential_header_line(("Authorization", value))`` would hand the gate a
-    way to pass an unvalidated credential.
+
+class _Binding(NamedTuple):
+    """One binding of a name inside a scope.
+
+    ``value`` is None when the binding is something this rule cannot judge: a
+    parameter, a loop target, an import. Such a binding is RECORDED rather
+    than skipped, because it has to revoke an earlier builder binding.
     """
-    for node in ast.walk(expr):
-        if isinstance(node, ast.Call):
-            name = _call_name(node.func)
-            if name == CREDENTIAL_BUILDER:
-                return True
-            if (
-                name == CREDENTIAL_JOINER
-                and node.args
-                and _from_builder(node.args[0], bound)
-            ):
-                return True
-        if isinstance(node, ast.Name) and node.id in bound:
-            return True
-    return False
+
+    pos: tuple[int, int]
+    value: ast.expr | None
 
 
-def _builder_bound_names(scope: ast.AST) -> frozenset[str]:
-    """Names holding a value derived from the builder, anywhere in *scope*.
+def _iter_scope_nodes(scope: ast.AST):
+    """Every node in *scope*, without descending into a nested callable."""
+    stack = list(ast.iter_child_nodes(scope))
+    while stack:
+        node = stack.pop()
+        yield node
+        if isinstance(node, _NESTED_SCOPES):
+            continue
+        stack.extend(ast.iter_child_nodes(node))
 
-    Iterated to a fixed point so a chain resolves whatever order the
-    assignments appear in: ``pair`` from the builder, then ``line`` from the
-    joiner applied to ``pair``.
 
-    Deliberately flow-insensitive: a name assigned from the builder counts
-    wherever it is used in that scope. Narrowing it would report violations
-    for correct code, and this rule's job is to catch a hand-composed prefix,
-    not to referee assignment order.
+def _scope_arguments(scope: ast.AST) -> list[str]:
+    args = getattr(scope, "args", None)
+    if not isinstance(args, ast.arguments):
+        return []
+    every = [*args.posonlyargs, *args.args, *args.kwonlyargs]
+    if args.vararg is not None:
+        every.append(args.vararg)
+    if args.kwarg is not None:
+        every.append(args.kwarg)
+    return [argument.arg for argument in every]
+
+
+def _assignment_binding(
+    node: ast.AST,
+) -> tuple[list[ast.expr], ast.expr | None] | None:
+    """Targets and bound value for a node that binds by assignment.
+
+    A None value means the binding is real but unjudgeable, which is what
+    makes a loop target or an augmented assignment revoke an earlier one.
     """
-    bound: set[str] = set()
-    changed = True
-    while changed:
-        changed = False
-        for node in ast.walk(scope):
-            if not isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
-                continue
-            value = node.value
-            if value is None or not _from_builder(value, frozenset(bound)):
-                continue
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+    if isinstance(node, ast.Assign):
+        return node.targets, node.value
+    if isinstance(node, (ast.AnnAssign, ast.NamedExpr)):
+        return [node.target], node.value
+    if isinstance(node, ast.AugAssign):
+        return [node.target], None
+    if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
+        return [node.target], None
+    if isinstance(node, ast.withitem) and node.optional_vars is not None:
+        return [node.optional_vars], None
+    return None
+
+
+def _opaque_names(node: ast.AST) -> list[str]:
+    """Names *node* binds to something this rule cannot judge."""
+    if isinstance(node, ast.ExceptHandler) and node.name:
+        return [node.name]
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return [alias.asname or alias.name.split(".")[0] for alias in node.names]
+    if isinstance(node, _NESTED_SCOPES) and not isinstance(node, ast.Lambda):
+        return [node.name]
+    return []
+
+
+def _scope_bindings(scope: ast.AST) -> dict[str, list[_Binding]]:
+    """Every name binding in *scope*, ordered by source position."""
+    bindings: dict[str, list[_Binding]] = defaultdict(list)
+
+    def record(target: ast.expr, value: ast.expr | None) -> None:
+        if isinstance(target, ast.Name):
+            bindings[target.id].append(_Binding(_pos(target), value))
+        elif isinstance(target, (ast.Tuple, ast.List)):
+            # A component of an allowed pair is allowed, which is what makes
+            # `name, value = build_credential_header(auth)` usable.
+            for element in target.elts:
+                record(element, value)
+        elif isinstance(target, ast.Starred):
+            record(target.value, None)
+
+    for argument in _scope_arguments(scope):
+        bindings[argument].append(_Binding(_SCOPE_START, None))
+
+    for node in _iter_scope_nodes(scope):
+        assignment = _assignment_binding(node)
+        if assignment is not None:
+            targets, value = assignment
             for target in targets:
-                for inner in ast.walk(target):
-                    if isinstance(inner, ast.Name) and inner.id not in bound:
-                        bound.add(inner.id)
-                        changed = True
-    return frozenset(bound)
+                record(target, value)
+        for name in _opaque_names(node):
+            bindings[name].append(_Binding(_pos(node), None))
+
+    for name in bindings:
+        bindings[name].sort(key=lambda binding: binding.pos)
+    return dict(bindings)
+
+
+def _binding_before(
+    bindings: dict[str, list[_Binding]], name: str, limit: tuple[int, int]
+) -> _Binding | None:
+    """The latest binding of *name* that precedes *limit*."""
+    latest: _Binding | None = None
+    for binding in bindings.get(name, ()):
+        if binding.pos < limit:
+            latest = binding
+    return latest
+
+
+def _is_newline_literal(expr: ast.expr) -> bool:
+    return isinstance(expr, ast.Constant) and expr.value == "\n"
+
+
+def _is_line_fstring(
+    expr: ast.JoinedStr, bindings: dict[str, list[_Binding]], limit: tuple[int, int]
+) -> bool:
+    """One interpolation of an allowed expression, plus a trailing newline."""
+    interpolations = [
+        value for value in expr.values if isinstance(value, ast.FormattedValue)
+    ]
+    literals = [
+        value for value in expr.values if not isinstance(value, ast.FormattedValue)
+    ]
+    if len(interpolations) != 1 or len(literals) > 1:
+        return False
+    if literals and not (
+        literals[0] is expr.values[-1] and _is_newline_literal(literals[0])
+    ):
+        return False
+    placeholder = interpolations[0]
+    if placeholder.conversion != -1 or placeholder.format_spec is not None:
+        return False
+    return _is_builder_projection(placeholder.value, bindings, limit)
+
+
+def _is_pair_component(
+    expr: ast.Subscript, bindings: dict[str, list[_Binding]], limit: tuple[int, int]
+) -> bool:
+    index = expr.slice
+    if not isinstance(index, ast.Constant) or isinstance(index.value, bool):
+        return False
+    if index.value not in (0, 1):
+        return False
+    return _is_builder_projection(expr.value, bindings, limit)
+
+
+def _is_encode_call(
+    expr: ast.Call, bindings: dict[str, list[_Binding]], limit: tuple[int, int]
+) -> bool:
+    if not isinstance(expr.func, ast.Attribute) or expr.keywords:
+        return False
+    if len(expr.args) > 1:
+        return False
+    if expr.args and not (
+        isinstance(expr.args[0], ast.Constant) and expr.args[0].value == "ascii"
+    ):
+        return False
+    return _is_builder_projection(expr.func.value, bindings, limit)
+
+
+def _is_builder_projection(
+    expr: ast.expr, bindings: dict[str, list[_Binding]], limit: tuple[int, int]
+) -> bool:
+    """Whether the WHOLE of *expr* is an allowed projection of builder output.
+
+    The allowed shapes are enumerated in the module docstring. Anything else
+    is a violation, including an expression that merely CONTAINS builder
+    output: that was the round-2 hole, and ``f"Authorization: Bearer {line}"``
+    is exactly the string it let through.
+
+    Name resolution walks backwards: a name resolves to its latest binding
+    before *limit*, and that binding's own value is then judged with the
+    binding's position as the new limit. The limit therefore decreases on
+    every step, so a self-reference such as ``line = line`` terminates instead
+    of recursing forever.
+    """
+    if isinstance(expr, ast.Call):
+        name = _call_name(expr.func)
+        if name == CREDENTIAL_BUILDER:
+            return True
+        if name == CREDENTIAL_JOINER:
+            return (
+                len(expr.args) == 1
+                and not expr.keywords
+                and _is_builder_projection(expr.args[0], bindings, limit)
+            )
+        if name == "encode":
+            return _is_encode_call(expr, bindings, limit)
+        return False
+    if isinstance(expr, ast.Name):
+        binding = _binding_before(bindings, expr.id, limit)
+        if binding is None or binding.value is None:
+            return False
+        return _is_builder_projection(binding.value, bindings, binding.pos)
+    if isinstance(expr, ast.BinOp):
+        return (
+            isinstance(expr.op, ast.Add)
+            and _is_newline_literal(expr.right)
+            and _is_builder_projection(expr.left, bindings, limit)
+        )
+    if isinstance(expr, ast.JoinedStr):
+        return _is_line_fstring(expr, bindings, limit)
+    if isinstance(expr, ast.Subscript):
+        return _is_pair_component(expr, bindings, limit)
+    return False
 
 
 def _written_value(call: ast.Call) -> ast.expr | None:
@@ -330,7 +513,7 @@ def _scan_module(rel: str, tree: ast.Module) -> _Scan:
     _annotate_parents(tree)
     scan = _Scan()
     allow_dynamic_key = rel.startswith(DYNAMIC_KEY_PACKAGES)
-    bound_cache: dict[int, frozenset[str]] = {}
+    bindings_cache: dict[int, dict[str, list[_Binding]]] = {}
     header_dir_cache: dict[int, bool] = {}
 
     for node in ast.walk(tree):
@@ -342,10 +525,10 @@ def _scan_module(rel: str, tree: ast.Module) -> _Scan:
             continue
 
         scope = _enclosing_scope(node, tree)
-        bound = bound_cache.get(id(scope))
-        if bound is None:
-            bound = _builder_bound_names(scope)
-            bound_cache[id(scope)] = bound
+        bindings = bindings_cache.get(id(scope))
+        if bindings is None:
+            bindings = _scope_bindings(scope)
+            bindings_cache[id(scope)] = bindings
         site = (rel, _scope_name(scope))
 
         if is_write:
@@ -356,12 +539,14 @@ def _scan_module(rel: str, tree: ast.Module) -> _Scan:
             if writes_a_header:
                 scan.write_sites += 1
                 value = _written_value(node)  # type: ignore[arg-type]
-                if value is None or not _from_builder(value, bound):
+                if value is None or not _is_builder_projection(
+                    value, bindings, _pos(value)
+                ):
                     scan.unguarded_writes[site] += 1
 
         for value in header_values:
             scan.header_sites += 1
-            if not _from_builder(value, bound):
+            if not _is_builder_projection(value, bindings, _pos(value)):
                 scan.unguarded_headers[site] += 1
 
     return scan
@@ -480,6 +665,27 @@ def test_guard_a_builder_composition_is_clean() -> None:
     assert not scan.unguarded_headers
 
 
+def test_guard_the_other_allowed_projections_are_clean() -> None:
+    """The shapes B2b may reasonably write, spelled out.
+
+    Concatenation instead of an f-string, an unencoded line, and the pair
+    unpacked into two names.
+    """
+    scan = _scan_synthetic(
+        "def f(auth, fd, handle):\n"
+        "    path = gdal_header_dir()\n"
+        "    line = credential_header_line(build_credential_header(auth))\n"
+        '    os.write(fd, (line + "\\n").encode())\n'
+        "    handle.write(line)\n"
+        "    name, value = build_credential_header(auth)\n"
+        "    headers[name] = value\n"
+    )
+    assert scan.write_sites == 2
+    assert scan.header_sites == 1
+    assert not scan.unguarded_writes
+    assert not scan.unguarded_headers
+
+
 def test_guard_the_joiner_alone_confers_nothing() -> None:
     """fix(#1756 codex round 1): the joiner only concatenates.
 
@@ -495,6 +701,81 @@ def test_guard_the_joiner_alone_confers_nothing() -> None:
     )
     assert sum(scan.unguarded_writes.values()) == 1
     assert sum(scan.unguarded_headers.values()) == 1
+
+
+def test_guard_a_double_prefix_around_a_builder_line_is_flagged() -> None:
+    """fix(#1756 codex round 2): the case the module docstring promises.
+
+    ``line`` really did come from the builder, and the f-string still writes
+    ``Authorization: Bearer Authorization: Basic <blob>``. A rule that asks
+    whether the expression MENTIONS builder output passes this.
+    """
+    scan = _scan_synthetic(
+        "def f(auth, fd):\n"
+        "    path = gdal_header_dir()\n"
+        "    line = credential_header_line(build_credential_header(auth))\n"
+        '    os.write(fd, f"Authorization: Bearer {line}\\n".encode("ascii"))\n'
+        '    headers["Authorization"] = f"Bearer {line}"\n'
+    )
+    assert sum(scan.unguarded_writes.values()) == 1
+    assert sum(scan.unguarded_headers.values()) == 1
+
+
+def test_guard_concatenating_an_untrusted_name_is_flagged() -> None:
+    """Only a trailing newline may be concatenated onto builder output."""
+    scan = _scan_synthetic(
+        "def f(auth, fd, untrusted):\n"
+        "    path = gdal_header_dir()\n"
+        "    line = credential_header_line(build_credential_header(auth))\n"
+        '    os.write(fd, (line + untrusted).encode("ascii"))\n'
+        '    headers["Authorization"] = line + untrusted\n'
+    )
+    assert sum(scan.unguarded_writes.values()) == 1
+    assert sum(scan.unguarded_headers.values()) == 1
+
+
+def test_guard_a_rebinding_after_the_builder_call_revokes_trust() -> None:
+    """The latest binding before the use site is the one that counts."""
+    scan = _scan_synthetic(
+        "def f(auth, fd, untrusted):\n"
+        "    path = gdal_header_dir()\n"
+        "    line = credential_header_line(build_credential_header(auth))\n"
+        "    line = untrusted\n"
+        '    os.write(fd, f"{line}\\n".encode("ascii"))\n'
+        '    headers["Authorization"] = line\n'
+    )
+    assert sum(scan.unguarded_writes.values()) == 1
+    assert sum(scan.unguarded_headers.values()) == 1
+
+
+def test_guard_a_second_interpolation_or_a_format_spec_is_flagged() -> None:
+    """One interpolation, no conversion, no format spec, no extra literal."""
+    scan = _scan_synthetic(
+        "def f(auth, fd, extra):\n"
+        "    path = gdal_header_dir()\n"
+        "    line = credential_header_line(build_credential_header(auth))\n"
+        '    os.write(fd, f"{line}{extra}\\n".encode("ascii"))\n'
+        '    os.write(fd, f"{line:>40}\\n".encode("ascii"))\n'
+        '    os.write(fd, f"{line!r}\\n".encode("ascii"))\n'
+        '    os.write(fd, f"{line}\\n\\n".encode("ascii"))\n'
+    )
+    assert scan.write_sites == 4
+    assert sum(scan.unguarded_writes.values()) == 4
+
+
+def test_guard_a_parameter_carries_no_provenance() -> None:
+    """A stated limit, reported rather than passed.
+
+    A finished line arriving as an argument has no lexical provenance, so the
+    write is judged rather than trusted. Composing at the write site is the
+    fix; widening the rule is not.
+    """
+    scan = _scan_synthetic(
+        "def f(line, fd):\n"
+        "    path = gdal_header_dir()\n"
+        '    os.write(fd, f"{line}\\n".encode("ascii"))\n'
+    )
+    assert sum(scan.unguarded_writes.values()) == 1
 
 
 def test_guard_a_second_write_beside_a_builder_one_is_flagged() -> None:
@@ -513,7 +794,7 @@ def test_guard_a_second_write_beside_a_builder_one_is_flagged() -> None:
 def test_guard_os_write_reads_the_second_argument() -> None:
     """``os.write(fd, data)`` and ``handle.write(data)`` differ by one index."""
     scan = _scan_synthetic(
-        "def f(auth, fd):\n"
+        "def f(auth, fd, handle):\n"
         "    path = gdal_header_dir()\n"
         "    line = credential_header_line(build_credential_header(auth))\n"
         "    handle.write(line)\n"
@@ -574,3 +855,18 @@ def test_guard_a_non_credential_header_is_not_judged() -> None:
         "processing/tiles/synthetic.py",
     )
     assert scan.header_sites == 0
+
+
+def test_guard_a_self_reference_terminates() -> None:
+    """``line = line`` resolves to nothing rather than recursing forever.
+
+    The resolution limit strictly decreases on every name lookup, which is
+    what makes that true; this is the check on that reasoning.
+    """
+    scan = _scan_synthetic(
+        "def f(fd):\n"
+        "    path = gdal_header_dir()\n"
+        "    line = line\n"
+        '    os.write(fd, f"{line}\\n".encode("ascii"))\n'
+    )
+    assert sum(scan.unguarded_writes.values()) == 1
