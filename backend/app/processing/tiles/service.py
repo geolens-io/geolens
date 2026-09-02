@@ -112,20 +112,49 @@ def _simplify_tolerance_degrees(z: int) -> float | None:
     return _SIMPLIFY_SUBPIXEL_FACTOR * 360.0 / (_MVT_EXTENT * (2**z))
 
 
-def parse_cols_param(cols: str | None) -> tuple[list[str] | None, str]:
+def parse_cols_param(
+    cols: str | None, columns: list[dict] | None
+) -> tuple[list[str] | None, str]:
     """Normalize a `cols=` query param into (additional_columns, cache_key).
 
     Sorted + deduped so the tile cache key is deterministic across param
-    permutations (`cols=a,b` and `cols=b,a` hit the same entry). Validation
-    against the dataset's column_info happens in ``_select_tile_columns``;
-    shared by the vector and cluster endpoints (fix(#403)).
+    permutations (`cols=a,b` and `cols=b,a` hit the same entry). Shared by the
+    vector and cluster endpoints (fix(#403)).
+
+    fix(#1778): ``columns`` is the dataset's ``column_info``, and the result is
+    the SUBSET of the request's names that exists on it. This used to hand back
+    the caller's string verbatim and leave validation to
+    ``_select_tile_columns``, which drops an unknown name silently. The two
+    together meant `?cols=<random>` produced a fresh tile cache key holding
+    bytes byte-identical to the unfiltered tile: an anonymous caller on any
+    public dataset could loop it, miss the byte cache every time, run the full
+    ST_AsMVT behind each miss, and write an entry that evicts a legitimate tile
+    from the in-memory provider's LRU. Two requests that provably produce the
+    same bytes now produce the same key, and the key space is a function of the
+    dataset's own schema rather than of arbitrary caller input.
+
+    An all-unknown `cols=` therefore returns ``(None, "")`` and is answered from
+    the same cache entry as a request with no `cols=` at all, which is what its
+    bytes were already equal to.
     """
     if not cols:
         return None, ""
-    raw = [c.strip() for c in cols.split(",") if c.strip()]
-    if not raw:
+    known = {
+        name
+        for col in columns or []
+        if isinstance(col, dict)
+        and isinstance(name := col.get("name"), str)
+        and _COLUMN_NAME_RE.match(name)
+    }
+    if not known:
         return None, ""
-    additional = sorted(set(raw))
+    # The raw string is bounded by the server's request-line limit, and the
+    # result by the dataset's column count, so neither side of this is caller-
+    # chosen. Names are compared, never interpolated: _build_attr_columns
+    # revalidates every name it emits regardless of what reaches it.
+    additional = sorted({c.strip() for c in cols.split(",")} & known)
+    if not additional:
+        return None, ""
     return additional, ",".join(additional)
 
 

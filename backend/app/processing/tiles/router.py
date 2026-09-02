@@ -754,9 +754,17 @@ async def _resolve_raster_meta(
     #
     # The lookup is under the request's value, but the STORE is under the row's
     # (see the write site below) — the request never names the entry it writes.
-    # Memory stays bounded by the LRU, and a caller varying `v` to evict entries
-    # costs at most one extra indexed read per request — the same order as the
-    # uncached miss an unknown dataset id already produces.
+    # Memory stays bounded by the LRU, and a caller varying `v` costs one extra
+    # indexed read per request in the database.
+    #
+    # fix(#1778): that read is not the whole price, and this note used to say it
+    # was ("at most one extra indexed read per request, the same order as the
+    # uncached miss an unknown dataset id already produces"). The read opens a
+    # transaction, and `get_db` holds the connection it opened until the
+    # response is written, so the real cost of a miss on the raster path was an
+    # API-pool connection pinned across the caller's whole Titiler round trip.
+    # `_resolve_raster_access` now releases it before returning; the sentence
+    # above is true again because that call site makes it true, not on its own.
     version_segment = _meta_cache_version_segment(requested_version)
     cache_key = (
         f"{base_key}:v{version_segment}" if version_segment is not None else base_key
@@ -1003,6 +1011,29 @@ async def _resolve_raster_access(
                         status_code=status.HTTP_404_NOT_FOUND,
                         detail="Dataset not found",
                     )
+
+    # fix(#1778): hand the API-pool connection back before the caller goes
+    # upstream, the same remedy fix(#1451) applied to the vector path and for
+    # the same reason: `get_db` holds whatever a `db.execute` opened until the
+    # response is written, and the only caller of this function then awaits
+    # Titiler for up to three attempts at a 30s timeout plus backoff. The pool
+    # is db_pool_size + db_max_overflow per uvicorn worker, so a handful of
+    # concurrent tile requests could park all of it on an upstream fetch and
+    # make every other request in that worker wait out db_pool_timeout.
+    #
+    # A cache-buster reaches this on every request: the meta cache is keyed
+    # under the request's `v` (#1329), which accepts any short digit run, so a
+    # caller varying it misses the snapshot each time and pays the read. The
+    # note at that key derivation prices that miss as one extra indexed read;
+    # the read was never the expensive half.
+    #
+    # Everything past here is locals. `meta` is a plain snapshot built from the
+    # row above and `storage_backend` a string, so nothing the caller touches
+    # can reopen a transaction behind its back. It is here rather than at the
+    # call site for the reason the vector twin gives: the caller cannot release
+    # what it did not know was taken. Every read on this path is read-only, so
+    # the rollback discards nothing.
+    await db.rollback()
 
     return meta, storage_backend
 
@@ -2300,7 +2331,7 @@ async def cluster_tile_endpoint(
     # for.
     _ensure_clusterable_dataset(meta)
 
-    additional_columns, cols_cache_key = parse_cols_param(cols)
+    additional_columns, cols_cache_key = parse_cols_param(cols, meta.column_info)
 
     cache_ttl = meta.tile_cache_ttl or settings.tile_cache_ttl
 
@@ -2460,10 +2491,14 @@ async def tile_endpoint(
         user=user,
     )
 
-    additional_columns, cols_cache_key = parse_cols_param(cols)
-
     # Get column info for attribute selection
     columns = meta.column_info
+
+    # fix(#1778): `columns` gates the cache key, not just the projection. The
+    # docstring above is the published operation description, so the mechanism
+    # is written down at `parse_cols_param` instead of churning every generated
+    # SDK to say it.
+    additional_columns, cols_cache_key = parse_cols_param(cols, columns)
 
     # Use per-dataset cache TTL when set, else global default
     cache_ttl = meta.tile_cache_ttl or settings.tile_cache_ttl
