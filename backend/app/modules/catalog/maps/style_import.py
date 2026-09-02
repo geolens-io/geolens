@@ -291,7 +291,13 @@ def _restore_master_opacity(
     composed with any metadata opacity; an expression has no scalar home and is
     dropped with a warning rather than stored as paint the builder would ignore.
     """
-    opacity = float(geolens.get("opacity", 1) or 1)
+    # fix(#1778): read the master the way the two per-feature reads below read
+    # theirs. `float(x or 1)` turned a legitimate 0.0 into 1.0, so a layer the
+    # user had made fully transparent came back fully opaque, and for fill and
+    # line the pop below discarded the exported document's own record of the 0
+    # in the same pass.
+    master = finite_number(geolens.get("opacity", 1))
+    opacity = 1.0 if master is None else master
     layer_type = style_layer.get("type")
     feature_key = FOLDED_OPACITY_KEYS.get(str(layer_type))
     if feature_key is None:

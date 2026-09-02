@@ -2781,3 +2781,58 @@ def test_import_drops_an_expression_layer_opacity_with_a_warning_1625():
     assert "fill-layer-opacity" not in restored.paint
     assert [w.code for w in imported.summary.warnings] == ["unsupported_layer_opacity"]
     assert imported.summary.warnings[0].layer_id == primary["id"]
+
+
+@pytest.mark.parametrize("master", [0.0, 0.25, 1.0])
+@pytest.mark.parametrize("geometry", ["POLYGON", "LINESTRING", "POINT"])
+def test_import_restores_a_zero_master_opacity_1778(geometry, master):
+    """fix(#1778): `float(x or 1)` read a stored 0.0 as absent and returned 1.0.
+
+    A layer the user made fully transparent came back fully opaque, and for
+    fill and line `_restore_master_opacity` popped the folded `*-opacity` out
+    of paint in the same pass, so the exported document's own record of the 0
+    was discarded too. Codebase audit 2026-08-30 (8dc529f17), tracked in #1778.
+    """
+    paint = {
+        "POLYGON": {"fill-color": "#94a3b8", "fill-opacity": 0.3},
+        "LINESTRING": {"line-color": "#2255aa", "line-width": 3, "line-opacity": 0.8},
+        "POINT": {"circle-color": "#2255aa", "circle-radius": 6},
+    }[geometry]
+    layer = _layer(
+        dataset_geometry_type=geometry,
+        opacity=master,
+        paint=paint,
+        label_config=None,
+        filter=None,
+        style_config=None,
+    )
+
+    style = build_maplibre_style(_map(), [layer])
+    imported = parse_maplibre_style_import(style)
+
+    restored = imported.layers[0]
+    assert restored.opacity == master
+    assert restored.paint == paint
+    assert imported.summary.warnings == []
+
+
+def test_a_non_numeric_stored_master_opacity_falls_back_to_one_1778():
+    """The fallback the truthiness read used to provide, kept explicit."""
+    style = build_maplibre_style(
+        _map(),
+        [
+            _layer(
+                dataset_geometry_type="POLYGON",
+                opacity=1,
+                paint={"fill-color": "#94a3b8"},
+                label_config=None,
+                filter=None,
+                style_config=None,
+            )
+        ],
+    )
+    _primary(style, "fill")["metadata"]["geolens"]["opacity"] = "not a number"
+
+    imported = parse_maplibre_style_import(style)
+
+    assert imported.layers[0].opacity == 1.0

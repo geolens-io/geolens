@@ -2194,7 +2194,11 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # (#1631 review) BUILDER_FEATURE_OPACITY_DEFAULTS, the mirror of the
     # frontend's OPACITY_DEFAULTS the fold starts from when paint has none.
     # Cap 450 -> 500.
-    "backend/app/modules/catalog/maps/style_import.py": 500,
+    # fix(#1778): +6 — the master-opacity read goes through finite_number so a
+    # stored 0.0 survives import, plus the comment saying what the truthiness
+    # read cost (the folded paint key was popped in the same pass, so the
+    # document's own record of the 0 went with it). Cap 500 -> 506.
+    "backend/app/modules/catalog/maps/style_import.py": 506,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
     # fix(getgeolens.com#86 review): +6 — the icon-asset and sprite-index GETs
     # gained per-route `responses={403: FORBIDDEN_RESPONSE}` overrides; they
