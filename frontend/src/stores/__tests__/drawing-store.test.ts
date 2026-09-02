@@ -46,7 +46,8 @@ describe('useDrawingStore', () => {
     expect(useDrawingStore.getState().activeMode).toBeNull();
   });
 
-  it('setSelectedFeature stores a feature', () => {
+  it('setSelectedFeature stores a feature for the active target', () => {
+    useDrawingStore.getState().setDrawing('ds-1', 'my_table', 'Polygon');
     const feature = { gid: 42, tdId: 'td-1', properties: { name: 'Park' } };
     useDrawingStore.getState().setSelectedFeature(feature);
 
@@ -54,6 +55,7 @@ describe('useDrawingStore', () => {
   });
 
   it('clearSelectedFeature clears feature and resets dirty flag', () => {
+    useDrawingStore.getState().setDrawing('ds-1', 'my_table', 'Polygon');
     useDrawingStore.getState().setSelectedFeature({ gid: 1, tdId: 'td-1', properties: {} });
     useDrawingStore.getState().setEditDirty(true);
     useDrawingStore.getState().clearSelectedFeature();
@@ -94,7 +96,9 @@ describe('useDrawingStore', () => {
   // fix(#1713): the ownership check at the adoption point — the structural
   // half that holds even if the identity-change teardown in
   // lib/auth-cache-reset.ts is skipped or races an in-flight write. See
-  // lib/__tests__/auth-cache-reset.test.ts for the teardown half.
+  // lib/__tests__/auth-cache-reset.test.ts for the end-to-end teardown
+  // tests (including the late-write races these unit tests exercise
+  // directly, via bumpSessionEpoch rather than the auth choke point).
   describe('identity ownership', () => {
     it('setDrawing records the signed-in identity as the owner', () => {
       useAuthStore.setState({ user: { id: 'user-a' } as UserResponse });
@@ -110,7 +114,7 @@ describe('useDrawingStore', () => {
       expect(useDrawingStore.getState().ownerId).toBeNull();
     });
 
-    it('setSelectedFeature accepts a write from the identity that owns the target', () => {
+    it('setSelectedFeature accepts a write while the session epoch has not moved', () => {
       useAuthStore.setState({ user: { id: 'user-a' } as UserResponse });
       useDrawingStore.getState().setDrawing('ds-1', 'my_table', 'Polygon');
 
@@ -120,16 +124,45 @@ describe('useDrawingStore', () => {
       expect(useDrawingStore.getState().selectedFeature).toEqual(feature);
     });
 
-    it('setSelectedFeature refuses and clears when the identity changed underneath it', () => {
+    it('setSelectedFeature refuses and clears when there is no active target', () => {
+      // fix(#1761 review P1): the second, independent guard — refuses even
+      // when nothing has adopted a target yet, so a caller that reaches
+      // setSelectedFeature without ever calling setDrawing cannot attach a
+      // feature to nothing.
+      useDrawingStore
+        .getState()
+        .setSelectedFeature({ gid: 1, tdId: 'td-1', properties: {} });
+
+      expect(useDrawingStore.getState().selectedFeature).toBeNull();
+    });
+
+    it('bumpSessionEpoch advances the counter without touching other state', () => {
+      useDrawingStore.getState().setDrawing('ds-1', 'my_table', 'Polygon');
+      const before = useDrawingStore.getState().sessionEpoch;
+
+      useDrawingStore.getState().bumpSessionEpoch();
+
+      const state = useDrawingStore.getState();
+      expect(state.sessionEpoch).toBe(before + 1);
+      // A plain bump is not a clear: it is the auth choke point's job to
+      // also call clearDrawing() (see lib/auth-cache-reset.ts).
+      expect(state.targetDatasetId).toBe('ds-1');
+    });
+
+    // fix(#1761 review P1): `ownerId === currentUserId()` was the original
+    // (broken) check. After a logout both sides read null and the write was
+    // wrongly accepted. bumpSessionEpoch() is what lib/auth-cache-reset.ts
+    // calls on every real identity change (see that file, and its tests for
+    // the end-to-end version of this race through the actual choke point);
+    // called directly here to pin the store's own refusal in isolation.
+    it('setSelectedFeature refuses and clears once the session epoch has moved, regardless of identity', () => {
       useAuthStore.setState({ user: { id: 'user-a' } as UserResponse });
       useDrawingStore.getState().setDrawing('ds-1', 'my_table', 'Polygon');
 
-      // Identity changes WITHOUT going through clearDrawing — the shape a
-      // race with the identity-change teardown subscription would leave, or
-      // (per #1713) an update mutation's .then resolving after the
-      // subscription cleared the store: this is the case that resolution
-      // must not resurrect.
-      useAuthStore.setState({ user: { id: 'user-b' } as UserResponse });
+      // The session epoch moves (what the auth choke point does on any
+      // identity change) WITHOUT a clearDrawing() call — the shape a race
+      // between that subscription and an in-flight write could leave.
+      useDrawingStore.getState().bumpSessionEpoch();
 
       useDrawingStore
         .getState()
@@ -142,11 +175,11 @@ describe('useDrawingStore', () => {
       expect(state.ownerId).toBeNull();
     });
 
-    it('setSelectedFeature refuses a write for a target adopted anonymously once someone signs in', () => {
+    it('setSelectedFeature refuses a write for a target adopted anonymously once the session epoch has moved', () => {
       useAuthStore.setState({ user: null });
       useDrawingStore.getState().setDrawing('ds-1', 'my_table', 'Polygon');
 
-      useAuthStore.setState({ user: { id: 'user-a' } as UserResponse });
+      useDrawingStore.getState().bumpSessionEpoch();
 
       useDrawingStore
         .getState()

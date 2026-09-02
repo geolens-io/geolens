@@ -142,4 +142,26 @@ describe('useSearchStore', () => {
     expect(state.sort_by).toBe('name');
     expect(state.srid).toBe('4326');
   });
+
+  // fix(#1761 review P2): SearchBar keys its local input/debounce state on
+  // resetEpoch precisely because clearIdentityScopedFilters can leave `q`
+  // unchanged (already ''), so the counter has to move on every call.
+  it('clearIdentityScopedFilters bumps resetEpoch even when q is already empty', () => {
+    const before = useSearchStore.getState().resetEpoch;
+
+    useSearchStore.getState().clearIdentityScopedFilters();
+
+    expect(useSearchStore.getState().resetEpoch).toBe(before + 1);
+  });
+
+  it('resetFilters and restoreParams do not touch resetEpoch', () => {
+    useSearchStore.getState().clearIdentityScopedFilters();
+    const epoch = useSearchStore.getState().resetEpoch;
+
+    useSearchStore.getState().resetFilters();
+    expect(useSearchStore.getState().resetEpoch).toBe(epoch);
+
+    useSearchStore.getState().restoreParams({ q: 'test' });
+    expect(useSearchStore.getState().resetEpoch).toBe(epoch);
+  });
 });

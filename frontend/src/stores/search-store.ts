@@ -59,6 +59,18 @@ interface SearchState {
    * prior identity typed or drew, so leaving them is not a residue leak.
    */
   clearIdentityScopedFilters: () => void;
+  /**
+   * fix(#1761 review P2): bumped by clearIdentityScopedFilters on every
+   * identity change (never by resetFilters/restoreParams, so it is
+   * excluded from `initialState` below the same way drawing-store excludes
+   * its session epoch from CLEARED_STATE). SearchBar keys its local input
+   * state and pending debounce timer on this: when `q` is already '' at
+   * the moment identity changes (nothing had been committed to the store
+   * yet), `q` does not change value, so a `useEffect` keyed on `q` alone
+   * does not re-run, and a debounce timer already counting down a
+   * previous-identity keystroke still lands. This counter always changes.
+   */
+  resetEpoch: number;
 }
 
 const initialState = {
@@ -86,6 +98,7 @@ const initialState = {
 
 export const useSearchStore = create<SearchState>()((set, get) => ({
   ...initialState,
+  resetEpoch: 0,
 
   setQuery: (q) => set({ q, offset: 0 }),
 
@@ -100,13 +113,14 @@ export const useSearchStore = create<SearchState>()((set, get) => ({
   setSpatialPanelOpen: (open) => set({ spatialPanelOpen: open }),
 
   clearIdentityScopedFilters: () =>
-    set({
+    set((s) => ({
       q: initialState.q,
       bbox: initialState.bbox,
       collection_id: initialState.collection_id,
       keywords: initialState.keywords,
       geometry: initialState.geometry,
-    }),
+      resetEpoch: s.resetEpoch + 1,
+    })),
 
   toParams: () => {
     const state = get();

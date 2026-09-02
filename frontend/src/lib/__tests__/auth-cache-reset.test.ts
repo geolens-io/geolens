@@ -120,6 +120,77 @@ describe('wireAuthCacheReset', () => {
     }
   });
 
+  // fix(#1761 review P1): the race the ownerId-only check missed —
+  // handleEditAttributeSubmit reads `selectedFeature` before an update
+  // mutation and calls setSelectedFeature again once it resolves. These pin
+  // that resolution being refused when it lands AFTER an identity change,
+  // through the real choke point (not bumpSessionEpoch() called directly,
+  // which is what drawing-store.test.ts's unit tests use).
+  it('refuses a write that arrives after logout, for a target adopted before it', () => {
+    const qc = new QueryClient();
+    const unsubscribe = wireAuthCacheReset(qc);
+    try {
+      useAuthStore.setState({ token: 't1', user: { id: 'user-1' } as UserResponse });
+      useDrawingStore.getState().setDrawing('ds-1', 'my_table', 'Polygon');
+
+      // Logout: the choke point bumps the session epoch and clears.
+      useAuthStore.setState({ token: null, user: null });
+
+      // The late write: captured before the logout, landing after it, with
+      // the dataset route still mounted for anonymous viewing.
+      useDrawingStore
+        .getState()
+        .setSelectedFeature({ gid: 1, tdId: 'td-1', properties: { name: 'user-1 row' } });
+
+      expect(useDrawingStore.getState().selectedFeature).toBeNull();
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('refuses a write that arrives after a second identity signs in, for a target adopted by the first', () => {
+    const qc = new QueryClient();
+    const unsubscribe = wireAuthCacheReset(qc);
+    try {
+      useAuthStore.setState({ token: 't1', user: { id: 'user-1' } as UserResponse });
+      useDrawingStore.getState().setDrawing('ds-1', 'my_table', 'Polygon');
+
+      // User B signs in without a page reload.
+      useAuthStore.setState({ token: 't2', user: { id: 'user-2' } as UserResponse });
+
+      // User A's late write arrives while B is signed in.
+      useDrawingStore
+        .getState()
+        .setSelectedFeature({ gid: 1, tdId: 'td-1', properties: { name: 'user-1 row' } });
+
+      expect(useDrawingStore.getState().selectedFeature).toBeNull();
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('does not bump the drawing session epoch on same-user token rotation', () => {
+    const qc = new QueryClient();
+    const unsubscribe = wireAuthCacheReset(qc);
+    try {
+      useAuthStore.setState({ token: 't1', user: { id: 'user-1' } as UserResponse });
+      useDrawingStore.getState().setDrawing('ds-1', 'my_table', 'Polygon');
+      const epochBefore = useDrawingStore.getState().sessionEpoch;
+
+      useAuthStore.setState({ token: 't2' });
+
+      expect(useDrawingStore.getState().sessionEpoch).toBe(epochBefore);
+
+      // The target adopted before the rotation is still valid: a write for
+      // it succeeds rather than being refused.
+      const feature = { gid: 1, tdId: 'td-1', properties: {} };
+      useDrawingStore.getState().setSelectedFeature(feature);
+      expect(useDrawingStore.getState().selectedFeature).toEqual(feature);
+    } finally {
+      unsubscribe();
+    }
+  });
+
   // fix(#1713): milder than drawing-store — search intent, not row data —
   // but the same class and the same choke point.
   it('clears identity-scoped search fields when identity changes, not on token refresh', () => {
@@ -162,6 +233,40 @@ describe('wireAuthCacheReset', () => {
 
       useAuthStore.setState({ token: null, user: null });
       expect(useSearchStore.getState().q).toBe('');
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  // fix(#1761 review P2): SearchBar keys its local input/debounce state on
+  // this counter (see SearchBar.identity.test.tsx) precisely because `q`
+  // can stay '' across the identity change and not signal anything on its
+  // own — this pins that the counter itself always moves, even then.
+  it('bumps the search-store reset epoch on logout, even when q was already empty', () => {
+    const qc = new QueryClient();
+    const unsubscribe = wireAuthCacheReset(qc);
+    try {
+      useAuthStore.setState({ token: 't1', user: { id: 'user-1' } as UserResponse });
+      const before = useSearchStore.getState().resetEpoch;
+
+      useAuthStore.setState({ token: null, user: null });
+
+      expect(useSearchStore.getState().resetEpoch).toBe(before + 1);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('does not bump the search-store reset epoch on token refresh', () => {
+    const qc = new QueryClient();
+    const unsubscribe = wireAuthCacheReset(qc);
+    try {
+      useAuthStore.setState({ token: 't1', user: { id: 'user-1' } as UserResponse });
+      const before = useSearchStore.getState().resetEpoch;
+
+      useAuthStore.setState({ token: 't2' });
+
+      expect(useSearchStore.getState().resetEpoch).toBe(before);
     } finally {
       unsubscribe();
     }

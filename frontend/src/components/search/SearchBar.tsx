@@ -15,12 +15,17 @@ interface SearchBarProps {
 export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
   const { t } = useTranslation('search');
   const query = useSearchStore((s) => s.q);
+  const resetEpoch = useSearchStore((s) => s.resetEpoch);
   const [value, setValue] = useState(query);
   const [showTypeahead, setShowTypeahead] = useState(false);
   const [activeDescendant, setActiveDescendant] = useState<string | null>(null);
   const debouncedValue = useDebouncedValue(value, 300);
   const blurTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
+  // fix(#1761 review P2): skip on mount — only react to a LATER bump, or
+  // mounting on a page whose store already carries a real query would wipe
+  // the input the instant it appears.
+  const resetEpochRef = useRef(resetEpoch);
 
   useEffect(() => {
     useSearchStore.getState().setQuery(debouncedValue);
@@ -30,6 +35,21 @@ export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
   useEffect(() => {
     setValue(query);
   }, [query]);
+
+  // fix(#1761 review P2): an identity change bumps resetEpoch even when `q`
+  // was already '' (nothing had been committed to the store yet), so the
+  // `[query]` effect above sees no change and does not fire. Resetting
+  // `value` here changes useDebouncedValue's input, which is what actually
+  // cancels its in-flight timer (see useDebouncedValue's cleanup) — without
+  // this, a keystroke typed under the previous identity still lands in the
+  // new identity's store a few hundred ms later.
+  useEffect(() => {
+    if (resetEpochRef.current === resetEpoch) return;
+    resetEpochRef.current = resetEpoch;
+    setValue(useSearchStore.getState().q);
+    setShowTypeahead(false);
+    setActiveDescendant(null);
+  }, [resetEpoch]);
 
   // Cleanup blur timeout on unmount
   useEffect(() => {
