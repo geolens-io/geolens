@@ -205,13 +205,65 @@ describe('API error localization boundary', () => {
   it('falls back the ArcGIS sign-in rate limit to the generic 429 key, unmapped by code', () => {
     // rate_limited carries no dedicated entry: the object branch falls
     // through to its message, which in turn falls through to the generic
-    // 429 status key — the same path #774 already relies on.
+    // 429 status key, the same path #774 already relies on.
     expect(
       classifyApiError(
         { code: 'rate_limited', message: 'Too many sign-in attempts', field: 'credential' },
         429,
       ),
     ).toEqual({ key: 'errors.rateLimited' });
+  });
+
+  // fix(service-auth wave, lane A1 contract update, head dadce550f): the
+  // shared-DB attempt counter reworded this message; the fallback above
+  // does not read the message text for this code, so the reword changes
+  // nothing here, and this test pins that.
+  it('still falls back a reworded rate_limited message to the generic 429 key', () => {
+    expect(
+      classifyApiError(
+        {
+          code: 'rate_limited',
+          message: 'Too many sign-in attempts for this account across all sessions',
+          field: 'credential',
+        },
+        429,
+      ),
+    ).toEqual({ key: 'errors.rateLimited' });
+  });
+
+  // fix(service-auth wave, lane A1 contract update, head dadce550f):
+  // arcgis_signin_in_progress replaced a 429 rate_limited response for the
+  // same-account-concurrency case.
+  it('maps arcgis_signin_in_progress to its own key', () => {
+    expect(
+      classifyApiError(
+        {
+          code: 'arcgis_signin_in_progress',
+          message: 'a sign-in for this account is already running',
+          field: 'credential',
+        },
+        409,
+      ),
+    ).toEqual({ key: 'errors.arcgisSigninInProgress' });
+  });
+
+  // fix(service-auth wave, lane A1 contract update, head dadce550f):
+  // arcgis_portal_not_https is a 422 with the SAME structured
+  // {code, message, field} shape as the rest of this taxonomy, not
+  // FastAPI's list-shaped validation 422 handled by validationDescriptor,
+  // so it must be caught in the object branch rather than falling through
+  // to a generic validation message.
+  it('maps arcgis_portal_not_https to its own key rather than the generic validation fallback', () => {
+    expect(
+      classifyApiError(
+        {
+          code: 'arcgis_portal_not_https',
+          message: 'the portal or its token service must use https',
+          field: 'url',
+        },
+        422,
+      ),
+    ).toEqual({ key: 'errors.arcgisPortalNotHttps' });
   });
 
   it('drops the dynamic SSRF diagnostic suffix from the refresh URL refusal', () => {

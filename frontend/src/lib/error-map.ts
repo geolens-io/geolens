@@ -469,6 +469,25 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
     if (value.code === 'network_error') {
       return { key: 'errors.couldNotReachService' };
     }
+    // fix(service-auth wave, lane A1 contract update, head dadce550f):
+    // arcgis_signin_in_progress replaced a 429 rate_limited response for
+    // the same-account-concurrency case (a real 429 rate_limited still
+    // happens separately, from the per-user/per-portal limiter, and is
+    // deliberately left unmapped here: the object branch falls through to
+    // its message, then to the generic 429 status key, so a wording change
+    // on that message needs no update in this file). This is a 409, not a
+    // retry-safe state, so the copy says wait rather than anything
+    // implying the caller should act.
+    if (value.code === 'arcgis_signin_in_progress') {
+      return { key: 'errors.arcgisSigninInProgress' };
+    }
+    // arcgis_portal_not_https arrives as a 422 with this SAME structured
+    // {code, message, field} shape, not FastAPI's list-shaped validation
+    // 422 handled by validationDescriptor below, so it has to be checked
+    // here rather than there.
+    if (value.code === 'arcgis_portal_not_https') {
+      return { key: 'errors.arcgisPortalNotHttps' };
+    }
     if (Array.isArray(value.unknown_layers) && value.unknown_layers.length > 0) {
       return {
         key: 'errors.unknownLayers',

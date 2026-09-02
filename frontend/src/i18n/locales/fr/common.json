@@ -181,6 +181,8 @@
     "arcgisSigninRejected": "ArcGIS n'a pas accepté cette connexion. Vérifiez le nom d'utilisateur et le mot de passe, y compris la casse. Trop de tentatives échouées verrouillent aussi temporairement un compte ArcGIS.",
     "arcgisSsoAccount": "Ce compte se connecte via le fournisseur d'identité de votre organisation, ou a l'authentification multifacteur activée. La connexion par nom d'utilisateur et mot de passe ne fonctionnera pas ici. Collez plutôt un jeton ou une clé API.",
     "arcgisPortalUnreachable": "GeoLens ne peut pas joindre ce portail car il pointe vers une adresse réseau privée. Un portail hébergé sur un réseau privé ne peut pas être utilisé pour se connecter depuis ici ; utilisez plutôt un jeton ou une clé API.",
+    "arcgisSigninInProgress": "Une autre connexion pour ce compte est déjà en cours. Réessayez dans un instant.",
+    "arcgisPortalNotHttps": "Ce portail, ou le service de jetons qu'il indique, n'utilise pas HTTPS. GeoLens n'enverra pas de mot de passe en HTTP non chiffré ; utilisez une URL de portail en https://.",
     "refreshSourceUrlBlocked": "L'URL source enregistrée de ce jeu de données a échoué à un contrôle de sécurité et ne peut pas être actualisée automatiquement. Contactez un administrateur.",
     "unknownLayers": "Ces couches sont introuvables dans le fichier importé : {{layers}}.",
     "sourceValidationCrsMismatch": "Le système de référence de coordonnées de la source {{source}} ne correspond pas aux autres sources.",
