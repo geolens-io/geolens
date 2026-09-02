@@ -25,6 +25,12 @@
   - docs-contract.json                     (.version — the cross-surface doc
                                            contract; check_docs_contract.py
                                            asserts it equals backend/pyproject)
+  - CHANGELOG.md                           (the reference-style compare links at
+                                           the bottom of the file: `[Unreleased]`
+                                           is repointed to compare/vX.Y.Z...HEAD
+                                           and a new `[X.Y.Z]:` link is inserted
+                                           comparing from the previous version,
+                                           fix(#1716))
 
 Every lockfile that embeds the package's own version is stamped too (fix(#877) —
 each of these had to be hand-stamped on past releases, and each was missed at
@@ -79,6 +85,8 @@ PY_SDK_PYPROJECT = REPO_ROOT / "sdks" / "python" / "pyproject.toml"
 PY_SDK_GEN_CONFIG = REPO_ROOT / "sdks" / "python" / ".openapi-python-client.yaml"
 TS_SDK_PACKAGE = REPO_ROOT / "sdks" / "typescript" / "package.json"
 DOCS_CONTRACT = REPO_ROOT / "docs-contract.json"
+CHANGELOG = REPO_ROOT / "CHANGELOG.md"
+CHANGELOG_REPO_URL = "https://github.com/geolens-io/geolens"
 
 # --- Lockfiles (fix(#877)) ---------------------------------------------------
 # A uv.lock records the version of every LOCAL package it resolves: the project
@@ -255,6 +263,48 @@ def _bump_package_lock(path: Path, version: str) -> None:
     print(f'  {_rel(path)} (.version + packages."".version) -> {version}')
 
 
+# The current `[Unreleased]` compare link. Its own from-tag IS the previous
+# version — reading it back means the bump needs no separate record of what
+# came before (fix(#1716)).
+_UNRELEASED_LINK_RE = re.compile(
+    rf"^\[Unreleased\]: {re.escape(CHANGELOG_REPO_URL)}/compare/"
+    rf"v(\d+\.\d+\.\d+)\.\.\.HEAD$",
+    re.MULTILINE,
+)
+
+
+def _bump_changelog_links(path: Path, version: str) -> None:
+    """Repoint `[Unreleased]` and insert the new `[X.Y.Z]:` compare link.
+
+    Idempotent: if `[Unreleased]` already compares from `version`, this bump
+    already ran for this version and nothing is written again — running the
+    script twice for the same version must not insert a second link.
+    """
+    text = path.read_text()
+    m = _UNRELEASED_LINK_RE.search(text)
+    if not m:
+        sys.exit(
+            f"ERROR: no '[Unreleased]: {CHANGELOG_REPO_URL}/compare/vPREV...HEAD'\n"
+            f"line in {_rel(path)}. Add the reference-style link block before bumping."
+        )
+    prev_version = m.group(1)
+    if prev_version == version:
+        print(f"  {_rel(path)} (compare links) already point at {version}, skipping.")
+        return
+    new_unreleased = f"[Unreleased]: {CHANGELOG_REPO_URL}/compare/v{version}...HEAD"
+    new_version_link = (
+        f"[{version}]: {CHANGELOG_REPO_URL}/compare/v{prev_version}...v{version}"
+    )
+    text = _UNRELEASED_LINK_RE.sub(
+        lambda _: f"{new_unreleased}\n{new_version_link}", text, count=1
+    )
+    path.write_text(text)
+    print(
+        f"  {_rel(path)} ([Unreleased] -> compare/v{version}...HEAD, "
+        f"+ [{version}] -> compare/v{prev_version}...v{version})"
+    )
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 1:
         sys.exit("Usage: bump_version.py X.Y.Z")
@@ -279,6 +329,7 @@ def main(argv: list[str]) -> int:
         _bump_uv_lock(lock, package_names, version)
     for lock in PACKAGE_LOCKS:
         _bump_package_lock(lock, version)
+    _bump_changelog_links(CHANGELOG, version)
     print(f"Done. Run `make version-check` to confirm coherence.")
     return 0
 

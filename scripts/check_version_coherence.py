@@ -15,6 +15,15 @@ nothing — a fallback whose own filter drops every `docs(`/`chore(` subject, so
 release whose headline change landed as `chore(db): upgrade ... PostgreSQL 18`
 would publish notes that never mention it. Nothing else in CI reads CHANGELOG.md.
 
+Also asserts the reference-style link block at the bottom of CHANGELOG.md
+agrees with the canonical version (fix(#1716)): a `[<version>]:` compare link
+must exist for the canonical version, and `[Unreleased]:` must compare from
+`v<version>...HEAD`, not an older tag. Both edits used to be manual and
+unenforced, so a release could ship with an unlinked heading while
+`[Unreleased]` kept claiming every change in the release that just shipped
+(seen on v1.17.0, #1714). scripts/bump_version.py now writes both lines
+mechanically; this is the backstop.
+
 Sites checked:
   - backend/pyproject.toml                  [project].version (canonical)
   - backend/app/api/main.py                 _FALLBACK_APP_VERSION constant
@@ -72,6 +81,17 @@ PY_SDK_PYPROJECT = REPO_ROOT / "sdks" / "python" / "pyproject.toml"
 PY_SDK_GEN_CONFIG = REPO_ROOT / "sdks" / "python" / ".openapi-python-client.yaml"
 TS_SDK_PACKAGE = REPO_ROOT / "sdks" / "typescript" / "package.json"
 CHANGELOG = REPO_ROOT / "CHANGELOG.md"
+
+# The reference-style link block at the bottom of CHANGELOG.md, e.g.:
+#   [Unreleased]: https://github.com/geolens-io/geolens/compare/v1.17.0...HEAD
+#   [1.17.0]: https://github.com/geolens-io/geolens/compare/v1.16.1...v1.17.0
+# scripts/bump_version.py writes this same shape.
+CHANGELOG_REPO_URL = "https://github.com/geolens-io/geolens"
+_LINK_DEF_RE = re.compile(r"^\[([^\]]+)\]: (\S+)$", re.MULTILINE)
+_COMPARE_LINK_RE = re.compile(
+    rf"^{re.escape(CHANGELOG_REPO_URL)}/compare/"
+    rf"v(?P<from>\d+\.\d+\.\d+)\.\.\.(?P<to>v\d+\.\d+\.\d+|HEAD)$"
+)
 
 # Lockfiles that embed the package's own version (fix(#877)). A uv.lock records
 # it for every LOCAL package it resolves — the project itself plus any editable
@@ -185,6 +205,66 @@ def _changelog_section(version: str) -> str | None:
     return "\n".join(out) if found else None
 
 
+def _changelog_links() -> dict[str, str]:
+    """Reference-style link definitions (`[label]: url`), keyed by label.
+
+    Returns an empty dict for a CHANGELOG with no link block at all, so a
+    caller doing a plain `.get()` fails with the FAIL messages below instead
+    of a traceback.
+    """
+    return dict(_LINK_DEF_RE.findall(CHANGELOG.read_text()))
+
+
+def _check_changelog_links(canonical: str) -> list[str]:
+    """FAIL messages for the CHANGELOG's reference-style compare links.
+
+    An empty list means both checks passed: a `[<canonical>]:` compare link
+    exists, and `[Unreleased]:` compares from `v<canonical>...HEAD` rather
+    than an older tag. A CHANGELOG with no link block at all (an empty dict
+    from `_changelog_links()`) fails both checks with a plain message here,
+    not a traceback.
+    """
+    links = _changelog_links()
+    failures: list[str] = []
+
+    unreleased_url = links.get("Unreleased")
+    if unreleased_url is None:
+        failures.append(
+            f"{_rel(CHANGELOG)} has no '[Unreleased]:' compare link definition."
+        )
+    else:
+        m = _COMPARE_LINK_RE.match(unreleased_url)
+        if not m or m.group("to") != "HEAD":
+            failures.append(
+                f"{_rel(CHANGELOG)}'s '[Unreleased]:' link is not a "
+                f"'{CHANGELOG_REPO_URL}/compare/vX.Y.Z...HEAD' link. Got: {unreleased_url!r}"
+            )
+        elif m.group("from") != canonical:
+            failures.append(
+                f"{_rel(CHANGELOG)}'s '[Unreleased]:' link compares from "
+                f"v{m.group('from')}, not v{canonical} - it still claims every change "
+                f"since the last release as unreleased. Repoint it to "
+                f"'{CHANGELOG_REPO_URL}/compare/v{canonical}...HEAD'."
+            )
+
+    version_url = links.get(canonical)
+    if version_url is None:
+        failures.append(
+            f"{_rel(CHANGELOG)} has no '[{canonical}]:' compare link definition. "
+            f"Add '[{canonical}]: {CHANGELOG_REPO_URL}/compare/vPREV...v{canonical}' "
+            f"to the link block (run `make bump VERSION={canonical}` to write it)."
+        )
+    else:
+        m = _COMPARE_LINK_RE.match(version_url)
+        if not m or m.group("to") != f"v{canonical}":
+            failures.append(
+                f"{_rel(CHANGELOG)}'s '[{canonical}]:' link does not compare "
+                f"...v{canonical}. Got: {version_url!r}"
+            )
+
+    return failures
+
+
 def main() -> int:
     sites: dict[str, str] = {}
     sites[f"{_rel(BACKEND_PYPROJECT)} ([project].version)"] = _pyproject_version(
@@ -275,6 +355,23 @@ def main() -> int:
         lines = len([ln for ln in body.strip().splitlines() if ln.strip()])
         print(
             f"  [ok] {_rel(CHANGELOG)}: '## [{canonical}]' section present ({lines} lines)."
+        )
+
+    # fix(#1716): the reference-style compare links at the bottom of the file
+    # are not part of the `## [version]` section check above, and nothing else
+    # in CI reads them — a release can land with a correct header and section
+    # while `[Unreleased]` still compares from the previous tag and the new
+    # version has no link at all (v1.17.0, #1714). scripts/bump_version.py
+    # writes both lines mechanically; this asserts they landed.
+    link_failures = _check_changelog_links(canonical)
+    if link_failures:
+        failed = True
+        for msg in link_failures:
+            sys.stderr.write(f"FAIL: {msg}\n")
+    else:
+        print(
+            f"  [ok] {_rel(CHANGELOG)}: '[Unreleased]:' and '[{canonical}]:' "
+            f"compare links agree with {canonical}."
         )
 
     if failed:

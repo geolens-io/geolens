@@ -949,6 +949,15 @@ jobs:
       - name: Check the CHANGELOG gate tracks release.yml
         run: python scripts/tests/test-changelog-gate.py
 
+      # The reference-style compare links at the bottom of CHANGELOG.md are a
+      # separate block from the `## [version]` section above and used to be
+      # unenforced entirely: a release could ship with `[Unreleased]` still
+      # comparing from the previous tag and no link for the new version
+      # (v1.17.0, #1714). Pins the gate's link assertions and bump_version.py's
+      # mechanical write of both lines (fix(#1716)).
+      - name: Check the CHANGELOG compare links
+        run: python scripts/tests/test-changelog-links.py
+
   # ---------- docs contract ----------
   # Enforce docs-contract.json: validates the contract against install.sh +
   # pyproject (so it can't drift from the binaries) and scans the READMEs for
