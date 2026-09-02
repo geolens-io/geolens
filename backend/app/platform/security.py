@@ -169,8 +169,19 @@ def same_origin(first: str, second: str) -> bool:
 
     Default ports are filled in, so ``https://host`` and ``https://host:443``
     are one origin and a real service does not break over a spelling.
+
+    fix(#1746 B2b review r6): total. Either side can come out of an untrusted
+    document, and ``httpx.URL`` raises on a syntactically invalid one such as
+    ``http://example.com:notaport/`` -- which would have turned a probe into a
+    500 where the old path degraded. An unparseable URL is not the same origin
+    as anything, including itself, so False is both the safe answer and the
+    correct one: a caller asking this question is deciding whether to send a
+    credential, and it must not send one to an address it cannot even parse.
     """
-    return _origin(httpx.URL(first)) == _origin(httpx.URL(second))
+    try:
+        return _origin(httpx.URL(first)) == _origin(httpx.URL(second))
+    except (httpx.InvalidURL, ValueError, TypeError):
+        return False
 
 
 def _refuse_cross_origin_credential(

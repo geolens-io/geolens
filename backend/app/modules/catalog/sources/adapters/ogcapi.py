@@ -100,7 +100,7 @@ async def _resolve_conformance(
         return conforms_to, has_data_link
 
     abs_href = urljoin(url, conformance_href)
-    if credential_header is not None and not same_origin(url, abs_href):
+    try:
         # The same rule the redirect refusal applies, for a link the document
         # chose rather than a Location header. Not followed at all rather than
         # followed anonymously: an anonymous answer about a service the caller
@@ -109,14 +109,18 @@ async def _resolve_conformance(
         # exists to end (plan D6). Conformance stays unestablished and the
         # `data` link decides, exactly as it does for a landing page that
         # advertises no conformance link at all.
-        logger.warning(
-            "OGC API probe: conformance link is on another origin, "
-            "not following it with a credential",
-            href=abs_href,
-        )
-        return conforms_to, has_data_link
-
-    try:
+        #
+        # fix(#1746 B2b review r6): inside the guarded block. `same_origin` is
+        # total on its own, and this is the second half of the same answer:
+        # everything done with a URL this document chose degrades to "no
+        # conformance" rather than escaping as a 500.
+        if credential_header is not None and not same_origin(url, abs_href):
+            logger.warning(
+                "OGC API probe: conformance link is on another origin, "
+                "not following it with a credential",
+                href=abs_href,
+            )
+            return conforms_to, has_data_link
         await validate_url_for_ssrf(abs_href)
         # The href comes out of an untrusted landing page, so it is revalidated
         # on the line above rather than trusted because the base URL was.

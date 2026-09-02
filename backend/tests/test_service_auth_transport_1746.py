@@ -1195,6 +1195,60 @@ class TestTheConformanceLinkStaysOnTheServiceOrigin:
         assert all("127.0.0.1" not in str(r.url) for r in recorded), recorded
         assert result is not None
 
+    async def test_a_syntactically_invalid_link_is_unusable_not_a_crash(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1746 B2b review r6): the origin question must be answerable.
+
+        `httpx.URL` raises on something like `http://example.com:notaport/`,
+        and the landing document chooses this URL, so asking whether it is the
+        same origin used to turn a probe into a 500 where the old path
+        degraded. An unparseable link is not the same origin as anything, so
+        it is simply not followed.
+        """
+        credential, value = _header_key()
+        recorded, result = await self._probe(
+            monkeypatch,
+            replace(credential, service_format="ogcapi_features"),
+            "http://example.com:notaport/conformance",
+        )
+
+        assert not [r for r in recorded if "conformance" in r.url.path]
+        assert all(str(r.url).startswith(_SERVICE_ORIGIN) for r in recorded), recorded
+        assert [r for r in recorded if r.headers.get("X-Api-Key") == value]
+        assert result is not None
+        assert result["service_type"] == "OGC API Features"
+
+    async def test_a_syntactically_invalid_link_degrades_anonymously_too(
+        self, monkeypatch
+    ) -> None:
+        """The path with no credential never reaches the origin rule.
+
+        It still has to degrade rather than raise, which is what the guarded
+        block around the fetch is for, and what the old code did before this
+        branch added an origin comparison in front of it.
+        """
+        recorded, result = await self._probe(
+            monkeypatch, None, "http://example.com:notaport/conformance"
+        )
+
+        assert all(str(r.url).startswith(_SERVICE_ORIGIN) for r in recorded), recorded
+        assert result is not None
+        assert result["service_type"] == "OGC API Features"
+
+    def test_the_origin_rule_is_total(self) -> None:
+        """Asked directly, because both callers depend on it never raising."""
+        from app.platform.security import same_origin
+
+        assert same_origin("https://a.example/x", "https://a.example/y") is True
+        assert same_origin("https://a.example", "https://a.example:443") is True
+        assert same_origin("https://a.example", "https://b.example") is False
+        # Unparseable on either side, and unparseable against itself.
+        broken = "http://example.com:notaport/conformance"
+        assert same_origin("https://a.example", broken) is False
+        assert same_origin(broken, "https://a.example") is False
+        assert same_origin(broken, broken) is False
+
     async def test_the_adapter_asks_the_shared_origin_rule(self) -> None:
         """One definition of same-origin, shared with the redirect refusal.
 
