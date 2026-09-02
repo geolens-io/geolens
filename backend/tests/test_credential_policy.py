@@ -101,14 +101,18 @@ class TestCredentialInputRejection:
 
 
 class TestHeaderNameRejection:
-    """RFC 7230 token characters, and none of the names GeoLens sets itself."""
+    """RFC 7230 token characters, and no name that is spoken for."""
 
     @pytest.mark.parametrize(
         "name",
         [
+            # The five header names the surveyed providers actually use. A
+            # field hardcoded to X-API-Key would serve exactly one of them.
             "X-API-Key",
             "key",
             "Ocp-Apim-Subscription-Key",
+            "maxar-api-key",
+            "authkey",
             "apikey",
             "X-Api-Key123",
             "!#$%&'*+-.^_`|~",
@@ -140,20 +144,38 @@ class TestHeaderNameRejection:
     def test_charset_rejections(self, name: str | None, why: str) -> None:
         assert header_name_rejection_reason(name) == HEADER_NAME_POLICY, why
 
-    def test_the_denylist_is_the_nine_names_geolens_sets(self) -> None:
-        assert RESERVED_HEADER_NAMES == frozenset(
-            {
-                "authorization",
-                "x-esri-authorization",
-                "accept",
-                "content-type",
-                "content-length",
-                "host",
-                "cookie",
-                "user-agent",
-                "referer",
-            }
-        )
+    def test_the_denylist_is_the_two_groups_and_nothing_else(self) -> None:
+        """Names GeoLens sets, and names that change the transport.
+
+        fix(#1756 codex round 7): the second group was missing, so a caller
+        could send ``Transfer-Encoding: chunked`` as their API key header and
+        re-frame the request body, or ``Proxy-Authorization``, which a
+        configured forward proxy reads rather than the service.
+        """
+        geolens_sets = {
+            "authorization",
+            "x-esri-authorization",
+            "accept",
+            "content-type",
+            "content-length",
+            "host",
+            "cookie",
+            "set-cookie",
+            "user-agent",
+            "referer",
+        }
+        changes_the_transport = {
+            "transfer-encoding",
+            "connection",
+            "proxy-authorization",
+            "proxy-connection",
+            "keep-alive",
+            "te",
+            "trailer",
+            "upgrade",
+            "expect",
+        }
+        assert RESERVED_HEADER_NAMES == frozenset(geolens_sets | changes_the_transport)
 
     @pytest.mark.parametrize("reserved", sorted(RESERVED_HEADER_NAMES))
     @pytest.mark.parametrize("case", ["lower", "upper", "title", "mixed"])
@@ -180,6 +202,45 @@ class TestHeaderNameRejection:
         for an invalid character that is not there.
         """
         assert header_name_rejection_reason("AUTHORIZATION") != HEADER_NAME_POLICY
+
+    @pytest.mark.parametrize(
+        "name", [":authority", ":method", ":Path", ":SCHEME", ":status"]
+    )
+    def test_pseudo_headers_are_refused_as_reserved(self, name: str) -> None:
+        """fix(#1756 codex round 7): protocol framing, not a header field.
+
+        The charset rule would refuse these anyway, for the colon. The reason
+        matters: a caller told their colon is an invalid character will try
+        again without it, and a caller told the name is spoken for will not.
+        """
+        assert header_name_rejection_reason(name) == RESERVED_HEADER_NAME_POLICY
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "Transfer-Encoding",
+            "Connection",
+            "TE",
+            "Trailer",
+            "Upgrade",
+            "Proxy-Authorization",
+            "Proxy-Connection",
+            "Keep-Alive",
+            "Expect",
+            "Set-Cookie",
+        ],
+    )
+    def test_transport_headers_are_refused(self, name: str) -> None:
+        """fix(#1756 codex round 7): these reframe the request, not its body.
+
+        ``Transfer-Encoding: chunked`` is honoured by httpx and by the libcurl
+        header file GDAL reads, and ``Proxy-Authorization`` is read by a
+        configured forward proxy rather than by the service being addressed.
+        Tried in the casing a user would actually type.
+        """
+        assert header_name_rejection_reason(name) == RESERVED_HEADER_NAME_POLICY
+        assert header_name_rejection_reason(name.upper()) == RESERVED_HEADER_NAME_POLICY
+        assert header_name_rejection_reason(name.lower()) == RESERVED_HEADER_NAME_POLICY
 
 
 class TestBuildCredentialHeaderProducesTheHeader:
@@ -418,6 +479,24 @@ class TestBuildCredentialHeaderRejections:
                     method=CredentialMethod.HEADER_KEY,
                     service_format="wfs",
                     header_name="Authorization",
+                    header_value="k1234567",
+                ),
+                RESERVED_HEADER_NAME_POLICY,
+            ),
+            (
+                ServiceCredential(
+                    method=CredentialMethod.HEADER_KEY,
+                    service_format="wfs",
+                    header_name="Transfer-Encoding",
+                    header_value="chunked",
+                ),
+                RESERVED_HEADER_NAME_POLICY,
+            ),
+            (
+                ServiceCredential(
+                    method=CredentialMethod.HEADER_KEY,
+                    service_format="wfs",
+                    header_name=":authority",
                     header_value="k1234567",
                 ),
                 RESERVED_HEADER_NAME_POLICY,

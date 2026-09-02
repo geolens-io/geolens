@@ -121,13 +121,15 @@ HEADER_NAME_CHARSET: frozenset[str] = frozenset(
     string.ascii_letters + string.digits + "!#$%&'*+-.^_`|~"
 )
 
-# Names GeoLens sets itself on outbound requests. Accepting one would let a
-# caller overwrite the request's own framing rather than add a credential to
-# it, and ``authorization`` in particular would collide with the header the
-# bearer and basic branches compose. Compared case-insensitively, because HTTP
-# field names are case-insensitive and a reviewer will try ``AUTHORIZATION``.
+# Header names a caller may not send a credential under. Compared
+# case-insensitively, because HTTP field names are case-insensitive and a
+# reviewer will try ``AUTHORIZATION``. Two groups, for two different reasons.
 RESERVED_HEADER_NAMES: frozenset[str] = frozenset(
     {
+        # GeoLens sets these itself on outbound requests. Accepting one would
+        # let a caller overwrite what the request says about itself rather
+        # than add a credential to it, and ``authorization`` in particular
+        # would collide with the header the bearer and basic branches compose.
         "authorization",
         "x-esri-authorization",
         "accept",
@@ -135,10 +137,35 @@ RESERVED_HEADER_NAMES: frozenset[str] = frozenset(
         "content-length",
         "host",
         "cookie",
+        "set-cookie",
         "user-agent",
         "referer",
+        # These change how the request is framed, routed or terminated rather
+        # than what it carries, so none of them is ever the header a service
+        # key travels in. ``transfer-encoding: chunked`` is honoured both by
+        # httpx and by the libcurl header file GDAL reads, so it re-frames the
+        # request body from under the caller. ``proxy-authorization`` and
+        # ``proxy-connection`` are read by a configured forward proxy, which
+        # is a different party than the service being addressed. The rest are
+        # the RFC 9110 hop-by-hop names, plus ``expect``, which can stall a
+        # request waiting for a 100-continue that never comes.
+        "transfer-encoding",
+        "connection",
+        "proxy-authorization",
+        "proxy-connection",
+        "keep-alive",
+        "te",
+        "trailer",
+        "upgrade",
+        "expect",
     }
 )
+
+# HTTP/2 and HTTP/3 pseudo-headers are protocol framing rather than fields, and
+# the set is open-ended (:authority, :method, :path, :scheme, :status), so this
+# is a prefix rule rather than another list of names. The charset above already
+# refuses a colon; this exists so the caller is told which rule they hit.
+PSEUDO_HEADER_PREFIX = ":"
 
 # Every message below describes the policy and never the input, on the same
 # reasoning as HEADER_TOKEN_POLICY: these reach a 422 body, a log line and a
@@ -164,9 +191,10 @@ HEADER_NAME_POLICY = (
 )
 
 RESERVED_HEADER_NAME_POLICY = (
-    "That header name is one GeoLens sets on every request of its own, so a "
-    "credential cannot be sent under it. Use the header name the service "
-    "documents for its API key."
+    "A credential cannot be sent under that header name: GeoLens either sets "
+    "it on every request of its own, or it controls how the request is framed "
+    "and routed rather than what the request carries. Use the header name the "
+    "service documents for its API key."
 )
 
 CREDENTIAL_METHOD_POLICY = (
@@ -239,6 +267,10 @@ def header_name_rejection_reason(name: str | None) -> str | None:
     """Why *name* is unusable as the header a credential is sent under."""
     if not name:
         return HEADER_NAME_POLICY
+    # Before the charset rule, which would also refuse a pseudo-header but
+    # would tell the caller the colon was a typo rather than the point.
+    if name.startswith(PSEUDO_HEADER_PREFIX):
+        return RESERVED_HEADER_NAME_POLICY
     if any(character not in HEADER_NAME_CHARSET for character in name):
         return HEADER_NAME_POLICY
     if name.lower() in RESERVED_HEADER_NAMES:

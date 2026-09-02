@@ -121,6 +121,16 @@ appears beside it. It is a lexical AST rule, so:
   ``headers.update({...})`` IS seen, because it is still a dict literal. This
   is a silent gap rather than a loud one, and closing it needs container
   modelling this rule does not have.
+- A mapping is identified by the tail name it is reached through, so
+  ``headers`` and ``self.headers`` are one key and the write meets the request
+  argument (fix(#1756 codex round 7)). Two things stay unmodelled after that:
+  a mapping aliased through a second attribute or a longer chain
+  (``self.session.headers`` written to and ``client.session.headers`` passed,
+  or two different objects whose attribute happens to share a tail) is matched
+  on the tail alone and so is neither reliably joined nor reliably separated,
+  and a mapping that only ever exists as a call result
+  (``client.get(url, headers=self._auth_headers())``) has no name to key on and
+  is invisible.
 - Dynamic dispatch is not modelled. ``getattr(module, "build_credential_header")``,
   a callable pulled from a registry, and a mapping reached through a computed
   attribute chain all resolve to nothing, so a call site built that way is
@@ -454,10 +464,17 @@ def _outbound_header_mappings(scope: ast.AST) -> _Outbound:
                 continue
             if isinstance(keyword.value, ast.Dict):
                 dicts.add(id(keyword.value))
-            elif isinstance(keyword.value, ast.Name):
-                names.add(keyword.value.id)
+                continue
+            # fix(#1756 codex round 7): an attribute reaches the request the
+            # same way a plain name does, and it is reduced by the same
+            # function the write target is reduced by, so
+            # `self.request_options[...] = ...` and
+            # `headers=self.request_options` meet on one key.
+            reference = _mapping_reference(keyword.value)
+            if reference is not None:
+                names.add(reference)
 
-    # The literal a request-bound name was built from is the same mapping.
+    # The literal a request-bound mapping was built from is the same mapping.
     for node in _iter_scope_nodes(scope):
         if not isinstance(node, (ast.Assign, ast.AnnAssign)):
             continue
@@ -465,7 +482,7 @@ def _outbound_header_mappings(scope: ast.AST) -> _Outbound:
             continue
         targets = node.targets if isinstance(node, ast.Assign) else [node.target]
         for target in targets:
-            if isinstance(target, ast.Name) and target.id in names:
+            if _mapping_reference(target) in names:
                 dicts.add(id(node.value))
     return _Outbound(frozenset(names), frozenset(dicts))
 
@@ -781,6 +798,21 @@ def _written_value(call: ast.Call) -> ast.expr | None:
     return call.args[index]
 
 
+def _mapping_reference(expr: ast.expr) -> str | None:
+    """How a header mapping is referred to, reduced to one comparable name.
+
+    ``headers`` and ``self.headers`` both reduce to ``headers``, so the write
+    target and the ``headers=`` argument meet on the same key whichever way
+    each is spelled (fix(#1756 codex round 7)). Reducing to the tail is what
+    makes that work and is also its limit, stated in the module docstring.
+    """
+    if isinstance(expr, ast.Name):
+        return expr.id
+    if isinstance(expr, ast.Attribute):
+        return expr.attr
+    return None
+
+
 def _container_name(target: ast.expr) -> str | None:
     """The name a subscript is written into, whatever it is called.
 
@@ -791,12 +823,7 @@ def _container_name(target: ast.expr) -> str | None:
     """
     if not isinstance(target, ast.Subscript):
         return None
-    container = target.value
-    if isinstance(container, ast.Name):
-        return container.id
-    if isinstance(container, ast.Attribute):
-        return container.attr
-    return None
+    return _mapping_reference(target.value)
 
 
 def _key_is_judged(key: ast.expr, *, credential_path: bool, outbound: bool) -> bool:
@@ -1531,6 +1558,41 @@ def test_guard_a_mapping_not_called_headers_is_still_judged() -> None:
     )
     assert scan.header_sites == 1
     assert sum(scan.unguarded_headers.values()) == 1
+
+
+def test_guard_a_mapping_held_on_an_attribute_is_judged() -> None:
+    """fix(#1756 codex round 7): an attribute reaches the wire too.
+
+    ``self.request_options["X-API-Key"] = raw`` with
+    ``headers=self.request_options`` was scanned nowhere, because the write
+    target was reduced to a name and the request argument was not reduced at
+    all. Both sides go through one reducer now, so the two meet.
+    """
+    hand_composed = _scan_synthetic(
+        "def f(self, raw, client, url):\n"
+        '    self.request_options["X-API-Key"] = raw\n'
+        "    client.get(url, headers=self.request_options)\n"
+    )
+    assert hand_composed.header_sites == 1
+    assert sum(hand_composed.unguarded_headers.values()) == 1
+
+    from_the_builder = _scan_synthetic(
+        "def f(self, auth, client, url):\n"
+        "    pair = build_credential_header(auth)\n"
+        "    self.request_options[pair[0]] = pair[1]\n"
+        "    client.get(url, headers=self.request_options)\n"
+    )
+    assert from_the_builder.header_sites == 1
+    assert not from_the_builder.unguarded_headers
+
+    # And a dict literal bound to the attribute is the same mapping.
+    literal = _scan_synthetic(
+        "def f(self, raw, client, url):\n"
+        '    self.request_options = {"X-API-Key": raw}\n'
+        "    client.get(url, headers=self.request_options)\n"
+    )
+    assert literal.header_sites == 1
+    assert sum(literal.unguarded_headers.values()) == 1
 
 
 def test_guard_a_mapping_with_no_request_binding_keeps_the_name_rule() -> None:
