@@ -3856,7 +3856,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # (test_ingest_progress.py's service-worker-progress test, seen in the
     # merge queue). Cancellation can now only land at the `asyncio.sleep`
     # between ticks. Cap 1161 -> 1209, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1209,
+    # fix(#1778 codex r2): +36 — the shield alone bounded WHERE a cancel could
+    # land, not HOW LONG draining one could take: a tick stuck on something
+    # with no timeout of its own (another transaction's row lock inside
+    # `session.commit()`) could hang the drain, and with it `ingest_service`'s
+    # own `finally`, forever. `_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS`
+    # bounds it; `asyncio.shield` still keeps the tick itself running in the
+    # background on a timeout rather than cancelling it, so its connection
+    # still gets to close cleanly. Cap 1209 -> 1245, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1245,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern
@@ -4420,8 +4428,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # every valid subset of a wide table produced one set of bytes under its own
     # key. The key comes from the effective projection now, and each call site
     # says which of its inputs decide that.
+    # fix(#1778 codex r2): +26 — pmin/pmax/sigma are now validated only when
+    # the ACTIVE stretch mode reads them (percentile for pmin/pmax, stddev for
+    # sigma), not whenever merely present. frontend/nginx.conf's raster
+    # proxy_cache_key blanks an inactive value out of the cache key so a
+    # random one cannot defeat the cache, and that is only safe if "inactive"
+    # means the SAME thing, ignored, on both sides — otherwise a value nginx
+    # blanks could still turn a cached 200 into what would have been a 422.
+    # Most of the growth is the docstring and Query() description updates
+    # recording that contract for both parameters and the endpoint.
     # Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2639,
+    "backend/app/processing/tiles/router.py": 2665,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),

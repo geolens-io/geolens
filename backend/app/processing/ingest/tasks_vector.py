@@ -50,6 +50,15 @@ _SERVICE_IMPORT_INITIAL_PROGRESS = 0.1
 _SERVICE_IMPORT_HEARTBEAT_INTERVAL_SECONDS = 5.0
 _SERVICE_IMPORT_HEARTBEAT_INCREMENT = 0.05
 _SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS = 0.65
+# fix(#1778 codex r2): the longest a cancelled heartbeat tick's drain (see
+# _heartbeat_service_import_progress) may hold up the caller. The ordinary
+# session it runs on carries no statement or lock timeout of its own, so a
+# tick blocked on something else entirely -- another transaction's row lock
+# inside session.commit() -- could otherwise hang the drain, and with it
+# ingest_service's finally, indefinitely. A few seconds, not a fraction of
+# one: this is a last-resort bound for an already-rare case (a cancel racing
+# a tick), not a budget anything is sized against.
+_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS = 5.0
 _ARCGIS_SERVICE_IMPORT_CHUNK_SIZE = 2000
 
 
@@ -158,6 +167,20 @@ async def _heartbeat_service_import_progress(
     worth of extra shutdown latency (a single SELECT + UPDATE + COMMIT), the
     same trade a clean subprocess kill/reap already makes elsewhere in this
     package.
+
+    fix(#1778 codex r2): the drain that lets a shielded tick finish is itself
+    bounded by ``_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS``. The shield
+    bounds WHERE a cancel can land, not HOW LONG draining one can take -- an
+    ordinary session carries no statement or lock timeout of its own, so a
+    tick blocked on something else entirely (another transaction's row lock
+    inside ``session.commit()``) could hang this drain, and with it
+    ``ingest_service``'s own ``finally``, indefinitely. On timeout this
+    function gives up WAITING and returns; ``asyncio.shield`` keeps the tick
+    itself running in the background rather than cancelling it, so its
+    connection still gets to close cleanly on its own schedule. The
+    heartbeat's write is best-effort progress UI sugar the import's own
+    result never reads back, so abandoning one late tick costs nothing the
+    caller depends on.
     """
     while True:
         await asyncio.sleep(_SERVICE_IMPORT_HEARTBEAT_INTERVAL_SECONDS)
@@ -170,10 +193,23 @@ async def _heartbeat_service_import_progress(
             except asyncio.CancelledError:
                 # The OUTER await was cancelled, not necessarily `tick` — let
                 # its already-open connection finish and close cleanly before
-                # this coroutine ends.
+                # this coroutine ends, but only for a bounded time (fix(#1778
+                # codex r2)): `asyncio.shield` here means a timeout below only
+                # stops WAITING for `tick`, it does not cancel it, so a tick
+                # stuck on something with no timeout of its own still gets to
+                # finish and close its own connection in the background.
                 if not tick.done():
                     try:
-                        await tick
+                        await asyncio.wait_for(
+                            asyncio.shield(tick),
+                            timeout=_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS,
+                        )
+                    except asyncio.TimeoutError:
+                        structlog.get_logger().warning(
+                            "service_import_heartbeat_drain_timed_out",
+                            job_id=str(job_uuid),
+                            timeout=_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS,
+                        )
                     except BaseException:  # broad: draining an already-shielded tick's own connection cleanup; whatever it raises must not replace the pending cancellation `raise` below
                         pass
                 raise
