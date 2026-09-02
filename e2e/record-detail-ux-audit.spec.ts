@@ -121,6 +121,7 @@ async function runAudit(
   recordType: RecordType,
   viewportName: ViewportName,
   target: AuditTarget,
+  colorScheme: 'light' | 'dark' = 'light',
 ) {
   const consoleLines: string[] = [];
   const networkLines: string[] = [];
@@ -129,13 +130,17 @@ async function runAudit(
   const failures: string[] = [];
   const start = Date.now();
 
-  const screenshotPath = path.join(outputDir, 'evidence', `${recordType}-${viewportName}.png`);
-  const consoleLogPath = path.join(outputDir, 'logs', `console-${recordType}-${viewportName}.log`);
+  // fix(#1778): colorScheme is folded into the per-run evidence paths so a
+  // dark-mode pass does not silently overwrite the light-mode screenshot/log
+  // for the same record type and viewport (see the colorScheme loop below).
+  const slug = `${recordType}-${viewportName}-${colorScheme}`;
+  const screenshotPath = path.join(outputDir, 'evidence', `${slug}.png`);
+  const consoleLogPath = path.join(outputDir, 'logs', `console-${slug}.log`);
   const sharedConsoleLogPath = path.join(outputDir, 'logs', `console-${recordType}.log`);
-  const networkLogPath = path.join(outputDir, 'logs', `network-${recordType}-${viewportName}.log`);
+  const networkLogPath = path.join(outputDir, 'logs', `network-${slug}.log`);
   const sharedNetworkLogPath = path.join(outputDir, 'logs', `network-${recordType}.log`);
-  const axeLogPath = path.join(outputDir, 'logs', `axe-${recordType}-${viewportName}.log`);
-  const notesLogPath = path.join(outputDir, 'logs', `notes-${recordType}-${viewportName}.log`);
+  const axeLogPath = path.join(outputDir, 'logs', `axe-${slug}.log`);
+  const notesLogPath = path.join(outputDir, 'logs', `notes-${slug}.log`);
 
   const recordFailure = (message: string) => failures.push(message);
   const recordNote = (message: string) => notes.push(message);
@@ -376,7 +381,7 @@ async function runAudit(
     writeLines(networkLogPath, networkLines);
     writeLines(notesLogPath, notes);
 
-    const sectionHeader = [`# ${recordType} ${viewportName}`];
+    const sectionHeader = [`# ${recordType} ${viewportName} (${colorScheme})`];
     appendLines(sharedConsoleLogPath, [...sectionHeader, ...consoleLines, '']);
     appendLines(sharedNetworkLogPath, [...sectionHeader, ...networkLines, '']);
   }
@@ -385,29 +390,41 @@ async function runAudit(
 }
 
 test.describe('Record Detail UX Audit', () => {
-  test.describe('desktop', () => {
-    test.use({ viewport: { width: 1280, height: 800 } });
+  // fix(#1778): every axe scan in runAudit() runs in both color schemes,
+  // mirroring #1782's fix for e2e/accessibility.spec.ts. playwright.config.ts
+  // sets no colorScheme, so Playwright defaults to light and the
+  // ThemeProvider's "system" default (main.tsx) resolves off that media
+  // query -- the dark palette was structurally unreachable to this suite's
+  // axe scans.
+  for (const colorScheme of ['light', 'dark'] as const) {
+    test.describe(`(${colorScheme} mode)`, () => {
+      test.use({ colorScheme });
 
-    (Object.entries(manifest.targets) as Array<[RecordType, AuditTarget | null]>).forEach(
-      ([recordType, target]) => {
-        test(`${recordType} desktop audit`, async ({ page }) => {
-          test.skip(!target, `Missing QA target for ${recordType}`);
-          await runAudit(page, recordType, 'desktop', target!);
-        });
-      },
-    );
-  });
+      test.describe('desktop', () => {
+        test.use({ viewport: { width: 1280, height: 800 } });
 
-  test.describe('mobile', () => {
-    test.use({ viewport: { width: 375, height: 812 } });
+        (Object.entries(manifest.targets) as Array<[RecordType, AuditTarget | null]>).forEach(
+          ([recordType, target]) => {
+            test(`${recordType} desktop audit`, async ({ page }) => {
+              test.skip(!target, `Missing QA target for ${recordType}`);
+              await runAudit(page, recordType, 'desktop', target!, colorScheme);
+            });
+          },
+        );
+      });
 
-    (Object.entries(manifest.targets) as Array<[RecordType, AuditTarget | null]>).forEach(
-      ([recordType, target]) => {
-        test(`${recordType} mobile audit`, async ({ page }) => {
-          test.skip(!target, `Missing QA target for ${recordType}`);
-          await runAudit(page, recordType, 'mobile', target!);
-        });
-      },
-    );
-  });
+      test.describe('mobile', () => {
+        test.use({ viewport: { width: 375, height: 812 } });
+
+        (Object.entries(manifest.targets) as Array<[RecordType, AuditTarget | null]>).forEach(
+          ([recordType, target]) => {
+            test(`${recordType} mobile audit`, async ({ page }) => {
+              test.skip(!target, `Missing QA target for ${recordType}`);
+              await runAudit(page, recordType, 'mobile', target!, colorScheme);
+            });
+          },
+        );
+      });
+    });
+  }
 });

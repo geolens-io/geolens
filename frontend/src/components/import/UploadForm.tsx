@@ -389,6 +389,12 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   ) => {
     const entry = entries.find((e) => e.id === entryId);
     if (!entry?.jobId) return;
+    // fix(#1778): same in-flight guard as handleSheetChange below. The
+    // commit button disables once this entry's status flips to
+    // 'committing', but that re-render is not guaranteed to land between
+    // two rapid clicks on the same button. Without this, a double click
+    // issued commitImport twice for one job.
+    if (entry.status === 'committing' || entry.status === 'tracking') return;
 
     updateEntry(entryId, { status: 'committing' });
     // fix(#1712): a commit is being issued for this entry — the batch

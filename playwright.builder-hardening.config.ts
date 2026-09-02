@@ -46,6 +46,28 @@ export default defineConfig({
       },
       dependencies: ['setup'],
     },
+    // fix(#1778): this config set no colorScheme, so the whole suite ran
+    // light-mode only (the same gap #1782 closed for playwright.config.ts).
+    // One dark chromium project closes it here too, without tripling
+    // wall-clock by adding a dark pass to firefox-hardening and
+    // webkit-hardening as well -- those exist for cross-browser rendering
+    // parity, not theme parity.
+    {
+      name: 'chromium-hardening-dark',
+      use: {
+        ...devices['Desktop Chrome'],
+        colorScheme: 'dark',
+        launchOptions: {
+          args: [
+            '--enable-unsafe-swiftshader',
+            '--use-gl=swiftshader',
+            '--enable-webgl',
+            '--ignore-gpu-blocklist',
+          ],
+        },
+      },
+      dependencies: ['setup'],
+    },
     {
       name: 'firefox-hardening',
       use: {
