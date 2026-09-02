@@ -1,6 +1,7 @@
 """Pydantic request/response models for service probing endpoints."""
 
 import uuid
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
@@ -437,4 +438,49 @@ class ServicePreviewResponse(BaseModel):
     )
     layer_name: str = Field(
         description="Layer name as it appears in the remote service."
+    )
+
+
+class ArcGISSignInRequest(BaseModel):
+    """Portal address plus the credentials one generateToken call needs.
+
+    No character policy on the two credential fields, deliberately. They are
+    form-encoded into the outbound body, which percent-escapes every value,
+    so neither a control character nor a separator can smuggle a second field
+    into the request the way one can into a header line. The length bounds
+    are here to keep an absurd body from reaching the portal at all.
+    """
+
+    portal_url: str = Field(
+        min_length=1,
+        max_length=2048,
+        description=(
+            "ArcGIS portal URL, for example https://your-org.maps.arcgis.com. "
+            "The /sharing/rest base is accepted too."
+        ),
+    )
+    _validate_portal_url = field_validator("portal_url")(_validate_service_url)
+    username: str = Field(
+        min_length=1,
+        max_length=256,
+        description="ArcGIS account name to sign in with.",
+    )
+    password: str = Field(
+        min_length=1,
+        max_length=1024,
+        description="Password for that ArcGIS account.",
+    )
+
+
+class ArcGISSignInResponse(BaseModel):
+    """The minted portal token and nothing else about the account."""
+
+    token: str = Field(
+        description=(
+            "Short-lived ArcGIS portal token. Use it as the `token` field on "
+            "probe, preview, commit and refresh."
+        )
+    )
+    expires_at: datetime = Field(
+        description="UTC instant at which the portal stops accepting the token."
     )

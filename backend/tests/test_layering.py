@@ -2318,6 +2318,35 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     generated). Leaving them was the worse option — a reader who trusts a
 #     stale precondition unwinds the wrong defence.
 _MODULE_LOC_CAPS: dict[str, int] = {
+    # fix(#1758): the ArcGIS sign-in protocol, which crossed 1000 lines over
+    # nine review rounds. What the growth bought, in order: the two-phase
+    # split that resolves WHERE a password would go before any lock or budget
+    # is taken (r7), host canonicalization so two spellings of one destination
+    # are one bucket rather than two (r5), the delegate bound that stops a
+    # discovery document redirecting the credential to an unrelated host (r9),
+    # and the no-redirect rules on both the discovery GET and the credential
+    # POST (r4, r9). Roughly a third of the file is the comments explaining
+    # those, which is deliberate: every one of them is a security property a
+    # future reader would otherwise "simplify" away.
+    #
+    # Kept as one module because it is one protocol and the phases share the
+    # error vocabulary. The clean split when it next grows is the host cluster
+    # (_numeric_ipv4, canonical_host, canonical_portal_host, portal_host,
+    # _is_trusted_delegate), which would need to raise ValueError and let this
+    # module map it, since ArcGISSignInError lives here.
+    # fix(#1758 codex r10/r11): +62 lines. The two-phase split gained a per-phase
+    # deadline so the caller's ledger insert and audit commit sit outside any
+    # cancellation scope, and the identity the limits key on became the
+    # token service's authority AND web-adaptor path, because two Enterprise
+    # portals can share a hostname and be separate account stores.
+    # fix(#1758 codex r12/r13/r14): +88 lines. One httpx.URL is now the single normalized
+    # form the scope, the delegate check and the POST destination all read,
+    # because urlsplit kept dot segments that httpx removes, and a URL that
+    # still argues with itself after normalization is refused rather than
+    # repaired, and every URL in the module now takes that one road. r14
+    # added the decompression-bomb refusal: identity encoding asked for, raw
+    # transport bytes capped, a compressed answer refused unread.
+    "backend/app/modules/catalog/sources/arcgis_signin.py": 1192,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against

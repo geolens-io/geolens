@@ -27,6 +27,7 @@ import app.modules.catalog.search.saved  # noqa: F401
 import app.core.db.models  # noqa: F401
 import app.processing.embeddings.models  # noqa: F401
 import app.processing.ai.token_usage  # noqa: F401
+import app.modules.catalog.sources.models  # noqa: F401
 import app.modules.tenancy.models  # noqa: F401 -- register tenancy models (Phase 1207)
 
 config = context.config

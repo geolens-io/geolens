@@ -155,6 +155,7 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const multiInitializedRef = useRef(false);
+  const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Pre-select source from query param
   const { data: initialSource, isError: initialSourceError } = useQuery({
@@ -216,6 +217,18 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
     }, 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  // fix(#1758): the search input's blur delay below used to outlive the
+  // component. Unmounting inside its 150 ms window left the timer queued, and
+  // firing it afterwards called setState on a torn-down tree. In vitest that
+  // surfaced as an unhandled `window is not defined` thrown out of react-dom's
+  // scheduler, which fails the whole run even when every test passes.
+  useEffect(
+    () => () => {
+      if (blurTimerRef.current !== null) clearTimeout(blurTimerRef.current);
+    },
+    []
+  );
 
   // COG search query
   const { data: searchResults, isFetching: isSearchFetching, error: searchError } = useQuery({
@@ -370,8 +383,14 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
                   if (debouncedQuery.length >= 2) setIsDropdownOpen(true);
                 }}
                 onBlur={() => {
-                  // Delay to allow click on dropdown items
-                  setTimeout(() => setIsDropdownOpen(false), 150);
+                  // Delay to allow click on dropdown items. Held in a ref and
+                  // cleared on unmount (and before rescheduling) so it can
+                  // never fire into a torn-down tree.
+                  if (blurTimerRef.current !== null) clearTimeout(blurTimerRef.current);
+                  blurTimerRef.current = setTimeout(() => {
+                    blurTimerRef.current = null;
+                    setIsDropdownOpen(false);
+                  }, 150);
                 }}
               />
               {isSearchFetching && (
