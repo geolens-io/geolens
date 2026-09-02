@@ -549,44 +549,38 @@ async def test_validation_failure_returns_the_declared_problem_body(
 
 
 # ---------------------------------------------------------------------------
-# compat(#1666 codex P2): the pre-fix contract published `filter-lang` under
-# the field's Python name, so every SDK generated before the fix sends
-# `cql2_filter_lang` — and under the old `Depends()` binding that was the only
-# spelling that actually bound. Both are accepted; only the correct one is
-# published.
+# filter-lang: only the published spelling, `filter-lang`, is read. #1671
+# removed the fallback that also read `cql2_filter_lang` -- the field's
+# Python name, which the pre-#1666 contract published and pre-1.16.0 SDKs
+# still send.
 # ---------------------------------------------------------------------------
 
 _JSON_FILTER = '{"op":"=","args":[{"property":"srid"},4326]}'
-_FILTER_LANG_SPELLINGS = ["filter-lang", "cql2_filter_lang"]
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("path", ["/search/datasets/", "/collections/datasets/items"])
-@pytest.mark.parametrize("name", _FILTER_LANG_SPELLINGS)
-async def test_cql2_json_parses_under_either_filter_lang_spelling(
-    client: AsyncClient, path: str, name: str
-):
-    """A CQL2-JSON filter parses under both spellings.
+async def test_cql2_json_parses_under_filter_lang(client: AsyncClient, path: str):
+    """A CQL2-JSON filter parses under filter-lang=cql2-json.
 
     This is the discriminating case: a JSON filter string is not valid
-    cql2-text, so if the spelling were ignored the request would fail rather
+    cql2-text, so if filter-lang were ignored the request would fail rather
     than quietly return the wrong rows.
     """
     resp = await client.get(
-        path, params={"filter": _JSON_FILTER, name: "cql2-json", "limit": 1}
+        path, params={"filter": _JSON_FILTER, "filter-lang": "cql2-json", "limit": 1}
     )
-    assert resp.status_code == 200, f"?{name}=cql2-json -> {resp.text[:200]}"
+    assert resp.status_code == 200, resp.text[:200]
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("path", ["/search/datasets/", "/collections/datasets/items"])
-@pytest.mark.parametrize("name", _FILTER_LANG_SPELLINGS)
-async def test_bogus_filter_lang_rejected_under_either_spelling(
-    client: AsyncClient, path: str, name: str
-):
-    """An unsupported value is a 400 whichever spelling carried it."""
-    resp = await client.get(path, params={"filter": "srid=4326", name: "bogus"})
-    assert resp.status_code == 400, f"?{name}=bogus -> {resp.status_code}"
+async def test_bogus_filter_lang_rejected(client: AsyncClient, path: str):
+    """An unsupported filter-lang value is a 400."""
+    resp = await client.get(
+        path, params={"filter": "srid=4326", "filter-lang": "bogus"}
+    )
+    assert resp.status_code == 400, resp.status_code
 
 
 @pytest.mark.anyio
@@ -611,16 +605,31 @@ async def test_published_filter_lang_wins_over_the_legacy_spelling(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("path", ["/search/datasets/", "/collections/datasets/items"])
-async def test_legacy_keywords_json_body_still_filters(
-    client: AsyncClient, test_db_session, path: str
-):
-    """compat(#1666 codex P2): an old SDK's GET-body keywords still filter.
+async def test_cql2_filter_lang_param_is_ignored(client: AsyncClient, path: str):
+    """#1671: the sunset `cql2_filter_lang` spelling now has no effect at all.
 
-    The pre-fix contract declared `keywords` as an `application/json` request
-    body on a GET — the generated Python client's parameter was named `body` —
-    and the old `Depends()` binding consumed it. The corrected query-parameter
-    binding reads the opposite one, so without this shim an unchanged client
-    would silently receive UNFILTERED results.
+    The pre-#1666 fallback that read this spelling has been removed. Sending
+    it alone, with no `filter-lang`, must behave exactly as if it were absent:
+    the request falls back to the cql2-text default, and the JSON filter does
+    not parse as cql2-text, so a 400 proves the value was never read.
+    """
+    resp = await client.get(
+        path, params={"filter": _JSON_FILTER, "cql2_filter_lang": "cql2-json"}
+    )
+    assert resp.status_code == 400, resp.text[:200]
+
+
+@pytest.mark.anyio
+async def test_json_keywords_body_does_not_filter_on_search(
+    client: AsyncClient, test_db_session
+):
+    """#1671: a JSON `keywords` body on GET /search/datasets/ has no effect.
+
+    The pre-#1666 contract declared `keywords` as a request body on this GET;
+    the shim that honoured it for pre-1.16.0 SDKs has been removed. A body
+    naming a keyword nothing else matches must not change the result set from
+    the unfiltered baseline -- the request behaves exactly as if no body were
+    sent.
     """
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
@@ -628,69 +637,23 @@ async def test_legacy_keywords_json_body_still_filters(
     await create_dataset(
         session,
         created_by=admin_id,
-        name=f"legacy-body-{unique}",
-        description="legacy GET-body keywords fixture",
+        name=f"sunset-body-{unique}",
+        description="sunset GET-body keywords fixture",
         visibility="public",
-        keywords=[f"legacy{unique}"],
+        keywords=[f"sunset{unique}"],
     )
     await session.commit()
 
-    hit = await client.request("GET", path, json=[f"legacy{unique}"])
-    assert hit.status_code == 200, hit.text[:200]
-    assert hit.json()["numberMatched"] >= 1
+    baseline = await client.get("/search/datasets/", params={"limit": 100})
+    assert baseline.status_code == 200, baseline.text[:200]
 
-    miss = await client.request("GET", path, json=[f"absent{unique}"])
-    assert miss.status_code == 200, miss.text[:200]
-    assert miss.json()["numberMatched"] == 0, (
-        "the legacy GET body was ignored — an unchanged old SDK client would "
-        "silently get unfiltered results."
+    with_body = await client.request(
+        "GET", "/search/datasets/", params={"limit": 100}, json=[f"sunset{unique}"]
     )
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize("path", ["/search/datasets/", "/collections/datasets/items"])
-async def test_query_keywords_win_over_the_legacy_body(
-    client: AsyncClient, test_db_session, path: str
-):
-    """The published form decides when a client somehow sends both."""
-    session = test_db_session
-    admin_id = await get_user_id(session, "admin")
-    unique = uuid.uuid4().hex[:8]
-    await create_dataset(
-        session,
-        created_by=admin_id,
-        name=f"both-forms-{unique}",
-        description="query-wins fixture",
-        visibility="public",
-        keywords=[f"query{unique}"],
+    assert with_body.status_code == 200, with_body.text[:200]
+    assert with_body.json()["numberMatched"] == baseline.json()["numberMatched"], (
+        "a JSON keywords body changed the result set -- it should be ignored."
     )
-    await session.commit()
-
-    resp = await client.request(
-        "GET",
-        path,
-        params={"keywords": f"query{unique}", "limit": 100},
-        json=[f"absent{unique}"],
-    )
-    assert resp.status_code == 200, resp.text[:200]
-    assert resp.json()["numberMatched"] >= 1, (
-        "the legacy body overrode the query parameter."
-    )
-
-
-@pytest.mark.anyio
-async def test_non_keyword_json_body_is_ignored_on_search(client: AsyncClient):
-    """The shim recognises one shape and ignores anything else, without failing.
-
-    Scoped to `/search/datasets/` on purpose. `/collections/datasets/items`
-    keeps `Depends()`, so FastAPI still BINDS and VALIDATES the legacy body
-    there and answers 400 for a malformed one — pre-existing behaviour that
-    this PR removes from the published contract but cannot remove from the
-    runtime without the query-model form that route cannot use.
-    """
-    for payload in ({"not": "a list"}, [1, 2, 3], []):
-        resp = await client.request("GET", "/search/datasets/", json=payload)
-        assert resp.status_code == 200, f"{payload!r} -> {resp.status_code}"
 
 
 @pytest.mark.anyio
