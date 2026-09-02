@@ -3,6 +3,7 @@
 import asyncio
 import math
 import os
+import time
 
 import structlog
 
@@ -32,103 +33,115 @@ class ExportError(Exception):
 # ---------------------------------------------------------------------------
 # fix(#1778): a synchronous export ran on a 3600s subprocess deadline behind a
 # 600s edge read timeout. This conversion runs inside the request, so the
-# deadline that governs it is the edge proxy's, not the worker's. The
-# module used to import the offline-ingest constant
-# ``OGR2OGR_FILE_TIMEOUT_SECONDS`` (3600s) and use it for both the subprocess
-# wall clock and the libpq ``statement_timeout``, six times the edge's own
-# read timeout: past 600s nginx severed the upstream read and answered 504
-# while this handler kept converting for up to another 50 minutes, holding a
-# pooled connection, an ogr2ogr child, a PostgreSQL backend and a multi-
-# gigabyte staging directory with nobody left to read the output.
+# deadline that governs it is the edge proxy's, not the worker's. The module
+# used to import the offline-ingest constant ``OGR2OGR_FILE_TIMEOUT_SECONDS``
+# (3600s) and use it for both the subprocess wall clock and the libpq
+# ``statement_timeout``, six times the edge's own read timeout: past 600s
+# nginx severed the upstream read and answered 504 while this handler kept
+# converting for up to another 50 minutes, holding a pooled connection, an
+# ogr2ogr child, a PostgreSQL backend and a multi-gigabyte staging directory
+# with nobody left to read the output.
 #
 # ``EDGE_PROXY_READ_TIMEOUT_SECONDS`` is imported rather than restated: the
 # URL importer derives its own synchronous budget from that constant, and
 # there is one edge read timeout (``proxy_read_timeout`` in frontend/
 # nginx.conf's ``location /api/``).
+#
+# fix(#1778 codex r1): measured against the request's own clock rather than
+# against an allowance for work that may or may not have happened. The route
+# stamps a monotonic deadline on entry and this module subtracts the time
+# actually consumed, so a fast pre-conversion phase hands its unused time to
+# the conversion and a slow one (an unindexed feature count, a parquet plan
+# over a wide table) takes it away. An allowance-based figure was wrong in
+# both directions: it killed a 430s conversion that would have fitted, and it
+# let a request whose pre-work overran run past the edge.
 
-# Every point where an export request checks a pooled connection out, each
-# able to wait up to ``settings.db_pool_timeout`` when the pool is exhausted:
+# Reserved out of the remaining time for what is still outstanding when the
+# subprocess starts, and only that:
 #
-#   1. The dependency and pre-conversion phase (get_optional_user, the
-#      access checks, the feature-count guard, the parquet plan) shares one
-#      checkout, which the route hands back immediately before this
-#      subprocess starts (see the rollback in export/router.py).
-#   2. The post-conversion audit row and its commit.
+#   - the format-specific finish inside ``export_dataset`` (the shapefile ZIP,
+#     the GeoPackage timestamp normalization),
+#   - hashing the built file and publishing it to object storage,
+#   - the audit row's commit.
 #
-# The GeoParquet branch takes a third for its own row stream, but it runs no
-# subprocess and is not bounded by this deadline.
-EXPORT_POOL_CHECKOUTS_PER_REQUEST = 2
-
-# Reserved, beyond the pool waits, for what the response still owes after
-# ogr2ogr exits and before the first byte reaches the client: the
-# format-specific finish inside export_dataset (the shapefile ZIP, the
-# GeoPackage timestamp normalization), hashing the built file, publishing it
-# to object storage, and the audit commit. Sized for a multi-gigabyte
-# artifact against same-network object storage (reading 5 GB to hash it plus
-# a ~1 Gbps push is well under two minutes).
-#
-# A reservation, not a measurement: those steps have no deadline of their
-# own, so a slow one can still overrun. The cost of overrunning is the
-# severed response this budget exists to make rare, not a corrupted export,
-# and the bound that matters is the one on the step that dominates.
+# Sized for a multi-gigabyte artifact against same-network object storage
+# (reading 5 GB to hash it plus a ~1 Gbps push is well under two minutes). A
+# reservation, not a measurement: those steps have no deadline of their own,
+# so a slow one can still overrun, and the cost of overrunning is the severed
+# response this budget exists to make rare rather than a corrupted export.
 EXPORT_POST_WORK_MARGIN_SECONDS = 120
 
-# A pathological pool timeout (DB_POOL_TIMEOUT=300 leaves 600 - 600 - 120 =
-# -120) must not yield a zero or negative deadline, and must not crash the
-# app at import over an operator setting. Clamp here instead and warn once,
-# so the operator sees a cause: at the floor every export times out promptly
-# instead of running past the proxy that is no longer listening.
-EXPORT_BUDGET_FLOOR_SECONDS = 1
 
-_export_budget_floor_warned = False
+def export_post_work_reserve_seconds() -> int:
+    """Everything the request still owes after the subprocess exits.
 
+    The margin above plus one ``db_pool_timeout``. That pool wait is the one
+    the elapsed clock cannot already contain: the audit row's checkout has not
+    happened yet when the conversion starts, and under an exhausted pool it
+    can block for the full timeout before the commit runs. Every earlier
+    checkout is behind us and is already priced into the elapsed time.
 
-def export_subprocess_timeout_seconds() -> int:
-    """Wall-clock ceiling for one in-request ogr2ogr export.
-
-        EDGE_PROXY
-          - EXPORT_POOL_CHECKOUTS_PER_REQUEST * db_pool_timeout
-          - EXPORT_POST_WORK_MARGIN,
-
-    clamped up to EXPORT_BUDGET_FLOOR_SECONDS.
-
-    Derived per call rather than fixed, for the reason
+    Derived from the live setting rather than fixed, for the reason
     ``url_fetch.stage_total_budget_seconds`` gives: ``db_pool_timeout`` is
     operator-settable, so a hardcoded figure silently breaks the arithmetic
     the moment it is raised, and a test that reads the live setting cannot
     catch that because CI only ever runs the default.
-
-    There is no separate upper ceiling. The URL importer needs one because
-    its preflight and fetch bounds assume a smaller number; nothing here
-    assumes one, and the post-work margin is what keeps a very small pool
-    timeout from pushing the response past the proxy.
     """
-    global _export_budget_floor_warned
+    return EXPORT_POST_WORK_MARGIN_SECONDS + settings.db_pool_timeout
 
-    pool_timeout = settings.db_pool_timeout
-    derived = (
-        EDGE_PROXY_READ_TIMEOUT_SECONDS
-        - (EXPORT_POOL_CHECKOUTS_PER_REQUEST * pool_timeout)
-        - EXPORT_POST_WORK_MARGIN_SECONDS
-    )
-    if derived < EXPORT_BUDGET_FLOOR_SECONDS:
-        if not _export_budget_floor_warned:
-            _export_budget_floor_warned = True
-            logger.warning(
-                "export_subprocess_budget_floored",
-                db_pool_timeout=pool_timeout,
-                edge_proxy_read_timeout=EDGE_PROXY_READ_TIMEOUT_SECONDS,
-                derived_budget=derived,
-                floor=EXPORT_BUDGET_FLOOR_SECONDS,
-                detail=(
-                    "DB_POOL_TIMEOUT leaves no room for a synchronous export "
-                    "inside the edge proxy's read timeout; exports will time "
-                    "out. Lower DB_POOL_TIMEOUT or raise the proxy's "
-                    "proxy_read_timeout."
-                ),
-            )
-        return EXPORT_BUDGET_FLOOR_SECONDS
-    return derived
+
+# A conversion cannot be given zero or negative time: that is not a deadline,
+# it is a crash or a child killed before it starts. When the pre-conversion
+# work has already eaten the whole window the request is going to fail either
+# way, and it fails through the ordinary timeout path with the ordinary error
+# rather than through an arithmetic edge case.
+EXPORT_BUDGET_FLOOR_SECONDS = 1
+
+_export_reserve_warned = False
+
+
+def export_subprocess_timeout_seconds(deadline: float | None) -> float:
+    """Seconds this conversion may run, measured from the request's clock.
+
+        deadline - time.monotonic() - export_post_work_reserve_seconds()
+
+    floored at ``EXPORT_BUDGET_FLOOR_SECONDS``.
+
+    ``deadline`` is a ``time.monotonic()`` stamp taken when the route was
+    entered, offset by ``EDGE_PROXY_READ_TIMEOUT_SECONDS``. ``None`` means the
+    caller is not serving a request (the direct-call tests, and any future
+    offline caller): the full edge window is assumed to start now, which is
+    the same arithmetic with an elapsed time of zero.
+
+    The interval before the route body runs (dependency resolution: auth, the
+    permission lookup, and any pool wait either incurs) sits outside this
+    clock and is the one residual it cannot see. Nothing inside the handler
+    can observe it, and the reserve above is what absorbs it.
+    """
+    global _export_reserve_warned
+
+    reserve = export_post_work_reserve_seconds()
+    if reserve >= EDGE_PROXY_READ_TIMEOUT_SECONDS and not _export_reserve_warned:
+        # A configuration problem rather than a slow request: no export can
+        # ever get time on this deployment. Said once, with the cause.
+        _export_reserve_warned = True
+        logger.warning(
+            "export_post_work_reserve_exceeds_edge_timeout",
+            db_pool_timeout=settings.db_pool_timeout,
+            edge_proxy_read_timeout=EDGE_PROXY_READ_TIMEOUT_SECONDS,
+            reserve=reserve,
+            detail=(
+                "DB_POOL_TIMEOUT leaves no room for a synchronous export "
+                "inside the edge proxy's read timeout; exports will time "
+                "out. Lower DB_POOL_TIMEOUT or raise the proxy's "
+                "proxy_read_timeout."
+            ),
+        )
+
+    if deadline is None:
+        deadline = time.monotonic() + EDGE_PROXY_READ_TIMEOUT_SECONDS
+    remaining = deadline - time.monotonic() - reserve
+    return max(remaining, float(EXPORT_BUDGET_FLOOR_SECONDS))
 
 
 # fix(#1532 review r9): the parquet media type lives HERE rather than in
@@ -279,6 +292,7 @@ async def run_ogr2ogr_export(
     where: str | None = None,
     format_key: str = "",
     pmtiles_maxzoom: int | None = None,
+    deadline: float | None = None,
 ) -> None:
     """Run ogr2ogr to export a PostGIS table to a file.
 
@@ -295,6 +309,10 @@ async def run_ogr2ogr_export(
             without geometry (the router drops it for non-spatial datasets).
         where: Optional SQL WHERE clause for attribute filtering.
         format_key: Format key from FORMAT_MAP for format-specific options.
+        deadline: ``time.monotonic()`` stamp by which the whole request must
+            be answered, from the route's entry. Bounds both this subprocess
+            and its server-side query. ``None`` for a caller outside a
+            request; see ``export_subprocess_timeout_seconds``.
 
     Raises:
         ExportError: If ogr2ogr exits with non-zero code.
@@ -373,9 +391,10 @@ async def run_ogr2ogr_export(
     # also cap the server-side query via libpq statement_timeout so the DB query
     # stops when the child is killed.
     #
-    # fix(#1778): the bound is the request's, derived from the edge proxy.
-    # See export_subprocess_timeout_seconds. Read once so the wall clock and
-    # the statement_timeout cannot disagree.
+    # fix(#1778): the bound is the request's, taken from what is left of the
+    # edge proxy's window at this moment. See export_subprocess_timeout_seconds.
+    # Read once, as late as possible (every earlier step has already spent its
+    # share), so the wall clock and the statement_timeout cannot disagree.
     #
     # The note that used to sit here also said `_communicate_with_timeout`
     # kills the child on a client disconnect. It does kill on cancellation,
@@ -384,12 +403,13 @@ async def run_ogr2ogr_export(
     # cycle disconnected and wakes `receive()`, and a GET handler never awaits
     # `receive()`. A departed client is therefore invisible here, and the
     # deadline below is what bounds the orphan.
-    export_timeout = export_subprocess_timeout_seconds()
+    export_timeout = export_subprocess_timeout_seconds(deadline)
     env = _tenant_reader_subprocess_env(
         schema,
         base_env={
             **os.environ,
-            "PGOPTIONS": f"-c statement_timeout={export_timeout * 1000}",
+            # Milliseconds, and libpq wants an integer.
+            "PGOPTIONS": f"-c statement_timeout={int(export_timeout * 1000)}",
         },
     )
     assert env is not None  # base_env is always returned in single-tenant mode

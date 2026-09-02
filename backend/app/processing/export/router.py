@@ -43,6 +43,7 @@ from app.processing.export.service import (
 )
 from app.processing.export.where_validator import canonical_where
 from app.processing.ingest.metadata import _qtable
+from app.processing.ingest.url_fetch import EDGE_PROXY_READ_TIMEOUT_SECONDS
 from app.standards.ogc.errors import (
     BAD_REQUEST_RESPONSE,
     FORBIDDEN_RESPONSE,
@@ -343,6 +344,18 @@ async def export_dataset_endpoint(
     filtering, and attribute filtering. GeoParquet is always emitted in
     EPSG:4326 (OGC:CRS84). PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).
     """
+    # fix(#1778 codex r1): the request's own clock, stamped before anything
+    # else runs. Everything this handler does between here and the conversion
+    # spends part of the edge proxy's window, so the conversion's bound has to
+    # be what is LEFT of it rather than an allowance computed from scratch.
+    # An unindexed `_count_selected_features` scan, or a parquet plan over a
+    # wide table, can eat a minute here; a warm cold path costs milliseconds,
+    # and the conversion should get that time back.
+    #
+    # Monotonic, not wall clock: a clock step (NTP, a suspend) must not shorten
+    # or extend a running export.
+    request_deadline = time.monotonic() + EDGE_PROXY_READ_TIMEOUT_SECONDS
+
     port = get_processing_port()
     data_schema = tenant_data_schema(current_tenant_var.get())
     # 1. Fetch dataset
@@ -836,6 +849,7 @@ async def export_dataset_endpoint(
                 where=where,
                 column_info=dataset_columns,
                 pmtiles_maxzoom=pmtiles_maxzoom,
+                deadline=request_deadline,
             )
     except ValueError as e:
         raise HTTPException(

@@ -90,6 +90,7 @@ def mock_export_service(monkeypatch):
         where=None,
         pmtiles_maxzoom=None,
         column_info=None,
+        deadline=None,
     ):
         # Replicate the real format validation
         if format_key not in FORMAT_MAP:
