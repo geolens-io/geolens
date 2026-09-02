@@ -67,7 +67,14 @@ test.describe('Upload Flow', () => {
     // The upload and preview kept running server-side while the tab was
     // hidden; the Upload tab shows the resumed batch's progress rather than
     // an empty dropzone with no memory of the drop.
-    await expect(page.getByText('sample')).toBeVisible({ timeout: 30_000 });
+    //
+    // Scoped to the file row's accessible name rather than a bare
+    // getByText('sample') — by this point the preview panel's derived
+    // layer name (e.g. "<uuid>_sample") also contains "sample" as a
+    // substring, and a bare text match against both is ambiguous.
+    await expect(
+      page.getByRole('button', { name: /sample\.geojson/i }),
+    ).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText('Using embedded geometry')).toBeVisible({ timeout: 30_000 });
   });
 });
