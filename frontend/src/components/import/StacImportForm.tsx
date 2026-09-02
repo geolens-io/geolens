@@ -213,6 +213,7 @@ export function StacImportForm() {
     // state to fall back on.
     const context: StacImportContext = {
       catalogInfo: catalogInfo!,
+      collections,
       selectedCollection: selectedCollection!,
       searchResult,
       selectedItemIds: Array.from(selectedItems),
@@ -260,18 +261,35 @@ export function StacImportForm() {
     const session = peekStacImport();
     if (!session) return;
     // fix(codex #1763 r3): restore the search context the session captured
-    // when the import started, so 'items' can render again if the user
-    // reaches it — most directly via "Back to Results" from the done
-    // screen below, which sets `step` back to 'items' and needs
-    // `selectedCollection`/`catalogInfo` to pass that branch's guard.
+    // when the import started, so 'items' (and, from there, 'collections')
+    // can render again if the user reaches them — most directly via
+    // "Back to Results" from the done screen below, which sets `step` back
+    // to 'items' and needs `selectedCollection`/`catalogInfo` to pass that
+    // branch's guard, and from there the collections breadcrumb, which
+    // needs `collections` itself rather than an empty list.
     setCatalogInfo(session.context.catalogInfo);
+    setCollections(session.context.collections);
     setSelectedCollection(session.context.selectedCollection);
     setSearchResult(session.context.searchResult);
     setSelectedItems(new Set(session.context.selectedItemIds));
     setStep('importing');
+
+    // fix(codex #1763 r3): the app renders under React.StrictMode
+    // (main.tsx), which in development sets an effect up, tears it down,
+    // and sets it up again — but only the CLEANUP function undoes that,
+    // and this effect had none. Each setup re-read the (unchanged) session
+    // and registered another `session.promise.then(...)`, so when the
+    // import settled, every registered handler ran: duplicate
+    // setImportResult/setStep/clearStacImport calls and a duplicate toast.
+    // `mountedRef` alone doesn't catch this — both handlers belong to the
+    // same still-mounted component, so both read `mountedRef.current` as
+    // true. A cancellation flag scoped to THIS effect instance and flipped
+    // in ITS OWN cleanup is what StrictMode's replay is checking: the
+    // first instance's handler must lose the race to its own teardown.
+    let cancelled = false;
     session.promise.then(
       (result) => {
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || cancelled) return;
         setImportResult({
           created: result.created,
           skipped: result.skipped,
@@ -285,7 +303,7 @@ export function StacImportForm() {
         }
       },
       (err) => {
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || cancelled) return;
         // The context restored above WOULD let this return to 'items' like
         // the still-mounted path below does — deliberately left at 'idle'
         // for now, matching the smaller scope of the original fix; revisit
@@ -297,6 +315,9 @@ export function StacImportForm() {
         clearStacImport();
       },
     );
+    return () => {
+      cancelled = true;
+    };
     // Deliberately mount-only, matching url-import-session.ts's re-attach
     // effect: re-running on every render would re-enter a session already
     // being displayed.

@@ -175,6 +175,15 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   // be unreachable, plus their staged bytes, until the stale-pending sweep
   // collected them. Mount-only: a later session start is driven by drops,
   // not by this effect re-running.
+  //
+  // fix(codex #1763 r3 review note): checked for the StacImportForm
+  // StrictMode double-registration bug (an effect that registers an async
+  // `.then()` handler with no cleanup fires twice under StrictMode's
+  // dev-mode setup/cleanup/setup replay). This effect does not have that
+  // shape — it only READS the current session snapshot synchronously and
+  // calls setState with it, no promise/callback is registered here, so a
+  // second synchronous invocation just calls setState again with the same
+  // values. Idempotent, not cumulative.
   useEffect(() => {
     const adopted = peekUploadBatch();
     if (!adopted || adopted.length === 0) return;
@@ -205,6 +214,13 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   // mounted form subscribes and mirrors instead of holding either in its
   // own closures. Runs for the component's whole lifetime, not just while a
   // batch is active, so it also picks up a batch this mount ITSELF started.
+  //
+  // fix(codex #1763 r3 review note): also checked against the StrictMode
+  // double-registration bug. Unlike StacImportForm's mount-only effect,
+  // this one DOES return a real cleanup — `subscribeUploadBatch` hands back
+  // an unsubscribe function, so StrictMode's setup/cleanup/setup replay
+  // nets out to exactly one live subscription (the second setup's), the
+  // same as it would for any subscribe/unsubscribe effect.
   useEffect(() => {
     return subscribeUploadBatch(() => {
       setEntries((prev) =>

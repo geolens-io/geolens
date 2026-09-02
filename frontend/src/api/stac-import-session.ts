@@ -32,20 +32,24 @@ import type {
  * import request covers the whole selected batch of items, not one entry
  * per item.
  *
- * fix(codex #1763 r3): also carries the search CONTEXT (catalog, selected
- * collection, search results, selected item ids) the way the Upload
- * session already carries the selected layer in `previewData` — an
- * adopted result used to restore only `importResult`, so the "Back to
- * Results" button on the done screen (which sets `step` back to `items`)
- * rendered nothing: the `items` branch guards on `selectedCollection` and
- * `catalogInfo`, both null on a fresh mount, so it fell through to the
- * empty URL form. Captured at the moment the import starts, since that is
- * the last point every one of those values is still known.
+ * fix(codex #1763 r3): also carries the search CONTEXT (catalog,
+ * collections list, selected collection, search results, selected item
+ * ids) the way the Upload session already carries the selected layer in
+ * `previewData` — an adopted result used to restore only `importResult`,
+ * so the "Back to Results" button on the done screen (which sets `step`
+ * back to `items`) rendered nothing: the `items` branch guards on
+ * `selectedCollection` and `catalogInfo`, both null on a fresh mount, so it
+ * fell through to the empty URL form. A second round found the same gap
+ * one level up: `collections` was missing too, so the `collections`
+ * breadcrumb from an adopted `items` view rendered an empty list instead
+ * of the catalog's real one. Captured at the moment the import starts,
+ * since that is the last point every one of these values is still known.
  *
  * Deliberately not persisted — same reasoning as #1708/#1712 generally.
  */
 export interface StacImportContext {
   catalogInfo: StacConnectResponse;
+  collections: StacCollectionSummary[];
   selectedCollection: StacCollectionSummary;
   searchResult: { items: StacItemSummary[]; matched: number | null };
   selectedItemIds: string[];

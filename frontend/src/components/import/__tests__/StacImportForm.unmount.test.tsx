@@ -10,9 +10,16 @@
  * the datasets it created are real; this session protects that response.
  * Mirrors UrlImportForm.unmount.test.tsx (#1708) for this tab's shape.
  */
+import { StrictMode, act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
+import { toast } from 'sonner';
 import { StacImportForm } from '../StacImportForm';
+import * as stacImportSession from '@/api/stac-import-session';
 import { clearStacImport, peekStacImport } from '@/api/stac-import-session';
 import { useAuthStore } from '@/stores/auth-store';
 import type { StacItemSummary, UserResponse } from '@/types/api';
@@ -257,6 +264,90 @@ describe('StacImportForm unmount survival', () => {
     // context used to fall through to.
     await waitFor(() => expect(screen.getByText(ITEM.title)).toBeInTheDocument());
     expect(screen.getByText('Test Collection')).toBeInTheDocument();
+
+    // fix(codex #1763 r3): one level further back — the collections
+    // breadcrumb — used to render an empty list, because `collections`
+    // was not part of the restored context (only `selectedCollection`
+    // was). Clicking through has to show the catalog's real collection,
+    // not the "no collections" empty state.
+    await user.click(screen.getByText('stac.collections'));
+    await waitFor(() => expect(screen.getByText('Test Collection')).toBeInTheDocument());
+    expect(screen.queryByText('stac.noCollections')).not.toBeInTheDocument();
+  });
+
+  // fix(codex #1763 r3): the app renders under React.StrictMode (main.tsx),
+  // whose dev-mode effect replay (setup, cleanup, setup) used to register
+  // TWO settlement handlers on the same session promise, because the
+  // adoption effect had no cleanup of its own — only mountedRef did, and
+  // both handler closures read the same (still-true) mountedRef. Fixed
+  // with a per-effect-instance `cancelled` flag set in the effect's own
+  // cleanup.
+  //
+  // Rendered via a raw `createRoot` + `act()` here rather than
+  // `@/test/test-utils`'s `render` — verified directly (a throwaway probe
+  // component logging from its effect) that RTL's `render()` does not
+  // reproduce StrictMode's setup/cleanup/setup replay in this test
+  // environment (only one setup fires), while a bare `createRoot` root
+  // does (setup, cleanup, setup, in that order). The raw path is what
+  // actually exercises the bug this test is for.
+  test('StrictMode does not duplicate the settlement handler on an adopted import', async () => {
+    let resolveImport!: (v: unknown) => void;
+    mockImportStacItems.mockReturnValue(
+      new Promise((resolve) => {
+        resolveImport = resolve;
+      }),
+    );
+
+    const { user, view } = await driveToConfirmStep();
+    await user.click(screen.getByRole('button', { name: /stac\.confirm\.confirmImport/i }));
+    await waitFor(() => expect(mockImportStacItems).toHaveBeenCalledTimes(1));
+
+    view.unmount();
+
+    // clearStacImport is the session-side state write the settlement
+    // handler makes — a second, undead handler instance would call it a
+    // second time, the same duplication that produces the second toast.
+    const clearSpy = vi.spyOn(stacImportSession, 'clearStacImport');
+
+    // The ADOPTING mount is the one under StrictMode — its dev-mode replay
+    // is what doubles the handler if the cancellation guard is missing.
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const container = document.body.appendChild(document.createElement('div'));
+    const root = createRoot(container);
+    try {
+      act(() => {
+        root.render(
+          <StrictMode>
+            <QueryClientProvider client={queryClient}>
+              <TooltipProvider>
+                <MemoryRouter>
+                  <StacImportForm />
+                </MemoryRouter>
+              </TooltipProvider>
+            </QueryClientProvider>
+          </StrictMode>,
+        );
+      });
+
+      resolveImport({
+        created: 1,
+        skipped: 0,
+        errors: 0,
+        results: [{ item_id: 'flow-item-1', dataset_id: 'ds-1', status: 'created', error: null }],
+      });
+
+      await waitFor(() => expect(screen.getByText('stac.importComplete')).toBeInTheDocument());
+
+      // One toast (not two) and one session-clearing state write (not two).
+      expect(vi.mocked(toast.success)).toHaveBeenCalledTimes(1);
+      expect(clearSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+      clearSpy.mockRestore();
+    }
   });
 
   test('a different identity does not adopt the import', async () => {
