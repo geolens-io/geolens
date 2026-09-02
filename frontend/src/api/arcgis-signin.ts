@@ -1,4 +1,5 @@
 import { apiFetch } from './client';
+import { ARCGIS_SIGNIN_TIMEOUT_MS } from './ingest';
 
 /**
  * Lane A1's endpoint (PR #1758, merged): `POST /api/services/arcgis/signin/`
@@ -11,12 +12,13 @@ import { apiFetch } from './client';
  * in, `{token, expires_at}` out, unchanged from the pre-merge contract this
  * client was built against.
  *
- * Lane A2 (PR #1757, not yet merged) adds an equivalent `arcgisSignin` to
+ * Lane A2 (PR #1757, merged) added an equivalent `arcgisSignin` to
  * `frontend/src/api/ingest.ts` with hand-typed request/response types in
- * `frontend/src/types/api.ts`. This file is a separate, local copy built
- * against the same contract rather than a pull of A2's branch -- collapse
- * onto A2's version in a follow-up once both lanes are on main (see the PR
- * body).
+ * `frontend/src/types/api.ts`. This file is still a separate, local copy of
+ * the request function itself -- collapsing the two into one shared client
+ * remains a follow-up -- but `ARCGIS_SIGNIN_TIMEOUT_MS` (below) is imported
+ * from there rather than redeclared, so the two calls can't drift onto two
+ * different numbers for the same backend bound.
  *
  * The password is sent once, in this request body, and nowhere else. This
  * function does not retry on failure; the caller must not add a retry loop
@@ -33,15 +35,6 @@ export interface ArcgisSignInResponse {
   token: string;
   expires_at: string;
 }
-
-// codex #1759 P2: apiFetch's default (REQUEST_TIMEOUT_MS, 30s in client.ts)
-// is shorter than this endpoint's own advertised worst case. arcgis_signin.py
-// bounds discovery at 20s and the mint POST at 25s
-// (_DISCOVERY_DEADLINE_SECONDS, _MINT_DEADLINE_SECONDS) and sums them to "the
-// 45 seconds the endpoint has always advertised" in its own comment -- a
-// slow but legitimate sign-in past 30s would otherwise abort client-side
-// with a spurious network error while the backend was still working.
-const ARCGIS_SIGNIN_TIMEOUT_MS = 45_000;
 
 export async function arcgisSignIn(
   request: ArcgisSignInRequest,

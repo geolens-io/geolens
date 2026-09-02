@@ -284,7 +284,12 @@ export async function previewServiceLayer(
 // abort a valid slow sign-in in the browser while the backend keeps
 // processing, and counting, the attempt. 60s covers the 45s backend
 // bound with margin.
-const ARCGIS_SIGNIN_TIMEOUT_MS = 60_000;
+// codex #1759 post-#1757-merge dedupe: exported so lane A3's
+// independent arcgis-signin.ts client (frontend/src/components/dataset/
+// ArcgisCredentialBlock.tsx's refresh-door credential prompt) can share
+// this exact number rather than declare its own -- the backend bound
+// below is one fact and both callers need the same margin over it.
+export const ARCGIS_SIGNIN_TIMEOUT_MS = 60_000;
 
 // fix(service-auth wave, lane A2): mints a short-lived (60 min) ArcGIS token
 // from a username and password so the import wizard never has to hold that

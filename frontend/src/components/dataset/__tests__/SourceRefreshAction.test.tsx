@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { render } from '@/test/test-utils';
 import { useRefreshDataset } from '@/components/dataset/hooks/use-dataset';
 import { ApiError } from '@/api/client';
+import { translateApiErrorDetail } from '@/lib/error-map';
 import { arcgisSignIn } from '@/api/arcgis-signin';
 import { REFRESHABLE_ORIGINS, SourceRefreshAction } from '../SourceRefreshAction';
 import type { DatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
@@ -449,6 +450,18 @@ describe('SourceRefreshAction', () => {
     });
   }
 
+  // codex #1759, post-#1757-merge dedupe: ArcgisCredentialBlock now renders
+  // `ApiError.message` directly rather than mapping `code` to its own copy
+  // (see the component's module comment). This mock has to match what the
+  // REAL apiFetch would have produced, so it runs the same detail through
+  // the same shared `translateApiErrorDetail` (error-map.ts) that A2's
+  // codes are mapped in -- not a hand-copied string that could silently
+  // drift from A2's actual wording the next time it changes.
+  function arcgisSigninError(code: string, status: number, rawMessage = 'raw diagnostic text, never rendered') {
+    const body = { code, message: rawMessage };
+    return new ApiError(translateApiErrorDetail(body, status), status, body);
+  }
+
   // codex #1759 round 2: the ArcGIS credential block now schedules a clear
   // for `expires_at` minus a safety margin, so any test that mints a token
   // without exercising expiry itself needs an `expires_at` safely in the
@@ -652,9 +665,7 @@ describe('SourceRefreshAction', () => {
 
     it('maps a rejected ArcGIS sign-in to this component\'s own copy, never the raw response, and never auto-retries', async () => {
       mutateAsync.mockRejectedValue(serviceTokenRequiredError());
-      mockArcgisSignIn.mockRejectedValue(
-        new ApiError('arcgis_signin_rejected', 400, { code: 'arcgis_signin_rejected', message: 'raw' }),
-      );
+      mockArcgisSignIn.mockRejectedValue(arcgisSigninError('arcgis_signin_rejected', 400, 'raw'));
       const user = userEvent.setup();
       render(
         <SourceRefreshAction
@@ -673,10 +684,9 @@ describe('SourceRefreshAction', () => {
       await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
       expect(
-        await screen.findByText(
-          'ArcGIS did not accept that sign-in. Check the username and password, including capitalization. Too many failed attempts also lock an ArcGIS account temporarily.',
-        ),
+        await screen.findByText(translateApiErrorDetail({ code: 'arcgis_signin_rejected' }, 400)),
       ).toBeInTheDocument();
+      expect(screen.queryByText('raw')).not.toBeInTheDocument();
       // Exactly one attempt: nothing in this component retries a rejected
       // sign-in automatically (plan 3.2 -- a retry loop can lock the
       // customer's real ArcGIS account).
@@ -687,26 +697,12 @@ describe('SourceRefreshAction', () => {
     // signin_guard.py) ships three caller-facing codes beyond the four this
     // map originally covered. Confirmed against the merged source directly.
     it.each([
-      [
-        'arcgis_portal_not_https',
-        422,
-        'The portal URL must start with https. GeoLens will not send a password over an unencrypted connection.',
-      ],
-      [
-        'arcgis_portal_host_invalid',
-        422,
-        'That portal address is not a usable hostname. Check the URL, for example https://your-org.maps.arcgis.com.',
-      ],
-      [
-        'arcgis_signin_in_progress',
-        409,
-        'A sign-in to that ArcGIS account is already in progress. Wait for it to finish, then try again.',
-      ],
-    ])('maps the %s sign-in refusal to its own copy', async (code, status, expected) => {
+      ['arcgis_portal_not_https', 422],
+      ['arcgis_portal_host_invalid', 422],
+      ['arcgis_signin_in_progress', 409],
+    ])('maps the %s sign-in refusal to its own copy', async (code, status) => {
       mutateAsync.mockRejectedValue(serviceTokenRequiredError());
-      mockArcgisSignIn.mockRejectedValue(
-        new ApiError(code, status, { code, message: 'raw diagnostic text, never rendered' }),
-      );
+      mockArcgisSignIn.mockRejectedValue(arcgisSigninError(code, status));
       const user = userEvent.setup();
       render(
         <SourceRefreshAction
@@ -724,7 +720,9 @@ describe('SourceRefreshAction', () => {
       await user.type(screen.getByLabelText('Password'), 'hunter2');
       await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
-      expect(await screen.findByText(expected)).toBeInTheDocument();
+      expect(
+        await screen.findByText(translateApiErrorDetail({ code }, status)),
+      ).toBeInTheDocument();
       expect(screen.queryByText('raw diagnostic text, never rendered')).not.toBeInTheDocument();
     });
 
@@ -857,9 +855,7 @@ describe('SourceRefreshAction', () => {
       mutateAsync.mockRejectedValue(serviceTokenRequiredError());
       mockArcgisSignIn
         .mockResolvedValueOnce({ token: 'first-token', expires_at: FAR_FUTURE_EXPIRY })
-        .mockRejectedValueOnce(
-          new ApiError('arcgis_signin_rejected', 400, { code: 'arcgis_signin_rejected', message: 'raw' }),
-        );
+        .mockRejectedValueOnce(arcgisSigninError('arcgis_signin_rejected', 400, 'raw'));
       const user = userEvent.setup();
       render(
         <SourceRefreshAction
@@ -885,9 +881,7 @@ describe('SourceRefreshAction', () => {
       await user.type(screen.getByLabelText('Password'), 'wrong-password');
       await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
-      await screen.findByText(
-        'ArcGIS did not accept that sign-in. Check the username and password, including capitalization. Too many failed attempts also lock an ArcGIS account temporarily.',
-      );
+      await screen.findByText(translateApiErrorDetail({ code: 'arcgis_signin_rejected' }, 400));
 
       await user.click(screen.getByRole('button', { name: 'Start refresh' }));
 

@@ -1,7 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
-import { ApiError } from '@/api/client';
 import { arcgisSignIn } from '@/api/arcgis-signin';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,86 +39,36 @@ export interface ArcgisCredentialBlockHandle {
   markExpired: () => void;
 }
 
-// codex round (post-#1758 merge): lane A1's merged endpoint
-// (arcgis_signin.py, signin_guard.py) ships four more caller-facing codes
-// than existed when this map was first written. Confirmed against
-// backend/openapi.json and the two source modules directly -- these are
-// the complete set of codes `_signin_refusal` can raise, plus `rate_limited`
-// (handled separately below by status, since it can also arrive with a
-// plain string `detail` from the route-level slowapi limiter rather than
-// this shape).
-const SIGNIN_ERROR_I18N_KEY: Record<string, string> = {
-  arcgis_signin_rejected: 'sourcePanel.refresh.credential.arcgis.errors.arcgisSigninRejected',
-  arcgis_sso_account: 'sourcePanel.refresh.credential.arcgis.errors.arcgisSsoAccount',
-  ssrf_refused: 'sourcePanel.refresh.credential.arcgis.errors.ssrfRefused',
-  network_error: 'sourcePanel.refresh.credential.arcgis.errors.networkError',
-  arcgis_portal_not_https: 'sourcePanel.refresh.credential.arcgis.errors.arcgisPortalNotHttps',
-  arcgis_portal_host_invalid: 'sourcePanel.refresh.credential.arcgis.errors.arcgisPortalHostInvalid',
-  arcgis_signin_in_progress: 'sourcePanel.refresh.credential.arcgis.errors.arcgisSigninInProgress',
-};
-
-// codex #1759 P2: `ArcGISSignInRequest` (backend/openapi.json) rejects
-// input -- a portal URL with no scheme, one carrying userinfo, an overlong
-// field -- before the route runs at all. FastAPI reports that as the
-// standard pydantic validation array, not one of this endpoint's own
-// `{code, message}` refusals, so `err.body` there is an array and
-// `(err.body as {code?}).code` above is always undefined. Falling through
-// to `networkError` for it is actively wrong: the request never reached
-// the network, and the real, actionable problem (which of portal_url,
-// username or password failed, and why) is silently dropped.
-//
-// `ApiError.message` is already the fix, not a new translation. `apiFetch`
-// (client.ts) always runs the raw `detail` through `translateApiErrorDetail`
-// (error-map.ts) before this component ever sees it, and that function's
-// array branch (`validationDescriptor`) turns a pydantic entry into a
-// translated, field-named sentence -- exactly the shape "anchored to the
-// field" calls for, since `ArcGISSignInRequest` only has those three
-// fields to name. Reused here rather than duplicated, for the same reason
-// the codes above use a lookup table instead of hand-writing each string
-// twice: one producer.
-function resolveSignInErrorMessage(err: unknown, t: (key: string) => string): string {
-  if (err instanceof ApiError) {
-    if (err.status === 429) {
-      return t('sourcePanel.refresh.credential.arcgis.errors.rateLimited');
-    }
-    const body = err.body;
-    if (body !== null && typeof body === 'object' && !Array.isArray(body)) {
-      const code = (body as { code?: string }).code;
-      if (code && SIGNIN_ERROR_I18N_KEY[code]) {
-        return t(SIGNIN_ERROR_I18N_KEY[code]);
-      }
-    }
-    if (body !== undefined) {
-      // A validation array, or any other detail shape this endpoint's own
-      // codes don't cover. Never the generic guess below: this has a body,
-      // so a response was received and it already carries better text.
-      return err.message;
-    }
-  }
-  // No detail payload reached the client at all: a genuine transport
-  // failure (offline, DNS, CORS, a timeout), the one case the generic copy
-  // is actually correct for.
-  return t('sourcePanel.refresh.credential.arcgis.errors.networkError');
-}
+// codex #1759, post-#1757-merge dedupe: this block used to carry its own
+// {code -> key} table and its own copy for all seven of this endpoint's
+// refusal shapes. Lane A2's error-map.ts (frontend/src/lib/error-map.ts)
+// now maps every one of them -- arcgis_signin_rejected, arcgis_sso_account,
+// ssrf_refused, arcgis_signin_in_progress, arcgis_portal_not_https and
+// arcgis_portal_host_invalid -- under `common:errors.*`, and deliberately
+// leaves a bare 429 unmapped there because the generic `errors.rateLimited`
+// fallback already covers it. apiFetch (client.ts) already runs this
+// error's `detail` through that exact map, via `translateApiErrorDetail`,
+// before this component ever sees it, so `ApiError.message` (an instance
+// of `Error`) IS that translated text -- reusing it, rather than a second
+// table repeating the same strings, is the fix: one string, one meaning,
+// so this flow and the import wizard's can never drift apart on wording.
+// This also covers a FastAPI/pydantic validation array for free (a
+// scheme-less portal URL, one carrying credentials, an overlong field --
+// `ArcGISSignInRequest` rejecting input before the route runs), since
+// `classifyApiError`'s array branch already turns that into a translated,
+// field-named message.
 
 /**
  * fix(#1755 item 4, plan 3.7/3.2): the refresh door's ArcGIS credential
- * prompt. Lane A2 (PR #1757, `feat/service-auth-a2-arcgis-signin-ui`) ships
- * the equivalent three-way method select for the import wizard
- * (`ServiceUrlForm.tsx`), plus an `arcgisSignin` client in
- * `api/ingest.ts` and hand-typed request/response types in `types/api.ts`.
- * Neither exists on main yet, so this is a minimal, independent copy built
- * against the same contract (plan 3.1's taxonomy, `POST
- * /api/services/arcgis/signin/`, confirmed against lane A1) rather than a
- * fork or an import of A2's branch. A2 also maps `arcgis_signin_rejected`,
- * `arcgis_sso_account`, `ssrf_refused` and `network_error` in
- * `lib/error-map.ts` against the `common` namespace (`translateApiErrorDetail`
- * always resolves there); this component keeps its own local copy under the
- * `dataset` namespace instead, resolved directly from the response code
- * rather than through that shared map, for the same reason -- no shared
- * component to import from yet. A2 and A3 should converge on one component
- * and one copy source in a follow-up once both are on main -- see the PR
- * body.
+ * prompt. Lane A2 (PR #1757, merged) ships the equivalent three-way method
+ * select for the import wizard (`ServiceUrlForm.tsx`), its own
+ * `arcgisSignin` client in `api/ingest.ts`, and hand-typed request/response
+ * types in `types/api.ts`. This component and that select are still two
+ * independent copies of the same taxonomy -- converging them into one
+ * shared component remains a follow-up -- but the error COPY is no longer
+ * duplicated: this component reuses A2's `common:errors.*` mapping in
+ * `lib/error-map.ts` via `ApiError.message` (see the comment above) rather
+ * than carrying a second `{code -> key}` table under its own namespace.
  *
  * None / Token / Sign in, per plan 3.1. Selecting a method discards the
  * other branch's fields rather than half-honouring them (plan 3.4's oneOf
@@ -305,7 +254,12 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
       if (generationRef.current !== generation) return;
       // No `isSignedIn` to clear: `token` was already cleared at the start
       // of this attempt, before the request, so it was already false.
-      setSignInError(resolveSignInErrorMessage(err, t));
+      // The error text rendered here is always this endpoint's own
+      // translated copy (see the module comment above) -- never the raw
+      // response body.
+      setSignInError(
+        err instanceof Error ? err.message : t('common:errors.couldNotReachService'),
+      );
     } finally {
       if (generationRef.current === generation) {
         setSignInPending(false);
