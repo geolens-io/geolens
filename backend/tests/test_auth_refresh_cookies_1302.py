@@ -584,6 +584,85 @@ class TestDuplicateCookieRefusal:
         assert after.status_code == 401
 
 
+class TestDuplicateCsrfCookieRefusal:
+    """fix(#1778): codebase audit 2026-08-30, "The CSRF cookie has none of the
+    duplicate-cookie hardening its paired refresh cookie got, so a sibling
+    subdomain can choose its value".
+
+    Double-submit rests on the attacker not being able to read the cookie. A
+    sibling subdomain cannot read it but CAN set a parent-Domain cookie of the
+    same name, and the parser keeps one of the two. The refresh cookie stays
+    single and valid, so nothing else in the request refuses it.
+
+    Counterfactual: remove the _cookie_occurrences guard from enforce_csrf and
+    the first test below returns 200 instead of 403 -- a forged refresh
+    completing with a value the attacker chose.
+    """
+
+    async def test_a_planted_duplicate_csrf_cookie_cannot_authorize(
+        self, client: AsyncClient
+    ):
+        login = await _login(client, cookie_mode=True)
+        real_refresh = _cookie_attrs(login, REFRESH_COOKIE_NAME)["value"]
+        real_csrf = _cookie_attrs(login, CSRF_COOKIE_NAME)["value"]
+        client.cookies.clear()
+
+        attacker_value = "attacker-chosen-csrf-value"
+        resp = await client.post(
+            "/auth/refresh/",
+            headers={
+                **COOKIE_MODE,
+                # The attacker echoes the value they planted, not the one they
+                # cannot read.
+                "X-CSRF-Token": attacker_value,
+                "Cookie": (
+                    f"{REFRESH_COOKIE_NAME}={real_refresh}; "
+                    f"{CSRF_COOKIE_NAME}={real_csrf}; "
+                    f"{CSRF_COOKIE_NAME}={attacker_value}"
+                ),
+            },
+        )
+        assert resp.status_code == 403, resp.text
+
+    async def test_the_shadow_is_refused_whichever_order_it_arrives_in(
+        self, client: AsyncClient
+    ):
+        """Cookie ordering is the browser's to decide, so the refusal must not
+        depend on which occurrence the parser happens to keep."""
+        login = await _login(client, cookie_mode=True)
+        real_refresh = _cookie_attrs(login, REFRESH_COOKIE_NAME)["value"]
+        real_csrf = _cookie_attrs(login, CSRF_COOKIE_NAME)["value"]
+        client.cookies.clear()
+
+        resp = await client.post(
+            "/auth/refresh/",
+            headers={
+                **COOKIE_MODE,
+                "X-CSRF-Token": real_csrf,
+                "Cookie": (
+                    f"{REFRESH_COOKIE_NAME}={real_refresh}; "
+                    f"{CSRF_COOKIE_NAME}=attacker-chosen-csrf-value; "
+                    f"{CSRF_COOKIE_NAME}={real_csrf}"
+                ),
+            },
+        )
+        assert resp.status_code == 403, resp.text
+
+    async def test_the_single_legitimate_cookie_still_rotates(
+        self, client: AsyncClient
+    ):
+        """The refusal keys on the duplicate, not on the value."""
+        login = await _login(client, cookie_mode=True)
+        real_refresh = _cookie_attrs(login, REFRESH_COOKIE_NAME)["value"]
+        real_csrf = _cookie_attrs(login, CSRF_COOKIE_NAME)["value"]
+
+        _arm_cookies(client, real_refresh, real_csrf)
+        ok = await client.post(
+            "/auth/refresh/", headers={**COOKIE_MODE, "X-CSRF-Token": real_csrf}
+        )
+        assert ok.status_code == 200, ok.text
+
+
 class TestRotationRevocationRace:
     """fix(#1446): a rotation that read its row before a concurrent logout must
     not commit a still-active replacement afterwards. Client-side guards cannot

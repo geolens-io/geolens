@@ -147,14 +147,24 @@ def read_refresh_cookie(request: Request) -> str | None:
     victim's host cookie, so duplicates are the attack's fingerprint: refusing
     them turns account confusion into a one-time re-login prompt.
     """
+    if _cookie_occurrences(request, REFRESH_COOKIE_NAME) > 1:
+        return None
+    return request.cookies.get(REFRESH_COOKIE_NAME)
+
+
+def _cookie_occurrences(request: Request, name: str) -> int:
+    """How many times *name* appears in the raw ``Cookie:`` header.
+
+    ``request.cookies`` is a dict, so it answers "which of the duplicates did
+    the parser keep", never "were there duplicates". Only the raw header can
+    tell the two apart.
+    """
     raw = request.headers.get("cookie", "")
     seen = 0
     for part in raw.split(";"):
-        if part.split("=", 1)[0].strip() == REFRESH_COOKIE_NAME:
+        if part.split("=", 1)[0].strip() == name:
             seen += 1
-    if seen > 1:
-        return None
-    return request.cookies.get(REFRESH_COOKIE_NAME)
+    return seen
 
 
 def _origin_parts(url: str) -> tuple[str, str, int | None] | None:
@@ -232,6 +242,28 @@ def enforce_csrf(request: Request) -> None:
     read does not depend on it. It is also directly exercisable by a plain HTTP
     client, with no browser preflight to simulate.
     """
+    # fix(#1778): the same duplicate-cookie refusal read_refresh_cookie has had
+    # since #1446, applied to the other half of the pair. Double-submit rests
+    # entirely on the attacker not knowing the cookie's value (see the docstring
+    # above), and a sibling subdomain can CHOOSE that value: set
+    # geolens_csrf=KNOWN with a parent Domain, and the browser sends two
+    # geolens_csrf cookies. Starlette's parser keeps the last occurrence, and a
+    # freshly-set Domain cookie sharing Path=/ sorts after the older host-only
+    # one under RFC 6265, so the attacker's value is the one compared. The
+    # victim's host-only geolens_refresh is untouched and still single, so
+    # read_refresh_cookie accepts it and the request would go through.
+    #
+    # Refusing on a duplicate turns that into a 403 the victim can clear by
+    # signing in again -- the same trade #1446 already accepted for the refresh
+    # cookie, where the attacker can likewise force a re-login by planting a
+    # shadow. Not fixable by naming alone in dev: the __Host- prefix (which
+    # browsers refuse to honour on a Domain cookie) needs TLS, and
+    # _secure_cookies() is False without a terminator.
+    if _cookie_occurrences(request, CSRF_COOKIE_NAME) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid CSRF token",
+        )
     header_token = request.headers.get(CSRF_HEADER_NAME)
     cookie_token = request.cookies.get(CSRF_COOKIE_NAME)
     if not header_token or not cookie_token:
