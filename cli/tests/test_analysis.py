@@ -595,6 +595,43 @@ class TestAnalysisMaterializeCli:
         assert "failed" in result.output
         assert "job-1" in result.output
 
+    def test_a_cancelled_job_exits_non_zero_and_says_so(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """fix(audit 2026-08-30 finding 2): resolve_dataset_id now treats
+        cancelled as terminal (it previously polled a cancelled job forever
+        under POLL_FOREVER), so this status is reachable here. It must not
+        fall into the "still {status}" wording, which would claim the job
+        might still finish."""
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com/api", mock_keyring)
+        monkeypatch.setattr(
+            "geolens_cli.analysis.run_materialize", lambda c, d, r: _FakeJob()
+        )
+        monkeypatch.setattr(
+            "geolens_cli.publish.resolve_dataset_id", lambda c, j, **kw: None
+        )
+        monkeypatch.setattr(
+            "geolens_cli.analysis.job_snapshot", lambda c, j: ("cancelled", None)
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "analysis",
+                "materialize",
+                "ds-1",
+                "--operation",
+                "centroid",
+                "--title",
+                "Centroids",
+            ],
+        )
+        assert result.exit_code == 1, result.output
+        assert "cancelled" in result.output
+        assert "has not finished" not in result.output
+
     def test_a_still_running_job_is_not_reported_as_failed(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:

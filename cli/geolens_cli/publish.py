@@ -80,6 +80,15 @@ _DUPLICATE_DETAIL_NEEDLE = "already processed"
 _DEFAULT_POLL_INTERVAL_SECONDS: float = 1.0
 _DEFAULT_POLL_TIMEOUT_SECONDS: float = 120.0
 
+#: fix(audit 2026-08-30 finding 2, 8dc529f17): job statuses that mean "this
+#: job will never produce a dataset_id through this endpoint". Previously
+#: only "failed" was terminal here, so --wait polled a cancelled job for the
+#: full timeout. "cancelled" matches refresh.wait_for_refresh's terminal set
+#: ({"failed", "cancelled"}); "fanned_out" is added too because the parent
+#: of a multi-layer commit is marked fanned_out and never gets its own
+#: dataset_id (commit_fan_out, backend/app/processing/ingest/router.py).
+_TERMINAL_NO_DATASET_STATUSES = frozenset({"failed", "cancelled", "fanned_out"})
+
 # ---------------------------------------------------------------------------
 # MIME map (RESEARCH Pattern 3 lines 317-325) — informational; the backend
 # re-validates content via puremagic. T-216-03 (file content-type spoofing)
@@ -236,8 +245,12 @@ def resolve_dataset_id(
     """Poll ``GET /jobs/{job_id}`` until the dataset_id materializes.
 
     Returns the dataset_id as a string when ingestion completes successfully,
-    or ``None`` on terminal failure / timeout (caller falls back to the
-    job-search URL form).
+    or ``None`` when the job lands on a status in
+    ``_TERMINAL_NO_DATASET_STATUSES`` or the poll times out (caller falls
+    back to the job-search URL form). A caller that must tell those outcomes
+    apart — e.g. to exit non-zero with the right message — should read the
+    job status back afterwards (see ``analysis.job_snapshot``, reused by both
+    ``publish --wait`` and ``analysis materialize --wait``).
 
     ``sleep`` and ``monotonic`` are injectable so tests can run with zero
     real-time delay.
@@ -277,8 +290,11 @@ def resolve_dataset_id(
         # Terminal success: dataset_id materialized.
         if dataset_id:
             return str(dataset_id)
-        # Terminal failure: the worker explicitly marked the job failed.
-        if status == "failed":
+        # Terminal failure: the worker will not produce a dataset_id on this
+        # job (fix(audit 2026-08-30 finding 2): "cancelled" and "fanned_out"
+        # were missing here, so --wait kept polling until timeout instead of
+        # stopping as soon as the job's fate was known).
+        if status in _TERMINAL_NO_DATASET_STATUSES:
             return None
         sleep(interval)
     return None  # timeout — fall back to job-search URL

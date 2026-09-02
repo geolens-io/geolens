@@ -651,6 +651,11 @@ def publish(
     ``--wait`` (default), polls the job-status endpoint to resolve the
     dataset_id; ``--no-wait`` returns immediately with a job-search URL.
 
+    fix(audit 2026-08-30 finding 1): with ``--wait``, a job that fails, is
+    cancelled, or does not finish within the poll window exits non-zero and
+    prints a failure line instead of "Published:"; ``--json`` carries the
+    terminal status.
+
     Pitfall 6: commit is NOT idempotent. On a duplicate commit (job
     already processed), prints "already committed" and exits 1.
     """
@@ -725,8 +730,54 @@ def publish(
         # Stage 4 — Resolve dataset URL.
         progress.add_task("Resolving dataset...", total=None)
         dataset_id: Optional[str] = None
+        publish_status: Optional[str] = None
+        publish_failure: Optional[str] = None
         if wait:
             dataset_id = _publish.resolve_dataset_id(sdk.client, job_id)
+            if dataset_id is None:
+                # fix(audit 2026-08-30 finding 1, 8dc529f17): resolve_dataset_id
+                # returns None for a failed/cancelled/fanned-out job AND for a
+                # poll that ran out AND for a non-200 response (a token that
+                # expired mid-poll included) — a caller that asked us to wait
+                # must not read any of those as success. Read the status back
+                # so each gets its own sentence and exit code, mirroring
+                # `analysis materialize --wait` (below, ~1150).
+                late_status, late_dataset_id = _analysis.job_snapshot(
+                    sdk.client, job_id
+                )
+                if late_dataset_id:
+                    # The job finished between resolve_dataset_id's last look
+                    # and this one — report success, not a stale failure.
+                    dataset_id = late_dataset_id
+                elif late_status == "failed":
+                    publish_status = "failed"
+                    publish_failure = (
+                        f"Publish job {job_id} failed. Its error is on the "
+                        f"job record: GET /jobs/{job_id}."
+                    )
+                elif late_status == "cancelled":
+                    publish_status = "cancelled"
+                    publish_failure = (
+                        f"Publish job {job_id} was cancelled. "
+                        f"Check GET /jobs/{job_id}."
+                    )
+                elif late_status is None:
+                    # The status endpoint would not answer beyond the 401/403
+                    # that job_snapshot raises on directly — so the job's
+                    # fate is unknown.
+                    publish_status = None
+                    publish_failure = (
+                        f"Publish job {job_id} could not be read back, so "
+                        f"its outcome is unknown. Check GET /jobs/{job_id}."
+                    )
+                else:
+                    # The poll ran out while the job was still pending/running.
+                    publish_status = late_status
+                    publish_failure = (
+                        f"Publish job {job_id} was still {late_status} after "
+                        f"{int(_publish._DEFAULT_POLL_TIMEOUT_SECONDS)}s and "
+                        f"has not finished. Check GET /jobs/{job_id}."
+                    )
 
         # Stage 5 — fix(#569): apply --tags / --collection now that the
         # dataset id exists. Failures here are PARTIAL: the dataset was
@@ -749,11 +800,12 @@ def publish(
         job_id=str(job_id),
     )
 
+    commit_status = getattr(commit, "status", None)
     payload = {
         "dataset_url": dataset_url,
         "job_id": str(job_id),
         "dataset_id": str(dataset_id) if dataset_id else None,
-        "status": getattr(commit, "status", None),
+        "status": publish_status if publish_failure else commit_status,
     }
     if tags or collection:
         payload["extras_failures"] = extras_failures
@@ -761,10 +813,13 @@ def publish(
     if state.json_mode:
         state.output.json(payload)
     else:
-        state.output.success(f"Published: {dataset_url}")
+        if publish_failure:
+            state.output.error(publish_failure)
+        else:
+            state.output.success(f"Published: {dataset_url}")
         for failure in extras_failures:
             state.output.warn(f"Dataset created, but: {failure}")
-    if extras_failures:
+    if publish_failure or extras_failures:
         raise typer.Exit(EXIT_GENERIC)
 
 
@@ -1342,11 +1397,14 @@ def analysis_materialize(
         timeout=_analysis.POLL_FOREVER if timeout is None else timeout,
     )
     if resolved is None:
-        # resolve_dataset_id returns None for BOTH a failed job and a poll
-        # that ran out, and a script that asked us to wait must not read
-        # either as success. Read the status back so the two get different
-        # sentences; both still exit non-zero, because neither produced the
-        # dataset the caller waited for.
+        # resolve_dataset_id returns None for a failed/cancelled/fanned-out
+        # job (fix(audit 2026-08-30 finding 2): "cancelled" was previously
+        # missing from its terminal set, so --wait polled a cancelled job
+        # under POLL_FOREVER forever) AND for a poll that ran out, and a
+        # script that asked us to wait must not read any of those as
+        # success. Read the status back so each gets its own sentence; all
+        # still exit non-zero, because none produced the dataset the caller
+        # waited for.
         status, late_dataset_id = _analysis.job_snapshot(poll_client, job_id)
         if late_dataset_id:
             # The job finished between the poll's last look and this one, and
@@ -1358,6 +1416,14 @@ def analysis_materialize(
             state.output.error(
                 f"Analysis job {job_id} failed. Its error is on the job record: "
                 f"GET /jobs/{job_id}."
+            )
+        elif status == "cancelled":
+            # fix(audit 2026-08-30 finding 2): reachable now that
+            # resolve_dataset_id treats cancelled as terminal — say so
+            # plainly instead of falling into the "still {status}" wording
+            # below, which would wrongly imply the job might still finish.
+            state.output.error(
+                f"Analysis job {job_id} was cancelled. Check GET /jobs/{job_id}."
             )
         elif status is None:
             # The status endpoint would not answer (auth, 404, 5xx), so the

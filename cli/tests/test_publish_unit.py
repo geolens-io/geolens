@@ -675,6 +675,292 @@ class TestPublishCli:
 
 
 # ---------------------------------------------------------------------------
+# fix(audit 2026-08-30 finding 1, 8dc529f17) — `publish --wait` must not
+# report success (exit 0, "Published: ...") for a job that failed, was
+# cancelled, timed out, or could not be read back because the token expired
+# mid-poll. Mirrors analysis materialize --wait's job_snapshot fallback.
+# ---------------------------------------------------------------------------
+
+
+class TestPublishWaitTerminalOutcomes:
+    def test_wait_job_failed_exits_nonzero_and_does_not_print_published(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(),
+            preview=_ok_preview(),
+            commit=_ok_commit(),
+            job_status=_ok_job_status(dataset_id=None, status="failed"),
+        )
+
+        result = runner.invoke(app, ["publish", str(sample_geojson)])
+        assert result.exit_code == 1, result.output
+        assert "Published:" not in result.output
+        assert "failed" in result.output
+        assert "job record" in result.output
+
+    def test_wait_job_failed_json_mode_carries_status_and_null_dataset_id(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(),
+            preview=_ok_preview(),
+            commit=_ok_commit(),
+            job_status=_ok_job_status(dataset_id=None, status="failed"),
+        )
+
+        result = runner.invoke(app, ["--json", "publish", str(sample_geojson)])
+        assert result.exit_code == 1, result.output
+        payload = json.loads(result.output)
+        assert payload["status"] == "failed"
+        assert payload["dataset_id"] is None
+
+    def test_wait_job_cancelled_exits_nonzero_and_does_not_print_published(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        """fix finding 2: cancelled was previously not terminal, so --wait
+        polled a cancelled job for the full 120s timeout and then reported
+        success."""
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(),
+            preview=_ok_preview(),
+            commit=_ok_commit(),
+            job_status=_ok_job_status(dataset_id=None, status="cancelled"),
+        )
+
+        result = runner.invoke(app, ["publish", str(sample_geojson)])
+        assert result.exit_code == 1, result.output
+        assert "Published:" not in result.output
+        assert "cancelled" in result.output
+
+    def test_wait_job_cancelled_json_mode_carries_status(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(),
+            preview=_ok_preview(),
+            commit=_ok_commit(),
+            job_status=_ok_job_status(dataset_id=None, status="cancelled"),
+        )
+
+        result = runner.invoke(app, ["--json", "publish", str(sample_geojson)])
+        assert result.exit_code == 1, result.output
+        payload = json.loads(result.output)
+        assert payload["status"] == "cancelled"
+        assert payload["dataset_id"] is None
+
+    def test_wait_poll_timed_out_exits_nonzero(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        """The 120s default poll gave up while the job was still running.
+
+        resolve_dataset_id and job_snapshot are monkeypatched directly (not
+        driven through a real 120s poll) so the test stays fast; this is the
+        same technique cli/tests/test_analysis.py uses for the sibling
+        materialize --wait timeout test.
+        """
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(), preview=_ok_preview(), commit=_ok_commit()
+        )
+        monkeypatch.setattr(
+            "geolens_cli.publish.resolve_dataset_id", lambda c, j, **kw: None
+        )
+        monkeypatch.setattr(
+            "geolens_cli.analysis.job_snapshot", lambda c, j: ("running", None)
+        )
+
+        result = runner.invoke(app, ["publish", str(sample_geojson)])
+        assert result.exit_code == 1, result.output
+        assert "Published:" not in result.output
+        assert "still running" in result.output
+        assert "has not finished" in result.output
+
+    def test_wait_poll_timed_out_json_mode_carries_raw_status(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(), preview=_ok_preview(), commit=_ok_commit()
+        )
+        monkeypatch.setattr(
+            "geolens_cli.publish.resolve_dataset_id", lambda c, j, **kw: None
+        )
+        monkeypatch.setattr(
+            "geolens_cli.analysis.job_snapshot", lambda c, j: ("running", None)
+        )
+
+        result = runner.invoke(app, ["--json", "publish", str(sample_geojson)])
+        assert result.exit_code == 1, result.output
+        payload = json.loads(result.output)
+        assert payload["status"] == "running"
+        assert payload["dataset_id"] is None
+
+    def test_wait_token_expired_mid_poll_exits_auth(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        """A token that expires mid-poll makes every job-status call 401.
+
+        resolve_dataset_id's poll treats a non-200 as "give up" (returns
+        None); the job_snapshot fallback then reads the SAME 401 and raises
+        EXIT_AUTH directly rather than reporting a generic failure, so the
+        exit code names what actually went wrong.
+        """
+        from geolens.models.problem_detail import ProblemDetail
+        from geolens_cli._sdk_helpers import EXIT_AUTH
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        expired = MagicMock(
+            status_code=HTTPStatus.UNAUTHORIZED,
+            parsed=ProblemDetail(
+                detail="Token expired",
+                status=401,
+                title="Unauthorized",
+                type_="about:blank",
+            ),
+        )
+        patch_sdk_for_publish(
+            upload=_ok_upload(),
+            preview=_ok_preview(),
+            commit=_ok_commit(),
+            job_status=expired,
+        )
+
+        result = runner.invoke(app, ["publish", str(sample_geojson)])
+        assert result.exit_code == EXIT_AUTH, result.output
+        assert "Authentication failed" in result.output
+
+    def test_wait_success_case_is_unchanged(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        """Regression guard: a job that resolves normally still prints
+        "Published: ..." and exits 0 — the new failure branch must not fire
+        on the happy path."""
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(),
+            preview=_ok_preview(),
+            commit=_ok_commit(),
+            job_status=_ok_job_status(
+                dataset_id="00000000-0000-0000-0000-000000000042", status="complete"
+            ),
+        )
+
+        result = runner.invoke(app, ["publish", str(sample_geojson)])
+        assert result.exit_code == 0, result.output
+        assert "Published:" in result.output
+        assert "00000000-0000-0000-0000-000000000042" in result.output
+
+
+class TestResolveDatasetIdTerminalStatuses:
+    """Unit-level: resolve_dataset_id stops polling as soon as the job status
+    is terminal, rather than sleeping and re-polling until timeout."""
+
+    def test_cancelled_stops_polling_immediately(self, monkeypatch) -> None:
+        from geolens_cli import publish as _publish
+
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            lambda **kw: _ok_job_status(dataset_id=None, status="cancelled"),
+        )
+        sleeps: list[float] = []
+
+        result = _publish.resolve_dataset_id(
+            MagicMock(),
+            "00000000-0000-0000-0000-000000000001",
+            sleep=sleeps.append,
+            monotonic=iter([0.0, 1.0, 2.0]).__next__,
+        )
+        assert result is None
+        assert sleeps == []
+
+    def test_fanned_out_stops_polling_immediately(self, monkeypatch) -> None:
+        from geolens_cli import publish as _publish
+
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            lambda **kw: _ok_job_status(dataset_id=None, status="fanned_out"),
+        )
+        sleeps: list[float] = []
+
+        result = _publish.resolve_dataset_id(
+            MagicMock(),
+            "00000000-0000-0000-0000-000000000001",
+            sleep=sleeps.append,
+            monotonic=iter([0.0, 1.0, 2.0]).__next__,
+        )
+        assert result is None
+        assert sleeps == []
+
+
+# ---------------------------------------------------------------------------
 # BUG-034 — network failures during upload / job-status poll map to EXIT_NETWORK
 # ---------------------------------------------------------------------------
 
