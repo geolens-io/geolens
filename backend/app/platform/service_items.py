@@ -131,6 +131,42 @@ def _items_url(url: str, collection: str) -> str:
     )
 
 
+def _require_object(document: object, what: str) -> dict:
+    """The document, or a refusal. Never echoes what came back.
+
+    fix(#1746 B2b review r21): every place a fetched document is interpreted
+    goes through here or through `_require_feature_page` below, so a service
+    that answers 200 with something else is refused once rather than
+    reinterpreted differently at each site.
+    """
+    if not isinstance(document, dict):
+        raise ItemFetchFailedError(f"malformed {what}")
+    return document
+
+
+def _require_feature_page(document: object) -> list:
+    """The features of one items page, or a refusal.
+
+    fix(#1746 B2b review r21): `features or []` read an HTTP 200 JSON error
+    envelope as an empty page, and read `"features": null` and
+    `"features": {}` the same way. A preview then succeeded with zero rows and
+    a refresh or re-upload handed an empty FeatureCollection to ogr2ogr, which
+    replaced existing data with nothing: the silent-truncation class of r18,
+    one level up. A page that does not say what it is does not get to say it
+    is empty.
+
+    A legitimately empty page is `{"type": "FeatureCollection", "features": []}`
+    and still reads as empty, which is what makes the refusal specific.
+    """
+    page = _require_object(document, "items page")
+    if page.get("type") != "FeatureCollection":
+        raise ItemFetchFailedError("malformed items page")
+    features = page.get("features")
+    if not isinstance(features, list):
+        raise ItemFetchFailedError("malformed items page")
+    return features
+
+
 # What a collection document advertises for the features themselves. Preferred
 # over the conventional layout, which is a guess, and preferred by media type
 # where the service offers more than one representation.
@@ -138,7 +174,7 @@ _ITEMS_REL = "items"
 _ITEMS_MEDIA_TYPE = "application/geo+json"
 
 
-def _advertised_items_href(document: object, base: str) -> str | None:
+def _advertised_items_href(document: dict, base: str) -> str | None:
     """The collection's own ``rel=items`` link, resolved, or None.
 
     fix(#1746 B2b review r20): fabricating ``/collections/{id}/items`` was a
@@ -149,8 +185,6 @@ def _advertised_items_href(document: object, base: str) -> str | None:
     and import. What the document says wins; the convention is the fallback for
     a document that says nothing.
     """
-    if not isinstance(document, dict):
-        return None
     candidates = [
         link
         for link in document.get("links", []) or []
@@ -274,7 +308,9 @@ async def _resolve_items_url(
         headers,
         budget=MAX_DOCUMENT_BYTES,
     )
-    href = _advertised_items_href(document, from_url)
+    href = _advertised_items_href(
+        _require_object(document, "collection document"), from_url
+    )
     if href is None:
         return _items_url(url, collection), size
     if not same_origin(url, href):
@@ -321,8 +357,11 @@ async def _walk_pages(
             budget=min(MAX_PAGE_BYTES, MAX_BYTES - downloaded),
         )
         downloaded += size
-        features = document.get("features") if isinstance(document, dict) else None
-        for feature in features or []:
+        # Both the first page and every page a `next` named. One rule, one
+        # site, so a malformed page cannot mean different things depending on
+        # where in the chain it arrived.
+        features = _require_feature_page(document)
+        for feature in features:
             # fix(#1746 B2b review r19): `ensure_ascii=False`, and the file
             # opened in binary. The default escapes every non-ASCII character
             # to `\uXXXX`, so a collection of non-Latin text wrote roughly
@@ -339,10 +378,14 @@ async def _walk_pages(
                 feature, separators=(",", ":"), ensure_ascii=False
             ).encode("utf-8")
             chunk = b"," + encoded if written else encoded
+            # fix(#1746 B2b review r21): compared BEFORE the write. Checking
+            # afterwards let the extract exceed the cap by one expanded
+            # feature, which on this path is exactly the value that expands
+            # unboundedly, so the bound was one feature short of being one.
+            if on_disk + len(chunk) > MAX_BYTES:
+                raise ItemFetchFailedError("collection exceeds the cap on disk")
             out.write(chunk)
             on_disk += len(chunk)
-            if on_disk > MAX_BYTES:
-                raise ItemFetchFailedError("collection exceeds the cap on disk")
             written += 1
             if feature_limit is not None and written >= feature_limit:
                 page_url = None

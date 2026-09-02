@@ -55,6 +55,7 @@ from app.platform import security
 from app.platform.security import SSRFError, make_safe_client
 from app.processing.ingest import tasks_vector
 from app.processing.ingest import ogr as ogr_mod
+from app.platform import service_items as service_items_mod
 from app.platform.service_endpoints import EndpointCheckFailedError
 from app.platform.service_items import ItemFetchFailedError, materialise_oapif_items
 from app.processing.ingest.ogr import run_ogr2ogr_service
@@ -3154,13 +3155,28 @@ class TestOnePageCannotCostTheWholeProcess:
         self._transport(monkeypatch, handle)
         # Between the two: the download is comfortably inside the cap, and the
         # extract is over it. Only the on-disk bound can refuse this.
-        monkeypatch.setattr(
-            "app.platform.service_items.MAX_BYTES", (wire + on_disk) // 2
-        )
+        cap = (wire + on_disk) // 2
+        monkeypatch.setattr("app.platform.service_items.MAX_BYTES", cap)
+
+        # fix(#1746 B2b review r21): the size at the moment of refusal, caught
+        # on the way past because the file is unlinked before the error
+        # escapes. Asserting on what is left afterwards would say nothing
+        # about whether the cap was ever exceeded.
+        at_refusal: list[int] = []
+        real_discard = service_items_mod._discard
+
+        def _capture(path: str) -> None:
+            at_refusal.append(os.path.getsize(path))
+            real_discard(path)
+
+        monkeypatch.setattr(service_items_mod, "_discard", _capture)
 
         with pytest.raises(ItemFetchFailedError):
             await self._materialise(tmp_path)
 
+        # Never over the cap, not even by the one expanded feature that used to
+        # be written before the comparison ran.
+        assert at_refusal and at_refusal[0] <= cap, (at_refusal, cap)
         assert list(tmp_path.iterdir()) == []
 
     async def test_the_extract_is_utf8_not_escaped(self, monkeypatch, tmp_path) -> None:
@@ -3990,3 +4006,157 @@ class TestTheItemsLinkTheCollectionAdvertises:
             await self._materialise(tmp_path)
 
         assert list(tmp_path.iterdir()) == []
+
+
+class TestAPageThatIsNotAPageIsNotAnEmptyPage:
+    """fix(#1746 B2b review r21): the truncation class, one level up.
+
+    `features or []` read an HTTP 200 JSON error envelope as an empty page,
+    and read `"features": null` and `"features": {}` the same way. A preview
+    then succeeded with zero rows, and a refresh or re-upload handed an empty
+    FeatureCollection to ogr2ogr, which replaced existing data with nothing.
+
+    A page that does not say what it is does not get to say it is empty. A
+    page that does say so and is genuinely empty still reads as empty, which
+    is what makes the refusal specific rather than a blanket suspicion.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_items.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    @staticmethod
+    def _serving(page: object):
+        """A service whose collection document is fine and whose page is not."""
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            return httpx.Response(200, json=page)
+
+        return handle
+
+    @pytest.mark.parametrize(
+        "page",
+        [
+            pytest.param({"error": "quota exceeded"}, id="error_envelope_at_200"),
+            pytest.param(
+                {"type": "FeatureCollection", "features": None}, id="features_null"
+            ),
+            pytest.param(
+                {"type": "FeatureCollection", "features": {}}, id="features_object"
+            ),
+            pytest.param({"type": "FeatureCollection"}, id="features_absent"),
+            pytest.param({"features": []}, id="type_absent"),
+            pytest.param(
+                {"type": "Feature", "features": []}, id="type_is_a_single_feature"
+            ),
+            pytest.param([], id="a_bare_list"),
+            pytest.param("ok", id="a_bare_string"),
+        ],
+    )
+    async def test_a_malformed_page_is_refused(
+        self, monkeypatch, tmp_path, page
+    ) -> None:
+        self._transport(monkeypatch, self._serving(page))
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_genuinely_empty_collection_still_reads_as_empty(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The other half. Without this the refusal is just distrust."""
+        self._transport(
+            monkeypatch,
+            self._serving({"type": "FeatureCollection", "features": [], "links": []}),
+        )
+
+        path = await self._materialise(tmp_path)
+
+        assert json.loads(pathlib.Path(path).read_text()) == {
+            "type": "FeatureCollection",
+            "features": [],
+        }
+
+    async def test_a_malformed_second_page_is_refused_too(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Every page, not just the first: `next` reaches the same validator."""
+        base = f"{_SVC_OAPIF}/collections/c1/items"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            if request.url.params.get("page") == "1":
+                return httpx.Response(200, json={"error": "quota exceeded"})
+            return _streamed(
+                {
+                    "type": "FeatureCollection",
+                    "features": [_point("a")],
+                    "links": [{"rel": "next", "href": f"{base}?page=1"}],
+                }
+            )
+
+        self._transport(monkeypatch, handle)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        # The first page's feature is discarded with the file: a prefix is not
+        # a collection, which is the r18 rule reaching this failure too.
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_collection_document_that_is_not_an_object_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The third site the same fetch feeds, and the earliest one."""
+        recorded = self._transport(
+            monkeypatch, lambda request: httpx.Response(200, json=["c1"])
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        # Refused at the collection document, before any items URL was built.
+        assert [r.url.path for r in recorded] == ["/oapif/collections/c1"]
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_the_refusal_never_echoes_the_page(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The body is provider-controlled and reaches a message and a log."""
+        secret = "canary" + _value()
+        self._transport(monkeypatch, self._serving({"error": secret}))
+
+        with pytest.raises(ItemFetchFailedError) as raised:
+            await self._materialise(tmp_path)
+
+        assert secret not in str(raised.value)
+        assert secret not in raised.value.policy
+        assert secret not in raised.value.reason
