@@ -1391,7 +1391,16 @@ async def queue_ingest_job(
 
         # fix(#1746): BEFORE the stash below, so a token the worker will refuse
         # never burns a single-use credential.
-        _assert_header_token_dispatchable(job, token)
+        #
+        # fix(#1746 B2b review r1): only when the flat token is the credential
+        # this call is going to send. The docstring promises the structured
+        # `credential` wins over `token` when both are given, and this check
+        # judged the losing one, so an in-process caller of plan D2 holding a
+        # stale legacy token could be refused for a credential it had already
+        # replaced. `wire_credential` below applies the same rule to the value
+        # that is actually dispatched, whichever spelling it came from.
+        if credential is None:
+            _assert_header_token_dispatchable(job, token)
 
         # feat(#1746) plan D9: what crosses to the worker under the kwarg
         # `token` is one finished header line for the two header-auth formats,

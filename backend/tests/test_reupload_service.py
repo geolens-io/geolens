@@ -377,8 +377,8 @@ class TestServiceReuploadWorker:
     @pytest.mark.parametrize(
         ("refresh", "expected"),
         [
-            (False, "Retry the re-upload with a service token"),
-            (True, "Retry the refresh with a service token"),
+            (False, "Retry the re-upload with the credential"),
+            (True, "Retry the refresh with the credential"),
         ],
         ids=["reupload_commit", "refresh"],
     )
@@ -394,7 +394,13 @@ class TestServiceReuploadWorker:
         One task serves the refresh endpoint and the re-upload commit, and the
         old string said "Retry commit" on both — advice about a door half the
         callers never came through. It also names the request field that fixes
-        it, since a token is request-only and there is nothing to un-expire.
+        it, since a credential is request-only and there is nothing to
+        un-expire.
+
+        fix(#1746 B2b review r1): that field is the `auth` object rather than
+        the deprecated `token`, which always means a bearer credential and so
+        could not authenticate the basic or named-key origin that produced this
+        failure.
         """
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
@@ -444,6 +450,6 @@ class TestServiceReuploadWorker:
         await test_db_session.refresh(job)
         assert job.status == "failed"
         assert expected in (job.error_message or "")
-        assert "`token` field" in (job.error_message or "")
+        assert "`auth` object" in (job.error_message or "")
         # The door that was NOT used is never named.
         assert "Retry commit with a service token" not in (job.error_message or "")

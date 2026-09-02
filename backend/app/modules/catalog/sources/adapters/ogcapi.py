@@ -90,6 +90,14 @@ async def _resolve_conformance(
     abs_href = urljoin(url, conformance_href)
     try:
         await validate_url_for_ssrf(abs_href)
+        # The href comes out of an untrusted landing page, so it is revalidated
+        # on the line above rather than trusted because the base URL was.
+        #
+        # The marker below must stay the LAST line before the call: the
+        # suppression query binds a marker to the line that follows it, so an
+        # explanatory comment inserted between the two silently disarms it.
+        # Prose goes above.
+        # codeql[py/full-ssrf] fix(#1746): Rule 2 posture — validate_url_for_ssrf gates the resolved href immediately above, and this client comes from make_safe_client, whose transport re-resolves, validates and pins the IP at connect time and revalidates every redirect hop
         conf_resp = await client.get(abs_href, headers=headers)
         conf_resp.raise_for_status()
         conf_data = conf_resp.json()

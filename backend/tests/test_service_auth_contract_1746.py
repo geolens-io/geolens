@@ -846,6 +846,57 @@ class TestServiceLayerTakesACredentialDirectly:
         assert excinfo.value.detail["code"] == UNSUPPORTED_AUTH_METHOD_CODE
         assert value not in str(excinfo.value.detail)
 
+    async def test_a_stale_legacy_token_does_not_refuse_a_valid_credential(
+        self,
+        test_db_session,
+        credential_backend,  # noqa: F811
+    ) -> None:
+        """fix(#1746 B2b review r1): the winner is judged, not the loser.
+
+        The signature promises `credential` wins over `token` when both are
+        given, but the legacy pre-check ran first and judged `token`, so an
+        overlay holding a stale bearer string alongside a fresh structured
+        credential was refused for a value it had already replaced.
+        """
+        from app.processing.ingest.service import queue_ingest_job
+
+        secret = _bearer_secret()
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = IngestJob(
+            source_filename="Parcels",
+            source_url=_WFS_URL,
+            source_layer="topp:parcels",
+            created_by=admin_id,
+            status="pending",
+            user_metadata={"service_type": "WFS 2.0.0", "layer_id": None},
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+
+        task = AsyncMock()
+        with patch("app.processing.ingest.tasks.ingest_service") as ingest_service:
+            ingest_service.defer_async = task
+            await queue_ingest_job(
+                job,
+                str(admin_id),
+                db=test_db_session,
+                # Outside the header-token charset, so the legacy pre-check
+                # refuses it on sight.
+                token="stale+token/" + _opaque_value(),
+                credential=ServiceCredential(
+                    method=CredentialMethod.BEARER,
+                    service_format="wfs",
+                    token=secret,
+                ),
+            )
+
+        kwargs = task.await_args.kwargs
+        assert kwargs["token"] is None
+        assert (
+            await creds.claim_service_credential(kwargs["credential_ref"])
+            == f"Authorization: Bearer {secret}"
+        )
+
     def test_the_gate_answers_none_for_a_credential_free_call(self) -> None:
         """The absence of a credential is not an unsupported method."""
         assert bearer_token_for_credential(None) is None

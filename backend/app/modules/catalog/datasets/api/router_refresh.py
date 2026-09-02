@@ -225,18 +225,29 @@ def _resolve_service_origin(dataset) -> _ServiceOrigin:
 
 
 def _service_token_required() -> HTTPException:
-    """The one 422 both refusal paths raise, so the wording cannot fork."""
+    """The one 422 both refusal paths raise, so the wording cannot fork.
+
+    fix(#1746 B2b review r1): the message used to name only the deprecated
+    `token` field, which always means a bearer credential. A WFS or OGC API
+    Features origin last pulled with a username and password or a named API
+    key is marked by the same flag, so following that advice could not
+    authenticate it and the refresh kept failing for a caller who had done
+    exactly what they were told. The code is unchanged, because a client
+    keying on it is answering the same question.
+    """
     return HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         detail={
             "code": "service_token_required",
             "message": (
-                "This dataset's source needed a service token the last time "
-                "it was imported or refreshed, and this request carries "
-                "none. Send the token again in the request body's `token` "
-                "field; tokens are request-only and are never stored between "
-                "runs. If the source is public now, re-import it through the "
-                "re-upload dialog without a token to clear the requirement."
+                "This dataset's source needed a credential the last time it "
+                "was imported or refreshed, and this request carries none. "
+                "Send it again in the request body's `auth` object, using the "
+                "same method the source needs; the deprecated `token` field "
+                "still works and means a bearer token. Credentials are "
+                "request-only and are never stored between runs. If the "
+                "source is public now, re-import it through the re-upload "
+                "dialog without a credential to clear the requirement."
             ),
         },
     )
@@ -942,6 +953,10 @@ async def refresh_dataset(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
+    # Rule 1: this endpoint replaces the dataset's data. One gate, before the
+    # strategy split below, so neither strategy can be reached without it.
+    await check_dataset_write_access(db, dataset, dataset_id, user)
+
     # Judged and composed as soon as the origin is known, which is what selects
     # the transport: a header line for WFS and OGC API Features, a bare token
     # for ArcGIS, and a 422 for a method the origin cannot carry. Before any
@@ -949,10 +964,14 @@ async def refresh_dataset(
     # cannot work never probes, reserves or stashes. The dispatched binding is
     # re-read after the reservation and the value is re-derived from it below,
     # because an unchanged binding is not the same fact as an unchanged one.
+    #
+    # fix(#1746 B2b review r1): AFTER the write-access gate, never before it.
+    # This reads `dataset.source_format`, so a refusal that ran first would
+    # answer 422 for a dataset the caller may not touch while a nonexistent one
+    # answers 404 — telling them the dataset exists, and which family of source
+    # it came from. Every refusal about the credential now sits behind the same
+    # gate as every other answer this endpoint gives.
     service_token = wire_credential(credential, service_format=dataset.source_format)
-    # Rule 1: this endpoint replaces the dataset's data. One gate, before the
-    # strategy split below, so neither strategy can be reached without it.
-    await check_dataset_write_access(db, dataset, dataset_id, user)
 
     # The strategy split. `classify_origin` is the derivation ADR-002
     # Decision 2 keeps pure, so this dispatch cannot disagree with the

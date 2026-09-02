@@ -674,7 +674,10 @@ class TestAuthRequiredRefusal:
 
         message = resp.json()["detail"]["message"]
         assert "re-upload" in message
-        assert "without a token" in message
+        # fix(#1746 B2b review r1): "a credential" rather than "a token" — the
+        # dialog takes all three methods now, and the marker is set by any of
+        # them.
+        assert "without a credential" in message
 
     # ---------------------------------------------------------------- #
     # Session handling across the probe
@@ -1353,6 +1356,81 @@ class TestRefreshRefusals:
 
         assert resp.status_code in (403, 404)
         assert await _run_for(test_db_session, dataset.id) is None
+
+    async def test_a_non_owner_is_refused_before_the_credential_is_judged(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        editor_auth_header: dict,
+        test_db_session,
+    ) -> None:
+        """fix(#1746 B2b review r1): every refusal behind the same gate.
+
+        The credential policy is chosen by `dataset.source_format`, so judging
+        it before the write-access check answered 422 for a dataset the caller
+        may not touch while a nonexistent one answered 404. That difference is
+        the dataset's existence and the family of source it came from, told to
+        someone with no access to either.
+
+        A basic credential on an ArcGIS origin is the sharpest case: it is a
+        422 the moment the source format is read, and nothing else about the
+        request is wrong.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(
+            test_db_session,
+            created_by=admin_id,
+            source_format="arcgis_featureserver",
+            visibility="private",
+        )
+
+        async with _dispatch_harness():
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh",
+                json={
+                    "auth": {
+                        "method": "basic",
+                        "username": "u" + uuid.uuid4().hex,
+                        "password": "p" + uuid.uuid4().hex,
+                    }
+                },
+                headers=editor_auth_header,
+            )
+
+        assert resp.status_code in (403, 404), resp.text
+        assert "unsupported_auth_method" not in resp.text
+        assert await _run_for(test_db_session, dataset.id) is None
+
+    async def test_the_marked_origin_refusal_names_the_structured_field(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ) -> None:
+        """fix(#1746 B2b review r1): `token` alone is not advice a basic user can take.
+
+        A WFS origin last pulled with a username and password is marked by the
+        same `auth_required` flag as a bearer one, and the deprecated `token`
+        field always means a bearer credential, so a caller who followed the
+        old message could not authenticate and the refresh kept failing.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(
+            test_db_session, created_by=admin_id, auth_required=True
+        )
+
+        async with _dispatch_harness():
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+            )
+
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["detail"]
+        # The code is unchanged: a client keying on it is answering the same
+        # question, and A3's dialog handling keeps working.
+        assert detail["code"] == "service_token_required"
+        assert "`auth`" in detail["message"]
+        assert "`token`" in detail["message"]
 
     async def test_anonymous_callers_are_refused(
         self, client: AsyncClient, test_db_session
