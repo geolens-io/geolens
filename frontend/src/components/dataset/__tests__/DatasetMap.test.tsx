@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@/test/test-utils';
+import { render, screen, fireEvent, act } from '@/test/test-utils';
 import { DatasetMap } from '@/components/dataset/DatasetMap';
 
 // fix(#1004): what the map was actually told to draw and where to point. The
@@ -45,6 +45,10 @@ const drawingState = vi.hoisted(() => ({
   clearSelectedFeature: vi.fn(),
   setEditDirty: vi.fn(),
   isEditDirty: false,
+  // fix(#1761 review round 3 P1): identity-change session counter. Real
+  // usage never resets this to 0 mid-life, so tests that bump it use a high
+  // starting value to avoid colliding with any other test's leftover state.
+  sessionEpoch: 0,
 }));
 
 vi.mock('@vis.gl/react-maplibre', async () => {
@@ -95,37 +99,65 @@ vi.mock('@/hooks/use-tile-token', () => ({
   useTileToken: () => ({ data: null }),
 }));
 
-vi.mock('@/stores/drawing-store', () => ({
-  useDrawingStore: (selector: (state: typeof drawingState) => unknown) => selector(drawingState),
+vi.mock('@/stores/drawing-store', () => {
+  const useDrawingStore = (selector: (state: typeof drawingState) => unknown) => selector(drawingState);
+  // fix(#1761 review round 3 P1): finishDrawingSession reads
+  // useDrawingStore.getState() directly (not via the selector hook), the
+  // same static-access pattern the real zustand store supports.
+  useDrawingStore.getState = () => drawingState;
+  return { useDrawingStore };
+});
+
+// fix(#1761 review round 3 P1): a stable hoisted object (not a fresh
+// literal per render) so a test can hold onto `terraDrawState.clear` and
+// assert it was invoked by the identity-change cleanup effect.
+const terraDrawState = vi.hoisted(() => ({
+  setMode: vi.fn(),
+  isReady: false,
+  addFeatures: vi.fn(),
+  removeFeatures: vi.fn(),
+  selectFeature: vi.fn(),
+  getSnapshotFeature: vi.fn(),
+  clear: vi.fn(),
+  undo: vi.fn(),
+  canUndo: false,
 }));
 
 vi.mock('@/components/drawing/hooks/use-terra-draw', () => ({
-  useTerraDraw: () => ({
-    setMode: vi.fn(),
-    isReady: false,
-    addFeatures: vi.fn(),
-    removeFeatures: vi.fn(),
-    selectFeature: vi.fn(),
-    getSnapshotFeature: vi.fn(),
-    clear: vi.fn(),
-    undo: vi.fn(),
-    canUndo: false,
-  }),
+  useTerraDraw: () => terraDrawState,
   getModeName: () => 'polygon',
   getAvailableModes: vi.fn(() => ['select', 'point', 'linestring', 'polygon']),
 }));
 
 import { getAvailableModes } from '@/components/drawing/hooks/use-terra-draw';
 
+// fix(#1761 review round 4): a stable hoisted mutateAsync (not a fresh
+// vi.fn() per render) so a test can control WHEN the update mutation
+// resolves, to simulate an identity change while it is in flight.
+const updateFeatureMutateAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 vi.mock('@/hooks/use-features', () => ({
   useCreateFeature: () => ({ mutateAsync: vi.fn() }),
-  useUpdateFeature: () => ({ mutateAsync: vi.fn() }),
+  useUpdateFeature: () => ({ mutateAsync: updateFeatureMutateAsync }),
   useDeleteFeature: () => ({ mutateAsync: vi.fn() }),
 }));
 
 vi.mock('@/api/features', () => ({
   getFeature: vi.fn(),
 }));
+
+// fix(#1761 review round 3 P1): keep useFeatureEditing's real implementation
+// (performDeselect etc. are exercised elsewhere in this file) but replace
+// showAllFeaturesInTiles with a spy, so the identity-change cleanup test
+// below can assert the tile-filter restore ran without needing a real
+// MapLibre map's getLayer/getFilter/setFilter machinery.
+const showAllFeaturesInTilesMock = vi.hoisted(() => vi.fn());
+vi.mock('@/components/dataset/hooks/use-feature-editing', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/components/dataset/hooks/use-feature-editing')>();
+  return {
+    ...actual,
+    showAllFeaturesInTiles: showAllFeaturesInTilesMock,
+  };
+});
 
 describe('DatasetMap interaction state', () => {
   beforeEach(() => {
@@ -593,5 +625,178 @@ describe('DatasetMap antimeridian extent (fix #1004)', () => {
       ],
       expect.objectContaining({ padding: 60 }),
     );
+  });
+});
+
+// fix(#1761 review round 3 P1): the identity-change choke point
+// (lib/auth-cache-reset.ts) only resets Zustand fields. DatasetMap's own
+// finishDrawingSession is what tears down Terra Draw's drawn geometry, the
+// map's hidden-tile filters, and this component's own open dialogs — none
+// of which the choke point can reach. This pins that an identity change
+// (a sessionEpoch bump) drives that cleanup even though nothing in the
+// choke point itself knows this component exists.
+describe('DatasetMap identity-change cleanup (fix #1761 review round 3 P1)', () => {
+  // fix(#1761 review round 4): spy-able 'drawn-overlay' source, so the
+  // "tears down..." test below can also assert resetOverlay() actually
+  // reaches the map (not just that finishDrawingSession's OTHER cleanup
+  // steps ran).
+  let overlaySetData: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    drawingState.isDrawing = true;
+    drawingState.activeMode = 'select';
+    drawingState.selectedFeature = { gid: 42, tdId: 'td-1', properties: {} };
+    drawingState.isEditDirty = false;
+    drawingState.sessionEpoch = 100;
+    drawingState.clearDrawing.mockReset();
+    drawingState.clearSelectedFeature.mockReset();
+    terraDrawState.clear.mockReset();
+    terraDrawState.removeFeatures.mockReset();
+    showAllFeaturesInTilesMock.mockReset();
+    mapSpy.reset();
+    mapSpy.attachMapInstance = true;
+    // activeMode === 'select' (a live sketch session) wires up the canvas
+    // click handler, which needs a real-shaped canvas from the fakeMap.
+    (fakeMap.getCanvas as ReturnType<typeof vi.fn>).mockReturnValue({
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      getBoundingClientRect: () => ({ left: 0, top: 0 }),
+    });
+    overlaySetData = vi.fn();
+    (fakeMap.getSource as ReturnType<typeof vi.fn>).mockImplementation((id: string) =>
+      id === 'drawn-overlay' ? { setData: overlaySetData } : undefined,
+    );
+  });
+
+  it('does not run the cleanup on mount', () => {
+    render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        canEdit
+      />,
+    );
+
+    expect(terraDrawState.clear).not.toHaveBeenCalled();
+    expect(showAllFeaturesInTilesMock).not.toHaveBeenCalled();
+    expect(drawingState.clearDrawing).not.toHaveBeenCalled();
+  });
+
+  it('tears down the local drawing session when the session epoch changes', () => {
+    const { rerender } = render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        canEdit
+      />,
+    );
+
+    // Open the "edit existing feature" dialog, standing in for "this
+    // identity's local UI state" the choke point cannot see.
+    fireEvent.click(screen.getByRole('button', { name: /Edit attributes/i }));
+    expect(screen.getByText('Edit Feature Attributes')).toBeInTheDocument();
+
+    // The identity change: the choke point bumped the store's sessionEpoch
+    // (and separately cleared its own Zustand fields — simulated here by
+    // NOT changing isDrawing/selectedFeature, since the point of this test
+    // is that the epoch alone drives DatasetMap's local cleanup).
+    drawingState.sessionEpoch = 101;
+    rerender(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        canEdit
+      />,
+    );
+
+    expect(terraDrawState.clear).toHaveBeenCalled();
+    expect(showAllFeaturesInTilesMock).toHaveBeenCalled();
+    expect(drawingState.clearDrawing).toHaveBeenCalled();
+    expect(screen.queryByText('Edit Feature Attributes')).not.toBeInTheDocument();
+    // fix(#1761 review round 4): a create in progress can leave a
+    // not-yet-committed shape in the drawn-overlay source; the
+    // identity-change cleanup must empty it too.
+    expect(overlaySetData).toHaveBeenCalledWith({ type: 'FeatureCollection', features: [] });
+  });
+});
+
+// fix(#1761 review round 4): the attribute-edit dialog's onSubmit used to
+// close unconditionally once handleEditAttributeSubmit resolved, even when
+// its own epoch check had refused the write as stale — discarding a SECOND
+// identity's own now-open editor for their feature.
+describe('DatasetMap attribute-edit dialog respects handleEditAttributeSubmit result (fix #1761 review round 4)', () => {
+  beforeEach(() => {
+    drawingState.isDrawing = true;
+    drawingState.activeMode = 'select';
+    drawingState.selectedFeature = { gid: 42, tdId: 'td-1', properties: {} };
+    drawingState.isEditDirty = false;
+    drawingState.sessionEpoch = 300;
+    updateFeatureMutateAsync.mockReset();
+  });
+
+  it('keeps the dialog open when the identity changed while the update was in flight', async () => {
+    let resolveUpdate!: (value: unknown) => void;
+    updateFeatureMutateAsync.mockReturnValueOnce(
+      new Promise((res) => {
+        resolveUpdate = res;
+      }),
+    );
+
+    render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        canEdit
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Edit attributes/i }));
+    expect(screen.getByText('Edit Feature Attributes')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/i }));
+
+    // Identity changes while the update is in flight.
+    drawingState.sessionEpoch = 301;
+
+    await act(async () => {
+      resolveUpdate({});
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Refused as stale: the dialog (a second identity's own editor, in the
+    // real scenario) stays open rather than being discarded.
+    expect(screen.getByText('Edit Feature Attributes')).toBeInTheDocument();
+  });
+
+  it('closes the dialog when the update succeeds and the identity has not changed', async () => {
+    render(
+      <DatasetMap
+        bbox={[-10, -10, 10, 10]}
+        tableName="example_table"
+        geometryType="Polygon"
+        datasetId="dataset-1"
+        canEdit
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Edit attributes/i }));
+    expect(screen.getByText('Edit Feature Attributes')).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Save$/i }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText('Edit Feature Attributes')).not.toBeInTheDocument();
   });
 });

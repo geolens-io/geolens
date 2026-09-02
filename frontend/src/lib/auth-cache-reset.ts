@@ -1,6 +1,8 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth-store';
 import { clearReportEntries } from '@/lib/report';
+import { useDrawingStore } from '@/stores/drawing-store';
+import { useSearchStore } from '@/stores/search-store';
 
 /**
  * fix(#430 codex r6): user-scoped queries (dataset search, map search, map
@@ -31,5 +33,19 @@ export function wireAuthCacheReset(queryClient: QueryClient): () => void {
     // the now-anonymous tab. Same choke point, same rule: identity changed,
     // drop everything captured under the old one.
     clearReportEntries();
+    // fix(#1713): drawing-store's target dataset, selected feature (a real
+    // row's property bag) and edit-dirty flag are the same identity-scoped
+    // residue, plus the milder case of search-store's typed/drawn search
+    // intent. Same choke point, same rule: identity changed, drop everything
+    // adopted or entered under the old one.
+    //
+    // fix(#1761 review P1): bump the session epoch BEFORE clearing, so any
+    // write already in flight (captured against the old epoch) is refused
+    // by drawing-store's own check even if it lands between these two
+    // calls or after them, no matter what the next identity turns out to
+    // be — see drawing-store.ts's `bumpSessionEpoch` doc comment.
+    useDrawingStore.getState().bumpSessionEpoch();
+    useDrawingStore.getState().clearDrawing();
+    useSearchStore.getState().clearIdentityScopedFilters();
   });
 }

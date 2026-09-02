@@ -263,6 +263,7 @@ export const DatasetMap = memo(function DatasetMap({
   const setMode = useDrawingStore((s) => s.setMode);
   const clearDrawing = useDrawingStore((s) => s.clearDrawing);
   const selectedFeature = useDrawingStore((s) => s.selectedFeature);
+  const sessionEpoch = useDrawingStore((s) => s.sessionEpoch);
 
   // Editable columns (non-system) for the attribute form
   const editableColumns = useMemo(
@@ -314,6 +315,7 @@ export const DatasetMap = memo(function DatasetMap({
     handleEditAttributeSubmit,
     selectFeatureFromMap,
     cleanupOverlayListener,
+    resetOverlay,
   } = useFeatureEditing({
     mapRef,
     datasetId,
@@ -814,8 +816,42 @@ export const DatasetMap = memo(function DatasetMap({
     tdSetMode('select');
     setPendingGeometry(null);
     setEditingAttributes(false);
+    // fix(#1761 review round 4, sweep): the delete/discard confirmation
+    // dialogs are the same class as pendingGeometry/editingAttributes —
+    // both reference a selectedFeature that just got cleared above.
+    // Left open, "Delete" degrades to a no-op (handleDeleteFeature's own
+    // guard refuses without a selectedFeature) rather than anything
+    // unsafe, but a dangling confirmation for content that no longer
+    // exists is exactly the dialog-survives-the-clear bug this effect
+    // exists to close.
+    setDeleteConfirmOpen(false);
+    setDiscardConfirmOpen(false);
+    discardActionRef.current = null;
+    // fix(#1761 review round 4): a create in progress (saveAndRefresh) may
+    // have put a not-yet-committed shape in the overlay ref/source. Empty
+    // both here too, or a later identity change or ordinary session close
+    // leaves it visible to whoever looks at the map next.
+    resetOverlay();
     clearDrawing();
-  }, [clear, clearDrawing, performDeselect, tdSetMode]);
+  }, [clear, clearDrawing, performDeselect, resetOverlay, tdSetMode]);
+
+  // fix(#1761 review round 3 P1): the identity-change choke point
+  // (lib/auth-cache-reset.ts) only resets Zustand state — clearDrawing()
+  // there has no way to reach Terra Draw's locally-drawn geometry,
+  // MapLibre's hidden-tile filters, or this component's own dialog state
+  // (pendingGeometry/editingAttributes), all of which only
+  // finishDrawingSession knows how to tear down. Run it whenever the
+  // session epoch moves so the previous identity's sketch, hidden tiles and
+  // open dialogs are gone for whoever is signed in (or anonymous) next.
+  // Skipped on mount: the epoch hasn't "changed" yet at that point, and
+  // running finishDrawingSession then would spuriously reset a session
+  // someone is legitimately resuming after a route change.
+  const sessionEpochRef = useRef(sessionEpoch);
+  useEffect(() => {
+    if (sessionEpochRef.current === sessionEpoch) return;
+    sessionEpochRef.current = sessionEpoch;
+    finishDrawingSession();
+  }, [sessionEpoch, finishDrawingSession]);
 
   // Handle close / stop drawing
   const handleCloseDrawing = useCallback(() => {
@@ -1054,8 +1090,12 @@ export const DatasetMap = memo(function DatasetMap({
         }}
         columns={columnInfo ?? []}
         onSubmit={async (properties) => {
-          await handleEditAttributeSubmit(properties);
-          setEditingAttributes(false);
+          // fix(#1761 review round 4): only close on `applied` — a
+          // stale-epoch result means a second identity may have this
+          // dialog open for their own feature, and unconditionally
+          // closing it here would discard that in-progress edit.
+          const { applied } = await handleEditAttributeSubmit(properties);
+          if (applied) setEditingAttributes(false);
         }}
         onCancel={() => setEditingAttributes(false)}
         initialValues={selectedFeature?.properties}
