@@ -39,6 +39,7 @@ import pytest
 from dataclasses import replace
 
 from app.core.service_tokens import (
+    HEADER_TOKEN_POLICY,
     CredentialMethod,
     ServiceCredential,
     build_credential_header,
@@ -446,36 +447,16 @@ class TestUnusableInputsAreRefusedAtTheDoor:
         assert resp.status_code == 422, resp.text
         probe.assert_not_awaited()
 
-    async def test_a_wfs_bearer_token_outside_the_charset_is_refused_at_the_probe(
+    async def test_a_bearer_token_is_not_charset_judged_before_detection(
         self, client, admin_auth_header: dict
     ) -> None:
-        """The same rule the preview and the two commit doors already applied.
+        """fix(#1746 B2b review r7): the probe is what determines the service.
 
-        The probe has no service type yet, so the URL shape is its selector.
-        An ArcGIS-shaped URL keeps the wider vocabulary its query-parameter
-        transport legitimately has; this one does not.
+        A bearer token reaches detection whatever the URL looks like, because
+        the transport that would constrain it is not known yet. The refusal,
+        when it comes, comes from `TestABearerTokenIsJudgedAfterDetection`
+        below, after every adapter has had its turn.
         """
-        probe = AsyncMock()
-        with (
-            patch(
-                "app.modules.catalog.sources.router.validate_url_for_ssrf",
-                new_callable=AsyncMock,
-            ),
-            patch("app.modules.catalog.sources.router.detect_service_type", probe),
-        ):
-            resp = await client.post(
-                "/services/probe",
-                json={"url": _WFS_URL, "token": "tok+slash/" + _value()},
-                headers=admin_auth_header,
-            )
-
-        assert resp.status_code == 422, resp.text
-        probe.assert_not_awaited()
-
-    async def test_an_arcgis_url_keeps_its_wider_token_vocabulary(
-        self, client, admin_auth_header: dict
-    ) -> None:
-        """An ArcGIS token is urlencoded into a query, so it is not a header."""
         from app.modules.catalog.sources.schemas import ProbeResponse
 
         probe = AsyncMock(
@@ -483,20 +464,21 @@ class TestUnusableInputsAreRefusedAtTheDoor:
                 service_type="ArcGIS FeatureServer", url=_ARCGIS_BASE, layers=[]
             )
         )
-        with (
-            patch(
-                "app.modules.catalog.sources.router.validate_url_for_ssrf",
-                new_callable=AsyncMock,
-            ),
-            patch("app.modules.catalog.sources.router.detect_service_type", probe),
-        ):
-            resp = await client.post(
-                "/services/probe",
-                json={"url": _ARCGIS_BASE, "token": "tok+slash/" + _value()},
-                headers=admin_auth_header,
-            )
+        for url in (_WFS_URL, _ARCGIS_BASE):
+            with (
+                patch(
+                    "app.modules.catalog.sources.router.validate_url_for_ssrf",
+                    new_callable=AsyncMock,
+                ),
+                patch("app.modules.catalog.sources.router.detect_service_type", probe),
+            ):
+                resp = await client.post(
+                    "/services/probe",
+                    json={"url": url, "token": "tok+slash/" + _value()},
+                    headers=admin_auth_header,
+                )
 
-        assert resp.status_code == 200, resp.text
+            assert resp.status_code == 200, (url, resp.text)
 
 
 # ---------------------------------------------------------------------------
@@ -1258,3 +1240,174 @@ class TestTheConformanceLinkStaysOnTheServiceOrigin:
         source = inspect.getsource(ogcapi_mod._resolve_conformance)
         assert "same_origin(" in source
         assert "validate_url_for_ssrf(" in source
+
+
+# ---------------------------------------------------------------------------
+# The probe is what determines the service, so it judges the token afterwards
+# ---------------------------------------------------------------------------
+
+
+class TestABearerTokenIsJudgedAfterDetection:
+    """fix(#1746 B2b review r7): restores the probe's pre-#1770 acceptance.
+
+    The first cut of #1755 item 2 chose the credential policy from the URL
+    shape, and that rejected a working import. `detect_service_type`'s slow
+    path deliberately probes ArcGIS for a URL naming neither FeatureServer nor
+    MapServer, and `probe_arcgis_service` classifies such an endpoint by what
+    its response contains, so a vanity or rewritten ArcGIS URL is ordinary.
+    Its token is percent-encoded into a query and legitimately holds `+` or
+    `/`, which the header charset refuses.
+
+    Only ArcGIS gets that acceptance back. A token no adapter can use is still
+    refused, with the same code and the same policy-only message the preview
+    and commit doors return; it just happens after detection rather than
+    instead of it.
+    """
+
+    async def _probe(self, client, headers, url, body, handle):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return handle(request)
+
+        with (
+            patch.object(
+                security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+            ),
+            patch.object(security, "validate_url_for_ssrf", AsyncMock()),
+            patch(
+                "app.modules.catalog.sources.router.validate_url_for_ssrf",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+                new_callable=AsyncMock,
+            ),
+        ):
+            resp = await client.post(
+                "/services/probe", json={"url": url, **body}, headers=headers
+            )
+        return resp, recorded
+
+    async def test_a_keyword_free_arcgis_url_keeps_its_token_vocabulary(
+        self, client, admin_auth_header: dict
+    ) -> None:
+        """The regression, end to end through the real adapters.
+
+        No FeatureServer or MapServer in the URL, so the fast path does not
+        fire and the two header-auth adapters are tried first. Neither can
+        compose this token; that ends those two probes and nothing else, and
+        the ArcGIS probe then classifies the endpoint by its response.
+        """
+        token = "tok+slash/" + _value()
+        vanity = "https://gis.example/maps/data"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if "f=json" in str(request.url):
+                return httpx.Response(
+                    200,
+                    json={
+                        "currentVersion": 10.91,
+                        "layers": [{"id": 0, "name": "Parcels"}],
+                    },
+                )
+            return httpx.Response(404)
+
+        resp, recorded = await self._probe(
+            client, admin_auth_header, vanity, {"token": token}, handle
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["service_type"] == "ArcGIS FeatureServer"
+        # The token reached the service the way that transport carries one,
+        # percent-encoded into the query, and never as a header.
+        arcgis = [r for r in recorded if "f=json" in str(r.url)]
+        assert arcgis
+        assert "tok%2Bslash%2F" in str(arcgis[0].url)
+        assert all(
+            "authorization" not in {n.lower() for n in r.headers} for r in recorded
+        )
+
+    async def test_a_token_no_adapter_can_use_is_refused_after_detection(
+        self, client, admin_auth_header: dict
+    ) -> None:
+        """The other half: the policy still applies, just not prematurely.
+
+        Nothing claims this URL. The header-auth adapters could not compose the
+        token, so the answer is the policy that explains why rather than
+        "service not recognized", which would send the caller off to check
+        their URL.
+        """
+        token = "tok+slash/" + _value()
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404)
+
+        resp, recorded = await self._probe(
+            client, admin_auth_header, _WFS_URL, {"token": token}, handle
+        )
+
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["detail"]
+        assert detail["code"] == "invalid_service_token"
+        assert detail["message"] == HEADER_TOKEN_POLICY
+        assert token not in resp.text
+        # No credential left the process under a header, on any hop.
+        assert all(
+            "authorization" not in {n.lower() for n in r.headers} for r in recorded
+        )
+
+    async def test_an_unrecognized_service_still_says_so(
+        self, client, admin_auth_header: dict
+    ) -> None:
+        """The policy answer must not swallow the ordinary one.
+
+        With a token every adapter can use, a URL nothing claims is still a 400
+        about the URL, which is the advice that caller needs.
+        """
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404)
+
+        resp, _recorded = await self._probe(
+            client,
+            admin_auth_header,
+            _WFS_URL,
+            {"token": "tok" + _value()},
+            handle,
+        )
+
+        assert resp.status_code == 400, resp.text
+
+    @pytest.mark.parametrize("method", ["basic", "header"])
+    async def test_the_header_only_methods_are_still_judged_up_front(
+        self, client, admin_auth_header: dict, method
+    ) -> None:
+        """No detection outcome makes these sendable to ArcGIS.
+
+        So their inputs are judged before anything is requested, exactly as
+        before: the deferral is for the one method ArcGIS can carry.
+        """
+        secrets = [_value()]
+        auth = (
+            {"method": "basic", "username": secrets[0], "password": "bad\rvalue"}
+            if method == "basic"
+            else {
+                "method": "header",
+                "header_name": "X-Api-Key",
+                "header_value": "bad\rvalue",
+            }
+        )
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            raise AssertionError("nothing may be requested for a refused credential")
+
+        resp, recorded = await self._probe(
+            client, admin_auth_header, _WFS_URL, {"auth": auth}, handle
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert recorded == []
+        for secret in secrets:
+            assert secret not in resp.text

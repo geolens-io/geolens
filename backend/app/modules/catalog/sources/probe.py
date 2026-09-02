@@ -50,6 +50,30 @@ def _looks_like_wfs(url: str) -> bool:
     return "/wfs" in lower_path or "service=wfs" in lower_query
 
 
+class ServiceCredentialUnusable(Exception):
+    """A header-auth adapter could not compose the credential it was given.
+
+    fix(#1746 B2b review r7): raised only after every adapter has had its turn,
+    which is the whole point of it. The probe is what DETERMINES the service
+    type, so a credential policy chosen from the URL alone gets it wrong for
+    the services this function exists to find: ``probe_arcgis_service``
+    classifies an endpoint that names neither FeatureServer nor MapServer by
+    what its response contains, and an ArcGIS token is percent-encoded into a
+    query, so it legitimately holds characters the header charset refuses.
+    Refusing such a token up front rejected a working ArcGIS import.
+
+    So a token an adapter cannot turn into a header stops THAT adapter and
+    nothing else. If another one claims the URL, the probe succeeds and the
+    token was fine. If none does, this carries the policy the caller needs to
+    read, which is better advice than "service not recognized" for a URL whose
+    only problem was the credential.
+    """
+
+    def __init__(self, policy: str):
+        self.policy = policy
+        super().__init__(policy)
+
+
 class ServiceNotRecognized(Exception):
     """Raised when the URL doesn't match any known service type."""
 
@@ -138,6 +162,24 @@ async def detect_service_type(
     looks_arcgis = _looks_like_arcgis(url)
     looks_wfs = _looks_like_wfs(url)
 
+    # fix(#1746 B2b review r7): a credential the header-auth transports cannot
+    # compose ends those probes and no others. Recorded rather than raised, so
+    # the ArcGIS branch below still gets its turn with the same value carried
+    # the way that transport carries one.
+    refusals: list[str] = []
+
+    async def _header_auth_probe(probe) -> dict | None:
+        try:
+            return await probe(url, client, credential=credential)
+        except ValueError as exc:
+            refusals.append(str(exc))
+            logger.debug(
+                "probe adapter refused the credential",
+                adapter=probe.__name__,
+                reason=str(exc),
+            )
+            return None
+
     # Fast path: ArcGIS URL pattern
     if looks_arcgis:
         logger.info(
@@ -159,7 +201,7 @@ async def detect_service_type(
         logger.info(
             "URL pattern matches WFS", url=redact_url_credentials(url)
         )  # fix(#430 BA-27)
-        result = await probe_wfs(url, client, credential=credential)
+        result = await _header_auth_probe(probe_wfs)
         if result is not None:
             # D-05: no enrichment — layers already have geometry_type=None,
             # feature_count=None, kind='vector' from probe_wfs.
@@ -170,14 +212,14 @@ async def detect_service_type(
     logger.info("Trying all probes", url=redact_url_credentials(url))  # fix(#430 BA-27)
 
     # Try OGC API Features landing page probe
-    ogcapi_result = await probe_ogcapi(url, client, credential=credential)
+    ogcapi_result = await _header_auth_probe(probe_ogcapi)
     if ogcapi_result is not None:
         # D-05: no enrichment — layers already have geometry_type=None,
         # feature_count=None, kind classified by classify_layer_kind from probe_ogcapi.
         return _build_probe_response(ogcapi_result, ogcapi_result["layers"], url)
 
     # Try WFS
-    wfs_result = await probe_wfs(url, client, credential=credential)
+    wfs_result = await _header_auth_probe(probe_wfs)
     if wfs_result is not None:
         # D-05: no enrichment — same as fast-path WFS branch above.
         return _build_probe_response(wfs_result, wfs_result["layers"], url)
@@ -192,5 +234,11 @@ async def detect_service_type(
         return _build_arcgis_response(
             arcgis_result, enriched, base_url, selected_layer_id=layer_id
         )
+
+    if refusals:
+        # Nothing claimed this URL, and a header-auth adapter never got to ask
+        # because the credential could not become a header. That policy is the
+        # actionable half of the answer, so it is what the caller gets.
+        raise ServiceCredentialUnusable(refusals[0])
 
     raise ServiceNotRecognized()

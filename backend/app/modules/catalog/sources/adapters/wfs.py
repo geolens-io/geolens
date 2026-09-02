@@ -129,15 +129,16 @@ async def probe_wfs(
     capabilities_url = build_capabilities_url(url)
     request_headers = {}
     if credential is not None:
-        try:
-            pair = build_credential_header(
-                replace(credential, service_format=WFS_SERVICE_FORMAT)
-            )
-        except ValueError as exc:
-            # The policy, never the value: every message the builder raises is
-            # a module constant that describes the rule.
-            logger.debug("WFS probe credential refused: %s", exc)
-            return None
+        # fix(#1746 B2b review r7): a ValueError from the builder propagates
+        # rather than becoming "not a WFS service". Whether a credential this
+        # transport cannot compose is fatal is the CALLER's decision, because
+        # another adapter may claim the same URL and carry the same value a
+        # different way -- an ArcGIS token is percent-encoded into a query and
+        # is legitimately outside the header charset. Every message the builder
+        # raises is a policy constant that names no part of the value.
+        pair = build_credential_header(
+            replace(credential, service_format=WFS_SERVICE_FORMAT)
+        )
         if pair is not None:
             request_headers[pair[0]] = pair[1]
 

@@ -23,7 +23,11 @@ from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.core.dependencies import get_db
 from app.platform.jobs.models import IngestJob
 from app.platform.extensions import get_catalog_port, get_connector_extension
-from app.core.service_tokens import ServiceCredential, build_credential_header
+from app.core.service_tokens import (
+    CredentialMethod,
+    ServiceCredential,
+    build_credential_header,
+)
 from app.modules.catalog.sources.adapters.arcgis import (
     ARCGIS_SERVICE_FORMAT,
     ArcGISTokenError,
@@ -46,7 +50,11 @@ from app.modules.catalog.sources.signin_guard import (
     _signin_settle_cancelled,
     signin_target,
 )
-from app.modules.catalog.sources.probe import ServiceNotRecognized, detect_service_type
+from app.modules.catalog.sources.probe import (
+    ServiceCredentialUnusable,
+    ServiceNotRecognized,
+    detect_service_type,
+)
 from app.modules.catalog.sources.schemas import (
     ArcGISSignInRequest,
     ArcGISSignInResponse,
@@ -454,10 +462,16 @@ async def _probe_audit_fail(
     url: str,
     result: str,
     status_code: int,
-    detail: str,
+    detail: str | dict[str, str],
     **extra,
 ) -> None:
-    """Audit-log a probe failure and raise HTTPException."""
+    """Audit-log a probe failure and raise HTTPException.
+
+    ``detail`` is a plain string for every refusal this door has always made,
+    and a coded object for the credential-policy one (fix(#1746 B2b review
+    r7)), which reuses the shape and the code the preview and commit doors
+    return so a client maps one thing rather than two.
+    """
     safe_url = redact_url_credentials(url)
     await audit_emit(
         db,
@@ -692,17 +706,34 @@ async def probe_service_url(
     #
     # fix(#1755 item 2): the probe used to judge nothing, so a WFS token
     # outside the header-token charset probed cleanly and was refused at
-    # preview. The probe has no service type yet — finding it out is the
-    # point — so the URL shape is its only selector, and it is the same one
-    # `detect_service_type` dispatches on. An ArcGIS URL keeps the wider
-    # vocabulary its query-parameter transport legitimately has; anything else
-    # is judged as the header-auth credential it is about to become.
+    # preview.
+    #
+    # fix(#1746 B2b review r7): but only what is true whatever gets detected.
+    # The first cut selected the policy from the URL shape, and that regressed
+    # a working import: `detect_service_type`'s slow path deliberately probes
+    # ArcGIS for a URL naming neither FeatureServer nor MapServer, and
+    # `probe_arcgis_service` classifies such an endpoint by what its response
+    # contains, so a vanity or rewritten ArcGIS URL is ordinary. Its token is
+    # percent-encoded into a query and legitimately holds `+` or `/`, which
+    # the header charset refuses.
+    #
+    # So a bearer token is bound to the query-parameter transport here and
+    # keeps that wider vocabulary; the header-line policy is applied once an
+    # adapter has said the service is a header-auth one, and reaches the
+    # caller as the same 422 through `ServiceCredentialUnusable` below. The
+    # two methods that exist only as a header are judged now, because no
+    # detection outcome makes them sendable to ArcGIS and their inputs must be
+    # usable whatever is found.
+    credential = service_credential_from_request(request.auth, request.token)
+    sends_a_header = (
+        credential is not None and credential.method != CredentialMethod.BEARER
+    )
     service_credential = credential_or_422(
-        service_credential_from_request(request.auth, request.token),
+        credential,
         service_format=(
-            ARCGIS_SERVICE_FORMAT
-            if _looks_like_arcgis(request.url)
-            else WFS_SERVICE_FORMAT
+            WFS_SERVICE_FORMAT
+            if sends_a_header and not _looks_like_arcgis(request.url)
+            else ARCGIS_SERVICE_FORMAT
         ),
     )
     safe_url = redact_url_credentials(request.url)
@@ -733,6 +764,22 @@ async def probe_service_url(
             response = await detect_service_type(
                 request.url, client, credential=service_credential
             )
+
+    except ServiceCredentialUnusable as exc:
+        # fix(#1746 B2b review r7): every adapter has had its turn and none
+        # claimed the URL, so the credential policy is now the answer rather
+        # than a guess made before detection. Same code and same policy-only
+        # message the preview and commit doors return, which the client
+        # already maps.
+        logger.warning("Probe credential unusable", url=safe_url)
+        await _probe_audit_fail(
+            db,
+            user.id,
+            request.url,
+            "invalid_service_token",
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": "invalid_service_token", "message": exc.policy},
+        )
 
     except SSRFError as exc:
         # fix(#1746): raised mid-probe rather than at the door — either a

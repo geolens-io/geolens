@@ -174,13 +174,12 @@ async def probe_ogcapi(
     # whether this request carries a credential and under what name.
     pair: tuple[str, str] | None = None
     if credential is not None:
-        try:
-            pair = build_credential_header(
-                replace(credential, service_format=OGCAPI_SERVICE_FORMAT)
-            )
-        except ValueError as exc:
-            logger.debug("OGC API probe: credential refused", error=str(exc))
-            return None
+        # fix(#1746 B2b review r7): the ValueError propagates. See probe_wfs
+        # for why the caller and not the adapter decides what an uncomposable
+        # credential means.
+        pair = build_credential_header(
+            replace(credential, service_format=OGCAPI_SERVICE_FORMAT)
+        )
         if pair is not None:
             headers[pair[0]] = pair[1]
 
