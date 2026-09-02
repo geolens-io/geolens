@@ -1,6 +1,12 @@
 import { importStacItems } from './stac';
 import { useAuthStore } from '@/stores/auth-store';
-import type { StacImportItem, StacImportResponse } from '@/types/api';
+import type {
+  StacCollectionSummary,
+  StacConnectResponse,
+  StacImportItem,
+  StacImportResponse,
+  StacItemSummary,
+} from '@/types/api';
 
 /**
  * fix(#1712): the in-flight STAC import, owned OUTSIDE React.
@@ -26,8 +32,25 @@ import type { StacImportItem, StacImportResponse } from '@/types/api';
  * import request covers the whole selected batch of items, not one entry
  * per item.
  *
+ * fix(codex #1763 r3): also carries the search CONTEXT (catalog, selected
+ * collection, search results, selected item ids) the way the Upload
+ * session already carries the selected layer in `previewData` — an
+ * adopted result used to restore only `importResult`, so the "Back to
+ * Results" button on the done screen (which sets `step` back to `items`)
+ * rendered nothing: the `items` branch guards on `selectedCollection` and
+ * `catalogInfo`, both null on a fresh mount, so it fell through to the
+ * empty URL form. Captured at the moment the import starts, since that is
+ * the last point every one of those values is still known.
+ *
  * Deliberately not persisted — same reasoning as #1708/#1712 generally.
  */
+export interface StacImportContext {
+  catalogInfo: StacConnectResponse;
+  selectedCollection: StacCollectionSummary;
+  searchResult: { items: StacItemSummary[]; matched: number | null };
+  selectedItemIds: string[];
+}
+
 export interface StacImportSession {
   key: string;
   status: 'pending' | 'fulfilled' | 'rejected';
@@ -35,18 +58,20 @@ export interface StacImportSession {
   error: unknown;
   promise: Promise<StacImportResponse>;
   ownerId: string | null;
+  context: StacImportContext;
 }
 
 let current: StacImportSession | null = null;
 
-// fix(codex #1763 r1): a literal NUL byte was here as the key separator,
-// copied by analogy from url-import-session.ts's escaped \u0000 without
-// actually escaping it. A raw control byte makes ripgrep report this file
-// as binary (verified: grep silently returns nothing for symbols that are
-// present) and makes git treat the diff as binary, so the module drops out
-// of repository-wide search and ordinary review tooling. A plain space is
-// enough here: a STAC catalog URL cannot contain one unescaped, so the
-// separator cannot collide with content on either side of it.
+// fix(codex #1763 r1): a literal control byte was here as the key
+// separator, copied by analogy from url-import-session.ts's escaped
+// constant without actually escaping it. A raw control byte makes ripgrep
+// report this file as binary (verified: grep silently returns nothing for
+// symbols that are present) and makes git treat the diff as binary, so the
+// module drops out of repository-wide search and ordinary review tooling.
+// A plain space is enough here: a STAC catalog URL cannot contain one
+// unescaped, so the separator cannot collide with content on either side
+// of it.
 function sessionKey(url: string, items: StacImportItem[]): string {
   return `${url} ${items.map((i) => i.id).join(',')}`;
 }
@@ -60,6 +85,7 @@ function sessionKey(url: string, items: StacImportItem[]): string {
 export function startStacImport(
   url: string,
   items: StacImportItem[],
+  context: StacImportContext,
   visibility?: string,
 ): StacImportSession {
   const key = sessionKey(url, items);
@@ -74,6 +100,7 @@ export function startStacImport(
     error: null,
     promise,
     ownerId: useAuthStore.getState().user?.id ?? null,
+    context,
   };
   current = session;
   promise.then(

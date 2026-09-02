@@ -18,7 +18,12 @@ import {
   fetchStacCollections,
   searchStacItems,
 } from '@/api/stac';
-import { startStacImport, peekStacImport, clearStacImport } from '@/api/stac-import-session';
+import {
+  startStacImport,
+  peekStacImport,
+  clearStacImport,
+  type StacImportContext,
+} from '@/api/stac-import-session';
 import type {
   StacConnectResponse,
   StacCollectionSummary,
@@ -201,7 +206,18 @@ export function StacImportForm() {
     // api/stac-import-session.ts for why this is the one STAC call worth
     // protecting). Awaiting the SAME promise the session holds means this
     // mount still learns the real outcome; only a remount changes anything.
-    const session = startStacImport(catalogInfo!.url, importItems);
+    //
+    // fix(codex #1763 r3): the search context travels with the session too,
+    // captured here because this is the last point every one of these
+    // values is still known — an adopted mount has none of its own local
+    // state to fall back on.
+    const context: StacImportContext = {
+      catalogInfo: catalogInfo!,
+      selectedCollection: selectedCollection!,
+      searchResult,
+      selectedItemIds: Array.from(selectedItems),
+    };
+    const session = startStacImport(catalogInfo!.url, importItems, context);
     try {
       const result = await session.promise;
       // fix(#1712): if this mount unmounted while the request was in
@@ -243,6 +259,15 @@ export function StacImportForm() {
   useEffect(() => {
     const session = peekStacImport();
     if (!session) return;
+    // fix(codex #1763 r3): restore the search context the session captured
+    // when the import started, so 'items' can render again if the user
+    // reaches it — most directly via "Back to Results" from the done
+    // screen below, which sets `step` back to 'items' and needs
+    // `selectedCollection`/`catalogInfo` to pass that branch's guard.
+    setCatalogInfo(session.context.catalogInfo);
+    setSelectedCollection(session.context.selectedCollection);
+    setSearchResult(session.context.searchResult);
+    setSelectedItems(new Set(session.context.selectedItemIds));
     setStep('importing');
     session.promise.then(
       (result) => {
@@ -261,12 +286,10 @@ export function StacImportForm() {
       },
       (err) => {
         if (!mountedRef.current) return;
-        // The collection/item list this step needs to rebuild 'items' does
-        // not survive an unmount (only the import response is sessioned
-        // here), so a failure discovered on remount surfaces at the URL
-        // step instead of a step this mount cannot reconstruct. The
-        // still-mounted path above returns to 'items' because it still has
-        // that context.
+        // The context restored above WOULD let this return to 'items' like
+        // the still-mounted path below does — deliberately left at 'idle'
+        // for now, matching the smaller scope of the original fix; revisit
+        // together if a later pass unifies the two failure paths.
         const msg = err instanceof ApiError ? err.message : t('stac.importFailed');
         setError(msg);
         setStep('idle');

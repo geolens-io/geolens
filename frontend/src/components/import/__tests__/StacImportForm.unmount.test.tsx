@@ -217,6 +217,48 @@ describe('StacImportForm unmount survival', () => {
     expect(peekStacImport()).toBeNull();
   });
 
+  // fix(codex #1763 r3): the session used to restore only `importResult` on
+  // adoption, so "Back to Results" (which sets `step` back to 'items')
+  // rendered nothing — that branch guards on `selectedCollection` and
+  // `catalogInfo`, both null on a fresh mount. The session now carries the
+  // search context captured when the import started, restored alongside
+  // the result.
+  test('an adopted result still supports "Back to Results", showing the same items', async () => {
+    let resolveImport!: (v: unknown) => void;
+    mockImportStacItems.mockReturnValue(
+      new Promise((resolve) => {
+        resolveImport = resolve;
+      }),
+    );
+
+    const { user, view } = await driveToConfirmStep();
+    await user.click(screen.getByRole('button', { name: /stac\.confirm\.confirmImport/i }));
+    await waitFor(() => expect(mockImportStacItems).toHaveBeenCalledTimes(1));
+
+    // Switch tabs while the import is still in flight — a manually-settled
+    // promise guarantees this mount never sees the resolution itself, so
+    // the NEXT mount is the one that has to adopt the result.
+    view.unmount();
+    resolveImport({
+      created: 1,
+      skipped: 0,
+      errors: 0,
+      results: [{ item_id: 'flow-item-1', dataset_id: 'ds-1', status: 'created', error: null }],
+    });
+    await waitFor(() => expect(peekStacImport()?.status).toBe('fulfilled'));
+
+    render(<StacImportForm />);
+    await waitFor(() => expect(screen.getByText('stac.importComplete')).toBeInTheDocument());
+
+    await user.click(screen.getByText('stac.backToResults'));
+
+    // The items step renders again, with the same collection and result the
+    // session captured at import time — not the empty URL form the missing
+    // context used to fall through to.
+    await waitFor(() => expect(screen.getByText(ITEM.title)).toBeInTheDocument());
+    expect(screen.getByText('Test Collection')).toBeInTheDocument();
+  });
+
   test('a different identity does not adopt the import', async () => {
     useAuthStore.setState({ token: 't1', user: { id: 'user-1' } as UserResponse });
     mockImportStacItems.mockReturnValue(new Promise(() => {}));
