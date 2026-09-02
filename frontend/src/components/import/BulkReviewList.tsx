@@ -408,9 +408,14 @@ export function BulkReviewList({
                           {t(isSpreadsheetExt(ext) ? 'bulk.sheetLabel' : 'bulk.layerLabel')}
                         </Label>
                         {/* fix(#438): DS-08 — native <select> → themed ui/select. */}
+                        {/* fix(#1778): mirrors UrlImportForm.tsx's handleLayerChange
+                            guard (#1708 r24): the layer picker stayed live during a
+                            commit, so changing it re-enabled the commit button
+                            against a request that could not be recalled. */}
                         <Select
                           value={entry.previewData.layer_name}
                           onValueChange={(v) => onSheetChange?.(entry.id, v)}
+                          disabled={entry.status === 'committing'}
                         >
                           <SelectTrigger id={`sheet-${entry.id}`} className="w-full max-w-xs">
                             <SelectValue />
