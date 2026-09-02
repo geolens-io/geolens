@@ -395,16 +395,35 @@ test.describe('Builder residual-risk hardening', () => {
     }
   });
 
-  test('public share, embed, and read-only map viewers work while unauthenticated editing stays protected', async ({ browser, request, browserName }) => {
+  test('public share, embed, and read-only map viewers work while unauthenticated editing stays protected', async ({ browser, request, browserName }, testInfo) => {
     test.skip(browserName !== 'chromium', 'permission/share variants are covered in the primary browser project');
 
+    // fix(#1778): browser.newContext() does not inherit the project's
+    // `use.colorScheme` -- that option only applies to the default
+    // context/page fixtures Playwright builds for a test, not one created
+    // manually here for an unauthenticated storageState. Read the active
+    // project's colorScheme (Playwright's own default is 'light' when the
+    // project leaves it unset) and pass it through explicitly, so the dark
+    // project actually exercises this flow under dark mode instead of
+    // silently running it in light mode regardless of the project.
+    const colorScheme = testInfo.project.use.colorScheme ?? 'light';
     const { mapId, shareToken } = await createPublicSharedMap(request, `E2E Public Share ${Date.now()}`);
-    const context = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+    const context = await browser.newContext({
+      storageState: { cookies: [], origins: [] },
+      colorScheme,
+    });
     const viewer = await context.newPage();
     try {
       await viewer.goto(`${BASE_URL}/m/${shareToken}`);
       await expect(viewer.locator('text=Something went wrong')).toHaveCount(0);
       await expect(viewer.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 20_000 });
+
+      // Confirm the manually created context actually resolved to the
+      // project's color scheme rather than silently defaulting to light.
+      const prefersDark = await viewer.evaluate(
+        () => window.matchMedia('(prefers-color-scheme: dark)').matches,
+      );
+      expect(prefersDark).toBe(colorScheme === 'dark');
 
       await viewer.goto(`${BASE_URL}/m/${shareToken}?embed=true`);
       await expect(viewer.locator('text=Something went wrong')).toHaveCount(0);

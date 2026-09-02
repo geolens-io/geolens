@@ -2005,12 +2005,18 @@ jobs:
 
       # fix(#524 B-036): the builder-hardening suite previously ran in NO CI
       # trigger (this job runs only the default config), so a red hardening
-      # gate on main was invisible. Chromium project only — the runner installs
-      # chromium alone, and the firefox/webkit projects are a local reviewer
-      # concern. --reporter=line keeps it from clobbering the main suite's
-      # playwright-report/ artifact.
-      - name: Run builder-hardening E2E suite (chromium)
-        run: npx playwright test -c playwright.builder-hardening.config.ts --project=chromium-hardening --reporter=line
+      # gate on main was invisible. Chromium projects only: the runner
+      # installs chromium alone, and the firefox/webkit projects are a local
+      # reviewer concern. --reporter=line keeps it from clobbering the main
+      # suite's playwright-report/ artifact.
+      #
+      # fix(#1778): chromium-hardening-dark (light-mode gap closed for this
+      # config) was defined but never selected here, so it never actually
+      # ran in CI. Both chromium projects in one invocation; still no
+      # firefox/webkit install needed since both are chromium under the
+      # hood, just a different colorScheme.
+      - name: Run builder-hardening E2E suite (chromium, light + dark)
+        run: npx playwright test -c playwright.builder-hardening.config.ts --project=chromium-hardening --project=chromium-hardening-dark --reporter=line
 
       # fix(#896): extract the failing spec names from the json reporter
       # output (playwright.config.ts) so the nightly report can say WHICH

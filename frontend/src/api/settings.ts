@@ -183,6 +183,11 @@ export async function updateBranding(data: Partial<BrandingConfig>): Promise<voi
   // The registry key is dotted (`branding.show_badge` in persistent_config.py),
   // not `branding_show_badge` -- the underscore spelling 400s on every save.
   if (data.show_badge !== undefined) settings['branding.show_badge'] = data.show_badge;
+  // fix(#1778): updateBranding took Partial<BrandingConfig>, which typechecks
+  // for privacy_url, but only ever forwarded show_badge, silently dropping
+  // privacy_url -- a privacy_url-only call PUT an empty settings object and
+  // still reported success.
+  if (data.privacy_url !== undefined) settings.privacy_url = data.privacy_url;
   await updateSettings(settings);
 }
 
