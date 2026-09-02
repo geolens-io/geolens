@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -52,6 +54,7 @@ def _manifest_dataset(
     intent: str = "draft",
     crs: str | None = "EPSG:4326",
     tags: list[str] | None = None,
+    checksum: str | None = None,
 ) -> dict:
     metadata: dict[str, object] = {
         "organization": "City GIS",
@@ -62,17 +65,18 @@ def _manifest_dataset(
         metadata["crs"] = crs
     if tags is not None:
         metadata["tags"] = tags
+    source: dict[str, object] = {
+        "type": source_type,
+        "uri": uri,
+        "format": "geojson" if source_type == "vector" else "cog",
+    }
+    if checksum is not None:
+        source["checksum"] = checksum
     return {
         "key": key,
         "title": title,
         "description": f"{title} description",
-        "sources": [
-            {
-                "type": source_type,
-                "uri": uri,
-                "format": "geojson" if source_type == "vector" else "cog",
-            }
-        ],
+        "sources": [source],
         "metadata": metadata,
         "publication": {"intent": intent},
     }
@@ -180,6 +184,36 @@ class TestManifestApplyHelpers:
         )
         assert manifest_dataset_fingerprint(first) != manifest_dataset_fingerprint(
             changed
+        )
+
+    def test_absent_checksum_does_not_change_the_fingerprint(self):
+        """gh#1736: manifest_dataset_fingerprint dumps with exclude_none=True,
+        so a manifest entry that never sets checksum must fingerprint exactly
+        as it did before the field existed -- otherwise adding an optional
+        field would itself flip every stored fingerprint to "update"."""
+        dataset = _request(_manifest_dataset()).datasets[0]
+
+        payload = dataset.model_dump(mode="json", exclude_none=True)
+        assert "checksum" not in payload["sources"][0]
+        pre_checksum_field_fingerprint = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+
+        assert manifest_dataset_fingerprint(dataset) == pre_checksum_field_fingerprint
+
+    def test_changed_checksum_changes_the_fingerprint(self):
+        """gh#1736: a caller bumping checksum on an otherwise-identical entry
+        is the documented escape hatch for a stable URI whose bytes changed;
+        the fingerprint has to move for _classify_dataset to see it."""
+        unset = _request(_manifest_dataset()).datasets[0]
+        first = _request(_manifest_dataset(checksum=f"sha256:{'a' * 64}")).datasets[0]
+        second = _request(_manifest_dataset(checksum=f"sha256:{'b' * 64}")).datasets[0]
+
+        assert manifest_dataset_fingerprint(unset) != manifest_dataset_fingerprint(
+            first
+        )
+        assert manifest_dataset_fingerprint(first) != manifest_dataset_fingerprint(
+            second
         )
 
     def test_publication_mapping(self):
@@ -711,6 +745,57 @@ class TestManifestApplyService:
         assert result.job_id == job.id
         assert result.dataset_id == dataset.id
         queue.assert_not_awaited()
+        # gh#1736: the message must not claim the source was checked, only
+        # that the manifest entry itself is unchanged.
+        assert "not inspected" in result.message
+        assert "checksum" in result.message
+
+    async def test_changed_checksum_reclassifies_skip_complete_as_update(
+        self, test_db_session, clean_tables
+    ):
+        """gh#1736: a caller-declared checksum is the escape hatch for a
+        stable URI whose bytes changed underneath it -- bumping it must move
+        the entry out of skip_complete even though nothing else changed."""
+        _stage_basic_vector_fixture()
+        user = await _admin_user(test_db_session)
+        original_request = _request(
+            _manifest_dataset(
+                key="manifest-checksum-update", checksum=f"sha256:{'a' * 64}"
+            )
+        )
+        changed_request = _request(
+            _manifest_dataset(
+                key="manifest-checksum-update", checksum=f"sha256:{'b' * 64}"
+            )
+        )
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=user.id,
+            name="Existing roads",
+        )
+        await _create_completed_manifest_job(
+            test_db_session,
+            user=user,
+            dataset=dataset,
+            manifest_dataset=original_request.datasets[0],
+        )
+        task = MagicMock()
+        task.defer_async = AsyncMock()
+        port = MagicMock()
+        port.reupload_file_task.return_value = task
+
+        with patch(
+            "app.processing.ingest.manifest_service.get_catalog_port",
+            return_value=port,
+        ):
+            response = await apply_manifest(
+                test_db_session, changed_request, user, _http_request()
+            )
+
+        result = response.results[0]
+        assert result.action == "update"
+        assert result.dataset_id == dataset.id
+        task.defer_async.assert_awaited_once()
 
     async def test_changed_completed_fingerprint_creates_reupload_job(
         self, test_db_session, clean_tables

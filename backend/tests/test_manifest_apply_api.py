@@ -102,6 +102,41 @@ class TestManifestApplySchemas:
 
         assert request.datasets[0].sources[0].uri == f"./data/roads{extension}"
 
+    def test_accepts_a_well_formed_checksum(self):
+        payload = valid_manifest_payload()
+        payload["datasets"][0]["sources"][0]["checksum"] = f"sha256:{'a' * 64}"
+
+        request = ManifestApplyRequest.model_validate(payload)
+
+        assert request.datasets[0].sources[0].checksum == f"sha256:{'a' * 64}"
+
+    def test_omitted_checksum_defaults_to_none(self):
+        request = ManifestApplyRequest.model_validate(valid_manifest_payload())
+
+        assert request.datasets[0].sources[0].checksum is None
+
+    @pytest.mark.parametrize(
+        "checksum",
+        [
+            "sha256:" + "a" * 63,  # too short
+            "sha256:" + "a" * 65,  # too long
+            "sha256:" + "A" * 64,  # uppercase hex is rejected, not normalized
+            "sha256:" + "g" * 64,  # not hex
+            "md5:" + "a" * 32,  # wrong algorithm prefix
+            "a" * 64,  # missing algorithm prefix entirely
+            "sha256:",
+            "",
+        ],
+    )
+    def test_rejects_malformed_checksum_shapes(self, checksum: str):
+        payload = valid_manifest_payload()
+        payload["datasets"][0]["sources"][0]["checksum"] = checksum
+
+        with pytest.raises(ValidationError) as exc:
+            ManifestApplyRequest.model_validate(payload)
+
+        assert "checksum" in str(exc.value)
+
     @pytest.mark.parametrize(
         ("source_type", "uri", "expected"),
         [

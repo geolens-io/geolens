@@ -57,6 +57,25 @@ ManifestUrl = Annotated[
     Field(max_length=2000, pattern=r"^https?://[^\s]+$"),
 ]
 ManifestCrs = Annotated[str, Field(pattern=r"^EPSG:[0-9]{1,6}$")]
+# gh#1736: a caller-declared digest of the source bytes, used only as a
+# change-detection input alongside the rest of the manifest entry. Apply does
+# not fetch the source to verify it; see ManifestSource.checksum below and
+# manifest_service._run_entry's skip-complete message for the caveat this
+# implies for a stable URI whose file content changes underneath it.
+ManifestChecksum = Annotated[
+    str,
+    Field(
+        pattern=r"^sha256:[0-9a-f]{64}$",
+        description=(
+            "Declared SHA-256 digest of the source bytes, as "
+            "'sha256:<64 lowercase hex characters>'. Apply uses this only as "
+            "a change-detection input alongside the rest of the entry; it is "
+            "not verified against the fetched bytes. Bump it when the file "
+            "under a stable URI changes, to force apply to reclassify the "
+            "entry as an update instead of skipping it."
+        ),
+    ),
+]
 ManifestBboxCoordinate = Annotated[float, Field(ge=-180, le=180)]
 ManifestBbox = Annotated[
     list[ManifestBboxCoordinate],
@@ -122,6 +141,7 @@ class ManifestSource(_ManifestBaseModel):
     description: NonEmptyString5000 | None = None
     format: NonEmptyString100 | None = None
     layer: NonEmptyString500 | None = None
+    checksum: ManifestChecksum | None = None
 
     @field_validator("uri")
     @classmethod

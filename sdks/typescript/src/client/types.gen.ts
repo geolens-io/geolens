@@ -5326,6 +5326,10 @@ export type ManifestSource = {
      * Layer
      */
     layer?: string | null;
+    /**
+     * Checksum
+     */
+    checksum?: string | null;
 };
 
 /**

@@ -210,6 +210,35 @@ def test_manifest_accepts_tier1_vector_extensions(uri: str) -> None:
     assert validate_manifest(document) == []
 
 
+def test_manifest_accepts_a_well_formed_source_checksum() -> None:
+    """gh#1736: checksum is declared, not verified -- apply folds it into the
+    entry fingerprint so a caller can force a re-import under a stable URI."""
+    document = _minimal_manifest()
+    document["datasets"][0]["sources"][0]["checksum"] = f"sha256:{'a' * 64}"
+
+    assert validate_manifest(document) == []
+
+
+@pytest.mark.parametrize(
+    "checksum",
+    [
+        "sha256:" + "a" * 63,
+        "sha256:" + "a" * 65,
+        "sha256:" + "A" * 64,
+        "md5:" + "a" * 32,
+        "a" * 64,
+    ],
+)
+def test_manifest_rejects_malformed_source_checksum(checksum: str) -> None:
+    document = _minimal_manifest()
+    document["datasets"][0]["sources"][0]["checksum"] = checksum
+
+    assert (
+        "$.datasets[0].sources[0].checksum",
+        "pattern",
+    ) in _error_pairs(document)
+
+
 def test_unknown_top_level_fields_are_rejected() -> None:
     document = _minimal_manifest()
     document["tenant_id"] = "enterprise-only"

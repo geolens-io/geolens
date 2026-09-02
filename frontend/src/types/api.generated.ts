@@ -9192,6 +9192,8 @@ export interface components {
             format?: string | null;
             /** Layer */
             layer?: string | null;
+            /** Checksum */
+            checksum?: string | null;
         };
         /** MapAccessResponse */
         MapAccessResponse: {

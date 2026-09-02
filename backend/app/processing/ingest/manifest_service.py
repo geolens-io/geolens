@@ -762,7 +762,16 @@ async def _run_entry(
             action="skip",
             job_id=job.id,
             dataset_id=job.dataset_id,
-            message="Manifest dataset is already up to date.",
+            # gh#1736: this branch means the manifest entry matches the last
+            # completed one; it does not mean the source bytes were read.
+            # A stable URI whose file changed underneath it lands here too,
+            # so say plainly that the source was not inspected and name the
+            # escape hatch (checksum) instead of implying nothing changed.
+            message=(
+                "Manifest dataset entry is unchanged; the source was not "
+                "inspected. Set checksum on the source to force a re-import "
+                "when the file changes under a stable URI."
+            ),
         )
 
     if classification == "update" and existing_dataset is not None:
