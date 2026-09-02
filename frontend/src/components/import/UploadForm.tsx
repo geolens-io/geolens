@@ -1,15 +1,17 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
-import { previewFile, commitImport } from '@/api/ingest';
+import { commitImport } from '@/api/ingest';
 import { commitFanOut } from '@/api/datasets';
 import {
   startUploadEntry,
+  startLayerPreview,
   subscribeUploadBatch,
   peekUploadBatch,
   getUploadSessionEntry,
   removeUploadSessionEntry,
   clearUploadBatch,
+  type UploadSessionEntry,
 } from '@/api/upload-session';
 import { useUploadConfig } from '@/components/import/hooks/use-ingest';
 import { queryKeys } from '@/lib/query-keys';
@@ -62,6 +64,39 @@ function quotaMessage(err: unknown): string | null {
   return err instanceof ApiError && err.message.startsWith('Dataset quota exceeded')
     ? err.message
     : null;
+}
+
+/**
+ * Derive the display error (and, for a quota rejection, the batch-level
+ * banner text) for a session entry. Shared by the mount-adoption effect and
+ * the live-subscription effect below so the two cannot drift.
+ *
+ * fix(codex #1763 r2): the subscription effect used to set `error: null`
+ * for anything that wasn't `upload-failed`, which silently swallowed a
+ * layer-reselect failure (status stays `preview`, `entry.error` set by
+ * `startLayerPreview`) the moment the next unrelated session update
+ * notified. The second branch here covers that case with the SAME simpler
+ * derivation `handleSheetChange` used before this went through the
+ * session (no quota check, no hint — a layer reselect is never a quota
+ * rejection).
+ */
+function deriveSessionEntryError(
+  se: UploadSessionEntry,
+  t: (key: string) => string,
+  onQuota: (msg: string) => void,
+): string | null {
+  if (se.status === 'upload-failed') {
+    const quota = quotaMessage(se.error);
+    if (quota) {
+      onQuota(quota);
+      return t('upload.quotaShort');
+    }
+    return buildErrorDisplay(se.error, 'upload.uploadFailed', t);
+  }
+  if (se.status === 'preview' && se.error != null) {
+    return se.error instanceof ApiError ? se.error.message : t('upload.uploadFailed');
+  }
+  return null;
 }
 
 // GPKG-03 Phase 1058: per-layer result shape for the fan-out results modal.
@@ -144,31 +179,19 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     const adopted = peekUploadBatch();
     if (!adopted || adopted.length === 0) return;
     setEntries(
-      adopted.map((se) => {
-        let error: string | null = null;
-        if (se.status === 'upload-failed') {
-          const quota = quotaMessage(se.error);
-          if (quota) {
-            setQuotaNotice(quota);
-            error = t('upload.quotaShort');
-          } else {
-            error = buildErrorDisplay(se.error, 'upload.uploadFailed', t);
-          }
-        }
-        return {
-          id: se.id,
-          file: null,
-          fileName: se.fileName,
-          status: se.status,
-          jobId: se.jobId,
-          previewData: se.previewData,
-          error,
-          progress: se.progress,
-          submittedTitle: null,
-          submittedVisibility: null,
-          submittedKind: null,
-        };
-      }),
+      adopted.map((se) => ({
+        id: se.id,
+        file: null,
+        fileName: se.fileName,
+        status: se.status,
+        jobId: se.jobId,
+        previewData: se.previewData,
+        error: deriveSessionEntryError(se, t, setQuotaNotice),
+        progress: se.progress,
+        submittedTitle: null,
+        submittedVisibility: null,
+        submittedKind: null,
+      })),
     );
     setPhase(
       adopted.every((se) => se.status === 'preview' || se.status === 'upload-failed')
@@ -196,16 +219,7 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
           ) {
             return e;
           }
-          let displayError: string | null = null;
-          if (se.status === 'upload-failed') {
-            const quota = quotaMessage(se.error);
-            if (quota) {
-              setQuotaNotice(quota);
-              displayError = t('upload.quotaShort');
-            } else {
-              displayError = buildErrorDisplay(se.error, 'upload.uploadFailed', t);
-            }
-          }
+          const displayError = deriveSessionEntryError(se, t, setQuotaNotice);
           return {
             ...e,
             status: se.status,
@@ -453,24 +467,28 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     await handleCommitAll();
   };
 
-  const handleSheetChange = async (entryId: string, layerName: string) => {
+  // fix(codex #1763 r2): routed through the session (startLayerPreview)
+  // instead of calling previewFile + updateEntry directly. The direct-call
+  // version left the session holding the ORIGINAL layer's preview forever,
+  // so a remount after switching layers restored the original layer_name —
+  // a default commit after a tab switch silently ingested the wrong layer.
+  // The subscription effect above mirrors the result back into `entries`
+  // once the session settles, whether or not this exact call is still the
+  // live one.
+  const handleSheetChange = (entryId: string, layerName: string) => {
     const entry = entries.find((e) => e.id === entryId);
     if (!entry?.jobId) return;
     // fix(#1778): mirrors UrlImportForm.tsx's handleLayerChange guard
     // (#1708 r24): re-previewing mid-commit drove the entry back to
     // 'preview' unconditionally, which re-enabled the commit button
-    // against a request already in flight for the same job.
+    // against a request already in flight for the same job. Still applies
+    // now that the re-preview is session-routed (#1712 r2): 'committing'
+    // and 'tracking' entries are no longer even IN the session (removed at
+    // commit-issue time, see upload-session.ts), so startLayerPreview would
+    // silently no-op for them anyway — this bails out before the call
+    // rather than relying on that as the only guard.
     if (entry.status === 'committing' || entry.status === 'tracking') return;
-
-    updateEntry(entryId, { status: 'previewing' });
-    try {
-      const preview = await previewFile(entry.jobId, layerName);
-      updateEntry(entryId, { previewData: preview, status: 'preview' });
-    } catch (err) {
-      const msg =
-        err instanceof ApiError ? err.message : t('upload.uploadFailed');
-      updateEntry(entryId, { status: 'preview', error: msg });
-    }
+    startLayerPreview(entryId, entry.jobId, layerName);
   };
 
   // GPKG-03 Phase 1058-04: fan-out handler — single commitFanOut call replaces

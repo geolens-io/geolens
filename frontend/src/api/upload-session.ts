@@ -126,6 +126,52 @@ export function startUploadEntry(id: string, file: File, presigned: boolean): vo
 }
 
 /**
+ * Re-preview an existing entry under a different layer (a multi-layer
+ * GeoPackage or spreadsheet's layer picker, used while still in the
+ * `preview` phase, before any commit). Both outcomes are written to the
+ * SAME session entry `startUploadEntry` created, at module scope, for the
+ * same reason as the initial preview: a tab switch mid-request must not
+ * lose the result.
+ *
+ * fix(codex #1763 r2): this used to be a call the component made directly
+ * (`previewFile` + local `updateEntry`), entirely outside the session. That
+ * left the session holding the ORIGINAL layer's preview forever, so a
+ * remount after re-selecting a layer restored the original `layer_name` —
+ * silently ingesting the wrong layer on a subsequent default commit. Now it
+ * goes through the same entry the session already owns, and `previewData`
+ * (which carries `layer_name`) is the single source of truth for "which
+ * layer is selected", so writing it here is enough; no separate field to
+ * keep in sync.
+ *
+ * No-op if the entry is not there to update (e.g. its commit was already
+ * issued elsewhere, or the session was cleared by an identity change).
+ */
+export function startLayerPreview(id: string, jobId: string, layerName: string): void {
+  const entry = current?.entries.get(id);
+  if (!entry) return;
+
+  entry.status = 'previewing';
+  notify();
+
+  void (async () => {
+    try {
+      const preview = await previewFile(jobId, layerName);
+      entry.previewData = preview;
+      entry.status = 'preview';
+      entry.error = null;
+      notify();
+    } catch (err) {
+      // Stays reviewable under the PREVIOUS layer's preview data (untouched
+      // above) — mirrors the component's original behavior of not blanking
+      // the review just because a re-preview failed.
+      entry.status = 'preview';
+      entry.error = err;
+      notify();
+    }
+  })();
+}
+
+/**
  * The current batch, if one exists AND belongs to the signed-in user.
  *
  * Same ownership rule as #1713 / `peekUrlImport`: a session belonging to a
