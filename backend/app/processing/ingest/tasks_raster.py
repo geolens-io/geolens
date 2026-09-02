@@ -38,8 +38,10 @@ from app.processing.ingest.tasks_raster_common import (
     _is_manifest_vrt_job,
     _reject_raw_vrt_job,
     _resolve_managed_raster_storage_keys,
+    absorb_cancellation,
     create_raster_dataset,
     extract_source_raster_metadata,
+    publish_commit_landed,
 )
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
@@ -125,6 +127,13 @@ async def ingest_raster(
     # never reaps these assets. Track them and clean up on the failure path so a
     # crash mid-ingest doesn't orphan COG/quicklook bytes under rasters/.
     written_storage_keys: list[str] = []
+    # fix(#1778): "the COG and quicklooks are published", set at the terminal
+    # commit and nowhere else. The reap below keys off THIS rather than off
+    # `final_status`, for the reason fix(#1290 review) gives in the replace
+    # tail: `final_status` also carries "did anything go wrong afterwards",
+    # which is not a question about the objects, and the broad handler sets it
+    # to "failed" even when the failure happened after the swap was durable.
+    publish_committed: bool = False
     heartbeat_task: asyncio.Task[None] | None = None
 
     try:
@@ -622,7 +631,33 @@ async def ingest_raster(
                     "progress": 1.0,
                 },
             )
-            await session.commit()
+            try:
+                await session.commit()
+            except BaseException as exc:
+                # fix(#1778): the one await on this path whose outcome is
+                # genuinely unknown — see `publish_commit_landed`. A lost
+                # acknowledgement left the reap below deleting the COG and
+                # quicklooks the committed RasterAsset had just been pointed at.
+                if not await publish_commit_landed(
+                    job_uuid, attempt_uuid, job_id=job_id, task="ingest_raster"
+                ):
+                    raise
+                # fix(#1778 codex r1): stand down rather than re-raise. The
+                # dataset is durable, and the handler below would send the
+                # operator an `ingest_failed` notification for an ingest that
+                # succeeded. `final_status` deliberately stays non-complete:
+                # it also licenses deleting the uploader's staged original,
+                # and a probe answer must never reach that decision.
+                #
+                # fix(#1778 codex r2): nothing to reap on the way out. A first
+                # ingest supersedes no asset, so the followups this skips are
+                # the completion notification, the cache purge, the embedding
+                # defer and the metering event: all recoverable, none of them
+                # holding bytes that no row references.
+                publish_committed = True
+                absorb_cancellation(exc)
+                return
+            publish_committed = True
             final_status = "complete"
 
             # EVENT-02: notify on ingest complete (non-fatal, after commit — deferred import).
@@ -665,6 +700,21 @@ async def ingest_raster(
             )
 
     except Exception as exc:  # broad: raster ingest spans GDAL/COG/Titiler — any step can fail; record failure
+        if publish_committed:
+            # fix(#1778 codex r1): the second way this handler is reached with
+            # a durable publish behind it, and the one the stand-down above
+            # cannot cover: the optional post-commit block runs inside the same
+            # try, so a Valkey outage or a busy queue lands here after the
+            # dataset is live. Everything below states that the ingest failed,
+            # including the operator's `ingest_failed` mail, and none of it is
+            # true. Log and finish.
+            structlog.get_logger().warning(
+                "raster_post_publish_followup_failed",
+                job_id=job_id,
+                task="ingest_raster",
+                exc_info=True,
+            )
+            return
         structlog.get_logger().exception(
             "Ingest task failed",
             job_id=job_id,
@@ -726,7 +776,7 @@ async def ingest_raster(
         # row those keys belong to was rolled back — delete_dataset will never
         # reap them. Remove them here so a crash/commit-failure mid-ingest does
         # not leave bytes under a rasters/{dataset_id}/ prefix with no DB row.
-        if final_status != "complete" and written_storage_keys:
+        if not publish_committed and written_storage_keys:
             await _cleanup_orphaned_storage_keys(written_storage_keys, job_id=job_id)
         # Clean up temp COG dir
         if tmp_dir:

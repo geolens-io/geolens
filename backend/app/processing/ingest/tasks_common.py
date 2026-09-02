@@ -1146,10 +1146,33 @@ async def _cleanup_staging_on_failure(
     task_name: str,
     attempt_id: uuid.UUID | None = None,
 ) -> None:
-    """Roll back, drop staging table, and mark job as failed.
+    """Mark the job failed, then drop the staging table, in that order.
 
     Shared by ``reupload_file`` and ``reupload_service`` which have
-    structurally identical exception handlers.
+    structurally identical exception handlers, and — fix(#1778) — by the
+    import tasks that used to paste a narrower copy of the terminal write.
+    What the copies were missing is what makes this the one place to fail a
+    job: the
+    ``redact_url_credentials`` backstop on the persisted message, the
+    ``pending``-inclusive attempt fence (fix #1274 review: a worker-time
+    refusal that raises before the claim must still finalize the job it owns,
+    rather than leave it pending until the stale sweep), and the
+    ``ingest_failed`` notification an operator has switched on.
+
+    fix(#1778): ``staging_table`` is "" for the paths that have none (the VRT
+    tail, whose artifacts are object keys its own ``finally`` reaps). An empty
+    name skips the DROP outright, because interpolating it raises inside the
+    best-effort guard below, which would log a cleanup failure on every VRT
+    build failure and say nothing true.
+
+    fix(#1778 codex r2): the ORDER is the contract. The failure row is
+    written and committed BEFORE the drop is attempted, because a statement
+    error aborts the whole PostgreSQL transaction and every later statement
+    on that session raises until it is rolled back. With the drop first, a
+    lock or statement timeout on it took the failure write down with it and
+    the job sat `running` with no reason recorded. Anything added here that
+    can fail belongs after the commit, in its own guarded block, with a
+    rollback of its own wreckage.
     """
     from sqlalchemy import text
     from sqlalchemy import update as sa_update
@@ -1168,20 +1191,6 @@ async def _cleanup_staging_on_failure(
     # that dispatch on its type or re-raise it are unaffected.
     error_message = redact_url_credentials(str(exc))
     await session.rollback()
-    try:
-        await session.execute(
-            text(
-                f"DROP TABLE IF EXISTS {_qtable(staging_table, schema=_current_tenant_schema())}"
-            )
-        )
-        await session.commit()
-    except Exception as cleanup_exc:  # broad: cleanup is best-effort after rollback; DB may be in bad state
-        structlog.get_logger().warning(
-            f"Staging-table cleanup failed during {task_name} failure",
-            staging_table=staging_table,
-            cleanup_error=str(cleanup_exc),
-            original_error=str(exc),
-        )
 
     failure_update = sa_update(type(job)).where(type(job).id == job_id)
     if attempt_id is not None:
@@ -1203,6 +1212,43 @@ async def _cleanup_staging_on_failure(
         )
     )
     await session.commit()
+
+    # fix(#1778 codex r2): the DROP runs AFTER the failure row is committed,
+    # not before it. PostgreSQL aborts the whole transaction on any statement
+    # error, so a drop that hit a lock or statement timeout left this session
+    # unusable and the failure UPDATE that followed it raised
+    # `current transaction is aborted` — the job stayed `running` until the
+    # stale sweep and the reason nobody recorded was the one the user needed.
+    # A best-effort cleanup must never be able to swallow the write it
+    # precedes, so it goes last and rolls back its own wreckage.
+    #
+    # Placed before the rowcount return so this attempt's table is dropped
+    # even when a newer attempt already owns the job row: the name is
+    # attempt-scoped, so it is ours to clean up either way.
+    if staging_table:
+        try:
+            await session.execute(
+                text(
+                    f"DROP TABLE IF EXISTS {_qtable(staging_table, schema=_current_tenant_schema())}"
+                )
+            )
+            await session.commit()
+        except Exception as cleanup_exc:  # broad: best-effort cleanup
+            structlog.get_logger().warning(
+                f"Staging-table cleanup failed during {task_name} failure",
+                staging_table=staging_table,
+                cleanup_error=str(cleanup_exc),
+                original_error=str(exc),
+            )
+            try:
+                await session.rollback()
+            except Exception:  # broad: a dead connection cannot be rolled back
+                structlog.get_logger().warning(
+                    "staging_cleanup_rollback_failed",
+                    staging_table=staging_table,
+                    task=task_name,
+                )
+
     if attempt_id is not None and not result.rowcount:
         return
     job.status = "failed"

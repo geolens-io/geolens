@@ -3029,7 +3029,21 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Two thirds of it is comments — why deleting the key is safe (retry=0,
     # so the first exception is the terminal one) and why the wrapper catches
     # Exception rather than BaseException. Cap 2311 -> 2380, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2380,
+    # fix(#1778): +14 — `_cleanup_staging_on_failure` skips the DROP when it is
+    # handed an empty staging-table name, which is what makes it usable by the
+    # raster and VRT tails that have no staging table. Most of it is the
+    # docstring saying what the four hand-rolled copies were each missing (the
+    # redaction backstop, the pending-inclusive fence, the ingest_failed
+    # notification) and why an empty name skips rather than logs a cleanup
+    # failure on every VRT build failure. Cap 2380 -> 2395, exact.
+    # fix(#1778 codex r2): +31 — `_cleanup_staging_on_failure` writes and
+    # commits the failure row BEFORE it attempts the staging DROP, and the drop
+    # rolls back its own wreckage. A DDL error aborts the whole PostgreSQL
+    # transaction, so with the drop first a lock or statement timeout took the
+    # failure write down with it and the job sat `running` with no reason. Most
+    # of the lines are the docstring and comment stating that the order is the
+    # contract. Cap 2395 -> 2426, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2426,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -3747,7 +3761,28 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Cap 1300 -> 1344, exact.
     # fix(#1329 follow-up): +10 — bump tile_cache_version in the VRT swap
     # transaction; the third pointer-swap door finally rolls the version.
-    "backend/app/processing/ingest/tasks_vrt.py": 1354,
+    # fix(#1778): +32 — both VRT tails guard their publishing COMMIT with the
+    # shared `publish_commit_landed` probe and reap on what it observed rather
+    # than on a flag set after the await returned, and `ingest_vrt`'s terminal
+    # failure write moves to the shared `_cleanup_staging_on_failure` so a
+    # failed build finally emits `ingest_failed`. The dead `final_status`
+    # string both functions no longer read is gone. Cap 1354 -> 1386, exact.
+    # fix(#1778 codex r1): +56 — both VRT tails STAND DOWN on an observed
+    # publish (return instead of re-raising) and both failure handlers refuse
+    # to run at all once the publish is durable, because the generation write
+    # is not fenced the way the job and asset writes are and `get_vrt_status`
+    # plus the stale-generation sweep read what it stamps. The generation
+    # update also gained its own `status != 'completed'` fence, so the rule is
+    # stated at the write and not only at the caller. Most of the lines are the
+    # two handler comments naming the reader each false failure reaches.
+    # Cap 1386 -> 1442, exact.
+    # fix(#1778 codex r2): +38 — the superseded-generation reap is a named
+    # helper called from both the success path and the stand-down, because it
+    # is the only deletion of the previous generation's artifact and a
+    # stand-down that skipped it stranded bytes no row references and no quota
+    # counts. `ingest_vrt` records that it has nothing to reap on that path.
+    # Cap 1442 -> 1480, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1480,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.
@@ -3804,7 +3839,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1746 codex r1): +9 — same narrowing of the marker comment, plus the
     # note that the refresh door treats the key as a gate and not a verdict.
     # Cap 1134 -> 1143, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1143,
+    # fix(#1778): +18 — the upload-safety exit stops unlinking the file (the
+    # #1290 correction the two raster tails already carry), and both terminal
+    # failure writes move to the shared `_cleanup_staging_on_failure`, so a
+    # failed file or service import emits `ingest_failed` and persists a
+    # redacted message. Net of two hand-rolled UPDATE blocks and two now-unused
+    # IngestJob imports removed; the rest is the comment saying which exit owns
+    # the unlink decision. Cap 1143 -> 1161, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1161,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern

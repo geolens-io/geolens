@@ -29,6 +29,7 @@ from app.processing.ingest.tasks_common import (
     _append_job_warning,
     _archive_original_file,
     _bind_task_log_context,
+    _cleanup_staging_on_failure,
     _current_tenant_schema,
     _detect_and_override_geometry,
     _emit_billing_event,
@@ -299,7 +300,6 @@ async def ingest_file(
     _bind_task_log_context(task_name="ingest_file", job_id=job_id)
     from app.processing.ingest.ogr import build_pg_conn_str, run_ogr2ogr, run_ogrinfo
     from app.processing.ingest.service import generate_table_name
-    from app.platform.jobs.models import IngestJob
 
     resolved = await resolve_ingest_attempt_or_skip(
         job_id, attempt_id, task_label="ingest"
@@ -358,9 +358,20 @@ async def ingest_file(
                     },
                 )
                 await session.commit()
-                # retry=0: no retry will ever occur, so unlink the staging
-                # file to prevent permanent orphaning.
-                Path(file_path).unlink(missing_ok=True)
+                # fix(#1778): NO unlink here — fix(#1290 review)'s correction,
+                # which reached the two raster tails and not this copy of the
+                # same block. This exit deleted the local file unconditionally,
+                # which on a local-storage install is the durable original: a
+                # worker-side validation failure (canonically: UPLOAD_MAX_SIZE_MB
+                # lowered while the job sat queued) destroyed the only copy of a
+                # file the job then recorded as failed, with nothing to diagnose
+                # from and no way to retry. The object-storage shape was already
+                # right because the thing it deletes is a downloaded scratch copy.
+                #
+                # `_should_unlink_staging` in the terminal `finally` already
+                # knows that distinction, and it runs on this return, so the
+                # correct fix is to have ONE exit decide rather than teach a
+                # second one the same rule.
                 final_status = "failed"
                 return
 
@@ -622,40 +633,49 @@ async def ingest_file(
             final_status = "complete"
 
     except Exception as exc:  # broad: ingest pipeline spans GDAL/PostGIS/S3/FS — any step can fail; record failure status
-        structlog.get_logger().exception(
-            "Ingest task failed",
-            job_id=job_id,
-            task="ingest_file",
-        )
         # Write failure status via a fresh session — phase 1/2 sessions are
         # already closed (or rolled back) by the time we get here.
         # REMED-03 / P2-05: route through _job_phase_session so the helper
-        # owns the session-lifecycle boilerplate. The yielded job is
-        # ignored — we issue a SQL UPDATE rather than mutating the ORM row
-        # so a NULL job (race with row delete) still produces a clean
-        # no-op update instead of an AttributeError.
+        # owns the session-lifecycle boilerplate.
+        #
+        # fix(#1778): the terminal write itself goes through the shared
+        # `_cleanup_staging_on_failure`, which is what `reupload_file` has
+        # always used. This tail pasted a narrower copy of its UPDATE, and the
+        # three things the copy left out are the three that matter to somebody:
+        # the `redact_url_credentials` backstop on the stored message, the
+        # `pending`-inclusive attempt fence, and the `ingest_failed`
+        # notification — so an operator who had switched failure mail on was
+        # told about raster imports and re-uploads and heard nothing when a
+        # vector file import failed.
+        #
+        # The helper owns the failure log too, and like the re-upload doors it
+        # stays silent when the attempt fence matches nothing: a superseded
+        # attempt's exception is not this job's outcome to report.
+        #
+        # It mutates the ORM row it is given, so a NULL job (race with a row
+        # delete) skips it: there is no row left to fail, and the re-raise
+        # below still records the failure on the queue row.
         async with _job_phase_session(
             job_uuid, phase="error_write", attempt_id=attempt_uuid
         ) as (
             err_session,
-            _err_job,
+            err_job,
         ):
-            from sqlalchemy import update as sa_update
-
-            await err_session.execute(
-                sa_update(IngestJob)
-                .where(
-                    IngestJob.id == job_uuid,
-                    IngestJob.attempt_id == attempt_uuid,
-                    IngestJob.status == "running",
+            if err_job is not None:
+                await _cleanup_staging_on_failure(
+                    err_session,
+                    staging_table=staging_table_name,
+                    job=err_job,
+                    exc=exc,
+                    task_name="ingest_file",
+                    attempt_id=attempt_uuid,
                 )
-                .values(
-                    status="failed",
-                    error_message=str(exc),
-                    completed_at=datetime.now(timezone.utc),
+            else:
+                structlog.get_logger().exception(
+                    "Ingest task failed",
+                    job_id=job_id,
+                    task="ingest_file",
                 )
-            )
-            await err_session.commit()
         final_status = "failed"
         raise
     finally:
@@ -791,7 +811,6 @@ async def ingest_service(
     from app.platform.extensions import get_processing_port
     from app.processing.ingest.ogr import build_pg_conn_str, run_ogr2ogr_service
     from app.processing.ingest.service import generate_table_name
-    from app.platform.jobs.models import IngestJob
     from app.platform.refresh.credentials import resolve_worker_credential
 
     # IA-P0-03 defense-in-depth: revalidate source_url at fetch time.
@@ -1107,36 +1126,35 @@ async def ingest_service(
         # holds, in whatever shape an origin echoes it back. Mutated in place
         # so the class survives for the bare re-raise the queue records.
         scrub_secret_from_exception(exc, token)
-        structlog.get_logger().exception(
-            "Ingest task failed",
-            job_id=job_id,
-            task="ingest_service",
-        )
         # Write failure status via a fresh session — phase 1/2 sessions are
         # already closed (or rolled back) by the time we get here.
-        # REMED-03 / P2-05: route through _job_phase_session.
+        # REMED-03 / P2-05: route through _job_phase_session. fix(#1778): the
+        # terminal write goes through the same shared helper
+        # `reupload_service` uses, for the reasons the sibling handler in
+        # `ingest_file` records. The exact-value scrub above still runs FIRST,
+        # so the helper's pattern-based redaction is layered on an exception
+        # that no longer carries this attempt's token in any shape.
         async with _job_phase_session(
             job_uuid, phase="error_write", attempt_id=attempt_uuid
         ) as (
             err_session,
-            _err_job,
+            err_job,
         ):
-            from sqlalchemy import update as sa_update
-
-            await err_session.execute(
-                sa_update(IngestJob)
-                .where(
-                    IngestJob.id == job_uuid,
-                    IngestJob.attempt_id == attempt_uuid,
-                    IngestJob.status == "running",
+            if err_job is not None:
+                await _cleanup_staging_on_failure(
+                    err_session,
+                    staging_table=staging_table_name,
+                    job=err_job,
+                    exc=exc,
+                    task_name="ingest_service",
+                    attempt_id=attempt_uuid,
                 )
-                .values(
-                    status="failed",
-                    error_message=str(exc),
-                    completed_at=datetime.now(timezone.utc),
+            else:
+                structlog.get_logger().exception(
+                    "Ingest task failed",
+                    job_id=job_id,
+                    task="ingest_service",
                 )
-            )
-            await err_session.commit()
         raise
     finally:
         await stop_ingest_job_heartbeat(heartbeat_task)

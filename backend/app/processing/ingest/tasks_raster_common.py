@@ -12,12 +12,14 @@ module, which is the kind of reach-across that makes a later split harder than
 it needs to be. They have one home now.
 """
 
+import asyncio
 import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 import structlog
+from sqlalchemy import select
 
 from app.platform.dataset_origin import set_dataset_origin
 from app.processing.raster.cog import check_cog_compliance, extract_raster_metadata
@@ -391,3 +393,102 @@ async def _cleanup_orphaned_storage_keys(keys: list[str], *, job_id: str) -> Non
                 job_id=job_id,
                 storage_key=key,
             )
+
+
+async def publish_commit_landed(
+    job_uuid: uuid.UUID,
+    attempt_uuid: uuid.UUID,
+    *,
+    job_id: str,
+    task: str,
+) -> bool:
+    """Did the publishing commit durably land, despite the raise?
+
+    fix(#1778): #1708 codex r11's reasoning, applied to the raster and VRT
+    publish tails. A commit whose acknowledgement is lost — a dropped
+    connection, or the ``asyncio.CancelledError`` a cancel request delivers,
+    which is a BaseException the tails' ``except Exception`` never sees but
+    which their ``finally`` still runs through — may have been applied by
+    PostgreSQL all the same. Each tail set its "published" flag on the line
+    after that await, so a lost acknowledgement left the flag false and the
+    terminal cleanup deleted the exact object keys the committed row had just
+    been pointed at. Nothing
+    reclaims that: the superseded objects are still in the bucket but no row
+    points at them, so every tile request, download and STAC asset 404s until
+    an operator lists the prefix by hand.
+
+    So decide by OBSERVATION rather than by the await's outcome: read the job
+    row back on a FRESH session (the publishing session is mid-failure and
+    cannot be trusted to see anything) and ask whether this attempt's terminal
+    write is there. ``status == 'complete'`` for this exact ``attempt_id`` is
+    the signal all four of these tails can share, because every one of them
+    stamps it in the SAME transaction as the pointer swap: seeing it means the
+    swap is durable, and no other attempt can have produced it, because the
+    attempt token is fresh per attempt and each of these tasks is ``retry=0``.
+
+    A probe that itself fails returns True — standing down. The asymmetry is
+    deliberate and is #1708's: standing down on a false positive leaves objects
+    behind that an operator or a later sweep can still remove, while proceeding
+    on a false negative deletes the live raster.
+
+    fix(#1778 codex r1): a caller that gets True stands DOWN, returning
+    normally rather than re-raising into its failure handler. Gating only the
+    orphaned-key cleanup was not enough, because the handler it still entered
+    writes about a job that succeeded: ``regenerate_vrt`` reloaded the now
+    ``completed`` ``VrtGeneration`` and stamped it ``failed``, which
+    ``get_vrt_status`` reads as "this dataset has no completed generation" and
+    the stale-generation sweep reads as evidence the asset was unhealthy.
+    Nothing is lost by returning: the terminal write is durable, and the only
+    work skipped is the post-commit best-effort block those tails already
+    treat as unfailable.
+
+    What the caller must NOT do is set ``final_status`` from this. That string
+    also decides whether the uploader's staged original may be deleted, and
+    standing down there would turn a probe failure into a second, worse
+    deletion.
+    """
+    # fix(#909)-style late bind so tests' engine patching is honored.
+    import app.core.db as db_module
+
+    from app.platform.jobs.models import IngestJob
+
+    try:
+        async with db_module.async_session() as probe:
+            status = (
+                await probe.execute(
+                    select(IngestJob.status).where(
+                        IngestJob.id == job_uuid,
+                        IngestJob.attempt_id == attempt_uuid,
+                    )
+                )
+            ).scalar_one_or_none()
+    except BaseException:
+        structlog.get_logger().warning(
+            "publish_commit_probe_failed", job_id=job_id, task=task
+        )
+        return True
+    landed = status == "complete"
+    if landed:
+        structlog.get_logger().warning(
+            "publish_commit_ack_lost_but_landed", job_id=job_id, task=task
+        )
+    return landed
+
+
+def absorb_cancellation(exc: BaseException) -> None:
+    """Clear the pending cancellation a stand-down is about to stop honouring.
+
+    fix(#1778 codex r1): a tail that observes its publish landed returns
+    normally instead of re-raising, so on the cancel half of the finding it
+    swallows the ``asyncio.CancelledError`` that #1709's ``abort=True``
+    delivers. Suppressing a cancellation without saying so leaves
+    ``Task.cancelling()`` above zero, and that count is what a
+    structured-concurrency parent reads to decide whether its own body was
+    cancelled rather than merely interrupted. Every other exception type is
+    left alone, and a call outside a running task is a no-op.
+    """
+    if not isinstance(exc, asyncio.CancelledError):
+        return
+    task = asyncio.current_task()
+    if task is not None:
+        task.uncancel()

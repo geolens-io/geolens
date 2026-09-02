@@ -615,6 +615,48 @@ async def _run_post_swap_followups(
             await defer_embedding(embed_dataset)
 
 
+async def run_post_swap_followups_best_effort(
+    *,
+    dataset_uuid: uuid.UUID,
+    dataset_cls: type,
+    prior_physical_keys: list[str],
+    written_storage_keys: list[str],
+    job_id: str,
+    dataset_id: str,
+) -> None:
+    """``_run_post_swap_followups`` with the caller's fence built in.
+
+    fix(#1778 codex r2): the replace tail reaches this from two places now —
+    the ordinary success path and the stand-down a lost commit acknowledgement
+    takes — and both need the identical rule: the swap is durable, so a cache
+    purge that cannot reach Valkey, a reap that cannot reach storage or an
+    embedding defer against a busy queue are things to log and move on from,
+    never reasons to fail a job whose outcome is already committed and already
+    reported as succeeded in the run row. One home for that rule rather than
+    two copies of the try/except, so the two paths cannot drift.
+
+    The reap inside is what makes this worth running on the stand-down path at
+    all: it is the ONLY deletion of the superseded COG and quicklooks, and the
+    committed pointer already names the new keys, so skipping it strands
+    objects no row references and no quota counts.
+    """
+    try:
+        await _run_post_swap_followups(
+            dataset_uuid=dataset_uuid,
+            dataset_cls=dataset_cls,
+            prior_physical_keys=prior_physical_keys,
+            written_storage_keys=written_storage_keys,
+            job_id=job_id,
+        )
+    except Exception:  # broad: nothing after the commit may fail the job
+        structlog.get_logger().warning(
+            "raster_replace_post_swap_followup_failed",
+            job_id=job_id,
+            dataset_id=dataset_id,
+            exc_info=True,
+        )
+
+
 def _prior_asset_keys_to_reap(
     *,
     asset_uri: str | None,

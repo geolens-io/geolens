@@ -72,7 +72,9 @@ from app.processing.ingest.tasks_raster_common import (
     _cleanup_orphaned_storage_keys,
     _enforce_strict_cog,
     _resolve_managed_raster_storage_keys,
+    absorb_cancellation,
     extract_source_raster_metadata,
+    publish_commit_landed,
 )
 from app.processing.ingest.tasks_raster_swap import (
     _prior_asset_keys_to_reap,
@@ -80,7 +82,7 @@ from app.processing.ingest.tasks_raster_swap import (
     archived_original_asset_key,
     upsert_archived_original_row,
     reserve_replacement_bytes,
-    _run_post_swap_followups,
+    run_post_swap_followups_best_effort,
     _upsert_managed_asset_rows,
     _write_swapped_fields,
 )
@@ -684,7 +686,42 @@ async def reupload_raster(
                 schema_diff=None,
                 contacted_origin=False,
             )
-            await session.commit()
+            try:
+                await session.commit()
+            except BaseException as exc:
+                # fix(#1778): the one await on this path whose outcome is
+                # genuinely unknown — see `publish_commit_landed`. A lost
+                # acknowledgement left the flag below false, and the terminal
+                # cleanup then deleted the three keys the committed
+                # RasterAsset had just been pointed at.
+                if not await publish_commit_landed(
+                    job_uuid, attempt_uuid, job_id=job_id, task="reupload_raster"
+                ):
+                    raise
+                # fix(#1778 codex r1): stand down rather than re-raise, the
+                # same decision the other three tails make. `final_status`
+                # deliberately stays non-complete: it also licenses deleting
+                # the uploader's staged original, and a probe answer must
+                # never reach that decision.
+                swap_committed = True
+                absorb_cancellation(exc)
+                # fix(#1778 codex r2): standing down from the FAILURE handler
+                # is not standing down from the success work. This call is the
+                # only deletion of the superseded COG and quicklooks, and the
+                # committed pointer already names the new keys, so returning
+                # without it strands three objects no row references and no
+                # quota counts — once per lost acknowledgement, for the life of
+                # the dataset. The helper carries its own fence, so a followup
+                # that fails still ends in this return.
+                await run_post_swap_followups_best_effort(
+                    dataset_uuid=dataset_uuid,
+                    dataset_cls=Dataset,
+                    prior_physical_keys=prior_physical_keys,
+                    written_storage_keys=written_storage_keys,
+                    job_id=job_id,
+                    dataset_id=dataset_id,
+                )
+                return
             # fix(#1290 review): set in the same breath as the commit, and read
             # by the terminal cleanup instead of `final_status`. These are two
             # different facts and the cleanup needs this one: "the replacement
@@ -698,31 +735,31 @@ async def reupload_raster(
             final_status = "complete"
 
         # fix(#1290 review): everything from here is optional post-commit work,
-        # fenced so it cannot be mistaken for a failed replace. The swap is
-        # durable; a cache purge that cannot reach Valkey, a reap that cannot
-        # reach storage, or an embedding defer against a busy queue are all
-        # things to log and move on from, not reasons to fail a job whose
-        # outcome is already committed and already reported as succeeded in the
-        # run row. The `swap_committed` guard in the `finally` is the
-        # structural half of this: the fence keeps today's code from raising,
-        # and the guard keeps tomorrow's from destroying anything if it does.
-        try:
-            await _run_post_swap_followups(
-                dataset_uuid=dataset_uuid,
-                dataset_cls=Dataset,
-                prior_physical_keys=prior_physical_keys,
-                written_storage_keys=written_storage_keys,
-                job_id=job_id,
-            )
-        except Exception:  # broad: nothing after the commit may fail the job
-            logger.warning(
-                "raster_replace_post_swap_followup_failed",
-                job_id=job_id,
-                dataset_id=dataset_id,
-                exc_info=True,
-            )
+        # fenced so it cannot be mistaken for a failed replace. The
+        # `swap_committed` guard in the `finally` is the structural half of
+        # this: the fence keeps today's code from raising, and the guard keeps
+        # tomorrow's from destroying anything if it does. fix(#1778 codex r2):
+        # the fence itself lives in the helper now, because the stand-down
+        # path below needs the same one.
+        await run_post_swap_followups_best_effort(
+            dataset_uuid=dataset_uuid,
+            dataset_cls=Dataset,
+            prior_physical_keys=prior_physical_keys,
+            written_storage_keys=written_storage_keys,
+            job_id=job_id,
+            dataset_id=dataset_id,
+        )
 
     except Exception as exc:  # broad: spans GDAL/COG/storage — any step can fail
+        # fix(#1778 codex r1): the other three tails guard this handler on
+        # their published flag, because each of them can reach it with a
+        # durable publish behind it and then write something untrue about it.
+        # This one carries no such write: `_run_post_swap_followups` has its
+        # own fence, so nothing between the commit and here raises, and every
+        # write below is already fenced against a completed job anyway
+        # (`update_ingest_job_for_attempt` on `running`, `record_refresh_failure`
+        # excludes terminal runs). A flag check would be a third fence with
+        # nothing left to catch.
         logger.exception("Raster replace failed", job_id=job_id, task="reupload_raster")
         async with _job_phase_session(
             job_uuid, phase="error_write", attempt_id=attempt_uuid
@@ -782,10 +819,14 @@ async def reupload_raster(
         # lossless copy, and it gets the same gate as the object-store reaper —
         # otherwise the RUNBOOK's retention promise held on S3 and quietly
         # failed on every local deployment.
-        if file_path != original_file_path:
-            Path(file_path).unlink(missing_ok=True)
-        elif final_status == "complete" and (
-            source_preserved_in_cog or lossy_original_archived
+        #
+        # One condition rather than an `if`/`elif` that repeated the same
+        # statement: the two branches always did the same thing, and merging
+        # them is what pays for the stand-down branch above without loosening
+        # the McCabe gate this function sits under.
+        if file_path != original_file_path or (
+            final_status == "complete"
+            and (source_preserved_in_cog or lossy_original_archived)
         ):
             Path(file_path).unlink(missing_ok=True)
         # fix(#1207): the client-writable staging key, which stays recreatable

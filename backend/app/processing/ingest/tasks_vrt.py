@@ -38,8 +38,39 @@ from app.platform.storage import get_storage
 
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
+    _cleanup_staging_on_failure,
     task_app,
 )
+from app.processing.ingest.tasks_raster_common import (
+    absorb_cancellation,
+    publish_commit_landed,
+)
+
+
+async def _reap_superseded_generation_objects(
+    *,
+    prior_storage_keys: list[str],
+    written_storage_keys: list[str],
+    job_id: str,
+) -> None:
+    """Delete the objects the published generation superseded.
+
+    fix(#1778 codex r2): named and shared because ``regenerate_vrt`` reaches
+    it from two places now, the ordinary success path and the stand-down a
+    lost commit acknowledgement takes. It is the ONLY deletion of the previous
+    generation's artifact, and the committed asset already names the new one,
+    so a path that skips it strands bytes no row references and no quota
+    counts.
+
+    The ``not in written`` filter is what makes a regeneration that produced
+    byte-identical output a no-op rather than a self-inflicted delete.
+    """
+    from app.processing.ingest.tasks_raster import _cleanup_orphaned_storage_keys
+
+    await _cleanup_orphaned_storage_keys(
+        [key for key in prior_storage_keys if key not in written_storage_keys],
+        job_id=job_id,
+    )
 
 
 def _prior_generation_storage_keys_to_reap(
@@ -401,7 +432,13 @@ async def ingest_vrt(
     # later phase-2 step) reaps the VRT + quicklook bytes instead of orphaning
     # them forever — the GAP-017 guard ingest_raster already has.
     written_storage_keys: list[str] = []
-    final_status = "failed"
+    # fix(#1778): "the VRT and its quicklooks are published", set at the
+    # terminal commit and nowhere else. It replaces the `final_status` string
+    # this reap used to read, because that string was set on the line after the
+    # commit: a commit whose acknowledgement was lost left it "failed" and the
+    # reap deleted the artifact a durably committed RasterAsset names. See
+    # `publish_commit_landed`.
+    publish_committed: bool = False
     heartbeat_task: asyncio.Task[None] | None = None
 
     try:
@@ -613,8 +650,27 @@ async def ingest_vrt(
                         "completed_at": datetime.now(timezone.utc),
                     },
                 )
-                await session.commit()
-                final_status = "complete"
+                try:
+                    await session.commit()
+                except BaseException as exc:
+                    if not await publish_commit_landed(
+                        job_uuid, attempt_uuid, job_id=job_id, task="ingest_vrt"
+                    ):
+                        raise
+                    # fix(#1778 codex r1): stand down rather than re-raise, the
+                    # same decision `regenerate_vrt` makes below. The dataset
+                    # and its VRT object are durable, so the failure handler
+                    # would be writing about a job that succeeded.
+                    #
+                    # fix(#1778 codex r2): and unlike `regenerate_vrt` there is
+                    # nothing to reap on the way out. A first build supersedes
+                    # no generation, so the followups this skips are the cache
+                    # purge and the embedding defer: both recoverable, neither
+                    # holding bytes that no row references.
+                    publish_committed = True
+                    absorb_cancellation(exc)
+                    return
+                publish_committed = True
 
                 # Invalidate cache
                 await invalidate_catalog_cache()
@@ -630,36 +686,58 @@ async def ingest_vrt(
                 raise
 
     except Exception as exc:  # broad: VRT pipeline includes GDAL subprocesses and rasterio — any step can fail
-        structlog.get_logger().exception(
-            "Ingest task failed",
-            extra={"job_id": job_id, "task": "ingest_vrt"},
-        )
-        # Write failure status via a fresh session.
-        async with async_session() as err_session:
-            from sqlalchemy import update as sa_update
-
-            await err_session.execute(
-                sa_update(IngestJob)
-                .where(
-                    IngestJob.id == job_uuid,
-                    IngestJob.attempt_id == attempt_uuid,
-                    IngestJob.status == "running",
-                )
-                .values(
-                    status="failed",
-                    error_message=str(exc),
-                    completed_at=datetime.now(timezone.utc),
-                )
+        if publish_committed:
+            # fix(#1778 codex r1): the second way this handler is reached with
+            # a durable publish behind it, and the one the stand-down above
+            # cannot cover: `invalidate_catalog_cache` and `defer_embedding`
+            # run inside the same try, so a Valkey outage or a busy queue lands
+            # here after the dataset is live and the writes below would report
+            # a build that succeeded as failed.
+            structlog.get_logger().warning(
+                "vrt_post_publish_followup_failed",
+                job_id=job_id,
+                task="ingest_vrt",
+                exc_info=True,
             )
-            await err_session.commit()
+            return
+        # fix(#1778): write failure status via a fresh session, through the
+        # same shared helper the re-upload doors use. This tail used to paste a
+        # narrower copy of the UPDATE and emitted no `ingest_failed`
+        # notification, so a VRT build failure was silent to an operator who
+        # had failure mail on. `staging_table=""` because a VRT build has no
+        # staging table — its artifacts are the object keys the `finally`
+        # below reaps.
+        async with async_session() as err_session:
+            err_job = (
+                await err_session.execute(
+                    select(IngestJob).where(
+                        IngestJob.id == job_uuid,
+                        IngestJob.attempt_id == attempt_uuid,
+                    )
+                )
+            ).scalar_one_or_none()
+            if err_job is not None:
+                await _cleanup_staging_on_failure(
+                    err_session,
+                    staging_table="",
+                    job=err_job,
+                    exc=exc,
+                    task_name="ingest_vrt",
+                    attempt_id=attempt_uuid,
+                )
+            else:
+                structlog.get_logger().exception(
+                    "Ingest task failed",
+                    extra={"job_id": job_id, "task": "ingest_vrt"},
+                )
         raise
     finally:
         await stop_ingest_job_heartbeat(heartbeat_task)
         if tmp_dir:
             shutil.rmtree(tmp_dir, ignore_errors=True)
-        # fix(#430 BA-30): reap storage bytes written before a non-complete terminal
-        # status (mirrors ingest_raster's GAP-017 guard).
-        if final_status != "complete" and written_storage_keys:
+        # fix(#430 BA-30): reap storage bytes written before a terminal commit
+        # that never became durable (mirrors ingest_raster's GAP-017 guard).
+        if not publish_committed and written_storage_keys:
             from app.processing.ingest.tasks_raster import (
                 _cleanup_orphaned_storage_keys,
             )
@@ -754,7 +832,11 @@ async def regenerate_vrt(
     generation_heartbeat_task: asyncio.Task[None] | None = None
     written_storage_keys: list[str] = []
     prior_storage_keys: list[str] = []
-    final_status = "failed"
+    # fix(#1778): same fence as `ingest_vrt` above, for the same reason — the
+    # generation swap and the job's terminal write share one transaction, so a
+    # lost acknowledgement must not let the reap delete the generation the
+    # RasterAsset now points at. See `publish_commit_landed`.
+    publish_committed: bool = False
 
     try:
         # ----------------------------------------------------------------- #
@@ -1222,19 +1304,39 @@ async def regenerate_vrt(
                         "completed_at": datetime.now(timezone.utc),
                     },
                 )
-                await session.commit()
-                final_status = "complete"
+                try:
+                    await session.commit()
+                except BaseException as exc:
+                    if not await publish_commit_landed(
+                        job_uuid, attempt_uuid, job_id=job_id, task="regenerate_vrt"
+                    ):
+                        raise
+                    # fix(#1778 codex r1): stand down rather than re-raise. The
+                    # generation swap is durable, so every write the failure
+                    # handler would make is a statement about a job that
+                    # succeeded, and the generation row it stamps `failed` is
+                    # not fenced the way the job and asset writes are.
+                    publish_committed = True
+                    absorb_cancellation(exc)
+                    # fix(#1778 codex r2): standing down from the FAILURE
+                    # handler is not standing down from the success work. This
+                    # is the only deletion of the superseded generation's
+                    # objects, and the committed asset already names the new
+                    # ones, so returning without it strands bytes no row
+                    # references and no quota counts. No guard: the reaper
+                    # swallows a missing provider and every per-key error, so
+                    # it cannot turn a durable publish back into a failure.
+                    await _reap_superseded_generation_objects(
+                        prior_storage_keys=prior_storage_keys,
+                        written_storage_keys=written_storage_keys,
+                        job_id=job_id,
+                    )
+                    return
+                publish_committed = True
 
-                from app.processing.ingest.tasks_raster import (
-                    _cleanup_orphaned_storage_keys,
-                )
-
-                await _cleanup_orphaned_storage_keys(
-                    [
-                        key
-                        for key in prior_storage_keys
-                        if key not in written_storage_keys
-                    ],
+                await _reap_superseded_generation_objects(
+                    prior_storage_keys=prior_storage_keys,
+                    written_storage_keys=written_storage_keys,
                     job_id=job_id,
                 )
 
@@ -1249,6 +1351,23 @@ async def regenerate_vrt(
                 raise
 
     except Exception as exc:  # broad: VRT regeneration includes GDAL subprocesses and rasterio — any step can fail
+        if publish_committed:
+            # fix(#1778 codex r1): the second way this handler is reached with
+            # a durable publish behind it, and the one the stand-down above
+            # cannot cover: the prior-key reap, `invalidate_catalog_cache` and
+            # `defer_embedding` all run inside the same try. The generation
+            # write below is not fenced the way the job and asset writes are,
+            # so reaching here after the swap stamped a `completed` generation
+            # `failed`, which `get_vrt_status` reads as "no completed
+            # generation" and the stale-generation sweep reads as evidence the
+            # asset was unhealthy.
+            structlog.get_logger().warning(
+                "vrt_post_publish_followup_failed",
+                job_id=job_id,
+                task="regenerate_vrt",
+                exc_info=True,
+            )
+            return
         structlog.get_logger().exception(
             "Ingest task failed",
             job_id=job_id,
@@ -1286,7 +1405,14 @@ async def regenerate_vrt(
                     select(VrtGeneration).where(VrtGeneration.id == generation_uuid)
                 )
                 gen = gen_result.scalar_one_or_none()
-                if gen:
+                # fix(#1778 codex r1): and the same rule stated at the write
+                # rather than only at the caller. The two guards above are
+                # local flags; this one is a property of the statement, so a
+                # future path into this handler cannot relabel a generation
+                # whose artifact is published, whatever it believes about the
+                # commit. It is the peer of the `current_generation_id` fence
+                # on the asset update and the `running` fence on the job.
+                if gen and gen.status != "completed":
                     gen.status = "failed"
                     gen.completed_at = datetime.now(timezone.utc)
                     if gen.started_at:
@@ -1302,7 +1428,7 @@ async def regenerate_vrt(
         await stop_ingest_job_heartbeat(heartbeat_task)
         if tmp_dir:
             shutil.rmtree(tmp_dir, ignore_errors=True)
-        if final_status != "complete" and written_storage_keys:
+        if not publish_committed and written_storage_keys:
             from app.processing.ingest.tasks_raster import (
                 _cleanup_orphaned_storage_keys,
             )
