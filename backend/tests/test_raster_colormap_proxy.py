@@ -599,6 +599,40 @@ class TestRasterColormapProxy:
             f"Titiler was called despite invalid bounds ({description}): {self._tile_titiler_calls}"
         )
 
+    @pytest.mark.parametrize(
+        "bad_params,description",
+        [
+            ({"pmin": 200}, "pmin>100 under an inactive stretch mode"),
+            ({"pmax": 101}, "pmax>100 under an inactive stretch mode"),
+            ({"pmin": -1}, "pmin<0 under an inactive stretch mode"),
+            ({"sigma": 0}, "sigma=0 under an inactive stretch mode"),
+            ({"sigma": -1}, "sigma<0 under an inactive stretch mode"),
+        ],
+    )
+    async def test_invalid_bounds_return_422_even_under_an_inactive_stretch_mode(
+        self, client, bad_params, description
+    ):
+        """[T-1153-01] fix(#1778 codex r1): pmin/pmax/sigma are validated whenever
+        PRESENT, regardless of the active stretch mode -- stretch=minmax reads
+        neither pmin/pmax nor sigma, but an out-of-range value still 422s.
+
+        This is the property frontend/nginx.conf's raster proxy_cache_key relies
+        on: it blanks an inactive arg out of the cache key only when the value is
+        well-formed enough that the API could never turn it into a 422, so a
+        cache HIT can never answer with a different status than an uncached
+        request would get. An out-of-range value under stretch=minmax must stay
+        exactly as rejected as it is here, uncached.
+        """
+        params = {"stretch": "minmax"}
+        params.update(bad_params)
+        resp = await client.get(_TILE_PATH, params=params)
+        assert resp.status_code == 422, (
+            f"Expected 422 for {description}, got {resp.status_code}"
+        )
+        assert len(self._tile_titiler_calls) == 0, (
+            f"Titiler was called despite invalid bounds ({description}): {self._tile_titiler_calls}"
+        )
+
     async def test_dem_with_custom_bounds_no_rescale(self, client):
         """[T-1153-03] DEM (algorithm= render_params) ignores pmin/pmax/sigma — no rescale injected."""
         self._auth_render_params = "algorithm=terrainrgb"
