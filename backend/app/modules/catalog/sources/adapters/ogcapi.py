@@ -99,8 +99,18 @@ async def _resolve_conformance(
     if not conformance_href:
         return conforms_to, has_data_link
 
-    abs_href = urljoin(url, conformance_href)
+    # Bound before the guard so the two log sites below always have something
+    # to name: the resolved form when there is one, the raw href when
+    # resolution is what failed. Neither is a credential.
+    abs_href = conformance_href
     try:
+        # fix(#1746 B2b review r19): resolution itself is inside the guard now.
+        # r6 moved the `same_origin` call in and left the `urljoin` outside,
+        # which was enough for the invalid-port case it was reasoning about
+        # (`urlparse` defers that until the attribute is read) but not for an
+        # unclosed IPv6 bracket, which raises during resolution. The whole
+        # answer degrades together or none of it does.
+        abs_href = urljoin(url, conformance_href)
         # The same rule the redirect refusal applies, for a link the document
         # chose rather than a Location header. Not followed at all rather than
         # followed anonymously: an anonymous answer about a service the caller

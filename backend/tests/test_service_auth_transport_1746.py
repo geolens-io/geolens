@@ -1285,6 +1285,40 @@ class TestTheConformanceLinkStaysOnTheServiceOrigin:
         assert result is not None
         assert result["service_type"] == "OGC API Features"
 
+    async def test_a_link_that_will_not_even_resolve_degrades_too(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1746 B2b review r19): resolution itself is inside the guard.
+
+        r6 moved the origin comparison in and left `urljoin` outside, which
+        held for the invalid-port case it was reasoning about because
+        `urlparse` defers that until the attribute is read. An unclosed IPv6
+        bracket raises during resolution instead, so the probe still 500ed on
+        a link the landing document chose.
+        """
+        credential, value = _header_key()
+        recorded, result = await self._probe(
+            monkeypatch,
+            replace(credential, service_format="ogcapi_features"),
+            "http://[::1",
+        )
+
+        assert not [r for r in recorded if "conformance" in r.url.path]
+        assert all(str(r.url).startswith(_SERVICE_ORIGIN) for r in recorded), recorded
+        assert [r for r in recorded if r.headers.get("X-Api-Key") == value]
+        assert result is not None
+        assert result["service_type"] == "OGC API Features"
+
+    async def test_a_link_that_will_not_resolve_degrades_anonymously_too(
+        self, monkeypatch
+    ) -> None:
+        """The credential-free twin, which never reaches the origin rule."""
+        recorded, result = await self._probe(monkeypatch, None, "http://[::1")
+
+        assert all(str(r.url).startswith(_SERVICE_ORIGIN) for r in recorded), recorded
+        assert result is not None
+        assert result["service_type"] == "OGC API Features"
+
     def test_the_origin_rule_is_total(self) -> None:
         """Asked directly, because both callers depend on it never raising."""
         from app.platform.security import same_origin
@@ -3066,6 +3100,79 @@ class TestOnePageCannotCostTheWholeProcess:
             await self._materialise(tmp_path)
 
         assert produced == 0
+
+    async def test_the_file_is_never_larger_than_what_was_downloaded(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """fix(#1746 B2b review r19): what `MAX_BYTES` counts bounds the disk.
+
+        Escaping non-ASCII to `\\uXXXX` wrote roughly three bytes for each one
+        counted against the download cap, so a chain comfortably inside the
+        2 GiB it was asked to respect could leave three times that on a staging
+        volume shared with every other import. Writing compact UTF-8 makes the
+        download cap a true bound on the file, which is the property here: a
+        second counter against the same constant could never fire.
+        """
+        base = f"{_SVC_OAPIF}/collections/c1/items"
+        wire = 0
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            nonlocal wire
+            page = int(request.url.params.get("page", 0))
+            body = {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "id": f"f{page}",
+                        "geometry": {"type": "Point", "coordinates": [0, 0]},
+                        # Three UTF-8 bytes each; six under the old escaping.
+                        "properties": {"name": "\u6771\u4eac" * 400},
+                    }
+                ],
+                "links": (
+                    [{"rel": "next", "href": f"{base}?page={page + 1}"}]
+                    if page < 4
+                    else []
+                ),
+            }
+            wire += len(json.dumps(body).encode())
+            return _streamed(body)
+
+        self._transport(monkeypatch, handle)
+
+        path = await self._materialise(tmp_path)
+
+        on_disk = pathlib.Path(path).stat().st_size
+        assert on_disk <= wire, (on_disk, wire)
+        # And it really is the non-ASCII payload, so the comparison is about
+        # the encoding rather than about an empty file.
+        assert "\u6771\u4eac" in pathlib.Path(path).read_text(encoding="utf-8")
+
+    async def test_the_extract_is_utf8_not_escaped(self, monkeypatch, tmp_path) -> None:
+        """The other half: what does fit is written as the bytes it came as."""
+        self._transport(
+            monkeypatch,
+            lambda request: _streamed(
+                {
+                    "type": "FeatureCollection",
+                    "features": [
+                        {
+                            "type": "Feature",
+                            "id": "f0",
+                            "geometry": {"type": "Point", "coordinates": [0, 0]},
+                            "properties": {"name": "\u6771\u4eac"},
+                        }
+                    ],
+                    "links": [],
+                }
+            ),
+        )
+        path = await self._materialise(tmp_path)
+
+        raw = pathlib.Path(path).read_bytes()
+        assert b"\\u" not in raw
+        assert json.loads(raw.decode())["type"] == "FeatureCollection"
 
     async def test_a_compressed_page_is_refused(self, monkeypatch, tmp_path) -> None:
         """Identity is asked for, and the answer has to be identity.

@@ -71,6 +71,9 @@ logger = structlog.stdlib.get_logger(__name__)
 # decoded before any feature of it is written and the decode is where the
 # memory goes.
 # Reaching either is a refusal, never a short answer: see `_walk_pages`.
+# `MAX_BYTES` counts the bytes downloaded, and bounds what lands on the staging
+# volume with them: see the encoding comment in `_walk_pages` for why the file
+# cannot be larger than the pages it came from.
 MAX_PAGES = 10_000
 MAX_BYTES = 2 * 1024 * 1024 * 1024
 
@@ -199,7 +202,7 @@ async def _walk_pages(
     written = 0
     pages = 0
     downloaded = 0
-    out.write('{"type": "FeatureCollection", "features": [')
+    out.write(b'{"type": "FeatureCollection", "features": [')
     page_url: str | None = _items_url(url, collection)
     while page_url is not None and pages < MAX_PAGES:
         pages += 1
@@ -219,8 +222,23 @@ async def _walk_pages(
         downloaded += size
         features = document.get("features") if isinstance(document, dict) else None
         for feature in features or []:
-            encoded = json.dumps(feature, separators=(",", ":"))
-            out.write(("," if written else "") + encoded)
+            # fix(#1746 B2b review r19): `ensure_ascii=False`, and the file
+            # opened in binary. The default escapes every non-ASCII character
+            # to `\uXXXX`, so a collection of non-Latin text wrote roughly
+            # three bytes on disk for each one counted against the download
+            # cap: a chain just under 2 GiB downloaded could leave ~6 GiB on a
+            # staging volume shared with every other import.
+            #
+            # Writing compact UTF-8 makes `MAX_BYTES` a true bound on the file
+            # as well, by construction rather than by proxy: what is written is
+            # a subset of each page (the features, without the links and the
+            # rest), re-encoded with the tightest separators, so it cannot
+            # exceed the bytes that page cost to download. A second counter
+            # against the same constant would be a guard that can never fire.
+            encoded = json.dumps(
+                feature, separators=(",", ":"), ensure_ascii=False
+            ).encode("utf-8")
+            out.write(b"," + encoded if written else encoded)
             written += 1
             if feature_limit is not None and written >= feature_limit:
                 page_url = None
@@ -241,7 +259,7 @@ async def _walk_pages(
         # could detect. A preview that reached its sample size has already set
         # `page_url` to None, so this only fires on a genuinely short read.
         raise ItemFetchFailedError("collection exceeds the page cap")
-    out.write("]}")
+    out.write(b"]}")
     return pages, written
 
 
@@ -307,7 +325,9 @@ async def materialise_oapif_items(
             async with make_safe_client(
                 timeout=PROBE_TIMEOUT, credential_header=next(iter(headers))
             ) as client:
-                with open(path, "w", encoding="utf-8") as out:
+                # Binary: the features are encoded once, and the count that
+                # bounds the file is then the count that is written.
+                with open(path, "wb") as out:
                     pages, written = await _walk_pages(
                         client,
                         out,
