@@ -7,13 +7,29 @@
  *  C) flag ON + guest marker set → SearchPage (escape hatch honoured)
  *  D) flag ON + authenticated → SearchPage (token present)
  */
-import { act } from 'react';
+import { act, Suspense } from 'react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth-store';
 import { LandingFirstGuard } from '../LandingFirstGuard';
 import type { AuthConfigResponse } from '@/types/api';
+
+// fix(#1778): SearchPage was statically imported here, dragging ~163KB /
+// 32 modules of search-only source (FilterPanel, color-ramps, etc.) into
+// the shared entry chunk for every route. Read the source rather than
+// re-deriving it from the module graph, so the test fails if a future edit
+// reintroduces a top-level static import.
+const GUARD_SOURCE = readFileSync(resolve(__dirname, '../LandingFirstGuard.tsx'), 'utf-8');
+
+describe('LandingFirstGuard source shape', () => {
+  it('#1778 — imports SearchPage lazily, not statically at module top level', () => {
+    expect(GUARD_SOURCE).not.toMatch(/^import\s*\{\s*SearchPage\s*\}\s*from\s*['"]@\/pages\/SearchPage['"]/m);
+    expect(GUARD_SOURCE).toMatch(/lazy\(\(\)\s*=>\s*import\(['"]@\/pages\/SearchPage['"]\)/);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -83,10 +99,15 @@ function renderGuard(
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={['/']}>
-        <Routes>
-          <Route index element={<LandingFirstGuard />} />
-          <Route path="/login" element={<LoginSpy />} />
-        </Routes>
+        {/* fix(#1778): SearchPage is now lazy-loaded inside LandingFirstGuard,
+            so a Suspense boundary is required (RootLayout supplies one in
+            production). */}
+        <Suspense fallback={<div data-testid="loading" />}>
+          <Routes>
+            <Route index element={<LandingFirstGuard />} />
+            <Route path="/login" element={<LoginSpy />} />
+          </Routes>
+        </Suspense>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -109,10 +130,10 @@ describe('LandingFirstGuard', () => {
     });
   });
 
-  it('A) flag OFF — renders SearchPage for anonymous user (default self-hoster path)', () => {
+  it('A) flag OFF — renders SearchPage for anonymous user (default self-hoster path)', async () => {
     renderGuard({ landing_first: false });
 
-    expect(screen.getByTestId('search-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('search-page')).toBeInTheDocument();
     expect(screen.queryByTestId('login-page')).not.toBeInTheDocument();
   });
 
@@ -123,17 +144,17 @@ describe('LandingFirstGuard', () => {
     expect(screen.queryByTestId('search-page')).not.toBeInTheDocument();
   });
 
-  it('C) flag ON + guest marker set — renders SearchPage (escape hatch)', () => {
+  it('C) flag ON + guest marker set — renders SearchPage (escape hatch)', async () => {
     renderGuard({ landing_first: true }, { guestBrowse: true });
 
-    expect(screen.getByTestId('search-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('search-page')).toBeInTheDocument();
     expect(screen.queryByTestId('login-page')).not.toBeInTheDocument();
   });
 
-  it('D) flag ON + authenticated — renders SearchPage (token present)', () => {
+  it('D) flag ON + authenticated — renders SearchPage (token present)', async () => {
     renderGuard({ landing_first: true }, { token: 'bearer-token-xyz' });
 
-    expect(screen.getByTestId('search-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('search-page')).toBeInTheDocument();
     expect(screen.queryByTestId('login-page')).not.toBeInTheDocument();
   });
 
@@ -152,11 +173,13 @@ describe('LandingFirstGuard', () => {
     render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={['/maps/some-map-id']}>
-          <Routes>
-            <Route index element={<LandingFirstGuard />} />
-            <Route path="/maps/:id" element={<div data-testid="map-route">Map</div>} />
-            <Route path="/login" element={<LoginSpy />} />
-          </Routes>
+          <Suspense fallback={<div data-testid="loading" />}>
+            <Routes>
+              <Route index element={<LandingFirstGuard />} />
+              <Route path="/maps/:id" element={<div data-testid="map-route">Map</div>} />
+              <Route path="/login" element={<LoginSpy />} />
+            </Routes>
+          </Suspense>
         </MemoryRouter>
       </QueryClientProvider>,
     );
@@ -214,23 +237,25 @@ describe('LandingFirstGuard', () => {
     return render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={['/']}>
-          <Routes>
-            <Route index element={<LandingFirstGuard />} />
-            <Route path="/login" element={<LoginSpy />} />
-          </Routes>
+          <Suspense fallback={<div data-testid="loading" />}>
+            <Routes>
+              <Route index element={<LandingFirstGuard />} />
+              <Route path="/login" element={<LoginSpy />} />
+            </Routes>
+          </Suspense>
         </MemoryRouter>
       </QueryClientProvider>,
     );
   }
 
-  it('F) #1515 — storage denied + flag OFF: renders SearchPage instead of throwing', () => {
+  it('F) #1515 — storage denied + flag OFF: renders SearchPage instead of throwing', async () => {
     const restore = denyStorage();
     try {
       act(() => {
         useAuthStore.setState({ token: null, user: null, refreshToken: null, expiresAt: null });
       });
       renderWithConfig(false);
-      expect(screen.getByTestId('search-page')).toBeInTheDocument();
+      expect(await screen.findByTestId('search-page')).toBeInTheDocument();
     } finally {
       restore();
     }
@@ -250,7 +275,7 @@ describe('LandingFirstGuard', () => {
     }
   });
 
-  it('config absent (undefined) — defaults to flag OFF → SearchPage', () => {
+  it('config absent (undefined) — defaults to flag OFF → SearchPage', async () => {
     const queryClient = createTestClient();
     // No query data seeded — config will be undefined
 
@@ -261,15 +286,17 @@ describe('LandingFirstGuard', () => {
     render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={['/']}>
-          <Routes>
-            <Route index element={<LandingFirstGuard />} />
-            <Route path="/login" element={<LoginSpy />} />
-          </Routes>
+          <Suspense fallback={<div data-testid="loading" />}>
+            <Routes>
+              <Route index element={<LandingFirstGuard />} />
+              <Route path="/login" element={<LoginSpy />} />
+            </Routes>
+          </Suspense>
         </MemoryRouter>
       </QueryClientProvider>,
     );
 
-    expect(screen.getByTestId('search-page')).toBeInTheDocument();
+    expect(await screen.findByTestId('search-page')).toBeInTheDocument();
     expect(screen.queryByTestId('login-page')).not.toBeInTheDocument();
   });
 });
