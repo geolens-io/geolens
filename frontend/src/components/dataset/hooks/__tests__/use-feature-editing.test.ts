@@ -19,10 +19,11 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn(), message: vi.fn(), info: vi.fn() },
 }));
 
+const createMutateAsync = vi.fn().mockResolvedValue({});
 const updateMutateAsync = vi.fn().mockResolvedValue({});
 const deleteMutateAsync = vi.fn().mockResolvedValue({});
 vi.mock('@/hooks/use-features', () => ({
-  useCreateFeature: () => ({ mutateAsync: vi.fn() }),
+  useCreateFeature: () => ({ mutateAsync: createMutateAsync }),
   useUpdateFeature: () => ({ mutateAsync: updateMutateAsync }),
   useDeleteFeature: () => ({ mutateAsync: deleteMutateAsync }),
 }));
@@ -62,6 +63,21 @@ function makeMapWithVectorSource(setTiles: ReturnType<typeof vi.fn>) {
     ),
     getLayer: vi.fn(() => undefined),
     setFilter: vi.fn(),
+  } as unknown as MaplibreMap;
+}
+
+/** A map whose 'drawn-overlay' source is spy-able, and that supports the
+ *  on/off event pair saveAndRefresh's tile-load listener needs. */
+function makeMapWithOverlaySource(overlaySetData: ReturnType<typeof vi.fn>) {
+  return {
+    getSource: vi.fn((id: string) =>
+      id === 'drawn-overlay' ? { setData: overlaySetData } : undefined,
+    ),
+    getLayer: vi.fn(() => undefined),
+    getFilter: vi.fn(() => null),
+    setFilter: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
   } as unknown as MaplibreMap;
 }
 
@@ -321,5 +337,153 @@ describe('useFeatureEditing — post-mutation cleanup skipped after a stale iden
 
     expect(removeFeatures).toHaveBeenCalledWith(['td-7']);
     expect(useDrawingStore.getState().selectedFeature).toBeNull();
+  });
+});
+
+// fix(#1761 review round 4): the epoch-change cleanup (DatasetMap's
+// finishDrawingSession) clears Terra Draw but, before this, not the overlay
+// ref/source that saveAndRefresh populates for instant visibility while a
+// create is in flight — and clearOverlay(), fired later by a tile-load
+// event or a 5s fallback, could erase a NEWER identity's own overlay if it
+// fired after a second identity change.
+describe('useFeatureEditing — overlay reset on identity change (fix #1761 review round 4)', () => {
+  const baseAuth = useDrawingStore.getState();
+
+  beforeEach(() => {
+    useDrawingStore.setState(baseAuth, true);
+    createMutateAsync.mockClear();
+  });
+
+  it('resetOverlay empties the drawn-overlay source and cancels the pending tile-load listener', async () => {
+    const overlaySetData = vi.fn();
+    const map = makeMapWithOverlaySource(overlaySetData);
+    const { result } = renderEditing(map);
+
+    await act(async () => {
+      await result.current.saveAndRefresh({ type: 'Point', coordinates: [0, 0] }, {});
+    });
+    // The success path installed a sourcedata listener to clear the
+    // overlay once tiles catch up — nothing has canceled it yet.
+    expect(map.off).not.toHaveBeenCalled();
+
+    overlaySetData.mockClear();
+    act(() => {
+      result.current.resetOverlay();
+    });
+
+    expect(overlaySetData).toHaveBeenCalledWith({ type: 'FeatureCollection', features: [] });
+    expect(map.off).toHaveBeenCalledWith('sourcedata', expect.any(Function));
+  });
+
+  it('does not erase a newer overlay when a stale tile-load event fires after a later identity change', async () => {
+    const overlaySetData = vi.fn();
+    const map = makeMapWithOverlaySource(overlaySetData);
+    const { result } = renderEditing(map);
+
+    // User A's create succeeds while their identity is still current — the
+    // success path installs the tile-load listener.
+    await act(async () => {
+      await result.current.saveAndRefresh({ type: 'Point', coordinates: [0, 0] }, { owner: 'A' });
+    });
+    const onCall = (map.on as ReturnType<typeof vi.fn>).mock.calls.find(([event]) => event === 'sourcedata');
+    expect(onCall).toBeDefined();
+    const onSourceData = onCall![1] as (e: { sourceId?: string; isSourceLoaded?: boolean }) => void;
+
+    // A second identity draws and saves their OWN overlay feature before
+    // A's tile-load event arrives.
+    createMutateAsync.mockReturnValueOnce(new Promise(() => {}));
+    overlaySetData.mockClear();
+    act(() => {
+      void result.current.saveAndRefresh({ type: 'Point', coordinates: [1, 1] }, { owner: 'B' });
+    });
+    expect(overlaySetData).toHaveBeenLastCalledWith({
+      type: 'FeatureCollection',
+      features: [
+        { type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: { owner: 'A' } },
+        { type: 'Feature', geometry: { type: 'Point', coordinates: [1, 1] }, properties: { owner: 'B' } },
+      ],
+    });
+
+    // The identity changes again before A's tile-load event fires.
+    act(() => {
+      useDrawingStore.getState().bumpSessionEpoch();
+    });
+
+    // A's stale tile-load event finally arrives.
+    overlaySetData.mockClear();
+    act(() => {
+      onSourceData({ sourceId: 'vector-tile-source', isSourceLoaded: true });
+    });
+
+    // Refused: B's overlay feature must be untouched.
+    expect(overlaySetData).not.toHaveBeenCalled();
+  });
+});
+
+// fix(#1761 review round 4): handleEditAttributeSubmit used to report
+// success and reload tiles even after a stale write, and its caller
+// (DatasetMap's AttributeForm onSubmit) closed the dialog unconditionally —
+// discarding a second identity's own now-open editor for their feature.
+describe('useFeatureEditing — handleEditAttributeSubmit result (fix #1761 review round 4)', () => {
+  const baseAuth = useDrawingStore.getState();
+
+  beforeEach(() => {
+    useDrawingStore.setState(baseAuth, true);
+    updateMutateAsync.mockClear();
+  });
+
+  it('returns applied: false and skips the store write when the identity changed mid-flight', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: { name: 'old' } } });
+    const update = deferred<unknown>();
+    updateMutateAsync.mockReturnValueOnce(update.promise);
+    const map = makeMapWithVectorSource(vi.fn());
+    const { result } = renderEditing(map);
+
+    const submitting = result.current.handleEditAttributeSubmit({ name: 'new' });
+    act(() => {
+      useDrawingStore.getState().bumpSessionEpoch();
+    });
+    update.resolve({});
+    let outcome: { applied: boolean } | undefined;
+    await act(async () => {
+      outcome = await submitting;
+    });
+
+    expect(outcome).toEqual({ applied: false });
+    // The store write was skipped: the (possibly second identity's)
+    // selectedFeature is untouched.
+    expect(useDrawingStore.getState().selectedFeature).toEqual({ gid: 7, tdId: 'td-7', properties: { name: 'old' } });
+  });
+
+  it('returns applied: true and applies the write when the identity has not changed', async () => {
+    // setDrawing establishes an active target — setSelectedFeature (called
+    // internally on success) refuses when there is none, per drawing-store's
+    // own guard.
+    useDrawingStore.getState().setDrawing('ds-1', 'parcels', 'Point');
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: { name: 'old' } } });
+    const map = makeMapWithVectorSource(vi.fn());
+    const { result } = renderEditing(map);
+
+    let outcome: { applied: boolean } | undefined;
+    await act(async () => {
+      outcome = await result.current.handleEditAttributeSubmit({ name: 'new' });
+    });
+
+    expect(outcome).toEqual({ applied: true });
+    expect(useDrawingStore.getState().selectedFeature).toEqual({ gid: 7, tdId: 'td-7', properties: { name: 'new' } });
+  });
+
+  it('returns applied: true on a real failure, preserving the pre-existing close-on-error behavior', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
+    updateMutateAsync.mockRejectedValueOnce(new Error('boom'));
+    const map = makeMapWithVectorSource(vi.fn());
+    const { result } = renderEditing(map);
+
+    let outcome: { applied: boolean } | undefined;
+    await act(async () => {
+      outcome = await result.current.handleEditAttributeSubmit({ name: 'new' });
+    });
+
+    expect(outcome).toEqual({ applied: true });
   });
 });

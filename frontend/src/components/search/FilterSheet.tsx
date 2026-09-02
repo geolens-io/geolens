@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, MapPin, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,7 @@ import { FilterChip } from './FilterChip';
 import { KeywordFacetPicker } from './KeywordFacetPicker';
 import { SaveSearchButton } from './SavedSearches';
 import { useSearchStore } from '@/stores/search-store';
+import { useResetOnEpoch } from '@/hooks/use-reset-on-epoch';
 import { useAuthStore } from '@/stores/auth-store';
 import { useCatalogSummary, useFacets } from '@/components/search/hooks/use-search';
 import { getGeometryTypeLabel, getSearchSortLabel } from '@/i18n/labels';
@@ -96,6 +97,7 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
   const selectedKeywords = useSearchStore((s) => s.keywords);
   const geometry = useSearchStore((s) => s.geometry);
   const q = useSearchStore((s) => s.q);
+  const resetEpoch = useSearchStore((s) => s.resetEpoch);
   const token = useAuthStore((s) => s.token);
 
   const { data: facets } = useFacets();
@@ -153,6 +155,21 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
     setLocalDateFrom(useSearchStore.getState().date_from);
     setLocalDateTo(useSearchStore.getState().date_to);
   };
+
+  // fix(#1761 review round 4): same rationale as FilterPanel's
+  // resetDateDraft — an identity change bumps resetEpoch even when
+  // date_from/date_to were already '', so an uncommitted draft would
+  // otherwise survive to repopulate the (now cleared) store on Apply.
+  // Closes the whole sheet (and its nested bbox popover), not just the
+  // date fields, since everything in it is this identity's in-progress
+  // filter edit.
+  const resetSheetDraft = useCallback(() => {
+    setLocalDateFrom(useSearchStore.getState().date_from);
+    setLocalDateTo(useSearchStore.getState().date_to);
+    setBboxOpen(false);
+    setMobileFiltersOpen(false);
+  }, []);
+  useResetOnEpoch(resetEpoch, resetSheetDraft);
 
   const handleApplyDate = () => {
     useSearchStore.getState().setFilter('date_from', localDateFrom);

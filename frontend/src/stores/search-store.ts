@@ -105,15 +105,26 @@ const initialState = {
 };
 
 /**
- * fix(#1761 review round 2 P2): the ONLY fields `clearIdentityScopedFilters`
- * preserves across an identity change — everything else in `initialState`
- * is query-shaping and gets reset (see that method). Each one is a genuine
- * presentation preference, not something that changes which records a
- * search returns:
+ * fix(#1761 review round 2 P2, corrected round 4): the ONLY fields
+ * `clearIdentityScopedFilters` preserves across an identity change —
+ * everything else in `initialState` is query-shaping and gets reset (see
+ * that method). Each one is a genuine presentation preference, not
+ * something that changes which records a search returns:
  *   - `sort_by` — sort direction/field.
  *   - `limit` — page size.
- *   - `spatialPanelOpen` — whether the spatial-filter UI panel is open; a
- *     view toggle, not a filter.
+ *
+ * fix(#1761 review round 4, sweep): `spatialPanelOpen` was wrongly listed
+ * here as "a view toggle, not a filter". It gates whether
+ * FilterPanel mounts SpatialFilterPanel, which holds its own uncommitted
+ * `pendingBbox`/`predicate` draft — the exact same shape of bug as
+ * FilterPanel/FilterSheet's date-range draft (finding 1 of this round),
+ * just for the bbox filter, and reached through onApply rather than
+ * through this store directly. Left in the "kept" set, an identity change
+ * would leave the panel open with the previous identity's drawn geometry,
+ * and Apply would write it into the just-cleared store. Removed from this
+ * list: clearIdentityScopedFilters's `...initialState` spread now resets
+ * it to `false`, which unmounts SpatialFilterPanel and, as a consequence,
+ * discards its local draft state for free.
  *
  * Exported so search-store.test.ts can iterate the store's own keys and
  * assert every field is classified one way or the other — a field added to
@@ -125,7 +136,6 @@ const initialState = {
 export const SEARCH_PRESENTATION_PREFERENCE_KEYS: readonly (keyof typeof initialState)[] = [
   'sort_by',
   'limit',
-  'spatialPanelOpen',
 ];
 
 export const useSearchStore = create<SearchState>()((set, get) => ({
@@ -148,10 +158,11 @@ export const useSearchStore = create<SearchState>()((set, get) => ({
     set((s) => ({
       ...initialState,
       // Presentation preferences (see SEARCH_PRESENTATION_PREFERENCE_KEYS):
-      // kept as they were, not reset to their defaults.
+      // kept as they were, not reset to their defaults. spatialPanelOpen is
+      // deliberately NOT here — see that constant's doc comment — so the
+      // `...initialState` spread above resets it to false.
       sort_by: s.sort_by,
       limit: s.limit,
-      spatialPanelOpen: s.spatialPanelOpen,
       resetEpoch: s.resetEpoch + 1,
     })),
 

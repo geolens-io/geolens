@@ -1,4 +1,4 @@
-import { render, screen } from '@/test/test-utils';
+import { act, fireEvent, render, screen } from '@/test/test-utils';
 import { FilterPanel } from '../FilterPanel';
 import { useSearchStore } from '@/stores/search-store';
 
@@ -84,5 +84,65 @@ describe('FilterPanel', () => {
     const secondaryRow = screen.getByTestId('secondary-filter-row');
     expect(secondaryRow).toBeInTheDocument();
     expect(secondaryRow).toHaveTextContent(/Vector.*filters/);
+  });
+});
+
+// fix(#1761 review round 4): the uncommitted date-range draft
+// (localDateFrom/localDateTo) used to survive an identity change, so
+// clicking the still-open popover's Apply afterward repopulated the
+// (now cleared) store and URL with the previous identity's typed dates.
+describe('FilterPanel identity reset (fix #1761 review round 4)', () => {
+  afterEach(() => {
+    useSearchStore.getState().resetFilters();
+  });
+
+  // Radix Popover portals its content to document.body, outside render()'s
+  // own container, so query the document rather than the container.
+  function getDateInputs() {
+    return Array.from(document.querySelectorAll<HTMLInputElement>('input[type="date"]'));
+  }
+
+  it('clears an uncommitted date draft and closes the popover when identity changes', () => {
+    render(<FilterPanel totalResults={10} showMobile={false} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Date Added/i }));
+    const [fromInput] = getDateInputs();
+    fireEvent.change(fromInput, { target: { value: '2024-01-01' } });
+    expect(getDateInputs()[0]).toHaveValue('2024-01-01');
+    // Still uncommitted: date_from in the store is untouched.
+    expect(useSearchStore.getState().date_from).toBe('');
+
+    // Identity changes (the auth choke point's identity-change branch)
+    // WITHOUT the user clicking Apply.
+    act(() => {
+      useSearchStore.getState().clearIdentityScopedFilters();
+    });
+
+    // Popover closed: Apply is no longer reachable with the stale draft.
+    expect(screen.queryByRole('button', { name: /Apply/i })).not.toBeInTheDocument();
+
+    // Reopening shows the cleared value, not the stale draft.
+    fireEvent.click(screen.getByRole('button', { name: /Date Added/i }));
+    expect(getDateInputs()[0]).toHaveValue('');
+  });
+
+  // fix(#1761 review round 4, sweep): spatialPanelOpen was originally
+  // classified as a kept presentation preference, but it gates whether
+  // SpatialFilterPanel is mounted, and that component holds its own
+  // uncommitted pendingBbox/predicate draft — the same class of bug as the
+  // date draft above, just reached through onApply instead of directly.
+  // Left open across an identity change, Apply would write the previous
+  // identity's drawn area into the just-cleared store.
+  it('closes the spatial filter panel on identity change', () => {
+    render(<FilterPanel totalResults={10} showMobile={false} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /^Location$/i }));
+    expect(useSearchStore.getState().spatialPanelOpen).toBe(true);
+
+    act(() => {
+      useSearchStore.getState().clearIdentityScopedFilters();
+    });
+
+    expect(useSearchStore.getState().spatialPanelOpen).toBe(false);
   });
 });

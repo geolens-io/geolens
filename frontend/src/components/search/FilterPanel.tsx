@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Calendar, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -21,6 +21,7 @@ import { FilterSheet } from './FilterSheet';
 import { KeywordFacetPicker } from './KeywordFacetPicker';
 import { SaveSearchButton } from './SavedSearches';
 import { useSearchStore } from '@/stores/search-store';
+import { useResetOnEpoch } from '@/hooks/use-reset-on-epoch';
 import { useAuthStore } from '@/stores/auth-store';
 import { useCatalogSummary, useFacets } from '@/components/search/hooks/use-search';
 import { getGeometryTypeLabel, getSearchSortLabel } from '@/i18n/labels';
@@ -122,6 +123,7 @@ export function FilterPanel({
   const selectedKeywords = useSearchStore((s) => s.keywords);
   const geometry = useSearchStore((s) => s.geometry);
   const q = useSearchStore((s) => s.q);
+  const resetEpoch = useSearchStore((s) => s.resetEpoch);
   const token = useAuthStore((s) => s.token);
 
   // ====================================================================
@@ -198,6 +200,19 @@ export function FilterPanel({
     setLocalDateFrom(useSearchStore.getState().date_from);
     setLocalDateTo(useSearchStore.getState().date_to);
   };
+
+  // fix(#1761 review round 4): an identity change bumps resetEpoch (see
+  // search-store.ts's doc comment) whether or not date_from/date_to
+  // actually changed value. Without this, an uncommitted date draft typed
+  // under the previous identity survives the clear and Apply repopulates
+  // the (now cleared) store and URL with it. Closing the popover too, so
+  // a stale draft can't sit there waiting for a click.
+  const resetDateDraft = useCallback(() => {
+    setLocalDateFrom(useSearchStore.getState().date_from);
+    setLocalDateTo(useSearchStore.getState().date_to);
+    setDateOpen(false);
+  }, []);
+  useResetOnEpoch(resetEpoch, resetDateDraft);
 
   const handleApplyDate = () => {
     useSearchStore.getState().setFilter('date_from', localDateFrom);

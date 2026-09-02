@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Input } from '@/components/ui/input';
 import { useDebouncedValue } from '@/hooks/use-debounce';
+import { useResetOnEpoch } from '@/hooks/use-reset-on-epoch';
 import { useSearchStore } from '@/stores/search-store';
 import { cn } from '@/lib/utils';
 import { SearchTypeahead } from './SearchTypeahead';
@@ -22,10 +23,6 @@ export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
   const debouncedValue = useDebouncedValue(value, 300);
   const blurTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
-  // fix(#1761 review P2): skip on mount — only react to a LATER bump, or
-  // mounting on a page whose store already carries a real query would wipe
-  // the input the instant it appears.
-  const resetEpochRef = useRef(resetEpoch);
 
   useEffect(() => {
     useSearchStore.getState().setQuery(debouncedValue);
@@ -36,20 +33,21 @@ export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
     setValue(query);
   }, [query]);
 
-  // fix(#1761 review P2): an identity change bumps resetEpoch even when `q`
-  // was already '' (nothing had been committed to the store yet), so the
-  // `[query]` effect above sees no change and does not fire. Resetting
-  // `value` here changes useDebouncedValue's input, which is what actually
-  // cancels its in-flight timer (see useDebouncedValue's cleanup) — without
-  // this, a keystroke typed under the previous identity still lands in the
-  // new identity's store a few hundred ms later.
-  useEffect(() => {
-    if (resetEpochRef.current === resetEpoch) return;
-    resetEpochRef.current = resetEpoch;
+  // fix(#1761 review P2, extracted round 4): an identity change bumps
+  // resetEpoch even when `q` was already '' (nothing had been committed to
+  // the store yet), so the `[query]` effect above sees no change and does
+  // not fire. Resetting `value` here changes useDebouncedValue's input,
+  // which is what actually cancels its in-flight timer (see
+  // useDebouncedValue's cleanup) — without this, a keystroke typed under
+  // the previous identity still lands in the new identity's store a few
+  // hundred ms later. Shared with FilterPanel/FilterSheet via
+  // useResetOnEpoch — see that hook for the skip-on-mount rationale.
+  const resetOnIdentityChange = useCallback(() => {
     setValue(useSearchStore.getState().q);
     setShowTypeahead(false);
     setActiveDescendant(null);
-  }, [resetEpoch]);
+  }, []);
+  useResetOnEpoch(resetEpoch, resetOnIdentityChange);
 
   // Cleanup blur timeout on unmount
   useEffect(() => {
