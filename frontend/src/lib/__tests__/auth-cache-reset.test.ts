@@ -2,15 +2,21 @@ import { QueryClient } from '@tanstack/react-query';
 import { wireAuthCacheReset } from '../auth-cache-reset';
 import { useAuthStore } from '@/stores/auth-store';
 import { getReportEntries, pushReportEntry } from '@/lib/report';
+import { useDrawingStore } from '@/stores/drawing-store';
+import { useSearchStore } from '@/stores/search-store';
 import type { UserResponse } from '@/types/api';
 
 // fix(#430 codex r6): identity changes evict the whole query cache; token
 // refresh (same user id) does not.
 describe('wireAuthCacheReset', () => {
   const initialAuthState = useAuthStore.getState();
+  const initialDrawingState = useDrawingStore.getState();
+  const initialSearchState = useSearchStore.getState();
 
   afterEach(() => {
     useAuthStore.setState(initialAuthState, true);
+    useDrawingStore.setState(initialDrawingState, true);
+    useSearchStore.setState(initialSearchState, true);
   });
 
   function seed(qc: QueryClient) {
@@ -61,6 +67,101 @@ describe('wireAuthCacheReset', () => {
       // previous user's captured entries (fix(#1663 review P1)).
       useAuthStore.setState({ token: null, user: null });
       expect(getReportEntries()).toHaveLength(0);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  // fix(#1713): drawing-store's target dataset, selected feature (a real
+  // row's property bag) and edit-dirty flag are identity-scoped residue of
+  // the same kind — an in-place identity change must not leave them for the
+  // next signed-in user.
+  it('clears the drawing store when identity changes, not on token refresh', () => {
+    const qc = new QueryClient();
+    const unsubscribe = wireAuthCacheReset(qc);
+    try {
+      useAuthStore.setState({ token: 't1', user: { id: 'user-1' } as UserResponse });
+      useDrawingStore.getState().setDrawing('ds-1', 'my_table', 'Polygon');
+      useDrawingStore
+        .getState()
+        .setSelectedFeature({ gid: 1, tdId: 'td-1', properties: { name: 'user-1 row' } });
+      useDrawingStore.getState().setEditDirty(true);
+      expect(useDrawingStore.getState().selectedFeature).not.toBeNull();
+
+      // Token refresh (same identity): kept, including the dirty flag —
+      // DatasetPage's unsaved-changes prompt must not lose a real edit.
+      useAuthStore.setState({ token: 't2' });
+      expect(useDrawingStore.getState().selectedFeature).not.toBeNull();
+      expect(useDrawingStore.getState().isEditDirty).toBe(true);
+
+      // A second identity signs in WITHOUT a page reload: cleared.
+      useAuthStore.setState({ token: 't3', user: { id: 'user-2' } as UserResponse });
+      const state = useDrawingStore.getState();
+      expect(state.selectedFeature).toBeNull();
+      expect(state.targetDatasetId).toBeNull();
+      expect(state.isEditDirty).toBe(false);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('clears the drawing store on logout', () => {
+    const qc = new QueryClient();
+    const unsubscribe = wireAuthCacheReset(qc);
+    try {
+      useAuthStore.setState({ token: 't1', user: { id: 'user-1' } as UserResponse });
+      useDrawingStore.getState().setDrawing('ds-1', 'my_table', 'Polygon');
+      expect(useDrawingStore.getState().targetDatasetId).not.toBeNull();
+
+      useAuthStore.setState({ token: null, user: null });
+      expect(useDrawingStore.getState().targetDatasetId).toBeNull();
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  // fix(#1713): milder than drawing-store — search intent, not row data —
+  // but the same class and the same choke point.
+  it('clears identity-scoped search fields when identity changes, not on token refresh', () => {
+    const qc = new QueryClient();
+    const unsubscribe = wireAuthCacheReset(qc);
+    try {
+      useAuthStore.setState({ token: 't1', user: { id: 'user-1' } as UserResponse });
+      useSearchStore.setState({
+        q: 'parks',
+        bbox: '1,2,3,4',
+        collection_id: 'c1',
+        keywords: ['water'],
+        geometry: '{"type":"Point","coordinates":[0,0]}',
+      });
+
+      // Token refresh (same identity): kept.
+      useAuthStore.setState({ token: 't2' });
+      expect(useSearchStore.getState().q).toBe('parks');
+
+      // A second identity signs in WITHOUT a page reload: cleared.
+      useAuthStore.setState({ token: 't3', user: { id: 'user-2' } as UserResponse });
+      const state = useSearchStore.getState();
+      expect(state.q).toBe('');
+      expect(state.bbox).toBe('');
+      expect(state.collection_id).toBe('');
+      expect(state.keywords).toEqual([]);
+      expect(state.geometry).toBe('');
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('clears identity-scoped search fields on logout', () => {
+    const qc = new QueryClient();
+    const unsubscribe = wireAuthCacheReset(qc);
+    try {
+      useAuthStore.setState({ token: 't1', user: { id: 'user-1' } as UserResponse });
+      useSearchStore.setState({ q: 'parks' });
+      expect(useSearchStore.getState().q).toBe('parks');
+
+      useAuthStore.setState({ token: null, user: null });
+      expect(useSearchStore.getState().q).toBe('');
     } finally {
       unsubscribe();
     }

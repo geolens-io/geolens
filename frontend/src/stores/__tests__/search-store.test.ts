@@ -115,4 +115,31 @@ describe('useSearchStore', () => {
 
     expect(useSearchStore.getState().spatial_predicate).toBe('intersects');
   });
+
+  // fix(#1713): drop the typed/drawn search intent that could implicate the
+  // previous identity, called from the identity-change choke point (see
+  // lib/__tests__/auth-cache-reset.test.ts for that wiring).
+  it('clearIdentityScopedFilters clears only the identity-scoped fields', () => {
+    useSearchStore.setState({
+      q: 'parks',
+      bbox: '1,2,3,4',
+      collection_id: 'c1',
+      keywords: ['water'],
+      geometry: '{"type":"Point","coordinates":[0,0]}',
+      sort_by: 'name',
+      srid: '4326',
+    });
+
+    useSearchStore.getState().clearIdentityScopedFilters();
+
+    const state = useSearchStore.getState();
+    expect(state.q).toBe('');
+    expect(state.bbox).toBe('');
+    expect(state.collection_id).toBe('');
+    expect(state.keywords).toEqual([]);
+    expect(state.geometry).toBe('');
+    // Display preferences, not identity-scoped: left alone.
+    expect(state.sort_by).toBe('name');
+    expect(state.srid).toBe('4326');
+  });
 });

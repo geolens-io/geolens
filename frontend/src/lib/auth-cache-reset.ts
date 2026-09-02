@@ -1,6 +1,8 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth-store';
 import { clearReportEntries } from '@/lib/report';
+import { useDrawingStore } from '@/stores/drawing-store';
+import { useSearchStore } from '@/stores/search-store';
 
 /**
  * fix(#430 codex r6): user-scoped queries (dataset search, map search, map
@@ -31,5 +33,12 @@ export function wireAuthCacheReset(queryClient: QueryClient): () => void {
     // the now-anonymous tab. Same choke point, same rule: identity changed,
     // drop everything captured under the old one.
     clearReportEntries();
+    // fix(#1713): drawing-store's target dataset, selected feature (a real
+    // row's property bag) and edit-dirty flag are the same identity-scoped
+    // residue, plus the milder case of search-store's typed/drawn search
+    // intent. Same choke point, same rule: identity changed, drop everything
+    // adopted or entered under the old one.
+    useDrawingStore.getState().clearDrawing();
+    useSearchStore.getState().clearIdentityScopedFilters();
   });
 }

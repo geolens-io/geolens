@@ -50,6 +50,15 @@ interface SearchState {
   setSpatialPanelOpen: (open: boolean) => void;
   toParams: () => Record<string, string>;
   restoreParams: (params: Record<string, string>) => void;
+  /**
+   * fix(#1713): drop the typed/drawn search intent that could implicate the
+   * previous identity — q, bbox, collection_id, keywords and geometry —
+   * called from the identity-change choke point in lib/auth-cache-reset.ts.
+   * Deliberately narrower than resetFilters(): the other fields (sort_by,
+   * srid, exclude_synthetic, ...) are display preferences, not something a
+   * prior identity typed or drew, so leaving them is not a residue leak.
+   */
+  clearIdentityScopedFilters: () => void;
 }
 
 const initialState = {
@@ -89,6 +98,15 @@ export const useSearchStore = create<SearchState>()((set, get) => ({
   setSortBy: (sort_by) => set({ sort_by, offset: 0 }),
 
   setSpatialPanelOpen: (open) => set({ spatialPanelOpen: open }),
+
+  clearIdentityScopedFilters: () =>
+    set({
+      q: initialState.q,
+      bbox: initialState.bbox,
+      collection_id: initialState.collection_id,
+      keywords: initialState.keywords,
+      geometry: initialState.geometry,
+    }),
 
   toParams: () => {
     const state = get();
