@@ -873,7 +873,7 @@ class TestPublishWaitTerminalOutcomes:
         assert payload["status"] == "fanned_out"
         assert payload["dataset_id"] is None
 
-    def test_wait_job_fanned_out_with_tags_notes_they_were_not_applied(
+    def test_wait_job_fanned_out_with_tags_records_an_extras_failure(
         self,
         runner,
         tmp_xdg_home,
@@ -882,8 +882,13 @@ class TestPublishWaitTerminalOutcomes:
         sample_geojson,
         patch_sdk_for_publish,
     ) -> None:
-        """--tags/--collection cannot be applied to a fanned-out job: there
-        is no single dataset id, since every layer became its own dataset."""
+        """fix(#1778, codex round 9): --tags/--collection cannot be applied
+        to a fanned-out job — there is no single dataset id, since every
+        layer became its own dataset. That omission must exit non-zero and
+        say so: recording only a note in the success message (the
+        pre-round-9 behavior) left extras_failures empty, so the command
+        exited 0 despite a requested operation never running."""
+        from geolens_cli._sdk_helpers import EXIT_GENERIC
         from geolens_cli.main import app
 
         _seed_login("https://x.example.com", mock_keyring)
@@ -897,10 +902,53 @@ class TestPublishWaitTerminalOutcomes:
         result = runner.invoke(
             app, ["publish", str(sample_geojson), "--tags", "hydro"]
         )
-        assert result.exit_code == 0, result.output
+        assert result.exit_code == EXIT_GENERIC, result.output
         assert "fanned out" in result.output
-        assert "not applied" in result.output
-        assert "Dataset created" not in result.output
+        assert "Dataset created, but" in result.output
+        assert "tags not applied" in result.output
+
+    def test_wait_job_fanned_out_with_extras_json_mode_carries_the_failures(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        """One extras_failures entry per requested extra (fix(#1778, codex
+        round 9)): both --tags and --collection here, both skipped."""
+        from geolens_cli._sdk_helpers import EXIT_GENERIC
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(),
+            preview=_ok_preview(),
+            commit=_ok_commit(),
+            job_status=_ok_job_status(dataset_id=None, status="fanned_out"),
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "--json",
+                "publish",
+                str(sample_geojson),
+                "--tags",
+                "hydro",
+                "--collection",
+                "terrain",
+            ],
+        )
+        assert result.exit_code == EXIT_GENERIC, result.output
+        payload = json.loads(result.output)
+        assert payload["status"] == "fanned_out"
+        assert len(payload["extras_failures"]) == 2
+        assert any("tags not applied" in f for f in payload["extras_failures"])
+        assert any(
+            "collection not applied" in f for f in payload["extras_failures"]
+        )
 
     def test_wait_poll_timed_out_exits_nonzero(
         self,

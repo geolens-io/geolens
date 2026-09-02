@@ -744,6 +744,7 @@ def publish(
         publish_failure: Optional[str] = None
         publish_message: Optional[str] = None
         publish_exit_code = EXIT_GENERIC
+        publish_extras_skipped: list[str] = []
         wait_outcome_known = False
         if wait:
             outcome = _publish.resolve_dataset_id(sdk.client, job_id)
@@ -842,10 +843,26 @@ def publish(
                         f"dataset. Check GET /jobs/{job_id} or the datasets "
                         f"list for progress."
                     )
-                    if tags or collection:
-                        publish_message += (
-                            " --tags/--collection were not applied: there is "
-                            "no single dataset id to apply them to."
+                    # fix(#1778, codex round 9): a note appended only to
+                    # publish_message was cosmetic — extras_failures stayed
+                    # empty, so Stage 5 below never ran and the command
+                    # exited 0 even though --tags/--collection were
+                    # requested and never applied. --json showed
+                    # extras_failures: [] too, telling automation nothing
+                    # was skipped. Recording the omission as an extras
+                    # failure instead routes it through the existing
+                    # extras-failure path: non-zero exit, and present in
+                    # the --json payload, same as any other partial
+                    # publish failure.
+                    if tags:
+                        publish_extras_skipped.append(
+                            "tags not applied: job fanned out into "
+                            "per-layer datasets"
+                        )
+                    if collection:
+                        publish_extras_skipped.append(
+                            "collection not applied: job fanned out into "
+                            "per-layer datasets"
                         )
                 elif reason == "terminal":
                     # A future terminal status this CLI has no specific
@@ -890,14 +907,18 @@ def publish(
         # and publish_failure or publish_message is already set, explaining
         # why. Tags/collection were never attempted against a dataset that
         # does not exist (or does not exist as a single id, for fanned_out),
-        # so skip the block rather than append a second, contradictory "not
-        # applied" line under the terminal message.
+        # so skip the API call — but fix(#1778, codex round 9):
+        # publish_extras_skipped still carries one entry per requested
+        # extra when fanned_out is the reason, so the omission still counts
+        # as an extras failure below instead of silently exiting 0.
         extras_failures: list[str] = []
         if (tags or collection) and dataset_id is not None:
             progress.add_task("Applying tags/collection...", total=None)
             extras_failures = _publish.apply_publish_extras(
                 sdk.client, dataset_id, tags, collection
             )
+        elif publish_extras_skipped:
+            extras_failures = publish_extras_skipped
 
     dataset_url = _publish.construct_dataset_url(
         instance,
