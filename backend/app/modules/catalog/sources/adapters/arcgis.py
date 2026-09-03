@@ -313,6 +313,13 @@ async def enrich_arcgis_feature_counts(
                         client, url, headers={}, accept=OGC_JSON_ACCEPT
                     )
                     data = json.loads(body)
+                # fix(#1770 round 45 P2): a `200 5`/`200 []` response is valid
+                # JSON but not a dict, and `"error" in data`/`data.get(...)`
+                # on either raises `TypeError`/`AttributeError` -- neither
+                # caught below, so it escaped `asyncio.gather` and failed the
+                # WHOLE probe/preview rather than degrading this one layer.
+                if not isinstance(data, dict):
+                    return {**layer, "feature_count": None}
                 # ArcGIS may return HTTP 200 with error in JSON body
                 if "error" in data:
                     return {**layer, "feature_count": None}
@@ -394,6 +401,13 @@ async def fetch_arcgis_feature_count(
             accept=OGC_JSON_ACCEPT,
         )
         data = json.loads(body)
+    # fix(#1770 round 45 P2): same reasoning as `_fetch_count` above -- a
+    # `200 5`/`200 []` response is valid JSON but not a dict, and this
+    # function has no local `except` at all around the checks below, so an
+    # uncaught `TypeError`/`AttributeError` propagated straight to the
+    # caller instead of the ordinary "no count" degrade.
+    if not isinstance(data, dict):
+        return None
     if "error" in data:
         error_info = data["error"]
         code = error_info.get("code", 0)
@@ -513,6 +527,18 @@ async def fetch_arcgis_layer_preview(
         )
         meta = json.loads(meta_body)
 
+    # fix(#1770 round 45 P2): a `200 5`/`200 []` response is valid JSON but
+    # not a dict. `.get("fields", [])` below would raise `AttributeError`,
+    # uncaught by this function's own body and by the router's except
+    # clause around this call (`httpx.HTTPError, ValueError, ...` -- no
+    # `AttributeError`/`TypeError`), so it reached the caller as a 500
+    # instead of the ordinary "not readable" refusal every other
+    # unparseable metadata response gets. `ValueError` matches this
+    # function's own contract for a bad metadata response (see the `error`
+    # branch just below) and the caller's existing `except ValueError`.
+    if not isinstance(meta, dict):
+        raise ValueError("ArcGIS layer metadata is not an object")
+
     if "error" in meta:
         error_info = meta["error"]
         code = error_info.get("code", 0)
@@ -561,7 +587,11 @@ async def fetch_arcgis_layer_preview(
                 accept=OGC_JSON_ACCEPT,
             )
             sample_data = json.loads(sample_body)
-        if "error" not in sample_data:
+        # fix(#1770 round 45 P2): same reasoning as the metadata read above
+        # -- a non-dict `sample_data` degrades to "no sample rows" here
+        # (this read already treats its own failures as best-effort),
+        # rather than raising `AttributeError`/`TypeError` uncaught.
+        if isinstance(sample_data, dict) and "error" not in sample_data:
             # ArcGIS query responses carry attributes under ``attributes``.
             sample_rows = [
                 feat.get("attributes", {}) for feat in sample_data.get("features", [])

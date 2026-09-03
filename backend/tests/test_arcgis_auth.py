@@ -580,3 +580,122 @@ class TestArcGISReadsAreBounded:
         assert sample_chunks_yielded <= (MAX_DOCUMENT_BYTES // chunk_size) + 2, (
             sample_chunks_yielded
         )
+
+
+_NON_DICT_ARCGIS_BODIES = ("5", "[]", '"x"', "null")
+
+
+class TestArcGISNonDictResponsesDoNotCrash:
+    """fix(#1770 round 45 P2, `adapters/arcgis.py:317,397,516,564`).
+
+    Round 44's non-dict guard was added only to `probe_arcgis_service`'s
+    service-root response. The four reads round 44 converted to
+    `bounded_probe_read` in the same file -- `_fetch_count`,
+    `fetch_arcgis_feature_count`, and `fetch_arcgis_layer_preview`'s
+    metadata and sample-row reads -- still do `"error" in data` /
+    `data.get(...)` straight after `json.loads`, with no `isinstance`
+    guard. A layer endpoint answering `200 5` raises `TypeError` on
+    `"error" in data`; `200 []` raises `AttributeError` on `.get(...)`.
+    `_fetch_count`'s own except lists `ValueError`/`KeyError` only,
+    `fetch_arcgis_feature_count` has no local `except` at all, and neither
+    the preview caller's own body nor the router's ArcGIS except clause
+    catches `TypeError`/`AttributeError`, so a probe (`enrich_arcgis_
+    feature_counts` under `asyncio.gather`) or a preview returned a bare
+    500 instead of a degraded result.
+    """
+
+    pytestmark = pytest.mark.asyncio
+
+    @pytest.mark.parametrize("body", _NON_DICT_ARCGIS_BODIES)
+    async def test_fetch_count_site(self, body: str) -> None:
+        def handle(request: httpx.Request) -> httpx.Response:
+            async def _chunks():
+                yield body.encode()
+
+            return httpx.Response(200, content=_chunks())
+
+        async with _mock_transport_client(handle) as client:
+            result = await enrich_arcgis_feature_counts(
+                "https://services.arcgis.com/svc/FeatureServer",
+                [{"id": 0, "name": "layer0"}],
+                client,
+            )
+
+        assert result == [{"id": 0, "name": "layer0", "feature_count": None}]
+
+    @pytest.mark.parametrize("body", _NON_DICT_ARCGIS_BODIES)
+    async def test_fetch_arcgis_feature_count_site(self, body: str) -> None:
+        from app.modules.catalog.sources.adapters.arcgis import (
+            fetch_arcgis_feature_count,
+        )
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            async def _chunks():
+                yield body.encode()
+
+            return httpx.Response(200, content=_chunks())
+
+        async with _mock_transport_client(handle) as client:
+            result = await fetch_arcgis_feature_count(
+                "https://services.arcgis.com/svc/FeatureServer", 0, client
+            )
+
+        assert result is None
+
+    @pytest.mark.parametrize("body", _NON_DICT_ARCGIS_BODIES)
+    async def test_fetch_arcgis_layer_preview_metadata_site(self, body: str) -> None:
+        from app.modules.catalog.sources.adapters.arcgis import (
+            fetch_arcgis_layer_preview,
+        )
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            async def _chunks():
+                yield body.encode()
+
+            return httpx.Response(200, content=_chunks())
+
+        async with _mock_transport_client(handle) as client:
+            with pytest.raises(ValueError, match="not an object"):
+                await fetch_arcgis_layer_preview(
+                    "https://services.arcgis.com/svc/FeatureServer", 0, client
+                )
+
+    @pytest.mark.parametrize("body", _NON_DICT_ARCGIS_BODIES)
+    async def test_fetch_arcgis_layer_preview_sample_rows_site(self, body: str) -> None:
+        from app.modules.catalog.sources.adapters.arcgis import (
+            fetch_arcgis_layer_preview,
+        )
+
+        meta = {
+            "name": "Parcels",
+            "geometryType": "esriGeometryPolygon",
+            "extent": {"spatialReference": {"wkid": 3857}},
+            "fields": [{"name": "OBJECTID", "type": "esriFieldTypeOID"}],
+        }
+        calls = 0
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            # 1st call: metadata (succeeds). 2nd: the sample query, the
+            # non-dict body under test. 3rd: the unconditional feature-count
+            # read, which must succeed normally so this test isolates the
+            # sample-rows site specifically.
+            if calls == 1:
+                return _streaming_json_response(meta)
+            if calls == 2:
+
+                async def _chunks():
+                    yield body.encode()
+
+                return httpx.Response(200, content=_chunks())
+            return _streaming_json_response({"count": 5})
+
+        async with _mock_transport_client(handle) as client:
+            result = await fetch_arcgis_layer_preview(
+                "https://services.arcgis.com/svc/FeatureServer", 0, client
+            )
+
+        assert result["layer_name"] == "Parcels"
+        assert result["sample_rows"] == []
+        assert result["feature_count"] == 5

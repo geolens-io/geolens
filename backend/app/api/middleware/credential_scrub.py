@@ -8,12 +8,13 @@ processor can later exact-scrub it out of anything that echoes it back. That
 works for any reader in the SAME async task the handler ran in -- which an
 UNHANDLED exception's readers are not.
 
-Measured directly (see `test_middleware_credential_scrub.py`): Starlette's
+Measured directly (see `test_credential_scrub_middleware.py`): Starlette's
 `BaseHTTPMiddleware.dispatch` runs `call_next` -- the rest of the middleware
 stack, the router, and the route handler -- in a SEPARATELY SPAWNED task.
 `ContextVar.set()` inside that task never propagates back to the parent, so
-`RequestLoggingMiddleware`'s own `except Exception: logger.exception(...)`
-reads the registry as empty. So does an `@app.exception_handler(Exception)`,
+`RequestLoggingMiddleware`'s own broad exception-logging clause -- see
+`api/middleware/logging.py` -- reads the registry as empty. So does an
+`@app.exception_handler(Exception)`,
 for a different reason: Starlette dispatches a bare `Exception` handler
 through `ServerErrorMiddleware`, which wraps EVERY user middleware -- an even
 more distant task than `RequestLoggingMiddleware`'s own.
@@ -56,6 +57,6 @@ class CredentialScrubASGIMiddleware:
             return
         try:
             await self.app(scope, receive, send)
-        except Exception as exc:
+        except Exception as exc:  # broad: must catch whatever the app raises, of any type, to scrub it before re-raising unchanged
             scrub_registered_credentials_from_exception(exc)
             raise
