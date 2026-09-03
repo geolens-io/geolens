@@ -1,33 +1,31 @@
 #!/bin/sh
-# fix(#1798 review round 13, P2, review 5103870781): every other test in
-# this suite pins get_env_value's (scripts/lib/common.sh) behavior against
-# a WRITTEN-DOWN understanding of Docker Compose's `.env` grammar. This one
-# instead asks Compose itself, for a corpus covering every codex .env
-# finding from rounds 6-12 (BOM, a comment after a closing quote, escapes
-# including \n/\t/\\, sibling and chained ${VAR} interpolation with
-# redefinition, a value ending in a real trailing newline, an empty value,
-# `=` inside a value, an undocumented escape left alone, and absent vs
-# empty).
+# fix(#1798 review round 13, P2, review 5103870781; round 13b precedence
+# follow-up): every other test in this suite pins get_env_value's
+# (scripts/lib/common.sh) behavior against a WRITTEN-DOWN understanding of
+# Docker Compose's `.env` grammar. This one instead asks Compose itself,
+# for a corpus covering every codex .env finding from rounds 6-12 (BOM, a
+# comment after a closing quote, escapes including \n/\t/\\, sibling and
+# chained ${VAR} interpolation with redefinition, a value ending in a real
+# trailing newline, an empty value, `=` inside a value, an undocumented
+# escape left alone, and absent vs empty) plus round 13b's process-env vs
+# file precedence corpus (below).
 #
 # COMPOSE IS THE ORACLE. When a future review finds a new divergence
 # between get_env_value and real `docker compose`, the fix is to ADD A
 # CORPUS CASE HERE that reproduces it (red), fix common.sh's awk/shell
 # parser to match (green), and leave the case in place — not to re-argue
-# what Compose's grammar "should" do from first principles. The one
-# EXCEPTION this file deliberately does not exercise: a key defined BOTH in
-# the .env file AND the shell's process environment during interpolation.
-# Empirically (compose v5.1.2, verified by hand while writing this test),
-# real Compose's OWN `.env`-internal interpolation prefers the SHELL
-# environment over an earlier line in the same file for that case, which is
-# the OPPOSITE of get_env_value's deliberate, documented precedence (file
-# line wins, then process env — see the doc comment on
-# _ENV_INTERP_MAX_PASSES in scripts/lib/common.sh). None of the rounds
-# 6-12 corpus actually exercises that name-collision shape (the existing
-# "falls back to the process environment" case only ever tests a key ABSENT
-# from the file, where both orderings agree), so this file does not
-# manufacture a case that would spuriously fail on a known, pre-existing,
-# out-of-scope divergence — filed as a follow-up rather than silently
-# dropped.
+# what Compose's grammar "should" do from first principles. Round 13b is
+# exactly that cycle: this file's own round-13 version documented (rather
+# than closed) a divergence where a key defined in BOTH the .env file AND
+# the shell's process environment resolved differently here than in real
+# Compose (file-first here, shell-env-first in Compose) — codex flagged a
+# Compose-parser mismatch on this PR every round from 6 to 12, and a
+# documented-but-open divergence was exactly the shape that becomes the
+# next one. get_env_value's interpolation now matches Compose's own
+# precedence: the process environment wins whenever X is set there (even
+# to an empty string, for the non-colon forms — see the process-env-vs-file
+# precedence corpus below), falling back to an earlier line in the same
+# file only when the environment has no X at all.
 #
 # Requires `docker compose` (a pure client-side YAML/env merge for
 # `config` — no daemon, no image pull, no network) and `python3` (both
@@ -238,6 +236,42 @@ if [ "$_absent_compose" = "" ]; then
 else
   bad "Compose's own absent-key behavior changed (got: [$_absent_compose]) — the top-of-file divergence note in common.sh needs re-checking"
 fi
+
+# ============================================================================
+# Process-env vs .env-file precedence (round 13b, follow-up to round 13's
+# review 5103870781) — codex flagged a Compose-parser mismatch on this PR
+# every round from 6 to 12; round 13's own oracle test shipped with this
+# EXACT divergence merely documented rather than closed, which is exactly
+# the shape that becomes the next P2. Verified through the real oracle
+# (never reasoned about from first principles): Compose's process
+# environment wins whenever the referenced key is SET there — even to an
+# empty string, for the plain `${X}`/`${X-d}` forms — falling back to an
+# earlier line in the SAME .env file only when the environment has no X at
+# all. `export`/`unset` bracket each case so both get_env_value's own
+# lookup and the real `docker compose` invocation below it see the exact
+# same process environment.
+# ============================================================================
+PREC_ENV="$WORK/.env.precedence"
+cat > "$PREC_ENV" <<'EOF'
+TARGETVAR=fromfile
+USES_PLAIN="${TARGETVAR}"
+USES_COLON_DASH="${TARGETVAR:-fallback}"
+USES_DASH="${TARGETVAR-fallback}"
+USES_UNSET_COLON_DASH="${NOFILEVAR:-fallback}"
+EOF
+
+export TARGETVAR=fromenv
+_assert_matches_compose USES_PLAIN "$PREC_ENV"   "env set (fromenv) + file key also set (fromfile): the process environment wins"
+unset TARGETVAR
+
+export TARGETVAR=
+_assert_matches_compose USES_COLON_DASH "$PREC_ENV"   "env set but EMPTY + \${X:-default}: the colon form treats empty-and-set as unset, so the default applies"
+_assert_matches_compose USES_DASH "$PREC_ENV"   "env set but EMPTY + \${X-default}: the non-colon form does NOT treat empty-and-set as unset, so the empty value wins over the default"
+unset TARGETVAR
+
+_assert_matches_compose USES_PLAIN "$PREC_ENV"   "env unset + file key set (fromfile): falls back to the file"
+
+_assert_matches_compose USES_UNSET_COLON_DASH "$PREC_ENV"   "env unset + file key also unset + \${X:-default}: the default applies"
 
 echo "1..$((PASS + FAIL))"
 echo "# ${PASS} passed, ${FAIL} failed"

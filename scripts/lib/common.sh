@@ -362,8 +362,27 @@ _env_interp_resolve() {
 
     _eir_have_value=0
     _eir_resolved=""
-    _eir_ref_bound="$_eir_bound"
-    if _eir_earlier="$(_env_raw_before "$_eir_name" "$_eir_file" "$_eir_bound")"; then
+    _eir_ref_bound=0
+    # fix(#1798 review round 13b, P2 follow-up): Compose's OWN precedence
+    # here — verified empirically against real `docker compose config`
+    # while extending the oracle test, not assumed — is the shell's
+    # process environment FIRST, falling back to an earlier line in the
+    # SAME .env file only when the environment has no X at ALL. The prior
+    # order (file first, then environment) was this parser's own
+    # deliberate-but-unverified choice and disagreed with Compose whenever
+    # a key existed in both places. A variable EXPORTED but set to EMPTY
+    # still counts as "set" here — ${X} and ${X-d} resolve to the empty
+    # string, not the file's value or the fallback; only the `:-`/`:?`
+    # colon forms treat empty-and-set the same as unset, via the
+    # have_value branch below.
+    if eval "[ \"\${${_eir_name}+set}\" = set ]" 2>/dev/null; then
+      eval "_eir_resolved=\"\${${_eir_name}}\""
+      _eir_have_value=1
+      # A process-environment value has no defining line in this file at
+      # all — a ${VAR} reference it happens to contain is not scoped to
+      # any point in the file, so no bound applies to what it can see.
+      _eir_ref_bound=0
+    elif _eir_earlier="$(_env_raw_before "$_eir_name" "$_eir_file" "$_eir_bound")"; then
       # fix(#1798 review round 13, P2, review 5103870781): a value decoded
       # from a double-quoted `\n`/`\r`/`\t` escape can end in a real,
       # trailing control byte — `$(...)` unconditionally strips trailing
@@ -382,13 +401,6 @@ _env_interp_resolve() {
       _eir_resolved="${_eir_resolved%x}"
       _eir_have_value=1
       _eir_ref_bound="$(_env_line_of_before "$_eir_name" "$_eir_file" "$_eir_bound")"
-    elif eval "[ \"\${${_eir_name}+set}\" = set ]" 2>/dev/null; then
-      eval "_eir_resolved=\"\${${_eir_name}}\""
-      _eir_have_value=1
-      # A process-environment value has no defining line in this file at
-      # all — a ${VAR} reference it happens to contain is not scoped to
-      # any point in the file, so no bound applies to what it can see.
-      _eir_ref_bound=0
     fi
 
     if [ "$_eir_have_value" -eq 1 ]; then
