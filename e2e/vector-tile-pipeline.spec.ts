@@ -95,6 +95,15 @@ test.describe('Vector tile pipeline', () => {
       else if (url.includes('.pbf')) thirdPartyPbf.push(url);
     });
 
+    // fix(#1624): register this wait before navigation. The `page.on('response')`
+    // collector above sees every tile regardless of timing, but a
+    // `waitForResponse` registered after `goto` cannot match a response that
+    // already arrived during navigation or before the canvas check completes —
+    // a healthy fast run would then burn the full timeout for nothing.
+    const firstDatasetTile = page.waitForResponse((r) => isDatasetTile(r.url()), {
+      timeout: 20_000,
+    });
+
     await page.goto(`/datasets/${datasetId}`);
     await page.waitForURL(new RegExp(`/datasets/${datasetId}$`));
     // The map fits to the dataset's bounds on load, so tiles for the data's own
@@ -110,9 +119,12 @@ test.describe('Vector tile pipeline', () => {
     // requested" with a perfectly healthy pipeline. A timeout here falls
     // through to the length assertion, which still reports the real #8186
     // signature.
-    await page
-      .waitForResponse((r) => isDatasetTile(r.url()), { timeout: 20_000 })
-      .catch(() => undefined);
+    await firstDatasetTile.catch(() => undefined);
+    // The dataset source is now confirmed added, so the remaining tiles in
+    // this batch are already in flight or complete: networkidle here waits
+    // out that trailing traffic instead of racing its start, so the status
+    // check below sees every response, not just the first.
+    await page.waitForLoadState('networkidle');
 
     // THE assertion. Zero here is the #8186 silent-worker signature. Scoped to
     // this dataset's own route, so third-party basemap/glyph .pbf traffic
