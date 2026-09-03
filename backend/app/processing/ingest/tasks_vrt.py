@@ -48,6 +48,7 @@ from app.processing.ingest.tasks_common import (
 from app.processing.ingest.tasks_raster_common import (
     absorb_cancellation,
     publish_commit_landed,
+    record_unpublished_storage_keys,
 )
 
 
@@ -558,6 +559,38 @@ async def ingest_vrt(
         asset_sha256 = await asyncio.to_thread(sha256_file, vrt_path)
         vrt_size = os.path.getsize(vrt_path)
 
+        # fix(#1778 codex r4): the same treatment `ingest_raster` gets, and for
+        # the same reason. Steps 10 and 11 put the VRT and its quicklooks
+        # before the terminal commit, and `written_storage_keys` is a local
+        # list: a kill between the put and that commit loses it with the
+        # process AND rolls back the dataset row whose id the keys embed, so
+        # nothing left alive could reconstruct them. Recording the intended
+        # keys on the durable job row before the first put is what makes them
+        # nameable, and both stale-job passes reap what no live row references.
+        #
+        # The id is decided here rather than by the phase-2 INSERT because the
+        # keys embed it and the job row has to be able to name them before the
+        # transaction that can roll it away opens. It is generated per task
+        # invocation, so a retry cannot reproduce one: that is this tail's
+        # attempt fence, the same one `ingest_raster` relies on, and the reason
+        # these keys need no `attempts/` segment of their own.
+        planned_dataset_id = uuid.uuid4()
+        _vrt_base_key = f"rasters/{planned_dataset_id}/{asset_sha256}"
+        await record_unpublished_storage_keys(
+            job_uuid,
+            attempt_uuid,
+            keys=[
+                f"{_vrt_base_key}/source.vrt",
+                f"{_vrt_base_key}/quicklook_256.png",
+                f"{_vrt_base_key}/quicklook_512.png",
+            ],
+            # A brand new dataset id: no row can already name one of these.
+            already_published=(),
+            attempt_scope=str(planned_dataset_id),
+            job_id=job_id,
+            task="ingest_vrt",
+        )
+
         # 8. Generate quicklooks (non-fatal)
         ql256: bytes | None = None
         ql512: bytes | None = None
@@ -606,6 +639,7 @@ async def ingest_vrt(
                     vrt_type=vrt_type,
                     resolution_strategy=resolution_strategy,
                     source_dataset_ids=ids,
+                    dataset_id=planned_dataset_id,
                 )
 
                 # 10. Store VRT and quicklooks to managed storage
@@ -614,6 +648,10 @@ async def ingest_vrt(
                 from app.platform.storage import get_storage
 
                 storage = get_storage()
+                # fix(#1778 codex r4): the same value the durable record above
+                # named, since `dataset.id` IS `planned_dataset_id`. Written as
+                # the dataset's own id rather than the local so the key still
+                # reads as a property of the row it belongs to.
                 base_key = f"rasters/{dataset.id}/{asset_sha256}"
                 vrt_key = f"{base_key}/source.vrt"
 

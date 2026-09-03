@@ -1638,17 +1638,20 @@ async def fail_stale_jobs(
     running_rows = list(running_result.all())
     running_job_ids = [row[0] for row in running_rows]
     # fix(#1778): resolved here, deleted only after this pass's commit lands,
-    # the rule every other external artifact in this function follows.
-    unpublished_storage_keys = tuple(
+    # the rule every other external artifact in this function follows. Lists
+    # rather than tuples because the retention purge below appends to them:
+    # fix(#1778 codex r4) made the purge the LAST owner of these two fields,
+    # for the rows that reached a terminal status on their own.
+    unpublished_storage_keys = [
         key
         for _job_id, user_metadata_, _created_by in running_rows
         for key in unpublished_storage_keys_from_metadata(user_metadata_)
-    )
-    unadopted_analysis_tables = tuple(
+    ]
+    unadopted_analysis_tables = [
         name
         for _job_id, user_metadata_, _created_by in running_rows
         if (name := unadopted_analysis_table_from_metadata(user_metadata_)) is not None
-    )
+    ]
 
     # fix(#1550 review): the row and its audit trail are settled by the same
     # actor, in the same transaction. After a hard kill this sweep is the only
@@ -1898,6 +1901,26 @@ async def fail_stale_jobs(
         deleted_rows = deleted.all()
         terminal_jobs_purged = len(deleted_rows)
         deleted_paths = {fp for (_id, fp, _um) in deleted_rows if fp}
+        # fix(#1778 codex r4): the row being deleted is the last thing that can
+        # name these. The two stale-job passes only read the rows they move OFF
+        # `running`, so a job that reached `failed` or `cancelled` on its own
+        # and whose in-process best-effort cleanup then failed (a storage blip,
+        # a DROP that lost a lock race) keeps its objects and its output table
+        # with the record still pointing at them, and nothing looks again. This
+        # purge is the last actor that holds the pointer, so it is the last
+        # chance to use it. Both reaps run after this function's commit and
+        # both carry survivor checks, so a key or a table something live still
+        # owns is refused rather than deleted.
+        unpublished_storage_keys.extend(
+            key
+            for (_id, _fp, um) in deleted_rows
+            for key in unpublished_storage_keys_from_metadata(um)
+        )
+        unadopted_analysis_tables.extend(
+            name
+            for (_id, _fp, um) in deleted_rows
+            if (name := unadopted_analysis_table_from_metadata(um)) is not None
+        )
         # fix(#1202 review r5): a purged presigned job's staging key is the one
         # reference left to an object the client's PUT URL can still recreate.
         deleted_presigned_keys = {
@@ -1950,8 +1973,8 @@ async def fail_stale_jobs(
         _staged_presigned_keys=tuple(sorted(deleted_presigned_keys)),
         _refresh_runs_reconciled=cancelled_runs,
         _stale_generation_storage_keys=stale_generation_storage_keys,
-        _unpublished_storage_keys=unpublished_storage_keys,
-        _unadopted_analysis_tables=unadopted_analysis_tables,
+        _unpublished_storage_keys=tuple(unpublished_storage_keys),
+        _unadopted_analysis_tables=tuple(unadopted_analysis_tables),
     )
     if commit:
         # Never remove an external artifact for a DELETE that may still roll

@@ -3458,8 +3458,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # serving. `_live_referenced_storage_keys` asks the four columns that name
     # an object, `reap_unpublished_storage_keys` refuses what they return and
     # deletes nothing at all when the query fails, and both stale-job passes
-    # go through it. Cap 1991 -> 2077, exact.
-    "backend/app/platform/jobs/sweep.py": 2077,
+    # go through it. Cap 1991 -> 2077.
+    # fix(#1778 codex r4): +23. The retention purge is the LAST actor holding a
+    # pointer to a terminal job's unpublished keys and analysis output table,
+    # so a job that failed on its own and whose best-effort cleanup then failed
+    # once had nothing left looking at it. Its DELETE ... RETURNING already
+    # carried `user_metadata`; the rows now feed the same two post-commit reaps
+    # the running-row sweep feeds, survivor checks included. Cap 2077 -> 2100,
+    # exact.
+    "backend/app/platform/jobs/sweep.py": 2100,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and
@@ -3941,9 +3948,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # VRT integration and source-management suites, and putting the wrappers in
     # `raster/vrt.py` with function-level imports removed the attributes AND
     # would have made the patches no-ops once restored. The docstrings say so,
-    # because the next reader will want to move them back. Cap 1496 -> 1530,
-    # exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1530,
+    # because the next reader will want to move them back. Cap 1496 -> 1530.
+    # fix(#1778 codex r4): +38. `ingest_vrt` puts the VRT and its quicklooks
+    # before the terminal commit and recorded nothing, so a kill in between
+    # lost `written_storage_keys` with the process AND rolled back the dataset
+    # id the keys embed. It now preselects that id and records the intended
+    # keys on the job row first, the way `ingest_raster` does. Most of the
+    # growth is the comment saying why the id is decided outside phase 2.
+    # Cap 1530 -> 1568, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1568,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.

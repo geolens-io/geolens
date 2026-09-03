@@ -10,6 +10,7 @@ before the transaction that would publish it:
   commit had no out-of-process reaper, unlike the VRT generation prefix.
 """
 
+import ast
 import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -317,7 +318,12 @@ class TestIdenticalReplacementKeepsTheLiveAsset:
         storage.delete.assert_not_awaited()
 
     def test_every_site_that_records_intended_keys_states_the_exclusion(self) -> None:
-        """Enumerated rather than assumed: two writers, both answering."""
+        """Enumerated rather than assumed: three writers, all answering.
+
+        fix(#1778 codex r4): `ingest_vrt` joined the set. Its keys sit under a
+        dataset id it generates per task invocation, so its answer is the empty
+        one, but it still has to give it.
+        """
         found = set()
         for module in sorted((APP / "processing").rglob("*.py")):
             text = module.read_text()
@@ -331,6 +337,7 @@ class TestIdenticalReplacementKeepsTheLiveAsset:
         assert found == {
             "processing/ingest/tasks_raster.py",
             "processing/ingest/tasks_raster_replace.py",
+            "processing/ingest/tasks_vrt.py",
         }, found
 
 
@@ -557,7 +564,279 @@ class TestAttemptScopedReplaceKeys:
         assert generated < used < scoped
 
 
-def _mock_db_for_fail_stale(*, running_rows: list) -> AsyncMock:
+# (module path relative to backend/app, enclosing function) ->
+# (expected put count, the durable owner that can name the key without this
+# process). A site not listed here must call `record_unpublished_storage_keys`
+# in the same function, before its puts. Counts are exact in both directions:
+# a new put inside an already-justified function has to be argued for on its
+# own rather than riding the existing entry, which is the rule
+# `test_rule2_structural`'s allowlists follow for the same reason.
+PUT_SITES_WITH_ANOTHER_OWNER: dict[tuple[str, str], tuple[int, str]] = {
+    ("processing/ingest/tasks_vrt.py", "regenerate_vrt"): (
+        3,
+        "generation-scoped keys, rebuilt from the durable VrtGeneration row by "
+        "_stale_generation_storage_keys in the job sweep (feat(#1267)) - the "
+        "mechanism this finding's recorder was modelled on",
+    ),
+    ("processing/ingest/tasks_common.py", "_archive_original_file"): (
+        1,
+        "originals/{dataset_id}/: the first-ingest tail records it as intent "
+        "(archived_original_uri under a dataset id it generates), and the "
+        "replace tail deliberately does not, because the same content-derived "
+        "key can already hold an earlier upload's archive that a live "
+        "dataset_assets row names - archive_lossy_original's own pre-write "
+        "probe is what decides that one",
+    ),
+    ("processing/ingest/tasks_common.py", "_generate_quicklook"): (
+        1,
+        "vectors/{dataset_id}/quicklook_256.png, written after the vector "
+        "dataset row is committed, so delete_dataset's vectors/ prefix reap "
+        "owns it (fix(#430 BA-17))",
+    ),
+    ("processing/ingest/service.py", "save_upload_file"): (
+        2,
+        "staging/: owned by the staging reconciler and the presigned-staging "
+        "sweep, which start from the objects rather than from a row",
+    ),
+    ("processing/ingest/router.py", "_put_staging_object"): (
+        1,
+        "staging/: same two owners as save_upload_file",
+    ),
+    ("processing/export/artifact_cache.py", "_write"): (
+        1,
+        "the export artifact cache, reaped by its own TTL sweep",
+    ),
+}
+
+
+class TestEveryPutSiteHasAnOwner:
+    """fix(#1778 codex r4): no object may be written with nothing able to name it.
+
+    The finding this file exists for is a key that outlives the process that
+    could have deleted it. `written_storage_keys` is a local list, so any put
+    before the terminal commit is one SIGKILL away from an orphan whose prefix
+    embeds an id the rollback took away. `record_unpublished_storage_keys` is
+    the answer for the three ingest tails; every other put site needs an owner
+    that can reconstruct the key from something durable, and this is where that
+    claim is written down instead of assumed.
+    """
+
+    @staticmethod
+    def _put_sites() -> dict[tuple[str, str], int]:
+        sites: dict[tuple[str, str], int] = {}
+        for module in sorted((APP / "processing").rglob("*.py")):
+            rel = str(module.relative_to(APP))
+            stack: list[str] = []
+
+            def walk(node: ast.AST) -> None:
+                for child in ast.iter_child_nodes(node):
+                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        stack.append(child.name)
+                        walk(child)
+                        stack.pop()
+                        continue
+                    if (
+                        isinstance(child, ast.Call)
+                        and isinstance(child.func, ast.Attribute)
+                        and child.func.attr == "put"
+                        and stack
+                    ):
+                        sites[(rel, stack[-1])] = sites.get((rel, stack[-1]), 0) + 1
+                    walk(child)
+
+            walk(ast.parse(module.read_text()))
+        return sites
+
+    @staticmethod
+    def _records_intent(rel: str) -> set[str]:
+        """Functions in one module that record their intended keys."""
+        recording: set[str] = set()
+        stack: list[str] = []
+
+        def walk(node: ast.AST) -> None:
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    stack.append(child.name)
+                    walk(child)
+                    stack.pop()
+                    continue
+                if (
+                    isinstance(child, ast.Call)
+                    and isinstance(child.func, ast.Name)
+                    and child.func.id == "record_unpublished_storage_keys"
+                    and stack
+                ):
+                    recording.add(stack[-1])
+                walk(child)
+
+        walk(ast.parse((APP / rel).read_text()))
+        return recording
+
+    def test_no_put_site_is_left_without_an_owner(self) -> None:
+        unowned = []
+        for (rel, func), count in sorted(self._put_sites().items()):
+            if (rel, func) in PUT_SITES_WITH_ANOTHER_OWNER:
+                continue
+            if func in self._records_intent(rel):
+                continue
+            unowned.append(f"{rel}::{func} ({count} put(s))")
+        assert not unowned, (
+            "these storage puts have no owner that can name the key after the "
+            "writing process is gone. Either record the intended keys with "
+            "record_unpublished_storage_keys before the first put, or add a "
+            "PUT_SITES_WITH_ANOTHER_OWNER entry naming the reaper that can "
+            "reconstruct them:\n" + "\n".join(unowned)
+        )
+
+    def test_the_three_recording_tails_record_before_they_put(self) -> None:
+        """Order matters as much as presence: a record after the put is lost."""
+        for rel, func in (
+            ("processing/ingest/tasks_raster.py", "ingest_raster"),
+            ("processing/ingest/tasks_raster_replace.py", "reupload_raster"),
+            ("processing/ingest/tasks_vrt.py", "ingest_vrt"),
+        ):
+            lines = (APP / rel).read_text().splitlines()
+            record = next(
+                i
+                for i, line in enumerate(lines)
+                if "await record_unpublished_storage_keys(" in line
+            )
+            first_put = next(
+                i for i, line in enumerate(lines) if "await storage.put(" in line
+            )
+            assert record < first_put, f"{rel}::{func} records after its first put"
+
+    def test_the_justifications_are_exact_in_both_directions(self) -> None:
+        """A justified function may not silently acquire a second put."""
+        sites = self._put_sites()
+        for key, (expected, justification) in PUT_SITES_WITH_ANOTHER_OWNER.items():
+            assert key in sites, f"stale allowlist entry: {key[0]}::{key[1]}"
+            assert sites[key] == expected, (
+                f"{key[0]}::{key[1]} has {sites[key]} puts, entry says {expected}"
+            )
+            assert len(justification) > 40, key
+
+
+class TestRetentionPurgeIsTheLastOwner:
+    """fix(#1778 codex r4): the row being deleted is the last thing naming these.
+
+    The two stale-job passes only read the rows they move OFF `running`. A job
+    that reached `failed` or `cancelled` on its own, whose in-process
+    best-effort cleanup then failed once (a storage blip, a DROP that lost a
+    lock race), keeps its objects and its output table with the record still
+    pointing at them, and nothing looks again. The retention purge holds that
+    pointer right up to the moment it discards it, so it is the last chance to
+    use it.
+    """
+
+    KEY = "rasters/purged-ds/attempts/dead/abc/source.cog.tif"
+
+    @pytest.mark.asyncio
+    async def test_a_failed_job_whose_cleanup_raised_is_reaped_by_the_purge(
+        self, monkeypatch
+    ) -> None:
+        from app.core.config import settings
+        from app.platform.jobs.sweep import fail_stale_jobs
+
+        monkeypatch.setattr(settings, "ingest_jobs_retention_days", 30)
+        mock_db = _mock_db_for_fail_stale(
+            running_rows=[],
+            purged_rows=[
+                (
+                    uuid.uuid4(),
+                    None,
+                    {
+                        "unpublished_storage_keys": [self.KEY],
+                        "analysis_out_table": "parcels_buffered",
+                    },
+                )
+            ],
+        )
+        storage = MagicMock()
+        storage.delete = AsyncMock()
+        analysis_reap = AsyncMock()
+        with (
+            patch("app.platform.storage.get_storage", return_value=storage),
+            patch(
+                "app.platform.jobs.sweep._live_referenced_storage_keys",
+                AsyncMock(return_value=set()),
+            ),
+            patch(
+                "app.platform.jobs.sweep._reap_unadopted_analysis_outputs",
+                analysis_reap,
+            ),
+        ):
+            outcome = await fail_stale_jobs(mock_db, detailed=True)
+
+        assert outcome._unpublished_storage_keys == (self.KEY,)
+        assert [call.args[0] for call in storage.delete.await_args_list] == [self.KEY]
+        analysis_reap.assert_awaited_once_with(("parcels_buffered",))
+
+    @pytest.mark.asyncio
+    async def test_a_purged_row_naming_a_live_key_deletes_nothing(
+        self, monkeypatch
+    ) -> None:
+        """The survivor check applies to this door too.
+
+        A row can be purged while the object it named is the one a dataset is
+        serving: an ingest that succeeded and whose recorded intent was never
+        cleared off the row still carries the published key.
+        """
+        from app.core.config import settings
+        from app.platform.jobs.sweep import fail_stale_jobs
+
+        monkeypatch.setattr(settings, "ingest_jobs_retention_days", 30)
+        mock_db = _mock_db_for_fail_stale(
+            running_rows=[],
+            purged_rows=[
+                (uuid.uuid4(), None, {"unpublished_storage_keys": [self.KEY]})
+            ],
+        )
+        storage = MagicMock()
+        storage.delete = AsyncMock()
+        with (
+            patch("app.platform.storage.get_storage", return_value=storage),
+            patch(
+                "app.platform.jobs.sweep._live_referenced_storage_keys",
+                AsyncMock(return_value={self.KEY}),
+            ),
+        ):
+            outcome = await fail_stale_jobs(mock_db, detailed=True)
+
+        assert outcome._unpublished_storage_keys == (self.KEY,)
+        storage.delete.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_rolled_back_purge_deletes_nothing(self, monkeypatch) -> None:
+        from app.core.config import settings
+        from app.platform.jobs.sweep import fail_stale_jobs
+
+        monkeypatch.setattr(settings, "ingest_jobs_retention_days", 30)
+        mock_db = _mock_db_for_fail_stale(
+            running_rows=[],
+            purged_rows=[
+                (uuid.uuid4(), None, {"unpublished_storage_keys": [self.KEY]})
+            ],
+        )
+        mock_db.commit.side_effect = RuntimeError("commit failed")
+        storage = MagicMock()
+        storage.delete = AsyncMock()
+        with (
+            patch("app.platform.storage.get_storage", return_value=storage),
+            patch(
+                "app.platform.jobs.sweep._live_referenced_storage_keys",
+                AsyncMock(return_value=set()),
+            ),
+            pytest.raises(RuntimeError, match="commit failed"),
+        ):
+            await fail_stale_jobs(mock_db, detailed=True)
+
+        storage.delete.assert_not_awaited()
+
+
+def _mock_db_for_fail_stale(
+    *, running_rows: list, purged_rows: list | None = None
+) -> AsyncMock:
     """A session double for ``fail_stale_jobs`` with real running-row metadata.
 
     The peer helper in ``test_vrt_stale_sweep_gap002`` hands every job row a
@@ -596,8 +875,13 @@ def _mock_db_for_fail_stale(*, running_rows: list) -> AsyncMock:
         results.append(result)
 
     purge = MagicMock()
-    purge.all.return_value = []
+    purge.all.return_value = list(purged_rows or [])
     results.append(purge)
+    # fix(#1778 codex r4): the purge only issues its survivor SELECT when a
+    # deleted row carried a file_path, and these fixtures carry none.
+    assert not any(row[1] for row in (purged_rows or [])), (
+        "a purged row with a file_path adds one SELECT this double does not model"
+    )
 
     post_expiry = MagicMock()
     post_expiry.all.return_value = []
