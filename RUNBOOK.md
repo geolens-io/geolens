@@ -424,7 +424,18 @@ status, the same way `restore.sh`/`check-env.sh`/`upgrade.sh` guard
 `env_value_into` internally (see the comment above `env_value_into`'s
 definition in `scripts/lib/common.sh`): assign the real variable only
 inside the `if`, never on the failure branch, so a key absent from `.env`
-leaves this shell's existing value — inherited or default — untouched:
+leaves this shell's existing value — inherited or default — untouched.
+
+Each line below is its own subprocess (`scripts/env-value.sh` is invoked
+fresh each time, never sourced), so running them in sequence in this
+interactive shell cannot reproduce the ordering bug fixed in
+`scripts/lib/common.sh` (fix(#1778) round 20): that bug needed one script
+process to assign a value into its OWN shell via `env_value_into` and
+have a LATER resolution in that SAME process misread it as an inherited
+override. A plain `VAR="$_v"` assignment here, with no `export`, never
+reaches a later subprocess's environment at all — if a future snippet
+here ever needs `export VAR=...` between two of these calls, re-check it
+against that fix before relying on the values lining up:
 
 ```bash
 if _v="$(scripts/env-value.sh GEOLENS_RUNTIME_DB_PASSWORD)"; then GEOLENS_RUNTIME_DB_PASSWORD="$_v"; fi

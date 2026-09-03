@@ -660,6 +660,13 @@ print_rollback() {
 }
 rollback_trap() {
   rc=$?
+  # fix(#1778 round 20, P1 class): `trap` holds only ONE handler per
+  # signal — this trap REPLACES common.sh's own EXIT trap (which would
+  # otherwise clean up its env-snapshot directory, see scripts/lib/
+  # common.sh's own comment near the top of that file), so this cleanup
+  # takes over that job too. After $rc is captured, so this never clobbers
+  # the exit status being inspected below.
+  _env_snapshot_cleanup 2>/dev/null || true
   if [ "$rc" -ne 0 ]; then
     warn "Upgrade FAILED (exit $rc). Your data is safe in $BACKUP_FILE."
     if [ "$APP_DOWN" = "1" ]; then
@@ -779,6 +786,11 @@ if ! wait_for_healthy; then
 fi
 
 # Success — defuse the failure trap and print the rollback recipe for reference.
+# fix(#1778 round 20, P1 class): clearing the trap here also removes
+# common.sh's own snapshot-cleanup trap (already replaced by rollback_trap
+# above, but that handler is now defused too) — clean up explicitly so the
+# directory does not leak for the remainder of this successful run.
+_env_snapshot_cleanup 2>/dev/null || true
 trap - EXIT
 say ""
 say "GeoLens upgraded to $TARGET_VERSION and is healthy."

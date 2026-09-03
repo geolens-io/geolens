@@ -9,14 +9,137 @@
 # boot under QEMU emulation), while this copy keeps a 90s budget for the
 # upgrade path where images and volumes already exist locally.
 #
-# This file has NO side effects on source: it only defines functions and the few
-# constants below. The caller sets COMPOSE_FILE before invoking compose().
+# fix(#1778 round 20, P1): this file now has ONE side effect on source — see
+# the snapshot block below, right after this comment — which the rest of
+# this note documents. Everything else here still only defines functions and
+# the few constants below; the caller sets COMPOSE_FILE before invoking
+# compose().
 
 # COMPOSE_FILE is selected by the caller (upgrade.sh/restore.sh/check-env.sh
 # read it from .env via env_value_into). Default to the source-build file so
 # a bare source still works. Always relative to PROJECT_ROOT (Compose's own
 # convention for this variable), never an absolute path a caller might set.
 : "${COMPOSE_FILE:=docker-compose.yml}"
+
+# fix(#1778 round 20, P1) at scripts/restore.sh:41: _env_resolve_name's
+# "process environment wins" check (round 18) tested the LIVE shell
+# variable table via `${NAME+set}` — which cannot tell "genuinely inherited
+# before this script ran" apart from "this script's OWN env_value_into
+# assigned it moments ago while resolving a DIFFERENT key". A caller with
+# more than one env_value_into call against the same .env file is exposed:
+# with a forward reference `POSTGRES_DB=${POSTGRES_USER:-dbfallback}`
+# followed LATER in the file by `POSTGRES_USER=admin`, real Compose
+# resolves POSTGRES_DB to "dbfallback" — POSTGRES_USER is defined after
+# POSTGRES_DB in the file (invisible to an earlier line's own resolution)
+# and was never actually inherited, so the `:-` default fires. But
+# restore.sh calls `env_value_into POSTGRES_USER POSTGRES_USER .env`
+# BEFORE `env_value_into POSTGRES_DB POSTGRES_DB .env`, which assigns
+# POSTGRES_USER=admin into THIS shell first; by the time POSTGRES_DB's
+# `${POSTGRES_USER:-dbfallback}` reference is resolved, `${POSTGRES_USER+
+# set}` is now true — not because Compose would have seen an inherited
+# override, but because this script just set it — so the old check misread
+# it as one and resolved POSTGRES_DB to "admin". `pg_restore --clean` can
+# then target a different database from the one the running services use.
+#
+# Fixed by snapshotting the environment exactly ONCE, the moment this file
+# is sourced — before the caller has assigned anything into its own shell
+# via env_value_into or otherwise — into a private directory, one file per
+# variable, named after it, holding its exact original bytes verbatim.
+# Every later "is NAME in the process environment" check (three sites:
+# _env_raw_before's and get_env_value's bare-key branches, and
+# _env_resolve_name's interpolation-reference check) consults ONLY this
+# frozen snapshot; nothing any script does afterward, including its own
+# env_value_into calls, can ever change what the snapshot says.
+#
+# Why a one-shot `xargs`, not a shell loop over `env`, and not `awk`:
+#   - An environment value can contain a real embedded newline (a `.env`-
+#     derived one already can, per round 19, and an inherited one legally
+#     could too), so a NEWLINE-delimited dump (plain `env`) is ambiguous
+#     to split back apart — the exact "line-oriented tool over a value
+#     that can contain the record separator" class round 19 closed
+#     elsewhere in this file.
+#   - A NUL byte can NEVER appear inside a real environment value (the
+#     OS's own environ representation forbids it) — which is exactly what
+#     makes `env -0`'s NUL-delimited dump unambiguous. But a shell
+#     variable cannot HOLD a NUL byte in any POSIX shell, bash included,
+#     so that dump can never be read into a variable and scanned with
+#     parameter expansion the way this file parses .env FILES.
+#   - `awk -v RS='\0'` is the usual portable answer to that, and is NOT
+#     actually portable here: measured directly (not assumed), macOS's
+#     shipped `awk` — a one-true-awk descendant, not gawk — does not honor
+#     NUL as a record separator under any spelling tried (`-v RS='\0'`,
+#     `-v RS='\000'`, `BEGIN{RS="\0"}`); it silently falls back to
+#     treating the whole input as one record rather than erroring, which
+#     would have made a naive version of this fix silently see the entire
+#     environment as a single blob on any operator's Mac — restore.sh,
+#     upgrade.sh, and check-env.sh all run on the operator's own host, not
+#     only inside a container with a known-Linux awk.
+#   - `xargs -0` IS portable (verified: GNU findutils, and macOS's own
+#     BSD-derived xargs, both document and implement `-0`/`--null`) and
+#     never round-trips the NUL bytes through a shell variable at all — it
+#     splits them in its own process and hands each record to the invoked
+#     command as an already-separated argv element. `xargs` picks its own
+#     batch size, so a realistic environment (tens to low hundreds of
+#     variables) costs ONE `sh -c` fork, not one per variable; that one
+#     invocation receives every record as "$@" and writes each one's
+#     value — verbatim bytes, embedded newline included — to its own file.
+if [ -z "${_ENV_SNAPSHOT_DIR:-}" ]; then
+  _ENV_SNAPSHOT_DIR="$(mktemp -d 2>/dev/null || true)"
+  if [ -n "$_ENV_SNAPSHOT_DIR" ] && [ -d "$_ENV_SNAPSHOT_DIR" ]; then
+    env -0 2>/dev/null | xargs -0 sh -c '
+      dir="$1"
+      shift
+      for _ess_rec in "$@"; do
+        _ess_name="${_ess_rec%%=*}"
+        _ess_value="${_ess_rec#*=}"
+        case "$_ess_name" in
+          [A-Za-z_]*)
+            case "$_ess_name" in
+              *[!A-Za-z0-9_]*) continue ;;
+            esac
+            ;;
+          *) continue ;;
+        esac
+        printf "%s" "$_ess_value" > "$dir/$_ess_name" 2>/dev/null
+      done
+    ' _ "$_ENV_SNAPSHOT_DIR" 2>/dev/null || true
+    # Best-effort cleanup: correct as-is for every script that never
+    # replaces the EXIT trap (check-env.sh, env-value.sh). `trap` only
+    # ever holds ONE handler per signal, so a script that sets its own
+    # LATER `trap ... EXIT` (restore.sh's _cleanup, upgrade.sh's
+    # rollback_trap) would silently replace this one — both are updated
+    # to call _env_snapshot_cleanup from their own trap handler instead of
+    # relying on this one surviving.
+    trap '_env_snapshot_cleanup' EXIT
+  else
+    _ENV_SNAPSHOT_DIR=""
+  fi
+fi
+
+# Removes the snapshot directory. Exposed (not just the bare trap above)
+# so a caller that installs its OWN later EXIT trap — replacing this
+# file's — can call it from that trap instead, rather than leaking the
+# directory for the rest of that script's run.
+_env_snapshot_cleanup() {
+  [ -n "${_ENV_SNAPSHOT_DIR:-}" ] && rm -rf "${_ENV_SNAPSHOT_DIR:?}" 2>/dev/null
+}
+
+# True if NAME was present in the environment snapshot taken when this file
+# was sourced — regardless of what the live shell variable of the same name
+# holds right now.
+_env_snapshot_has() {
+  [ -n "${_ENV_SNAPSHOT_DIR:-}" ] && [ -f "${_ENV_SNAPSHOT_DIR}/$1" ]
+}
+
+# Prints NAME's snapshotted value. Caller must have already confirmed
+# _env_snapshot_has "NAME". Sentinel-protected the same way every other
+# value read in this file is (see _env_resolve_name/_env_dequote): a
+# bare `$(cat file)` would silently strip a real trailing newline the
+# value legitimately ends in.
+_env_snapshot_value() {
+  _esv_raw="$(cat "${_ENV_SNAPSHOT_DIR}/$1" 2>/dev/null && printf x)"
+  printf '%s' "${_esv_raw%x}"
+}
 
 # fix(#1798 review round 16, P2, review 5104847831): a caller must tell
 # Compose where the PROJECT lives for its OWN purposes -- reading `.env` to
@@ -696,8 +819,11 @@ _env_raw_before() {
     2) return 2 ;;
   esac
   if [ "$_esr_type" = "B" ]; then
-    if eval "[ \"\${${key}+set}\" = set ]" 2>/dev/null; then
-      eval "printf '%s' \"\${${key}}\""
+    # fix(#1778 round 20, P1 class): checks the frozen snapshot, not the
+    # live "${key+set}" — see the snapshot block's own comment near the
+    # top of this file for why a live check is unsafe here.
+    if _env_snapshot_has "$key"; then
+      _env_snapshot_value "$key"
     fi
     return 0
   fi
@@ -830,8 +956,15 @@ _env_resolve_name() {
   _ern_ref_bound=0
   _ern_from_env=0
 
-  if eval "[ \"\${${_ern_name}+set}\" = set ]" 2>/dev/null; then
-    eval "_ern_resolved=\"\${${_ern_name}}\""
+  # fix(#1778 round 20, P1): checks the frozen snapshot, not the live
+  # "${_ern_name+set}" — see the snapshot block's own comment near the
+  # top of this file. A live check here is exactly what let a PRIOR
+  # env_value_into call in the SAME script (assigning some OTHER key)
+  # masquerade as an inherited override for whatever name this
+  # interpolation reference happens to ask about next.
+  if _env_snapshot_has "$_ern_name"; then
+    _ern_resolved="$(_env_snapshot_value "$_ern_name" && printf x)"
+    _ern_resolved="${_ern_resolved%x}"
     _ern_have_value=1
     _ern_ref_bound=0
     # fix(#1798 review round 18, P2, review 5105652413): a value sourced
@@ -1392,8 +1525,11 @@ get_env_value() {
     # distinct from KEY being entirely absent from the file (rc 1) — no
     # quoting/escaping/interpolation applies, since the value never came
     # from this file's own text at all.
-    if eval "[ \"\${${key}+set}\" = set ]" 2>/dev/null; then
-      eval "printf '%s' \"\${${key}}\""
+    # fix(#1778 round 20, P1 class): checks the frozen snapshot, not the
+    # live "${key+set}" — see the snapshot block's own comment near the
+    # top of this file.
+    if _env_snapshot_has "$key"; then
+      _env_snapshot_value "$key"
     fi
     return 0
   fi

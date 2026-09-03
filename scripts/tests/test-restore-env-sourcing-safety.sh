@@ -685,6 +685,106 @@ else
   bad "trailing-newline preservation regressed (got: $(printf '%s' "$TRAILING_OUT" | od -An -c | tr -s ' ' | tr '\n' ' '))"
 fi
 
+# ============================================================================
+# CASE 10 — fix(#1778 round 20, P1) at scripts/restore.sh:41:
+# _env_resolve_name's "process environment wins" check now consults an
+# immutable snapshot taken the moment common.sh is sourced, not the live
+# shell variable table. Without this, a SECOND env_value_into call (for a
+# DIFFERENT key) that happens to assign a value into the SAME name a
+# LATER key's forward reference asks about is misread as an inherited
+# override — restore.sh's own real sequence (COMPOSE_FILE, POSTGRES_USER,
+# POSTGRES_DB, GEOLENS_RUNTIME_DB_ROLE) is exactly that shape.
+#
+# A small harness sources the REAL common.sh (copied into $FAKE above)
+# directly, since proving order-independence and the "bare assignment
+# does not count as inherited" case need FULL CONTROL over the call
+# order and pre-state that restore.sh's own fixed call sequence does not
+# exercise on its own.
+# ============================================================================
+ORDER_ENV="$WORK/.env.order"
+cat > "$ORDER_ENV" <<'EOF'
+POSTGRES_DB=${POSTGRES_USER:-dbfallback}
+POSTGRES_USER=admin
+EOF
+
+ORDER_HARNESS="$WORK/order_harness.sh"
+cat > "$ORDER_HARNESS" <<HARNESSEOF
+#!/usr/bin/env bash
+set -euo pipefail
+. "$FAKE/scripts/lib/common.sh"
+ENV_FILE="\$1"
+ORDER="\$2"
+BARE_ASSIGN="\${3:-no}"
+
+if [ "\$BARE_ASSIGN" = "yes" ]; then
+  POSTGRES_USER="notinherited"
+fi
+
+if [ "\$ORDER" = "user-first" ]; then
+  env_value_into POSTGRES_USER POSTGRES_USER "\$ENV_FILE" || true
+  env_value_into POSTGRES_DB POSTGRES_DB "\$ENV_FILE" || true
+else
+  env_value_into POSTGRES_DB POSTGRES_DB "\$ENV_FILE" || true
+  env_value_into POSTGRES_USER POSTGRES_USER "\$ENV_FILE" || true
+fi
+
+printf 'POSTGRES_DB=%s\n' "\${POSTGRES_DB:-<unset>}"
+HARNESSEOF
+chmod +x "$ORDER_HARNESS"
+
+# 10a — no real inherited value, user-first order (restore.sh's own order,
+# and the exact order the reported bug needs): the forward reference must
+# fall through to the file's default, since POSTGRES_USER was never
+# actually inherited and is defined AFTER POSTGRES_DB in the file.
+OUT_10A="$(env -u POSTGRES_USER -u POSTGRES_DB bash "$ORDER_HARNESS" "$ORDER_ENV" user-first 2>&1)"
+if printf '%s\n' "$OUT_10A" | grep -qF 'POSTGRES_DB=dbfallback'; then
+  ok "user-first order, no inherited value: POSTGRES_DB falls through to the default (dbfallback), not the file's later POSTGRES_USER=admin"
+else
+  bad "user-first order, no inherited value: expected POSTGRES_DB=dbfallback, got: $OUT_10A"
+fi
+
+# 10b — same file, db-first order (the "control": the shell variable
+# POSTGRES_USER is untouched by this script at resolution time either
+# way): must resolve to the SAME value as 10a, proving order-independence.
+OUT_10B="$(env -u POSTGRES_USER -u POSTGRES_DB bash "$ORDER_HARNESS" "$ORDER_ENV" db-first 2>&1)"
+if printf '%s\n' "$OUT_10B" | grep -qF 'POSTGRES_DB=dbfallback'; then
+  ok "db-first order, no inherited value: same result as user-first (order-independent)"
+else
+  bad "db-first order, no inherited value: expected POSTGRES_DB=dbfallback, got: $OUT_10B"
+fi
+
+# 10c — a REAL inherited POSTGRES_USER, user-first order: the forward
+# reference must resolve via the environment (realuser), even though the
+# EARLIER env_value_into call for POSTGRES_USER has ALREADY overwritten
+# this shell's own POSTGRES_USER variable with the file's "admin" by the
+# time POSTGRES_DB is resolved — the snapshot, not the live variable, is
+# what the interpolation check consults.
+OUT_10C="$(env POSTGRES_USER=realuser bash "$ORDER_HARNESS" "$ORDER_ENV" user-first 2>&1)"
+if printf '%s\n' "$OUT_10C" | grep -qF 'POSTGRES_DB=realuser'; then
+  ok "user-first order, WITH a real inherited POSTGRES_USER: POSTGRES_DB resolves via the environment (realuser), immune to the prior env_value_into's own overwrite"
+else
+  bad "user-first order, WITH a real inherited POSTGRES_USER: expected POSTGRES_DB=realuser, got: $OUT_10C"
+fi
+
+# 10d — same real inherited value, db-first order: must match 10c.
+OUT_10D="$(env POSTGRES_USER=realuser bash "$ORDER_HARNESS" "$ORDER_ENV" db-first 2>&1)"
+if printf '%s\n' "$OUT_10D" | grep -qF 'POSTGRES_DB=realuser'; then
+  ok "db-first order, WITH a real inherited POSTGRES_USER: same result as user-first (order-independent)"
+else
+  bad "db-first order, WITH a real inherited POSTGRES_USER: expected POSTGRES_DB=realuser, got: $OUT_10D"
+fi
+
+# 10e — the SCRIPT ITSELF (not env_value_into, not a real export) sets a
+# bare POSTGRES_USER shell variable BEFORE resolution — must NOT count as
+# inherited, since it happened after common.sh's own snapshot was already
+# taken. Still resolves to the file's default.
+OUT_10E="$(env -u POSTGRES_USER -u POSTGRES_DB bash "$ORDER_HARNESS" "$ORDER_ENV" user-first yes 2>&1)"
+if printf '%s\n' "$OUT_10E" | grep -qF 'POSTGRES_DB=dbfallback'; then
+  ok "a bare shell assignment made after common.sh is sourced does not count as an inherited environment value"
+else
+  bad "a bare shell assignment was wrongly treated as inherited: expected POSTGRES_DB=dbfallback, got: $OUT_10E"
+fi
+
 echo "1..$((PASS + FAIL))"
 echo "# ${PASS} passed, ${FAIL} failed"
 [ "$FAIL" -eq 0 ]

@@ -218,6 +218,13 @@ compose stop api worker 2>/dev/null || true
 # only after every one of those checks has passed.
 RESTORE_SUCCEEDED=0
 _cleanup() {
+    # fix(#1778 round 20, P1 class): `trap` holds only ONE handler per
+    # signal — this trap (set below) REPLACES common.sh's own EXIT trap
+    # (which would otherwise clean up its env-snapshot directory, see
+    # scripts/lib/common.sh's own comment near the top of that file), so
+    # this cleanup takes over that job too rather than leaking the
+    # directory for the rest of this process's run.
+    _env_snapshot_cleanup 2>/dev/null || true
     echo ""
     if [ "$RESTORE_SUCCEEDED" = "1" ]; then
         echo "Restarting services..."

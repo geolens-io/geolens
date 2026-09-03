@@ -1079,6 +1079,35 @@ printf 'USES=a\\\\b\n' > "$ESCAPE_UNQUOTED_BS_ENV"
 _assert_matches_compose USES "$ESCAPE_UNQUOTED_BS_ENV" \
   "an unquoted value gets no backslash processing at all"
 
+# fix(#1778 round 20, P1 class) at scripts/restore.sh:41: a FORWARD
+# reference — a key whose OWN value interpolates ${OTHER}, where OTHER is
+# defined LATER in the same file — must resolve OTHER as if it did not
+# exist in the file at all (an earlier line can never see a later one),
+# falling back to the environment or the interpolation's own default.
+# This is the single-call core of the bug: _env_resolve_name's "process
+# environment wins" check used to test the LIVE shell variable table,
+# which a glancing read makes it easy to conflate with "this name has no
+# definition visible yet" -- they are different questions, and this
+# corpus pins the FILE-only half of that distinction directly (the
+# sequential-env_value_into half that actually triggered the reported bug
+# is covered by scripts/tests/test-restore-env-sourcing-safety.sh's own
+# CASE 10, which needs to control call order and cannot live here).
+FWDREF_ENV="$WORK/.env.fwdref"
+cat > "$FWDREF_ENV" <<'EOF'
+POSTGRES_DB=${POSTGRES_USER:-dbfallback}
+POSTGRES_USER=admin
+EOF
+_assert_matches_compose POSTGRES_DB "$FWDREF_ENV" \
+  "a forward reference to a name defined LATER in the file falls through to the default (POSTGRES_USER is invisible to POSTGRES_DB's own line)"
+
+# Same file, but POSTGRES_USER is genuinely exported first: the reference
+# resolves via the environment, regardless of the file's own (later,
+# unrelated) redefinition of the same name.
+export POSTGRES_USER=realuser
+_assert_matches_compose POSTGRES_DB "$FWDREF_ENV" \
+  "the same forward reference resolves via a genuinely exported value regardless of the file's own later redefinition"
+unset POSTGRES_USER
+
 echo "1..$((PASS + FAIL))"
 echo "# ${PASS} passed, ${FAIL} failed"
 [ "$FAIL" -eq 0 ]
