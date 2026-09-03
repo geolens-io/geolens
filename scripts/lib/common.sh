@@ -12,13 +12,56 @@
 # This file has NO side effects on source: it only defines functions and the few
 # constants below. The caller sets COMPOSE_FILE before invoking compose().
 
-# COMPOSE_FILE is selected by the caller (upgrade.sh reads it from .env). Default
-# to the source-build file so a bare source still works.
+# COMPOSE_FILE is selected by the caller (upgrade.sh/restore.sh/check-env.sh
+# read it from .env via env_value_into). Default to the source-build file so
+# a bare source still works. Always relative to PROJECT_ROOT (Compose's own
+# convention for this variable), never an absolute path a caller might set.
 : "${COMPOSE_FILE:=docker-compose.yml}"
 
-# Wrap every compose call so the selected -f file is used consistently.
+# fix(#1798 review round 16, P2, review 5104847831): a caller must tell
+# Compose where the PROJECT lives for its OWN purposes -- reading `.env` to
+# populate COMPOSE_PROJECT_NAME/COMPOSE_PROFILES/etc, and interpolating
+# ${VAR} references inside the compose file -- and that used to depend on
+# an UNSTATED, per-caller invariant instead of an explicit flag: Compose's
+# own documented default project-directory is "the path of the, first
+# specified, Compose file" (`docker compose --help`), so a caller whose own
+# `-f` argument was already an absolute `$PROJECT_ROOT/...` path (restore.sh,
+# check-env.sh) or that had already `cd`'d to PROJECT_ROOT before building a
+# RELATIVE `-f` (upgrade.sh) happened to get the right `.env` either way,
+# through two DIFFERENT mechanisms neither of which is declared anywhere.
+# Verified empirically (not assumed) that this holds for both mechanisms on
+# this repo's supported Compose version, so there was no ACTIVELY
+# reproducing bug in the current call sites at review time -- but both
+# mechanisms are one refactor away from silently breaking (drop the
+# absolute-path prefix, remove the `cd`, or add a caller that does neither),
+# and neither was ever centrally guaranteed.
+#
+# `--project-directory "$PROJECT_ROOT"` replaces both implicit mechanisms
+# with one explicit, always-correct one, centrally, for every script that
+# sources common.sh — verified against real `docker compose config`/
+# `compose ls`: `--project-directory DIR` makes Compose read `DIR/.env` for
+# BOTH `${VAR}` interpolation AND its own COMPOSE_PROJECT_NAME/
+# COMPOSE_PROFILES controls, from ANY cwd, with an explicit absolute `-f`
+# path alongside it — no `--env-file` needed on top (a caller that also
+# wants a value FROM .env in its own shell logic, not just inside compose,
+# still reads it explicitly via get_env_value/env_value_into, matching this
+# codebase's existing "never let Compose or the shell touch .env on our
+# behalf for control flow" policy). This wrapper still builds an ABSOLUTE
+# `-f` path itself (not just relying on `--project-directory` alone) since
+# a RELATIVE `-f` resolves against the process's actual cwd, not
+# `--project-directory` — verified that specific combination separately, so
+# a future caller that neither prefixes COMPOSE_FILE nor `cd`s first still
+# gets the right file.
+#
+# PROJECT_ROOT itself is NOT computed here: every caller already resolves
+# it from its own `$0`/`${BASH_SOURCE[0]}` before sourcing common.sh (a
+# `#!/bin/sh` script has no `BASH_SOURCE`, so common.sh cannot reliably
+# derive its own caller's project root the same way for every shell that
+# sources it) and this codebase already relies on that convention for
+# `.env` lookups elsewhere.
 compose() {
-  docker compose -f "$COMPOSE_FILE" "$@"
+  [ -n "${PROJECT_ROOT:-}" ] || fail "compose(): PROJECT_ROOT must be set by the caller before sourcing common.sh"
+  docker compose -f "$PROJECT_ROOT/$COMPOSE_FILE" --project-directory "$PROJECT_ROOT" "$@"
 }
 
 say() {
@@ -214,28 +257,170 @@ _env_line_of() {
   ' "$file"
 }
 
-# Raw (unprocessed — no quote/comment stripping) value of key, from the
-# LAST line strictly before line `before` (before=0 disables the bound).
-# Exits 1 (prints nothing) if key has no such definition, so the caller can
-# tell "defined here, value empty" apart from "not defined before this
-# line" and correctly fall through to the process environment.
+# fix(#1798 review round 16, P2, review 5104847831): scans $1 for the
+# first UNESCAPED occurrence of quote character $2. For `"`, escape-aware
+# (a `\"` pair does not close it, matching the existing double-quoted
+# escape grammar elsewhere in this file — any OTHER character after a
+# backslash is consumed as part of the SAME pair without being
+# individually inspected, same as the `([^"\\]|\\.)*` regex this replaces
+# used to). For `'`, Compose's own single-quoted values have no escaping
+# at all, so ANY `'` closes it immediately.
+#
+# Character-scanning (the same technique _env_brace_match already uses)
+# rather than a `grep -qE`/`sed -E` regex, because $1 here can be a
+# MULTI-LINE string (a value gathered across several physical lines by
+# _env_raw_logical below) — grep/sed apply `^`/`$` per PHYSICAL line by
+# default, which cannot validate or extract a multi-line quoted value as
+# ONE logical unit the way this function needs to. A plain character scan
+# has no such limitation: it works identically whether $1 is one line or
+# several.
+#
+# Sets three globals: _eqs_found (1 if a close was located, 0 if $1 ran
+# out first — meaningful to a caller checking for a MALFORMED, same-line
+# quote; a caller checking a value _env_raw_logical already confirmed
+# closes somewhere never sees 0 here), _eqs_before (the quoted CONTENT,
+# exclusive of both quote characters), and _eqs_after (everything in $1
+# following the close — a caller validates this is empty/whitespace/a
+# comment before trusting _eqs_before, the same policy the regex this
+# replaces already enforced).
+_env_quote_scan() {
+  _eqs_text="$1"
+  _eqs_quote="$2"
+  _eqs_found=0
+  _eqs_before=""
+  _eqs_after=""
+  _eqs_scan="$_eqs_text"
+  while [ -n "$_eqs_scan" ]; do
+    _eqs_c="${_eqs_scan%"${_eqs_scan#?}"}"
+    _eqs_scan="${_eqs_scan#?}"
+    if [ "$_eqs_quote" = '"' ] && [ "$_eqs_c" = "\\" ]; then
+      _eqs_nc="${_eqs_scan%"${_eqs_scan#?}"}"
+      _eqs_scan="${_eqs_scan#?}"
+      _eqs_before="${_eqs_before}${_eqs_c}${_eqs_nc}"
+      continue
+    fi
+    if [ "$_eqs_c" = "$_eqs_quote" ]; then
+      _eqs_found=1
+      _eqs_after="$_eqs_scan"
+      return 0
+    fi
+    _eqs_before="${_eqs_before}${_eqs_c}"
+  done
+  return 0
+}
+
+# The raw text of `key`'s definition on `line` (already known — from
+# _env_line_of/_env_line_of_before — to be a `key=` line), the same
+# BOM-aware `substr($0, length(k)+2)` extraction get_env_value/
+# _env_raw_before always did inline, factored out so _env_raw_logical
+# below can call it once before deciding whether more lines are needed.
+_env_raw_at_line() {
+  _eral_file="$1"
+  _eral_line="$2"
+  _eral_key="$3"
+  LC_ALL=C awk -v line="$_eral_line" -v k="$_eral_key" -v bom="$_ENV_BOM" '
+    NR==line {
+      if (NR==1 && index($0, bom) == 1) { $0 = substr($0, length(bom) + 1) }
+      print substr($0, length(k) + 2)
+      exit
+    }
+  ' "$_eral_file"
+}
+
+# The whole verbatim text of physical line `$2` of file `$1` — used only
+# for a CONTINUATION line during multiline gathering (never line 1, so no
+# BOM handling is needed here; that only ever applies to a key's OWN
+# opening line).
+_env_raw_line_verbatim() {
+  awk -v line="$2" 'NR==line { print; exit }' "$1"
+}
+
+# fix(#1798 review round 16, P2, review 5104847831): Compose allows a
+# quoted .env value to span physical lines — verified against the oracle,
+# not assumed: a value opening a quote with no closing quote on that SAME
+# line accumulates SUBSEQUENT physical lines, joined by a real newline
+# (confirmed byte-for-byte: `USES='line1\nline2'` — a genuine embedded
+# newline between the quotes — resolves to a value containing that same
+# real newline byte), until the closing quote is found. `#`/`=` inside the
+# accumulated body are literal content, never a comment or a new key,
+# because gathering only ever asks "does THIS physical line contain the
+# closing quote" (_env_quote_scan) — it never runs the `^KEY=`/comment
+# awk logic against a continuation line at all. A double-quoted value's
+# escape decoding (`\n`, `\"`, ...) is applied to the FULLY GATHERED,
+# already-joined content by the caller (get_env_value/_env_dequote via
+# _env_unescape_double_quoted) — verified that a literal `\n` escape
+# and a real physical-line join decode to the identical byte, so there is
+# no ordering hazard between them.
+#
+# `line` must already be known (via _env_line_of/_env_line_of_before) to
+# be `key`'s own defining line — this never searches for it.
+#
+# Exit status: 0 — prints the logical raw text (the single physical line,
+# if unquoted or a same-line-closed quote; several real-newline-joined
+# physical lines otherwise). 2 — the value opens a quote that NEVER closes
+# before EOF; prints nothing. Verified against the oracle: Compose's own
+# `.env` load hard-fails on this ("unterminated quoted value"), so this
+# is a DIFFERENT outcome than "not found" (which is the caller's own
+# concern, via _env_line_of/_env_line_of_before, before this is ever
+# invoked at all — this function is never called for a key that doesn't
+# exist).
+_env_raw_logical() {
+  _erl_file="$1"
+  _erl_line="$2"
+  _erl_key="$3"
+
+  _erl_raw="$(_env_raw_at_line "$_erl_file" "$_erl_line" "$_erl_key")"
+
+  case "$_erl_raw" in
+    \"*) _erl_quote='"' ;;
+    \'*) _erl_quote="'" ;;
+    *)
+      printf '%s' "$_erl_raw"
+      return 0
+      ;;
+  esac
+
+  _env_quote_scan "${_erl_raw#?}" "$_erl_quote"
+  if [ "$_eqs_found" -eq 1 ]; then
+    printf '%s' "$_erl_raw"
+    return 0
+  fi
+
+  _erl_total_lines="$(awk 'END { print NR }' "$_erl_file")"
+  _erl_acc="$_erl_raw"
+  _erl_next="$_erl_line"
+  while [ "$_erl_next" -lt "$_erl_total_lines" ]; do
+    _erl_next=$((_erl_next + 1))
+    _erl_more="$(_env_raw_line_verbatim "$_erl_file" "$_erl_next")"
+    _erl_acc="${_erl_acc}
+${_erl_more}"
+    _env_quote_scan "$_erl_more" "$_erl_quote"
+    if [ "$_eqs_found" -eq 1 ]; then
+      printf '%s' "$_erl_acc"
+      return 0
+    fi
+  done
+
+  return 2
+}
+
+# Raw (unprocessed — no quote/comment stripping) LOGICAL value of key,
+# from the LAST line strictly before line `before` (before=0 disables the
+# bound) — possibly spanning several physical lines, see _env_raw_logical
+# above. Exit status: 0 found (prints the value); 1 key has no such
+# definition, so the caller can tell "defined here, value empty" apart
+# from "not defined before this line" and correctly fall through to the
+# process environment; 2 key IS defined here, but its value is an
+# unterminated multiline quote — DIFFERENT from "not found", a caller must
+# not silently fall through to the process environment on this one (see
+# _env_resolve_name).
 _env_raw_before() {
   key="$1"
   file="$2"
   before="$3"
-  # fix(#1798 review round 11 audit, P2; corrected on CI, round 12): same
-  # leading-BOM strip as _env_line_of above, and for the same reason.
-  LC_ALL=C awk -v k="$key" -v before="$before" -v bom="$_ENV_BOM" '
-    NR==1 && index($0, bom) == 1 { $0 = substr($0, length(bom) + 1) }
-    {
-      pat = "^" k "="
-      if ($0 ~ pat && (before == 0 || NR < before)) {
-        found = 1
-        val = substr($0, length(k) + 2)
-      }
-    }
-    END { if (found) { print val; exit 0 } else { exit 1 } }
-  ' "$file"
+  _erb_line="$(_env_line_of_before "$key" "$file" "$before")"
+  [ "$_erb_line" -ne 0 ] || return 1
+  _env_raw_logical "$file" "$_erb_line" "$key"
 }
 
 # The 1-based line number of key's LAST definition strictly before line
@@ -273,25 +458,22 @@ _env_dequote() {
   raw="$1"
   case "$raw" in
     \"*)
-      if printf '%s' "$raw" | grep -qE '^"([^"\\]|\\.)*"[[:space:]]*(#.*)?$'; then
-        _env_quoted_content="$(printf '%s' "$raw" | sed -E 's/^"(([^"\\]|\\.)*)".*$/\1/')"
-        _env_unescape_double_quoted "$_env_quoted_content"
+      _env_quote_scan "${raw#?}" '"'
+      if [ "$_eqs_found" -eq 1 ] && printf '%s\n' "$_eqs_after" | grep -qE '^[[:space:]]*(#.*)?$'; then
+        _env_unescape_double_quoted "$_eqs_before"
       else
         printf '%s' "$raw"
       fi
       ;;
     \'*)
-      # fix(#1798 review round 9, P2): `(.*)` is greedy — for a trailing
-      # comment that itself contains a `'` (`KEY='geolens' # use
-      # 'production'`), it backtracks all the way to the LAST `'` on the
-      # line, capturing "geolens' # use 'production" instead of stopping
-      # at the value's own closing quote right after "geolens". Compose
-      # single-quoted values have no escaping at all, so a literal `'`
-      # can never legally appear inside one — `[^']*` encodes that
-      # directly: it can only match up to the FIRST `'`, which is always
-      # the real close, comment or no comment.
-      if printf '%s' "$raw" | grep -qE "^'[^']*'[[:space:]]*(#.*)?\$"; then
-        printf '%s' "$raw" | sed -E "s/^'([^']*)'[[:space:]]*(#.*)?\$/\1/"
+      # fix(#1798 review round 9, P2; superseded by round 16's
+      # _env_quote_scan): a single-quoted value has no escaping at all, so
+      # a literal `'` can never legally appear inside one — scanning for
+      # the FIRST `'` (not a greedy regex) is always the real close,
+      # comment or no comment, multi-line or not.
+      _env_quote_scan "${raw#?}" "'"
+      if [ "$_eqs_found" -eq 1 ] && printf '%s\n' "$_eqs_after" | grep -qE '^[[:space:]]*(#.*)?$'; then
+        printf '%s' "$_eqs_before"
       else
         printf '%s' "$raw"
       fi
@@ -383,7 +565,10 @@ _env_resolve_name() {
     eval "_ern_resolved=\"\${${_ern_name}}\""
     _ern_have_value=1
     _ern_ref_bound=0
-  elif _ern_earlier="$(_env_raw_before "$_ern_name" "$_ern_file" "$_ern_bound")"; then
+    return 0
+  fi
+
+  if _ern_earlier="$(_env_raw_before "$_ern_name" "$_ern_file" "$_ern_bound")"; then
     # fix(#1798 review round 13, P2, review 5103870781): a value decoded
     # from a double-quoted `\n`/`\r`/`\t` escape can end in a real,
     # trailing control byte — `$(...)` unconditionally strips trailing
@@ -402,6 +587,22 @@ _env_resolve_name() {
     _ern_resolved="${_ern_resolved%x}"
     _ern_have_value=1
     _ern_ref_bound="$(_env_line_of_before "$_ern_name" "$_ern_file" "$_ern_bound")"
+    return 0
+  else
+    # fix(#1798 review round 16, P2, review 5104847831): _env_raw_before
+    # returns 2 (distinct from 1, "not found before this line") when NAME
+    # IS defined here but its value is an unterminated multiline quote —
+    # Compose's own .env load hard-fails on this. Propagate that as a
+    # real failure instead of silently falling through to have_value=0
+    # (which would treat a malformed, in-progress value as though NAME
+    # were simply never defined, and quietly resolve a reference to it
+    # via the process environment or a `:-`/`-` fallback instead). `$?`
+    # is captured as the FIRST statement of this `else` branch — a bare
+    # `if ... fi` with no `else` reports its OWN exit status as 0 when
+    # the condition was false (POSIX), which would have silently
+    # discarded exactly the "2" this needs to see.
+    _ern_rb_rc=$?
+    [ "$_ern_rb_rc" -ne 2 ] || return 1
   fi
   return 0
 }
@@ -830,41 +1031,34 @@ get_env_value() {
 
   [ -f "$file" ] || return 1
 
-  # Last matching `key=` line wins (Compose's own duplicate-key rule); END
-  # reports "no such key" as its own failure so the caller can tell that
-  # apart from "key present, value empty" (found=1, empty val, exit 0).
-  #
-  # fix(#1798 review round 11 audit, P2; corrected on CI, round 12): same
-  # leading-BOM strip as _env_line_of/_env_raw_before above — a
-  # BOM-prefixed .env with its FIRST key on line 1 made that key invisible
-  # here too, and every guarded caller's fallback then treated a
-  # genuinely PRESENT key as absent, silently keeping the inherited/unset
-  # value.
-  raw="$(LC_ALL=C awk -v k="$key" -v bom="$_ENV_BOM" '
-    NR==1 && index($0, bom) == 1 { $0 = substr($0, length(bom) + 1) }
-    {
-      pat = "^" k "="
-      if ($0 ~ pat) {
-        val = substr($0, length(k) + 2)
-        found = 1
-      }
-    }
-    END {
-      if (found) { print val; exit 0 }
-      exit 1
-    }
-  ' "$file")" || return 1
+  # Last matching `key=` line wins (Compose's own duplicate-key rule).
+  _gev_line="$(_env_line_of "$key" "$file")"
+  [ "$_gev_line" -ne 0 ] || return 1
+
+  # fix(#1798 review round 16, P2, review 5104847831): raw is the LOGICAL
+  # value — a single physical line for an unquoted value or a quote that
+  # closes on its own line, several real-newline-joined physical lines for
+  # a quote that does not (see _env_raw_logical's own doc comment for the
+  # full grammar, verified against the oracle). `|| return 1` here also
+  # catches _env_raw_logical's rc=2 (an unterminated multiline quote) —
+  # Compose's own .env load hard-fails on that shape, so get_env_value
+  # fails closed to match, the same policy round 14 already established
+  # for an unterminated `${VAR` interpolation reference.
+  raw="$(_env_raw_logical "$file" "$_gev_line" "$key")" || return 1
 
   case "$raw" in
     \"*)
-      # `([^"\\]|\\.)*` walks escape-aware to the first UNescaped closing
-      # quote: any run of chars that are neither `"` nor `\`, or a
-      # backslash-escaped pair, consumed greedily — so an embedded `\"`
-      # cannot be mistaken for the close. What follows that quote must be
-      # nothing, whitespace, or a `#comment`; anything else (including a
-      # second, unrelated quoted chunk) is left alone as malformed.
-      if printf '%s' "$raw" | grep -qE '^"([^"\\]|\\.)*"[[:space:]]*(#.*)?$'; then
-        _env_quoted_content="$(printf '%s' "$raw" | sed -E 's/^"(([^"\\]|\\.)*)".*$/\1/')"
+      # fix(#1798 review round 16, P2, review 5104847831): _env_quote_scan
+      # (character-scanning, not a `grep -qE`/`sed -E` regex) replaces the
+      # old `([^"\\]|\\.)*"[[:space:]]*(#.*)?$` pattern — regex `^`/`$`
+      # anchor to PHYSICAL lines by default, which cannot validate or
+      # extract a multi-line quoted value as ONE logical unit the way this
+      # needs to; a character scan has no such limitation. What follows
+      # the close must still be nothing, whitespace, or a `#comment`;
+      # anything else (including a second, unrelated quoted chunk) is left
+      # alone as malformed, same policy as before.
+      _env_quote_scan "${raw#?}" '"'
+      if [ "$_eqs_found" -eq 1 ] && printf '%s\n' "$_eqs_after" | grep -qE '^[[:space:]]*(#.*)?$'; then
         # fix(#1798 review round 13, P2, review 5103870781): a value whose
         # `\n`/`\r`/`\t` escape decodes to a TRAILING control byte (e.g.
         # `DB_NAME="prod\n"`) would silently lose that byte here — plain
@@ -875,12 +1069,12 @@ get_env_value() {
         # byte from the decoder survives; `&&` (not `;`) means a failure
         # inside the decoder is never masked as success with an empty
         # value — this function fails closed via `|| return 1` instead.
-        _env_value="$(_env_unescape_double_quoted "$_env_quoted_content" && printf x)" || return 1
+        _env_value="$(_env_unescape_double_quoted "$_eqs_before" && printf x)" || return 1
         _env_value="${_env_value%x}"
         # fix(#1778 review round 3, P2): double-quoted values interpolate
         # ${VAR}/$VAR references, matching Compose (only single-quoted
         # values are literal there).
-        _env_interpolate "$_env_value" "$file" "$(_env_line_of "$key" "$file")" "$key"
+        _env_interpolate "$_env_value" "$file" "$_gev_line" "$key"
       else
         printf '%s' "$raw"
       fi
@@ -888,16 +1082,12 @@ get_env_value() {
     \'*)
       # Single-quoted values are literal in Compose — no escaping and no
       # interpolation, so a single quote cannot appear inside one at all.
-      # fix(#1798 review round 9, P2): that fact is exactly what makes
-      # `[^']*` the correct (not just convenient) content class — it can
-      # only match up to the FIRST `'`, which is always the real close.
-      # The prior `(.*)` was greedy and backtracked to the LAST `'` the
-      # trailing `[[:space:]]*(#.*)?$` could still match against — a
-      # trailing comment containing its own `'`
-      # (`KEY='geolens' # use 'production'`) matched all the way to
-      # THAT quote instead, returning "geolens' # use 'production".
-      if printf '%s' "$raw" | grep -qE "^'[^']*'[[:space:]]*(#.*)?\$"; then
-        printf '%s' "$raw" | sed -E "s/^'([^']*)'[[:space:]]*(#.*)?\$/\1/"
+      # fix(#1798 review round 9, P2; superseded by round 16's
+      # _env_quote_scan): scanning for the FIRST `'` (not a greedy regex)
+      # is always the real close, comment or no comment, multi-line or not.
+      _env_quote_scan "${raw#?}" "'"
+      if [ "$_eqs_found" -eq 1 ] && printf '%s\n' "$_eqs_after" | grep -qE '^[[:space:]]*(#.*)?$'; then
+        printf '%s' "$_eqs_before"
       else
         printf '%s' "$raw"
       fi
@@ -907,7 +1097,7 @@ get_env_value() {
         printf '%s' "$raw" | sed -E -e 's/ #.*$//' -e 's/[[:space:]]+$//' -e 's/^[[:space:]]+//'
       )"
       # fix(#1778 review round 3, P2): unquoted values interpolate too.
-      _env_interpolate "$_env_value" "$file" "$(_env_line_of "$key" "$file")" "$key"
+      _env_interpolate "$_env_value" "$file" "$_gev_line" "$key"
       ;;
   esac
 }

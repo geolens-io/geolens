@@ -41,7 +41,15 @@ if [ -f "$PROJECT_ROOT/.env" ]; then
     env_value_into POSTGRES_DB POSTGRES_DB "$PROJECT_ROOT/.env" || true
     env_value_into GEOLENS_RUNTIME_DB_ROLE GEOLENS_RUNTIME_DB_ROLE "$PROJECT_ROOT/.env" || true
 fi
-COMPOSE=(docker compose -f "$PROJECT_ROOT/${COMPOSE_FILE:-docker-compose.yml}")
+
+# fix(#1798 review round 16, P2, review 5104847831): calls the shared
+# compose() wrapper (scripts/lib/common.sh) instead of this script's own
+# local COMPOSE=(...) array -- that array already built an absolute -f
+# path, but nothing told Compose the project directory explicitly for its
+# OWN .env-driven controls (COMPOSE_PROJECT_NAME, COMPOSE_PROFILES); see
+# common.sh's own doc comment on compose() for the full reasoning and what
+# was verified against the oracle. PROJECT_ROOT (set above, before
+# common.sh was sourced) is what the wrapper uses.
 
 # Argument validation
 if [ $# -ne 1 ]; then
@@ -70,7 +78,7 @@ fi
 # stream of the dump into the container (~0.1s per 20 MB of archive), which is
 # cheap next to what it prevents.
 echo "Validating backup integrity..."
-if ! "${COMPOSE[@]}" exec -T db \
+if ! compose exec -T db \
     pg_restore -f /dev/null < "$BACKUP_FILE" > /dev/null 2>&1; then
     echo "ERROR: Backup file is corrupt, truncated, or invalid: $BACKUP_FILE" >&2
     echo "pg_restore could not read the archive end-to-end. Aborting restore" >&2
@@ -113,7 +121,7 @@ if [ -n "$_globals_dump" ]; then
     _globals_roles="$(grep -oE '^CREATE ROLE [A-Za-z0-9_]+' "$_globals_dump" | awk '{print $3}' | sort -u || true)"
     if [ -n "$_globals_roles" ]; then
         _role_array="$(printf '%s\n' "$_globals_roles" | sed "s/.*/'&'/" | paste -sd, -)"
-        _missing_roles="$("${COMPOSE[@]}" exec -T db \
+        _missing_roles="$(compose exec -T db \
             psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
             "SELECT r FROM unnest(ARRAY[${_role_array}]::text[]) r
              WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r);" \
@@ -139,7 +147,7 @@ echo "Running pre-restore setup..."
 # ON_ERROR_STOP: this DDL is the last gate before --clean drops the live
 # database — a silently failed CREATE EXTENSION/SCHEMA here must abort the
 # restore, not surface later as a half-restored DB (init-db.sh sets it too).
-"${COMPOSE[@]}" exec -T db \
+compose exec -T db \
     psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<EOSQL
 -- Extensions
 CREATE EXTENSION IF NOT EXISTS postgis;
@@ -154,7 +162,7 @@ CREATE SCHEMA IF NOT EXISTS data;
 EOSQL
 
 echo "Stopping API to prevent write conflicts during restore..."
-"${COMPOSE[@]}" stop api worker 2>/dev/null || true
+compose stop api worker 2>/dev/null || true
 
 # BUG-022 (Phase 1184): ensure api/worker are always restarted, even on failure.
 # pg_restore --clean --if-exists exits nonzero on EXPECTED warnings (e.g. "object
@@ -193,7 +201,7 @@ _cleanup() {
     echo ""
     if [ "$RESTORE_SUCCEEDED" = "1" ]; then
         echo "Restarting services..."
-        "${COMPOSE[@]}" start api worker 2>/dev/null || true
+        compose start api worker 2>/dev/null || true
     else
         echo "Leaving api/worker STOPPED: the database is in a partially-restored"
         echo "state (pg_restore failed, or the mandatory grant reconciliation below"
@@ -210,7 +218,7 @@ echo "Restoring from: $BACKUP_FILE"
 RESTORE_STDERR="$(mktemp)"
 RESTORE_RC=0
 set +e
-"${COMPOSE[@]}" exec -T db \
+compose exec -T db \
     pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner \
     < "$BACKUP_FILE" 2>"$RESTORE_STDERR"
 RESTORE_RC=$?
@@ -245,13 +253,13 @@ rm -f "$RESTORE_STDERR"
 # migrator; the app receives DML/sequence/function rights there.
 echo ""
 echo "Re-applying database runtime grants..."
-"${COMPOSE[@]}" exec -T db \
+compose exec -T db \
     /usr/local/bin/configure-runtime-db-role
 
 # Assert the grant actually took — a restore that leaves the reader role
 # without schema access breaks every read-only consumer until someone
 # notices, so fail loudly here instead.
-READER_USAGE="$("${COMPOSE[@]}" exec -T db \
+READER_USAGE="$(compose exec -T db \
     psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
     "SELECT has_schema_privilege('geolens_reader', 'data', 'USAGE');" | tr -d '[:space:]')"
 if [ "$READER_USAGE" != "t" ]; then
@@ -263,7 +271,7 @@ fi
 echo "geolens_reader grants verified."
 
 if [ -n "${GEOLENS_RUNTIME_DB_ROLE:-}" ]; then
-    RUNTIME_ROLE_SAFE="$("${COMPOSE[@]}" exec -T db \
+    RUNTIME_ROLE_SAFE="$(compose exec -T db \
         psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
         "SELECT NOT rolsuper AND NOT rolbypassrls AND NOT rolcreaterole
                 AND NOT rolcreatedb AND NOT rolreplication
@@ -284,7 +292,7 @@ RESTORE_SUCCEEDED=1
 # Post-restore validation
 echo ""
 echo "Verifying restore..."
-"${COMPOSE[@]}" exec -T db \
+compose exec -T db \
     psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
     "SELECT 'records' AS tbl, COUNT(*) FROM catalog.records UNION ALL SELECT 'datasets', COUNT(*) FROM catalog.datasets;" \
     2>/dev/null || echo "WARNING: Post-restore validation query failed (non-fatal)"

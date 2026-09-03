@@ -775,6 +775,98 @@ else
   bad "a process-environment-sourced cycle regressed (rc=$ENVCYCLE_RC val=[$ENVCYCLE_VAL])"
 fi
 
+
+# ============================================================================
+# Round 16 (review 5104847831) P2 #2 -- Compose allows a quoted .env value
+# to span physical lines; the parser used to validate/extract a quoted
+# value against its OWN single line only, treating an unterminated same-
+# line quote as malformed and returning it literally instead of gathering
+# subsequent lines the way Compose itself does.
+# ============================================================================
+
+# A single-quoted value spanning two physical lines, joined by a real
+# newline -- verified against the oracle byte-for-byte (not assumed).
+MULTI_SINGLE_ENV="$WORK/.env.multi_single"
+cat > "$MULTI_SINGLE_ENV" <<'EOF'
+USES='line1
+line2'
+EOF
+_assert_matches_compose USES "$MULTI_SINGLE_ENV" \
+  "a single-quoted value spanning two physical lines joins with a real newline"
+
+# A double-quoted value spanning THREE physical lines, with a literal \n
+# escape ALSO present inside it -- both the escape and the real
+# physical-line joins must decode to the identical newline byte.
+MULTI_DOUBLE_ENV="$WORK/.env.multi_double"
+cat > "$MULTI_DOUBLE_ENV" <<'EOF'
+USES="alpha\nbeta
+gamma
+delta"
+EOF
+_assert_matches_compose USES "$MULTI_DOUBLE_ENV" \
+  "a double-quoted value spanning three physical lines decodes its \\n escape and its physical-line joins to the same byte"
+
+# `#` and `=` inside the multiline body are literal content -- never a
+# comment or a new key -- and a KEY AFTER the multiline value must still
+# resolve, proving the scanner resumed scanning at the right line instead
+# of over- or under-consuming lines while gathering.
+MULTI_HASHEQ_ENV="$WORK/.env.multi_hasheq"
+cat > "$MULTI_HASHEQ_ENV" <<'EOF'
+USES='line1 # not a comment
+key=value inside
+line3'
+AFTER=resolved
+EOF
+_assert_matches_compose USES "$MULTI_HASHEQ_ENV" \
+  "a multiline value's own body may contain '#' and '=' as literal content"
+_assert_matches_compose AFTER "$MULTI_HASHEQ_ENV" \
+  "a key AFTER a multiline value still resolves (the scanner resumed at the right line)"
+
+# An escaped quote inside a multiline double-quoted value does not
+# terminate it early -- the scan correctly continues past \" to the REAL
+# close on a later line.
+MULTI_ESCAPED_Q_ENV="$WORK/.env.multi_escaped_quote"
+cat > "$MULTI_ESCAPED_Q_ENV" <<'EOF'
+USES="line1 \"quoted\" more
+line2"
+EOF
+_assert_matches_compose USES "$MULTI_ESCAPED_Q_ENV" \
+  "an escaped quote inside a multiline double-quoted value does not close it early"
+
+# A trailing comment after the closing quote on the FINAL line is still
+# stripped, same as the single-line case.
+MULTI_TRAILING_COMMENT_ENV="$WORK/.env.multi_trailing_comment"
+cat > "$MULTI_TRAILING_COMMENT_ENV" <<'EOF'
+USES="line1
+line2" # trailing comment
+EOF
+_assert_matches_compose USES "$MULTI_TRAILING_COMMENT_ENV" \
+  "a trailing comment after a multiline value's closing quote is stripped"
+
+# A multiline value referenced elsewhere via ${VAR} threads the real
+# newline through interpolation too, not just a direct lookup.
+MULTI_INTERP_ENV="$WORK/.env.multi_interp"
+cat > "$MULTI_INTERP_ENV" <<'EOF'
+MULTIVAL='line1
+line2'
+USES="prefix-${MULTIVAL}-suffix"
+EOF
+_assert_matches_compose USES "$MULTI_INTERP_ENV" \
+  "a multiline value referenced via \${VAR} threads its real newline through interpolation"
+
+# An unterminated quote (EOF reached with the quote still open) -- verified
+# against the oracle: Compose's own .env load hard-fails on this
+# ("unterminated quoted value"), the same failure class round 14 already
+# established for other malformed .env constructs.
+MULTI_UNTERM_ENV="$WORK/.env.multi_unterminated"
+cat > "$MULTI_UNTERM_ENV" <<'EOF'
+USES='line1
+line2
+line3
+EOF
+_assert_errors_like_compose USES "$MULTI_UNTERM_ENV" \
+  "an unterminated multiline quote (EOF reached, never closed) fails closed, matching Compose exactly"
+
 echo "1..$((PASS + FAIL))"
 echo "# ${PASS} passed, ${FAIL} failed"
 [ "$FAIL" -eq 0 ]

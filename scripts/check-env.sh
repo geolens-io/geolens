@@ -30,6 +30,11 @@ if [ -f "$PROJECT_ROOT/.env" ]; then
     # shellcheck disable=SC2034  # read via `${!var}` in the Section 1 loop below
     env_value_into POSTGRES_PASSWORD POSTGRES_PASSWORD "$PROJECT_ROOT/.env" || true
     env_value_into POSTGRES_DB POSTGRES_DB "$PROJECT_ROOT/.env" || true
+    # fix(#1798 review round 16, P2, review 5104847831): also honor an
+    # operator's COMPOSE_FILE (e.g. docker-compose.prod.yml) instead of
+    # always hardcoding the source-build file below -- this script used to
+    # be the one caller that never read it at all.
+    env_value_into COMPOSE_FILE COMPOSE_FILE "$PROJECT_ROOT/.env" || true
 fi
 
 ERRORS=0
@@ -55,7 +60,12 @@ done
 
 # Section 2: Database Connectivity
 echo "=== Database Connectivity ==="
-if docker compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T db \
+# fix(#1798 review round 16, P2, review 5104847831): calls the shared
+# compose() wrapper (scripts/lib/common.sh) instead of a raw `docker
+# compose -f ...` invocation, so COMPOSE_PROJECT_NAME/COMPOSE_PROFILES from
+# $PROJECT_ROOT/.env are honored the same way restore.sh/upgrade.sh honor
+# them, regardless of this script's own cwd.
+if compose exec -T db \
     pg_isready -U "${POSTGRES_USER:-geolens}" -d "${POSTGRES_DB:-geolens}" > /dev/null 2>&1; then
     pass "Database is accepting connections"
 else
@@ -64,7 +74,7 @@ fi
 
 # Section 3: GDAL Availability
 echo "=== GDAL Availability ==="
-if docker compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T api ogrinfo --version > /dev/null 2>&1; then
+if compose exec -T api ogrinfo --version > /dev/null 2>&1; then
     pass "GDAL (ogrinfo) is available in api container"
 else
     fail "GDAL (ogrinfo) is not available in api container"

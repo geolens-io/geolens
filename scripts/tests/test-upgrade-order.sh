@@ -80,7 +80,11 @@ DB_RECREATE_MODE="${DOCKER_DB_RECREATE_MODE:-ok}"
 if [ "$1" = "compose" ]; then
   shift
   # strip "-f <file>"
-  if [ "$1" = "-f" ]; then shift; shift; fi
+  # fix(#1798 review round 16, P2, review 5104847831): compose() now also
+  # emits `--project-directory VALUE` (see scripts/lib/common.sh) -- skip
+  # any number of "-f VALUE" / "--project-directory VALUE" pairs, in
+  # whichever order compose() sends them, before checking the subcommand.
+  while [ "$1" = "-f" ] || [ "$1" = "--project-directory" ]; do shift 2; done
   case "$1" in
     version) exit 0 ;;
     stop)    echo "stop_app" >> "$LOG"; [ "$STOP_MODE" = "fail" ] && exit 1; exit 0 ;;
