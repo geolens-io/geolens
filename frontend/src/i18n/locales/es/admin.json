@@ -340,6 +340,10 @@
     "createError": "Error al crear la clave",
     "loadingKeys": "Cargando claves...",
     "noKeys": "Sin claves API",
+    "showingOf": "Mostrando {{shown}} de {{total}}",
+    "loadMore": "Cargar más",
+    "loadError": "Error al cargar las claves",
+    "retry": "Reintentar",
     "active": "Activa",
     "revoked": "Revocada",
     "created": "Creada {{date}}",
@@ -554,7 +558,11 @@
       "corsAllowedOriginsDescription": "Orígenes separados por comas, cada uno indicado por completo. No se aceptan comodines: las solicitudes con credenciales requieren orígenes explícitos.",
       "corsAllowedOriginsPlaceholder": "https://example.com, https://app.example.com",
       "ogcItemsMaxPageSize": "Tamaño máximo de página de OGC Features (límite de items)",
-      "ogcItemsMaxPageSizeDescription": "Número máximo de entidades devueltas por página en el endpoint de items de OGC API Features. Las solicitudes que lo superen se ajustan, no se rechazan. Auméntalo para la exportación masiva de GeoJSON; redúcelo en despliegues con memoria limitada."
+      "ogcItemsMaxPageSizeDescription": "Número máximo de entidades devueltas por página en el endpoint de items de OGC API Features. Las solicitudes que lo superen se ajustan, no se rechazan. Auméntalo para la exportación masiva de GeoJSON; redúcelo en despliegues con memoria limitada.",
+      "semanticSearchRateLimit": "Límite de búsqueda semántica (por minuto)",
+      "semanticSearchRateLimitDescription": "Número máximo de solicitudes de búsqueda semántica por minuto y dirección IP. Limita el coste de generación de embeddings por solicitante.",
+      "basemapProxyRateLimit": "Límite del proxy de mapas base (por minuto)",
+      "basemapProxyRateLimitDescription": "Número máximo de solicitudes al proxy de teselas de mapa base por minuto y dirección IP. Limita la reutilización de una clave API comercial a través del proxy."
     },
     "security": {
       "title": "Seguridad",
@@ -570,6 +578,8 @@
       "saveFailed": "Error al guardar la configuración de seguridad",
       "passwordLogin": "Permitir inicio de sesión con contraseña",
       "passwordLoginDescription": "Permite a los usuarios iniciar sesión con nombre de usuario y contraseña. Si se desactiva, los usuarios deben iniciar sesión a través de un proveedor SSO — asegúrese de que al menos un proveedor esté habilitado antes de desactivar esta opción.",
+      "emailVerificationRequired": "Requerir verificación de correo",
+      "emailVerificationRequiredDescription": "Cuando el autorregistro está activado, requiere un correo confirmado antes de activar una cuenta nueva. Al desactivarlo, se recurre a la aprobación por un administrador.",
       "allowedEmailDomains": "Dominios de correo electrónico permitidos",
       "allowedEmailDomainsDescription": "Restringe el registro e inicio de sesión a direcciones de correo de estos dominios. Deje vacío para permitir cualquier dominio.",
       "allowedEmailDomainsUnrestricted": "Sin restricciones — se permiten todos los dominios de correo electrónico.",

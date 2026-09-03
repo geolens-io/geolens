@@ -135,4 +135,23 @@ describe('MapViewerGate', () => {
 
     expect(await screen.findByTestId('public-map-page')).toBeInTheDocument();
   });
+
+  describe('optimistic builder-chunk warmup (#1778)', () => {
+    // The dynamic import() this fix adds is cached process-wide by
+    // Vitest/Node's ESM module registry once any test in this file resolves
+    // it (e.g. "loads the builder for editor users" above), so a later
+    // test's own import() call would silently hit that cache and never
+    // re-invoke the mock factory — making call-count assertions order
+    // dependent and unreliable here. The property under test is really a
+    // source-shape one (an effect fires the import independently of the
+    // Suspense render path, gated on the optimistic-editor condition), so
+    // pin it against the source instead of racing the module cache.
+    it('fires the import from a useEffect gated on hasToken && editorFallback, not from the Suspense render branch', async () => {
+      const { readFileSync } = await import('node:fs');
+      const { resolve } = await import('node:path');
+      const source = readFileSync(resolve(__dirname, '../MapViewerGate.tsx'), 'utf-8');
+
+      expect(source).toMatch(/useEffect\(\(\)\s*=>\s*\{[^}]*hasToken\s*&&\s*editorFallback[^}]*import\(['"]\.\/MapBuilderPage['"]\)/s);
+    });
+  });
 });

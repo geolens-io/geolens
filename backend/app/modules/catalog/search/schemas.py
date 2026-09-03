@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer
 
 from app.modules.catalog.features.service import parse_bbox
 
@@ -61,8 +61,53 @@ class SearchParams(BaseModel):
         return v
 
 
+class OGCRasterBand(BaseModel):
+    """One entry in the raster:bands STAC extension array.
+
+    fix(#1805 review round 3 P2): matches the shape service_records.py
+    actually serializes per band. `statistics` matches the normalized
+    band_info shape core/raster_bands.py (introduced by #1803, the raster
+    lifecycle PR) produces on read; keep this in sync if that PR changes
+    the per-band keys.
+    """
+
+    name: str | None = None
+    data_type: str | None = None
+    # fix(#1805 review round 3 P2, discovered while adding the pinned test):
+    # band_info is a raw JSONB column (RasterAsset.band_info) not schema-
+    # constrained at the DB layer, and service_records.py passes bi["nodata"]
+    # through verbatim (no str() coercion) -- a band's nodata sentinel can be
+    # an int or float as easily as a string, unlike the TOP-LEVEL
+    # RasterAsset.nodata column, which IS Text. str-only here 422'd on a real
+    # int nodata value the first time this schema was exercised end-to-end.
+    nodata: str | int | float | None = None
+    statistics: dict | None = None
+    description: str | None = None
+
+    # fix(#1805 review round 4 P2): /search/datasets validates through
+    # OGCFeatureCollectionResponse, and FastAPI's default response
+    # serialization fills in every declared field's default (None) for
+    # this nested model regardless of whether the raw dict provided the
+    # key -- so "band lacks a nodata key" (genuinely unavailable) and
+    # "band has nodata: null" (confirmed absent, per service_records.py's
+    # explicit None above) collapsed into the SAME wire shape (nodata:
+    # null) the moment round 3 declared this field. That defeated the
+    # tri-state distinction the client relies on (defined / absent /
+    # unknown). model_fields_set still reflects whether `nodata` was in
+    # the input dict; drop the key from the dump when it was not, so
+    # "unknown" stays genuinely absent from the response.
+    @model_serializer(mode="wrap")
+    def _serialize_nodata_presence(self, handler):  # noqa: ANN001
+        data = handler(self)
+        if "nodata" not in self.model_fields_set:
+            data.pop("nodata", None)
+        return data
+
+
 class OGCRecordProperties(BaseModel):
     """Properties block of an OGC API Records Feature."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     type: str = "dataset"
     title: str
@@ -144,6 +189,13 @@ class OGCRecordProperties(BaseModel):
     record_status: str | None = None
     has_quicklook: bool = False
     gsd: float | None = None
+    # fix(#1805 review round 5): gsd is a lossy min(abs(res_x), abs(res_y))
+    # -- two sources with different per-axis resolution can share one gsd,
+    # so the client cannot replicate _check_grid_alignment (which compares
+    # res_x and res_y independently) from gsd alone. Same values raster_meta
+    # already carries (RasterAsset.res_x/res_y), just not previously surfaced.
+    res_x: float | None = None
+    res_y: float | None = None
     crs_is_geographic: bool | None = Field(
         default=None,
         description=(
@@ -154,6 +206,19 @@ class OGCRecordProperties(BaseModel):
     vrt_type: str | None = None
     source_count: int | None = None
     dataset_count: int | None = None
+    # fix(#1805 review round 3 P2): these three were emitted by
+    # service_records.py but never declared here, so /search/datasets
+    # (which validates through OGCFeatureCollectionResponse, unlike the OGC
+    # Records / STAC routers which return a raw dict) silently stripped
+    # them -- every VrtCreatorForm compatibility check that reads them was
+    # dead against the real search endpoint.
+    proj_code: str | None = Field(default=None, alias="proj:code")
+    proj_shape: tuple[int, int] | None = Field(
+        default=None,
+        alias="proj:shape",
+        description="[height, width] in pixels.",
+    )
+    raster_bands: list[OGCRasterBand] | None = Field(default=None, alias="raster:bands")
 
 
 class OGCRecordLink(BaseModel):

@@ -55,3 +55,23 @@ describe('FilterSheet identity reset (fix #1761 review round 4)', () => {
     expect(getDateDraftInputs()[0]).toHaveValue('');
   });
 });
+
+// fix(#1778): the sheet's date-range and temporal-extent sections each
+// paired a bare <label> (no htmlFor) with a sibling <Input>, extracted
+// verbatim from FilterPanel's same bug — so all four date fields in the
+// mobile sheet announced as unnamed. The sheet is closed at mount, so the
+// axe gate structurally cannot reach it.
+describe('FilterSheet date field accessible names (#1778)', () => {
+  afterEach(() => {
+    useSearchStore.getState().resetFilters();
+  });
+
+  it('names all four "From"/"To" date inputs once the sheet is open', () => {
+    render(<FilterSheet totalResults={10} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Filters/i }));
+
+    expect(screen.getAllByLabelText('From')).toHaveLength(2);
+    expect(screen.getAllByLabelText('To')).toHaveLength(2);
+  });
+});

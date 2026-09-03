@@ -567,19 +567,48 @@ export interface OGCRecordProperties {
   update_frequency?: string | null;
   has_quicklook?: boolean;
   band_count?: number | null;
-  epsg?: number | null;
-  res_x?: number | null;
-  res_y?: number | null;
-  width?: number | null;
-  height?: number | null;
-  dtype?: string | null;
-  nodata?: string | null;
   dataset_count?: number;
   vrt_type?: string | null;
   source_count?: number | null;
   gsd?: number | null;
+  /**
+   * fix(#1805 review round 5): gsd is a lossy min(abs(res_x), abs(res_y)) --
+   * two sources with different per-axis resolution can share one gsd, so a
+   * client-side grid-alignment check built on gsd alone cannot replicate
+   * the backend's _check_grid_alignment, which compares res_x/res_y
+   * independently. These are real fields now (unlike the res_x/res_y this
+   * interface used to declare and removed in #1778 -- those were never
+   * returned by the API; these are, from service_records.py).
+   */
+  res_x?: number | null;
+  res_y?: number | null;
   /** True when the raster CRS is geographic (gsd is degrees, not meters). */
   crs_is_geographic?: boolean | null;
+  /**
+   * fix(#1778): the flat epsg/res_x/res_y/width/height/dtype/nodata fields
+   * this interface used to declare were never returned by the API — the
+   * serializer (service_records.py) emits STAC names instead. Read those.
+   * fix(#1805 review round 3 P2): now declared on the backend's
+   * OGCRecordProperties too (schemas.py), matching this hand-typed mirror --
+   * /search/datasets validates through that model and was silently
+   * stripping these three when they were declared here but not there.
+   */
+  'proj:code'?: string | null;
+  /** [height, width] in pixels. */
+  'proj:shape'?: [number, number] | null;
+  'raster:bands'?: Array<{
+    name?: string;
+    data_type?: string;
+    /**
+     * band_info is a raw JSONB column not schema-constrained at the DB
+     * layer; a band's nodata sentinel can be a number as easily as a
+     * string, unlike the top-level RasterAsset.nodata column (always Text).
+     */
+    nodata?: string | number | null;
+    /** Per-band statistics (e.g. min/max/mean); shape not yet fixed. */
+    statistics?: Record<string, unknown> | null;
+    description?: string;
+  }> | null;
 }
 
 export interface OGCRecordLink {

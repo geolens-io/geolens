@@ -146,8 +146,9 @@ export function RasterStretchControls({
           {currentStretch === 'percentile' && (
             <div className="flex gap-2">
               <div className="flex-1 flex flex-col gap-1">
-                <Label className="text-xs text-muted-foreground">{t('style.raster.pminLabel', { defaultValue: 'Low %' })}</Label>
+                <Label htmlFor="raster-stretch-pmin" className="text-xs text-muted-foreground">{t('style.raster.pminLabel', { defaultValue: 'Low %' })}</Label>
                 <input
+                  id="raster-stretch-pmin"
                   type="number"
                   className="h-8 text-xs w-full rounded-md border border-input bg-background px-2"
                   min={0}
@@ -159,8 +160,9 @@ export function RasterStretchControls({
                 />
               </div>
               <div className="flex-1 flex flex-col gap-1">
-                <Label className="text-xs text-muted-foreground">{t('style.raster.pmaxLabel', { defaultValue: 'High %' })}</Label>
+                <Label htmlFor="raster-stretch-pmax" className="text-xs text-muted-foreground">{t('style.raster.pmaxLabel', { defaultValue: 'High %' })}</Label>
                 <input
+                  id="raster-stretch-pmax"
                   type="number"
                   className="h-8 text-xs w-full rounded-md border border-input bg-background px-2"
                   min={0}

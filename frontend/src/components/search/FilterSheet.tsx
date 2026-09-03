@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Loader2, MapPin, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -539,20 +540,22 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
             </label>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">
+                <Label htmlFor="filter-sheet-date-from" className="text-xs font-medium text-muted-foreground">
                   {t('filters.dateFrom')}
-                </label>
+                </Label>
                 <Input
+                  id="filter-sheet-date-from"
                   type="date"
                   value={localDateFrom}
                   onChange={(e) => setLocalDateFrom(e.target.value)}
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">
+                <Label htmlFor="filter-sheet-date-to" className="text-xs font-medium text-muted-foreground">
                   {t('filters.dateTo')}
-                </label>
+                </Label>
                 <Input
+                  id="filter-sheet-date-to"
                   type="date"
                   value={localDateTo}
                   onChange={(e) => setLocalDateTo(e.target.value)}
@@ -575,20 +578,22 @@ export function FilterSheet({ totalResults }: FilterSheetProps) {
             </label>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">
+                <Label htmlFor="filter-sheet-temporal-start" className="text-xs font-medium text-muted-foreground">
                   {t('filters.dateFrom')}
-                </label>
+                </Label>
                 <Input
+                  id="filter-sheet-temporal-start"
                   type="date"
                   value={temporalStart}
                   onChange={(e) => handleTemporalChange(e.target.value, temporalEnd)}
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">
+                <Label htmlFor="filter-sheet-temporal-end" className="text-xs font-medium text-muted-foreground">
                   {t('filters.dateTo')}
-                </label>
+                </Label>
                 <Input
+                  id="filter-sheet-temporal-end"
                   type="date"
                   value={temporalEnd}
                   onChange={(e) => handleTemporalChange(temporalStart, e.target.value)}

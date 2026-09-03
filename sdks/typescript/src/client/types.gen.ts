@@ -7131,6 +7131,42 @@ export type OgcLink = {
 };
 
 /**
+ * OGCRasterBand
+ *
+ * One entry in the raster:bands STAC extension array.
+ *
+ * fix(#1805 review round 3 P2): matches the shape service_records.py
+ * actually serializes per band. `statistics` matches the normalized
+ * band_info shape core/raster_bands.py (introduced by #1803, the raster
+ * lifecycle PR) produces on read; keep this in sync if that PR changes
+ * the per-band keys.
+ */
+export type OgcRasterBand = {
+    /**
+     * Name
+     */
+    name?: string | null;
+    /**
+     * Data Type
+     */
+    data_type?: string | null;
+    /**
+     * Nodata
+     */
+    nodata?: string | number | number | null;
+    /**
+     * Statistics
+     */
+    statistics?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Description
+     */
+    description?: string | null;
+};
+
+/**
  * OGCRecordLink
  *
  * Link object in OGC API Records.
@@ -7337,6 +7373,14 @@ export type OgcRecordProperties = {
      */
     gsd?: number | null;
     /**
+     * Res X
+     */
+    res_x?: number | null;
+    /**
+     * Res Y
+     */
+    res_y?: number | null;
+    /**
      * Crs Is Geographic
      *
      * True when the raster CRS is geographic (gsd/res are degrees, not meters); None when the CRS class is unknown.
@@ -7354,6 +7398,23 @@ export type OgcRecordProperties = {
      * Dataset Count
      */
     dataset_count?: number | null;
+    /**
+     * Proj:Code
+     */
+    'proj:code'?: string | null;
+    /**
+     * Proj:Shape
+     *
+     * [height, width] in pixels.
+     */
+    'proj:shape'?: [
+        number,
+        number
+    ] | null;
+    /**
+     * Raster:Bands
+     */
+    'raster:bands'?: Array<OgcRasterBand> | null;
 };
 
 /**

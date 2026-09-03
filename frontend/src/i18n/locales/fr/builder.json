@@ -197,6 +197,8 @@
     "pointOpacity": "Opacité du point",
     "layerOpacity": "Opacité de la couche",
     "color": "Couleur",
+    "hexValueFor": "Valeur hexadécimale de {{label}}",
+    "hexColorValue": "Valeur de couleur hexadécimale",
     "width": "Largeur",
     "gapWidth": "Largeur de l'écart",
     "blur": "Flou",

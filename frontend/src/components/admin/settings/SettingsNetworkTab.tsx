@@ -26,6 +26,11 @@ const FIELDS = [
   { key: 'cors_allowed_origins', defaultValue: '' },
   { key: 'global_rate_limit', defaultValue: 60 },
   { key: 'ogc_items_max_page_size', defaultValue: 1000 },
+  // fix(#1778): the registry puts these two on tab="network" and their
+  // docstrings say the admin Settings UI is the only control (there is no
+  // env var for either) — but no tab component ever read the keys.
+  { key: 'semantic_search_rate_limit', defaultValue: 30 },
+  { key: 'basemap_proxy_rate_limit', defaultValue: 120 },
 ] as const;
 
 function NotificationChannelBadge({ ok, label }: { ok: boolean; label: string }) {
@@ -125,6 +130,42 @@ export function SettingsNetworkTab({ settings, envOnly, onSave, onReset, isSavin
           max={100000}
           value={values.ogc_items_max_page_size as number}
           onChange={(e) => setters.ogc_items_max_page_size(Number(e.target.value))}
+          disabled={envOnly}
+          className="w-32"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Label htmlFor="semantic-search-rate-limit">{t('settings.network.semanticSearchRateLimit')}</Label>
+          <SettingSourceBadge source={findSetting(settings, 'semantic_search_rate_limit')?.source ?? 'default'} settingKey="semantic_search_rate_limit" onReset={onReset} />
+        </div>
+        <p className="text-sm text-muted-foreground">{t('settings.network.semanticSearchRateLimitDescription')}</p>
+        <Input
+          id="semantic-search-rate-limit"
+          type="number"
+          min={1}
+          max={1000}
+          value={values.semantic_search_rate_limit as number}
+          onChange={(e) => setters.semantic_search_rate_limit(Number(e.target.value))}
+          disabled={envOnly}
+          className="w-32"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Label htmlFor="basemap-proxy-rate-limit">{t('settings.network.basemapProxyRateLimit')}</Label>
+          <SettingSourceBadge source={findSetting(settings, 'basemap_proxy_rate_limit')?.source ?? 'default'} settingKey="basemap_proxy_rate_limit" onReset={onReset} />
+        </div>
+        <p className="text-sm text-muted-foreground">{t('settings.network.basemapProxyRateLimitDescription')}</p>
+        <Input
+          id="basemap-proxy-rate-limit"
+          type="number"
+          min={1}
+          max={1000}
+          value={values.basemap_proxy_rate_limit as number}
+          onChange={(e) => setters.basemap_proxy_rate_limit(Number(e.target.value))}
           disabled={envOnly}
           className="w-32"
         />

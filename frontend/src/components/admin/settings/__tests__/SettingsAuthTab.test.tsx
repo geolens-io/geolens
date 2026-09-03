@@ -58,6 +58,7 @@ function defaultSettings(overrides: SettingItem[] = []): SettingItem[] {
     makeSetting('access_token_expire_minutes', 15),
     makeSetting('refresh_token_expire_days', 7),
     makeSetting('login_rate_limit', 5),
+    makeSetting('email_verification_required', true),
   ];
   // Merge overrides by key
   const overrideKeys = new Set(overrides.map((s) => s.key));
@@ -402,6 +403,25 @@ describe('SettingsAuthTab', () => {
       expect(secretInput).toHaveAttribute('data-1p-ignore');
       expect(secretInput).toHaveAttribute('data-lpignore', 'true');
       expect(secretInput).toHaveAttribute('data-bwignore');
+    });
+  });
+
+  // fix(#1778): email_verification_required registers on tab="auth" but no
+  // tab component read the key, so the control an operator needs to decide
+  // whether self-registered accounts activate without proving an address was
+  // invisible in the admin UI.
+  describe('Email Verification Required toggle (#1778)', () => {
+    it('renders, reflects the current value, and reports a change', async () => {
+      const user = userEvent.setup();
+      const { onDirtyChange } = renderTab([makeSetting('email_verification_required', true)]);
+
+      const toggle = screen.getByRole('switch', { name: /require email verification/i });
+      expect(toggle).toHaveAttribute('aria-checked', 'true');
+
+      await user.click(toggle);
+
+      expect(toggle).toHaveAttribute('aria-checked', 'false');
+      expect(onDirtyChange).toHaveBeenCalledWith(true);
     });
   });
 });

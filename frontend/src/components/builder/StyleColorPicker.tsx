@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { HexColorPicker, HexColorInput } from 'react-colorful';
 import {
   Popover,
@@ -48,6 +49,7 @@ export function SwatchColorPopover({
   onChange: (hex: string) => void;
   label?: string;
 }) {
+  const { t } = useTranslation('builder');
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -68,6 +70,7 @@ export function SwatchColorPopover({
           }}
           className="mt-2 w-full text-xs border rounded-sm px-2 py-1 bg-background text-foreground"
           prefixed
+          aria-label={label ? t('style.hexValueFor', { label }) : t('style.hexColorValue')}
         />
       </PopoverContent>
     </Popover>
@@ -75,6 +78,7 @@ export function SwatchColorPopover({
 }
 
 export function StyleColorPicker({ label, color, onChange }: StyleColorPickerProps) {
+  const { t } = useTranslation('builder');
   const [localColor, setLocalColor] = useState(color);
   useEffect(() => { setLocalColor(color); }, [color]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -130,6 +134,7 @@ export function StyleColorPicker({ label, color, onChange }: StyleColorPickerPro
             onChange={handleInputChange}
             className="mt-2 w-full text-xs border rounded-sm px-2 py-1 bg-background text-foreground"
             prefixed
+            aria-label={t('style.hexValueFor', { label })}
           />
         </PopoverContent>
       </Popover>

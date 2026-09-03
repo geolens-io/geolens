@@ -12173,6 +12173,75 @@
         "title": "OGCLink",
         "type": "object"
       },
+      "OGCRasterBand": {
+        "description": "One entry in the raster:bands STAC extension array.\n\nfix(#1805 review round 3 P2): matches the shape service_records.py\nactually serializes per band. `statistics` matches the normalized\nband_info shape core/raster_bands.py (introduced by #1803, the raster\nlifecycle PR) produces on read; keep this in sync if that PR changes\nthe per-band keys.",
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "data_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Type"
+          },
+          "nodata": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nodata"
+          },
+          "statistics": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statistics"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          }
+        },
+        "title": "OGCRasterBand",
+        "type": "object"
+      },
       "OGCRecordLink": {
         "description": "Link object in OGC API Records.",
         "properties": {
@@ -12562,6 +12631,28 @@
             ],
             "title": "Gsd"
           },
+          "res_x": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Res X"
+          },
+          "res_y": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Res Y"
+          },
           "crs_is_geographic": {
             "anyOf": [
               {
@@ -12606,6 +12697,53 @@
               }
             ],
             "title": "Dataset Count"
+          },
+          "proj:code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proj:Code"
+          },
+          "proj:shape": {
+            "anyOf": [
+              {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "[height, width] in pixels.",
+            "title": "Proj:Shape"
+          },
+          "raster:bands": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/OGCRasterBand"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raster:Bands"
           }
         },
         "required": [

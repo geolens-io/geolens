@@ -31,7 +31,20 @@ interface ApiKeySectionProps {
 
 export function ApiKeySection({ userId }: ApiKeySectionProps) {
   const { t } = useTranslation('admin');
-  const { data: keys, isLoading } = useApiKeys(userId);
+  // fix(#1805 review round 3 P2): the flat limit=200 fetch was itself the
+  // backend's hard cap -- a user past 200 keys still had no way to reach
+  // the rest, the exact defect #1778 set out to fix. pageCount grows via
+  // the "Load more" control below until every key is loaded.
+  const [pageCount, setPageCount] = useState(1);
+  const {
+    items: keys,
+    total = 0,
+    isLoading,
+    hasMore,
+    isError: apiKeysError,
+    error: apiKeysErrorObj,
+    retryFailedPage,
+  } = useApiKeys(userId, pageCount);
   const createApiKey = useCreateApiKey();
   const revokeApiKey = useRevokeApiKey();
 
@@ -128,12 +141,33 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
 
       {isLoading && <p className="text-sm text-muted-foreground">{t('apiKeys.loadingKeys')}</p>}
 
-      {!isLoading && (!keys || keys.length === 0) && (
+      {/* fix(#1805 review round 4 P2): a failed page used to be dropped
+          silently, so the section fell through to "No API keys" (or just
+          stopped growing) with no indication anything went wrong. */}
+      {apiKeysError && (
+        <div className="flex items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm">
+          <p className="text-destructive">
+            {apiKeysErrorObj instanceof Error ? apiKeysErrorObj.message : t('apiKeys.loadError')}
+          </p>
+          <Button variant="outline" size="sm" onClick={() => retryFailedPage()}>
+            {t('apiKeys.retry')}
+          </Button>
+        </div>
+      )}
+
+      {!isLoading && !apiKeysError && keys.length === 0 && (
         <p className="text-sm text-muted-foreground">{t('apiKeys.noKeys')}</p>
       )}
 
-      {keys && keys.length > 0 && (
+      {keys.length > 0 && (
         <div className="space-y-2">
+          {/* fix(#1778): `total` used to be fetched and dropped, so a user
+              past the 50-key page limit had no indication more existed. */}
+          {total > keys.length && (
+            <p className="text-xs text-muted-foreground">
+              {t('apiKeys.showingOf', { shown: keys.length, total })}
+            </p>
+          )}
           {keys.map((key) => (
             <div
               key={key.id}
@@ -182,6 +216,17 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
               )}
             </div>
           ))}
+          {hasMore && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => setPageCount((n) => n + 1)}
+              disabled={isLoading}
+            >
+              {isLoading ? t('apiKeys.loadingKeys') : t('apiKeys.loadMore')}
+            </Button>
+          )}
         </div>
       )}
 

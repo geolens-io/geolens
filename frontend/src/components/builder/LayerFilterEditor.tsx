@@ -472,6 +472,7 @@ export function LayerFilterEditor({
         /* Raw JSON editing mode */
         <div className="space-y-2">
           <Textarea
+            aria-label={t('filters.rawJson')}
             className="text-xs font-mono resize-y min-h-[100px]"
             value={rawText}
             onChange={(e) => {

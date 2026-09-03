@@ -166,7 +166,13 @@ export const queryKeys = {
     allShareTokens: ['admin', 'share-tokens'] as const,
     embedTokens: (params: Record<string, unknown>) => ['admin', 'embed-tokens', params] as const,
     allEmbedTokens: ['admin', 'embed-tokens'] as const,
-    apiKeys: (userId: string) => ['admin', 'api-keys', userId] as const,
+    // fix(#1805 review round 3 P2): pageIndex makes each page its own
+    // cache entry so a create/revoke mutation's invalidateQueries on the
+    // bare [admin, api-keys, userId] prefix still hits every loaded page.
+    apiKeys: (userId: string, pageIndex?: number) =>
+      pageIndex === undefined
+        ? (['admin', 'api-keys', userId] as const)
+        : (['admin', 'api-keys', userId, pageIndex] as const),
     embeddingStats: ['admin', 'embedding-stats'] as const,
     infrastructure: ['admin', 'infrastructure'] as const,
   },

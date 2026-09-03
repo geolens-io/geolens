@@ -83,6 +83,10 @@ type OperationItem = {
   alertBadge?: AlertBadge;
   enterpriseOnly?: boolean;
   capability: Capability;
+  // fix(#1778): SAML calls the mode-aware /settings/oauth-providers/ API
+  // (manage_tenants in multi-tenant mode), not raw manage_settings, so its
+  // visibility must follow useSettingsAdmin() like the Settings group does.
+  settingsGated?: boolean;
 };
 
 const operationsItems: readonly OperationItem[] = [
@@ -97,7 +101,7 @@ const operationsItems: readonly OperationItem[] = [
   },
   { labelKey: 'adminNav.auditLog', to: '/admin/audit', icon: ScrollText, badgeKey: 'audit', capability: 'manage_settings' },
   { labelKey: 'adminNav.sharedMaps', to: '/admin/shared-maps', icon: Link2, badgeKey: 'sharedMaps', capability: 'manage_users' },
-  { labelKey: 'adminNav.saml', to: '/admin/saml', icon: Lock, enterpriseOnly: true, capability: 'manage_settings' },
+  { labelKey: 'adminNav.saml', to: '/admin/saml', icon: Lock, enterpriseOnly: true, capability: 'manage_settings', settingsGated: true },
 ];
 
 // Phase 279 ADMIN-03 (M-03): server-driven enterprise-tab list. Used as the
@@ -184,7 +188,9 @@ export function AdminSidebar() {
     ? settingsItems.filter(item => !item.enterpriseOnly || isEnterprise)
     : [];
   const visibleOperationsItems = operationsItems.filter(
-    item => can(item.capability) && (!item.enterpriseOnly || isEnterprise),
+    item =>
+      (item.settingsGated ? canAdminSettings : can(item.capability)) &&
+      (!item.enterpriseOnly || isEnterprise),
   );
 
   const badgeCounts: Record<string, number | undefined> = {

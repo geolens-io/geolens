@@ -115,7 +115,8 @@
     },
     "tableReadout": "PostGIS-Tabelle",
     "catalogStatus": "Katalog: {{status}}",
-    "accessStatus": "Zugriff: {{visibility}}"
+    "accessStatus": "Zugriff: {{visibility}}",
+    "titleFieldLabel": "Datensatztitel"
   },
   "breadcrumbs": {
     "datasets": "Datensätze"

@@ -235,6 +235,56 @@ describe('DatasetSearchPanel', () => {
     expect(screen.getByRole('link', { name: 'Import data...' })).toHaveAttribute('href', '/import');
   });
 
+  // fix(#1778): featureMeta/DatasetMetadata read width/height/epsg off
+  // OGCRecordProperties, none of which the API ever returned under those
+  // flat names -- the raster size/CRS rows were always blank. Now sourced
+  // from proj:shape/proj:code, the shape the API actually serializes.
+  it('renders raster pixel dimensions and CRS from proj:shape/proj:code (#1778)', async () => {
+    const rasterRecord: OGCRecordResponse = {
+      type: 'Feature',
+      id: 'ortho',
+      geometry: null,
+      bbox: null,
+      links: [],
+      properties: {
+        type: 'Feature',
+        title: 'Ortho',
+        description: 'Ortho description',
+        keywords: ['imagery'],
+        created: '2026-01-01T00:00:00Z',
+        updated: '2026-01-02T00:00:00Z',
+        updated_by_display: null,
+        never_edited: false,
+        crs: 'EPSG:32617',
+        geometry_type: null,
+        feature_count: null,
+        contacts: null,
+        license: null,
+        source_organization: 'City GIS',
+        quality_detail: null,
+        record_status: 'published',
+        record_type: 'raster_dataset',
+        has_quicklook: false,
+        'proj:code': 'EPSG:32617',
+        'proj:shape': [1000, 2000],
+      },
+    };
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection',
+      numberMatched: 1,
+      numberReturned: 1,
+      features: [rasterRecord],
+    });
+
+    render(<DatasetSearchPanel {...defaultProps()} />);
+
+    expect(await screen.findByText('Ortho')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Ortho' }));
+
+    expect(screen.getAllByText('2,000 x 1,000 px').length).toBeGreaterThan(0);
+    expect(screen.getByText('EPSG:32617')).toBeInTheDocument();
+  });
+
   // =========================================================================
   // BSR-17 / BSR-18: initialQuery, raster filter removal, three-state UX
   // =========================================================================

@@ -26,7 +26,7 @@ from app.modules.catalog.datasets.domain.models import (
     RecordTranslation,
 )
 
-from tests.factories import get_user_id
+from tests.factories import create_raster_dataset, get_user_id
 
 
 def test_search_service_facade_exports_public_api():
@@ -1510,6 +1510,230 @@ async def test_ogc_collections_list_raster_is_coverage_no_items_link(
     assert vector_entry["itemType"] == "feature"
     vector_rels = {link["rel"] for link in vector_entry["links"]}
     assert "items" in vector_rels
+
+
+@pytest.mark.anyio
+async def test_search_datasets_raster_properties_survive_response_model(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """fix(#1805 review round 3 P2): /search/datasets/ validates its response
+    through OGCFeatureCollectionResponse (unlike the OGC Records / STAC
+    routers, which return a raw dict), so a field service_records.py
+    serializes but OGCRecordProperties does not declare is silently
+    stripped by Pydantic before it ever reaches the client. proj:code,
+    proj:shape, and raster:bands must survive that round trip -- every
+    VrtCreatorForm compatibility check that reads them was dead against
+    this endpoint until they were declared on the schema.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    token = uuid.uuid4().hex[:10]
+
+    dataset = await create_raster_dataset(
+        session,
+        created_by=admin_id,
+        name=f"Raster Props {token}",
+        create_raster_asset=True,
+        raster_asset_kwargs=dict(
+            epsg=32618,
+            width=2048,
+            height=1024,
+            res_x=10.0,
+            res_y=-10.0,
+            band_count=4,
+            dtype="uint16",
+            nodata="0",
+            band_info=[
+                {"name": "Red", "dtype": "uint16", "nodata": 0},
+                {"name": "Green", "dtype": "uint16", "nodata": 0},
+                {"name": "Blue", "dtype": "uint16", "nodata": 0},
+                {"name": "NIR", "dtype": "uint16", "nodata": 0},
+            ],
+        ),
+    )
+
+    resp = await client.get(
+        "/search/datasets/",
+        params={"q": f"Raster Props {token}", "limit": 10},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    features = {f["id"]: f for f in resp.json()["features"]}
+    props = features[str(dataset.id)]["properties"]
+
+    assert props["proj:code"] == "EPSG:32618"
+    assert props["proj:shape"] == [1024, 2048]
+    assert "raster:bands" in props
+    assert len(props["raster:bands"]) == 4
+    assert props["raster:bands"][0]["name"] == "Red"
+    assert props["raster:bands"][0]["data_type"] == "uint16"
+
+
+@pytest.mark.anyio
+async def test_search_datasets_raster_band_nodata_presence(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """fix(#1805 review round 4 P2): service_records.py only ever emitted a
+    band's nodata key when it had a value, so a band with no nodata info
+    always looked identical on the wire whether the asset's NoData was
+    confirmed absent or simply never recorded for that band -- until round
+    3 declared raster:bands on OGCRecordProperties, at which point FastAPI's
+    response serialization started filling BOTH cases in as an explicit
+    `nodata: null`, collapsing "absent" and "unknown" into the same wire
+    shape the client's tri-state nodataState() depends on telling apart.
+
+    Pins both states plus the "defined" state as a sanity anchor:
+      - A defined nodata value serializes as that value.
+      - Confirmed-absent (RasterAsset.nodata column is None, band lacks its
+        own key) serializes as an explicit `nodata: null` -- the key IS
+        present.
+      - Genuinely unavailable (RasterAsset.nodata IS set, but this band's
+        own stats -- the remote-COG shape -- don't carry it) OMITS the key
+        entirely, via OGCRasterBand's model_serializer reading
+        model_fields_set.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    token = uuid.uuid4().hex[:10]
+
+    defined_ds = await create_raster_dataset(
+        session,
+        created_by=admin_id,
+        name=f"Nodata Defined {token}",
+        create_raster_asset=True,
+        raster_asset_kwargs=dict(
+            epsg=4326,
+            width=100,
+            height=100,
+            band_count=1,
+            dtype="uint8",
+            nodata="-9999",
+            band_info=[{"name": "Band1", "dtype": "uint8", "nodata": "-9999"}],
+        ),
+    )
+    absent_ds = await create_raster_dataset(
+        session,
+        created_by=admin_id,
+        name=f"Nodata Absent {token}",
+        create_raster_asset=True,
+        raster_asset_kwargs=dict(
+            epsg=4326,
+            width=100,
+            height=100,
+            band_count=1,
+            dtype="uint8",
+            nodata=None,
+            band_info=[{"name": "Band1", "dtype": "uint8"}],
+        ),
+    )
+    unknown_ds = await create_raster_dataset(
+        session,
+        created_by=admin_id,
+        name=f"Nodata Unknown {token}",
+        create_raster_asset=True,
+        raster_asset_kwargs=dict(
+            epsg=4326,
+            width=100,
+            height=100,
+            band_count=1,
+            dtype="uint8",
+            nodata="-9999",
+            band_info=[{"name": "Band1", "dtype": "uint8"}],
+        ),
+    )
+
+    resp = await client.get(
+        "/search/datasets/",
+        params={"q": f"Nodata {token}", "limit": 10},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    features = {f["id"]: f for f in resp.json()["features"]}
+
+    defined_band = features[str(defined_ds.id)]["properties"]["raster:bands"][0]
+    assert defined_band["nodata"] == "-9999"
+
+    absent_band = features[str(absent_ds.id)]["properties"]["raster:bands"][0]
+    assert "nodata" in absent_band
+    assert absent_band["nodata"] is None
+
+    unknown_band = features[str(unknown_ds.id)]["properties"]["raster:bands"][0]
+    assert "nodata" not in unknown_band
+
+
+@pytest.mark.anyio
+async def test_search_datasets_raster_res_x_res_y_survive_response_model(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """fix(#1805 review round 5): gsd is a lossy min(abs(res_x), abs(res_y)) --
+    two sources at (res_x=10, res_y=20) and (res_x=10, res_y=30) collapse to
+    the identical gsd=10 and, if both share dimensions, look grid-aligned to
+    a client comparing gsd alone. _check_grid_alignment (backend/app/
+    processing/raster/validation.py) compares res_x and res_y independently,
+    so this pair is a real mismatch the client could not detect until both
+    axes were exposed on the search payload.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    token = uuid.uuid4().hex[:10]
+
+    ds_a = await create_raster_dataset(
+        session,
+        created_by=admin_id,
+        name=f"Res Axis A {token}",
+        create_raster_asset=True,
+        raster_asset_kwargs=dict(
+            epsg=4326,
+            width=100,
+            height=100,
+            res_x=10.0,
+            res_y=20.0,
+            band_count=1,
+            dtype="uint8",
+        ),
+    )
+    ds_b = await create_raster_dataset(
+        session,
+        created_by=admin_id,
+        name=f"Res Axis B {token}",
+        create_raster_asset=True,
+        raster_asset_kwargs=dict(
+            epsg=4326,
+            width=100,
+            height=100,
+            res_x=10.0,
+            res_y=30.0,
+            band_count=1,
+            dtype="uint8",
+        ),
+    )
+
+    resp = await client.get(
+        "/search/datasets/",
+        params={"q": f"Res Axis {token}", "limit": 10},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    features = {f["id"]: f for f in resp.json()["features"]}
+
+    props_a = features[str(ds_a.id)]["properties"]
+    props_b = features[str(ds_b.id)]["properties"]
+
+    # Same gsd (the lossy min) despite a real res_y mismatch -- the whole
+    # point of the finding.
+    assert props_a["gsd"] == 10.0
+    assert props_b["gsd"] == 10.0
+
+    assert props_a["res_x"] == 10.0
+    assert props_a["res_y"] == 20.0
+    assert props_b["res_x"] == 10.0
+    assert props_b["res_y"] == 30.0
 
 
 @pytest.mark.anyio

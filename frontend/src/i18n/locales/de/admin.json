@@ -340,6 +340,10 @@
     "createError": "Schlüssel konnte nicht erstellt werden",
     "loadingKeys": "Schlüssel werden geladen...",
     "noKeys": "Keine API-Schlüssel",
+    "showingOf": "{{shown}} von {{total}} angezeigt",
+    "loadMore": "Mehr laden",
+    "loadError": "Schlüssel konnten nicht geladen werden",
+    "retry": "Erneut versuchen",
     "active": "Aktiv",
     "revoked": "Widerrufen",
     "created": "Erstellt {{date}}",
@@ -554,7 +558,11 @@
       "corsAllowedOriginsDescription": "Kommagetrennte Ursprünge, jeweils vollständig angegeben. Platzhalter werden nicht akzeptiert – Anfragen mit Anmeldedaten erfordern explizite Ursprünge.",
       "corsAllowedOriginsPlaceholder": "https://example.com, https://app.example.com",
       "ogcItemsMaxPageSize": "OGC Features maximale Seitengröße (Items-Limit-Obergrenze)",
-      "ogcItemsMaxPageSizeDescription": "Maximale Anzahl an Features pro Seite am OGC-API-Features-Items-Endpunkt. Anfragen darüber werden begrenzt, nicht abgelehnt. Erhöhen Sie den Wert für den Massen-GeoJSON-Export; verringern Sie ihn bei speicherbeschränkten Deployments."
+      "ogcItemsMaxPageSizeDescription": "Maximale Anzahl an Features pro Seite am OGC-API-Features-Items-Endpunkt. Anfragen darüber werden begrenzt, nicht abgelehnt. Erhöhen Sie den Wert für den Massen-GeoJSON-Export; verringern Sie ihn bei speicherbeschränkten Deployments.",
+      "semanticSearchRateLimit": "Rate-Limit für semantische Suche (pro Minute)",
+      "semanticSearchRateLimitDescription": "Maximale Anzahl semantischer Suchanfragen pro Minute und IP-Adresse. Begrenzt die Kosten für die Embedding-Erzeugung pro Anfragenden.",
+      "basemapProxyRateLimit": "Rate-Limit für Basemap-Proxy (pro Minute)",
+      "basemapProxyRateLimitDescription": "Maximale Anzahl an Basemap-Kachel-Proxy-Anfragen pro Minute und IP-Adresse. Begrenzt die Wiederverwendung eines kommerziellen Basemap-API-Schlüssels über den Proxy."
     },
     "security": {
       "title": "Sicherheit",
@@ -570,6 +578,8 @@
       "saveFailed": "Sicherheitseinstellungen konnten nicht gespeichert werden",
       "passwordLogin": "Passwort-Anmeldung erlauben",
       "passwordLoginDescription": "Erlaubt Benutzern, sich mit Benutzername und Passwort anzumelden. Wenn deaktiviert, müssen sich Benutzer über einen SSO-Anbieter anmelden — stellen Sie sicher, dass mindestens ein Anbieter aktiviert ist.",
+      "emailVerificationRequired": "E-Mail-Verifizierung erforderlich",
+      "emailVerificationRequiredDescription": "Wenn die Selbstregistrierung aktiviert ist, ist eine bestätigte E-Mail-Adresse erforderlich, bevor ein neues Konto aktiviert wird. Wird dies deaktiviert, erfolgt die Aktivierung stattdessen per Admin-Freigabe.",
       "allowedEmailDomains": "Erlaubte E-Mail-Domains",
       "allowedEmailDomainsDescription": "Beschränkt Registrierung und Anmeldung auf E-Mail-Adressen dieser Domains. Leer lassen, um alle Domains zu erlauben.",
       "allowedEmailDomainsUnrestricted": "Keine Einschränkungen — alle E-Mail-Domains sind erlaubt.",

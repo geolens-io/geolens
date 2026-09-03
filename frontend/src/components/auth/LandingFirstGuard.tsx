@@ -13,13 +13,19 @@
  * visitors who explicitly chose to browse anonymously are NOT bounced back
  * to /login on every navigation to "/".
  */
+import { lazy } from 'react';
 import { Navigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth-store';
 import { getAuthConfig } from '@/api/auth';
 import { queryKeys } from '@/lib/query-keys';
 import { readSessionStorage } from '@/lib/storage';
-import { SearchPage } from '@/pages/SearchPage';
+
+// fix(#1778): was a static import, dragging SearchPage's ~163KB subtree
+// (FilterPanel, color-ramps, etc.) into the entry chunk for every route.
+// RootLayout's <Suspense> already wraps the route Outlet, so no new
+// boundary is needed here.
+const SearchPage = lazy(() => import('@/pages/SearchPage').then((m) => ({ default: m.SearchPage })));
 
 const GUEST_BROWSE_KEY = 'gl-guest-browse';
 

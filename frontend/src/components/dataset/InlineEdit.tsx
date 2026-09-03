@@ -218,6 +218,11 @@ export function InlineEdit({
         onBlur={save}
         onKeyDown={handleKeyDown}
         className={inputClasses}
+        // fix(#1778): the single-line editor had no accessible-name
+        // mechanism at all (unlike the multiline mode's `title` hint) —
+        // fall back to the caller's placeholder, the same string already
+        // shown as ghost text when the value is empty.
+        aria-label={placeholder || undefined}
       />
     );
   }

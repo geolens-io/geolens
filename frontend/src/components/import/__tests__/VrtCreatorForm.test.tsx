@@ -47,6 +47,14 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+// fix(#1778): rebuilt to the shape service_records.py actually serializes
+// (proj:code / proj:shape / raster:bands / gsd), not the flat
+// epsg/dtype/nodata/width/height/res_x/res_y fields the API never returned.
+// fix(#1805 review round 2): `nodata` now distinguishes three real JSON
+// shapes -- omitted entirely (default '-9999' when unset, or forced via
+// `omitNodataKey` to simulate the remote-COG shape where band stats never
+// carry a nodata key), explicitly `null` (a band that HAS nodata metadata
+// and says there is none), and a defined string value.
 function makeCogSource(
   overrides: Partial<{
     id: string;
@@ -54,13 +62,24 @@ function makeCogSource(
     epsg: number;
     band_count: number;
     dtype: string;
-    nodata: string;
+    nodata: string | null;
+    /** Omit the raster:bands[0].nodata key entirely, simulating a remote
+     * COG whose band-level stats (cog_info.py) carry only min/max/mean --
+     * the backend's RasterAsset.nodata can still be defined even though
+     * this source's band metadata says nothing about it. */
+    omitNodataKey: boolean;
     width: number;
     height: number;
+    gsd: number;
+    /** Independent per-axis resolution (fix(#1805 review round 5)); each
+     * defaults to `gsd` when unset, so existing gsd-only fixtures still set
+     * matching res_x/res_y and their old comparisons keep working. */
     res_x: number;
     res_y: number;
+    crs: string | null;
   }>,
 ): OGCRecordResponse {
+  const nodataValue = overrides.nodata !== undefined ? overrides.nodata : '-9999';
   return {
     type: 'Feature',
     id: overrides.id ?? 'ds-1',
@@ -74,21 +93,25 @@ function makeCogSource(
       updated: null,
       updated_by_display: null,
       never_edited: true,
-      crs: `EPSG:${overrides.epsg ?? 4326}`,
+      crs: overrides.crs === null ? null : (overrides.crs ?? `EPSG:${overrides.epsg ?? 4326}`),
       geometry_type: null,
       feature_count: null,
       contacts: null,
       license: null,
       source_organization: null,
       record_type: 'raster_dataset',
-      epsg: overrides.epsg ?? 4326,
+      'proj:code': `EPSG:${overrides.epsg ?? 4326}`,
+      'proj:shape': [overrides.height ?? 1000, overrides.width ?? 1000],
       band_count: overrides.band_count ?? 1,
-      dtype: overrides.dtype ?? 'float32',
-      nodata: overrides.nodata ?? '-9999',
-      width: overrides.width ?? 1000,
-      height: overrides.height ?? 1000,
-      res_x: overrides.res_x ?? 0.001,
-      res_y: overrides.res_y ?? 0.001,
+      'raster:bands': [
+        {
+          data_type: overrides.dtype ?? 'float32',
+          ...(overrides.omitNodataKey ? {} : { nodata: nodataValue }),
+        },
+      ],
+      gsd: overrides.gsd ?? 0.001,
+      res_x: overrides.res_x ?? overrides.gsd ?? 0.001,
+      res_y: overrides.res_y ?? overrides.gsd ?? 0.001,
     },
     links: [],
   };
@@ -251,6 +274,328 @@ describe('VrtCreatorForm', () => {
     // Submit button should be disabled due to CRS mismatch
     const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
     expect(submitButton).toBeDisabled();
+  });
+
+  // fix(#1805 review round 1): _check_crs picks the reference CRS as the
+  // first source in the list with a KNOWN crs, not unconditionally the
+  // first selected source. With the first-selected source having no CRS,
+  // the previous code (comparing everything to sources[0]) silently
+  // skipped this check entirely even though the other two sources
+  // disagree with each other.
+  it('detects a CRS mismatch between later sources when the first-selected source has no CRS', { timeout: 15000 }, async () => {
+    const user = userEvent.setup({ delay: null });
+    const source1 = makeCogSource({ id: 'ds-crs-none', title: 'CRS Source None', crs: null });
+    const source2 = makeCogSource({ id: 'ds-crs-x', title: 'CRS Source X', epsg: 4326 });
+    const source3 = makeCogSource({ id: 'ds-crs-y', title: 'CRS Source Y', epsg: 32617 });
+
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection',
+      numberMatched: 3,
+      numberReturned: 3,
+      features: [source1, source2, source3],
+    });
+
+    render(<VrtCreatorForm />);
+
+    const searchInput = screen.getByPlaceholderText('vrt.searchPlaceholder');
+    await selectSource(user, searchInput, 'CRS Source None');
+    await selectSource(user, searchInput, 'CRS Source X');
+    await selectSource(user, searchInput, 'CRS Source Y');
+
+    const titleInput = screen.getByPlaceholderText('vrt.titlePlaceholder');
+    await user.type(titleInput, 'First Source No CRS VRT');
+
+    const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
+    expect(submitButton).toBeDisabled();
+  });
+
+  // fix(#1778): these three checks read epsg/dtype/nodata/width/height/
+  // res_x/res_y off OGCRecordProperties, none of which the API ever
+  // returned, so the operands were always undefined and every branch below
+  // was dead code -- the fixture agreed with the (wrong) hand-typed mirror
+  // and both disagreed with the server. Now sourced from raster:bands,
+  // proj:shape, and gsd, the shape the API actually serializes.
+  it('mismatched dtype across mosaic sources disables submit (#1778)', { timeout: 15000 }, async () => {
+    const user = userEvent.setup({ delay: null });
+    const source1 = makeCogSource({ id: 'ds-dtype-a', title: 'Dtype Source A', dtype: 'uint8' });
+    const source2 = makeCogSource({ id: 'ds-dtype-b', title: 'Dtype Source B', dtype: 'float32' });
+
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection',
+      numberMatched: 2,
+      numberReturned: 2,
+      features: [source1, source2],
+    });
+
+    render(<VrtCreatorForm />);
+
+    const searchInput = screen.getByPlaceholderText('vrt.searchPlaceholder');
+    await selectSource(user, searchInput, 'Dtype Source A');
+    await selectSource(user, searchInput, 'Dtype Source B');
+
+    const titleInput = screen.getByPlaceholderText('vrt.titlePlaceholder');
+    await user.type(titleInput, 'Mismatched Dtype VRT');
+
+    const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
+    expect(submitButton).toBeDisabled();
+  });
+
+  // fix(#1805 review round 2 P1): round 1 fixed the VALUE-vs-PRESENCE bug
+  // but still inferred presence from a single `!= null` read, conflating
+  // "unknown" (no band metadata for nodata at all -- the remote-COG shape,
+  // since cog_info.py's band stats carry only min/max/mean) with "absent"
+  // (a band that explicitly has no nodata). Pinned per the review: a
+  // remote-COG-shaped source (no nodata key on its bands) paired with a
+  // locally-probed source that defines one is NOT flagged -- the client
+  // cannot tell, so it defers to the backend's authoritative check.
+  it('remote-COG-shaped nodata (unknown) paired with a defined value is not flagged (#1805 P1 round 2)', { timeout: 15000 }, async () => {
+    const user = userEvent.setup({ delay: null });
+    const source1 = makeCogSource({ id: 'ds-nodata-a', title: 'Nodata Source A', nodata: '-9999' });
+    const source2 = makeCogSource({ id: 'ds-nodata-b', title: 'Nodata Source B', omitNodataKey: true });
+
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection',
+      numberMatched: 2,
+      numberReturned: 2,
+      features: [source1, source2],
+    });
+
+    render(<VrtCreatorForm />);
+
+    const searchInput = screen.getByPlaceholderText('vrt.searchPlaceholder');
+    await selectSource(user, searchInput, 'Nodata Source A');
+    await selectSource(user, searchInput, 'Nodata Source B');
+
+    const titleInput = screen.getByPlaceholderText('vrt.titlePlaceholder');
+    await user.type(titleInput, 'Unknown Nodata Not Flagged VRT');
+
+    const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
+    expect(submitButton).not.toBeDisabled();
+  });
+
+  // Pinned per the review: two sources that both carry nodata metadata but
+  // disagree on PRESENCE (one explicitly null, one a defined value) is the
+  // real inconsistency and must still be flagged.
+  it('explicit nodata:null vs a defined value is flagged (#1805 P1 round 2)', { timeout: 15000 }, async () => {
+    const user = userEvent.setup({ delay: null });
+    const source1 = makeCogSource({ id: 'ds-nodata-e', title: 'Nodata Source E', nodata: null });
+    const source2 = makeCogSource({ id: 'ds-nodata-f', title: 'Nodata Source F', nodata: '0' });
+
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection',
+      numberMatched: 2,
+      numberReturned: 2,
+      features: [source1, source2],
+    });
+
+    render(<VrtCreatorForm />);
+
+    const searchInput = screen.getByPlaceholderText('vrt.searchPlaceholder');
+    await selectSource(user, searchInput, 'Nodata Source E');
+    await selectSource(user, searchInput, 'Nodata Source F');
+
+    const titleInput = screen.getByPlaceholderText('vrt.titlePlaceholder');
+    await user.type(titleInput, 'Explicit Null Vs Defined VRT');
+
+    const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
+    expect(submitButton).toBeDisabled();
+  });
+
+  // Pinned per the review: two sources both with unknown nodata metadata
+  // (remote-COG shape on both sides) is not flagged.
+  it('two unknown-nodata sources are not flagged (#1805 P1 round 2)', { timeout: 15000 }, async () => {
+    const user = userEvent.setup({ delay: null });
+    const source1 = makeCogSource({ id: 'ds-nodata-g', title: 'Nodata Source G', omitNodataKey: true });
+    const source2 = makeCogSource({ id: 'ds-nodata-h', title: 'Nodata Source H', omitNodataKey: true });
+
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection',
+      numberMatched: 2,
+      numberReturned: 2,
+      features: [source1, source2],
+    });
+
+    render(<VrtCreatorForm />);
+
+    const searchInput = screen.getByPlaceholderText('vrt.searchPlaceholder');
+    await selectSource(user, searchInput, 'Nodata Source G');
+    await selectSource(user, searchInput, 'Nodata Source H');
+
+    const titleInput = screen.getByPlaceholderText('vrt.titlePlaceholder');
+    await user.type(titleInput, 'Two Unknowns VRT');
+
+    const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
+    expect(submitButton).not.toBeDisabled();
+  });
+
+  it('different nodata VALUES across mosaic sources remain valid when both define one (#1805 P1)', { timeout: 15000 }, async () => {
+    const user = userEvent.setup({ delay: null });
+    const source1 = makeCogSource({ id: 'ds-nodata-c', title: 'Nodata Source C', nodata: '-9999' });
+    const source2 = makeCogSource({ id: 'ds-nodata-d', title: 'Nodata Source D', nodata: '0' });
+
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection',
+      numberMatched: 2,
+      numberReturned: 2,
+      features: [source1, source2],
+    });
+
+    render(<VrtCreatorForm />);
+
+    const searchInput = screen.getByPlaceholderText('vrt.searchPlaceholder');
+    await selectSource(user, searchInput, 'Nodata Source C');
+    await selectSource(user, searchInput, 'Nodata Source D');
+
+    const titleInput = screen.getByPlaceholderText('vrt.titlePlaceholder');
+    await user.type(titleInput, 'Different Nodata Values VRT');
+
+    const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
+    expect(submitButton).not.toBeDisabled();
+  });
+
+  it('misaligned grid across band-stack sources disables submit (#1778)', { timeout: 15000 }, async () => {
+    const user = userEvent.setup({ delay: null });
+    const source1 = makeCogSource({ id: 'ds-grid-a', title: 'Grid Source A', width: 1000, height: 1000, gsd: 0.001 });
+    const source2 = makeCogSource({ id: 'ds-grid-b', title: 'Grid Source B', width: 2000, height: 2000, gsd: 0.002 });
+
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection',
+      numberMatched: 2,
+      numberReturned: 2,
+      features: [source1, source2],
+    });
+
+    render(<VrtCreatorForm />);
+
+    // Switch to band-stack mode, where the grid-alignment check applies.
+    await user.click(screen.getByRole('radio', { name: 'vrt.modeBandStack' }));
+
+    const searchInput = screen.getByPlaceholderText('vrt.searchPlaceholder');
+    await selectSource(user, searchInput, 'Grid Source A');
+    await selectSource(user, searchInput, 'Grid Source B');
+
+    const titleInput = screen.getByPlaceholderText('vrt.titlePlaceholder');
+    await user.type(titleInput, 'Misaligned Grid VRT');
+
+    const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
+    expect(submitButton).toBeDisabled();
+  });
+
+  // fix(#1805 review round 1 P2): the backend compares res_x/res_y (which
+  // gsd derives from) with a 1e-10 absolute tolerance, not strict equality.
+  // Pinned per the review: 0.30000000000000004 vs 0.3 is aligned;
+  // 0.3 vs 0.31 is misaligned.
+  it('grid alignment tolerates floating-point noise in gsd (#1805 P2)', { timeout: 15000 }, async () => {
+    const user = userEvent.setup({ delay: null });
+    const source1 = makeCogSource({ id: 'ds-gsd-a', title: 'GSD Source A', gsd: 0.30000000000000004 });
+    const source2 = makeCogSource({ id: 'ds-gsd-b', title: 'GSD Source B', gsd: 0.3 });
+
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection',
+      numberMatched: 2,
+      numberReturned: 2,
+      features: [source1, source2],
+    });
+
+    render(<VrtCreatorForm />);
+
+    await user.click(screen.getByRole('radio', { name: 'vrt.modeBandStack' }));
+
+    const searchInput = screen.getByPlaceholderText('vrt.searchPlaceholder');
+    await selectSource(user, searchInput, 'GSD Source A');
+    await selectSource(user, searchInput, 'GSD Source B');
+
+    const titleInput = screen.getByPlaceholderText('vrt.titlePlaceholder');
+    await user.type(titleInput, 'Floating Point Noise VRT');
+
+    const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
+    expect(submitButton).not.toBeDisabled();
+  });
+
+  it('grid misalignment beyond tolerance still disables submit (#1805 P2)', { timeout: 15000 }, async () => {
+    const user = userEvent.setup({ delay: null });
+    const source1 = makeCogSource({ id: 'ds-gsd-c', title: 'GSD Source C', gsd: 0.3 });
+    const source2 = makeCogSource({ id: 'ds-gsd-d', title: 'GSD Source D', gsd: 0.31 });
+
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection',
+      numberMatched: 2,
+      numberReturned: 2,
+      features: [source1, source2],
+    });
+
+    render(<VrtCreatorForm />);
+
+    await user.click(screen.getByRole('radio', { name: 'vrt.modeBandStack' }));
+
+    const searchInput = screen.getByPlaceholderText('vrt.searchPlaceholder');
+    await selectSource(user, searchInput, 'GSD Source C');
+    await selectSource(user, searchInput, 'GSD Source D');
+
+    const titleInput = screen.getByPlaceholderText('vrt.titlePlaceholder');
+    await user.type(titleInput, 'Beyond Tolerance VRT');
+
+    const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
+    expect(submitButton).toBeDisabled();
+  });
+
+  // fix(#1805 review round 5): gsd is a lossy min(abs(res_x), abs(res_y)) --
+  // (res_x=10, res_y=20) and (res_x=10, res_y=30) share the identical
+  // gsd=10 and identical dimensions, so a gsd-only comparison passed this
+  // pair while the backend's _check_grid_alignment (independent res_x/res_y
+  // comparison) rejects it. Pinned per the review.
+  it('sources with matching gsd but mismatched res_y disable submit (#1805 review round 5)', { timeout: 15000 }, async () => {
+    const user = userEvent.setup({ delay: null });
+    const source1 = makeCogSource({ id: 'ds-axis-a', title: 'Axis Source A', res_x: 10, res_y: 20 });
+    const source2 = makeCogSource({ id: 'ds-axis-b', title: 'Axis Source B', res_x: 10, res_y: 30 });
+
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection',
+      numberMatched: 2,
+      numberReturned: 2,
+      features: [source1, source2],
+    });
+
+    render(<VrtCreatorForm />);
+
+    await user.click(screen.getByRole('radio', { name: 'vrt.modeBandStack' }));
+
+    const searchInput = screen.getByPlaceholderText('vrt.searchPlaceholder');
+    await selectSource(user, searchInput, 'Axis Source A');
+    await selectSource(user, searchInput, 'Axis Source B');
+
+    const titleInput = screen.getByPlaceholderText('vrt.titlePlaceholder');
+    await user.type(titleInput, 'Mismatched Res Y VRT');
+
+    const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
+    expect(submitButton).toBeDisabled();
+  });
+
+  it('sources with matching res_x and res_y remain valid (#1805 review round 5)', { timeout: 15000 }, async () => {
+    const user = userEvent.setup({ delay: null });
+    const source1 = makeCogSource({ id: 'ds-axis-c', title: 'Axis Source C', res_x: 10, res_y: 20 });
+    const source2 = makeCogSource({ id: 'ds-axis-d', title: 'Axis Source D', res_x: 10, res_y: 20 });
+
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection',
+      numberMatched: 2,
+      numberReturned: 2,
+      features: [source1, source2],
+    });
+
+    render(<VrtCreatorForm />);
+
+    await user.click(screen.getByRole('radio', { name: 'vrt.modeBandStack' }));
+
+    const searchInput = screen.getByPlaceholderText('vrt.searchPlaceholder');
+    await selectSource(user, searchInput, 'Axis Source C');
+    await selectSource(user, searchInput, 'Axis Source D');
+
+    const titleInput = screen.getByPlaceholderText('vrt.titlePlaceholder');
+    await user.type(titleInput, 'Matching Res VRT');
+
+    const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
+    expect(submitButton).not.toBeDisabled();
   });
 
   it('submit button disabled when fewer than 2 sources selected', () => {

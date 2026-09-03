@@ -191,3 +191,60 @@ describe('SettingsMapTab API key fields opt out of password managers', () => {
     expectOptedOut(screen.getByPlaceholderText('••••••••'));
   });
 });
+
+// fix(#1778): the preset toggle, custom-basemap toggle, plugin toggle and
+// per-basemap API-key field paired a bare Label/<p> with a Switch/Input that
+// carried no id, so each announced as an unnamed control to a screen reader.
+describe('SettingsMapTab accessible names (#1778)', () => {
+  it('names a preset basemap toggle from its visible label', () => {
+    const preset: BasemapEntry = {
+      id: 'osm',
+      label: 'OpenStreetMap',
+      url: 'https://tile.osm.org/{z}/{x}/{y}.png',
+      enabled: true,
+      is_preset: true,
+    };
+    const settings: SettingItem[] = [
+      { key: 'basemaps', value: [preset], source: 'overridden', label: 'basemaps' },
+    ];
+    render(
+      <SettingsMapTab settings={settings} envOnly={false} onSave={vi.fn()} onReset={vi.fn()} isSaving={false} />,
+    );
+
+    expect(screen.getByRole('switch', { name: 'OpenStreetMap' })).toBeInTheDocument();
+  });
+
+  it('names a custom basemap toggle and its API key field from their visible labels', () => {
+    const custom: BasemapEntry = {
+      id: 'custom-1',
+      label: 'Authenticated Basemap',
+      url: 'https://example.com/{api_key}/{z}/{x}/{y}.png',
+      enabled: true,
+      is_preset: false,
+      api_key: 'existing-secret',
+    };
+    const settings: SettingItem[] = [
+      { key: 'basemaps', value: [custom], source: 'overridden', label: 'basemaps' },
+    ];
+    render(
+      <SettingsMapTab settings={settings} envOnly={false} onSave={vi.fn()} onReset={vi.fn()} isSaving={false} />,
+    );
+
+    expect(screen.getByRole('switch', { name: 'Authenticated Basemap' })).toBeInTheDocument();
+    // Two "API Key" fields render (this basemap's, plus the "Add" form's) —
+    // this one is addressed by its masked-value placeholder like the
+    // password-manager-opt-out test above does.
+    expect(screen.getByPlaceholderText('••••••••')).toHaveAccessibleName(/api key/i);
+  });
+
+  it('names a plugin toggle from its visible label', () => {
+    renderMapTab();
+
+    // Radix Switch role is "switch"; every registered plugin row must have
+    // its own accessible name rather than sharing an unlabeled group.
+    const switches = screen.getAllByRole('switch');
+    for (const el of switches) {
+      expect(el).toHaveAccessibleName();
+    }
+  });
+});

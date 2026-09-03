@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { useAuthStore } from '@/stores/auth-store';
 import { LoadingState } from '@/components/layout/LoadingState';
@@ -45,6 +45,22 @@ export function MapViewerGate() {
   const editorFallback = useAuthStore((s) => s.isEditor());
   const shouldCheckAccess = !!id && hasToken && !!user;
   const accessQuery = useMapAccess(id, { enabled: shouldCheckAccess });
+
+  // fix(#1778): React.lazy() only fires its import() at first render of
+  // <MapBuilderPage/>, so the chunk download used to serialize BEHIND the
+  // /map-access round trip on this route's likely-editor path — the same
+  // "vendor download serializes behind the page chunk" shape App.tsx already
+  // works around for MapViewerGate itself (#448). Kick the download off in
+  // parallel with the access check when the optimistic branch (editor) is
+  // likely; a wrong guess (e.g. a downgraded editor) still renders the
+  // correct branch once accessQuery resolves, just without the head start.
+  // Viewers (editorFallback false) never trigger this, preserving the "public
+  // viewers never download editor code" property in the file's doc comment.
+  useEffect(() => {
+    if (hasToken && editorFallback) {
+      void import('./MapBuilderPage');
+    }
+  }, [hasToken, editorFallback]);
 
   if (hasToken && !user) {
     return <LoadingState />;

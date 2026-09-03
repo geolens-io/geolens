@@ -502,6 +502,8 @@ from .ogc_collections_response_collections_item import (
 )
 from .ogc_feature_collection_response import OGCFeatureCollectionResponse
 from .ogc_link import OGCLink
+from .ogc_raster_band import OGCRasterBand
+from .ogc_raster_band_statistics_type_0 import OGCRasterBandStatisticsType0
 from .ogc_record_link import OGCRecordLink
 from .ogc_record_properties import OGCRecordProperties
 from .ogc_record_properties_constraints_type_0 import (
@@ -1129,6 +1131,8 @@ __all__ = (
     "OGCCollectionsResponseCollectionsItem",
     "OGCFeatureCollectionResponse",
     "OGCLink",
+    "OGCRasterBand",
+    "OGCRasterBandStatisticsType0",
     "OGCRecordLink",
     "OGCRecordProperties",
     "OGCRecordPropertiesConstraintsType0",

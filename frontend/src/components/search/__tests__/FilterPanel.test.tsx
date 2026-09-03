@@ -145,4 +145,27 @@ describe('FilterPanel identity reset (fix #1761 review round 4)', () => {
 
     expect(useSearchStore.getState().spatialPanelOpen).toBe(false);
   });
+
+  // fix(#1778): the date-range and temporal-extent popovers paired a bare
+  // <label> (no htmlFor) with a sibling <Input>, so the two date fields in
+  // each popover announced as unnamed. Both popovers are closed at mount
+  // and portal to document.body, so the axe gate structurally cannot reach
+  // them — this pins the accessible name directly instead.
+  it('names the "From" and "To" date inputs in the date-range popover (#1778)', () => {
+    render(<FilterPanel totalResults={10} showMobile={false} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Date Added/i }));
+
+    expect(screen.getByLabelText('From')).toBeInTheDocument();
+    expect(screen.getByLabelText('To')).toBeInTheDocument();
+  });
+
+  it('names the "From" and "To" date inputs in the temporal-extent popover (#1778)', () => {
+    render(<FilterPanel totalResults={10} showMobile={false} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Temporal Extent/i }));
+
+    expect(screen.getByLabelText('From')).toBeInTheDocument();
+    expect(screen.getByLabelText('To')).toBeInTheDocument();
+  });
 });

@@ -484,6 +484,15 @@ def dataset_to_ogc_record(
             ogc_record["properties"]["gsd"] = min(
                 abs(raster_meta["res_x"]), abs(raster_meta["res_y"])
             )
+            # fix(#1805 review round 5): gsd is a lossy min(abs(res_x),
+            # abs(res_y)) -- two band-stack sources at (res_x=10, res_y=20)
+            # and (res_x=10, res_y=30) collapse to the identical gsd=10, so
+            # the client's gsd-only comparison silently passed a pair the
+            # backend's _check_grid_alignment (which compares res_x and
+            # res_y independently) rejects. Expose both axes so the client
+            # can compare them the same way the backend does.
+            ogc_record["properties"]["res_x"] = raster_meta["res_x"]
+            ogc_record["properties"]["res_y"] = raster_meta["res_y"]
             # fix(#569): gsd is in CRS units — geographic CRSs deliver degrees,
             # and without this flag the UI formatted them as meters ("2 cm"
             # for a 60-arc-second global DEM).
@@ -507,6 +516,19 @@ def dataset_to_ogc_record(
                         band_entry["data_type"] = bi["dtype"]
                     if bi.get("nodata") is not None:
                         band_entry["nodata"] = bi["nodata"]
+                    elif raster_meta.get("nodata") is None:
+                        # fix(#1805 review round 4 P2): this band's own
+                        # stats don't carry a nodata value, but the asset
+                        # WAS probed (band_info exists) and its
+                        # authoritative RasterAsset.nodata column is None --
+                        # NoData is confirmed absent, not merely unrecorded
+                        # for this band. Emit the key explicitly so the
+                        # client can tell "absent" from "unavailable"
+                        # (OGCRasterBand.nodata omitted below means the
+                        # latter -- e.g. a remote COG whose band-level
+                        # stats carry only min/max/mean even though the
+                        # asset-level column IS set).
+                        band_entry["nodata"] = None
                     if bi.get("description"):
                         band_entry["description"] = bi["description"]
                 bands.append(band_entry)
