@@ -230,7 +230,10 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             "X-GeoLens-Source-Dataset-Count, X-GeoLens-Serialized-Dataset-Count, "
             "X-GeoLens-Excluded-Dataset-Count, "
             "X-GeoLens-Metadata-Fallback-Dataset-Count, "
-            "X-GeoLens-Metadata-Fallback-Fields"
+            "X-GeoLens-Metadata-Fallback-Fields, "
+            # fix(#1778): says whether numberMatched is exact or the planner's
+            # estimate on a filtered feature page.
+            "X-GeoLens-Number-Matched"
         )
         response.headers["Access-Control-Max-Age"] = "3600"
 
@@ -351,6 +354,9 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             "X-GeoLens-Source-Dataset-Count, X-GeoLens-Serialized-Dataset-Count, "
             "X-GeoLens-Excluded-Dataset-Count, "
             "X-GeoLens-Metadata-Fallback-Dataset-Count, "
-            "X-GeoLens-Metadata-Fallback-Fields"
+            "X-GeoLens-Metadata-Fallback-Fields, "
+            # fix(#1778): says whether numberMatched is exact or the planner's
+            # estimate on a filtered feature page.
+            "X-GeoLens-Number-Matched"
         )
         response.headers["Access-Control-Max-Age"] = "3600"

@@ -53,6 +53,45 @@ _OPERATIONAL_CLASSES = frozenset(
 )
 
 
+# States that mean "the caller's value does not fit the column it was compared
+# against", as opposed to an outage or a bug in our own SQL.
+#
+# fix(#1778 review r2): one definition, read by the OGC items handler and the
+# native features list, because they had drifted. The OGC router carried this
+# set inline while the native one tested a narrower `BAD_QUERY_INPUT`, so the
+# same failure was a 400 through one endpoint and a 503 through the other.
+#
+# Class 22 is data_exception as a whole. asyncpg reports a client-side encode
+# failure (an int outside int8, say) as plain 22000 on a bare
+# ``sqlalchemy.exc.DBAPIError`` -- NOT a ``DataError``, which is why catching
+# ``DataError`` alone missed it and both routers 500'd.
+TYPE_FAULT_SQLSTATES = frozenset(
+    {
+        "42883",  # undefined_function — no operator for the pair
+        "42804",  # datatype_mismatch
+        "42846",  # cannot_coerce
+        "42P18",  # indeterminate_datatype
+    }
+)
+
+
+def is_caller_type_fault(exc: DBAPIError) -> bool:
+    """True when the database refused a caller-supplied value's type or range.
+
+    A DataError carrying no SQLSTATE counts: the driver raised before the
+    server answered, and for this class of error that means it could not encode
+    what the caller sent.
+    """
+    from sqlalchemy.exc import DataError
+
+    code = sqlstate(exc) or ""
+    return (
+        code.startswith("22")
+        or code in TYPE_FAULT_SQLSTATES
+        or (isinstance(exc, DataError) and not code)
+    )
+
+
 def sqlstate(exc: DBAPIError) -> str | None:
     """Return the five-character SQLSTATE for a SQLAlchemy DBAPI error, if any.
 

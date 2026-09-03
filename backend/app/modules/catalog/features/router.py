@@ -19,7 +19,13 @@ from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
-from app.core.db.sqlstate import BAD_QUERY_INPUT, TABLE_ABSENT, is_operational, sqlstate
+from app.core.db.sqlstate import (
+    BAD_QUERY_INPUT,
+    TABLE_ABSENT,
+    is_caller_type_fault,
+    is_operational,
+    sqlstate,
+)
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.auth.dependencies import (
@@ -46,12 +52,15 @@ from app.modules.catalog.features.schemas import (
     inline_json_schema,
 )
 from app.modules.catalog.features.service import (
+    UnwritablePropertyError,
     delete_feature,
     effective_geometry_type,
+    geojson_bounds,
     get_feature_by_id,
     get_features,
     get_features_geojson_z,
     insert_feature,
+    number_matched_headers,
     parse_bbox,
     refresh_dataset_metadata,
     replace_feature,
@@ -347,7 +356,7 @@ async def list_features(
 
     # Query features
     try:
-        rows, total = await get_features(
+        page = await get_features(
             db,
             dataset.table_name,
             limit=limit,
@@ -359,11 +368,41 @@ async def list_features(
             include_geometry=include_geometry,
             cached_feature_count=dataset.feature_count,
         )
-    except (ProgrammingError, OperationalError):
+    except ValueError as e:
+        # fix(#1778): an unparseable property-filter value is the caller's bug,
+        # rejected before the query runs.
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Dataset table is unavailable",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
         )
+    except DBAPIError as exc:
+        # fix(#1778): a type-shaped sqlstate with a property filter active is
+        # the filter value, not an outage. Reporting it as a retryable 503 sent
+        # clients into a pointless retry loop and polluted availability
+        # monitoring with what is a query-shape bug.
+        #
+        # fix(#1778 review r2): catch DBAPIError, not just its ProgrammingError
+        # and OperationalError subclasses, and classify with the same helper the
+        # OGC items handler uses. asyncpg reports a value it cannot encode as a
+        # bare DBAPIError with SQLSTATE 22000, which was neither, so it escaped
+        # as a 500 here while the sibling endpoint answered 400 for the same
+        # request. The 503 and 500 branches below keep their existing shape: an
+        # unrecognized state stays an honest 500 rather than being reported as
+        # an outage.
+        if property_filters and is_caller_type_fault(exc):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Property filter is not evaluable against this dataset's "
+                    "column types"
+                ),
+            )
+        if isinstance(exc, (ProgrammingError, OperationalError)):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Dataset table is unavailable",
+            )
+        raise
 
     # Build GeoJSON features
     features = [
@@ -372,7 +411,7 @@ async def list_features(
             geometry=row["geometry"],
             properties=row["properties"],
         )
-        for row in rows
+        for row in page.rows
     ]
 
     # Build pagination links
@@ -394,7 +433,10 @@ async def list_features(
         },
     ]
 
-    if offset + limit < total:
+    # fix(#1778 review r1): `next` follows the over-fetched row, not the count.
+    # numberMatched may be the planner's estimate, and an estimate at or below
+    # `offset + limit` used to drop the link with a full page on screen.
+    if page.has_more:
         next_params = {"offset": str(offset + limit), "limit": str(limit)}
         next_params.update(active_params)
         links.append(
@@ -421,7 +463,7 @@ async def list_features(
         )
 
     response = GeoJSONFeatureCollection(
-        numberMatched=total,
+        numberMatched=page.total,
         numberReturned=len(features),
         features=features,
         links=links,
@@ -430,6 +472,7 @@ async def list_features(
     return JSONResponse(
         content=response.model_dump(mode="json"),
         media_type="application/geo+json",
+        headers=number_matched_headers(page.total_is_estimate),
     )
 
 
@@ -546,6 +589,11 @@ async def create_feature(
             await effective_geometry_type(db, dataset),
             dataset_srid=dataset.srid,
         )
+    except UnwritablePropertyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(e),
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -555,7 +603,15 @@ async def create_feature(
         await db.rollback()
         raise _feature_write_db_error(exc)
 
-    await refresh_dataset_metadata(db, dataset)
+    # fix(#1778): one row added, at a known envelope. No table scan when that
+    # envelope is already inside the stored extent.
+    await refresh_dataset_metadata(
+        db,
+        dataset,
+        count_delta=1,
+        touched_bounds=[geojson_bounds(body.geometry.model_dump())],
+        added_geometry_type=body.geometry.type,
+    )
     dataset.record.updated_by = user.id
     await audit_emit(
         db,
@@ -631,7 +687,7 @@ async def replace_single_feature(
     _require_feature_table(dataset)
 
     try:
-        row = await replace_feature(
+        written = await replace_feature(
             db,
             dataset.table_name,
             gid,
@@ -641,6 +697,11 @@ async def replace_single_feature(
             # fix(#430 codex r7): generic for created datasets — see effective_geometry_type
             await effective_geometry_type(db, dataset),
             dataset_srid=dataset.srid,
+        )
+    except UnwritablePropertyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(e),
         )
     except ValueError as e:
         if "not found" in str(e).lower():
@@ -656,7 +717,20 @@ async def replace_single_feature(
         await db.rollback()
         raise _feature_write_db_error(exc)
 
-    await refresh_dataset_metadata(db, dataset)
+    row = written.feature
+
+    # fix(#1778): row count unchanged; the extent is unchanged too when both
+    # the old and the new envelope sit strictly inside it. The old envelope
+    # comes back from the UPDATE that overwrote it (fix(#1778 review r1)).
+    await refresh_dataset_metadata(
+        db,
+        dataset,
+        count_delta=0,
+        touched_bounds=[
+            written.prior_bounds,
+            geojson_bounds(body.geometry.model_dump()),
+        ],
+    )
     dataset.record.updated_by = user.id
     await audit_emit(
         db,
@@ -723,7 +797,7 @@ async def patch_single_feature(
     _require_feature_table(dataset)
 
     try:
-        row = await update_feature(
+        written = await update_feature(
             db,
             dataset.table_name,
             gid,
@@ -733,6 +807,11 @@ async def patch_single_feature(
             # fix(#430 codex r7): generic for created datasets — see effective_geometry_type
             await effective_geometry_type(db, dataset),
             dataset_srid=dataset.srid,
+        )
+    except UnwritablePropertyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(e),
         )
     except ValueError as e:
         if "not found" in str(e).lower():
@@ -748,9 +827,20 @@ async def patch_single_feature(
         await db.rollback()
         raise _feature_write_db_error(exc)
 
+    row = written.feature
+
     # Only refresh metadata if geometry changed (extent may change)
     if body.geometry is not None:
-        await refresh_dataset_metadata(db, dataset)
+        # fix(#1778): same reasoning as replace.
+        await refresh_dataset_metadata(
+            db,
+            dataset,
+            count_delta=0,
+            touched_bounds=[
+                written.prior_bounds,
+                geojson_bounds(body.geometry.model_dump()),
+            ],
+        )
     dataset.record.updated_by = user.id
     await audit_emit(
         db,
@@ -810,7 +900,9 @@ async def delete_single_feature(
     _require_feature_table(dataset)
 
     try:
-        await delete_feature(db, dataset.table_name, gid)
+        # fix(#1778 review r1): the DELETE returns the envelope it removed, so
+        # the metadata refresh reasons about the version actually deleted.
+        prior_bounds = await delete_feature(db, dataset.table_name, gid)
     except ValueError as e:
         if "not found" in str(e).lower():
             raise HTTPException(
@@ -825,7 +917,11 @@ async def delete_single_feature(
         await db.rollback()
         raise _feature_write_db_error(exc)
 
-    await refresh_dataset_metadata(db, dataset)
+    # fix(#1778): one row removed. A row strictly inside the stored extent was
+    # not defining any side of it, so the extent cannot shrink.
+    await refresh_dataset_metadata(
+        db, dataset, count_delta=-1, touched_bounds=[prior_bounds]
+    )
     dataset.record.updated_by = user.id
     await audit_emit(
         db,

@@ -1824,7 +1824,15 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # concurrent raster/VRT detail requests exhaust the default (10 + 3)
         # pool this way. Three fast point lookups aren't worth that risk.
         # Cap 443 -> 429, exact.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 429,
+        # fix(#1778): +10 — the row browser emits quoted column identifiers.
+        # A column named after a SQL keyword (``desc``, ``order``, ``user`` —
+        # ogr2ogr's DBF output, and nothing renames them on ingest) made every
+        # SELECT and every ILIKE filter a 42601 syntax error, which is in none
+        # of the sqlstate sets this module degrades on, so the endpoint 5xx'd
+        # for that dataset forever. The lines are the import, the two call
+        # sites and the docstring note saying membership is decided on the bare
+        # name so quoting happens at emission. Cap 429 -> 439, exact.
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 439,
         # fix(#1452): first explicit cap for this module — it sat under the
         # 350 default until the detach landed. +65 over the pre-change 350:
         # _reap_managed_storage (the reap loop both branches had inline,
@@ -4834,6 +4842,96 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # that one GATES the localhost bypass, so a miss there denies, while a miss
     # in the other ISSUES an unenforceable lock. Cap 1042 -> 1056.
     "backend/app/modules/embed_tokens/service.py": 1056,
+    # fix(#1778): first entry for this module — it crossed the 1000-line
+    # inclusion threshold on the property-filter typing. Property filters used
+    # to bind the raw query-string value, so PostgreSQL had no
+    # `bigint = character varying` operator and every non-text filter failed
+    # with 42883, which the OGC items handler reported as a retryable 503.
+    # The growth is the pg-type -> (parser, database type) table, the parsers
+    # that reject a non-finite float / an out-of-int8-range integer / an
+    # unparseable date, and the extracted `_property_filter_predicates`
+    # (get_features was at ruff's C901 ceiling without it). Roughly half is the
+    # comment recording WHY each numeric family keeps its own database type,
+    # which is a correctness property a future reader would otherwise collapse
+    # into one Float.
+    #
+    # The clean split when it next grows is the banner already in the file:
+    # everything below "Write operations" moves to a sibling module behind a
+    # re-export facade, because `standards/ogc/router.py` and
+    # `standards/stac/router.py` may import `features.service` and nothing
+    # else under features (_STANDARDS_MODULE_IMPORT_SURFACE), and several
+    # tests reach private names through it.
+    #
+    # fix(#1778): +80 for the bounded filtered count. The cached-feature_count
+    # fast path applied only to a COMPLETELY unfiltered request, so one bbox or
+    # property filter put a full filtered COUNT(*) on EVERY page, including the
+    # keyset pages whose whole point is constant-time access. The count now runs
+    # inside a LIMIT and the planner answers past the cap. Most of the growth is
+    # the comment on _FILTERED_COUNT_CAP recording what the cap buys and why the
+    # estimate is never reported below the rows already counted (a `next` link
+    # keyed on `offset + limit < total` would otherwise truncate pagination at
+    # the cap), plus the docstring on _planner_row_estimate saying why it is
+    # deliberately not wrapped in a try/except. Cap 1055 -> 1135, exact.
+    #
+    # fix(#1778): +52 for UnwritablePropertyError and is_writable_feature_column.
+    # A key naming a real column that _COLUMN_NAME_RE rejects used to be
+    # silently skipped by the write loop, so POST and PUT answered 201/200 with
+    # the value never stored, and PUT did not even NULL the column it documents
+    # as nulled. Most of the growth is the exception's docstring listing which
+    # producer of column_info admits which names, because the fix is a
+    # disagreement between two guards and a reader has to see both to keep them
+    # in step. Cap 1135 -> 1187, exact.
+    #
+    # fix(#1778): +197 for the incremental metadata refresh.
+    # `_refresh_count_and_extent` runs one unqualified COUNT(*) + ST_Extent over
+    # the whole table on every single-feature write, plus a second scan over
+    # ST_ShiftLongitude past 180 degrees of width and a third DISTINCT
+    # GeometryType for created datasets; there is no bulk feature endpoint, so a
+    # client digitizing 200 points paid it 200 times. The new pieces are
+    # geojson_bounds / feature_bounds (where the write touched),
+    # _stored_extent_box, _strictly_inside, _merged_created_geometry_type and
+    # _apply_incremental_metadata. Most of the growth is the reasoning each of
+    # them has to carry, because every one is a claim that a scan can be
+    # skipped: why the containment test is STRICT (a row on the boundary may be
+    # the row defining it), why a two-ring seam extent cannot be read as a box
+    # at all, and why the type merge is insert-only (a delete can narrow the
+    # derived type and no merge of the stored value can see that).
+    # Cap 1187 -> 1384, exact.
+    #
+    # fix(#1778 review r1): +107 for two review findings. The page now
+    # over-fetches one row and reports `has_more`, because a `next` link
+    # decided by `offset + limit < total` disappears with a full page on screen
+    # whenever the count is the planner's estimate; whether another row exists
+    # is a fact about rows, so FeaturePage carries it and no router re-derives
+    # one. And the envelope a write overwrites is captured BY the mutating
+    # statement (DELETE ... RETURNING, and a locking CTE for UPDATE) instead of
+    # by an unlocked SELECT before it, with the record row locked before either
+    # metadata path reads the extent. The lines are the two NamedTuples, the
+    # prior-bounds SQL helpers, and the comments recording which race each
+    # closes. Cap 1384 -> 1491, exact.
+    #
+    # fix(#1778 review r2): +16 for the range checks. A caller value can be a
+    # good Python number and still be wrong for the column, and how that failed
+    # depended on which cast the compiler emitted: the property-filter path
+    # answered 200 with zero features, the CQL2 path overflowed a real cast
+    # with SQLSTATE 22003, and a pagination int outside int8 could not be
+    # encoded at all. The lines are the two check calls, the int8 bound on
+    # limit/offset/after_gid, and the comments recording which of those three
+    # shapes each one closes; the tables and the messages live in
+    # core/db/pg_ranges.py, which standards/ogc/filtering.py reads too.
+    # Cap 1491 -> 1507, exact.
+    #
+    # fix(#1778 review r3): +34 for _floor_estimated_total. The r1 floor read
+    # `offset + len(rows)` unconditionally, which invented matches out of the
+    # offset: five features asked for at offset 100 answered an empty page and
+    # reported numberMatched 100, and a keyset page borrowed an offset its own
+    # query had ignored. Extracted rather than narrowed in place, because
+    # get_features was back at ruff's C901 ceiling and because each of the
+    # three conditions is a claim about what a page can PROVE -- an exact count
+    # is never raised, an empty page proves nothing, and a keyset page can
+    # prove only the rows in hand. That reasoning is most of the added lines.
+    # Cap 1507 -> 1541, exact.
+    "backend/app/modules/catalog/features/service.py": 1541,
 }
 
 

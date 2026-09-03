@@ -51,3 +51,26 @@ def _safe_table_ref(table_name: str, schema: str = "data") -> str:
     if not SAFE_TABLE_NAME_RE.match(schema):
         raise ValueError(f"Invalid schema name: {schema!r}")
     return f'"{schema}"."{table_name}"'
+
+
+def _safe_column_ref(name: str) -> str:
+    """Return a double-quoted column identifier for use inside ``text()``.
+
+    fix(#1778): the row browser interpolated column names bare, so a column
+    whose name is a SQL reserved word (``desc``, ``order``, ``user`` -- routine
+    ogr2ogr output from DBF fields, and nothing renames them on ingest) turned
+    every SELECT and every ILIKE filter for that dataset into a syntax error.
+    The sibling read paths already quote: ``layers.service._qcol``,
+    ``features.service.live_property_columns`` and
+    ``processing.ingest.metadata_sql._sql_quote_ident``, whose escaping this
+    mirrors.
+
+    Embedded double quotes are doubled (the PostgreSQL-standard escape) and
+    colons are backslash-escaped, because SQLAlchemy ``text()`` reads ``:name``
+    as a bind parameter even inside a quoted identifier. The output is
+    therefore valid only inside ``text()``.
+
+    Quoting is not a substitute for validation: callers still filter names
+    through ``SAFE_TABLE_NAME_RE`` or ``SAFE_COLUMN_NAME_RE`` first.
+    """
+    return '"' + name.replace('"', '""').replace(":", "\\:") + '"'

@@ -27,6 +27,7 @@ from typing import Any
 from fastapi import HTTPException, status
 from pydantic import BaseModel, Field
 
+from app.core.db.pg_ranges import check_pg_value_range
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.standards.ogc.utils import build_url
 from app.modules.catalog.search.schemas import OGCRecordResponse
@@ -536,13 +537,14 @@ def _checked_value(value, pg_type: str | None, errors: list[str]):
     if pg_type in _STRING_PG_TYPES:
         ok = isinstance(value, str)
     elif pg_type in _INTEGER_PG_TYPES:
-        # int8 bound: an out-of-range literal would raise inside the driver's
-        # encode path rather than compare (fix(#1614 codex r5)).
-        ok = (
-            isinstance(value, int)
-            and not isinstance(value, bool)
-            and -(2**63) <= value < 2**63
-        )
+        # fix(#1614 codex r5) took the int8 bound, because an out-of-range
+        # literal raises inside the driver's encode path rather than comparing.
+        # fix(#1778 review r2) narrows it to the column's OWN width through the
+        # same table the property-filter path reads: `cat = 2147483648` on an
+        # integer column is a legal int4/int8 comparison that no stored value
+        # can satisfy, so it answered 200 with zero features instead of saying
+        # the literal was out of range.
+        ok = isinstance(value, int) and not isinstance(value, bool)
     elif pg_type in _NUMBER_PG_TYPES:
         # Python's JSON decoder accepts NaN/Infinity tokens; `height <
         # Infinity` would otherwise match every finite row instead of being
@@ -560,6 +562,11 @@ def _checked_value(value, pg_type: str | None, errors: list[str]):
         errors.append(
             f"literal {value!r} does not match the property's {pg_type!r} type"
         )
+        return value
+    try:
+        check_pg_value_range(pg_type, value)
+    except ValueError as exc:
+        errors.append(f"literal {value!r} {exc}")
     return value
 
 

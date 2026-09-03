@@ -5,12 +5,13 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
-from sqlalchemy.exc import DataError, OperationalError, ProgrammingError
+from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.core.db.tenant_session import current_tenant_var
+from app.core.db.sqlstate import is_caller_type_fault
 from app.core.dependencies import get_db
 from app.core.geo import extent_to_bbox
 from app.core.identity import Identity
@@ -26,6 +27,7 @@ from app.modules.catalog.features.service import (
     get_feature_by_id,
     get_feature_queryable_columns,
     get_features,
+    number_matched_headers,
     parse_bbox,
 )
 from app.platform.extensions import (
@@ -81,15 +83,6 @@ COLD_WARMING_RESPONSE: dict = {
 # table": undefined operator/function, datatype mismatch, cannot coerce,
 # indeterminate datatype. Deliberately NOT the whole 42 class — 42P01 is the
 # missing-table 503 and e.g. 42501 (privilege) is an operator problem.
-_TYPE_FAULT_SQLSTATES = {"42883", "42804", "42846", "42P18"}
-
-
-def _pg_sqlstate(exc: Exception) -> str | None:
-    """SQLSTATE from a SQLAlchemy-wrapped asyncpg error, if present."""
-    orig = getattr(exc, "orig", None)
-    return getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
-
-
 async def _emit_ogc_usage_event(table_name: str) -> None:
     """Emit an OGC-serve usage event through the billing-import-free seam (METER-03).
 
@@ -811,13 +804,15 @@ async def get_collection_items(
         cql2_where, cql2_binds = compile_feature_cql2_ast(filter_ast, queryables)
 
     try:
-        # fix(#430 BA-15): over-fetch one row so a full page can be distinguished from
-        # a full *final* page; otherwise a feature count that is an exact multiple
-        # of `limit` emits a phantom keyset `next` to an empty page.
-        rows, total = await get_features(
+        # fix(#430 BA-15): a full page must be distinguishable from a full
+        # *final* page, or a feature count that is an exact multiple of `limit`
+        # emits a phantom keyset `next` to an empty page. fix(#1778 review r1):
+        # the over-fetch that answers it moved into get_features, which reports
+        # it as `has_more`, so every caller gets the same answer.
+        page = await get_features(
             db,
             dataset.table_name,
-            limit=limit + 1,
+            limit=limit,
             offset=offset,
             after_gid=after_gid,
             bbox=bbox_parsed,
@@ -829,7 +824,14 @@ async def get_collection_items(
             cql2_where=cql2_where,
             cql2_binds=cql2_binds,
         )
-    except (ProgrammingError, OperationalError, DataError) as exc:
+    except ValueError as exc:
+        # fix(#1778): an unparseable property-filter value is rejected before
+        # the query runs, naming the property.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except DBAPIError as exc:
         # feat(#1614): with a filter active, a type-shaped database error is
         # the filter itself — e.g. a property-property comparison between
         # incomparable types that pre-validation lets through. Report those
@@ -839,33 +841,36 @@ async def get_collection_items(
         # client-side bind DataErrors. Everything else (dropped connection,
         # cancellation, missing table) keeps the retryable 503 so monitoring
         # and clients classify outages correctly.
-        sqlstate = _pg_sqlstate(exc) or ""
-        filter_fault = cql2_where is not None and (
-            sqlstate.startswith("22")
-            or sqlstate in _TYPE_FAULT_SQLSTATES
-            or (isinstance(exc, DataError) and not sqlstate)
-        )
-        if filter_fault:
+        # fix(#1778): the property-filter extension is a caller-supplied
+        # predicate too. Gating this branch on `cql2_where is not None` alone
+        # reported every type-shaped property-filter failure as a retryable
+        # 503, so clients retried forever against what is a query-shape bug.
+        #
+        # fix(#1778 review r2): the classification moved to
+        # `is_caller_type_fault`, which the native features list now reads too;
+        # the two had drifted. The catch widened to DBAPIError for the same
+        # reason it did there: asyncpg reports a value it cannot encode as a
+        # bare DBAPIError with SQLSTATE 22000, which no subclass here matched.
+        caller_predicate = cql2_where is not None or bool(property_filters)
+        if caller_predicate and is_caller_type_fault(exc):
+            source = "CQL2 filter" if cql2_where is not None else "Property filter"
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    "CQL2 filter is not evaluable against this collection's "
+                    f"{source} is not evaluable against this collection's "
                     "property types"
                 ),
             )
-        if isinstance(exc, DataError):
-            raise
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Dataset table is temporarily unavailable",
-        )
-
-    has_more = len(rows) > limit
-    rows = rows[:limit]
+        if isinstance(exc, (ProgrammingError, OperationalError)):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Dataset table is temporarily unavailable",
+            )
+        raise
 
     # Convert rows to GeoJSON features
     features = []
-    for row in rows:
+    for row in page.rows:
         features.append(
             {
                 "type": "Feature",
@@ -935,8 +940,8 @@ async def get_collection_items(
     # H-24: emit a keyset `next` link when more rows exist — primary path.
     # Fall back to offset-based `next`/`prev` for legacy clients only when
     # the request itself used offset.
-    if rows and has_more:
-        next_after_gid = rows[-1]["gid"]
+    if page.rows and page.has_more:
+        next_after_gid = page.rows[-1]["gid"]
         links.append(
             OGCLink(
                 rel="next",
@@ -944,7 +949,10 @@ async def get_collection_items(
                 type="application/geo+json",
             )
         )
-    elif after_gid is None and offset + limit < total:
+    elif after_gid is None and page.has_more:
+        # fix(#1778 review r1): was `offset + limit < total`. numberMatched may
+        # be the planner's estimate, and an estimate at or below the rows
+        # already served would have dropped the link mid-result-set.
         links.append(
             OGCLink(
                 rel="next",
@@ -962,7 +970,7 @@ async def get_collection_items(
         )
 
     response_data = OGCFeatureItemsResponse(
-        numberMatched=total,
+        numberMatched=page.total,
         numberReturned=len(features),
         features=features,
         links=links,
@@ -974,7 +982,10 @@ async def get_collection_items(
     if dataset.table_name:
         await _emit_ogc_usage_event(dataset.table_name)
 
-    headers = {"Content-Crs": "<http://www.opengis.net/def/crs/OGC/1.3/CRS84>"}
+    headers = {
+        "Content-Crs": "<http://www.opengis.net/def/crs/OGC/1.3/CRS84>",
+        **number_matched_headers(page.total_is_estimate),
+    }
     if link_value := link_header_value(links):
         headers["Link"] = link_value
     return JSONResponse(
