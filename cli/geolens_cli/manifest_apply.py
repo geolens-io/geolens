@@ -67,15 +67,6 @@ MANIFEST_ENTRY_PROCESSING_MARGIN_SECONDS: float = 10.0
 #: return fast) is unaffected by this change.
 MANIFEST_APPLY_BASE_TIMEOUT_SECONDS: float = EXTENDED_REQUEST_TIMEOUT_SECONDS
 
-#: Ceiling on the batch-aware budget below. Mirrors OGR2OGR_FILE_TIMEOUT_SECONDS
-#: (backend/app/processing/ingest/ogr.py) — this codebase's existing "a large
-#: [operation] legitimately takes up to an hour" bound, reused here rather than
-#: inventing a new number. A 100-entry manifest of maximally slow sources can
-#: still exceed even this; see `ManifestApplyTimeout`/`report_apply_timeout`
-#: below for what happens then — the cap bounds the CLI's own wait, not the
-#: server's work, which continues regardless.
-MANIFEST_APPLY_TIMEOUT_CEILING_SECONDS: float = 3600.0
-
 #: fix(#1778 review round 19): the post-timeout dry-run status check
 #: (``attempt_apply_timeout_status_check``) does not need the
 #: entry-scaled budget above at all -- ``dry_run`` short-circuits
@@ -83,8 +74,9 @@ MANIFEST_APPLY_TIMEOUT_CEILING_SECONDS: float = 3600.0
 #: ``MANIFEST_SOURCE_DOWNLOAD_TIMEOUT_SECONDS``'s docstring), so its
 #: own cost does not grow with entry count. A short, FIXED bound keeps
 #: a stuck/overloaded server from making the status check itself hang
-#: for up to an hour -- the same ceiling the ORIGINAL apply could
-#: legitimately need but this cheaper follow-up never should.
+#: for as long as a maximum-sized ORIGINAL apply could legitimately
+#: need (round 20: up to 7600s for a full 100-entry manifest, no
+#: longer capped at an hour) -- this cheaper follow-up never should.
 MANIFEST_APPLY_STATUS_CHECK_TIMEOUT_SECONDS: float = 30.0
 
 
@@ -94,25 +86,43 @@ def compute_manifest_apply_timeout(entry_count: int) -> float:
 
     ``budget = MANIFEST_APPLY_BASE_TIMEOUT_SECONDS + entry_count *
     (MANIFEST_SOURCE_DOWNLOAD_TIMEOUT_SECONDS +
-    MANIFEST_ENTRY_PROCESSING_MARGIN_SECONDS)``, capped at
-    ``MANIFEST_APPLY_TIMEOUT_CEILING_SECONDS``. See the module-level
+    MANIFEST_ENTRY_PROCESSING_MARGIN_SECONDS)``. See the module-level
     comment above this constant block for the full rationale and the
     backend facts it mirrors.
 
     ``entry_count`` should be ``len(payload["datasets"])`` for the
-    manifest THIS invocation is actually sending — not a guess: the
-    backend enforces a hard cap of 100 (ManifestApplyRequest.datasets),
-    so the worst case this formula has to budget for is bounded too.
-    Coerced to at least 1 so a malformed/empty count still returns the
-    base budget rather than a smaller-than-intended one.
+    manifest THIS invocation is actually sending — not a guess. Linear
+    in ``entry_count``, with NO separate ceiling: the backend's own
+    hard cap of 100 datasets (ManifestApplyRequest.datasets,
+    ``max_length=100`` — manifest_schemas.py) already bounds the
+    worst case this formula ever has to produce, at
+    ``MANIFEST_APPLY_BASE_TIMEOUT_SECONDS + 100 * 70 == 7600.0``.
+
+    fix(#1778 review round 20): round 18 additionally clamped this to
+    ``MANIFEST_APPLY_TIMEOUT_CEILING_SECONDS`` (3600s) — an ad hoc
+    number smaller than the formula's own maximum (7600s), so the
+    clamp started truncating the budget at ~43 entries, well inside
+    the API's permitted 100. A valid, maximum-sized manifest of slow
+    sources could still time out with earlier entries already queued.
+    Removed: nothing downstream re-clamps the value this function
+    returns (``long_request_timeout()`` assigns it straight to the
+    httpx client's ``.timeout``; httpx does not impose its own ceiling
+    on that assignment), so the bound this function computes is the
+    bound the request actually gets.
+
+    If a caller somehow passes more than 100, the formula still
+    computes linearly rather than pretending — the backend will reject
+    the request on its own schema validation regardless; this
+    function's job is only to not be the reason a VALID request times
+    out. Coerced to at least 1 so a malformed/empty count still
+    returns the base budget rather than a smaller-than-intended one.
     """
     entry_count = max(1, entry_count)
     per_entry = (
         MANIFEST_SOURCE_DOWNLOAD_TIMEOUT_SECONDS
         + MANIFEST_ENTRY_PROCESSING_MARGIN_SECONDS
     )
-    budget = MANIFEST_APPLY_BASE_TIMEOUT_SECONDS + entry_count * per_entry
-    return min(budget, MANIFEST_APPLY_TIMEOUT_CEILING_SECONDS)
+    return MANIFEST_APPLY_BASE_TIMEOUT_SECONDS + entry_count * per_entry
 
 
 def _entry_count(payload: Mapping[str, Any]) -> int:

@@ -198,9 +198,18 @@ class TestComputeManifestApplyTimeout:
     succeeding apply -- ManifestApplyRequest allows 100 datasets,
     apply_manifest() processes them sequentially, and each entry's
     dominant synchronous cost is its own 60s HTTP source download.
-    Pinned against 1/10/100-entry manifests -- the 100-entry case
-    (ManifestApplyRequest's own hard maximum) also pins the documented
-    ceiling actually binding."""
+    Pinned against 1/10/100-entry manifests.
+
+    fix(#1778 review round 20): round 18 ALSO capped the formula at
+    MANIFEST_APPLY_TIMEOUT_CEILING_SECONDS (3600s) -- smaller than the
+    formula's own maximum (600 + 100*70 == 7600s), so the cap started
+    truncating the budget at ~43 entries, well inside the API's
+    permitted 100. A valid, maximum-sized manifest of slow sources
+    could still time out with earlier entries already queued. The cap
+    is removed: the formula is now LINEAR in entry_count with no
+    plateau, bounded only by the backend's own 100-entry schema cap.
+    Pinned at the 43/44-entry boundary where the old cap used to bite,
+    and at the full 100-entry maximum (7600s, not 3600s)."""
 
     def test_one_entry(self) -> None:
         from geolens_cli.manifest_apply import (
@@ -224,21 +233,27 @@ class TestComputeManifestApplyTimeout:
 
         assert compute_manifest_apply_timeout(10) == 1300.0
 
-    def test_a_hundred_entries_hits_the_documented_ceiling(self) -> None:
-        from geolens_cli.manifest_apply import (
-            MANIFEST_APPLY_TIMEOUT_CEILING_SECONDS,
-            compute_manifest_apply_timeout,
-        )
+    def test_a_hundred_entries_is_linear_not_capped(self) -> None:
+        """fix(#1778 review round 20): the API's own 100-dataset
+        maximum is the only bound -- 600 + 100*70 == 7600.0, NOT the
+        old 3600.0 ceiling."""
+        from geolens_cli.manifest_apply import compute_manifest_apply_timeout
 
-        # Uncapped this would be 600 + 100*70 = 7600.0 -- the ceiling
-        # must actually bind at ManifestApplyRequest's own maximum
-        # (datasets: max_length=100), the worst case this formula has
-        # to budget for.
-        assert (
-            compute_manifest_apply_timeout(100)
-            == MANIFEST_APPLY_TIMEOUT_CEILING_SECONDS
-        )
-        assert compute_manifest_apply_timeout(100) == 3600.0
+        assert compute_manifest_apply_timeout(100) == 7600.0
+
+    def test_the_formula_stays_linear_past_where_the_old_ceiling_used_to_bite(
+        self,
+    ) -> None:
+        """fix(#1778 review round 20): round 18's 3600s ceiling started
+        truncating at entry 43 (600 + 43*70 == 3610, already past
+        3600). Pinned at the 43/44 boundary to prove there is no
+        plateau there any more -- each additional entry still adds
+        exactly one per-entry allowance (70s)."""
+        from geolens_cli.manifest_apply import compute_manifest_apply_timeout
+
+        assert compute_manifest_apply_timeout(43) == 3610.0
+        assert compute_manifest_apply_timeout(44) == 3680.0
+        assert compute_manifest_apply_timeout(60) == 4800.0
 
     def test_less_than_one_is_coerced_to_one(self) -> None:
         from geolens_cli.manifest_apply import compute_manifest_apply_timeout
@@ -395,10 +410,9 @@ class TestManifestApplyTimeoutReporting:
         # not an accident of both values matching.
         httpx_client.timeout = 999.0
 
-        # 100 synthetic dataset entries -- large enough that the
-        # entry-scaled budget (compute_manifest_apply_timeout(100))
-        # would be the 3600s ceiling, nowhere near the fixed 30s this
-        # follow-up must actually use.
+        # 100 synthetic dataset entries -- the entry-scaled budget
+        # (compute_manifest_apply_timeout(100) == 7600.0) is nowhere
+        # near the fixed 30s this follow-up must actually use.
         payload = {
             "manifest_version": "1",
             "dry_run": False,
