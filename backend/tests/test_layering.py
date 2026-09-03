@@ -3464,9 +3464,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # so a job that failed on its own and whose best-effort cleanup then failed
     # once had nothing left looking at it. Its DELETE ... RETURNING already
     # carried `user_metadata`; the rows now feed the same two post-commit reaps
-    # the running-row sweep feeds, survivor checks included. Cap 2077 -> 2100,
-    # exact.
-    "backend/app/platform/jobs/sweep.py": 2100,
+    # the running-row sweep feeds, survivor checks included. Cap 2077 -> 2100.
+    # fix(#1778 codex r5): +152. Feeding the reap was not enough, because the
+    # reap runs after the commit and can fail as a whole, and by then the
+    # pointer is gone. The purge now refuses to delete a row that still names
+    # an unreaped artifact, which makes the job row the durable pending-reap
+    # record a retry needs without a new table, and both reapers clear that
+    # record once they have a final answer (deleted, or refused because a live
+    # row names it) so the next pass can purge the row. The survivor query also
+    # went from four IN clauses to one shared array bind, because four binds
+    # per key crossed asyncpg's 32767-argument ceiling at about 8192 keys and
+    # the resulting failure skipped every delete. Cap 2100 -> 2252, exact.
+    "backend/app/platform/jobs/sweep.py": 2252,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and

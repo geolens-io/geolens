@@ -765,6 +765,9 @@ class TestRetentionPurgeIsTheLastOwner:
                 "app.platform.jobs.sweep._reap_unadopted_analysis_outputs",
                 analysis_reap,
             ),
+            patch(
+                "app.platform.jobs.sweep._clear_settled_artifact_records", AsyncMock()
+            ),
         ):
             outcome = await fail_stale_jobs(mock_db, detailed=True)
 
@@ -800,6 +803,9 @@ class TestRetentionPurgeIsTheLastOwner:
                 "app.platform.jobs.sweep._live_referenced_storage_keys",
                 AsyncMock(return_value={self.KEY}),
             ),
+            patch(
+                "app.platform.jobs.sweep._clear_settled_artifact_records", AsyncMock()
+            ),
         ):
             outcome = await fail_stale_jobs(mock_db, detailed=True)
 
@@ -832,6 +838,277 @@ class TestRetentionPurgeIsTheLastOwner:
             await fail_stale_jobs(mock_db, detailed=True)
 
         storage.delete.assert_not_awaited()
+
+
+class TestReapScalesAndStaysRetryable:
+    """fix(#1778 codex r5): the two ways a whole sweep's worth of keys was lost.
+
+    The survivor query expanded its key list into four `IN` clauses, so its
+    argument count was four per key. Past roughly 8192 keys that crosses
+    asyncpg's 32767-argument ceiling, the query raises, and the reaper's own
+    "an unreadable catalog deletes nothing" rule skips every delete. That rule
+    is right, but the retention purge had already committed the deletion of the
+    rows that were those keys' last durable owners, so the objects leaked for
+    good.
+    """
+
+    @pytest.mark.anyio
+    async def test_ten_thousand_keys_run_as_one_argument(self, test_db_session) -> None:
+        """Against real Postgres, so the argument ceiling is the real one.
+
+        The survivor check has to still work at this size, not merely not
+        raise: the live key is planted among ten thousand orphans and has to
+        come back.
+        """
+        from app.modules.catalog.datasets.domain.models import Dataset, Record
+        from app.platform.jobs.sweep import _live_referenced_storage_keys
+        from app.processing.raster.models import RasterAsset
+
+        record = Record(
+            title="live raster",
+            visibility="private",
+            record_status="published",
+            record_type="raster_dataset",
+        )
+        test_db_session.add(record)
+        await test_db_session.flush()
+        dataset = Dataset(
+            record_id=record.id,
+            table_name=f"ds_{uuid.uuid4().hex[:12]}",
+            srid=4326,
+            source_format="geotiff",
+        )
+        test_db_session.add(dataset)
+        await test_db_session.flush()
+        live_key = f"rasters/{dataset.id}/attempts/live/abc/source.cog.tif"
+        test_db_session.add(
+            RasterAsset(
+                dataset_id=dataset.id,
+                asset_uri=live_key,
+                storage_backend="local",
+            )
+        )
+        await test_db_session.commit()
+
+        keys = tuple(
+            [
+                f"rasters/{dataset.id}/attempts/dead-{i}/abc/source.cog.tif"
+                for i in range(10_000)
+            ]
+            + [live_key]
+        )
+        assert len(keys) * 4 > 32_767, "the case has to exceed the bind ceiling"
+
+        live = await _live_referenced_storage_keys(keys)
+
+        assert live == {live_key}
+
+    @pytest.mark.asyncio
+    async def test_duplicate_keys_are_deleted_once(self) -> None:
+        from app.platform.jobs.sweep import reap_unpublished_storage_keys
+
+        key = "rasters/ds/attempts/a/abc/source.cog.tif"
+        storage = MagicMock()
+        storage.delete = AsyncMock()
+        with (
+            patch("app.platform.storage.get_storage", return_value=storage),
+            patch(
+                "app.platform.jobs.sweep._live_referenced_storage_keys",
+                AsyncMock(return_value=set()),
+            ),
+            patch(
+                "app.platform.jobs.sweep._clear_settled_artifact_records", AsyncMock()
+            ),
+        ):
+            reaped, skipped, failures = await reap_unpublished_storage_keys(
+                (key, key, key)
+            )
+
+        assert (reaped, skipped, failures) == (1, 0, 0)
+        assert storage.delete.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_the_purge_will_not_delete_a_row_that_still_owns_an_artifact(
+        self, monkeypatch
+    ) -> None:
+        """The durable pending-reap record, and why it is the job row.
+
+        The reap runs after this function's commit and can fail as a whole. If
+        the purge had already deleted the row, the pointer is gone and the
+        objects leak; keeping the row until the artifacts are accounted for
+        makes the failure retryable and costs no new table.
+        """
+        from sqlalchemy.sql.dml import Delete
+
+        from app.core.config import settings
+        from app.platform.jobs.sweep import fail_stale_jobs
+
+        monkeypatch.setattr(settings, "ingest_jobs_retention_days", 30)
+        mock_db = _mock_db_for_fail_stale(
+            running_rows=[],
+            purged_rows=[
+                (
+                    uuid.uuid4(),
+                    None,
+                    {"unpublished_storage_keys": ["rasters/a/attempts/b/c/x.tif"]},
+                )
+            ],
+        )
+        storage = MagicMock()
+        storage.delete = AsyncMock()
+        with (
+            patch("app.platform.storage.get_storage", return_value=storage),
+            patch(
+                "app.platform.jobs.sweep._live_referenced_storage_keys",
+                AsyncMock(return_value=set()),
+            ),
+            patch(
+                "app.platform.jobs.sweep._clear_settled_artifact_records", AsyncMock()
+            ),
+        ):
+            await fail_stale_jobs(mock_db, detailed=True)
+
+        deletes = [
+            call.args[0]
+            for call in mock_db.execute.await_args_list
+            if isinstance(call.args[0], Delete)
+        ]
+        assert len(deletes) == 1
+        where_sql = str(deletes[0].compile(compile_kwargs={"literal_binds": True}))
+        assert "unpublished_storage_keys" in where_sql, (
+            "the purge must exempt rows that still name an unreaped artifact, "
+            "got: " + where_sql
+        )
+        assert "analysis_out_table" in where_sql
+
+    @pytest.mark.asyncio
+    async def test_a_delete_that_raised_keeps_its_record(self) -> None:
+        """Only a final answer clears the row, and an error is not one."""
+        from app.platform.jobs.sweep import reap_unpublished_storage_keys
+
+        settled = AsyncMock()
+        good = "rasters/ds/attempts/a/abc/quicklook_256.png"
+        bad = "rasters/ds/attempts/a/abc/source.cog.tif"
+        storage = MagicMock()
+        storage.delete = AsyncMock(
+            side_effect=lambda key: (
+                (_ for _ in ()).throw(RuntimeError("no")) if key == bad else None
+            )
+        )
+        with (
+            patch("app.platform.storage.get_storage", return_value=storage),
+            patch(
+                "app.platform.jobs.sweep._live_referenced_storage_keys",
+                AsyncMock(return_value=set()),
+            ),
+            patch("app.platform.jobs.sweep._clear_settled_artifact_records", settled),
+        ):
+            reaped, skipped, failures = await reap_unpublished_storage_keys((good, bad))
+
+        assert (reaped, skipped, failures) == (1, 0, 1)
+        settled.assert_awaited_once_with(storage_keys={good})
+
+    @pytest.mark.asyncio
+    async def test_a_refused_key_still_clears_its_record(self) -> None:
+        """Refusing is a final answer too.
+
+        A key a live row names is refused on every pass. Leaving it on the
+        record would pin the job row for the life of the dataset.
+        """
+        from app.platform.jobs.sweep import reap_unpublished_storage_keys
+
+        settled = AsyncMock()
+        key = "rasters/ds/attempts/a/abc/source.cog.tif"
+        storage = MagicMock()
+        storage.delete = AsyncMock()
+        with (
+            patch("app.platform.storage.get_storage", return_value=storage),
+            patch(
+                "app.platform.jobs.sweep._live_referenced_storage_keys",
+                AsyncMock(return_value={key}),
+            ),
+            patch("app.platform.jobs.sweep._clear_settled_artifact_records", settled),
+        ):
+            await reap_unpublished_storage_keys((key,))
+
+        storage.delete.assert_not_awaited()
+        settled.assert_awaited_once_with(storage_keys={key})
+
+    @pytest.mark.asyncio
+    async def test_a_failed_survivor_query_clears_nothing(self) -> None:
+        from app.platform.jobs.sweep import reap_unpublished_storage_keys
+
+        settled = AsyncMock()
+        with (
+            patch(
+                "app.platform.jobs.sweep._live_referenced_storage_keys",
+                AsyncMock(side_effect=RuntimeError("catalog unreadable")),
+            ),
+            patch("app.platform.jobs.sweep._clear_settled_artifact_records", settled),
+        ):
+            reaped, skipped, failures = await reap_unpublished_storage_keys(
+                ("rasters/ds/attempts/a/abc/source.cog.tif",)
+            )
+
+        assert (reaped, skipped, failures) == (0, 1, 0)
+        settled.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_clearing_takes_the_record_off_only_a_fully_settled_row(
+        self, test_db_session
+    ) -> None:
+        """Against real Postgres: the containment test and the key removal.
+
+        A row names all three of its objects at once, so clearing the field
+        while one is unresolved would drop the other two from the record with
+        it.
+        """
+        from sqlalchemy import select
+
+        from app.platform.jobs.models import IngestJob
+        from app.platform.jobs.sweep import _clear_settled_artifact_records
+
+        done = IngestJob(
+            status="failed",
+            file_path="",
+            user_metadata={
+                "unpublished_storage_keys": ["rasters/a/x.tif", "rasters/a/y.png"],
+                "keep_me": True,
+            },
+        )
+        partial = IngestJob(
+            status="failed",
+            file_path="",
+            user_metadata={
+                "unpublished_storage_keys": ["rasters/a/x.tif", "rasters/b/z.tif"]
+            },
+        )
+        test_db_session.add_all([done, partial])
+        await test_db_session.flush()
+        # Snapshotted before the commit: it expires every instance, and the
+        # next attribute read would be lazy I/O on an async session.
+        done_id, partial_id = done.id, partial.id
+        await test_db_session.commit()
+
+        await _clear_settled_artifact_records(
+            storage_keys={"rasters/a/x.tif", "rasters/a/y.png"}
+        )
+
+        test_db_session.expire_all()
+        rows = {
+            row.id: row.user_metadata
+            for row in (
+                await test_db_session.execute(
+                    select(IngestJob).where(IngestJob.id.in_([done_id, partial_id]))
+                )
+            ).scalars()
+        }
+        assert rows[done_id] == {"keep_me": True}, (
+            "a fully settled row loses the record and keeps everything else"
+        )
+        assert "unpublished_storage_keys" in rows[partial_id], (
+            "a row with an unsettled key keeps its whole record for the retry"
+        )
 
 
 def _mock_db_for_fail_stale(
@@ -874,8 +1151,15 @@ def _mock_db_for_fail_stale(
         result.scalars.return_value = []
         results.append(result)
 
+    # fix(#1778 codex r5): the exempted-row SELECT the purge issues first.
+    # These fixtures drive the reaps through it rather than through the DELETE,
+    # because a row that still names an artifact is deliberately NOT deleted.
+    retained = MagicMock()
+    retained.scalars.return_value = [um for (_id, _fp, um) in (purged_rows or [])]
+    results.append(retained)
+
     purge = MagicMock()
-    purge.all.return_value = list(purged_rows or [])
+    purge.all.return_value = []
     results.append(purge)
     # fix(#1778 codex r4): the purge only issues its survivor SELECT when a
     # deleted row carried a file_path, and these fixtures carry none.

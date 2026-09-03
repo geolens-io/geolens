@@ -229,6 +229,15 @@ def _make_mock_db_for_fail_stale(
         mock_result.scalars.return_value = returned_ids
         results.append(mock_result)
 
+    # fix(#1778 codex r5): the purge now reads its exempted rows first - the
+    # terminal rows that still name an unreaped artifact, which it refuses to
+    # delete so the record survives for the next sweep to retry. None of these
+    # fixtures carry one, so an empty scalars() keeps each test stating only
+    # what it cares about.
+    retained_result = MagicMock()
+    retained_result.scalars.return_value = []
+    results.append(retained_result)
+
     normalized_candidates = [
         row if len(row) == 3 else (uuid.uuid4(), row[0], None)
         for row in (purge_candidates or [])
@@ -517,11 +526,16 @@ async def test_fail_stale_jobs_purges_terminal_jobs_past_retention():
     # fix(#1274 review): legacy-completion recorder then abandonment cancel)
     # + the purge DELETE + the post-expiry staging SELECT.
     # fix(#1709 review r7): +1 — the childless-`fanned_out` reconciliation.
-    assert mock_db.execute.await_count == 11
-    # Indexes 7-8 are the refresh-run sweep now; the purge shifted to 9.
+    # fix(#1778 codex r5): +1 — the purge reads its exempted rows first, the
+    # terminal rows that still name an unreaped artifact. It refuses to delete
+    # those, so the record survives for the next sweep to retry rather than
+    # being discarded by a reap that may fail after this function commits.
+    assert mock_db.execute.await_count == 12
+    # Indexes 7-8 are the refresh-run sweep now; index 9 is the exempted-row
+    # SELECT and the purge DELETE shifted to 10.
     # fix(#1709 review r7): +1 — the childless-`fanned_out` reconciliation
     # sits at index 3, between the running-jobs sweep and the VRT sweep.
-    purge_stmt = mock_db.execute.await_args_list[9].args[0]
+    purge_stmt = mock_db.execute.await_args_list[10].args[0]
     assert isinstance(purge_stmt, Delete)
     where_sql = str(purge_stmt.compile(compile_kwargs={"literal_binds": True}))
     assert "'pending'" in where_sql and "'running'" in where_sql, (

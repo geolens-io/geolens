@@ -170,6 +170,13 @@ def _mock_db_for_fail_stale(*, running_rows: list) -> AsyncMock:
         result.scalars.return_value = []
         results.append(result)
 
+    # fix(#1778 codex r5): the purge reads its exempted rows first - terminal
+    # rows that still name an unreaped artifact, which it refuses to delete so
+    # the record survives for the next sweep to retry. None here.
+    retained = MagicMock()
+    retained.scalars.return_value = []
+    results.append(retained)
+
     purge = MagicMock()
     purge.all.return_value = []
     results.append(purge)

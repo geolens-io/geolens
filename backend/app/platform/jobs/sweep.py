@@ -822,30 +822,133 @@ async def _live_referenced_storage_keys(keys: tuple[str, ...]) -> set[str]:
     and every other counted asset). Together those are every column in the
     schema that names an object under `rasters/` or `originals/`.
     """
-    from sqlalchemy import union_all
+    from sqlalchemy import Text, any_, bindparam, union_all
+    from sqlalchemy.dialects.postgresql import ARRAY
 
     from app.core.db import async_session
     from app.platform.extensions import get_catalog_port
     from app.processing.raster.models import RasterAsset
 
     DatasetAsset = get_catalog_port().dataset_asset_orm_class()
-    key_list = list(keys)
+    # fix(#1778 codex r5): ONE array parameter, shared by all four arms, rather
+    # than four IN clauses that expand to one bind per key each. At four times
+    # the key count this query crossed asyncpg's 32767-argument ceiling from
+    # about 8192 keys, and the caller's "a survivor query that fails deletes
+    # nothing" rule then skipped every delete. Correct in isolation, and by
+    # then the retention purge had committed the deletion of the rows that were
+    # those keys' last durable owners, so the objects leaked for good. The
+    # argument count is one now, whatever the key count, and reusing the same
+    # BindParameter object in all four arms is what keeps it at one.
+    keys_param = bindparam("reap_keys", value=list(keys), type_=ARRAY(Text))
     async with async_session() as session:
         stmt = union_all(
             select(RasterAsset.asset_uri.label("key")).where(
-                RasterAsset.asset_uri.in_(key_list)
+                RasterAsset.asset_uri == any_(keys_param)
             ),
             select(RasterAsset.quicklook_256_uri.label("key")).where(
-                RasterAsset.quicklook_256_uri.in_(key_list)
+                RasterAsset.quicklook_256_uri == any_(keys_param)
             ),
             select(RasterAsset.quicklook_512_uri.label("key")).where(
-                RasterAsset.quicklook_512_uri.in_(key_list)
+                RasterAsset.quicklook_512_uri == any_(keys_param)
             ),
             select(DatasetAsset.href.label("key")).where(
-                DatasetAsset.href.in_(key_list)
+                DatasetAsset.href == any_(keys_param)
             ),
         )
         return {row[0] for row in (await session.execute(stmt)).all() if row[0]}
+
+
+async def _clear_settled_artifact_records(
+    *,
+    storage_keys: set[str] = frozenset(),  # type: ignore[assignment]
+    analysis_tables: set[str] = frozenset(),  # type: ignore[assignment]
+) -> None:
+    """Drop the job-row record of artifacts that are now accounted for.
+
+    fix(#1778 codex r5). The job row is the durable pending-reap record: the
+    retention purge refuses to delete a row that still names an unreaped
+    artifact, so a reap that fails as a whole is retried by the next sweep
+    instead of losing its last owner. That only terminates if success clears
+    the record, which is what this does.
+
+    "Accounted for" is deliberately wider than "deleted": a key a live row
+    still names was REFUSED, and refusing it again every sweep forever would
+    pin the job row for the life of the dataset. Both outcomes are final
+    answers about the object; only an error is not.
+
+    Storage keys clear as a set, not per key. A row names all three of its
+    objects at once, and clearing the field while one of them is still
+    unresolved would drop the other two from the record with it -- hence the
+    containment test, which fires only when every key the row names is in the
+    accounted set.
+
+    Best effort by the same rule as its callers: this buys the NEXT purge a
+    row it may delete, and failing to do it costs one more sweep, not
+    correctness.
+    """
+    from sqlalchemy import Text, any_, bindparam, cast, literal
+    from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+
+    from app.core.db import async_session
+    from app.platform.jobs.models import IngestJob
+    from app.processing.analysis.tasks import ANALYSIS_OUTPUT_TABLE_FIELD
+    from app.processing.ingest.tasks_raster_common import (
+        UNPUBLISHED_STORAGE_KEYS_FIELD,
+    )
+
+    if not storage_keys and not analysis_tables:
+        return
+    try:
+        async with async_session() as session:
+            if storage_keys:
+                await session.execute(
+                    update(IngestJob)
+                    .where(
+                        IngestJob.user_metadata[UNPUBLISHED_STORAGE_KEYS_FIELD].is_not(
+                            None
+                        ),
+                        IngestJob.user_metadata[UNPUBLISHED_STORAGE_KEYS_FIELD].op(
+                            "<@"
+                        )(
+                            bindparam(
+                                "settled_keys",
+                                value=sorted(storage_keys),
+                                type_=JSONB,
+                            )
+                        ),
+                    )
+                    .values(
+                        user_metadata=IngestJob.user_metadata.op("-")(
+                            cast(literal(UNPUBLISHED_STORAGE_KEYS_FIELD), Text)
+                        )
+                    )
+                )
+            if analysis_tables:
+                await session.execute(
+                    update(IngestJob)
+                    .where(
+                        IngestJob.user_metadata[ANALYSIS_OUTPUT_TABLE_FIELD].astext
+                        == any_(
+                            bindparam(
+                                "settled_tables",
+                                value=sorted(analysis_tables),
+                                type_=ARRAY(Text),
+                            )
+                        )
+                    )
+                    .values(
+                        user_metadata=IngestJob.user_metadata.op("-")(
+                            cast(literal(ANALYSIS_OUTPUT_TABLE_FIELD), Text)
+                        )
+                    )
+                )
+            await session.commit()
+    except Exception:  # broad: costs one more sweep, never correctness
+        log.warning(
+            "Failed to clear settled artifact records",
+            key_count=len(storage_keys),
+            table_count=len(analysis_tables),
+        )
 
 
 async def reap_unpublished_storage_keys(
@@ -869,6 +972,12 @@ async def reap_unpublished_storage_keys(
     next pass or an operator, and deleting the raster a dataset is serving is
     not.
     """
+    # fix(#1778 codex r5): deduplicated once, here, so the survivor query and
+    # the delete loop each see a key exactly once and the counts below mean
+    # "distinct objects" rather than "list entries". Two purged rows can name
+    # one prefix, and a sweep that reaps a whole retention window can hand this
+    # tens of thousands of keys.
+    keys = tuple(dict.fromkeys(keys))
     if not keys:
         return (0, 0, 0)
 
@@ -884,9 +993,15 @@ async def reap_unpublished_storage_keys(
     reaped = 0
     skipped = 0
     failures = 0
+    # fix(#1778 codex r5): keys this pass reached a final answer about, which
+    # is what licenses clearing them off the job row. A delete that raised is
+    # absent from it on purpose, so its row keeps the record and the next
+    # sweep retries.
+    settled: set[str] = set()
     for key in keys:
         if key in live:
             skipped += 1
+            settled.add(key)
             log.warning(
                 "Refused to reap a raster object a live row still names",
                 storage_key=key,
@@ -897,12 +1012,14 @@ async def reap_unpublished_storage_keys(
 
             await get_storage().delete(resolve_current_storage_key(key))
             reaped += 1
+            settled.add(key)
         except Exception:  # broad: best-effort staging cleanup
             failures += 1
             log.warning(
                 "Failed to reap unpublished raster object for stale job",
                 storage_key=key,
             )
+    await _clear_settled_artifact_records(storage_keys=settled)
     return (reaped, skipped, failures)
 
 
@@ -928,14 +1045,22 @@ async def _reap_unadopted_analysis_outputs(out_tables: tuple[str, ...]) -> None:
     from app.processing.analysis.tasks import drop_unadopted_analysis_output
 
     schema = tenant_data_schema(current_tenant_var.get() if is_multi_tenant() else None)
+    # fix(#1778 codex r5): the peer of the storage reaper's `settled` set. A
+    # table this pass reached a final answer about (dropped, or left alone
+    # because a dataset row adopted it) comes off the job row; one whose drop
+    # raised stays on it, so the row survives the retention purge and the next
+    # sweep tries again.
+    settled: set[str] = set()
     async with async_session() as session:
-        for out_table in out_tables:
+        for out_table in set(out_tables):
             try:
                 await drop_unadopted_analysis_output(
                     session, out_table=out_table, schema=schema, job_id="stale_sweep"
                 )
+                settled.add(out_table)
             except Exception:  # broad: best-effort cleanup of one orphan
                 log.warning("Failed to reap unadopted analysis output")
+    await _clear_settled_artifact_records(analysis_tables=settled)
 
 
 def _stale_generation_storage_keys(
@@ -1882,45 +2007,72 @@ async def fail_stale_jobs(
                 + _RECHECK_TRANSFER_MARGIN_SECONDS
             ),
         )
+        purge_clauses = [
+            IngestJob.status.not_in(("pending", "running")),
+            func.coalesce(IngestJob.completed_at, IngestJob.created_at)
+            < retention_cutoff,
+            IngestJob.id.not_in(latest_complete_ids),
+            IngestJob.id.not_in(latest_manifest_ids),
+            not_(presigned_url_may_still_be_live),
+        ]
+        # fix(#1778 codex r4) made the purge feed the two artifact reaps, on
+        # the reasoning that the row it is about to delete is the last thing
+        # that can name them: the stale passes only read rows they move OFF
+        # `running`, so a job that reached `failed` or `cancelled` on its own
+        # and whose in-process cleanup then failed once keeps its objects with
+        # the record still pointing at them and nothing looks again.
+        #
+        # fix(#1778 codex r5): feeding the reap is not enough, because the reap
+        # runs AFTER this function's commit and can fail as a whole. When it
+        # does, the pointer is already gone and the objects leak for good.
+        #
+        # So a row that still names an unreaped artifact is not purged at all.
+        # The row IS the durable pending-reap record the retry needs: it costs
+        # no new table, it is what the reapers already read, and it survives
+        # exactly until the artifacts it names are accounted for, at which
+        # point the reaper clears the two fields and the next pass purges the
+        # row normally. A reap that fails leaves the fields in place and the
+        # next sweep tries again.
+        #
+        # A string test on the JSONB blob, never a cast: the same rule the
+        # `s3_key` clause above states, because a malformed value must not be
+        # able to throw and fail the whole bulk pass.
+        from app.processing.analysis.tasks import ANALYSIS_OUTPUT_TABLE_FIELD
+        from app.processing.ingest.tasks_raster_common import (
+            UNPUBLISHED_STORAGE_KEYS_FIELD,
+        )
+
+        carries_unreaped_artifacts = or_(
+            IngestJob.user_metadata[UNPUBLISHED_STORAGE_KEYS_FIELD].is_not(None),
+            IngestJob.user_metadata[ANALYSIS_OUTPUT_TABLE_FIELD].astext.is_not(None),
+        )
+        retained_for_reap = await db.execute(
+            select(IngestJob.user_metadata).where(
+                *purge_clauses, carries_unreaped_artifacts
+            )
+        )
+        for retained_metadata in retained_for_reap.scalars():
+            unpublished_storage_keys.extend(
+                unpublished_storage_keys_from_metadata(retained_metadata)
+            )
+            if (
+                name := unadopted_analysis_table_from_metadata(retained_metadata)
+            ) is not None:
+                unadopted_analysis_tables.append(name)
+
         # Single DELETE .. RETURNING re-applies every predicate atomically at
         # delete time — a SELECT-then-DELETE-by-id pair let /jobs/{id}/retry
         # flip a candidate back to pending between the two statements and
-        # still lose the row (codex P2 r10 on #434).
+        # still lose the row (codex P2 r10 on #434). The exemption above is a
+        # predicate here rather than an id list for the same reason.
         deleted = await db.execute(
             delete(IngestJob)
-            .where(
-                IngestJob.status.not_in(("pending", "running")),
-                func.coalesce(IngestJob.completed_at, IngestJob.created_at)
-                < retention_cutoff,
-                IngestJob.id.not_in(latest_complete_ids),
-                IngestJob.id.not_in(latest_manifest_ids),
-                not_(presigned_url_may_still_be_live),
-            )
+            .where(*purge_clauses, not_(carries_unreaped_artifacts))
             .returning(IngestJob.id, IngestJob.file_path, IngestJob.user_metadata)
         )
         deleted_rows = deleted.all()
         terminal_jobs_purged = len(deleted_rows)
         deleted_paths = {fp for (_id, fp, _um) in deleted_rows if fp}
-        # fix(#1778 codex r4): the row being deleted is the last thing that can
-        # name these. The two stale-job passes only read the rows they move OFF
-        # `running`, so a job that reached `failed` or `cancelled` on its own
-        # and whose in-process best-effort cleanup then failed (a storage blip,
-        # a DROP that lost a lock race) keeps its objects and its output table
-        # with the record still pointing at them, and nothing looks again. This
-        # purge is the last actor that holds the pointer, so it is the last
-        # chance to use it. Both reaps run after this function's commit and
-        # both carry survivor checks, so a key or a table something live still
-        # owns is refused rather than deleted.
-        unpublished_storage_keys.extend(
-            key
-            for (_id, _fp, um) in deleted_rows
-            for key in unpublished_storage_keys_from_metadata(um)
-        )
-        unadopted_analysis_tables.extend(
-            name
-            for (_id, _fp, um) in deleted_rows
-            if (name := unadopted_analysis_table_from_metadata(um)) is not None
-        )
         # fix(#1202 review r5): a purged presigned job's staging key is the one
         # reference left to an object the client's PUT URL can still recreate.
         deleted_presigned_keys = {
