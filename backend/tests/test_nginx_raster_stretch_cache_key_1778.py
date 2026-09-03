@@ -1,4 +1,4 @@
-"""The raster tile cache key must not vary on an arg the active stretch mode
+r"""The raster tile cache key must not vary on an arg the active stretch mode
 ignores, and a cache HIT must never change what an uncached request would
 answer (#1778, codebase audit 2026-08-30; codex rounds 1-9 on #1791).
 
