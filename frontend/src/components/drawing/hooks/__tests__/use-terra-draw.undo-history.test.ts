@@ -450,3 +450,64 @@ describe('useTerraDraw — undo() re-selects the previously selected feature (fi
     expect(onSelectionLost).toHaveBeenCalledTimes(1);
   });
 });
+
+// fix(round5 #1795, P2): on the real selection path, addFeatures() and
+// draw.selectFeature() synchronously emit `change` events — without a
+// guard, the ring already holds those seed snapshots by the time
+// selectFeature() captures the session's baseline, so canUndo/isEditDirty
+// read as "dirty" right after just selecting a feature, before any actual
+// edit happened.
+describe('useTerraDraw — selecting a feature does not seed the undo ring (fix round5 #1795)', () => {
+  it('selecting a feature (which synchronously emits change, like the real selection path) leaves canUndo false and the ring empty', () => {
+    const map = fakeMap();
+    const { result } = renderHook(() => useTerraDraw(map, vi.fn(), null));
+    const td = lastInstance!;
+
+    // Simulate the real selection path: draw.selectFeature() synchronously
+    // fires a `change` event, same as terra-draw's actual select mode does.
+    td.getSnapshot.mockReturnValue([{ id: 'feat-1', properties: { mode: 'point', tag: 'seed' } }] as unknown[]);
+    td.selectFeature.mockImplementation(() => { td.emit('change'); });
+
+    act(() => {
+      result.current.selectFeature('feat-1');
+    });
+
+    expect(result.current.canUndo).toBe(false);
+    // The ring is truly empty, not "1 seed entry" masquerading as a real
+    // edit — a further undo() has nothing to restore.
+    act(() => {
+      result.current.undo();
+    });
+    expect(td.addFeatures).not.toHaveBeenCalled();
+  });
+
+  it('one drag after selection, then one undo: canUndo goes false and the drag is fully reverted to the true baseline', () => {
+    const map = fakeMap();
+    const onHistoryBaseline = vi.fn();
+    const { result } = renderHook(() => useTerraDraw(map, vi.fn(), null, onHistoryBaseline));
+    const td = lastInstance!;
+
+    const baselineSnapshot = [{ id: 'feat-1', properties: { mode: 'point', tag: 'baseline' } }] as unknown[];
+    td.getSnapshot.mockReturnValue(baselineSnapshot);
+    // Selection itself synchronously seeds a `change` event.
+    td.selectFeature.mockImplementation(() => { td.emit('change'); });
+    act(() => {
+      result.current.selectFeature('feat-1');
+    });
+    expect(result.current.canUndo).toBe(false);
+
+    // One drag.
+    td.selectFeature.mockImplementation(() => {});
+    td.getSnapshot.mockReturnValue([{ id: 'feat-1', properties: { mode: 'point', tag: 'dragged' } }] as unknown[]);
+    act(() => { td.emit('change'); });
+    expect(result.current.canUndo).toBe(true);
+
+    act(() => {
+      result.current.undo();
+    });
+
+    expect(result.current.canUndo).toBe(false);
+    expect(onHistoryBaseline).toHaveBeenCalledTimes(1);
+    expect(td.addFeatures).toHaveBeenCalledWith(baselineSnapshot);
+  });
+});

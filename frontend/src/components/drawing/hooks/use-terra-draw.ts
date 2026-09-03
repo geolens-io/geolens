@@ -320,6 +320,13 @@ export function useTerraDraw(
   // re-select afterward. null means "nothing selected for this session."
   const selectedFeatureIdRef = useRef<string | number | null>(null);
   const isRestoringRef = useRef(false);
+  // fix(round5 #1795): on the real selection path, addFeatures() and
+  // draw.selectFeature() synchronously emit `change` events — without this
+  // guard, the ring already holds those seed snapshots by the time
+  // selectFeature() below captures the session's baseline, so Undo reads as
+  // available (and isEditDirty stays set) right after just selecting a
+  // feature, before any actual edit happened.
+  const isSeedingSessionRef = useRef(false);
   const [canUndo, setCanUndo] = useState(false);
 
   // State to trigger re-render when draw instance is ready
@@ -416,7 +423,7 @@ export function useTerraDraw(
     if (!draw) return;
 
     const handler = () => {
-      if (isRestoringRef.current) return;
+      if (isRestoringRef.current || isSeedingSessionRef.current) return;
 
       const snapshot = filteredSnapshot(draw);
       historyRef.current.push(snapshot);
@@ -477,7 +484,13 @@ export function useTerraDraw(
   const selectFeature = useCallback(
     (id: string) => {
       if (!draw?.enabled) return;
+      // fix(round5 #1795): draw.selectFeature() synchronously emits its own
+      // `change` event (select-mode entering/decorating the feature) —
+      // suppress the ring listener for it so this seed event is never
+      // recorded at all.
+      isSeedingSessionRef.current = true;
       draw.selectFeature(id);
+      isSeedingSessionRef.current = false;
       // fix(round3 #1795): selecting an existing feature starts its edit
       // session — capture the TRUE pre-edit snapshot now, outside the
       // bounded ring, so a long drag that later evicts the ring's oldest
@@ -487,6 +500,17 @@ export function useTerraDraw(
       // draw.clear() (which drops Terra Draw's select-mode state and edit
       // handles) can re-select it afterward.
       selectedFeatureIdRef.current = id;
+      // fix(round5 #1795): unconditionally clear the ring here too — on the
+      // REAL selection path, the app calls addFeatures() (to load the
+      // existing feature onto the canvas) BEFORE calling this selectFeature(),
+      // and that addFeatures() call ALSO synchronously emits `change`,
+      // outside the guard above since it runs before this function does.
+      // Clearing here retroactively wipes out any such seed snapshots, so
+      // an edit session starts with Undo disabled and an empty ring, not
+      // "already dirty" from events that happened before anything was
+      // actually edited.
+      historyRef.current = [];
+      setCanUndo(false);
     },
     [draw],
   );
