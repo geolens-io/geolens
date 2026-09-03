@@ -332,6 +332,61 @@ describe('LineGradientControls — UI', () => {
       expect(gradientCalls).toHaveLength(0);
       expect(onBuilderChange).not.toHaveBeenCalled();
     });
+
+    // fix(round5 #1795, P2): a total-count comparison alone let a position
+    // edit SWAP one violation for a different one at the same count.
+    it('from [0, 0.5, 0.5, 1], moving index 2 to 0.4 is refused (swaps the violation, count stays 1)', () => {
+      const onPaintProp = vi.fn();
+      const onBuilderChange = vi.fn();
+      const stops = [
+        { position: 0, color: '#000', id: 'a' },
+        { position: 0.5, color: '#111', id: 'b' },
+        { position: 0.5, color: '#222', id: 'c' },
+        { position: 1, color: '#333', id: 'd' },
+      ];
+      render(
+        <LineGradientControls
+          paint={{ 'line-gradient': stopsToLineGradientExpression(stops) }}
+          styleConfig={{ builder: { lineGradient: { stops } } } as unknown as StyleConfig}
+          onPaintProp={onPaintProp}
+          onBuilderChange={onBuilderChange}
+          t={t}
+        />,
+      );
+      const positionInputs = screen.getAllByRole('spinbutton', { name: 'style.lineGradient.position' });
+      fireEvent.change(positionInputs[2], { target: { value: '0.4' } });
+
+      const gradientCalls = onPaintProp.mock.calls.filter((c: unknown[]) => c[0] === 'line-gradient');
+      expect(gradientCalls).toHaveLength(0);
+      expect(onBuilderChange).not.toHaveBeenCalled();
+    });
+
+    it('from [0, 0.5, 0.5, 1], moving index 2 to 0.6 commits (both pairs it touches are ascending)', () => {
+      const onPaintProp = vi.fn();
+      const onBuilderChange = vi.fn();
+      const stops = [
+        { position: 0, color: '#000', id: 'a' },
+        { position: 0.5, color: '#111', id: 'b' },
+        { position: 0.5, color: '#222', id: 'c' },
+        { position: 1, color: '#333', id: 'd' },
+      ];
+      render(
+        <LineGradientControls
+          paint={{ 'line-gradient': stopsToLineGradientExpression(stops) }}
+          styleConfig={{ builder: { lineGradient: { stops } } } as unknown as StyleConfig}
+          onPaintProp={onPaintProp}
+          onBuilderChange={onBuilderChange}
+          t={t}
+        />,
+      );
+      const positionInputs = screen.getAllByRole('spinbutton', { name: 'style.lineGradient.position' });
+      fireEvent.change(positionInputs[2], { target: { value: '0.6' } });
+
+      const lastBuilderCall = onBuilderChange.mock.calls[onBuilderChange.mock.calls.length - 1];
+      expect(lastBuilderCall).toBeDefined();
+      const committedStops = lastBuilderCall[0].lineGradient.stops as Array<{ position: number }>;
+      expect(committedStops.map((s) => s.position)).toEqual([0, 0.5, 0.6, 1]);
+    });
   });
 
   it('ui: line-gradient remove buttons are disabled at the minimum of 2 stops', () => {

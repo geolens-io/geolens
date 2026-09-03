@@ -50,6 +50,29 @@ function countOrderViolations(stops: ReadonlyArray<{ position: number }>): numbe
   return count;
 }
 
+/**
+ * fix(round5 #1795, P2): comparing total violation counts alone lets a
+ * position edit SWAP one violation for a different one at the same total
+ * count — e.g. [0, 0.5, 0.5, 1] -> [0, 0.5, 0.4, 1] keeps the count at 1
+ * (the duplicate at (1,2) becomes a descending pair at (1,2) instead) but
+ * still commits a list maplibre-gl rejects. Returns the indices (into
+ * `next`) whose POSITION differs from `prev` at the same array index —
+ * only meaningful when `prev` and `next` are the same length (an add/remove
+ * changes the shape entirely and is governed by the total-count check
+ * alone, same as a colour-only or removal edit).
+ */
+function editedPositionIndices(
+  prev: ReadonlyArray<{ position: number }> | null,
+  next: ReadonlyArray<{ position: number }>,
+): number[] {
+  if (!prev || prev.length !== next.length) return [];
+  const indices: number[] = [];
+  for (let i = 0; i < next.length; i++) {
+    if (next[i].position !== prev[i].position) indices.push(i);
+  }
+  return indices;
+}
+
 // Permissive allowlist for the raw-expression structural validator. The goal
 // is to reject obvious garbage (random strings, plain objects, unknown ops)
 // before commit; full MapLibre semantic validation happens at runtime.
@@ -215,6 +238,20 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
     // surfaces the duplicatePosition warning below.
     const previousViolations = liveStops ? countOrderViolations(liveStops) : 0;
     if (countOrderViolations(nextStops) > previousViolations) return;
+    // fix(round5 #1795 P2): the total-count check above is not enough on
+    // its own — it lets a position edit SWAP one violation for a different
+    // one at the same count (e.g. [0, 0.5, 0.5, 1] -> [0, 0.5, 0.4, 1]: the
+    // duplicate at (1,2) becomes a descending pair at (1,2) instead, count
+    // stays 1, but the result is still a list maplibre-gl rejects). For
+    // every index whose POSITION actually changed (colour-only and
+    // add/remove edits touch none), both pairs it participates in — (i-1,i)
+    // and (i,i+1) — must be strictly ascending after the edit. A colour-only
+    // change or a structural add/remove has no edited index here, so it
+    // stays governed by the total-count check alone.
+    for (const i of editedPositionIndices(liveStops, nextStops)) {
+      if (i > 0 && nextStops[i - 1].position >= nextStops[i].position) return;
+      if (i < nextStops.length - 1 && nextStops[i].position >= nextStops[i + 1].position) return;
+    }
     // Compose the next paint snapshot once and pass it to both callbacks so the
     // upstream save sees a single consistent state. Without `nextPaint`,
     // `onBuilderChange` would resolve `paint` from a stale closure and shadow
