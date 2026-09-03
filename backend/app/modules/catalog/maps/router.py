@@ -953,6 +953,10 @@ async def _record_image_capture(
 
     ``synchronize_session=False`` because both callers return 204 and never read
     the ORM object back.
+
+    fix(#1778 round 6): does NOT commit. The commit moved out to the callers so
+    each one can mark its publication immediately before awaiting it, which is
+    what makes an indeterminate commit outcome non-destructive.
     """
     await db.execute(
         update(Map)
@@ -964,7 +968,6 @@ async def _record_image_capture(
         )
         .execution_options(synchronize_session=False)
     )
-    await db.commit()
 
 
 @router.put(
@@ -1078,9 +1081,13 @@ async def upload_thumbnail(
         publication.record(physical_key)
 
         await _record_image_capture(db, map_id, thumbnail_uri=storage_key)
-        # fix(#1778 round 5): the commit inside _record_image_capture is the
-        # boundary, not the end of this block. Settling here means anything that
-        # runs after it cannot roll back an object the committed row names.
+        # fix(#1778 round 5): the commit is the boundary, not the end of this
+        # block. Settling on it means anything that runs after cannot roll back
+        # an object the committed row names. fix(#1778 round 6): and marking
+        # before it means a commit whose outcome never came back deletes
+        # nothing, because it does not say whether the row landed.
+        publication.committing()
+        await db.commit()
         publication.settled()
 
     if previous_key and previous_key != storage_key:
@@ -1232,9 +1239,13 @@ async def upload_og_image(
         publication.record(physical_key)
 
         await _record_image_capture(db, map_id, og_image_uri=storage_key)
-        # fix(#1778 round 5): the commit inside _record_image_capture is the
-        # boundary, not the end of this block. Settling here means anything that
-        # runs after it cannot roll back an object the committed row names.
+        # fix(#1778 round 5): the commit is the boundary, not the end of this
+        # block. Settling on it means anything that runs after cannot roll back
+        # an object the committed row names. fix(#1778 round 6): and marking
+        # before it means a commit whose outcome never came back deletes
+        # nothing, because it does not say whether the row landed.
+        publication.committing()
+        await db.commit()
         publication.settled()
 
     if previous_key and previous_key != storage_key:

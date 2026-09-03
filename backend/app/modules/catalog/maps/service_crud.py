@@ -215,6 +215,7 @@ class MapAssetPublication:
 
     def __init__(self) -> None:
         self._pending: list[str] = []
+        self._outcome_known = True
 
     def record(self, physical_key: str) -> None:
         """Note an object that exists but is not named by a committed row yet.
@@ -228,6 +229,31 @@ class MapAssetPublication:
         """
         self._pending.append(physical_key)
 
+    def committing(self) -> None:
+        """A commit is about to be awaited, so its outcome stops being knowable.
+
+        fix(#1778 round 6): a lost connection between PostgreSQL making the
+        commit durable and the acknowledgement arriving raises out of the await
+        for a transaction that DID commit. Settling never runs, the exception
+        path treats the write as unpublished, and the object a committed row now
+        references is deleted. From this mark until ``settled``, an exception
+        says nothing about whether the row landed, so nothing is deleted.
+
+        The cost of that is one object left behind when the commit genuinely
+        failed, on a path that is already rare. The alternative, verifying from
+        an independent session before deleting, buys back that object at the
+        price of a database call on an error path, on a connection that has just
+        proven unreliable, to decide a deletion. This module already answers
+        that trade the same way twice (the liveness read in
+        ``discard_map_asset_objects``, and skipping rather than guessing): an
+        orphan costs storage, a wrongly deleted object costs the image.
+
+        Call it as the statement immediately before the commit:
+        ``test_every_publication_marks_before_committing_1778`` fails the build
+        otherwise.
+        """
+        self._outcome_known = False
+
     def settled(self) -> None:
         """The row naming every recorded object is committed. Stop tracking.
 
@@ -236,10 +262,16 @@ class MapAssetPublication:
         fails the build otherwise.
         """
         self._pending.clear()
+        self._outcome_known = True
 
     @property
     def pending(self) -> tuple[str, ...]:
         return tuple(self._pending)
+
+    @property
+    def outcome_unknown(self) -> bool:
+        """True between ``committing`` and ``settled``: nothing may be deleted."""
+        return not self._outcome_known
 
 
 @asynccontextmanager
@@ -256,7 +288,8 @@ async def map_asset_publication() -> AsyncIterator[MapAssetPublication]:
     Cleanup runs on any exception, including an HTTPException the handler raises
     itself, and never replaces it: a failure to tidy up is logged and dropped so
     the caller still sees what actually went wrong. It runs only on what is
-    still pending, so a settled publication rolls nothing back.
+    still pending, so a settled publication rolls nothing back, and it does not
+    run at all while a commit's outcome is indeterminate (see ``committing``).
     """
     from app.platform.storage.provider import get_storage
 
@@ -264,6 +297,15 @@ async def map_asset_publication() -> AsyncIterator[MapAssetPublication]:
     try:
         yield publication
     except BaseException:
+        if publication.outcome_unknown:
+            # fix(#1778 round 6): the exception arrived while a commit was in
+            # flight, so it does not say whether the row landed. Deleting here
+            # is the one irreversible option available.
+            logger.warning(
+                "map_asset_publication_rollback_skipped_indeterminate_commit",
+                storage_keys=list(publication.pending),
+            )
+            raise
         for physical_key in publication.pending:
             try:
                 await get_storage().delete(physical_key)

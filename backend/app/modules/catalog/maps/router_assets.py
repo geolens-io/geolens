@@ -66,10 +66,13 @@ async def upload_map_icon_endpoint(
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        await db.commit()
         # fix(#1778 round 5): settle on the commit, and keep the refresh below
         # outside the scope. A refresh that raises after a successful commit
         # would otherwise have deleted an icon the committed row references.
+        # fix(#1778 round 6): mark before awaiting it, so a commit that made the
+        # row durable but never acknowledged it deletes nothing either.
+        publication.committing()
+        await db.commit()
         publication.settled()
     await db.refresh(asset)
     return next(icon for icon in await list_icons(db) if icon.id == str(asset.id))

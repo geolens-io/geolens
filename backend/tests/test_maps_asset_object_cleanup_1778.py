@@ -821,23 +821,31 @@ class TestAFailedPublishLeavesNoObject:
         )
         assert served.status_code == 200
 
-    async def test_a_failed_icon_commit_removes_the_icon_object(
+    async def test_a_failed_icon_write_removes_the_icon_object(
         self, client: AsyncClient, admin_auth_header: dict, monkeypatch
     ) -> None:
-        """The third write-object-then-commit-row site in the package."""
+        """The third write-object-then-commit-row site in the package.
+
+        The failure is placed at the flush, which is after the object write and
+        before the commit. fix(#1778 round 6): a failure of the COMMIT itself is
+        a different case, covered below: its outcome is unknowable, so nothing
+        is deleted.
+        """
+        from PIL import Image
+
         before = set(await _storage().list("maps/icons/"))
 
-        async def _raise(self):
-            raise OSError("commit failed after the icon was written")
+        async def _raise(self, *args, **kwargs):
+            raise OSError("the row never landed after the icon was written")
 
         monkeypatch.setattr(
-            "sqlalchemy.ext.asyncio.AsyncSession.commit", _raise, raising=True
+            "sqlalchemy.ext.asyncio.AsyncSession.flush", _raise, raising=True
         )
 
         png = BytesIO()
-        from PIL import Image
-
         Image.new("RGB", (8, 8), color=(1, 2, 3)).save(png, format="PNG")
+        # A bare OSError is not one of the database errors the app maps to a
+        # 5xx, so it comes straight out of the client here.
         with pytest.raises(OSError):
             await client.post(
                 "/maps/icons",
@@ -846,6 +854,39 @@ class TestAFailedPublishLeavesNoObject:
             )
 
         assert set(await _storage().list("maps/icons/")) == before
+
+    async def test_a_commit_that_fails_outright_still_keeps_the_object(
+        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        """The accepted cost of fix(#1778 round 6), written down.
+
+        Once the commit has been awaited its outcome is unknowable from the
+        exception, so a commit that genuinely failed leaves its object behind
+        rather than risking one that genuinely landed. This asserts the cost so
+        it is a decision rather than a surprise, and so tightening the rule
+        later has to come past this test.
+        """
+        from PIL import Image
+
+        before = set(await _storage().list("maps/icons/"))
+
+        async def _raise(self, *args, **kwargs):
+            raise OSError("commit failed, and this exception cannot say whether")
+
+        monkeypatch.setattr(
+            "sqlalchemy.ext.asyncio.AsyncSession.commit", _raise, raising=True
+        )
+
+        png = BytesIO()
+        Image.new("RGB", (8, 8), color=(1, 2, 3)).save(png, format="PNG")
+        with pytest.raises(OSError):
+            await client.post(
+                "/maps/icons",
+                files={"file": ("icon.png", png.getvalue(), "image/png")},
+                headers=admin_auth_header,
+            )
+
+        assert len(set(await _storage().list("maps/icons/")) - before) == 1
 
 
 def test_every_object_write_in_the_maps_package_is_published_1778() -> None:
@@ -926,19 +967,91 @@ def test_every_publication_settles_at_the_commit_1778() -> None:
             if not opens:
                 continue
             blocks += 1
-            last = node.body[-1]
-            settles = (
-                isinstance(last, ast.Expr)
-                and isinstance(last.value, ast.Await)
-                is False  # settled() is sync; an await here would be a different call
-                and isinstance(last.value, ast.Call)
-                and isinstance(last.value.func, ast.Attribute)
-                and last.value.func.attr == "settled"
-            )
-            if not settles:
-                offenders.append(f"{path.name}:{node.lineno}")
+            if not _calls(node.body[-1], "settled"):
+                offenders.append(f"{path.name}:{node.lineno} does not settle last")
 
     assert blocks == 3, blocks
+    assert offenders == [], offenders
+
+
+def _calls(statement, attribute: str) -> bool:
+    """True when ``statement`` is a bare call to ``<something>.<attribute>()``."""
+    import ast
+
+    if not isinstance(statement, ast.Expr):
+        return False
+    call = statement.value
+    return (
+        isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == attribute
+    )
+
+
+def _awaits_commit(statement) -> bool:
+    import ast
+
+    if not isinstance(statement, ast.Expr) or not isinstance(
+        statement.value, ast.Await
+    ):
+        return False
+    call = statement.value.value
+    return (
+        isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == "commit"
+    )
+
+
+def test_every_publication_marks_before_committing_1778() -> None:
+    """fix(#1778 round 6): an indeterminate commit outcome deletes nothing.
+
+    A connection lost between PostgreSQL making the commit durable and the
+    acknowledgement arriving raises out of the await for a transaction that DID
+    commit, so the exception path would delete an object the committed row
+    references. ``committing()`` immediately before the await is what makes that
+    case non-destructive, and this requires the three statements to sit in that
+    order in every publication block: mark, commit, settle.
+    """
+    import ast
+    from pathlib import Path
+
+    package = Path(__file__).resolve().parents[1] / "app/modules/catalog/maps"
+    commits = 0
+    offenders: list[str] = []
+    for path in sorted(package.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.AsyncWith):
+                continue
+            if not any(
+                isinstance(item.context_expr, ast.Call)
+                and isinstance(item.context_expr.func, ast.Name)
+                and item.context_expr.func.id == "map_asset_publication"
+                for item in node.items
+            ):
+                continue
+            where = f"{path.name}:{node.lineno}"
+            committing = [
+                index
+                for index, statement in enumerate(node.body)
+                if _awaits_commit(statement)
+            ]
+            if len(committing) != 1:
+                offenders.append(f"{where} has {len(committing)} commits, expected 1")
+                continue
+            commits += 1
+            index = committing[0]
+            if index == 0 or not _calls(node.body[index - 1], "committing"):
+                offenders.append(f"{where} does not mark immediately before its commit")
+            if index + 1 >= len(node.body) or not _calls(
+                node.body[index + 1], "settled"
+            ):
+                offenders.append(
+                    f"{where} does not settle immediately after its commit"
+                )
+
+    assert commits == 3, commits
     assert offenders == [], offenders
 
 
@@ -1056,3 +1169,176 @@ class TestAFailureAfterTheCommitKeepsTheObject:
             provider_module._storage = original
 
         assert deleted == ["maps/thumbnails/pending.jpg"]
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778 round 6): an indeterminate commit outcome deletes nothing
+# ---------------------------------------------------------------------------
+
+
+def _lose_the_ack_after_committing(monkeypatch):
+    """Commit for real, then raise as if the connection died before the ack.
+
+    The shape that matters: PostgreSQL has made the transaction durable and a
+    second session can see it, and the await still raises. Keying the rollback
+    on "did the block raise" deletes an object the committed row references.
+    """
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    original_commit = AsyncSession.commit
+
+    async def _commit_then_lose_the_ack(self, *args, **kwargs):
+        await original_commit(self, *args, **kwargs)
+        raise OperationalError(
+            "COMMIT", {}, Exception("connection reset before the acknowledgement")
+        )
+
+    monkeypatch.setattr(AsyncSession, "commit", _commit_then_lose_the_ack)
+    return OperationalError
+
+
+class TestAnIndeterminateCommitKeepsTheObject:
+    @pytest.mark.parametrize(
+        ("route", "prefix", "column"),
+        [
+            ("thumbnail", "maps/thumbnails", "thumbnail_uri"),
+            ("og-image", "maps/og-images", "og_image_uri"),
+        ],
+    )
+    async def test_an_image_the_row_committed_is_not_deleted(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        monkeypatch,
+        test_db_session,
+        route: str,
+        prefix: str,
+        column: str,
+    ) -> None:
+        from sqlalchemy import select
+
+        from app.modules.catalog.maps.models import Map
+
+        map_id = await _create_map(client, admin_auth_header)
+        _lose_the_ack_after_committing(monkeypatch)
+
+        # The app maps a lost connection to a 5xx rather than letting it out, so
+        # the caller is told the upload failed for a row that did commit. That
+        # is exactly why the object must not be deleted on the way out.
+        resp = await client.put(
+            f"/maps/{map_id}/{route}/",
+            json={"data_uri": _jpeg_data_uri()},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code >= 500, resp.status_code
+
+        monkeypatch.undo()
+        # A second session: the row really is committed, which is what makes
+        # deleting the object it names the wrong move.
+        committed = (
+            await test_db_session.execute(
+                select(getattr(Map, column)).where(Map.id == uuid.UUID(map_id))
+            )
+        ).scalar_one()
+        assert committed is not None
+        assert await _storage().exists(committed)
+        assert await _objects(prefix, map_id) == {committed}
+
+        served = await client.get(f"/maps/{map_id}/{route}/", headers=admin_auth_header)
+        assert served.status_code == 200, served.text
+
+    async def test_an_icon_the_row_committed_is_not_deleted(
+        self, client: AsyncClient, admin_auth_header: dict, monkeypatch, test_db_session
+    ) -> None:
+        from sqlalchemy import delete, select
+
+        from PIL import Image
+
+        from app.modules.catalog.maps.models import MapIconAsset
+        from app.modules.catalog.maps.sprites import clear_sprite_cache
+
+        before = set(await _storage().list("maps/icons/"))
+        _lose_the_ack_after_committing(monkeypatch)
+
+        png = BytesIO()
+        Image.new("RGB", (8, 8), color=(7, 8, 9)).save(png, format="PNG")
+        try:
+            resp = await client.post(
+                "/maps/icons",
+                files={"file": ("icon.png", png.getvalue(), "image/png")},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code >= 500, resp.status_code
+
+            monkeypatch.undo()
+            added = set(await _storage().list("maps/icons/")) - before
+            assert len(added) == 1, added
+            key = added.pop()
+            committed = (
+                await test_db_session.execute(
+                    select(MapIconAsset.id).where(MapIconAsset.storage_key == key)
+                )
+            ).scalar_one_or_none()
+            assert committed is not None
+            assert await _storage().exists(key)
+        finally:
+            monkeypatch.undo()
+            keys = [k for k in await _storage().list("maps/icons/") if k not in before]
+            if keys:
+                await test_db_session.execute(
+                    delete(MapIconAsset).where(MapIconAsset.storage_key.in_(keys))
+                )
+                await test_db_session.commit()
+            clear_sprite_cache()
+
+    async def test_a_marked_publication_rolls_nothing_back(self) -> None:
+        """The unit shape: after the mark, an exception says nothing."""
+        from app.modules.catalog.maps.service import map_asset_publication
+
+        deleted: list[str] = []
+
+        class _Storage:
+            async def delete(self, key: str) -> None:
+                deleted.append(key)
+
+        import app.platform.storage.provider as provider_module
+
+        original = provider_module._storage
+        provider_module._storage = _Storage()
+        try:
+            with pytest.raises(RuntimeError):
+                async with map_asset_publication() as publication:
+                    publication.record("maps/thumbnails/in-flight.jpg")
+                    publication.committing()
+                    raise RuntimeError("the commit outcome never came back")
+        finally:
+            provider_module._storage = original
+
+        assert deleted == []
+
+    async def test_settling_restores_the_ordinary_rollback(self) -> None:
+        """A later write in the same scope is not covered by an earlier mark."""
+        from app.modules.catalog.maps.service import map_asset_publication
+
+        deleted: list[str] = []
+
+        class _Storage:
+            async def delete(self, key: str) -> None:
+                deleted.append(key)
+
+        import app.platform.storage.provider as provider_module
+
+        original = provider_module._storage
+        provider_module._storage = _Storage()
+        try:
+            with pytest.raises(RuntimeError):
+                async with map_asset_publication() as publication:
+                    publication.committing()
+                    publication.settled()
+                    publication.record("maps/thumbnails/after-settling.jpg")
+                    raise RuntimeError("a second write that never committed")
+        finally:
+            provider_module._storage = original
+
+        assert deleted == ["maps/thumbnails/after-settling.jpg"]

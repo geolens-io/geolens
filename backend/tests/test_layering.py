@@ -1645,7 +1645,16 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # object the committed row referenced. The class docstring carries that,
         # and record() carries the physical-vs-logical rule the two writers
         # depend on. Cap 708 -> 741, exact.
-        "backend/app/modules/catalog/maps/service_crud.py": 741,
+        # fix(#1778 round 6): +42 — committing() and outcome_unknown, the mark
+        # that makes an indeterminate commit non-destructive. A connection lost
+        # between PostgreSQL making the commit durable and the acknowledgement
+        # arriving raises for a transaction that DID commit, so the rollback
+        # would delete an object the committed row references. Most of the lines
+        # are the docstring recording the trade, and why the alternative of
+        # verifying from an independent session before deleting was refused: it
+        # is a database call on an error path, over a connection that has just
+        # proven unreliable, to decide a deletion. Cap 741 -> 783, exact.
+        "backend/app/modules/catalog/maps/service_crud.py": 783,
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the
         # carve-out exact so further growth requires another review.
@@ -2283,7 +2292,9 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # fix(#1778 round 5): +4 — the publication settles on the commit and the
     # refresh moved below the scope, which is the case that found the boundary
     # bug. Cap 149 -> 153.
-    "backend/app/modules/catalog/maps/router_assets.py": 153,
+    # fix(#1778 round 6): +3 — the icon commit is marked before it is awaited,
+    # the same as the two image handlers. Cap 153 -> 156.
+    "backend/app/modules/catalog/maps/router_assets.py": 156,
     # fix(#526 B-048): the card-route SPA-redirect fallback shell.
     # fix(#819): visibility-check owner-or-admin gate + rationale docstring.
     # fix(#1518 codex P2 round 3): 398 -> 404. +6 to apply the rule once, ahead
@@ -4816,7 +4827,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1778 round 5): +8 — both handlers settle the publication on the
     # commit inside _record_image_capture, so a failure after it cannot roll
     # back an object the committed row names. Cap 1526 -> 1534, exact.
-    "backend/app/modules/catalog/maps/router.py": 1534,
+    # fix(#1778 round 6): +11 — the commit moved out of _record_image_capture so
+    # each handler can mark its publication immediately before awaiting it, and
+    # a commit that made the row durable but never acknowledged it deletes
+    # nothing. Cap 1534 -> 1545, exact.
+    "backend/app/modules/catalog/maps/router.py": 1545,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.
