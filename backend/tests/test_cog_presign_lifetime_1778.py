@@ -16,9 +16,11 @@ import inspect
 import time
 from types import SimpleNamespace
 
+import pytest
+
 from app.modules.catalog.datasets.api.router_export import (
     _COG_PRESIGN_CEILING_SECONDS,
-    _COG_PRESIGN_FLOOR_SECONDS,
+    _COG_PRESIGN_MINIMUM_SECONDS,
     _cog_presign_seconds,
     _resolve_download_user,
     _s3_cog_response,
@@ -32,13 +34,28 @@ def _request_with(exp) -> object:
 def test_the_ceiling_is_on_the_order_of_the_mint_ttl():
     """120s minted, 300s ceiling. 3600 was 30x the window SEC-04 enforces."""
     assert _COG_PRESIGN_CEILING_SECONDS <= 300
-    assert _COG_PRESIGN_FLOOR_SECONDS <= _COG_PRESIGN_CEILING_SECONDS
+
+
+def test_there_is_no_floor_only_sigv4s_own_minimum():
+    """fix(#1778 codex r8): a floor mints a URL that outlives its credential.
+
+    `require_signable_job_lifetime` settled this for the upload doors: there is
+    no `ExpiresIn` value meaning "already dead", so the only way not to hand
+    out a live URL is not to sign one. The minimum here is SigV4's own bound on
+    `X-Amz-Expires`, not a policy choice.
+    """
+    import app.modules.catalog.datasets.api.router_export as module
+
+    assert _COG_PRESIGN_MINIMUM_SECONDS == 1
+    assert not hasattr(module, "_COG_PRESIGN_FLOOR_SECONDS"), (
+        "the floor is the defect; it must not come back under its old name"
+    )
 
 
 def test_presign_expires_with_the_download_token():
     request = _request_with(time.time() + 110)
     seconds = _cog_presign_seconds(request)
-    assert _COG_PRESIGN_FLOOR_SECONDS <= seconds <= 111
+    assert 0 < seconds <= 110
     assert seconds < _COG_PRESIGN_CEILING_SECONDS
 
 
@@ -47,10 +64,67 @@ def test_a_long_lived_deadline_is_still_capped():
     assert _cog_presign_seconds(request) == _COG_PRESIGN_CEILING_SECONDS
 
 
-def test_an_almost_expired_token_still_gets_a_usable_window():
-    """The bucket evaluates the deadline on arrival, and clocks disagree."""
-    request = _request_with(time.time() + 1)
-    assert _cog_presign_seconds(request) == _COG_PRESIGN_FLOOR_SECONDS
+@pytest.mark.parametrize(
+    "remaining", [30.0, 5.0, 2.0, 1.9, 1.0, 0.9, 0.5, 0.0, -0.5, -120.0]
+)
+def test_the_signature_never_outlives_the_token(remaining: float) -> None:
+    """fix(#1778 codex r8): the invariant, across the boundary.
+
+    Signed now for N seconds, the URL dies at now+N, and that must land at or
+    before the token's own expiry. The 60-second floor broke this for every
+    token with under a minute left: one second of credential bought a minute of
+    access to a private COG.
+
+    Stated as raise-or-fit rather than as an outcome per input, because at
+    exactly one second left the answer is a race between this function's clock
+    read and the boundary -- and BOTH outcomes are safe, which is the point. A
+    401 hands out nothing; a 1-second signature dies before the token does.
+    `test_a_live_token_still_gets_a_signature` stops that being satisfied by
+    always raising.
+    """
+    from fastapi import HTTPException
+
+    token_expiry = time.time() + remaining
+    # The clock BEFORE the call bounds the function's own read from below, so
+    # this comparison is exact rather than racing it. Reading it again after
+    # the call would be stricter than the code can be: `ExpiresIn` starts when
+    # the signature is minted, and the residual between reading the clock and
+    # signing is the one `sign_url_with_deadline` documents as irreducible.
+    # Truncation is what covers it here -- int() discards the fraction, which
+    # is headroom in the safe direction.
+    before = time.time()
+    try:
+        signed_for = _cog_presign_seconds(_request_with(token_expiry))
+    except HTTPException as exc:
+        assert exc.status_code == 401
+        assert "expired" in exc.detail.lower()
+        return
+
+    assert signed_for >= _COG_PRESIGN_MINIMUM_SECONDS
+    assert before + signed_for <= token_expiry, (
+        f"a {remaining}s token bought {signed_for}s of bucket access"
+    )
+
+
+@pytest.mark.parametrize("remaining", [2.0, 10.0, 119.0])
+def test_a_live_token_still_gets_a_signature(remaining: float) -> None:
+    """The counterweight: refusing everything would satisfy the invariant."""
+    signed_for = _cog_presign_seconds(_request_with(time.time() + remaining))
+    assert _COG_PRESIGN_MINIMUM_SECONDS <= signed_for <= remaining
+
+
+@pytest.mark.parametrize("remaining", [0.9, 0.0, -0.5, -120.0])
+def test_a_token_with_nothing_left_is_refused_not_rounded_up(
+    remaining: float,
+) -> None:
+    """Below SigV4's one-second minimum there is nothing safe to mint."""
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as excinfo:
+        _cog_presign_seconds(_request_with(time.time() + remaining))
+
+    assert excinfo.value.status_code == 401
+    assert "expired" in excinfo.value.detail.lower()
 
 
 def test_callers_without_a_download_token_get_the_ceiling():
