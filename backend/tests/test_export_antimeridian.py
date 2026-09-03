@@ -316,13 +316,13 @@ class TestAntimeridianExportEndToEnd:
         from app.modules.catalog.features.service import get_features
         from app.processing.export.parquet import export_parquet
 
-        rows, _total, _estimated = await get_features(
+        page = await get_features(
             test_db_session,
             antimeridian_table,
             limit=100,
             bbox=CROSSING_BBOX,
         )
-        features_names = sorted(r["properties"]["name"] for r in rows)
+        features_names = sorted(r["properties"]["name"] for r in page.rows)
 
         # fix(#1513): planning (introspection + filter validation + the bounded
         # count) is a separate phase from writing, so the route can decide a

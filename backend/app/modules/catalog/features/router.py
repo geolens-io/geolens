@@ -49,7 +49,6 @@ from app.modules.catalog.features.service import (
     UnwritablePropertyError,
     delete_feature,
     effective_geometry_type,
-    feature_bounds,
     geojson_bounds,
     get_feature_by_id,
     get_features,
@@ -351,7 +350,7 @@ async def list_features(
 
     # Query features
     try:
-        rows, total, total_is_estimate = await get_features(
+        page = await get_features(
             db,
             dataset.table_name,
             limit=limit,
@@ -395,7 +394,7 @@ async def list_features(
             geometry=row["geometry"],
             properties=row["properties"],
         )
-        for row in rows
+        for row in page.rows
     ]
 
     # Build pagination links
@@ -417,7 +416,10 @@ async def list_features(
         },
     ]
 
-    if offset + limit < total:
+    # fix(#1778 review r1): `next` follows the over-fetched row, not the count.
+    # numberMatched may be the planner's estimate, and an estimate at or below
+    # `offset + limit` used to drop the link with a full page on screen.
+    if page.has_more:
         next_params = {"offset": str(offset + limit), "limit": str(limit)}
         next_params.update(active_params)
         links.append(
@@ -444,7 +446,7 @@ async def list_features(
         )
 
     response = GeoJSONFeatureCollection(
-        numberMatched=total,
+        numberMatched=page.total,
         numberReturned=len(features),
         features=features,
         links=links,
@@ -453,7 +455,7 @@ async def list_features(
     return JSONResponse(
         content=response.model_dump(mode="json"),
         media_type="application/geo+json",
-        headers=number_matched_headers(total_is_estimate),
+        headers=number_matched_headers(page.total_is_estimate),
     )
 
 
@@ -667,12 +669,8 @@ async def replace_single_feature(
     await require_dataset_editing_enabled(db)
     _require_feature_table(dataset)
 
-    # fix(#1778): read where the row is BEFORE moving it. A primary-key lookup,
-    # and it is what lets the metadata refresh skip the full-table aggregate.
-    prior_bounds = await feature_bounds(db, dataset.table_name, gid)
-
     try:
-        row = await replace_feature(
+        written = await replace_feature(
             db,
             dataset.table_name,
             gid,
@@ -702,13 +700,19 @@ async def replace_single_feature(
         await db.rollback()
         raise _feature_write_db_error(exc)
 
+    row = written.feature
+
     # fix(#1778): row count unchanged; the extent is unchanged too when both
-    # the old and the new envelope sit strictly inside it.
+    # the old and the new envelope sit strictly inside it. The old envelope
+    # comes back from the UPDATE that overwrote it (fix(#1778 review r1)).
     await refresh_dataset_metadata(
         db,
         dataset,
         count_delta=0,
-        touched_bounds=[prior_bounds, geojson_bounds(body.geometry.model_dump())],
+        touched_bounds=[
+            written.prior_bounds,
+            geojson_bounds(body.geometry.model_dump()),
+        ],
     )
     dataset.record.updated_by = user.id
     await audit_emit(
@@ -775,16 +779,8 @@ async def patch_single_feature(
     await require_dataset_editing_enabled(db)
     _require_feature_table(dataset)
 
-    # fix(#1778): see replace_single_feature. Read even on a property-only
-    # PATCH is avoidable, so this runs only when the body carries geometry.
-    prior_bounds = (
-        await feature_bounds(db, dataset.table_name, gid)
-        if body.geometry is not None
-        else None
-    )
-
     try:
-        row = await update_feature(
+        written = await update_feature(
             db,
             dataset.table_name,
             gid,
@@ -814,6 +810,8 @@ async def patch_single_feature(
         await db.rollback()
         raise _feature_write_db_error(exc)
 
+    row = written.feature
+
     # Only refresh metadata if geometry changed (extent may change)
     if body.geometry is not None:
         # fix(#1778): same reasoning as replace.
@@ -821,7 +819,10 @@ async def patch_single_feature(
             db,
             dataset,
             count_delta=0,
-            touched_bounds=[prior_bounds, geojson_bounds(body.geometry.model_dump())],
+            touched_bounds=[
+                written.prior_bounds,
+                geojson_bounds(body.geometry.model_dump()),
+            ],
         )
     dataset.record.updated_by = user.id
     await audit_emit(
@@ -881,11 +882,10 @@ async def delete_single_feature(
     await require_dataset_editing_enabled(db)
     _require_feature_table(dataset)
 
-    # fix(#1778): see replace_single_feature; the row is gone after the delete.
-    prior_bounds = await feature_bounds(db, dataset.table_name, gid)
-
     try:
-        await delete_feature(db, dataset.table_name, gid)
+        # fix(#1778 review r1): the DELETE returns the envelope it removed, so
+        # the metadata refresh reasons about the version actually deleted.
+        prior_bounds = await delete_feature(db, dataset.table_name, gid)
     except ValueError as e:
         if "not found" in str(e).lower():
             raise HTTPException(

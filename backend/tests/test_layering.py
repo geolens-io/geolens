@@ -4735,7 +4735,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # at all, and why the type merge is insert-only (a delete can narrow the
     # derived type and no merge of the stored value can see that).
     # Cap 1187 -> 1384, exact.
-    "backend/app/modules/catalog/features/service.py": 1384,
+    #
+    # fix(#1778 review r1): +107 for two review findings. The page now
+    # over-fetches one row and reports `has_more`, because a `next` link
+    # decided by `offset + limit < total` disappears with a full page on screen
+    # whenever the count is the planner's estimate; whether another row exists
+    # is a fact about rows, so FeaturePage carries it and no router re-derives
+    # one. And the envelope a write overwrites is captured BY the mutating
+    # statement (DELETE ... RETURNING, and a locking CTE for UPDATE) instead of
+    # by an unlocked SELECT before it, with the record row locked before either
+    # metadata path reads the extent. The lines are the two NamedTuples, the
+    # prior-bounds SQL helpers, and the comments recording which race each
+    # closes. Cap 1384 -> 1491, exact.
+    "backend/app/modules/catalog/features/service.py": 1491,
 }
 
 

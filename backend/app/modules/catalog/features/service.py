@@ -8,7 +8,7 @@ import re
 from collections.abc import Callable, Sequence
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from shapely import to_geojson
 from shapely.errors import GEOSException
@@ -465,6 +465,25 @@ async def _property_filter_predicates(
 # `offset + limit < total` cannot truncate pagination at the cap.
 _FILTERED_COUNT_CAP = 20_000
 
+
+class FeaturePage(NamedTuple):
+    """One page of features plus what the caller needs to paginate it.
+
+    fix(#1778 review r1): ``has_more`` exists because ``total`` may be the
+    planner's estimate. A router that decided its `next` link from
+    ``offset + limit < total`` would drop the link mid-result-set whenever the
+    estimate came back at or below the rows already served, stranding the
+    caller with a full page and nowhere to go. Whether another row exists is a
+    fact about the rows, so it is answered by over-fetching one and never by
+    the count.
+    """
+
+    rows: list[dict]
+    total: int
+    total_is_estimate: bool
+    has_more: bool
+
+
 NUMBER_MATCHED_HEADER = "X-GeoLens-Number-Matched"
 
 
@@ -543,13 +562,16 @@ async def get_features(
     after_gid: int | None = None,
     cql2_where: str | None = None,
     cql2_binds: Sequence | None = None,
-) -> tuple[list[dict], int, bool]:
+) -> FeaturePage:
     """Fetch paginated features from a data table as GeoJSON-ready dicts.
 
-    Returns (rows, total_count, total_is_estimate) where each row has gid,
-    geometry, and properties. ``total_is_estimate`` is True when the filtered
-    match set is larger than ``_FILTERED_COUNT_CAP`` and ``total_count`` is the
-    planner's row estimate rather than an exact count (fix(#1778)).
+    Returns a ``FeaturePage`` whose rows each have gid, geometry and
+    properties. ``total_is_estimate`` is True when the filtered match set is
+    larger than ``_FILTERED_COUNT_CAP`` and ``total`` is the planner's row
+    estimate rather than an exact count (fix(#1778)). ``has_more`` says whether
+    a further row exists after this page, measured by fetching one more row
+    than asked for; pagination links must be built from it and never from
+    ``total`` (fix(#1778 review r1)).
 
     Phase 269 H-24: when ``after_gid`` is provided, uses keyset pagination
     (``WHERE gid > :after_gid``) instead of OFFSET. This avoids the
@@ -650,7 +672,9 @@ async def get_features(
             f"{where_sql} ORDER BY gid LIMIT :limit OFFSET :offset"
         )
         bind_values["offset"] = offset
-    bind_values["limit"] = limit
+    # One row past the page, so `has_more` is a fact about the rows rather than
+    # a comparison against a count that may be estimated (fix(#1778 review r1)).
+    bind_values["limit"] = limit + 1
 
     # Typed BindParameters (codex r3) — see the cql2_binds docstring note — plus
     # the property-filter binds typed from the live schema (fix(#1778)). Both
@@ -665,6 +689,9 @@ async def get_features(
         _with_extra_binds(text(data_sql).bindparams(**bind_values))
     )
     rows = [dict(row._mapping) for row in result.all()]
+    has_more = len(rows) > limit
+    if has_more:
+        rows = rows[:limit]
 
     # Count query (same WHERE *minus* the after_gid cursor, no LIMIT/OFFSET).
     # The keyset cursor must be excluded from the count so total reflects the
@@ -676,17 +703,24 @@ async def get_features(
 
     # Use cached feature_count when no filters are active
     if not count_where_clauses and cached_feature_count is not None:
-        return rows, cached_feature_count, False
+        total, total_is_estimate = cached_feature_count, False
+    else:
+        count_bind = {
+            k: v
+            for k, v in bind_values.items()
+            if k not in ("limit", "offset", "after_gid")
+        }
+        total, total_is_estimate = await _bounded_total(
+            db, table_name, count_where_sql, count_bind, _with_extra_binds
+        )
 
-    count_bind = {
-        k: v
-        for k, v in bind_values.items()
-        if k not in ("limit", "offset", "after_gid")
-    }
-    total, total_is_estimate = await _bounded_total(
-        db, table_name, count_where_sql, count_bind, _with_extra_binds
-    )
-    return rows, total, total_is_estimate
+    # fix(#1778 review r1): the total never claims fewer rows than this page has
+    # already shown, plus the one more we know is there. An estimate below the
+    # cap, or a stale cached feature_count, would otherwise make numberMatched
+    # contradict the features beside it in the same response.
+    served = offset + len(rows)
+    total = max(total, served + 1 if has_more else served)
+    return FeaturePage(rows, total, total_is_estimate, has_more)
 
 
 async def get_features_geojson_z(
@@ -764,6 +798,16 @@ async def get_feature_by_id(
 # ---------------------------------------------------------------------------
 # Write operations
 # ---------------------------------------------------------------------------
+
+
+class FeatureWrite(NamedTuple):
+    """The written feature plus the envelope of the version it overwrote.
+
+    ``prior_bounds`` is None when the overwritten row carried no geometry.
+    """
+
+    feature: dict
+    prior_bounds: "Bounds | None"
 
 
 async def _geom_column_is_generic(session: AsyncSession, table_name: str) -> bool:
@@ -967,18 +1011,18 @@ async def replace_feature(
             sets.append(f'"{col_name}" = :{param}')
             params[param] = properties.get(col_name)
 
-    sql = (
-        f"UPDATE {get_catalog_port().quote_table(table_name)} "
-        f"SET {', '.join(sets)} WHERE gid = :gid"
+    sql = _update_capturing_prior_bounds(
+        get_catalog_port().quote_table(table_name), sets
     )
     result = await db.execute(text(sql).bindparams(**params))
-    if result.rowcount == 0:
+    prior = result.first()
+    if prior is None:
         raise ValueError("Feature not found")
 
     row = await get_feature_by_id(db, table_name, gid)
     if row is None:
         raise RuntimeError(f"Feature {gid} not found immediately after replace")
-    return row
+    return FeatureWrite(row, _prior_bounds_from_row(prior))
 
 
 async def update_feature(
@@ -1023,36 +1067,44 @@ async def update_feature(
     if not sets:
         raise ValueError("Nothing to update")
 
-    sql = (
-        f"UPDATE {get_catalog_port().quote_table(table_name)} "
-        f"SET {', '.join(sets)} WHERE gid = :gid"
+    sql = _update_capturing_prior_bounds(
+        get_catalog_port().quote_table(table_name), sets
     )
     result = await db.execute(text(sql).bindparams(**params))
-    if result.rowcount == 0:
+    prior = result.first()
+    if prior is None:
         raise ValueError("Feature not found")
 
     row = await get_feature_by_id(db, table_name, gid)
     if row is None:
         raise RuntimeError(f"Feature {gid} not found immediately after update")
-    return row
+    return FeatureWrite(row, _prior_bounds_from_row(prior))
 
 
 async def delete_feature(
     db: AsyncSession,
     table_name: str,
     gid: int,
-) -> None:
-    """Hard-delete a feature by gid.
+) -> Bounds | None:
+    """Hard-delete a feature by gid, returning the envelope it removed.
+
+    The envelope comes back from the DELETE itself, so it describes the row
+    version this statement actually removed even if another transaction moved
+    the feature first (see _PRIOR_BOUNDS_COLS). None when the deleted row had
+    no geometry.
 
     Raises ValueError if the feature does not exist.
     """
     result = await db.execute(
         text(
-            f"DELETE FROM {get_catalog_port().quote_table(table_name)} WHERE gid = :gid"
+            f"DELETE FROM {get_catalog_port().quote_table(table_name)} "
+            f"WHERE gid = :gid RETURNING {_PRIOR_BOUNDS_COLS}"
         ).bindparams(gid=gid)
     )
-    if result.rowcount == 0:
+    row = result.first()
+    if row is None:
         raise ValueError("Feature not found")
+    return _prior_bounds_from_row(row)
 
 
 async def _refresh_count_and_extent(
@@ -1174,33 +1226,78 @@ def geojson_bounds(geometry: dict | None) -> Bounds | None:
     return (float(minx), float(miny), float(maxx), float(maxy))
 
 
-async def feature_bounds(db: AsyncSession, table_name: str, gid: int) -> Bounds | None:
-    """The stored envelope of one feature, or None when it has no geometry.
+# The envelope of the row version a write is about to overwrite or remove.
+#
+# fix(#1778 review r1): this used to be a separate unlocked SELECT taken before
+# the mutation, which is a read-then-write race: a concurrent edit could move
+# the feature out of the stored extent and commit in the gap, leaving the first
+# writer holding envelope values that were true when it looked and false when
+# it wrote. It would then take the incremental fast path and leave the expanded
+# extent behind. The capture is now part of the mutating statement, so the
+# envelope is always the version that statement actually replaced or deleted.
+_PRIOR_BOUNDS_COLS = (
+    "ST_XMin(geom_4326) AS prior_minx, ST_YMin(geom_4326) AS prior_miny, "
+    "ST_XMax(geom_4326) AS prior_maxx, ST_YMax(geom_4326) AS prior_maxy"
+)
 
-    A primary-key lookup, so callers can afford it on every write to learn
-    whether the row they are about to move or delete could have been defining
-    the dataset's extent.
-    """
-    result = await db.execute(
-        text(
-            f"SELECT ST_XMin(geom_4326), ST_YMin(geom_4326), "
-            f"ST_XMax(geom_4326), ST_YMax(geom_4326) "
-            f"FROM {get_catalog_port().quote_table(table_name)} WHERE gid = :gid"
-        ).bindparams(gid=gid)
+
+def _prior_bounds_from_row(row) -> Bounds | None:
+    """Read the four prior-envelope columns off a RETURNING row."""
+    values = (
+        row.prior_minx,
+        row.prior_miny,
+        row.prior_maxx,
+        row.prior_maxy,
     )
-    row = result.first()
-    if row is None or any(v is None for v in row):
+    if any(v is None for v in values):
         return None
-    return (float(row[0]), float(row[1]), float(row[2]), float(row[3]))
+    return (
+        float(values[0]),
+        float(values[1]),
+        float(values[2]),
+        float(values[3]),
+    )
 
 
-async def _stored_extent_box(session: AsyncSession, dataset: Dataset) -> Bounds | None:
-    """The dataset's stored extent as a box, when reasoning about it is sound.
+def _update_capturing_prior_bounds(quoted_table: str, sets: list[str]) -> str:
+    """UPDATE that returns the envelope of the row version it overwrote.
+
+    The CTE takes ``FOR UPDATE`` on the target row, so a concurrent writer is
+    waited for and the envelope read is the latest committed version rather
+    than whatever a separate earlier statement happened to see. The outer
+    UPDATE joins the locked row by its primary key, and RETURNING reads the
+    prior values out of the CTE, which the UPDATE itself has already
+    overwritten.
+    """
+    return (
+        f"WITH prior AS (SELECT gid, {_PRIOR_BOUNDS_COLS} "
+        f"FROM {quoted_table} WHERE gid = :gid FOR UPDATE) "
+        f"UPDATE {quoted_table} AS t SET {', '.join(sets)} "
+        f"FROM prior WHERE t.gid = prior.gid "
+        f"RETURNING prior.prior_minx, prior.prior_miny, "
+        f"prior.prior_maxx, prior.prior_maxy"
+    )
+
+
+async def _lock_stored_extent_box(
+    session: AsyncSession, dataset: Dataset
+) -> Bounds | None:
+    """The dataset's stored extent as a box, with the record row locked.
 
     None unless the stored extent is a simple POLYGON. An antimeridian-crossing
     dataset stores the two-ring MULTIPOLYGON `seam_extent_wkt_for_table`
     produces (fix(#934)), whose ST_XMin/ST_XMax are -180/180: a longitude in
     the gap would test as inside a box the geometry never occupies.
+
+    fix(#1778 review r1): FOR UPDATE, and taken by BOTH metadata paths before
+    either reads the extent. Otherwise two writers on one dataset can interleave
+    read-decide-write: one skips the recompute because its geometry is inside
+    the extent it read, while the other shrinks that extent from an aggregate
+    taken before the first row landed. Every writer here goes on to update the
+    dataset row anyway, so it already serialized with its peers at commit; the
+    lock only moves that serialization ahead of the decision that depends on it.
+    Both paths take the record row before the dataset row, which is the order
+    the ORM flushes them in.
     """
     from app.modules.catalog.datasets.domain.models import Record
 
@@ -1211,7 +1308,9 @@ async def _stored_extent_box(session: AsyncSession, dataset: Dataset) -> Bounds 
             func.ST_YMin(Record.spatial_extent),
             func.ST_XMax(Record.spatial_extent),
             func.ST_YMax(Record.spatial_extent),
-        ).where(Record.id == dataset.record_id)
+        )
+        .where(Record.id == dataset.record_id)
+        .with_for_update()
     )
     row = result.first()
     if row is None or row[0] != "POLYGON" or any(v is None for v in row[1:]):
@@ -1275,6 +1374,7 @@ async def _apply_incremental_metadata(
     count_delta: int,
     touched_bounds: Sequence[Bounds | None],
     added_geometry_type: str | None,
+    stored_box: Bounds | None,
 ) -> bool:
     """Update feature_count alone when the write provably left the extent alone.
 
@@ -1314,10 +1414,11 @@ async def _apply_incremental_metadata(
         ):
             return False
 
-    box = await _stored_extent_box(session, dataset)
-    if box is None:
+    if stored_box is None:
         return False
-    if not all(_strictly_inside(b, box) for b in touched_bounds if b is not None):
+    if not all(
+        _strictly_inside(b, stored_box) for b in touched_bounds if b is not None
+    ):
         return False
 
     if count_delta:
@@ -1346,12 +1447,18 @@ async def refresh_dataset_metadata(
     and no scan runs at all. Called with no keywords, the full recompute
     behaviour is unchanged.
     """
+    # fix(#1778 review r1): taken before EITHER branch reads the extent, so a
+    # skip decision cannot be invalidated by a concurrent recompute. See
+    # _lock_stored_extent_box.
+    stored_box = await _lock_stored_extent_box(session, dataset)
+
     if count_delta is not None and await _apply_incremental_metadata(
         session,
         dataset,
         count_delta=count_delta,
         touched_bounds=touched_bounds or (),
         added_geometry_type=added_geometry_type,
+        stored_box=stored_box,
     ):
         return
 

@@ -93,7 +93,7 @@ async def counted_dataset(client: AsyncClient, test_db_session):
 async def test_a_filtered_count_below_the_cap_is_exact(
     counted_dataset: Dataset, test_db_session
 ):
-    rows, total, estimated = await features_service.get_features(
+    page = await features_service.get_features(
         test_db_session,
         counted_dataset.table_name,
         limit=5,
@@ -102,9 +102,9 @@ async def test_a_filtered_count_below_the_cap_is_exact(
         cached_feature_count=ROW_COUNT,
     )
 
-    assert len(rows) == 5
-    assert total == ROW_COUNT
-    assert estimated is False
+    assert len(page.rows) == 5
+    assert page.total == ROW_COUNT
+    assert page.total_is_estimate is False
 
 
 async def test_a_filtered_count_above_the_cap_stops_and_estimates(
@@ -113,7 +113,7 @@ async def test_a_filtered_count_above_the_cap_stops_and_estimates(
     """Past the cap the scan stops and the planner answers instead."""
     monkeypatch.setattr(features_service, "_FILTERED_COUNT_CAP", 5)
 
-    _rows, total, estimated = await features_service.get_features(
+    page = await features_service.get_features(
         test_db_session,
         counted_dataset.table_name,
         limit=2,
@@ -122,10 +122,10 @@ async def test_a_filtered_count_above_the_cap_stops_and_estimates(
         cached_feature_count=ROW_COUNT,
     )
 
-    assert estimated is True
+    assert page.total_is_estimate is True
     # Never below the rows already counted, so `offset + limit < total`
     # pagination cannot truncate at the cap.
-    assert total > 5
+    assert page.total > 5
 
 
 async def test_the_unfiltered_page_still_uses_the_cached_count(
@@ -134,22 +134,22 @@ async def test_the_unfiltered_page_still_uses_the_cached_count(
     """The fast path is untouched: no filter, no count query, never an estimate."""
     monkeypatch.setattr(features_service, "_FILTERED_COUNT_CAP", 1)
 
-    _rows, total, estimated = await features_service.get_features(
+    page = await features_service.get_features(
         test_db_session,
         counted_dataset.table_name,
         limit=2,
         cached_feature_count=ROW_COUNT,
     )
 
-    assert total == ROW_COUNT
-    assert estimated is False
+    assert page.total == ROW_COUNT
+    assert page.total_is_estimate is False
 
 
 async def test_the_keyset_cursor_is_still_excluded_from_the_count(
     counted_dataset: Dataset, test_db_session
 ):
     """The total is the whole match set, not the rows after the cursor."""
-    _rows, total, estimated = await features_service.get_features(
+    page = await features_service.get_features(
         test_db_session,
         counted_dataset.table_name,
         limit=5,
@@ -159,8 +159,8 @@ async def test_the_keyset_cursor_is_still_excluded_from_the_count(
         cached_feature_count=ROW_COUNT,
     )
 
-    assert total == ROW_COUNT
-    assert estimated is False
+    assert page.total == ROW_COUNT
+    assert page.total_is_estimate is False
 
 
 async def test_an_exact_page_carries_no_estimate_header(
@@ -204,3 +204,162 @@ async def test_the_estimate_header_is_readable_cross_origin(
     }
     assert "content-crs" in exposed, "the anonymous standards policy did not apply"
     assert "x-geolens-number-matched" in exposed
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778 review r1): pagination must not depend on the estimated total.
+# ---------------------------------------------------------------------------
+
+DEEP_ROW_COUNT = 20_300
+
+
+async def _create_deep_dataset(session, *, created_by: uuid.UUID) -> Dataset:
+    """A layer with more matching rows than the exact-count cap."""
+    table_name = f"test_dp_{uuid.uuid4().hex[:8]}"
+    await session.execute(
+        text(
+            f"CREATE TABLE data.{table_name} ("
+            "gid SERIAL PRIMARY KEY, "
+            "geom geometry(Point, 4326), "
+            "geom_4326 geometry(Point, 4326), "
+            "era TEXT)"
+        )
+    )
+    await session.execute(text(f"GRANT SELECT ON data.{table_name} TO geolens_reader"))
+    await session.execute(
+        text(
+            f"INSERT INTO data.{table_name} (geom, geom_4326, era) "
+            "SELECT ST_SetSRID(ST_MakePoint(-74.0, 40.0 + i / 1000000.0), 4326), "
+            "       ST_SetSRID(ST_MakePoint(-74.0, 40.0 + i / 1000000.0), 4326), "
+            "       'Art Deco' "
+            "FROM generate_series(1, :n) AS i"
+        ).bindparams(n=DEEP_ROW_COUNT)
+    )
+
+    record = Record(
+        title=f"Deep paging {table_name}",
+        summary="More matches than the exact-count cap",
+        theme_category=["test"],
+        visibility="public",
+        record_status="published",
+        created_by=created_by,
+    )
+    session.add(record)
+    await session.flush()
+    dataset = Dataset(
+        record_id=record.id,
+        table_name=table_name,
+        srid=4326,
+        geometry_type="POINT",
+        feature_count=DEEP_ROW_COUNT,
+        column_info=[{"name": "era", "type": "text"}],
+        source_format="created",
+    )
+    session.add(dataset)
+    await session.commit()
+    await session.refresh(dataset)
+    return dataset
+
+
+@pytest.fixture
+async def deep_dataset(client: AsyncClient, test_db_session):
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _create_deep_dataset(test_db_session, created_by=admin_id)
+    yield dataset
+    await test_db_session.execute(
+        text(f"DROP TABLE IF EXISTS data.{dataset.table_name}")
+    )
+    await test_db_session.commit()
+
+
+@pytest.fixture
+def estimate_forced_low(monkeypatch):
+    """Make the planner estimate useless, the way a stale ANALYZE would."""
+
+    async def _low(*_args, **_kwargs):
+        return 0
+
+    monkeypatch.setattr(features_service, "_planner_row_estimate", _low)
+
+
+async def test_a_low_estimate_does_not_strand_a_full_page(
+    client: AsyncClient,
+    deep_dataset: Dataset,
+    admin_auth_header,
+    estimate_forced_low,
+):
+    """The page at the cap boundary still links to the rest of the result set.
+
+    With the count capped at 20000 and the estimate forced low, `total` lands at
+    20001. A `next` link decided by `offset + limit < total` reads
+    20200 < 20001 as false and disappears with a full page on screen and 100
+    rows still to come.
+    """
+    resp = await client.get(
+        f"/datasets/{deep_dataset.id}/features/",
+        params={"era": "Art Deco", "offset": 20_000, "limit": 200},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["numberReturned"] == 200
+    next_link = next((li for li in data["links"] if li["rel"] == "next"), None)
+    assert next_link is not None, "a full page with rows remaining must link on"
+    assert "offset=20200" in next_link["href"]
+    # numberMatched may be an estimate, but it may never contradict the rows
+    # already served beside it.
+    assert data["numberMatched"] >= 20_200
+
+
+async def test_the_last_page_emits_no_next_link(
+    client: AsyncClient,
+    deep_dataset: Dataset,
+    admin_auth_header,
+    estimate_forced_low,
+):
+    resp = await client.get(
+        f"/datasets/{deep_dataset.id}/features/",
+        params={"era": "Art Deco", "offset": 20_200, "limit": 200},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["numberReturned"] == DEEP_ROW_COUNT - 20_200
+    assert not [li for li in data["links"] if li["rel"] == "next"]
+
+
+async def test_has_more_is_measured_from_the_rows_not_the_total(
+    deep_dataset: Dataset, test_db_session, estimate_forced_low
+):
+    """The mechanism, separate from the link it feeds."""
+    page = await features_service.get_features(
+        test_db_session,
+        deep_dataset.table_name,
+        limit=200,
+        offset=20_000,
+        property_filters={"era": "Art Deco"},
+        allowed_columns={"era"},
+        cached_feature_count=DEEP_ROW_COUNT,
+    )
+
+    assert len(page.rows) == 200
+    assert page.has_more is True
+    assert page.total_is_estimate is True
+
+
+async def test_the_ogc_items_page_links_on_at_the_cap_boundary(
+    client: AsyncClient, deep_dataset: Dataset, estimate_forced_low
+):
+    """The OGC handler reads the same has_more rather than re-deriving one."""
+    resp = await client.get(
+        f"/collections/{deep_dataset.id}/items",
+        params={"era": "Art Deco", "offset": 20_000, "limit": 200},
+    )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["numberReturned"] == 200
+    assert [li for li in data["links"] if li["rel"] == "next"]
+    assert data["numberMatched"] >= 20_200

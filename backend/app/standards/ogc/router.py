@@ -812,13 +812,15 @@ async def get_collection_items(
         cql2_where, cql2_binds = compile_feature_cql2_ast(filter_ast, queryables)
 
     try:
-        # fix(#430 BA-15): over-fetch one row so a full page can be distinguished from
-        # a full *final* page; otherwise a feature count that is an exact multiple
-        # of `limit` emits a phantom keyset `next` to an empty page.
-        rows, total, total_is_estimate = await get_features(
+        # fix(#430 BA-15): a full page must be distinguishable from a full
+        # *final* page, or a feature count that is an exact multiple of `limit`
+        # emits a phantom keyset `next` to an empty page. fix(#1778 review r1):
+        # the over-fetch that answers it moved into get_features, which reports
+        # it as `has_more`, so every caller gets the same answer.
+        page = await get_features(
             db,
             dataset.table_name,
-            limit=limit + 1,
+            limit=limit,
             offset=offset,
             after_gid=after_gid,
             bbox=bbox_parsed,
@@ -874,12 +876,9 @@ async def get_collection_items(
             detail="Dataset table is temporarily unavailable",
         )
 
-    has_more = len(rows) > limit
-    rows = rows[:limit]
-
     # Convert rows to GeoJSON features
     features = []
-    for row in rows:
+    for row in page.rows:
         features.append(
             {
                 "type": "Feature",
@@ -942,8 +941,8 @@ async def get_collection_items(
     # H-24: emit a keyset `next` link when more rows exist — primary path.
     # Fall back to offset-based `next`/`prev` for legacy clients only when
     # the request itself used offset.
-    if rows and has_more:
-        next_after_gid = rows[-1]["gid"]
+    if page.rows and page.has_more:
+        next_after_gid = page.rows[-1]["gid"]
         links.append(
             OGCLink(
                 rel="next",
@@ -951,7 +950,10 @@ async def get_collection_items(
                 type="application/geo+json",
             )
         )
-    elif after_gid is None and offset + limit < total:
+    elif after_gid is None and page.has_more:
+        # fix(#1778 review r1): was `offset + limit < total`. numberMatched may
+        # be the planner's estimate, and an estimate at or below the rows
+        # already served would have dropped the link mid-result-set.
         links.append(
             OGCLink(
                 rel="next",
@@ -969,7 +971,7 @@ async def get_collection_items(
         )
 
     response_data = OGCFeatureItemsResponse(
-        numberMatched=total,
+        numberMatched=page.total,
         numberReturned=len(features),
         features=features,
         links=links,
@@ -983,7 +985,7 @@ async def get_collection_items(
 
     headers = {
         "Content-Crs": "<http://www.opengis.net/def/crs/OGC/1.3/CRS84>",
-        **number_matched_headers(total_is_estimate),
+        **number_matched_headers(page.total_is_estimate),
     }
     if link_value := link_header_value(links):
         headers["Link"] = link_value

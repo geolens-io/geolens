@@ -502,3 +502,167 @@ async def test_a_stale_feature_count_is_recounted_not_adjusted(
 )
 def test_the_geometry_type_merge_matches_the_scan_it_replaces(current, added, expected):
     assert features_service._merged_created_geometry_type(current, added) == expected
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778 review r1): the prior envelope must come from the mutation itself.
+# ---------------------------------------------------------------------------
+
+# Far outside the seeded extent, so an extent computed with this row present
+# differs from one computed without it.
+FAR_AWAY = (-71.0, 44.0)
+
+
+async def _stale_read(session, table_name: str, gid: int):
+    """The shape the fast path used to rely on: an unlocked SELECT of its own.
+
+    Kept in the test rather than in the service, because demonstrating that
+    this read goes stale is the whole point.
+    """
+    row = (
+        await session.execute(
+            text(
+                f"SELECT ST_XMin(geom_4326), ST_YMin(geom_4326), "
+                f"ST_XMax(geom_4326), ST_YMax(geom_4326) "
+                f"FROM data.{table_name} WHERE gid = :gid"
+            ).bindparams(gid=gid)
+        )
+    ).first()
+    return None if row is None else tuple(float(v) for v in row)
+
+
+async def _move_far_away_in_another_session(table_name: str, gid: int) -> None:
+    """A second connection moves the feature out of the extent and commits."""
+    import app.core.db as db_module
+
+    async with db_module.async_session() as other:
+        await other.execute(
+            text(
+                f"UPDATE data.{table_name} SET "
+                "geom = ST_SetSRID(ST_MakePoint(:lng, :lat), 4326), "
+                "geom_4326 = ST_SetSRID(ST_MakePoint(:lng, :lat), 4326) "
+                "WHERE gid = :gid"
+            ).bindparams(lng=FAR_AWAY[0], lat=FAR_AWAY[1], gid=gid)
+        )
+        await other.commit()
+
+
+async def _interior_gid(session, table_name: str) -> int:
+    return (
+        await session.execute(
+            text(f"SELECT gid FROM data.{table_name} WHERE ST_X(geom_4326) = -73.95")
+        )
+    ).scalar_one()
+
+
+async def test_delete_captures_the_version_it_actually_removed(
+    sketch_dataset: Dataset, test_db_session, aggregate_calls
+):
+    """A concurrent move committed after the old pre-read cannot be missed.
+
+    Session A looks at the row, session B moves it outside the extent and
+    commits, session A deletes. The envelope the DELETE returns is B's, so the
+    fast path is refused and the extent recomputes. Reading the bounds in a
+    statement of its own would have handed A the pre-move envelope, which is
+    strictly inside the extent, and A would have skipped the aggregate and left
+    the expanded extent behind.
+    """
+    table = sketch_dataset.table_name
+    gid = await _interior_gid(test_db_session, table)
+    stale = await _stale_read(test_db_session, table, gid)
+
+    await _move_far_away_in_another_session(table, gid)
+
+    removed = await features_service.delete_feature(test_db_session, table, gid)
+
+    assert stale is not None
+    assert removed == (FAR_AWAY[0], FAR_AWAY[1], FAR_AWAY[0], FAR_AWAY[1])
+    assert removed != stale, "the separate read was the stale one"
+
+    await features_service.refresh_dataset_metadata(
+        test_db_session,
+        sketch_dataset,
+        count_delta=-1,
+        touched_bounds=[removed],
+    )
+    assert aggregate_calls == [table]
+
+
+async def test_replace_captures_the_version_it_actually_overwrote(
+    sketch_dataset: Dataset, test_db_session, aggregate_calls
+):
+    """Same race on the update path, closed by the locking CTE."""
+    table = sketch_dataset.table_name
+    gid = await _interior_gid(test_db_session, table)
+    stale = await _stale_read(test_db_session, table, gid)
+
+    await _move_far_away_in_another_session(table, gid)
+
+    written = await features_service.replace_feature(
+        test_db_session,
+        table,
+        gid,
+        INSIDE,
+        {"name": "moved back"},
+        [{"name": "name", "type": "text"}],
+        "POINT",
+        dataset_srid=4326,
+    )
+
+    assert written.prior_bounds == (
+        FAR_AWAY[0],
+        FAR_AWAY[1],
+        FAR_AWAY[0],
+        FAR_AWAY[1],
+    )
+    assert written.prior_bounds != stale
+
+    await features_service.refresh_dataset_metadata(
+        test_db_session,
+        sketch_dataset,
+        count_delta=0,
+        touched_bounds=[written.prior_bounds, features_service.geojson_bounds(INSIDE)],
+    )
+    assert aggregate_calls == [table]
+
+
+async def test_a_deleted_row_without_geometry_reports_no_bounds(
+    sketch_dataset: Dataset, test_db_session
+):
+    """A NULL geometry is not an envelope of zero size, and must not read as one."""
+    table = sketch_dataset.table_name
+    gid = (
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table} (geom, geom_4326, name) "
+                "VALUES (NULL, NULL, 'no geometry') RETURNING gid"
+            )
+        )
+    ).scalar_one()
+
+    assert await features_service.delete_feature(test_db_session, table, gid) is None
+
+
+async def test_deleting_a_missing_feature_still_raises(
+    sketch_dataset: Dataset, test_db_session
+):
+    with pytest.raises(ValueError, match="not found"):
+        await features_service.delete_feature(
+            test_db_session, sketch_dataset.table_name, 987654321
+        )
+
+
+async def test_replacing_a_missing_feature_still_raises(
+    sketch_dataset: Dataset, test_db_session
+):
+    with pytest.raises(ValueError, match="not found"):
+        await features_service.replace_feature(
+            test_db_session,
+            sketch_dataset.table_name,
+            987654321,
+            INSIDE,
+            {"name": "nobody"},
+            [{"name": "name", "type": "text"}],
+            "POINT",
+            dataset_srid=4326,
+        )
