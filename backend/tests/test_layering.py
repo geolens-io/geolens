@@ -4443,7 +4443,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # that this table was CTAS'd here so delete may reclaim it. Without the
     # flag it is indistinguishable from an operator's registered table and
     # every analysis output would leak one on delete. Cap 1413 -> 1420, exact.
-    "backend/app/processing/analysis/tasks.py": 1420,
+    # fix(#1778): +42. The generated output table name is persisted to
+    # `user_metadata` in the transaction that creates the table, and the
+    # probe-then-drop the two fence-miss handlers each carried inline is now one
+    # `drop_unadopted_analysis_output` the stale-job sweeps call too. The
+    # helper's docstring and its identifier re-validation are most of the net
+    # growth; the two inlined copies came out. Cap 1420 -> 1462, exact.
+    "backend/app/processing/analysis/tasks.py": 1462,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

@@ -334,21 +334,9 @@ async def _fail_cancelled_job(
             # no row means the DROP is safe. If the probe itself errors,
             # prefer leaking the table to dropping a registered dataset's
             # storage.
-            if out_table is not None:
-                adopted = True
-                try:
-                    adopted = await _output_table_adopted(session, out_table)
-                except Exception:  # broad: prefer leak over loss
-                    logger.warning("analysis.adoption_probe_failed", job_id=job_id)
-                    await session.rollback()
-                if not adopted:
-                    try:
-                        await session.execute(
-                            text(f'DROP TABLE IF EXISTS "{schema}"."{out_table}"')
-                        )
-                        await session.commit()
-                    except Exception:  # broad: best-effort cleanup of the orphan
-                        await session.rollback()
+            await drop_unadopted_analysis_output(
+                session, out_table=out_table, schema=schema, job_id=job_id
+            )
             return
         await session.commit()
         if out_table is not None:
@@ -786,6 +774,62 @@ async def _output_table_adopted(session: AsyncSession, out_table: str) -> bool:
     return (await session.execute(stmt)).first() is not None
 
 
+# fix(#1778): the `user_metadata` field an analysis job names its output table
+# under. `out_table` is generated inside the worker and nothing durable carried
+# it, so a SIGKILL after the materialize commit left `data.<out_table>` (plus
+# its GIST index, up to MAX_OUTPUT_BYTES) with no catalog row, no DROP and no
+# reconciler that could ever name it. The name is written in the SAME
+# transaction that creates the table, so the two become durable together and a
+# row that has one has the other.
+ANALYSIS_OUTPUT_TABLE_FIELD = "analysis_out_table"
+
+# A generated analysis table name, as `generate_table_name` produces them. The
+# name reaches the sweeps through a schemaless JSONB blob and is interpolated
+# into DDL, so it is re-checked at every use rather than trusted for having
+# been sanitized once.
+_ANALYSIS_TABLE_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
+
+
+async def drop_unadopted_analysis_output(
+    session: AsyncSession,
+    *,
+    out_table: str | None,
+    schema: str,
+    job_id: str,
+) -> None:
+    """Drop an analysis output table no dataset row has adopted.
+
+    fix(#1778): the probe-then-drop the two fence-miss handlers already ran,
+    lifted into one function so the stale-job sweeps can apply the same policy
+    to a job whose worker was killed outright. Failure direction is the one
+    those handlers chose: an adoption probe that itself errors reports adopted,
+    so an unreadable catalog leaks a table rather than dropping a registered
+    dataset's storage.
+
+    The name is re-validated here because the sweeps read it out of
+    ``user_metadata``, a JSONB blob with no schema, and it is interpolated into
+    a DDL statement that takes no bind parameters.
+    """
+    if out_table is None:
+        return
+    if not _ANALYSIS_TABLE_NAME_RE.match(out_table):
+        logger.warning("analysis.output_table_name_rejected", job_id=job_id)
+        return
+    adopted = True
+    try:
+        adopted = await _output_table_adopted(session, out_table)
+    except Exception:  # broad: prefer leak over loss
+        logger.warning("analysis.adoption_probe_failed", job_id=job_id)
+        await session.rollback()
+    if adopted:
+        return
+    try:
+        await session.execute(text(f'DROP TABLE IF EXISTS "{schema}"."{out_table}"'))
+        await session.commit()
+    except Exception:  # broad: best-effort cleanup of the orphan
+        await session.rollback()
+
+
 async def _mark_job_failed(
     session: AsyncSession,
     *,
@@ -832,21 +876,9 @@ async def _mark_job_failed(
         # DROP is safe. Failure direction stays safe: if the probe itself
         # errors, prefer leaking the table to dropping a registered
         # dataset's storage.
-        if out_table is not None:
-            adopted = True
-            try:
-                adopted = await _output_table_adopted(session, out_table)
-            except Exception:  # broad: prefer leak over loss
-                logger.warning("analysis.adoption_probe_failed", job_id=job_id)
-                await session.rollback()
-            if not adopted:
-                try:
-                    await session.execute(
-                        text(f'DROP TABLE IF EXISTS "{schema}"."{out_table}"')
-                    )
-                    await session.commit()
-                except Exception:  # broad: best-effort cleanup of the orphan
-                    await session.rollback()
+        await drop_unadopted_analysis_output(
+            session, out_table=out_table, schema=schema, job_id=job_id
+        )
         return
     await session.commit()
     if out_table is not None:
@@ -1163,6 +1195,16 @@ async def _materialize(
             )
 
             out_table, collision_warning = await generate_table_name(title, session)
+            # fix(#1778): the name, on the durable row, in the same transaction
+            # that creates the table (the commit after ANALYZE below). Without
+            # it a hard kill after that commit left the table unreachable: the
+            # stale sweep is a plain status UPDATE, every DROP of this table
+            # lives in a handler this process would never run, and no
+            # reconciler can name a table nothing recorded.
+            job.user_metadata = {
+                **(job.user_metadata or {}),
+                ANALYSIS_OUTPUT_TABLE_FIELD: out_table,
+            }
             if collision_warning:
                 # fix(#786): persisted like the upload path (tasks_vector) —
                 # the job-status endpoint surfaces
