@@ -170,9 +170,20 @@ def poll_until(
 
 
 @contextmanager
-def long_request_timeout(client: Any) -> Iterator[Any]:
+def long_request_timeout(
+    client: Any, *, timeout: float = EXTENDED_REQUEST_TIMEOUT_SECONDS
+) -> Iterator[Any]:
     """Temporarily raise ``client``'s httpx transport timeout to
-    EXTENDED_REQUEST_TIMEOUT_SECONDS, restoring the original afterward.
+    ``timeout`` (default EXTENDED_REQUEST_TIMEOUT_SECONDS), restoring
+    the original afterward.
+
+    fix(#1778 review round 18): ``timeout`` is an override for a caller
+    whose own bound isn't the fixed 600s -- manifest_apply.py's
+    batch-aware budget (``compute_manifest_apply_timeout``) needs a
+    LARGER bound for a many-entry manifest than the fixed default, and
+    would otherwise have no way to ask for one. Every other call site
+    keeps relying on the unchanged default, so this is additive, not a
+    behavior change for them.
 
     fix(#1778 review round 5): every CLI request that carries a file
     body must go through this — previously each call site open-coded
@@ -204,7 +215,7 @@ def long_request_timeout(client: Any) -> Iterator[Any]:
     """
     httpx_client = client.get_httpx_client()
     original_timeout = httpx_client.timeout
-    httpx_client.timeout = EXTENDED_REQUEST_TIMEOUT_SECONDS
+    httpx_client.timeout = timeout
     try:
         yield httpx_client
     finally:
@@ -398,6 +409,7 @@ def call_sdk(
     *,
     deadline_expired: Callable[[], bool] | None = None,
     reraise_timeout: bool = False,
+    on_timeout: Callable[[], BaseException] | None = None,
     **kwargs: Any,
 ) -> Any:
     """Run a sync_detailed call, mapping httpx exceptions to exit codes.
@@ -412,14 +424,28 @@ def call_sdk(
     distinguish "the deadline already passed" (``DeadlineTimeout``) from
     a plain hard-exit keeps that behavior regardless of
     ``reraise_timeout``.
+
+    fix(#1778 review round 18): ``on_timeout``, when given, is called
+    (no arguments) to produce a CUSTOM exception raised instead of the
+    raw ``httpx.TimeoutException`` — for a caller (manifest_apply.py)
+    that must not import ``httpx`` itself (OCCLI-06 — every HTTP
+    exception type stays confined to this module) but still needs to
+    distinguish "this specific request timed out" from every other
+    failure, with its own data (entry count, budget) attached. Checked
+    after ``deadline_expired`` (unchanged priority) and before
+    ``reraise_timeout``: a caller supplying its own exception has
+    already decided how it wants to handle a timeout and does not also
+    want the raw httpx one.
     """
     import httpx  # lazy — only for exception types
 
     try:
         return fn(**kwargs)
-    except httpx.TimeoutException:
+    except httpx.TimeoutException as exc:
         if deadline_expired is not None and deadline_expired():
             raise DeadlineTimeout from None
+        if on_timeout is not None:
+            raise on_timeout() from exc
         if reraise_timeout:
             raise
         typer.secho("Request timed out", fg="red", err=True)

@@ -12,6 +12,7 @@ import pytest
 from geolens_cli._sdk_helpers import (
     EXIT_AUTH,
     EXIT_GENERIC,
+    EXIT_NETWORK,
     EXIT_SERVER,
     EXIT_USAGE,
 )
@@ -152,12 +153,21 @@ def test_post_manifest_apply_uses_sdk_owned_transport() -> None:
     ]
 
 
-def test_post_manifest_apply_raises_the_timeout_then_restores_it() -> None:
+def test_post_manifest_apply_raises_the_bound_for_the_manifests_own_entry_count() -> None:
     """fix(#1778 review round 5): the backend validates and applies the
     manifest before responding, which can outlast AppState.sdk()'s plain
     30s bound for a manifest with many datasets. post_manifest_apply()
-    must raise the bound for the POST itself and restore it afterward."""
-    from geolens_cli._sdk_helpers import EXTENDED_REQUEST_TIMEOUT_SECONDS
+    must raise the bound for the POST itself and restore it afterward.
+
+    fix(#1778 review round 18): the bound is no longer the fixed
+    EXTENDED_REQUEST_TIMEOUT_SECONDS -- it's batch-aware
+    (compute_manifest_apply_timeout), scaled to how many dataset
+    entries THIS manifest actually has. The vector-relative.yaml
+    fixture has exactly 1 dataset, so the expected bound is
+    compute_manifest_apply_timeout(1); see
+    TestComputeManifestApplyTimeout for the formula itself pinned
+    against 1/10/100-entry counts directly."""
+    from geolens_cli.manifest_apply import compute_manifest_apply_timeout
 
     response = FakeResponse(200, _apply_response())
     client = FakeSdkClient(response)
@@ -173,11 +183,188 @@ def test_post_manifest_apply_raises_the_timeout_then_restores_it() -> None:
     httpx_client.post = spying_post
 
     payload = build_apply_payload(load_manifest(_manifest_path()), dry_run=False)
+    assert len(payload["datasets"]) == 1
     post_manifest_apply(client, payload)
 
-    assert seen_timeout_during_post == [EXTENDED_REQUEST_TIMEOUT_SECONDS]
+    expected_budget = compute_manifest_apply_timeout(1)
+    assert seen_timeout_during_post == [expected_budget]
     assert seen_timeout_during_post[0] != 30.0
     assert httpx_client.timeout == 30.0
+
+
+class TestComputeManifestApplyTimeout:
+    """fix(#1778 review round 18) part (a): the shared 600s
+    long-request bound can expire during a legitimately still-
+    succeeding apply -- ManifestApplyRequest allows 100 datasets,
+    apply_manifest() processes them sequentially, and each entry's
+    dominant synchronous cost is its own 60s HTTP source download.
+    Pinned against 1/10/100-entry manifests -- the 100-entry case
+    (ManifestApplyRequest's own hard maximum) also pins the documented
+    ceiling actually binding."""
+
+    def test_one_entry(self) -> None:
+        from geolens_cli.manifest_apply import (
+            MANIFEST_APPLY_BASE_TIMEOUT_SECONDS,
+            MANIFEST_ENTRY_PROCESSING_MARGIN_SECONDS,
+            MANIFEST_SOURCE_DOWNLOAD_TIMEOUT_SECONDS,
+            compute_manifest_apply_timeout,
+        )
+
+        per_entry = (
+            MANIFEST_SOURCE_DOWNLOAD_TIMEOUT_SECONDS
+            + MANIFEST_ENTRY_PROCESSING_MARGIN_SECONDS
+        )
+        assert compute_manifest_apply_timeout(1) == (
+            MANIFEST_APPLY_BASE_TIMEOUT_SECONDS + 1 * per_entry
+        )
+        assert compute_manifest_apply_timeout(1) == 670.0
+
+    def test_ten_entries(self) -> None:
+        from geolens_cli.manifest_apply import compute_manifest_apply_timeout
+
+        assert compute_manifest_apply_timeout(10) == 1300.0
+
+    def test_a_hundred_entries_hits_the_documented_ceiling(self) -> None:
+        from geolens_cli.manifest_apply import (
+            MANIFEST_APPLY_TIMEOUT_CEILING_SECONDS,
+            compute_manifest_apply_timeout,
+        )
+
+        # Uncapped this would be 600 + 100*70 = 7600.0 -- the ceiling
+        # must actually bind at ManifestApplyRequest's own maximum
+        # (datasets: max_length=100), the worst case this formula has
+        # to budget for.
+        assert (
+            compute_manifest_apply_timeout(100)
+            == MANIFEST_APPLY_TIMEOUT_CEILING_SECONDS
+        )
+        assert compute_manifest_apply_timeout(100) == 3600.0
+
+    def test_less_than_one_is_coerced_to_one(self) -> None:
+        from geolens_cli.manifest_apply import compute_manifest_apply_timeout
+
+        assert compute_manifest_apply_timeout(0) == compute_manifest_apply_timeout(1)
+        assert compute_manifest_apply_timeout(-5) == compute_manifest_apply_timeout(1)
+
+
+class TestManifestApplyTimeoutReporting:
+    """fix(#1778 review round 18) parts (b)/(c): the timeout path must
+    be unambiguous -- the server keeps applying after the CLI gives up,
+    every entry is idempotent (fingerprinted, skip_complete on
+    re-apply), and re-running the same command is always safe. A
+    dry-run follow-up on the SAME endpoint (no new status/job-listing
+    endpoint -- out of scope, no async job mode) reports which entries
+    the server had already reached, best-effort."""
+
+    def _timing_out_client(self) -> FakeSdkClient:
+        client = FakeSdkClient(FakeResponse(200, _apply_response()))
+
+        def raising_post(**kwargs: Any) -> Any:
+            import httpx
+
+            raise httpx.TimeoutException("stalled")
+
+        client.httpx_client.post = raising_post
+        return client
+
+    def test_post_manifest_apply_raises_manifest_apply_timeout_with_the_batch_budget(
+        self,
+    ) -> None:
+        from geolens_cli._sdk_helpers import EXIT_NETWORK
+        from geolens_cli.manifest_apply import (
+            ManifestApplyTimeout,
+            compute_manifest_apply_timeout,
+        )
+
+        client = self._timing_out_client()
+        payload = build_apply_payload(load_manifest(_manifest_path()), dry_run=False)
+
+        with pytest.raises(ManifestApplyTimeout) as exc_info:
+            post_manifest_apply(client, payload)
+
+        exc = exc_info.value
+        assert exc.entry_count == 1
+        assert exc.budget == compute_manifest_apply_timeout(1)
+        assert exc.exit_code == EXIT_NETWORK
+
+    def test_timeout_message_states_idempotency_and_safe_resume(self) -> None:
+        from geolens_cli.manifest_apply import (
+            ManifestApplyTimeout,
+            build_apply_timeout_message,
+        )
+
+        exc = ManifestApplyTimeout(entry_count=3, budget=810.0)
+        message = build_apply_timeout_message(exc)
+
+        assert "810s" in message
+        assert "3 dataset" in message
+        assert "does not stop" in message.lower()
+        assert "idempotent" in message.lower()
+        assert "skip_complete" in message
+        assert "re-running" in message.lower()
+        assert "safe" in message.lower()
+
+    def test_report_apply_timeout_prints_and_returns_the_status_when_the_follow_up_succeeds(
+        self,
+    ) -> None:
+        from geolens_cli.manifest_apply import (
+            ManifestApplyTimeout,
+            report_apply_timeout,
+        )
+
+        errors: list[str] = []
+        warnings: list[str] = []
+
+        class FakeOutput:
+            def error(self, message: str) -> None:
+                errors.append(message)
+
+            def warn(self, message: str) -> None:
+                warnings.append(message)
+
+        status_response = _apply_response(
+            results=[
+                {"dataset_key": "roads", "action": "skip", "message": "skip_complete"}
+            ]
+        )
+        client = FakeSdkClient(FakeResponse(200, status_response))
+        payload = build_apply_payload(load_manifest(_manifest_path()), dry_run=False)
+        exc = ManifestApplyTimeout(entry_count=1, budget=670.0)
+
+        result = report_apply_timeout(client, payload, exc, FakeOutput())
+
+        assert result == status_response
+        assert errors and "670s" in errors[0]
+        assert warnings == []
+        # The follow-up must actually have asked for a dry run, not a
+        # second real apply.
+        assert client.httpx_client.calls[-1]["json"]["dry_run"] is True
+
+    def test_report_apply_timeout_warns_when_the_follow_up_also_fails(self) -> None:
+        from geolens_cli.manifest_apply import (
+            ManifestApplyTimeout,
+            report_apply_timeout,
+        )
+
+        errors: list[str] = []
+        warnings: list[str] = []
+
+        class FakeOutput:
+            def error(self, message: str) -> None:
+                errors.append(message)
+
+            def warn(self, message: str) -> None:
+                warnings.append(message)
+
+        client = self._timing_out_client()
+        payload = build_apply_payload(load_manifest(_manifest_path()), dry_run=False)
+        exc = ManifestApplyTimeout(entry_count=1, budget=670.0)
+
+        result = report_apply_timeout(client, payload, exc, FakeOutput())
+
+        assert result is None
+        assert errors
+        assert warnings and "could not" in warnings[0].lower()
 
 
 @pytest.mark.parametrize(
@@ -254,6 +441,83 @@ def test_apply_dry_run_sends_dry_run_payload(
     assert result.exit_code == 0, result.output
     assert sdk.client.httpx_client.calls[0]["json"]["dry_run"] is True
     assert "Dry run" in result.output
+
+
+def _flaky_then_ok_sdk(monkeypatch: pytest.MonkeyPatch, status_response: dict) -> FakeSdk:
+    """A FakeSdk whose FIRST POST times out and every one after succeeds
+    with ``status_response`` -- the round-18 apply-timeout-then-dry-run-
+    follow-up shape."""
+    sdk = FakeSdk(FakeResponse(200, status_response))
+    monkeypatch.setattr(AppState, "sdk", lambda _self: sdk)
+
+    calls = {"n": 0}
+    original_post = sdk.client.httpx_client.post
+
+    def flaky_post(**kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            import httpx
+
+            raise httpx.TimeoutException("stalled")
+        return original_post(**kwargs)
+
+    sdk.client.httpx_client.post = flaky_post
+    sdk.client.httpx_client.calls_made = calls
+    return sdk
+
+
+def test_apply_command_reports_timeout_with_idempotency_guidance_and_status_check(
+    runner,
+    tmp_xdg_home,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """fix(#1778 review round 18) end-to-end: the `apply` command's own
+    timeout handling (not just post_manifest_apply()) prints the
+    idempotent-resume guidance and renders the dry-run follow-up's
+    status, rather than the old bare "Request timed out"."""
+    status_response = _apply_response(
+        results=[
+            {"dataset_key": "roads", "action": "skip", "message": "skip_complete"}
+        ]
+    )
+    sdk = _flaky_then_ok_sdk(monkeypatch, status_response)
+
+    result = runner.invoke(app, ["apply", str(_remote_manifest_path())])
+
+    assert result.exit_code == EXIT_NETWORK, result.output
+    assert "idempotent" in result.output.lower()
+    assert "skip_complete" in result.output
+    assert "safe" in result.output.lower()
+    assert sdk.client.httpx_client.calls_made["n"] == 2, (
+        "the original POST, then the dry-run status follow-up"
+    )
+    assert sdk.client.httpx_client.calls[-1]["json"]["dry_run"] is True
+
+
+def test_apply_json_output_reports_timeout_as_one_structured_payload(
+    runner,
+    tmp_xdg_home,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """fix(#1778 review round 18): --json mode must emit exactly ONE
+    JSON object for a timeout, not report_apply_timeout's human-mode
+    output.error()/warn() writes bleeding in ahead of it."""
+    status_response = _apply_response(
+        results=[
+            {"dataset_key": "roads", "action": "skip", "message": "skip_complete"}
+        ]
+    )
+    _flaky_then_ok_sdk(monkeypatch, status_response)
+
+    result = runner.invoke(app, ["--json", "apply", str(_remote_manifest_path())])
+
+    assert result.exit_code == EXIT_NETWORK, result.output
+    lines = [line for line in result.output.strip().splitlines() if line.strip()]
+    assert len(lines) == 1, f"expected exactly one JSON object, got: {lines}"
+    payload = json.loads(lines[0])
+    assert payload["ok"] is False
+    assert payload["resumable"] is True
+    assert payload["status_check"]["counts"]["skip"] == 1
 
 
 def test_apply_json_output_is_deterministic(
