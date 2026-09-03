@@ -839,7 +839,11 @@ def analysis_output_scope(job_uuid: uuid.UUID, attempt_uuid: uuid.UUID) -> str:
 
 
 def analysis_output_table_name(
-    base: str, job_uuid: uuid.UUID, attempt_uuid: uuid.UUID
+    base: str,
+    job_uuid: uuid.UUID,
+    attempt_uuid: uuid.UUID,
+    *,
+    collision_suffix: int | None = None,
 ) -> str:
     """The physical name ONE attempt of one job may write its output to.
 
@@ -858,11 +862,23 @@ def analysis_output_table_name(
     r9, and every reaper iterates all of them. So the name identifies one
     attempt's table and the record remembers every attempt's.
 
-    The base is trimmed to leave room for the scope, which keeps the result
-    inside PostgreSQL's 63-byte identifier limit.
+    fix(#1778 audit r11): ``collision_suffix`` names the `_N` tag
+    ``resolve_analysis_output_table``'s walk tries, and it has to be applied
+    HERE, on the original ``base``, not by the caller pre-pending `_N` to
+    ``base`` and calling this again. The base is trimmed to leave room for
+    the scope AND the tag together, computed fresh from ``base`` every call
+    -- the same idiom `generate_table_name`'s own `_with_collision_suffix`
+    uses, and for the identical reason: trimming an ALREADY-TRIMMED string a
+    second time truncates the very characters that make one candidate differ
+    from the next. A ``base`` at or past the reserved limit (46 chars with no
+    tag) used to make every walked candidate identical once trimmed, so a
+    redelivery of the same attempt with an existing scoped table exhausted
+    the whole `_N` walk and raised instead of self-healing.
     """
-    suffix = analysis_output_scope(job_uuid, attempt_uuid)
-    return f"{base[: _ANALYSIS_TABLE_MAX_CHARS - len(suffix)]}{suffix}"
+    scope = analysis_output_scope(job_uuid, attempt_uuid)
+    tag = f"_{collision_suffix}" if collision_suffix is not None else ""
+    limit = _ANALYSIS_TABLE_MAX_CHARS - len(scope) - len(tag)
+    return f"{base[:limit]}{tag}{scope}"
 
 
 def analysis_output_table_belongs_to(out_table: str, job_uuid: uuid.UUID) -> bool:
@@ -920,6 +936,13 @@ async def resolve_analysis_output_table(
     standard filters information_schema to relations the current role has
     privileges on, and an orphan this role never granted itself is exactly the
     one this has to see.
+
+    fix(#1778 audit r11): every candidate below is derived from the SAME
+    original ``base`` via ``collision_suffix``, never by pre-pending `_N` to
+    ``base`` and trimming again. ``analysis_output_table_name`` reserves room
+    for the tag itself now, so a long ``base`` still yields a genuinely
+    distinct candidate per suffix instead of the same truncated string N
+    times over.
     """
     probe_prefix = base[:_SCOPED_PROBE_CHARS]
     taken = {
@@ -939,7 +962,7 @@ async def resolve_analysis_output_table(
         return candidate
     for suffix in range(2, _MAX_SCOPED_COLLISION_SUFFIX + 1):
         candidate = analysis_output_table_name(
-            f"{base}_{suffix}", job_uuid, attempt_uuid
+            base, job_uuid, attempt_uuid, collision_suffix=suffix
         )
         if candidate not in taken:
             return candidate

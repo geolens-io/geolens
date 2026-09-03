@@ -837,6 +837,76 @@ class TestAttemptScopingPins:
             )
             await test_db_session.commit()
 
+    def test_a_long_base_still_yields_distinct_collision_suffixes(self) -> None:
+        """fix(#1778 audit r11): the identifier-length bug, at the unit
+        level. Before this fix, `analysis_output_table_name` reserved room
+        for the scope but not for a collision tag applied afterward, so the
+        walk's `f"{base}_{suffix}"` pre-pend got trimmed away entirely once
+        `base` was at or past the 46-char reservation point -- every suffix
+        in the walk produced the SAME candidate."""
+        from app.processing.analysis.tasks import analysis_output_table_name
+
+        job_id = uuid.uuid4()
+        attempt_id = uuid.uuid4()
+        base = "a" * 60
+
+        first = analysis_output_table_name(base, job_id, attempt_id)
+        second = analysis_output_table_name(
+            base, job_id, attempt_id, collision_suffix=2
+        )
+
+        assert len(first) <= 63
+        assert len(second) <= 63
+        assert first != second, "a long base must still yield distinct suffixes"
+
+    @pytest.mark.anyio
+    async def test_a_long_base_with_an_existing_table_self_heals_to_a_suffix(
+        self, test_db_session
+    ) -> None:
+        """fix(#1778 audit r11): the same bug, end to end against real
+        Postgres. Before this fix, the walk inside
+        `resolve_analysis_output_table` re-trimmed an already-trimmed
+        candidate on every iteration, so a 60-char base with its scoped
+        table already occupied exhausted every `_N` suffix and raised
+        instead of landing on `_2`."""
+        from sqlalchemy import text
+
+        from app.processing.analysis.tasks import (
+            analysis_output_table_name,
+            resolve_analysis_output_table,
+        )
+
+        job_id = uuid.uuid4()
+        attempt_id = uuid.uuid4()
+        base = "a" * 60
+
+        occupied = analysis_output_table_name(base, job_id, attempt_id)
+        assert len(occupied) <= 63
+        await test_db_session.execute(
+            text(f'CREATE TABLE data."{occupied}" (marker integer)')
+        )
+        await test_db_session.commit()
+
+        try:
+            resolved = await resolve_analysis_output_table(
+                test_db_session,
+                base=base,
+                job_uuid=job_id,
+                attempt_uuid=attempt_id,
+                schema="data",
+            )
+
+            assert resolved != occupied
+            assert len(resolved) <= 63
+            assert resolved == analysis_output_table_name(
+                base, job_id, attempt_id, collision_suffix=2
+            )
+        finally:
+            await test_db_session.execute(
+                text(f'DROP TABLE IF EXISTS data."{occupied}"')
+            )
+            await test_db_session.commit()
+
 
 def _mock_db_for_fail_stale(
     *, running_rows: list, artifact_rows: list | None = None

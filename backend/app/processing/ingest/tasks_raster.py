@@ -452,9 +452,19 @@ async def ingest_raster(
         # P2-05): create DB records, store assets, commit job. Re-load the
         # job in a fresh session — its attributes were already snapshotted
         # into ``um`` / ``source_filename`` above.
+        #
+        # fix(#1778 audit r11): require_status="running". The load used to
+        # match on (job, attempt) alone, so a row the stale sweep already
+        # failed on a heartbeat timeout, WITHOUT a retry rotating the
+        # attempt, still matched -- and this phase puts objects to storage,
+        # which no rollback can undo. A worker only paused, not dead, could
+        # resume here and write bytes nothing durable names.
         # ----------------------------------------------------------------- #
         async with _job_phase_session(
-            job_uuid, phase="phase2", attempt_id=attempt_uuid
+            job_uuid,
+            phase="phase2",
+            attempt_id=attempt_uuid,
+            require_status="running",
         ) as (session, job):
             if job is None:
                 return

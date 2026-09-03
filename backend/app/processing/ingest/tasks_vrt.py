@@ -612,12 +612,23 @@ async def ingest_vrt(
         # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session): create DB records, store assets,
         # commit job.
+        #
+        # fix(#1778 audit r11): status == "running" joins the attempt fence.
+        # A stale sweep can fail this job on heartbeat timeout WITHOUT a
+        # retry ever rotating the attempt token, so an (id, attempt)-only
+        # match still passed for a worker that was merely paused, not dead --
+        # and this phase puts the VRT and its quicklooks to storage, which no
+        # rollback can undo. This does not use `_job_phase_session` (the
+        # shared helper other tails go through) because it never adopted the
+        # helper in the first place; the fence has to match by hand here for
+        # the same reason.
         # ----------------------------------------------------------------- #
         async with async_session() as session:
             result = await session.execute(
                 select(IngestJob).where(
                     IngestJob.id == job_uuid,
                     IngestJob.attempt_id == attempt_uuid,
+                    IngestJob.status == "running",
                 )
             )
             job = result.scalar_one_or_none()
@@ -1217,12 +1228,26 @@ async def regenerate_vrt(
         # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session): update RasterAsset metadata, mark
         # job complete, update dataset footprint.
+        #
+        # fix(#1778 audit r11): status == "running" joins the attempt fence.
+        # The `current_generation_id` check below already refuses a NEWER
+        # generation's publish from overwriting this one, but says nothing
+        # about a job the stale sweep already failed without any newer
+        # generation existing yet -- `vrt_asset.current_generation_id` lives
+        # on a different row than `ingest_jobs.status` and the sweep never
+        # touches it. Without this, a worker only paused, not dead, could
+        # still complete the job and switch the live pointer onto this
+        # generation's objects after the sweep declared it dead. The objects
+        # written above are unaffected either way: they are reaped by the
+        # separate stale-generation mechanism (`sweep_stale_vrt_assets`) on
+        # their own timeout, independent of this fence.
         # ----------------------------------------------------------------- #
         async with async_session() as session:
             result = await session.execute(
                 select(IngestJob).where(
                     IngestJob.id == job_uuid,
                     IngestJob.attempt_id == attempt_uuid,
+                    IngestJob.status == "running",
                 )
             )
             job = result.scalar_one_or_none()

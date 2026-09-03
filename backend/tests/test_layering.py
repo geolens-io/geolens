@@ -3158,7 +3158,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # behind a lock the row's own later write would never see (e.g. an
     # ACCESS EXCLUSIVE table lock). `None` by default, so every other caller
     # of this shared helper is unchanged. Cap 2426 -> 2447, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2447,
+    # fix(#1778 audit r11): +23, rebased onto the above rather than the 2426
+    # baseline it was originally measured against. `_job_phase_session` also
+    # gains `require_status`, an independent optional status predicate that
+    # joins the attempt fence, addressing a coexisting gap: an (id, attempt)
+    # -only match still admitted a row the stale sweep had already failed on
+    # a heartbeat timeout, with no retry having rotated the attempt token
+    # yet, so a worker only paused could resume and write whatever that
+    # phase writes. The two parameters are independent and both now live on
+    # the same signature. Almost all of the growth is the docstring stating
+    # which phases must pass which. Cap 2447 -> 2470, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2470,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -4004,7 +4014,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # attempt, so it returns before generating quicklooks or ever reaching
     # phase 2, instead of relying on phase 2's own attempt-fenced load to
     # catch it downstream. Cap 1568 -> 1575, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1575,
+    # fix(#1778 audit r11): +25. Neither of this file's two "phase 2" blocks
+    # goes through `_job_phase_session` (they predate the helper and match
+    # the fence by hand), so both gain `IngestJob.status == "running"`
+    # directly in their own SELECT, matching the sibling tails. The
+    # `ingest_vrt` one closes the same object-storage leak the other raster
+    # tails' phase 2 does; the `regenerate_vrt` one closes a job-completion
+    # race the existing `current_generation_id` check does not cover, since
+    # that field lives on a different row than `ingest_jobs.status` and the
+    # sweep never touches it. Cap 1575 -> 1600, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1600,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.
@@ -4112,7 +4131,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # attempt-fenced shape `_finalize_ingest` already uses via
     # `require_ingest_job_update`; zero rows affected logs at debug and does
     # nothing. Cap 1284 -> 1333, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1333,
+    # fix(#1778 audit r11): +23, rebased onto the above rather than the 1161
+    # baseline it was originally measured against. Both of this file's
+    # "phase 2" call sites (`ingest_file`, `ingest_service`) gain
+    # `require_status="running"` on their `_job_phase_session` load. Neither
+    # writes an untracked storage object -- each phase's own terminal write
+    # already fences on status via `require_ingest_job_update`, so a
+    # fenced-out attempt cannot resurrect a failed row -- but this stops a
+    # paused, not-dead worker from running the whole finalize pipeline
+    # against a doomed row in the first place, for consistency with the
+    # raster tails. Cap 1333 -> 1356, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1356,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern
@@ -4564,7 +4593,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `generate_table_name`'s own `_N` walk only ever probed the unscoped base,
     # so it could hand back a name that scoped straight onto an orphan a
     # previous attempt of the same job left behind. Cap 1580 -> 1702, exact.
-    "backend/app/processing/analysis/tasks.py": 1702,
+    # fix(#1778 audit r11): +23. `analysis_output_table_name` takes an
+    # optional `collision_suffix` now instead of the caller pre-pending `_N`
+    # to `base` and calling it again -- the second trim of an already-trimmed
+    # string threw away the very characters that made one candidate differ
+    # from the next, so a `base` at or past the reservation point made every
+    # walked suffix identical and exhausted the whole `_N` walk instead of
+    # self-healing. The tag is reserved for up front, in the same limit
+    # computation as the scope, the idiom `generate_table_name`'s own
+    # `_with_collision_suffix` already uses. Cap 1702 -> 1725, exact.
+    "backend/app/processing/analysis/tasks.py": 1725,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

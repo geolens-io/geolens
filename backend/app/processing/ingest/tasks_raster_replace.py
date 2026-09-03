@@ -541,9 +541,17 @@ async def reupload_raster(
         # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session): write the new objects, then swap the
         # pointer and all its dependent rows in ONE transaction.
+        #
+        # fix(#1778 audit r11): require_status="running", same reason as the
+        # sibling in tasks_raster.py -- an (job, attempt)-only fence still
+        # matches a row the stale sweep already failed without a retry
+        # rotating the attempt, and this phase puts objects to storage.
         # ----------------------------------------------------------------- #
         async with _job_phase_session(
-            job_uuid, phase="phase2", attempt_id=attempt_uuid
+            job_uuid,
+            phase="phase2",
+            attempt_id=attempt_uuid,
+            require_status="running",
         ) as (session, job):
             if job is None:
                 return

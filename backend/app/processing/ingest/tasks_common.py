@@ -468,6 +468,7 @@ async def _job_phase_session(
     phase: str,
     attempt_id: uuid.UUID | None = None,
     lock_and_statement_timeout_ms: int | None = None,
+    require_status: str | None = None,
 ) -> "AsyncGenerator[tuple[AsyncSession, IngestJob | None], None]":
     """Two-phase session bracket for ingest workers (REMED-03 / P2-05).
 
@@ -507,6 +508,25 @@ async def _job_phase_session(
     ACCESS EXCLUSIVE lock on the table). ``None`` (the default) leaves the
     session on Postgres's server-wide default, unchanged for every other
     caller of this shared helper.
+
+    fix(#1778 audit r11): ``require_status`` is None by default, matching the
+    original ``attempt_id``-only fence — every job-row write in this codebase
+    that goes through ``update_ingest_job_for_attempt`` (``heartbeat.py``)
+    already defaults to requiring ``status == "running"`` on top of the
+    attempt match; this helper was the one loader missing that second half.
+    The gap: a stale sweep can fail a job on heartbeat timeout while the
+    worker that owns it is only paused (a GC pause, a slow syscall) rather
+    than dead, WITHOUT any retry having happened yet — so the row's
+    ``attempt_id`` is unchanged and an ``attempt_id``-only fence still
+    matches. The paused worker resumes, its phase-2 load passes, and it
+    proceeds to write whatever that phase writes to a row the sweep already
+    declared terminal. For a raster tail that write is an object-storage put,
+    which no database rollback can undo, so admitting the row here is the
+    actual leak, not just a stale read. Pass ``require_status="running"`` at
+    any phase that must not resume this way; leave it ``None`` at a phase
+    that legitimately runs before the row reaches ``running`` (phase 1, ahead
+    of the claim) or one that must record something regardless of status
+    (``error_write``).
     """
     from app.core.db import async_session
     from app.platform.jobs.models import IngestJob
@@ -526,6 +546,8 @@ async def _job_phase_session(
         filters = [IngestJob.id == job_uuid]
         if attempt_id is not None:
             filters.append(IngestJob.attempt_id == attempt_id)
+        if require_status is not None:
+            filters.append(IngestJob.status == require_status)
         result = await session.execute(select(IngestJob).where(*filters))
         job = result.scalar_one_or_none()
         if job is None:
@@ -533,6 +555,7 @@ async def _job_phase_session(
                 "Ingest job not found in phase, skipping",
                 job_id=str(job_uuid),
                 phase=phase,
+                require_status=require_status,
             )
             try:
                 yield session, None
