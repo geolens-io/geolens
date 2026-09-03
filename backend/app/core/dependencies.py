@@ -11,7 +11,13 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     # wrong database. test_layering.py enforces this for the whole tree.
     from app.core.db import async_session
 
+    # fix(#1778): a query deadline on the sessions HTTP requests run on. See
+    # app/core/statement_timeout.py for why it is scoped here rather than set
+    # on the engine both the API and the worker share.
+    from app.core.statement_timeout import bind_request_statement_timeout
+
     async with async_session() as session:
+        bind_request_statement_timeout(session)
         try:
             yield session
         except Exception:  # broad: session boundary — any handler exception triggers rollback then re-raise

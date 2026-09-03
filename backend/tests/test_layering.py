@@ -3480,7 +3480,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # literal `pass%20word` while the API path (SQLAlchemy, which decodes)
     # authenticated fine — fixed with unquote() on user/password.
     # Cap 1423 -> 1501, exact.
-    "backend/app/core/config.py": 1501,
+    # fix(#1778): 1501 -> 1509. +8 for DB_STATEMENT_TIMEOUT_SECONDS and the note
+    # saying why the deadline is applied per request by get_db rather than as a
+    # session default in database_connect_args: the worker imports the same
+    # engine and runs single statements for minutes while indexing or
+    # reprojecting a freshly ingested table.
+    "backend/app/core/config.py": 1509,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of
