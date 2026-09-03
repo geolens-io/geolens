@@ -157,16 +157,40 @@ _MAX_STYLE_DICT_BYTES = (
 _MAX_LAYERS_PER_MAP = 200
 
 
-def _validate_style_dict(v: dict | None) -> dict | None:
-    """Reject style-override dicts whose JSON serialization exceeds the cap."""
-    if v is None:
-        return v
-    serialized = json.dumps(v, separators=(",", ":"))
+def _reject_oversize_json(value: object | None, label: str) -> None:
+    """Raise when a JSON value serializes past ``_MAX_STYLE_DICT_BYTES``."""
+    if value is None:
+        return
+    serialized = json.dumps(value, separators=(",", ":"))
     if len(serialized.encode("utf-8")) > _MAX_STYLE_DICT_BYTES:
         raise ValueError(
-            f"Style configuration too large (>{_MAX_STYLE_DICT_BYTES} bytes serialized)"
+            f"{label} too large (>{_MAX_STYLE_DICT_BYTES} bytes serialized)"
         )
+
+
+def _validate_style_dict(v: dict | None) -> dict | None:
+    """Reject style-override dicts whose JSON serialization exceeds the cap."""
+    _reject_oversize_json(v, "Style configuration")
     return v
+
+
+def _validate_filter_field(v: list | None) -> list | None:
+    """Bound a layer filter's nesting and size, then normalize its grammar.
+
+    fix(#1778): ``filter`` was the one open JSONB layer column with no size
+    cap. The cap above enumerates the open containers by name, and every one it
+    names is a dict, so the single open column that is a list was missed. A
+    20000-clause filter was accepted and stored 2.5 MB of JSONB per layer,
+    which every later style export and every builder load re-serialized.
+
+    ``validate_filter`` runs first because it carries the nesting bound and
+    ``json.dumps`` recurses: size-checking an unbounded filter first would
+    raise RecursionError, which is not a ValueError, so Pydantic would not turn
+    it into a 422.
+    """
+    normalized = validate_filter(v)
+    _reject_oversize_json(normalized, "Filter expression")
+    return normalized
 
 
 def _validate_maplibre_style_dict(v: dict | None) -> dict | None:
@@ -706,7 +730,9 @@ class MapLayerInput(BaseModel):
     _validate_style_config = field_validator("style_config")(_validate_style_dict)
     # builder-audit #338 P1-04: validate/normalize the editable MapLibre filter subset
     # (shared with style import/export and AI set_filter via filter_grammar).
-    _validate_filter = field_validator("filter")(validate_filter)
+    # fix(#1778): through _validate_filter_field, which adds the size cap the
+    # other open columns already carry on top of the shared grammar.
+    _validate_filter = field_validator("filter")(_validate_filter_field)
     layer_type: str | None = Field(
         default=None,
         pattern=r"^(vector_geolens|raster_geolens|geojson)$",
@@ -766,7 +792,9 @@ class MapLayerPatch(BaseModel):
     _validate_style_config = field_validator("style_config")(_validate_style_dict)
     # builder-audit #338 P1-04: validate/normalize the editable MapLibre filter subset
     # (shared with style import/export and AI set_filter via filter_grammar).
-    _validate_filter = field_validator("filter")(validate_filter)
+    # fix(#1778): through _validate_filter_field, which adds the size cap the
+    # other open columns already carry on top of the shared grammar.
+    _validate_filter = field_validator("filter")(_validate_filter_field)
 
     @model_validator(mode="before")
     @classmethod

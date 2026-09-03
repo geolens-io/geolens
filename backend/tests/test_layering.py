@@ -2661,7 +2661,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # (str | list[MapSpriteEntry]), so exported styles (which always emit the
     # array form) round-trip through /maps/import instead of 422ing.
     # Cap 1377 -> 1396, exact.
-    "backend/app/modules/catalog/maps/schemas.py": 1396,
+    # fix(#1778): +28 — `filter` picks up the byte cap the other open JSONB
+    # columns carry. The byte check moved into `_reject_oversize_json` so the
+    # dict and list callers share one policy, and `_validate_filter_field`
+    # records the ordering that matters: the grammar validator carries the
+    # nesting bound and has to run first, because `json.dumps` recurses and a
+    # RecursionError is not something Pydantic turns into a 422.
+    # Cap 1396 -> 1424, exact.
+    "backend/app/modules/catalog/maps/schemas.py": 1424,
     # fix(#1042): decomposed. The file reached 2151 lines with five carve-outs
     # on this cap, each one a correctness fix that had to argue for its lines:
     # #888 (+117, shift a 0..360 source instead of clipping it, plus the clip
