@@ -511,6 +511,7 @@ def whoami(ctx: typer.Context) -> None:
     resp = call_sdk_with_reauth(
         me_auth_me_get.sync_detailed,
         instance=instance,
+        credential_kind=sdk.credential_kind,
         client=sdk.client,
     )
     user = unwrap(resp, expected=200)
@@ -556,6 +557,7 @@ def status(
         sdk.client,
         dataset_uuid,
         instance=state.active_instance(),
+        credential_kind=sdk.credential_kind,
     )
     payload = _refresh.dataset_status_payload(dataset)
     if state.json_mode:

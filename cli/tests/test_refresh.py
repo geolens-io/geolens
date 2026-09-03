@@ -894,3 +894,144 @@ class TestReauthReviewRoundOne:
 
         assert result.exit_code == 0, result.output
         assert seen_tokens == ["expired-env-token", "rotated-access-token"]
+
+
+class TestReauthReviewRoundThree:
+    """fix(#1778 review round 3, PR #1802): refresh must only be attempted
+    for a client authenticated with a bearer token."""
+
+    def test_api_key_client_with_a_stored_refresh_token_never_refreshes_on_401(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """A revoked or mistyped API key gets 401 from _resolve_api_key()
+        returning None (not 403 — the backend treats it the same as no
+        credential at all). A legacy profile can hold both an API key
+        AND an old refresh token; refreshing that unrelated bearer
+        session and retrying with it would silently switch identity
+        instead of reporting the invalid key."""
+        from geolens_cli import config as _config
+        from geolens_cli._sdk_helpers import EXIT_AUTH
+        from geolens_cli.main import app
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        mock_keyring[("geolens", f"{INSTANCE}:api_key")] = "revoked-or-mistyped-key"
+        mock_keyring[("geolens", f"{INSTANCE}:refresh")] = "unrelated-stored-refresh-token"
+        _config.write_default_instance(INSTANCE, username=None)
+
+        monkeypatch.setattr(
+            "geolens.api.datasets."
+            "get_single_dataset_datasets_dataset_id_get.sync_detailed",
+            lambda **kwargs: SimpleNamespace(
+                status_code=HTTPStatus.UNAUTHORIZED, parsed=None
+            ),
+        )
+
+        refresh_calls = {"count": 0}
+
+        def refresh_endpoint(**kwargs):
+            refresh_calls["count"] += 1
+            return SimpleNamespace(
+                status_code=HTTPStatus.OK,
+                parsed=SimpleNamespace(
+                    access_token="should-never-be-issued", refresh_token=None
+                ),
+            )
+
+        monkeypatch.setattr(
+            "geolens.api.auth.refresh_auth_refresh_post.sync_detailed",
+            refresh_endpoint,
+        )
+
+        result = runner.invoke(app, ["status", str(DATASET_ID)])
+
+        assert result.exit_code == EXIT_AUTH, result.output
+        assert refresh_calls["count"] == 0, (
+            "try_refresh must not run for an API-key client, even with a "
+            "stored refresh token present"
+        )
+
+    def test_anonymous_client_never_refreshes_on_401(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """No credential at all is the same story: no bearer session to
+        refresh, so nothing should be attempted."""
+        from geolens_cli import config as _config
+        from geolens_cli._sdk_helpers import EXIT_AUTH
+        from geolens_cli.main import app
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        mock_keyring[("geolens", f"{INSTANCE}:refresh")] = "unrelated-stored-refresh-token"
+        _config.write_default_instance(INSTANCE, username=None)
+
+        monkeypatch.setattr(
+            "geolens.api.datasets."
+            "get_single_dataset_datasets_dataset_id_get.sync_detailed",
+            lambda **kwargs: SimpleNamespace(
+                status_code=HTTPStatus.UNAUTHORIZED, parsed=None
+            ),
+        )
+
+        refresh_calls = {"count": 0}
+
+        def refresh_endpoint(**kwargs):
+            refresh_calls["count"] += 1
+            return SimpleNamespace(
+                status_code=HTTPStatus.OK,
+                parsed=SimpleNamespace(
+                    access_token="should-never-be-issued", refresh_token=None
+                ),
+            )
+
+        monkeypatch.setattr(
+            "geolens.api.auth.refresh_auth_refresh_post.sync_detailed",
+            refresh_endpoint,
+        )
+
+        result = runner.invoke(app, ["status", str(DATASET_ID)])
+
+        assert result.exit_code == EXIT_AUTH, result.output
+        assert refresh_calls["count"] == 0
+
+    def test_bearer_client_still_refreshes_on_401(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Sanity check the gate doesn't over-fire: a genuine bearer
+        client must still refresh-retry (unchanged from round 1)."""
+        from geolens_cli import config as _config
+        from geolens_cli.main import app
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        mock_keyring[("geolens", INSTANCE)] = "expired-access-token"
+        mock_keyring[("geolens", f"{INSTANCE}:refresh")] = "valid-refresh-token"
+        _config.write_default_instance(INSTANCE, username="alice")
+
+        calls = {"status": 0}
+
+        def status_endpoint(**kwargs):
+            calls["status"] += 1
+            if calls["status"] == 1:
+                return SimpleNamespace(status_code=HTTPStatus.UNAUTHORIZED, parsed=None)
+            return SimpleNamespace(
+                status_code=HTTPStatus.OK,
+                parsed=TestDatasetStatus._dataset(),
+            )
+
+        monkeypatch.setattr(
+            "geolens.api.datasets."
+            "get_single_dataset_datasets_dataset_id_get.sync_detailed",
+            status_endpoint,
+        )
+        monkeypatch.setattr(
+            "geolens.api.auth.refresh_auth_refresh_post.sync_detailed",
+            lambda **kwargs: SimpleNamespace(
+                status_code=HTTPStatus.OK,
+                parsed=SimpleNamespace(
+                    access_token="rotated-access-token", refresh_token=None
+                ),
+            ),
+        )
+
+        result = runner.invoke(app, ["status", str(DATASET_ID)])
+
+        assert result.exit_code == 0, result.output
+        assert calls["status"] == 2

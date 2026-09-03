@@ -298,6 +298,7 @@ def fetch_dataset_status(
     dataset_id: UUID,
     *,
     instance: str | None = None,
+    credential_kind: str | None = None,
 ) -> Any:
     """Read the generated dataset detail model used by ``geolens status``.
 
@@ -305,13 +306,20 @@ def fetch_dataset_status(
     unaffected — pass it to refresh-retry once on 401 instead of
     hard-failing on an access token that expired since login (D-13;
     previously only ``whoami`` spent the stored refresh token).
+
+    fix(#1778 review round 3): ``credential_kind`` (from the
+    ``GeolensClient`` returned by ``AppState.sdk()`` / ``make_client()``)
+    is required alongside ``instance`` to enable the retry — it gates
+    the refresh attempt to a bearer-token client. See
+    ``_sdk_helpers.call_sdk_with_reauth``.
     """
     from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get
 
-    if instance is not None:
+    if instance is not None and credential_kind is not None:
         response = call_sdk_with_reauth(
             get_single_dataset_datasets_dataset_id_get.sync_detailed,
             instance=instance,
+            credential_kind=credential_kind,
             dataset_id=dataset_id,
             client=client,
         )

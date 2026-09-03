@@ -61,11 +61,31 @@ def make_client(
     tests/test_client_construction.py greps the package for the
     construction call and asserts the only occurrence is inside this
     function's body.
+
+    fix(#1778 review round 3): the returned object also carries
+    ``.credential_kind`` — one of "bearer", "api_key", "anonymous" — so a
+    caller that refresh-retries on 401 (call_sdk_with_reauth) can tell
+    whether the request that got a 401 even HAS a refreshable bearer
+    session, rather than assuming one. This is set on the hand-maintained
+    GeolensClient wrapper (sdks/python/geolens/auth.py), not on the
+    generated ``.client`` attrs object it wraps — the generated class is
+    ``@define``-slotted and rejects new attributes. Returning a tuple or
+    a separate dataclass instead was rejected: AppState.sdk() returns
+    this object directly and roughly a dozen call sites across the CLI
+    do ``state.sdk().client`` — changing the return shape here would
+    ripple through all of them for a fix that only two call sites
+    (whoami, status) need.
     """
     from geolens import GeolensClient  # lazy: keep `geolens --help` snappy
 
     client = GeolensClient(base_url=instance, bearer_token=bearer_token, api_key=api_key)
     client.client.get_httpx_client().timeout = DEFAULT_HTTP_TIMEOUT_SECONDS
+    if bearer_token:
+        client.credential_kind = "bearer"
+    elif api_key:
+        client.credential_kind = "api_key"
+    else:
+        client.credential_kind = "anonymous"
     return client
 
 
@@ -129,6 +149,7 @@ def call_sdk_with_reauth(
     fn: Callable[..., Any],
     *,
     instance: str,
+    credential_kind: str,
     client_kwarg: str = "client",
     deadline_expired: Callable[[], bool] | None = None,
     **kwargs: Any,
@@ -161,11 +182,23 @@ def call_sdk_with_reauth(
     client construction in this package) now goes through
     ``make_client()`` so the timeout bound is structurally guaranteed
     rather than repeated at each call site.
+
+    fix(#1778 review round 3): ``credential_kind`` — the value
+    ``make_client()`` tagged the ORIGINAL request's client with — gates
+    the refresh attempt to bearer clients only. An API-key client gets a
+    401 (not 403 — ``_resolve_api_key()`` returns None for a revoked or
+    mistyped key, so the backend reports it the same as no credential at
+    all) for a reason that has nothing to do with a stored bearer
+    session. A legacy profile can hold both an API key AND an old
+    refresh token; refreshing that unrelated bearer session and retrying
+    with it would silently switch the retry to a different identity
+    instead of reporting the invalid key. Anonymous clients are skipped
+    for the same reason — there is no session to refresh.
     """
     from . import auth as _auth  # lazy: avoid an import cycle with main.py
 
     resp = call_sdk(fn, deadline_expired=deadline_expired, **kwargs)
-    if int(resp.status_code) == 401:
+    if int(resp.status_code) == 401 and credential_kind == "bearer":
         new_access = _auth.try_refresh(instance)
         if new_access:
             retry_sdk = make_client(instance, bearer_token=new_access)
