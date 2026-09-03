@@ -5819,3 +5819,223 @@ class TestASampleThatExactlyFillsACollection:
         extract = await self._materialise(tmp_path, feature_limit=5)
 
         assert extract.total == 4321
+
+
+class TestNothingMalformedIsMistakenForTheLastPage:
+    """fix(#1746 B2b review r29): the r21 rule, applied to the link shapes.
+
+    `_has_next` and `_next_href` both answer None for a shape they cannot
+    read, and None is indistinguishable from a service saying there is no
+    more. So a page whose `links` is an object, or whose `next` entry has an
+    unusable href, ended the walk silently and a re-upload could replace a
+    dataset with the prefix. Malformed means refuse; it never means
+    end-of-collection.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    @staticmethod
+    def _serving(page: dict):
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            return httpx.Response(200, json=page)
+
+        return handle
+
+    @pytest.mark.parametrize(
+        "links",
+        [
+            pytest.param({"next": "/page2"}, id="links_is_an_object"),
+            pytest.param("next", id="links_is_a_string"),
+            pytest.param(42, id="links_is_a_number"),
+            pytest.param(None, id="links_is_null"),
+            pytest.param(["/page2"], id="entry_is_a_string"),
+            pytest.param([["rel", "next"]], id="entry_is_a_list"),
+            pytest.param([{"rel": "next"}], id="next_without_an_href"),
+            pytest.param([{"rel": "next", "href": None}], id="next_href_null"),
+            pytest.param([{"rel": "next", "href": 7}], id="next_href_number"),
+            pytest.param([{"rel": "next", "href": ""}], id="next_href_empty"),
+            pytest.param([{"rel": "next", "href": "   "}], id="next_href_blank"),
+            pytest.param([{"rel": "next", "href": ["/p2"]}], id="next_href_list"),
+        ],
+    )
+    async def test_a_links_member_that_cannot_be_walked_is_refused(
+        self, monkeypatch, tmp_path, links
+    ) -> None:
+        page = {
+            "type": "FeatureCollection",
+            "features": [_point("a")],
+            "links": links,
+        }
+        recorded = self._transport(monkeypatch, self._serving(page))
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        # And the feature it did write goes with the file: a prefix is not a
+        # collection, which is the r18 rule reaching this failure too.
+        assert list(tmp_path.iterdir()) == []
+        # Refused ON this page, not after chasing whatever the malformed link
+        # coerced to. Without this, three of these shapes pass for the wrong
+        # reason: a truthy non-string href survives `str()`, resolves to some
+        # address, and gets fetched, and the refusal that follows is about the
+        # document THAT returned. The collection document plus this one page is
+        # the whole of what a correct refusal reads.
+        assert [r.url.path for r in recorded] == [
+            "/oapif/collections/c1",
+            "/oapif/collections/c1/items",
+        ]
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            pytest.param("120", id="a_string"),
+            pytest.param(12.5, id="a_float"),
+            pytest.param(True, id="a_bool"),
+            pytest.param(-1, id="negative"),
+            pytest.param(None, id="null"),
+            pytest.param({"count": 3}, id="an_object"),
+        ],
+    )
+    async def test_a_number_matched_that_is_not_a_count_is_refused(
+        self, monkeypatch, tmp_path, value
+    ) -> None:
+        """The number a preview reports and re-upload turns into a delta.
+
+        Not a truncation risk on its own, which is why it is worth saying: a
+        service that cannot spell its own total is not one to take counts from,
+        and the alternative was silently reporting the total as unknown.
+        """
+        page = {
+            "type": "FeatureCollection",
+            "numberMatched": value,
+            "features": [_point("a")],
+            "links": [],
+        }
+        self._transport(monkeypatch, self._serving(page))
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+    async def test_a_second_page_without_links_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Reaching page two means following a link, so page two must have some.
+
+        A page that suddenly carries none is a truncated response rather than
+        the end of the collection.
+        """
+        base = f"{_SVC_OAPIF}/collections/c1/items"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            if request.url.params.get("page") == "1":
+                return httpx.Response(
+                    200,
+                    json={"type": "FeatureCollection", "features": [_point("b")]},
+                )
+            return _streamed(
+                {
+                    "type": "FeatureCollection",
+                    "features": [_point("a")],
+                    "links": [{"rel": "next", "href": f"{base}?page=1"}],
+                }
+            )
+
+        self._transport(monkeypatch, handle)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_single_page_without_links_is_fine(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The other half. Nothing was followed to get here, and none is read.
+
+        Common enough that refusing it would break ordinary services, and
+        harmless because no link is being consulted.
+        """
+        page = {"type": "FeatureCollection", "features": [_point("a")]}
+        self._transport(monkeypatch, self._serving(page))
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 1
+        assert extract.total == 1
+
+    async def test_an_ordinary_paginated_walk_is_untouched(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The counterfactual's other half: the rule refuses nothing real."""
+        base = f"{_SVC_OAPIF}/collections/c1/items"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            page = int(request.url.params.get("page", 0))
+            return _streamed(
+                {
+                    "type": "FeatureCollection",
+                    "features": [_point(f"f{page}")],
+                    "links": (
+                        [{"rel": "next", "href": f"{base}?page={page + 1}"}]
+                        if page < 2
+                        else [{"rel": "self", "href": base}]
+                    ),
+                }
+            )
+
+        self._transport(monkeypatch, handle)
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 3
+        assert extract.total == 3
+
+    async def test_the_refusal_never_echoes_the_page(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The body is provider-controlled and reaches a message and a log."""
+        secret = "canary" + _value()
+        page = {
+            "type": "FeatureCollection",
+            "features": [_point("a")],
+            "links": {"next": secret},
+        }
+        self._transport(monkeypatch, self._serving(page))
+
+        with pytest.raises(ItemFetchFailedError) as raised:
+            await self._materialise(tmp_path)
+
+        assert secret not in str(raised.value)
+        assert secret not in raised.value.policy
+        assert secret not in raised.value.reason

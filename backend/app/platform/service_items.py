@@ -207,7 +207,7 @@ def _require_object(document: object, what: str) -> dict:
     return document
 
 
-def _require_feature_page(document: object) -> list:
+def _require_feature_page(document: object, *, first_page: bool) -> list:
     """The features of one items page, or a refusal.
 
     fix(#1746 B2b review r21): `features or []` read an HTTP 200 JSON error
@@ -218,6 +218,36 @@ def _require_feature_page(document: object) -> list:
     one level up. A page that does not say what it is does not get to say it
     is empty.
 
+    fix(#1746 B2b review r29): the same rule, applied to every shape the walker
+    could otherwise read as "this was the last page". MALFORMED MEANS REFUSE,
+    AND NEVER MEANS END-OF-COLLECTION. `_has_next` and `_next_href` both answer
+    None for a shape they cannot read, and None is indistinguishable from a
+    service saying there is no more, so anything they would skip has to be
+    refused before they are asked. Enumerated, because the class is what
+    matters and not the instance:
+
+    * ``links`` present but not a list. Iterating an OBJECT yields its keys,
+      which are strings, so no link dict is ever found and the chain looks
+      finished. This is the one r29 reported.
+    * an entry of ``links`` that is not an object. Skipped by the same
+      `isinstance` test, so a ``next`` expressed as a list or a bare string
+      disappears.
+    * a ``rel=next`` entry whose ``href`` is absent, not a string, or blank.
+      A falsy href fails the truthiness test and the link vanishes; a
+      non-string one would be coerced by `str()` into an address nobody named.
+    * ``links`` missing entirely on a page that is NOT the first. Reaching that
+      page means following a link, so the service does emit them; a page that
+      suddenly has none is a truncated response rather than a last page. OGC
+      API Features requires links on every items response, so this is
+      spec-aligned, but it is only enforced from the second page because a
+      single-page collection that omits them is common and harmless -- nothing
+      is being decided from a link there.
+    * ``numberMatched`` present and not a non-negative integer. Not a
+      truncation risk on its own, but it is the number a preview reports as the
+      collection's size and re-upload turns into a row-count delta, so a
+      service that cannot spell it is not one to take counts from.
+    * ``features`` not a list, from r21.
+
     A legitimately empty page is `{"type": "FeatureCollection", "features": []}`
     and still reads as empty, which is what makes the refusal specific.
     """
@@ -227,7 +257,40 @@ def _require_feature_page(document: object) -> list:
     features = page.get("features")
     if not isinstance(features, list):
         raise ItemFetchFailedError("malformed items page")
+    _require_links(page, first_page=first_page)
+    _require_number_matched(page)
     return features
+
+
+def _require_links(page: dict, *, first_page: bool) -> None:
+    """Refuse a ``links`` member the pagination walk could misread."""
+    links = page.get("links")
+    if links is None:
+        if "links" in page or not first_page:
+            # An explicit null is malformed either way; an absent one is only
+            # tolerated on the first page, where nothing was followed to get
+            # here and nothing is decided from a link.
+            raise ItemFetchFailedError("malformed items page")
+        return
+    if not isinstance(links, list):
+        raise ItemFetchFailedError("malformed items page")
+    for link in links:
+        if not isinstance(link, dict):
+            raise ItemFetchFailedError("malformed items page")
+        if link.get("rel") != "next":
+            continue
+        href = link.get("href")
+        if not isinstance(href, str) or not href.strip():
+            raise ItemFetchFailedError("malformed items page")
+
+
+def _require_number_matched(page: dict) -> None:
+    """Refuse a ``numberMatched`` that is present and not a count."""
+    if "numberMatched" not in page:
+        return
+    candidate = page["numberMatched"]
+    if not isinstance(candidate, int) or isinstance(candidate, bool) or candidate < 0:
+        raise ItemFetchFailedError("malformed items page")
 
 
 # What a collection document advertises for the features themselves. Preferred
@@ -451,15 +514,14 @@ async def _walk_pages(
         # Both the first page and every page a `next` named. One rule, one
         # site, so a malformed page cannot mean different things depending on
         # where in the chain it arrived.
-        features = _require_feature_page(document)
+        features = _require_feature_page(document, first_page=pages == 1)
         if pages == 1:
             # OGC API Features part 1: the number of features the whole query
             # matches, as opposed to the number this page returned. Optional,
-            # and only trusted as a non-negative integer, because it is a
-            # number chosen by the service like everything else here.
-            candidate = document.get("numberMatched")
-            if isinstance(candidate, int) and not isinstance(candidate, bool):
-                number_matched = candidate if candidate >= 0 else None
+            # and already validated as a non-negative integer by
+            # `_require_feature_page` when it is present at all (r29), so this
+            # only has to decide whether it was there.
+            number_matched = document.get("numberMatched")
         for index, feature in enumerate(features):
             # fix(#1746 B2b review r19): `ensure_ascii=False`, and the file
             # opened in binary. The default escapes every non-ASCII character
