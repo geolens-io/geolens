@@ -227,12 +227,21 @@ export function isMultiPartGeometry(geometry: Geometry): boolean {
  * @param map - MapLibre map instance (null until map loads)
  * @param onFinish - callback invoked with the completed GeoJSON Feature after draw
  * @param onEditFinish - callback invoked with tdId and feature after edit (drag/vertex), null when not in editing context
+ * @param onHistoryBaseline - fix(round2 #1795): callback invoked when undo()
+ *   pops the ring back down to its earliest recorded snapshot (canUndo
+ *   transitions to false AS A RESULT OF an undo() call, not of a
+ *   draw/setMode/clear/resetHistory reset). The editing layer uses this to
+ *   clear isEditDirty — undoing all the way back means the displayed
+ *   geometry is once again whatever was there when the ring started, so
+ *   there is nothing pending to confirm away on Cancel/Done/mode-switch. A
+ *   subsequent edit re-dirties normally via onEditFinish.
  * @returns setMode, stop, isReady, and feature manipulation methods
  */
 export function useTerraDraw(
   map: MaplibreMap | null,
   onFinish: (feature: Feature) => void,
   onEditFinish: ((tdId: string, feature: Feature) => void) | null = null,
+  onHistoryBaseline?: () => void,
 ): {
   setMode: (mode: string) => void;
   stop: () => void;
@@ -255,6 +264,9 @@ export function useTerraDraw(
 
   const onEditFinishRef = useRef(onEditFinish);
   onEditFinishRef.current = onEditFinish;
+
+  const onHistoryBaselineRef = useRef(onHistoryBaseline);
+  onHistoryBaselineRef.current = onHistoryBaseline;
 
   // Track the current Terra Draw instance
   const drawRef = useRef<TerraDraw | null>(null);
@@ -438,7 +450,16 @@ export function useTerraDraw(
       isRestoringRef.current = false;
     });
 
-    setCanUndo(historyRef.current.length > 1);
+    const atBaseline = historyRef.current.length <= 1;
+    setCanUndo(!atBaseline);
+    // fix(round2 #1795): signal the ring has been popped all the way back to
+    // its earliest recorded snapshot BY UNDO (as opposed to a
+    // draw/setMode/clear/resetHistory reset) — the editing layer uses this
+    // to clear isEditDirty, since the displayed geometry is once again
+    // whatever was there when the ring started.
+    if (atBaseline) {
+      onHistoryBaselineRef.current?.();
+    }
   }, [draw]);
 
   const clear = useCallback(() => {

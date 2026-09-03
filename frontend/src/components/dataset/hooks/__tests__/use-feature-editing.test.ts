@@ -347,12 +347,13 @@ describe('useFeatureEditing — post-mutation cleanup skipped after a stale iden
 // (handleEditFinish) — it is not persisted until Save. The undo history for
 // that pending edit must survive until it actually settles: a successful
 // save, or a cancel/deselection (performDeselect, shared by both).
-describe('useFeatureEditing — undo history reset on settle, not on finish (fix round1 #1795)', () => {
+describe('useFeatureEditing — undo history reset on settle, not on finish (fix round1/round2 #1795)', () => {
   const baseAuth = useDrawingStore.getState();
 
   beforeEach(() => {
     useDrawingStore.setState(baseAuth, true);
     updateMutateAsync.mockClear();
+    deleteMutateAsync.mockClear();
   });
 
   it('handleSaveEdit resets the undo history once the update settles normally', async () => {
@@ -424,6 +425,105 @@ describe('useFeatureEditing — undo history reset on settle, not on finish (fix
     });
 
     expect(resetHistory).not.toHaveBeenCalled();
+  });
+
+  // fix(round2 #1795, P2): handleDeleteFeature's success path removed the
+  // feature and cleared the selection but never reset the undo history —
+  // canUndo stayed true and Undo restored the deleted geometry as a
+  // client-side ghost. Reset at the same point handleSaveEdit does, after
+  // the stale-epoch check.
+  it('handleDeleteFeature resets the undo history once the delete settles normally', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
+    const resetHistory = vi.fn();
+    const removeFeatures = vi.fn();
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map, { removeFeatures, resetHistory });
+
+    await act(async () => {
+      await result.current.handleDeleteFeature();
+    });
+
+    expect(resetHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it('handleDeleteFeature does NOT reset the undo history when cleanup is skipped for a stale identity', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
+    const del = deferred<unknown>();
+    deleteMutateAsync.mockReturnValueOnce(del.promise);
+    const resetHistory = vi.fn();
+    const removeFeatures = vi.fn();
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map, { removeFeatures, resetHistory });
+
+    const deleting = result.current.handleDeleteFeature();
+    act(() => {
+      useDrawingStore.getState().bumpSessionEpoch();
+    });
+    del.resolve({});
+    await act(async () => {
+      await deleting;
+    });
+
+    expect(resetHistory).not.toHaveBeenCalled();
+  });
+});
+
+// fix(round2 #1795, P2): Terra Draw's undo() reverts snapshots and updates
+// canUndo, but never touched isEditDirty — undoing all the way back to the
+// original geometry still triggered the unsaved-changes confirmation on
+// Cancel/Done/mode-switch. handleHistoryBaseline is what use-terra-draw's
+// onHistoryBaseline callback fires into; a subsequent edit re-dirties
+// normally through the existing handleEditFinish.
+describe('useFeatureEditing — handleHistoryBaseline clears isEditDirty (fix round2 #1795)', () => {
+  const baseAuth = useDrawingStore.getState();
+
+  beforeEach(() => {
+    useDrawingStore.setState(baseAuth, true);
+  });
+
+  it('clears isEditDirty when the undo ring reports it reached baseline', () => {
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map);
+
+    act(() => {
+      result.current.handleEditFinish('td-7', {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [0, 0] },
+        properties: {},
+      });
+    });
+    expect(useDrawingStore.getState().isEditDirty).toBe(true);
+
+    act(() => {
+      result.current.handleHistoryBaseline();
+    });
+    expect(useDrawingStore.getState().isEditDirty).toBe(false);
+  });
+
+  it('a subsequent edit re-dirties normally after a baseline reset (drag, undo, drag)', () => {
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map);
+
+    act(() => {
+      result.current.handleEditFinish('td-7', {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [0, 0] },
+        properties: {},
+      });
+    });
+    act(() => {
+      result.current.handleHistoryBaseline();
+    });
+    expect(useDrawingStore.getState().isEditDirty).toBe(false);
+
+    act(() => {
+      result.current.handleEditFinish('td-7', {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [1, 1] },
+        properties: {},
+      });
+    });
+    expect(useDrawingStore.getState().isEditDirty).toBe(true);
   });
 });
 

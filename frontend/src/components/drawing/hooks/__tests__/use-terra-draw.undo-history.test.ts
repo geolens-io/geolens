@@ -150,3 +150,92 @@ describe('useTerraDraw — undo history bound (fix #1778)', () => {
     expect(result.current.canUndo).toBe(false);
   });
 });
+
+// fix(round2 #1795, P2): undo() reverts snapshots and updates canUndo, but
+// never touched isEditDirty — undoing all the way back to the original
+// geometry still triggered the unsaved-changes confirmation on Cancel/Done/
+// mode-switch. onHistoryBaseline is the signal the editing layer uses to
+// clear isEditDirty at exactly the right moment.
+describe('useTerraDraw — onHistoryBaseline (fix round2 #1795)', () => {
+  it('fires onHistoryBaseline only on the undo() call that pops the ring back to its earliest snapshot', () => {
+    const map = fakeMap();
+    const onHistoryBaseline = vi.fn();
+    const { result } = renderHook(() => useTerraDraw(map, vi.fn(), null, onHistoryBaseline));
+    const td = lastInstance!;
+
+    // Three snapshots recorded (ring length 3): two undos are available.
+    act(() => {
+      td.emit('change');
+      td.emit('change');
+      td.emit('change');
+    });
+    expect(result.current.canUndo).toBe(true);
+
+    // First undo: ring still has more than one entry left — not at baseline yet.
+    act(() => {
+      result.current.undo();
+    });
+    expect(onHistoryBaseline).not.toHaveBeenCalled();
+    expect(result.current.canUndo).toBe(true);
+
+    // Second undo: ring collapses to its earliest entry — baseline reached.
+    act(() => {
+      result.current.undo();
+    });
+    expect(onHistoryBaseline).toHaveBeenCalledTimes(1);
+    expect(result.current.canUndo).toBe(false);
+  });
+
+  it('does NOT fire onHistoryBaseline from resetHistory(), clear(), or setMode() — only from undo()', () => {
+    const map = fakeMap();
+    const onHistoryBaseline = vi.fn();
+    const { result } = renderHook(() => useTerraDraw(map, vi.fn(), null, onHistoryBaseline));
+    const td = lastInstance!;
+
+    act(() => {
+      td.emit('change');
+      td.emit('change');
+    });
+    expect(result.current.canUndo).toBe(true);
+
+    act(() => {
+      result.current.resetHistory();
+    });
+    expect(onHistoryBaseline).not.toHaveBeenCalled();
+
+    act(() => {
+      td.emit('change');
+      td.emit('change');
+    });
+    act(() => {
+      result.current.clear();
+    });
+    expect(onHistoryBaseline).not.toHaveBeenCalled();
+
+    act(() => {
+      td.emit('change');
+      td.emit('change');
+    });
+    act(() => {
+      result.current.setMode('point');
+    });
+    expect(onHistoryBaseline).not.toHaveBeenCalled();
+  });
+
+  it('an undo() call while already at baseline (no-op) does not re-fire onHistoryBaseline', () => {
+    const map = fakeMap();
+    const onHistoryBaseline = vi.fn();
+    const { result } = renderHook(() => useTerraDraw(map, vi.fn(), null, onHistoryBaseline));
+    const td = lastInstance!;
+
+    act(() => {
+      td.emit('change');
+    });
+    expect(result.current.canUndo).toBe(false); // one snapshot only — already at baseline
+
+    act(() => {
+      result.current.undo(); // guarded no-op: historyRef.length <= 1
+    });
+    expect(onHistoryBaseline).not.toHaveBeenCalled();
+  });
+});

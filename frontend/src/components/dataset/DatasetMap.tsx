@@ -283,6 +283,13 @@ export const DatasetMap = memo(function DatasetMap({
   const stableEditFinish = useCallback((tdId: string, feature: Feature) => {
     editFinishRef.current(tdId, feature);
   }, []);
+  // fix(round2 #1795): onHistoryBaseline needs handleHistoryBaseline, which
+  // also comes from useFeatureEditing (needs TerraDraw) — same circular-dep
+  // break as onEditFinish above.
+  const historyBaselineRef = useRef<() => void>(() => {});
+  const stableHistoryBaseline = useCallback(() => {
+    historyBaselineRef.current();
+  }, []);
 
   const handleDrawFinish = useCallback(
     (feature: Feature<Geometry, GeoJsonProperties>) => {
@@ -309,7 +316,7 @@ export const DatasetMap = memo(function DatasetMap({
     undo,
     canUndo,
     resetHistory,
-  } = useTerraDraw(mapInstance, handleDrawFinish, stableEditFinish);
+  } = useTerraDraw(mapInstance, handleDrawFinish, stableEditFinish, stableHistoryBaseline);
 
   // --- Feature editing hook (all CRUD logic) ---
   const {
@@ -318,6 +325,7 @@ export const DatasetMap = memo(function DatasetMap({
     handleSaveEdit,
     handleDeleteFeature,
     handleEditFinish,
+    handleHistoryBaseline,
     handleEditAttributeSubmit,
     selectFeatureFromMap,
     cleanupOverlayListener,
@@ -339,6 +347,7 @@ export const DatasetMap = memo(function DatasetMap({
   // Keep refs current for callbacks that break circular deps
   saveAndRefreshRef.current = saveAndRefresh;
   editFinishRef.current = handleEditFinish;
+  historyBaselineRef.current = handleHistoryBaseline;
 
   // Clean up overlay listeners on unmount
   useEffect(() => {

@@ -337,6 +337,10 @@ export function useFeatureEditing({
       const map = mapRef.current;
       if (map) showAllFeaturesInTiles(map);
       clearSelectedFeature();
+      // fix(round2 #1795): the deleted feature no longer exists — its
+      // pending undo history (which would restore it as a client-side
+      // ghost) is no longer meaningful. Same point handleSaveEdit resets at.
+      resetHistory();
     } catch (err) {
       // fix(#1761 review round 7): mirror the success branch's recheck —
       // a failed delete is feedback for whoever issued it, not whoever is
@@ -345,7 +349,7 @@ export function useFeatureEditing({
       // fix(#458 E-36): keep the backend detail.
       toast.error(formatMutationError('dataset:map.featureDeleteFailed', err));
     }
-  }, [datasetId, tableName, mapRef, deleteFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, t]);
+  }, [datasetId, tableName, mapRef, deleteFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, resetHistory, t]);
 
   /** Update attributes of the selected feature. */
   // fix(#1761 review round 4): returns whether the caller may treat this
@@ -406,6 +410,17 @@ export function useFeatureEditing({
     },
     [setEditDirty],
   );
+
+  /**
+   * fix(round2 #1795): Terra Draw's undo() popped the ring back to its
+   * earliest recorded snapshot — the displayed geometry is once again
+   * whatever was there when the ring started, so there is no longer a
+   * pending edit to confirm away on Cancel/Done/mode-switch. A subsequent
+   * drag/vertex edit re-dirties normally via handleEditFinish above.
+   */
+  const handleHistoryBaseline = useCallback(() => {
+    setEditDirty(false);
+  }, [setEditDirty]);
 
   /** Select a feature from the map by clicking on it. */
   const selectFeatureFromMap = useCallback(
@@ -491,6 +506,7 @@ export function useFeatureEditing({
     handleSaveEdit,
     handleDeleteFeature,
     handleEditFinish,
+    handleHistoryBaseline,
     handleEditAttributeSubmit,
     selectFeatureFromMap,
     reloadTiles,
