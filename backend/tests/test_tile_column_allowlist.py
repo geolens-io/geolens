@@ -133,21 +133,26 @@ def test_additional_columns_unioned_below_zoom_threshold():
     )
 
 
-def test_additional_columns_unioned_with_empty_allowlist():
-    """admin allowlist=[] still allows runtime opt-in via additional_columns."""
+def test_additional_columns_cannot_escape_empty_allowlist():
+    """fix(#1778): allowlist=[] means no attributes, `cols=` included.
+
+    Was `test_additional_columns_unioned_with_empty_allowlist`, which pinned
+    the opposite. `tile_columns == []` is documented as "never project
+    attributes" in this function, on DatasetResponse and on the metadata PATCH
+    schema; a runtime opt-in that walks past it makes the only per-dataset
+    attribute-exposure control on the tile surface advisory.
+    """
     result = _select_tile_columns(
         _DATASET_COLUMNS,
         14,
         tile_columns=[],
         additional_columns=["name", "population"],
     )
-    names = [c["name"] for c in result]
-    # Order matches dataset column_info iteration, not the additional_columns argument
-    assert names == ["name", "population"]
+    assert result == []
 
 
-def test_additional_columns_dedupes_against_base_selection():
-    """A column already in the base allowlist isn't duplicated when also in additional_columns."""
+def test_additional_columns_intersected_with_allowlist():
+    """fix(#1778): `cols=` may reorder/extend the zoom budget, not the allowlist."""
     result = _select_tile_columns(
         _DATASET_COLUMNS,
         14,
@@ -155,8 +160,20 @@ def test_additional_columns_dedupes_against_base_selection():
         additional_columns=["name", "population"],
     )
     names = [c["name"] for c in result]
-    # name stays (already allowlisted), population added (additional), category preserved
-    assert names == ["name", "category", "population"]
+    # `population` is not on the allowlist, so it does not reach the projection.
+    assert names == ["name", "category"]
+
+
+def test_additional_columns_still_override_the_zoom_budget_under_an_allowlist():
+    """An allowlisted column still flows at z<10 when `cols=` asks for it."""
+    result = _select_tile_columns(
+        _DATASET_COLUMNS,
+        2,
+        tile_columns=["population"],
+        additional_columns=["population"],
+    )
+    names = [c["name"] for c in result]
+    assert names == ["population"]
 
 
 def test_additional_columns_drops_unknown_and_invalid_names():
@@ -193,3 +210,18 @@ def test_additional_columns_none_or_empty_preserves_legacy_behavior():
         )
         == []
     )
+
+
+def test_build_tile_query_orders_before_the_feature_cap():
+    """fix(#1778): the 50k `LIMIT` needs an ORDER BY to be a pure function.
+
+    Without one, a tile whose bbox selects more than `_TILE_FEATURE_LIMIT`
+    rows returns an arbitrary subset, so the content-hash ETag flips between
+    rebuilds and each uvicorn worker can cache a different rendering.
+    """
+    query = _build_tile_query("perf_test", _DATASET_COLUMNS)
+    order_at = query.find("ORDER BY t.gid")
+    limit_at = query.find("LIMIT 50000")
+    assert order_at != -1, "vector tile query must order before the feature cap"
+    assert limit_at != -1
+    assert order_at < limit_at, "ORDER BY must precede the LIMIT it makes deterministic"

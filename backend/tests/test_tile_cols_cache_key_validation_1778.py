@@ -89,12 +89,18 @@ def test_every_subset_collapses_onto_one_key_at_high_zoom(cols):
 
 
 def test_an_allowlisted_name_adds_nothing_at_any_zoom():
-    """An explicit `tile_columns` allowlist is the same case as the zoom default."""
+    """An explicit `tile_columns` allowlist is the same case as the zoom default.
+
+    fix(#1778, second pass): a name OUTSIDE the allowlist now adds nothing
+    either, because `_select_tile_columns` intersects `cols=` with
+    `tile_columns` instead of unioning past it. That is the same collapse this
+    module was written for -- the tile is byte-identical to the unfiltered one
+    -- reached by the projection no longer changing at all.
+    """
     for z in (LOW, HIGH):
         assert _key("name", z, tile_columns=["name"]) == ""
-        # ...while a name OUTSIDE the allowlist still changes the projection.
-        assert _key("value", z, tile_columns=["name"]) == "value"
-        assert _key("name,value", z, tile_columns=["name"]) == "value"
+        assert _key("value", z, tile_columns=["name"]) == ""
+        assert _key("name,value", z, tile_columns=["name"]) == ""
 
 
 # ---------------------------------------------------------------------------
