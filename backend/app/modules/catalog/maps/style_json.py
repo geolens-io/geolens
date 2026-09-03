@@ -595,6 +595,13 @@ def _layer_metadata(layer: MapLayerResponse) -> dict[str, Any]:
             "show_in_legend": layer.show_in_legend,
             "style_config": _clean_style_metadata(layer.style_config),
             "label_config": _clean_label_metadata(layer.label_config),
+            # fix(#1778): popup_config had no export at all, so a map's popup
+            # configuration was dropped by any export/import cycle without a
+            # warning. It is a plain settings model (enabled + title template +
+            # visible-field allowlist), so it round-trips as its JSON dump.
+            "popup_config": layer.popup_config.model_dump(mode="json")
+            if layer.popup_config is not None
+            else None,
             "layer_type": layer.layer_type,
         }
     }

@@ -2187,7 +2187,10 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # allowlist note saying the two keys are left out on purpose, and (#1631
     # review) the note on the pre-existing absent-at-master-1 divergence the
     # fold deliberately leaves alone. Cap 1641 -> 1703.
-    "backend/app/modules/catalog/maps/style_json.py": 1703,
+    # fix(#1778): +7 — `_layer_metadata` emits popup_config, which had no export
+    # at all, so a map's popup configuration was dropped by any export/import
+    # cycle and the import side had nothing to read. Cap 1703 -> 1710.
+    "backend/app/modules/catalog/maps/style_json.py": 1710,
     # fix(#1626): +50 — `_restore_master_opacity` undoes the export fold from
     # `metadata.geolens.feature_opacity` and maps a v6 `-layer-opacity` key onto
     # `layer.opacity` (number) or drops it with a warning (expression); plus
@@ -2198,7 +2201,14 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # stored 0.0 survives import, plus the comment saying what the truthiness
     # read cost (the folded paint key was popped in the same pass, so the
     # document's own record of the 0 went with it). Cap 500 -> 506.
-    "backend/app/modules/catalog/maps/style_import.py": 506,
+    # fix(#1778): +49 — `_restore_zoom_range` reads the spec minzoom/maxzoom the
+    # export promotes from the builder-private layout keys, and
+    # `_popup_config_from_import` reads back the popup settings the export half
+    # of this fix started emitting. Most of it is the two docstrings: why the
+    # 0/22 no-ops must not be written back as explicit keys, and why a
+    # malformed popup config is dropped rather than raised on (MapLayerInput
+    # would 400 the whole document over one layer). Cap 506 -> 555.
+    "backend/app/modules/catalog/maps/style_import.py": 555,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
     # fix(getgeolens.com#86 review): +6 — the icon-asset and sprite-index GETs
     # gained per-route `responses={403: FORBIDDEN_RESPONSE}` overrides; they

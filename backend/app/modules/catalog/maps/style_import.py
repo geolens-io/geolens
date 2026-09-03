@@ -12,6 +12,7 @@ from app.modules.catalog.maps.schemas import (
     MapLayerInput,
     MapStyleImportSummary,
     MapStyleImportWarning,
+    PopupConfig,
     TerrainConfig,
 )
 from app.modules.catalog.maps.style_sanitizers import (
@@ -329,6 +330,51 @@ def _restore_master_opacity(
     return clamp_number(opacity, 0.0, 1.0)
 
 
+def _restore_zoom_range(style_layer: dict[str, Any], layout: dict[str, Any]) -> None:
+    """Put a primary layer's spec ``minzoom``/``maxzoom`` back into the layout.
+
+    fix(#1778): the builder stores the per-layer zoom range as the private
+    layout keys ``_minzoom``/``_maxzoom``, and fix(#526 B-044) taught the export
+    to promote them to the spec-level ``minzoom``/``maxzoom`` because
+    ``clean_layout`` strips every underscore key. Import read only the layout,
+    so a zoom-limited map exported and re-imported drew every layer at all
+    zooms, with ``layers_imported`` reporting success and no warning. That is
+    the regression #526 closed, reintroduced from the other direction.
+
+    Mirrors the export's conditions exactly: 0 and 22 are the range's own
+    defaults and the export omits them as no-ops, so reading them back would
+    write two keys the builder treats as unset. The raw value is kept rather
+    than the parsed float so an integer zoom stays an integer in JSONB.
+    """
+    for spec_key, layout_key, is_meaningful in (
+        ("minzoom", "_minzoom", lambda z: 0 < z <= 24),
+        ("maxzoom", "_maxzoom", lambda z: 0 <= z < 22),
+    ):
+        raw = style_layer.get(spec_key)
+        number = finite_number(raw)
+        if number is not None and is_meaningful(number):
+            layout[layout_key] = raw
+
+
+def _popup_config_from_import(geolens: dict[str, Any]) -> dict[str, Any] | None:
+    """Recover ``popup_config`` from the layer's GeoLens metadata.
+
+    fix(#1778): the export half is new too (``_layer_metadata`` never emitted
+    this), so nothing has to be tolerated for compatibility beyond a document
+    someone hand-edited. A malformed value is dropped rather than raised on:
+    ``MapLayerInput`` would turn it into a ValidationError, which the import
+    route answers as a 400 for the whole document, and losing one layer's popup
+    settings is not worth refusing the import.
+    """
+    raw = geolens.get("popup_config")
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return PopupConfig.model_validate(raw).model_dump(mode="json")
+    except ValidationError:
+        return None
+
+
 def parse_maplibre_style_import(  # noqa: C901 - coordinates independent parsers
     style: dict[str, Any],
 ) -> ImportedStyleMap:
@@ -428,6 +474,12 @@ def parse_maplibre_style_import(  # noqa: C901 - coordinates independent parsers
             else {}
         )
         opacity = _restore_master_opacity(style_layer, geolens, paint, summary)
+        layout = clean_layout(
+            style_layer.get("layout")
+            if isinstance(style_layer.get("layout"), dict)
+            else {}
+        )
+        _restore_zoom_range(style_layer, layout)
         imported_layers.append(
             MapLayerInput(
                 dataset_id=dataset_id,
@@ -437,11 +489,8 @@ def parse_maplibre_style_import(  # noqa: C901 - coordinates independent parsers
                 else True,
                 opacity=opacity,
                 paint=paint,
-                layout=clean_layout(
-                    style_layer.get("layout")
-                    if isinstance(style_layer.get("layout"), dict)
-                    else {}
-                ),
+                layout=layout,
+                popup_config=_popup_config_from_import(geolens),
                 display_name=geolens.get("display_name") or style_layer.get("id"),
                 filter=style_layer.get("filter")
                 if isinstance(style_layer.get("filter"), list)

@@ -61,7 +61,7 @@ def _layer(**overrides):
         dataset_record_type=overrides.get("dataset_record_type", "vector_dataset"),
         filter=overrides.get("filter", ["==", "status", "open"]),
         label_config=overrides.get("label_config", {"column": "name"}),
-        popup_config=None,
+        popup_config=overrides.get("popup_config"),
         style_config=overrides.get("style_config", None),
         show_in_legend=True,
         is_3d=overrides.get("is_3d", False),
@@ -2836,3 +2836,86 @@ def test_a_non_numeric_stored_master_opacity_falls_back_to_one_1778():
     imported = parse_maplibre_style_import(style)
 
     assert imported.layers[0].opacity == 1.0
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778): zoom range and popup config survive a GeoLens round trip
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        ({"_minzoom": 8, "_maxzoom": 12}, {"_minzoom": 8, "_maxzoom": 12}),
+        ({"_minzoom": 8}, {"_minzoom": 8}),
+        ({"_maxzoom": 12}, {"_maxzoom": 12}),
+        # 0 and 22 are the range's own defaults; export omits them as no-ops,
+        # so import must not write them back as explicit keys.
+        ({"_minzoom": 0, "_maxzoom": 22}, {}),
+        ({}, {}),
+    ],
+)
+def test_import_restores_the_per_layer_zoom_range_1778(stored, expected):
+    """Export promotes the builder-private range to spec minzoom/maxzoom
+    (fix(#526 B-044)); import never read it back, so a zoom-limited map drew at
+    all zooms after an export/import cycle, with no warning."""
+    layer = _layer(layout=dict(stored), label_config=None, style_config=None)
+
+    style = build_maplibre_style(_map(), [layer])
+    imported = parse_maplibre_style_import(style)
+
+    assert imported.layers[0].layout == expected
+    assert imported.summary.warnings == []
+
+
+def test_the_restored_zoom_range_keeps_integers_1778():
+    layer = _layer(layout={"_minzoom": 8, "_maxzoom": 12})
+
+    style = build_maplibre_style(_map(), [layer])
+    restored = parse_maplibre_style_import(style).layers[0]
+
+    assert isinstance(restored.layout["_minzoom"], int)
+    assert isinstance(restored.layout["_maxzoom"], int)
+
+
+def test_a_non_numeric_spec_zoom_is_ignored_1778():
+    style = build_maplibre_style(_map(), [_layer(layout={})])
+    primary = _primary(style, "circle")
+    primary["minzoom"] = "eight"
+    primary["maxzoom"] = None
+
+    restored = parse_maplibre_style_import(style).layers[0]
+
+    assert restored.layout == {}
+
+
+def test_popup_config_round_trips_1778():
+    """`_layer_metadata` never emitted popup_config, so a map's popup settings
+    disappeared on any export/import cycle."""
+    popup = {"enabled": True, "expression": "{name}", "visible_fields": ["a", "b"]}
+    layer = _layer(popup_config=popup)
+
+    style = build_maplibre_style(_map(), [layer])
+    imported = parse_maplibre_style_import(style)
+
+    assert _primary(style, "circle")["metadata"]["geolens"]["popup_config"] == popup
+    assert imported.layers[0].popup_config.model_dump(mode="json") == popup
+
+
+def test_a_layer_without_popup_config_imports_none_1778():
+    style = build_maplibre_style(_map(), [_layer()])
+
+    assert parse_maplibre_style_import(style).layers[0].popup_config is None
+
+
+def test_a_malformed_popup_config_is_dropped_not_raised_1778():
+    """A hand-edited document must not 400 the whole import over one layer."""
+    style = build_maplibre_style(_map(), [_layer()])
+    _primary(style, "circle")["metadata"]["geolens"]["popup_config"] = {
+        "enabled": "yes please"
+    }
+
+    imported = parse_maplibre_style_import(style)
+
+    assert imported.layers[0].popup_config is None
+    assert imported.summary.layers_imported == 1
