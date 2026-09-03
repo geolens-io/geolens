@@ -47,8 +47,11 @@ from sqlalchemy import text
 from app.platform.cache.memory import InMemoryCacheProvider
 from app.platform.cache.redis import RedisCacheProvider
 from app.platform.cache.revocation import (
+    UNKNOWN_GENERATION,
+    RevocationGenerationError,
     bump_revocation_generation,
     current_revocation_generation,
+    is_usable_generation,
 )
 
 pytestmark = pytest.mark.anyio
@@ -270,17 +273,71 @@ class TestTheGenerationIsTransactional:
         # And it still answers, from the database.
         assert await self._generation(test_db_session) >= 1
 
-    async def test_a_missing_counter_row_refuses_every_stamp(
+    async def test_a_deleted_counter_row_is_re_created_above_its_old_values(
         self, test_db_session, clean_tables
     ):
-        """Fail closed: a counter that cannot be read matches no entry."""
+        """fix(#1778 codex r5): the reader heals the row rather than living with
+        the sentinel, and re-seeds from the clock so the counter never walks back
+        up through values stale entries are still stamped with."""
+        import app.core.db as db_module
+
+        async with db_module.async_session() as session:
+            before = await self._generation(session)
+            await session.execute(
+                text("DELETE FROM catalog.security_revocation_generation")
+            )
+            healed = await self._generation(session)
+            assert healed != UNKNOWN_GENERATION, "the row was not re-created"
+            assert healed > before, (
+                "the re-seeded counter restarted low enough to collide with a "
+                "generation some cache entry could still be stamped with"
+            )
+            await session.rollback()
+
+    async def test_an_unreadable_counter_is_not_a_generation(self):
+        """Fail closed: the sentinel must never compare equal to anything.
+
+        Counterfactual: treat UNKNOWN_GENERATION as an ordinary value and two
+        entries stamped with it match, which is how a positive cached while the
+        counter was unreadable survived a later revocation.
+        """
+        broken = AsyncMock()
+        broken.scalar = AsyncMock(side_effect=RuntimeError("counter unreachable"))
+
+        assert await current_revocation_generation(broken) == UNKNOWN_GENERATION
+        assert is_usable_generation(UNKNOWN_GENERATION) is False
+        assert is_usable_generation(1) is True
+
+    async def test_a_bump_that_cannot_advance_raises(
+        self, test_db_session, clean_tables
+    ):
+        """fix(#1778 codex r5): a revocation nobody else can hear about must not
+        quietly succeed. Raising rolls the caller back, ``is_active`` flip and
+        all, so the operator sees a failed revoke instead of one half the fleet
+        ignores."""
         import app.core.db as db_module
 
         async with db_module.async_session() as session:
             await session.execute(
                 text("DELETE FROM catalog.security_revocation_generation")
             )
-            assert await self._generation(session) == -1
+            with pytest.raises(RevocationGenerationError):
+                await bump_revocation_generation(session)
+            await session.rollback()
+
+    async def test_a_revoke_fails_loudly_when_the_counter_is_gone(
+        self, test_db_session, clean_tables
+    ):
+        """The same thing through the revoke helper the routers actually call."""
+        import app.core.db as db_module
+        from app.modules.embed_tokens import service as embed_service
+
+        async with db_module.async_session() as session:
+            await session.execute(
+                text("DELETE FROM catalog.security_revocation_generation")
+            )
+            with pytest.raises(RevocationGenerationError):
+                await embed_service._deny_revoked_embed_tokens(session, "a" * 64)
             await session.rollback()
 
 
@@ -362,4 +419,43 @@ class TestTheValidatorRefusesAStaleGeneration:
         assert await self._validate(cache, 5, token_row=None) is True, (
             "a current entry was re-validated against the database, which "
             "would make the cache pointless"
+        )
+
+    async def test_an_entry_stamped_with_the_sentinel_is_never_trusted(self):
+        """fix(#1778 codex r5): two entries stamped with the sentinel compared
+        EQUAL, so a positive cached while the counter was unreadable survived a
+        later revocation whose denial could not reach shared Redis."""
+        cache = InMemoryCacheProvider()
+        await cache.set(TOKEN_KEY, self._positive(UNKNOWN_GENERATION), 300)
+
+        assert (
+            await self._validate(cache, UNKNOWN_GENERATION, token_row=None) is False
+        ), "a sentinel-stamped entry compared equal to an unreadable counter"
+
+    async def test_an_unreadable_counter_refuses_a_perfectly_good_entry(self):
+        """Not knowing whether anything was revoked means not trusting the
+        cache, in either direction."""
+        cache = InMemoryCacheProvider()
+        await cache.set(TOKEN_KEY, self._positive(5), 300)
+
+        assert await self._validate(cache, UNKNOWN_GENERATION, token_row=None) is False
+
+    async def test_nothing_is_cached_while_the_counter_is_unreadable(self):
+        """An entry stamped with the sentinel is one a future reader cannot
+        check, so it is never written in the first place."""
+        cache = InMemoryCacheProvider()
+        token_row = MagicMock(
+            id=uuid.uuid4(),
+            map_id=uuid.uuid4(),
+            allowed_origins=None,
+            scoped_dataset_ids=[str(DATASET_ID)],
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+            tenant_id=None,
+        )
+
+        assert (
+            await self._validate(cache, UNKNOWN_GENERATION, token_row=token_row) is True
+        )
+        assert await cache.get(TOKEN_KEY) is None, (
+            "a positive was cached with a generation no reader can check it against"
         )

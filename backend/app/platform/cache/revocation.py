@@ -84,11 +84,40 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = structlog.stdlib.get_logger(__name__)
 
 _TABLE = "catalog.security_revocation_generation"
+_TABLE_NAME = "security_revocation_generation"
 
-# Matches no stamp any entry can carry, so every comparison against it fails and
-# every caller falls through to the database. Returned when the counter cannot
-# be read at all, which is the fail-closed direction.
-_UNKNOWN_GENERATION = -1
+# Returned when the counter cannot be read at all. fix(#1778 codex r5): a
+# sentinel is NOT a generation, and treating it as one was a hole. Two entries
+# both stamped with it compared EQUAL, so a positive cached while the counter
+# was unreadable stayed trusted through a later revocation whose denial could
+# not reach shared Redis. Callers must ask `is_usable_generation` and refuse to
+# cache, or to trust, anything stamped with an unusable value.
+UNKNOWN_GENERATION = -1
+
+
+class RevocationGenerationError(RuntimeError):
+    """The revocation counter could not be advanced.
+
+    fix(#1778 codex r5): a revocation whose generation cannot advance is a
+    revocation other workers will never hear about, so it must not quietly
+    proceed. Raising rolls back the caller's transaction, which takes the
+    ``is_active`` flip with it: the operator sees a failed revoke and retries,
+    rather than a successful one that half the fleet ignores.
+    """
+
+
+def is_usable_generation(generation: int) -> bool:
+    """Whether *generation* may be stamped on, or compared against, an entry."""
+    return generation != UNKNOWN_GENERATION
+
+
+# Seeded from the clock rather than from 1. fix(#1778 codex r5): the reader
+# re-creates the row if it has been deleted, and a re-seed that restarted at 1
+# would walk back up through values that stale entries elsewhere in the fleet
+# are still stamped with, making a revoked entry compare equal again. Seeding
+# from the epoch puts every re-seed far above any counter that reached its value
+# by counting revocations, so the sequence of issued values never repeats.
+_SEED_EXPR = "EXTRACT(EPOCH FROM clock_timestamp())::bigint"
 
 
 async def bump_revocation_generation(db: AsyncSession) -> int:
@@ -107,11 +136,16 @@ async def bump_revocation_generation(db: AsyncSession) -> int:
         )
     )
     if generation is None:
-        # The seeded row is gone. Refusing to invent one is the safe answer: a
-        # silent INSERT here would reset the counter and make every stale entry
-        # in the fleet compare equal again.
+        # The row is gone, so this revocation cannot be announced to the rest of
+        # the fleet. fix(#1778 codex r5): raise rather than return a sentinel.
+        # Returning one let the revoke commit while every other worker kept
+        # honouring its cached positives until they expired.
         logger.error("revocation_generation_row_missing", operation="bump")
-        return _UNKNOWN_GENERATION
+        raise RevocationGenerationError(
+            "The revocation generation counter row is missing, so this "
+            "revocation cannot be made visible to other workers. Refusing to "
+            "complete it."
+        )
     return int(generation)
 
 
@@ -122,19 +156,38 @@ async def current_revocation_generation(db: AsyncSession) -> int:
     row the cached decision is about, so the two cannot disagree about which
     side of a revocation they are on.
 
-    Never raises: a counter that cannot be read resolves to a value no entry
-    carries, so every cached positive is refused and re-derived.
+    Never raises: a counter that cannot be read resolves to UNKNOWN_GENERATION.
+    That is NOT a generation, and a caller must neither stamp it on an entry nor
+    compare two entries by it; ask ``is_usable_generation`` and skip the cache
+    entirely. fix(#1778 codex r5): treating the sentinel as an ordinary value
+    made two entries stamped with it compare EQUAL, which is the opposite of
+    fail-closed.
     """
     try:
         generation = await db.scalar(
             text(f"SELECT generation FROM {_TABLE} WHERE id IS TRUE")
         )
+        if generation is None:
+            # fix(#1778 codex r5): re-create the row rather than living with the
+            # sentinel, so an unusable generation is something that happens once
+            # instead of a state the deployment sits in. The seed comes from the
+            # clock, so the re-created counter starts above anything the old one
+            # could have counted its way to, and no stale entry can match it.
+            logger.error("revocation_generation_row_missing", operation="read")
+            generation = await db.scalar(
+                text(
+                    f"INSERT INTO {_TABLE} (id, generation) "
+                    f"VALUES (TRUE, {_SEED_EXPR}) "
+                    "ON CONFLICT (id) DO UPDATE SET generation = "
+                    f"{_TABLE_NAME}.generation "
+                    "RETURNING generation"
+                )
+            )
     except (
         Exception
     ):  # broad: authorization must fail closed rather than propagate a plumbing error
         logger.warning("revocation_generation_read_failed", exc_info=True)
-        return _UNKNOWN_GENERATION
+        return UNKNOWN_GENERATION
     if generation is None:
-        logger.error("revocation_generation_row_missing", operation="read")
-        return _UNKNOWN_GENERATION
+        return UNKNOWN_GENERATION
     return int(generation)

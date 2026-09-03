@@ -21,8 +21,10 @@ from app.core.tenancy import is_multi_tenant
 from app.platform.cache import tenant_cache_context_available, tenant_cache_key
 from app.platform.cache.provider import get_cache
 from app.platform.cache.revocation import (
+    UNKNOWN_GENERATION,
     bump_revocation_generation,
     current_revocation_generation,
+    is_usable_generation,
 )
 from app.modules.embed_tokens.models import EmbedToken
 from app.modules.embed_tokens.schemas import (
@@ -842,6 +844,15 @@ async def validate_embed_token_access(
     # round-trip; platform/cache/revocation.py says why a process-local answer
     # is not enough here.
     generation = await current_revocation_generation(db)
+    # fix(#1778 codex r5): an unreadable counter yields a SENTINEL, not a
+    # generation. Stamping it on an entry, or comparing two entries by it, made
+    # them compare EQUAL -- so a positive cached while the counter was
+    # unreadable stayed trusted through a later revocation whose denial could
+    # not reach shared Redis. When the generation is unusable the cache is
+    # simply not used, in either direction: nothing is trusted and nothing is
+    # written. Every validation then costs a database read, which is the right
+    # price for not knowing whether anything has been revoked.
+    generation_usable = is_usable_generation(generation)
 
     # Check cache first. security=True: a positive here decides access to
     # private data, so it may only come from the store every worker shares.
@@ -860,7 +871,11 @@ async def validate_embed_token_access(
     # live token in the minutes after a rolling deploy, and the alternative
     # (treating a missing stamp as current) would trust exactly the entries this
     # cannot vouch for.
-    if cached is not None and cached.get("generation") != generation:
+    if cached is not None and (
+        not generation_usable
+        or not is_usable_generation(cached.get("generation", UNKNOWN_GENERATION))
+        or cached.get("generation") != generation
+    ):
         await cache.delete(cache_key)
         cached = None
 
@@ -925,24 +940,27 @@ async def validate_embed_token_access(
         cache_ttl = int(
             min(EMBED_TOKEN_POSITIVE_TTL_SECONDS, max(0, seconds_until_expiry))
         )
-        await cache.set_if_absent(
-            cache_key,
-            {
-                "is_valid": True,
-                "scoped_dataset_ids": scoped_dataset_ids,
-                "allowed_origins": allowed_origins,
-                "map_id": str(token.map_id),
-                "expires_at": token.expires_at.isoformat(),
-                "tenant_id": str(token.tenant_id) if token.tenant_id else None,
-                # fix(#1778 codex r3): the generation this decision was made
-                # under. A later read compares it and refuses an entry that
-                # predates a revocation, which is how a revoke performed on
-                # another worker during a Redis outage reaches this one.
-                "generation": generation,
-            },
-            ttl=cache_ttl,
-            security=True,
-        )
+        # fix(#1778 codex r5): only publish an entry that carries a generation a
+        # future reader can actually check it against.
+        if generation_usable:
+            await cache.set_if_absent(
+                cache_key,
+                {
+                    "is_valid": True,
+                    "scoped_dataset_ids": scoped_dataset_ids,
+                    "allowed_origins": allowed_origins,
+                    "map_id": str(token.map_id),
+                    "expires_at": token.expires_at.isoformat(),
+                    "tenant_id": str(token.tenant_id) if token.tenant_id else None,
+                    # fix(#1778 codex r3): the generation this decision was made
+                    # under. A later read compares it and refuses an entry that
+                    # predates a revocation, which is how a revoke performed on
+                    # another worker during a Redis outage reaches this one.
+                    "generation": generation,
+                },
+                ttl=cache_ttl,
+                security=True,
+            )
 
     # Domain-locking check (before dataset scope check). Shares ONE policy
     # reader with resolve_embed_scope_for_map so the two cannot drift; the

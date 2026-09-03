@@ -796,18 +796,22 @@ async def _reconcile_mapped_role(
         )
         return
 
-    previous = sorted(r.name for r in current)
-
     # LAZY, per D-17 and to keep the import graph acyclic: admin/service.py
     # already imports from auth/providers/local.py.
     from app.modules.admin.service import AdminService  # noqa: PLC0415
     from app.modules.audit.service import AuditEvent, audit_emit  # noqa: PLC0415
 
-    applied = await AdminService(db).set_role_from_identity_provider(user, resolved)
+    outcome = await AdminService(db).set_role_from_identity_provider(user, resolved)
     await db.flush()
     await db.refresh(user, attribute_names=["roles"])
 
-    if not applied:
+    # fix(#1778 codex r5): the roles as they were UNDER the lock, not as this
+    # coroutine last saw them before waiting for it. Two concurrent callbacks
+    # both captured the pre-lock snapshot, and the one that lost the race then
+    # described a transition that had already happened.
+    previous = outcome.previous_roles
+
+    if not outcome.applied:
         # The account is the last active admin. An IdP assertion does not get to
         # remove the deployment's only way back in, so the role stands and the
         # login continues; the row is how an operator finds out that the mapping
@@ -834,6 +838,14 @@ async def _reconcile_mapped_role(
                 },
             ),
         )
+        return
+
+    if not outcome.changed:
+        # fix(#1778 codex r5): the role was already what the mapping asks for, so
+        # nothing happened and nothing is recorded. This is where the second of
+        # two concurrent callbacks lands once it gets the lock; emitting here
+        # produced a duplicate oauth.role.changed for a transition the first one
+        # had already made.
         return
 
     logger.info(

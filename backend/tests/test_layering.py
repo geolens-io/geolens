@@ -4055,7 +4055,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # reconciliation the subject-link branch had, and the function docstring
     # enumerates all three return paths so the next one added cannot miss it.
     # Cap 1188 -> 1249, exact.
-    "backend/app/modules/auth/oauth/service.py": 1249,
+    # fix(#1778 codex r5): +12. The audit event now fires only on a real change
+    # and carries the previous roles the role update actually started from,
+    # rather than a snapshot this coroutine took before waiting for the lock.
+    # Cap 1249 -> 1261, exact.
+    "backend/app/modules/auth/oauth/service.py": 1261,
     # fix(#1778 codex r1): first entry, crossed _RATCHET_INCLUSION_LOC on the
     # change that added set_role_from_identity_provider, the public seam the
     # OAuth group-role reconciliation applies a mapped role through. It exists
@@ -4071,7 +4075,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # callbacks for one account both entered it unserialized, and
     # _update_user_role's delete-then-insert collided on the (user_id, role_id)
     # primary key, failing an otherwise valid login. Cap 1036 -> 1055, exact.
-    "backend/app/modules/admin/service.py": 1055,
+    # fix(#1778 codex r5): +43 for IdentityRoleOutcome and its docstring.
+    # set_role_from_identity_provider returned a bare bool, so a caller could
+    # not tell "applied" from "was already correct", and the loser of two
+    # concurrent promotions reported a change it had not made. It now reports
+    # applied/changed plus the previous roles read UNDER the lock, which is what
+    # lets the caller audit only a real transition. Cap 1055 -> 1098, exact.
+    "backend/app/modules/admin/service.py": 1098,
     # fix(#1113 review): +15 — register_existing_table linearizes a
     # pre-existing geom_4326 (savepoint + error contract mirroring the
     # add_4326_column branch beside it); see linearize_existing_4326.
@@ -4963,7 +4973,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1778 codex r4): +10 for the comment saying why the generation bump
     # shares the caller's transaction rather than running ahead of it, and why
     # a failing bump must not be swallowed. Cap 1164 -> 1174, exact.
-    "backend/app/modules/embed_tokens/service.py": 1174,
+    # fix(#1778 codex r5): +18. An unreadable counter yields a SENTINEL, not a
+    # generation, and two entries stamped with it compared EQUAL. The validator
+    # now refuses to trust or to write anything while the generation is
+    # unusable, so a positive cached during that window cannot outlive a later
+    # revocation. Cap 1174 -> 1192, exact.
+    "backend/app/modules/embed_tokens/service.py": 1192,
     # fix(#1778): first entry for this module — it crossed the 1000-line
     # inclusion threshold on the property-filter typing. Property filters used
     # to bind the raw query-string value, so PostgreSQL had no

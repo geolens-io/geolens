@@ -453,6 +453,14 @@ async def test_embed_token_negative_cache_cannot_poison_another_tenant(
         async def execute(self, *_args, **_kwargs):
             return _Result()
 
+        async def scalar(self, *_args, **_kwargs):
+            # fix(#1778 codex r5): validate_embed_token_access now reads the
+            # revocation generation before deciding whether to cache a positive
+            # at all (an unusable generation is never written). A stub lacking
+            # this method makes every read look unusable and the positive branch
+            # below is never cached, which is not what this test is checking.
+            return 1
+
         def begin_nested(self):
             return _Nested()
 

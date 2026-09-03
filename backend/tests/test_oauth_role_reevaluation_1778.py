@@ -563,29 +563,102 @@ async def test_concurrent_mapped_promotions_do_not_collide(
     # happens, which is exactly how the unlocked version passed.
     ready = asyncio.Barrier(2)
 
-    async def promote() -> bool:
+    async def promote():
         # Its own session, as a second Uvicorn worker would have.
         async with db_module.async_session() as session:
             user = await session.get(User, user_id)
             await session.refresh(user, attribute_names=["roles"])
             await ready.wait()
-            applied = await AdminService(session).set_role_from_identity_provider(
+            outcome = await AdminService(session).set_role_from_identity_provider(
                 user, "admin"
             )
             # _reconcile_mapped_role flushes here, so the INSERT is issued
             # before the commit rather than at it.
             await session.flush()
             await session.commit()
-            return applied
+            return outcome
 
     results = await asyncio.gather(promote(), promote(), return_exceptions=True)
 
     failures = [r for r in results if isinstance(r, BaseException)]
     assert not failures, f"a concurrent mapped promotion failed: {failures!r}"
-    assert all(r is True for r in results)
+    assert all(r.applied for r in results)
 
     rows = await test_db_session.execute(
         select(UserRole).where(UserRole.user_id == user_id)
     )
     assert len(rows.scalars().all()) == 1
+    assert await _role_names(test_db_session, user_id) == {"admin"}
+
+    # fix(#1778 codex r5): exactly ONE of the two actually changed anything, and
+    # the other must say so rather than reporting a transition that had already
+    # happened. The loser used to return True and its caller emitted a second
+    # oauth.role.changed carrying a previous_roles snapshot taken before the
+    # winner's write.
+    assert sorted(r.changed for r in results) == [False, True], (
+        "both concurrent promotions reported a change, so the caller would "
+        "audit the same transition twice"
+    )
+    winner = next(r for r in results if r.changed)
+    assert winner.previous_roles == ["viewer"]
+    loser = next(r for r in results if not r.changed)
+    assert loser.previous_roles == ["admin"], (
+        "the loser's previous_roles were captured before the lock, so they "
+        "describe a state the winner had already replaced"
+    )
+
+
+async def test_a_second_concurrent_login_emits_no_duplicate_audit_event(
+    client, test_db_session, enterprise
+):
+    """The same race driven through _reconcile_mapped_role, which is what emits
+    the audit row, asserting exactly one oauth.role.changed lands.
+
+    Counterfactual: have set_role_from_identity_provider report a change
+    unconditionally and this finds two rows for one transition.
+    """
+    import app.core.db as db_module
+    from app.modules.auth.oauth.service import _reconcile_mapped_role
+
+    provider = await _provider(test_db_session)
+    sub = f"dupaudit-{uuid.uuid4().hex[:8]}"
+
+    created = await find_or_create_oauth_user(
+        test_db_session, provider, _userinfo(sub, ["everyone"]), {}
+    )
+    await test_db_session.commit()
+    user_id = created.id
+    assert await _role_names(test_db_session, user_id) == {"viewer"}
+
+    ready = asyncio.Barrier(2)
+
+    async def login():
+        async with db_module.async_session() as session:
+            user = await session.get(User, user_id)
+            await session.refresh(user, attribute_names=["roles"])
+            fresh_provider = await session.get(OAuthProvider, provider.id)
+            await ready.wait()
+            await _reconcile_mapped_role(session, fresh_provider, user, ["gis-admins"])
+            await session.commit()
+
+    results = await asyncio.gather(login(), login(), return_exceptions=True)
+    failures = [r for r in results if isinstance(r, BaseException)]
+    assert not failures, f"a concurrent mapped login failed: {failures!r}"
+
+    rows = (
+        (
+            await test_db_session.execute(
+                select(AuditLog).where(
+                    AuditLog.action == "oauth.role.changed",
+                    AuditLog.user_id == user_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 1, (
+        f"expected one oauth.role.changed for one transition, got {len(rows)}"
+    )
+    assert (rows[0].details or {})["previous_roles"] == ["viewer"]
     assert await _role_names(test_db_session, user_id) == {"admin"}

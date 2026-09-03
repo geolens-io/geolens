@@ -76,8 +76,19 @@ def upgrade() -> None:
     # Seed the row here rather than lazily: a reader that finds no row cannot
     # tell "never revoked" from "counter missing", and the safe answer to the
     # second is to refuse every cached positive.
+    # fix(#1778 codex r5): seeded from the clock, not from 1. The reader
+    # re-creates this row if it is ever deleted, and a re-seed that restarted at
+    # 1 would walk back up through values that cache entries elsewhere in the
+    # fleet are still stamped with, making a revoked entry compare equal again.
+    # An epoch seed puts every (re-)seed far above any counter that reached its
+    # value by counting revocations, so issued values never repeat.
+    #
+    # The COLUMN default stays 1: it is never used, since every row this table
+    # will ever hold is inserted right here, and keeping it a literal is what
+    # lets the ORM model in core/db/models.py match for `alembic check`.
     op.execute(
-        f"INSERT INTO catalog.{_TABLE} (id, generation) VALUES (TRUE, 1) "
+        f"INSERT INTO catalog.{_TABLE} (id, generation) "
+        "VALUES (TRUE, EXTRACT(EPOCH FROM clock_timestamp())::bigint) "
         "ON CONFLICT (id) DO NOTHING"
     )
 
