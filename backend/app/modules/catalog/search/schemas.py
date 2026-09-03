@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer
 
 from app.modules.catalog.features.service import parse_bbox
 
@@ -83,6 +83,25 @@ class OGCRasterBand(BaseModel):
     nodata: str | int | float | None = None
     statistics: dict | None = None
     description: str | None = None
+
+    # fix(#1805 review round 4 P2): /search/datasets validates through
+    # OGCFeatureCollectionResponse, and FastAPI's default response
+    # serialization fills in every declared field's default (None) for
+    # this nested model regardless of whether the raw dict provided the
+    # key -- so "band lacks a nodata key" (genuinely unavailable) and
+    # "band has nodata: null" (confirmed absent, per service_records.py's
+    # explicit None above) collapsed into the SAME wire shape (nodata:
+    # null) the moment round 3 declared this field. That defeated the
+    # tri-state distinction the client relies on (defined / absent /
+    # unknown). model_fields_set still reflects whether `nodata` was in
+    # the input dict; drop the key from the dump when it was not, so
+    # "unknown" stays genuinely absent from the response.
+    @model_serializer(mode="wrap")
+    def _serialize_nodata_presence(self, handler):  # noqa: ANN001
+        data = handler(self)
+        if "nodata" not in self.model_fields_set:
+            data.pop("nodata", None)
+        return data
 
 
 class OGCRecordProperties(BaseModel):

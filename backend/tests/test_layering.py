@@ -1679,7 +1679,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # other export format. Cap 524 -> 525, exact.
         # feat(export/pmtiles): +1 — PMTiles joined _FORMAT_MEDIA the same
         # way. Cap 525 -> 526, exact.
-        "backend/app/modules/catalog/search/service_records.py": 526,
+        # fix(#1805 review round 4 P2): +13 — a band whose own stats lack a
+        # nodata key but whose asset-level RasterAsset.nodata column is None
+        # now emits an explicit nodata: null, so the client can tell
+        # "confirmed absent" from "genuinely unavailable" (the latter keeps
+        # the key missing). Cap 526 -> 539, exact.
+        "backend/app/modules/catalog/search/service_records.py": 539,
         # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
         # wrapper) + the gated/approximated vector-only match COUNT in
         # _run_rrf_merge (perf audit 2026-07-10 §2d). Cap 350 → 390
@@ -2164,7 +2169,10 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # target user, closing a gap the repaired OpenAPI-contract gate surfaced.
     # fix(#1778): +4 lines — GET /admin/api-keys/ orders by created_at desc so
     # the LIMIT-capped page is deterministic across refetches.
-    "backend/app/modules/admin/router_operations.py": 324,
+    # fix(#1805 review round 4 P2): +5 lines — created_at DESC alone ties on
+    # equal timestamps and each page is a separate query; id DESC added as a
+    # secondary key for a total, reproducible order across pages.
+    "backend/app/modules/admin/router_operations.py": 329,
     # PRIV-1: +7 lines — GET /settings/branding/ also resolves and returns
     # PRIVACY_URL, so the login/register privacy-policy link is admin
     # configurable instead of a hardcoded getgeolens.com URL.

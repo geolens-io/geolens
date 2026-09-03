@@ -134,7 +134,16 @@ KNOWN_DRIFT: dict[str, list[str]] = {
         "rights",
         "themes",
         "time",
-        "update_frequency",
+        # fix(#1805 review round 4): proj:code, proj:shape, and raster:bands
+        # ARE declared in frontend/src/types/api.ts (added alongside the
+        # backend schema in #1805) -- they show as drift only because this
+        # checker's FE parser regex (`^\s+(\w+)\??:`) requires a bare
+        # identifier property name and cannot match a quoted, colon-
+        # containing key like 'proj:code'?:. Not a real omission; remove
+        # once the parser learns to match quoted keys too.
+        "proj:code",
+        "proj:shape",
+        "raster:bands",
     ],
     # RasterMetadata.is_dem: added when DEM support landed; FE checks is_dem
     # on the DatasetResponse wrapper, not on the nested RasterMetadata.

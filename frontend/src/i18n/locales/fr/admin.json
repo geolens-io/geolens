@@ -342,6 +342,8 @@
     "noKeys": "Aucune clé API",
     "showingOf": "Affichage de {{shown}} sur {{total}}",
     "loadMore": "Charger plus",
+    "loadError": "Échec du chargement des clés",
+    "retry": "Réessayer",
     "active": "Actif",
     "revoked": "Révoquée",
     "created": "Créée le {{date}}",

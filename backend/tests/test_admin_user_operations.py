@@ -11,12 +11,14 @@ Requirements:
 """
 
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.auth.models import ApiKey
 from app.platform.jobs.models import EMBEDDING_BACKFILL_METADATA_KEY, IngestJob
 
 from tests.conftest import _create_test_user
@@ -131,6 +133,69 @@ async def test_list_api_keys_ordered_newest_first(
     assert resp.status_code == 200
     names = [item["name"] for item in resp.json()["items"]]
     assert names == ["key-3", "key-2", "key-1"]
+
+
+@pytest.mark.anyio
+async def test_list_api_keys_stable_order_across_pages_on_tied_created_at(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+):
+    """fix(#1805 review round 4 P2): created_at DESC alone is nondeterministic
+    for two rows sharing a timestamp, and each page (skip/limit) is a
+    SEPARATE query -- Postgres is free to break the tie differently between
+    them, so a tied pair could land on both pages (duplicated) or neither
+    (dropped) depending on the plan. id DESC as a secondary key makes the
+    order total and reproducible across separate page requests.
+    """
+    _, user_id = await _create_test_user(client, admin_auth_header, "editor")
+
+    key_ids: list[str] = []
+    for name in ("tied-a", "tied-b", "tied-c"):
+        resp = await client.post(
+            "/admin/api-keys/",
+            json={"user_id": user_id, "name": name},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+        key_ids.append(resp.json()["id"])
+
+    # Force the first two keys to share one timestamp, straddling a
+    # skip=1/limit=1 page boundary against the third (untied) key.
+    tied_timestamp = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    await test_db_session.execute(
+        update(ApiKey)
+        .where(ApiKey.id.in_(key_ids[:2]))
+        .values(created_at=tied_timestamp)
+    )
+    await test_db_session.commit()
+
+    resp_all = await client.get(
+        f"/admin/api-keys/?user_id={user_id}&limit=200",
+        headers=admin_auth_header,
+    )
+    assert resp_all.status_code == 200
+    full_order = [item["id"] for item in resp_all.json()["items"]]
+
+    # Re-fetch as two separate single-item pages (two separate queries, the
+    # exact shape the finding calls out) and confirm they reconstruct the
+    # same order with no duplicate and no gap across the boundary.
+    resp_p1 = await client.get(
+        f"/admin/api-keys/?user_id={user_id}&skip=0&limit=1",
+        headers=admin_auth_header,
+    )
+    resp_p2 = await client.get(
+        f"/admin/api-keys/?user_id={user_id}&skip=1&limit=1",
+        headers=admin_auth_header,
+    )
+    assert resp_p1.status_code == 200
+    assert resp_p2.status_code == 200
+    page1_id = resp_p1.json()["items"][0]["id"]
+    page2_id = resp_p2.json()["items"][0]["id"]
+
+    assert page1_id == full_order[0]
+    assert page2_id == full_order[1]
+    assert page1_id != page2_id
 
 
 @pytest.mark.anyio

@@ -1572,6 +1572,100 @@ async def test_search_datasets_raster_properties_survive_response_model(
 
 
 @pytest.mark.anyio
+async def test_search_datasets_raster_band_nodata_presence(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """fix(#1805 review round 4 P2): service_records.py only ever emitted a
+    band's nodata key when it had a value, so a band with no nodata info
+    always looked identical on the wire whether the asset's NoData was
+    confirmed absent or simply never recorded for that band -- until round
+    3 declared raster:bands on OGCRecordProperties, at which point FastAPI's
+    response serialization started filling BOTH cases in as an explicit
+    `nodata: null`, collapsing "absent" and "unknown" into the same wire
+    shape the client's tri-state nodataState() depends on telling apart.
+
+    Pins both states plus the "defined" state as a sanity anchor:
+      - A defined nodata value serializes as that value.
+      - Confirmed-absent (RasterAsset.nodata column is None, band lacks its
+        own key) serializes as an explicit `nodata: null` -- the key IS
+        present.
+      - Genuinely unavailable (RasterAsset.nodata IS set, but this band's
+        own stats -- the remote-COG shape -- don't carry it) OMITS the key
+        entirely, via OGCRasterBand's model_serializer reading
+        model_fields_set.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    token = uuid.uuid4().hex[:10]
+
+    defined_ds = await create_raster_dataset(
+        session,
+        created_by=admin_id,
+        name=f"Nodata Defined {token}",
+        create_raster_asset=True,
+        raster_asset_kwargs=dict(
+            epsg=4326,
+            width=100,
+            height=100,
+            band_count=1,
+            dtype="uint8",
+            nodata="-9999",
+            band_info=[{"name": "Band1", "dtype": "uint8", "nodata": "-9999"}],
+        ),
+    )
+    absent_ds = await create_raster_dataset(
+        session,
+        created_by=admin_id,
+        name=f"Nodata Absent {token}",
+        create_raster_asset=True,
+        raster_asset_kwargs=dict(
+            epsg=4326,
+            width=100,
+            height=100,
+            band_count=1,
+            dtype="uint8",
+            nodata=None,
+            band_info=[{"name": "Band1", "dtype": "uint8"}],
+        ),
+    )
+    unknown_ds = await create_raster_dataset(
+        session,
+        created_by=admin_id,
+        name=f"Nodata Unknown {token}",
+        create_raster_asset=True,
+        raster_asset_kwargs=dict(
+            epsg=4326,
+            width=100,
+            height=100,
+            band_count=1,
+            dtype="uint8",
+            nodata="-9999",
+            band_info=[{"name": "Band1", "dtype": "uint8"}],
+        ),
+    )
+
+    resp = await client.get(
+        "/search/datasets/",
+        params={"q": f"Nodata {token}", "limit": 10},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    features = {f["id"]: f for f in resp.json()["features"]}
+
+    defined_band = features[str(defined_ds.id)]["properties"]["raster:bands"][0]
+    assert defined_band["nodata"] == "-9999"
+
+    absent_band = features[str(absent_ds.id)]["properties"]["raster:bands"][0]
+    assert "nodata" in absent_band
+    assert absent_band["nodata"] is None
+
+    unknown_band = features[str(unknown_ds.id)]["properties"]["raster:bands"][0]
+    assert "nodata" not in unknown_band
+
+
+@pytest.mark.anyio
 async def test_search_pagination_stable_number_matched_with_collection(
     client: AsyncClient,
     admin_auth_header: dict,

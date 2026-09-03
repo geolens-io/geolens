@@ -376,9 +376,25 @@ export function useApiKeys(userId: string, pageCount: number = 1) {
   const items = queries.flatMap((q) => q.data?.items ?? []);
   const total = queries[0]?.data?.total;
   const isLoading = queries.some((q) => q.isLoading);
-  const hasMore = total !== undefined && total > items.length;
+  // fix(#1805 review round 4 P2): a failed page inside useQueries used to be
+  // dropped silently -- isError was never surfaced and hasMore stayed true,
+  // so a broken page just looked like it hadn't loaded yet, with the "Load
+  // more" control offering to fetch PAST it instead of surfacing the
+  // failure. Surface the first failed page (in page order) and a retry
+  // scoped to that one query -- useQueries gives each result its own
+  // refetch, so retrying page 2 does not refetch page 1.
+  const failedPageIndex = queries.findIndex((q) => q.isError);
+  const isError = failedPageIndex !== -1;
+  const error = isError ? queries[failedPageIndex].error : null;
+  const hasMore = !isError && total !== undefined && total > items.length;
 
-  return { items, total, isLoading, hasMore };
+  function retryFailedPage() {
+    if (failedPageIndex !== -1) {
+      void queries[failedPageIndex].refetch();
+    }
+  }
+
+  return { items, total, isLoading, isError, error, retryFailedPage, hasMore };
 }
 
 export function useCreateApiKey() {

@@ -367,6 +367,8 @@
     "noKeys": "No API keys",
     "showingOf": "Showing {{shown}} of {{total}}",
     "loadMore": "Load more",
+    "loadError": "Failed to load keys",
+    "retry": "Retry",
     "active": "Active",
     "revoked": "Revoked",
     "created": "Created {{date}}",

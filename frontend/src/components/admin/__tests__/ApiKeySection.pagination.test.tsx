@@ -100,3 +100,44 @@ describe('ApiKeySection "Load more" pagination (#1805 review round 3 P2)', () =>
     expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument();
   });
 });
+
+describe('ApiKeySection page-load error handling (#1805 review round 4 P2)', () => {
+  it('page 2 fails: shows an inline error with a Retry control that retries page 2 only', () => {
+    const retryFailedPage = vi.fn();
+    mockUseApiKeys.mockReturnValue({
+      items: [makeKey('key-1')],
+      total: undefined,
+      isLoading: false,
+      isError: true,
+      error: new Error('page 2 failed'),
+      retryFailedPage,
+      hasMore: false,
+    });
+    render(<ApiKeySection userId="u1" />);
+
+    expect(screen.getByText(/page 2 failed/i)).toBeInTheDocument();
+    // Load more must not be offered while a page is failed.
+    expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument();
+    // Page 1's already-loaded items still render.
+    expect(screen.getByText('key-1')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+
+    expect(retryFailedPage).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders no error and no Retry control when every page succeeds', () => {
+    mockUseApiKeys.mockReturnValue({
+      items: [makeKey('key-1')],
+      total: 1,
+      isLoading: false,
+      isError: false,
+      error: null,
+      retryFailedPage: vi.fn(),
+      hasMore: false,
+    });
+    render(<ApiKeySection userId="u1" />);
+
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
+  });
+});

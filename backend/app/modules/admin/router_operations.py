@@ -158,7 +158,12 @@ async def list_api_keys(
     # fix(#1778): no ORDER BY meant the planner-chosen 50 rows behind the
     # default limit could change between refetches, so a key seen once could
     # silently vanish on reload.
-    stmt = stmt.order_by(ApiKey.created_at.desc())
+    # fix(#1805 review round 4 P2): created_at DESC alone is nondeterministic
+    # across two keys sharing a timestamp, and each page is its own separate
+    # query -- a tied pair could land on either side of a skip/limit page
+    # boundary differently between requests. id DESC is a stable, unique
+    # tiebreaker (uuid ordering is arbitrary but fixed once assigned).
+    stmt = stmt.order_by(ApiKey.created_at.desc(), ApiKey.id.desc())
     keys = (await db.execute(stmt.offset(skip).limit(limit))).scalars().all()
     return AdminApiKeyListResponse(
         items=[_api_key_response(key) for key in keys], total=total

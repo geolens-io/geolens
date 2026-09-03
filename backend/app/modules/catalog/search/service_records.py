@@ -507,6 +507,19 @@ def dataset_to_ogc_record(
                         band_entry["data_type"] = bi["dtype"]
                     if bi.get("nodata") is not None:
                         band_entry["nodata"] = bi["nodata"]
+                    elif raster_meta.get("nodata") is None:
+                        # fix(#1805 review round 4 P2): this band's own
+                        # stats don't carry a nodata value, but the asset
+                        # WAS probed (band_info exists) and its
+                        # authoritative RasterAsset.nodata column is None --
+                        # NoData is confirmed absent, not merely unrecorded
+                        # for this band. Emit the key explicitly so the
+                        # client can tell "absent" from "unavailable"
+                        # (OGCRasterBand.nodata omitted below means the
+                        # latter -- e.g. a remote COG whose band-level
+                        # stats carry only min/max/mean even though the
+                        # asset-level column IS set).
+                        band_entry["nodata"] = None
                     if bi.get("description"):
                         band_entry["description"] = bi["description"]
                 bands.append(band_entry)

@@ -342,6 +342,8 @@
     "noKeys": "Keine API-Schlüssel",
     "showingOf": "{{shown}} von {{total}} angezeigt",
     "loadMore": "Mehr laden",
+    "loadError": "Schlüssel konnten nicht geladen werden",
+    "retry": "Erneut versuchen",
     "active": "Aktiv",
     "revoked": "Widerrufen",
     "created": "Erstellt {{date}}",

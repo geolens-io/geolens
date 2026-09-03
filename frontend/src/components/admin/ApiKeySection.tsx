@@ -36,7 +36,15 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
   // the rest, the exact defect #1778 set out to fix. pageCount grows via
   // the "Load more" control below until every key is loaded.
   const [pageCount, setPageCount] = useState(1);
-  const { items: keys, total = 0, isLoading, hasMore } = useApiKeys(userId, pageCount);
+  const {
+    items: keys,
+    total = 0,
+    isLoading,
+    hasMore,
+    isError: apiKeysError,
+    error: apiKeysErrorObj,
+    retryFailedPage,
+  } = useApiKeys(userId, pageCount);
   const createApiKey = useCreateApiKey();
   const revokeApiKey = useRevokeApiKey();
 
@@ -133,7 +141,21 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
 
       {isLoading && <p className="text-sm text-muted-foreground">{t('apiKeys.loadingKeys')}</p>}
 
-      {!isLoading && keys.length === 0 && (
+      {/* fix(#1805 review round 4 P2): a failed page used to be dropped
+          silently, so the section fell through to "No API keys" (or just
+          stopped growing) with no indication anything went wrong. */}
+      {apiKeysError && (
+        <div className="flex items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm">
+          <p className="text-destructive">
+            {apiKeysErrorObj instanceof Error ? apiKeysErrorObj.message : t('apiKeys.loadError')}
+          </p>
+          <Button variant="outline" size="sm" onClick={() => retryFailedPage()}>
+            {t('apiKeys.retry')}
+          </Button>
+        </div>
+      )}
+
+      {!isLoading && !apiKeysError && keys.length === 0 && (
         <p className="text-sm text-muted-foreground">{t('apiKeys.noKeys')}</p>
       )}
 
