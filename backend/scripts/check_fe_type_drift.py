@@ -262,8 +262,24 @@ class DriftReport:
         all (absent from openapi.json or from the FE mirror) is exactly the
         case the KNOWN_DRIFT allowlist cannot cover — silently skipping it
         let a renamed/removed maintained model pass with zero output.
+
+        fix(#1778 review round 9): a KNOWN_DRIFT entry that has become
+        fully resolved (the FE mirror caught up — check_drift() computes
+        this into ``resolved_known_drift``) used to only print a
+        ``[RESOLVED]`` notice; nothing made the gate itself fail, and
+        the only repo invocation of this checker is
+        ``test_drift_checker_passes()``, so that notice was just
+        captured pytest output nobody had to act on. A resolved entry
+        left in KNOWN_DRIFT is a standing license to regress — the
+        allowlist should shrink back down as the FE mirror catches up,
+        not accumulate stale entries forever. Failing the gate forces
+        the entry to actually be removed.
         """
-        return bool(self.new_drift) or bool(self.skipped)
+        return (
+            bool(self.new_drift)
+            or bool(self.skipped)
+            or bool(self.resolved_known_drift)
+        )
 
 
 def check_drift(
@@ -363,6 +379,11 @@ def _print_report(report: DriftReport, verbose: bool = False) -> None:
             "OR add it to KNOWN_DRIFT in scripts/check_fe_type_drift.py with a TODO."
         )
         print("  References: OCG-03, T-1206-08")
+    elif report.resolved_known_drift:
+        print(
+            "  Fix: remove the resolved entries named above from KNOWN_DRIFT "
+            "in scripts/check_fe_type_drift.py."
+        )
     elif not report.known_drift and not report.skipped:
         print("[PASS] No drift detected between backend schemas and FE type mirrors.")
 

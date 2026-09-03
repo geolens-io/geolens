@@ -163,6 +163,28 @@ class TestResolvedKnownDriftIsReportedEvenAtZeroDrift:
         assert report.new_drift == []
         assert report.known_drift == []
 
+    def test_a_resolved_known_drift_entry_fails_the_gate(self) -> None:
+        """fix(#1778 review round 9): check_drift() computed
+        resolved_known_drift, but should_fail() ignored it -- the only
+        repo invocation of this checker is test_drift_checker_passes(),
+        so the [RESOLVED] notice was just captured pytest output nobody
+        had to act on. A resolved entry left in KNOWN_DRIFT is a
+        standing license to regress; the gate must fail until the
+        entry is actually removed."""
+        module = _load_checker_module()
+
+        be_schemas = {"Widget": {"a", "b"}}
+        fe_interfaces = {"Widget": {"props": {"a", "b"}, "extends": None}}
+        original_known_drift = module.KNOWN_DRIFT
+        module.KNOWN_DRIFT = {"Widget": ["b"]}
+        try:
+            report = module.check_drift(["Widget"], be_schemas, fe_interfaces)
+        finally:
+            module.KNOWN_DRIFT = original_known_drift
+
+        assert report.resolved_known_drift == [("Widget", ["b"])]
+        assert report.should_fail() is True
+
     def test_stale_allowlist_entries_are_gone(self) -> None:
         """The three now-stale entries this finding named must stay gone —
         pins the KNOWN_DRIFT cleanup so a revert doesn't quietly slide

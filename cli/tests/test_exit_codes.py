@@ -477,6 +477,53 @@ class TestDeleteStaleCredentialsSurfacesGenuineFailures:
         _auth._delete_stale_credentials(instance, keep="bearer", keep_backend="keyring")
 
 
+class TestSnapshotUnknownStateNeverDeleted:
+    """fix(#1778 review round 9): a transient keyring read failure while
+    taking the rollback snapshot used to be swallowed to None, which
+    recorded an EXISTING credential as absent. If cleanup then failed
+    and the keyring was readable again by the time _restore_credentials
+    ran, that None made it call delete_password() on an account that
+    held a real, pre-existing credential the whole time -- the snapshot
+    just couldn't see it for a moment. The snapshot now records an
+    explicit "unknown" sentinel instead, which restore never deletes."""
+
+    def test_a_snapshot_read_failure_is_never_deleted_on_restore(
+        self, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        import keyring
+        from keyring.errors import KeyringError
+
+        from geolens_cli import auth as _auth
+
+        instance = "https://x.example.com/api"
+        _auth.store_bearer_token(instance, "old-bearer-token")
+        bearer_account = instance  # _keyring_account_token(instance)
+
+        original_get = keyring.get_password  # mock_keyring's dict-backed one
+
+        def failing_get(service, username):
+            if username == bearer_account:
+                raise KeyringError("transient read failure")
+            return original_get(service, username)
+
+        monkeypatch.setattr("keyring.get_password", failing_get)
+
+        snapshot = _auth._snapshot_credentials(instance)
+        assert snapshot.keyring_bearer is _auth._UNKNOWN
+
+        # The keyring is readable again by the time restore runs -- the
+        # failure above was transient.
+        monkeypatch.setattr("keyring.get_password", original_get)
+
+        _auth._restore_credentials(instance, snapshot)
+
+        # The pre-existing bearer token must be untouched: restore must
+        # not delete it just because the snapshot couldn't read it.
+        loaded = _auth.load_bearer_token(instance)
+        assert loaded is not None
+        assert loaded.value == "old-bearer-token"
+
+
 class TestUnreadableKeyringDuringCleanup:
     """fix(#1778 review round 8): an unreadable keyring during the
     existence check (locked, backend down, ...) is not "no such
@@ -485,11 +532,64 @@ class TestUnreadableKeyringDuringCleanup:
     themselves just fallen back away from (they also catch
     KeyringError and write to credentials.toml instead) — once the
     keyring became readable again, the untouched stale value won under
-    AppState.sdk()'s bearer-first precedence."""
+    AppState.sdk()'s bearer-first precedence.
 
-    def test_a_keyring_that_cannot_be_read_restores_the_snapshot_and_exits_nonzero(
+    fix(#1778 review round 9): round 8's propagation was
+    unconditional, which broke `login --no-keyring` and any headless
+    install with no working keyring at all -- keep_backend is "file"
+    in both cases, and the cleanup loop still tried (and failed) to
+    read the keyring regardless, defeating the automatic file
+    fallback. An unreadable keyring during cleanup is now fatal ONLY
+    when keep_backend == "keyring" (the keyring is demonstrably
+    reachable right now -- the new credential just landed there, so a
+    read failure for a DIFFERENT account is a real problem); when the
+    new credential went to the file instead (--no-keyring, or the
+    store itself already fell back), an unreadable keyring is
+    tolerated the same as "no such entry"."""
+
+    def test_a_keyring_that_cannot_be_read_at_cleanup_restores_the_snapshot_and_exits_nonzero(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
+        """The new credential DOES land in the keyring (keep_backend ==
+        "keyring", so the keyring is confirmed reachable right now),
+        but the cleanup step's read of a DIFFERENT (competing) account
+        fails -- that is a real, worth-surfacing problem, not an
+        unavailable backend, and round 8's behavior for it stands."""
+        import keyring
+        from keyring.errors import KeyringError
+
+        from geolens_cli import auth as _auth
+        from geolens_cli import config as _config
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com"
+        canonical = _config.normalize_instance_url(instance)
+        bearer_account = canonical  # _keyring_account_token(instance)
+
+        # Old bearer token lives in a currently-working keyring.
+        _auth.store_bearer_token(canonical, "old-bearer-token")
+
+        original_get = keyring.get_password  # mock_keyring's dict-backed one
+
+        def flaky_get(service, username):
+            if username == bearer_account:
+                raise KeyringError("keychain hiccup")
+            return original_get(service, username)
+
+        monkeypatch.setattr("keyring.get_password", flaky_get)
+
+        # The new api_key store to keyring itself succeeds -- only the
+        # competing bearer account's cleanup read is broken.
+        result = runner.invoke(app, ["login", instance, "--api-key", "new-key"])
+
+        assert result.exit_code != 0, result.output
+        assert "keyring" in result.output.lower()
+
+    def test_no_keyring_login_succeeds_even_if_the_keyring_raises(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """The regression this round fixes: --no-keyring must work on a
+        box with no functioning keyring backend at all."""
         from keyring.errors import KeyringError
 
         from geolens_cli import auth as _auth
@@ -499,11 +599,38 @@ class TestUnreadableKeyringDuringCleanup:
         instance = "https://x.example.com"
         canonical = _config.normalize_instance_url(instance)
 
-        # Old bearer token lives in a currently-working keyring.
-        _auth.store_bearer_token(canonical, "old-bearer-token")
+        def broken(*args, **kwargs):
+            raise KeyringError("no keyring backend available")
 
-        # Now the keyring locks up entirely -- both reads and writes fail,
-        # same as a locked keychain or an unreachable backend.
+        monkeypatch.setattr("keyring.get_password", broken)
+        monkeypatch.setattr("keyring.set_password", broken)
+        monkeypatch.setattr("keyring.delete_password", broken)
+
+        result = runner.invoke(
+            app, ["login", instance, "--api-key", "new-key", "--no-keyring"]
+        )
+
+        assert result.exit_code == 0, result.output
+        loaded = _auth.load_api_key(canonical)
+        assert loaded is not None
+        assert loaded.value == "new-key"
+
+    def test_plain_login_falls_back_to_file_when_the_keyring_is_entirely_unavailable(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """The other half of the regression: a PLAIN login (no
+        --no-keyring flag) on a box where the keyring simply doesn't
+        work must also succeed via the automatic file fallback, not
+        just an explicit --no-keyring invocation."""
+        from keyring.errors import KeyringError
+
+        from geolens_cli import auth as _auth
+        from geolens_cli import config as _config
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com"
+        canonical = _config.normalize_instance_url(instance)
+
         def locked(*args, **kwargs):
             raise KeyringError("keychain is locked")
 
@@ -512,14 +639,10 @@ class TestUnreadableKeyringDuringCleanup:
 
         result = runner.invoke(app, ["login", instance, "--api-key", "new-key"])
 
-        assert result.exit_code != 0, result.output
-        assert "keyring" in result.output.lower()
-        # Snapshot restored: the api_key that store_api_key() fell back to
-        # writing into credentials.toml (keyring having refused the
-        # write) must not be left live once the cleanup step that
-        # followed it failed.
-        file_section = _auth._read_credentials_file().get(canonical, {})
-        assert file_section.get("api_key") is None
+        assert result.exit_code == 0, result.output
+        loaded = _auth.load_api_key(canonical)
+        assert loaded is not None
+        assert loaded.value == "new-key"
 
 
 class TestManifestCommandExitCodes:

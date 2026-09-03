@@ -17,7 +17,7 @@ Storage backends:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union
 
 import keyring
 import structlog
@@ -201,25 +201,50 @@ _ACCOUNT_FN_BY_KIND = {
 }
 
 
+class _Unknown:
+    """Sentinel: the snapshot could not read this keyring account at all
+    (fix(#1778 review round 9)) — distinct from ``None`` ("confirmed
+    absent"). Swallowing a read failure to ``None`` recorded an EXISTING
+    credential as absent; if cleanup later failed and the keyring
+    happened to be readable again by the time ``_restore_credentials``
+    ran, that ``None`` made it call ``delete_password()`` on an account
+    that actually held a real, pre-existing credential the whole time —
+    the snapshot just couldn't see it for a moment. Restore must never
+    delete on this sentinel, only on a confirmed absence.
+    """
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid only
+        return "<unknown>"
+
+
+_UNKNOWN = _Unknown()
+
+_KeyringValue = Union[str, None, _Unknown]
+
+
 @dataclass(frozen=True)
 class _CredentialSnapshot:
     """Raw values read directly from each backend — deliberately NOT
     ``load_bearer_token()`` et al., which resolve GEOLENS_TOKEN env
     precedence; a restore must reproduce exactly what storage held, not
-    what precedence would currently resolve to."""
+    what precedence would currently resolve to.
 
-    keyring_bearer: Optional[str]
-    keyring_api_key: Optional[str]
-    keyring_refresh: Optional[str]
+    Each keyring field is a string (the stored value), ``None``
+    (confirmed absent), or ``_UNKNOWN`` (the read itself failed — see
+    ``_Unknown``)."""
+
+    keyring_bearer: _KeyringValue
+    keyring_api_key: _KeyringValue
+    keyring_refresh: _KeyringValue
     file_section: dict
 
 
 def _snapshot_credentials(instance: str) -> _CredentialSnapshot:
-    def _kr(account: str) -> Optional[str]:
+    def _kr(account: str) -> _KeyringValue:
         try:
             return keyring.get_password(SERVICE, account)
         except KeyringError:
-            return None
+            return _UNKNOWN
 
     return _CredentialSnapshot(
         keyring_bearer=_kr(_keyring_account_token(instance)),
@@ -242,6 +267,11 @@ def _restore_credentials(instance: str, snapshot: _CredentialSnapshot) -> None:
         (_keyring_account_api_key(instance), snapshot.keyring_api_key),
         (_keyring_account_refresh(instance), snapshot.keyring_refresh),
     ):
+        if value is _UNKNOWN:
+            # fix(#1778 review round 9): never learned whether this
+            # account held a credential — see _Unknown. Neither
+            # deleting nor overwriting it is safe; leave it alone.
+            continue
         try:
             if value is None:
                 keyring.delete_password(SERVICE, account)
@@ -322,6 +352,25 @@ def _delete_stale_credentials(instance: str, *, keep: str, keep_backend: str) ->
     therefore treated as a failed swap: it propagates, so
     ``replace_credentials`` restores its snapshot and ``login`` reports
     the failure instead of the false success.
+
+    fix(#1778 review round 9): round 8's propagation was UNCONDITIONAL,
+    which broke ``login --no-keyring`` and any headless install with no
+    working keyring at all — ``keep_backend`` is ``"file"`` in both
+    cases (``store_bearer_token``/``store_api_key`` never touch keyring
+    when ``no_keyring=True``, or fall back to the file the moment
+    keyring raises), and the cleanup loop below still tried to read
+    keyring for every account regardless, so it hit the exact same
+    unavailable backend and failed the whole login — defeating the
+    automatic file fallback the store side already has. The keyring
+    read failure is now fatal ONLY when ``keep_backend == "keyring"``:
+    that is the one case where the keyring is DEMONSTRABLY reachable
+    right now (the new credential just landed there), so a read
+    failure for a different account is a real, worth-surfacing
+    problem, not an unavailable backend. When ``keep_backend`` is
+    ``"file"`` — by explicit ``--no-keyring`` or because the store
+    already fell back — an unreadable keyring is tolerated the same as
+    "no such entry": there is nothing here that can safely be told
+    apart from a keyring that simply doesn't exist on this box.
     """
     for name, account_fn in _ACCOUNT_FN_BY_KIND.items():
         if name == keep and keep_backend == "keyring":
@@ -330,10 +379,18 @@ def _delete_stale_credentials(instance: str, *, keep: str, keep_backend: str) ->
         try:
             exists = keyring.get_password(SERVICE, account) is not None
         except KeyringError as exc:
-            raise KeyringError(
-                f"could not read the keyring while cleaning up stored "
-                f"credentials for {instance}: {exc}"
-            ) from exc
+            if keep_backend == "keyring":
+                raise KeyringError(
+                    f"could not read the keyring while cleaning up stored "
+                    f"credentials for {instance}: {exc}"
+                ) from exc
+            # keep_backend == "file": --no-keyring, or store_* already
+            # hit this identical failure and fell back moments ago.
+            # Either way the keyring is not part of this operation by
+            # the caller's own choice or by its own current state, and
+            # failing the whole login over it would make a headless box
+            # with no keyring unable to log in at all.
+            continue
         if exists:
             keyring.delete_password(SERVICE, account)
 
