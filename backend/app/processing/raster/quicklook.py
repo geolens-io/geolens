@@ -59,6 +59,30 @@ def generate_quicklook(cog_path: str, size: int) -> bytes:
                     out_w, out_h = cand_w, cand_h
                     break
 
+        # fix(#1778): the selection above bounds nothing by itself. It takes the
+        # SMALLEST level whose long edge still reaches `size`, so when the
+        # ladder bottoms out above that (`gdaladdo` builds five levels, and
+        # `prepare_with_overviews` skips it entirely for a source that already
+        # carries its own) the smallest available level is the one read, at
+        # whatever size it happens to be. `out_shape` then drives the
+        # allocation, so a 200k x 200k source shipped with a single 2x internal
+        # overview asked for ~30 GB and took the worker with it, from a file
+        # inside the 500 MB upload cap.
+        #
+        # 2x is the bound a COMPLETE ladder already gives for free: when the
+        # levels reach below `size`, the chosen one is under twice it by
+        # construction, since the next smaller level would be half of it. So
+        # this changes nothing for a well-formed COG and only bites where the
+        # ladder stops short. The headroom is worth keeping rather than reading
+        # at `size` outright, because `_crop_to_valid` crops this array before
+        # it is resized, and cropping a quarter of a nodata-heavy raster at the
+        # target size upscales the result.
+        max_edge = size * 2
+        if max(out_w, out_h) > max_edge:
+            scale = max_edge / max(out_w, out_h)
+            out_w = max(1, round(out_w * scale))
+            out_h = max(1, round(out_h * scale))
+
         nodata = src.nodata
 
         if src.count >= 3:

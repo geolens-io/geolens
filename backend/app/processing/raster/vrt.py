@@ -28,9 +28,22 @@ from app.core.geo import (
 # means user-uploaded VRTs reject URL and /vsi sources outright
 # (ingest/validation.py) and the raster pipeline only opens managed-storage
 # paths (bucket from settings, key validated by resolve_storage_key).
+#
+# fix(#1778): the three GDAL_HTTP_* clamps bound how long a single VSI read may
+# stall. `GDAL_SUBPROCESS_TIMEOUT_SECONDS` below bounds only the subprocesses;
+# an in-process read (`extract_raster_metadata` and `generate_quicklook` on a
+# built VRT, both run under `asyncio.to_thread`) had no bound at all, and a
+# Python thread is not killable, so one stalled object-storage source pinned a
+# pool thread for good. Enough of them starve every other `to_thread` in the
+# worker, which is the failure `build_vrt`'s docstring says it removed by
+# dropping its pre-build source probe. These are seconds; the retry count is
+# what turns a flaky read into a failure rather than a hang.
 _VRT_SAFE_ENV: dict[str, str] = {
     "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": "tif,tiff,vrt",
     "VRT_VIRTUAL_OVERVIEWS": "NO",
+    "GDAL_HTTP_CONNECTTIMEOUT": "30",
+    "GDAL_HTTP_TIMEOUT": "300",
+    "GDAL_HTTP_MAX_RETRY": "3",
 }
 
 
@@ -103,6 +116,34 @@ def gdal_safe_open_env():
     import rasterio
 
     return rasterio.Env(**_VRT_SAFE_ENV)
+
+
+def read_vrt_metadata(vrt_path: str) -> dict:
+    """``extract_raster_metadata`` on a built VRT, under the safe open env.
+
+    fix(#1778). The VRT names remote sources, so this read is the one place a
+    raster task touches object storage in-process rather than through a
+    subprocess. Rasterio's ``Env`` sets thread-local GDAL config, so entering it
+    has to happen inside the ``asyncio.to_thread`` call and not around it --
+    which is the whole reason this wrapper exists rather than a ``with`` block
+    at the call site.
+    """
+    from app.processing.raster.cog import extract_raster_metadata
+
+    with gdal_safe_open_env():
+        return extract_raster_metadata(vrt_path)
+
+
+def render_vrt_quicklook(vrt_path: str, size: int) -> bytes:
+    """``generate_quicklook`` on a built VRT, under the safe open env.
+
+    fix(#1778): the peer of :func:`read_vrt_metadata`, and the heavier of the
+    two -- it reads pixels from every source rather than headers.
+    """
+    from app.processing.raster.quicklook import generate_quicklook
+
+    with gdal_safe_open_env():
+        return generate_quicklook(vrt_path, size)
 
 
 # fix(#430 BA-29): raster GDAL CLIs run synchronously inside asyncio.to_thread, and
@@ -583,6 +624,15 @@ def shift_vrt_longitude_frame(vrt_path: str) -> None:
     stalled VRT jobs would starve every other ``to_thread`` in the worker. The
     module comment on ``GDAL_SUBPROCESS_TIMEOUT_SECONDS`` names that hazard
     already; the probe reintroduced it.
+
+    fix(#1778): removing the probe did NOT remove the hazard from the pipeline,
+    and this docstring used to read as though it had. Steps 6 and 8 of the same
+    task open every ``/vsis3`` source in-thread, at a larger scale than the
+    probe did (metadata extraction, then two quicklook renders). What bounds
+    those is the ``GDAL_HTTP_*`` clamps in ``_VRT_SAFE_ENV``, applied through
+    ``read_vrt_metadata`` and ``render_vrt_quicklook`` below, which enter
+    ``gdal_safe_open_env`` INSIDE the worker thread because a rasterio ``Env``
+    is thread-local.
 
     ``gdalbuildvrt`` has already opened every source, under that timeout, and
     written what this needs: per-source ``DstRect`` geometry, the hull
