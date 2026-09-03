@@ -10623,6 +10623,30 @@ export interface components {
             title?: string | null;
         };
         /**
+         * OGCRasterBand
+         * @description One entry in the raster:bands STAC extension array.
+         *
+         *     fix(#1805 review round 3 P2): matches the shape service_records.py
+         *     actually serializes per band. `statistics` matches the normalized
+         *     band_info shape core/raster_bands.py (introduced by #1803, the raster
+         *     lifecycle PR) produces on read; keep this in sync if that PR changes
+         *     the per-band keys.
+         */
+        OGCRasterBand: {
+            /** Name */
+            name?: string | null;
+            /** Data Type */
+            data_type?: string | null;
+            /** Nodata */
+            nodata?: string | number | null;
+            /** Statistics */
+            statistics?: {
+                [key: string]: unknown;
+            } | null;
+            /** Description */
+            description?: string | null;
+        };
+        /**
          * OGCRecordLink
          * @description Link object in OGC API Records.
          */
@@ -10776,6 +10800,18 @@ export interface components {
             source_count?: number | null;
             /** Dataset Count */
             dataset_count?: number | null;
+            /** Proj:Code */
+            "proj:code"?: string | null;
+            /**
+             * Proj:Shape
+             * @description [height, width] in pixels.
+             */
+            "proj:shape"?: [
+                number,
+                number
+            ] | null;
+            /** Raster:Bands */
+            "raster:bands"?: components["schemas"]["OGCRasterBand"][] | null;
         };
         /**
          * OGCRecordResponse

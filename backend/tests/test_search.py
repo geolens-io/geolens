@@ -26,7 +26,7 @@ from app.modules.catalog.datasets.domain.models import (
     RecordTranslation,
 )
 
-from tests.factories import get_user_id
+from tests.factories import create_raster_dataset, get_user_id
 
 
 def test_search_service_facade_exports_public_api():
@@ -1510,6 +1510,65 @@ async def test_ogc_collections_list_raster_is_coverage_no_items_link(
     assert vector_entry["itemType"] == "feature"
     vector_rels = {link["rel"] for link in vector_entry["links"]}
     assert "items" in vector_rels
+
+
+@pytest.mark.anyio
+async def test_search_datasets_raster_properties_survive_response_model(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """fix(#1805 review round 3 P2): /search/datasets/ validates its response
+    through OGCFeatureCollectionResponse (unlike the OGC Records / STAC
+    routers, which return a raw dict), so a field service_records.py
+    serializes but OGCRecordProperties does not declare is silently
+    stripped by Pydantic before it ever reaches the client. proj:code,
+    proj:shape, and raster:bands must survive that round trip -- every
+    VrtCreatorForm compatibility check that reads them was dead against
+    this endpoint until they were declared on the schema.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    token = uuid.uuid4().hex[:10]
+
+    dataset = await create_raster_dataset(
+        session,
+        created_by=admin_id,
+        name=f"Raster Props {token}",
+        create_raster_asset=True,
+        raster_asset_kwargs=dict(
+            epsg=32618,
+            width=2048,
+            height=1024,
+            res_x=10.0,
+            res_y=-10.0,
+            band_count=4,
+            dtype="uint16",
+            nodata="0",
+            band_info=[
+                {"name": "Red", "dtype": "uint16", "nodata": 0},
+                {"name": "Green", "dtype": "uint16", "nodata": 0},
+                {"name": "Blue", "dtype": "uint16", "nodata": 0},
+                {"name": "NIR", "dtype": "uint16", "nodata": 0},
+            ],
+        ),
+    )
+
+    resp = await client.get(
+        "/search/datasets/",
+        params={"q": f"Raster Props {token}", "limit": 10},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    features = {f["id"]: f for f in resp.json()["features"]}
+    props = features[str(dataset.id)]["properties"]
+
+    assert props["proj:code"] == "EPSG:32618"
+    assert props["proj:shape"] == [1024, 2048]
+    assert "raster:bands" in props
+    assert len(props["raster:bands"]) == 4
+    assert props["raster:bands"][0]["name"] == "Red"
+    assert props["raster:bands"][0]["data_type"] == "uint16"
 
 
 @pytest.mark.anyio

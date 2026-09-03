@@ -61,8 +61,34 @@ class SearchParams(BaseModel):
         return v
 
 
+class OGCRasterBand(BaseModel):
+    """One entry in the raster:bands STAC extension array.
+
+    fix(#1805 review round 3 P2): matches the shape service_records.py
+    actually serializes per band. `statistics` matches the normalized
+    band_info shape core/raster_bands.py (introduced by #1803, the raster
+    lifecycle PR) produces on read; keep this in sync if that PR changes
+    the per-band keys.
+    """
+
+    name: str | None = None
+    data_type: str | None = None
+    # fix(#1805 review round 3 P2, discovered while adding the pinned test):
+    # band_info is a raw JSONB column (RasterAsset.band_info) not schema-
+    # constrained at the DB layer, and service_records.py passes bi["nodata"]
+    # through verbatim (no str() coercion) -- a band's nodata sentinel can be
+    # an int or float as easily as a string, unlike the TOP-LEVEL
+    # RasterAsset.nodata column, which IS Text. str-only here 422'd on a real
+    # int nodata value the first time this schema was exercised end-to-end.
+    nodata: str | int | float | None = None
+    statistics: dict | None = None
+    description: str | None = None
+
+
 class OGCRecordProperties(BaseModel):
     """Properties block of an OGC API Records Feature."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     type: str = "dataset"
     title: str
@@ -154,6 +180,19 @@ class OGCRecordProperties(BaseModel):
     vrt_type: str | None = None
     source_count: int | None = None
     dataset_count: int | None = None
+    # fix(#1805 review round 3 P2): these three were emitted by
+    # service_records.py but never declared here, so /search/datasets
+    # (which validates through OGCFeatureCollectionResponse, unlike the OGC
+    # Records / STAC routers which return a raw dict) silently stripped
+    # them -- every VrtCreatorForm compatibility check that reads them was
+    # dead against the real search endpoint.
+    proj_code: str | None = Field(default=None, alias="proj:code")
+    proj_shape: tuple[int, int] | None = Field(
+        default=None,
+        alias="proj:shape",
+        description="[height, width] in pixels.",
+    )
+    raster_bands: list[OGCRasterBand] | None = Field(default=None, alias="raster:bands")
 
 
 class OGCRecordLink(BaseModel):

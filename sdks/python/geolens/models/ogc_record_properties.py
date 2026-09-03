@@ -13,6 +13,7 @@ from typing import cast
 import datetime
 
 if TYPE_CHECKING:
+    from ..models.ogc_raster_band import OGCRasterBand
     from ..models.ogc_record_properties_constraints_type_0 import (
         OGCRecordPropertiesConstraintsType0,
     )
@@ -86,6 +87,9 @@ class OGCRecordProperties:
         vrt_type (None | str | Unset):
         source_count (int | None | Unset):
         dataset_count (int | None | Unset):
+        projcode (None | str | Unset):
+        projshape (list[int] | None | Unset): [height, width] in pixels.
+        rasterbands (list[OGCRasterBand] | None | Unset):
     """
 
     title: str
@@ -132,6 +136,9 @@ class OGCRecordProperties:
     vrt_type: None | str | Unset = UNSET
     source_count: int | None | Unset = UNSET
     dataset_count: int | None | Unset = UNSET
+    projcode: None | str | Unset = UNSET
+    projshape: list[int] | None | Unset = UNSET
+    rasterbands: list[OGCRasterBand] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -367,6 +374,37 @@ class OGCRecordProperties:
         else:
             dataset_count = self.dataset_count
 
+        projcode: None | str | Unset
+        if isinstance(self.projcode, Unset):
+            projcode = UNSET
+        else:
+            projcode = self.projcode
+
+        projshape: list[int] | None | Unset
+        if isinstance(self.projshape, Unset):
+            projshape = UNSET
+        elif isinstance(self.projshape, list):
+            projshape = []
+            for projshape_type_0_item_data in self.projshape:
+                projshape_type_0_item: int
+                projshape_type_0_item = projshape_type_0_item_data
+                projshape.append(projshape_type_0_item)
+
+        else:
+            projshape = self.projshape
+
+        rasterbands: list[dict[str, Any]] | None | Unset
+        if isinstance(self.rasterbands, Unset):
+            rasterbands = UNSET
+        elif isinstance(self.rasterbands, list):
+            rasterbands = []
+            for rasterbands_type_0_item_data in self.rasterbands:
+                rasterbands_type_0_item = rasterbands_type_0_item_data.to_dict()
+                rasterbands.append(rasterbands_type_0_item)
+
+        else:
+            rasterbands = self.rasterbands
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -450,11 +488,18 @@ class OGCRecordProperties:
             field_dict["source_count"] = source_count
         if dataset_count is not UNSET:
             field_dict["dataset_count"] = dataset_count
+        if projcode is not UNSET:
+            field_dict["proj:code"] = projcode
+        if projshape is not UNSET:
+            field_dict["proj:shape"] = projshape
+        if rasterbands is not UNSET:
+            field_dict["raster:bands"] = rasterbands
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.ogc_raster_band import OGCRasterBand
         from ..models.ogc_record_properties_constraints_type_0 import (
             OGCRecordPropertiesConstraintsType0,
         )
@@ -852,6 +897,67 @@ class OGCRecordProperties:
 
         dataset_count = _parse_dataset_count(d.pop("dataset_count", UNSET))
 
+        def _parse_projcode(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        projcode = _parse_projcode(d.pop("proj:code", UNSET))
+
+        def _parse_projshape(data: object) -> list[int] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                projshape_type_0 = []
+                _projshape_type_0 = data
+                for projshape_type_0_item_data in _projshape_type_0:
+
+                    def _parse_projshape_type_0_item(data: object) -> int:
+                        return cast(int, data)
+
+                    projshape_type_0_item = _parse_projshape_type_0_item(
+                        projshape_type_0_item_data
+                    )
+
+                    projshape_type_0.append(projshape_type_0_item)
+
+                return projshape_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[int] | None | Unset, data)
+
+        projshape = _parse_projshape(d.pop("proj:shape", UNSET))
+
+        def _parse_rasterbands(data: object) -> list[OGCRasterBand] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                rasterbands_type_0 = []
+                _rasterbands_type_0 = data
+                for rasterbands_type_0_item_data in _rasterbands_type_0:
+                    rasterbands_type_0_item = OGCRasterBand.from_dict(
+                        rasterbands_type_0_item_data
+                    )
+
+                    rasterbands_type_0.append(rasterbands_type_0_item)
+
+                return rasterbands_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[OGCRasterBand] | None | Unset, data)
+
+        rasterbands = _parse_rasterbands(d.pop("raster:bands", UNSET))
+
         ogc_record_properties = cls(
             title=title,
             description=description,
@@ -895,6 +1001,9 @@ class OGCRecordProperties:
             vrt_type=vrt_type,
             source_count=source_count,
             dataset_count=dataset_count,
+            projcode=projcode,
+            projshape=projshape,
+            rasterbands=rasterbands,
         )
 
         ogc_record_properties.additional_properties = d

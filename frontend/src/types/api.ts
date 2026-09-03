@@ -577,6 +577,10 @@ export interface OGCRecordProperties {
    * fix(#1778): the flat epsg/res_x/res_y/width/height/dtype/nodata fields
    * this interface used to declare were never returned by the API — the
    * serializer (service_records.py) emits STAC names instead. Read those.
+   * fix(#1805 review round 3 P2): now declared on the backend's
+   * OGCRecordProperties too (schemas.py), matching this hand-typed mirror --
+   * /search/datasets validates through that model and was silently
+   * stripping these three when they were declared here but not there.
    */
   'proj:code'?: string | null;
   /** [height, width] in pixels. */
@@ -584,7 +588,14 @@ export interface OGCRecordProperties {
   'raster:bands'?: Array<{
     name?: string;
     data_type?: string;
-    nodata?: string | null;
+    /**
+     * band_info is a raw JSONB column not schema-constrained at the DB
+     * layer; a band's nodata sentinel can be a number as easily as a
+     * string, unlike the top-level RasterAsset.nodata column (always Text).
+     */
+    nodata?: string | number | null;
+    /** Per-band statistics (e.g. min/max/mean); shape not yet fixed. */
+    statistics?: Record<string, unknown> | null;
     description?: string;
   }> | null;
 }
