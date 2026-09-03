@@ -5209,13 +5209,24 @@ export interface paths {
          *     rescale from Titiler band statistics. Multi-band rasters produce one rescale=
          *     fragment per band (up to 3, RASTER-STRETCH-03).
          *
-         *     pmin/pmax: Configurable percentile clip bounds (default 2/98). Must satisfy
-         *     0 <= pmin < pmax <= 100. Forwarded as repeated p= params to /cog/statistics.
-         *     The _band_stats_cache key includes pmin/pmax so different bounds never serve
-         *     stale cached stats (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
+         *     pmin/pmax: Configurable percentile clip bounds (default 2/98), read and
+         *     validated (0 <= pmin < pmax <= 100) only when stretch=percentile. Forwarded
+         *     as repeated p= params to /cog/statistics. The _band_stats_cache key includes
+         *     pmin/pmax so different bounds never serve stale cached stats
+         *     (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
          *
-         *     sigma: Standard-deviation multiplier for stretch=stddev (default 2.0).
-         *     Must be > 0.
+         *     sigma: Standard-deviation multiplier for stretch=stddev (default 2.0), read
+         *     and validated (> 0) only when stretch=stddev.
+         *
+         *     fix(#1778 codex r2): pmin/pmax/sigma used to be validated whenever present,
+         *     regardless of the active stretch mode, so an "inactive" value could still
+         *     422. frontend/nginx.conf's raster proxy_cache_key blanks an inactive value
+         *     out of the cache key to stop it defeating the cache; making that safe on
+         *     every input (including a repeated query parameter, where nginx's $arg_x
+         *     reads the FIRST occurrence and this endpoint's scalar Query reads the
+         *     LAST) needs "inactive" to mean the SAME thing on both sides: ignored, not
+         *     merely unvalidated for some inputs. A cache HIT must never disagree with
+         *     what an uncached request would answer.
          */
         get: operations["raster_tile_proxy_tiles_raster_proxy__dataset_id___z___x___y___fmt__get"];
         put?: never;
@@ -40081,11 +40092,11 @@ export interface operations {
                 colormap_name?: ("gray" | "viridis" | "inferno" | "plasma" | "magma" | "ylorrd" | "bugn" | "terrain") | null;
                 /** @description Stretch strategy: minmax (default), percentile, stddev */
                 stretch?: ("minmax" | "percentile" | "stddev") | null;
-                /** @description Lower percentile clip for stretch=percentile (0–100, default 2). Absent = current p2 behavior. Must be less than pmax. */
+                /** @description Lower percentile clip for stretch=percentile (0–100, default 2). Absent = current p2 behavior. Must be less than pmax. Ignored, and not validated, when stretch is not percentile. */
                 pmin?: number | null;
-                /** @description Upper percentile clip for stretch=percentile (0–100, default 98). Absent = current p98 behavior. Must be greater than pmin. */
+                /** @description Upper percentile clip for stretch=percentile (0–100, default 98). Absent = current p98 behavior. Must be greater than pmin. Ignored, and not validated, when stretch is not percentile. */
                 pmax?: number | null;
-                /** @description Standard-deviation multiplier for stretch=stddev (default 2.0). Absent = current 2.0σ behavior. Must be > 0. */
+                /** @description Standard-deviation multiplier for stretch=stddev (default 2.0). Absent = current 2.0σ behavior. Must be > 0. Ignored, and not validated, when stretch is not stddev. */
                 sigma?: number | null;
             };
             header?: never;

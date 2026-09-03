@@ -27667,19 +27667,19 @@ export type RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetData = {
         /**
          * Pmin
          *
-         * Lower percentile clip for stretch=percentile (0–100, default 2). Absent = current p2 behavior. Must be less than pmax.
+         * Lower percentile clip for stretch=percentile (0–100, default 2). Absent = current p2 behavior. Must be less than pmax. Ignored, and not validated, when stretch is not percentile.
          */
         pmin?: number | null;
         /**
          * Pmax
          *
-         * Upper percentile clip for stretch=percentile (0–100, default 98). Absent = current p98 behavior. Must be greater than pmin.
+         * Upper percentile clip for stretch=percentile (0–100, default 98). Absent = current p98 behavior. Must be greater than pmin. Ignored, and not validated, when stretch is not percentile.
          */
         pmax?: number | null;
         /**
          * Sigma
          *
-         * Standard-deviation multiplier for stretch=stddev (default 2.0). Absent = current 2.0σ behavior. Must be > 0.
+         * Standard-deviation multiplier for stretch=stddev (default 2.0). Absent = current 2.0σ behavior. Must be > 0. Ignored, and not validated, when stretch is not stddev.
          */
         sigma?: number | null;
     };

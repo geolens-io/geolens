@@ -467,6 +467,7 @@ async def _job_phase_session(
     *,
     phase: str,
     attempt_id: uuid.UUID | None = None,
+    lock_and_statement_timeout_ms: int | None = None,
 ) -> "AsyncGenerator[tuple[AsyncSession, IngestJob | None], None]":
     """Two-phase session bracket for ingest workers (REMED-03 / P2-05).
 
@@ -496,12 +497,32 @@ async def _job_phase_session(
     The ``phase`` keyword (``"phase1"``, ``"phase2"``, ``"progress_write"``,
     etc.) is included in the missing-row warning so operators can tell
     which bracket lost the row.
+
+    ``lock_and_statement_timeout_ms``, when given, issues ``SET LOCAL
+    lock_timeout`` and ``SET LOCAL statement_timeout`` on this transaction
+    BEFORE the SELECT below — fix(#1778 codex r6): a caller that set those
+    timeouts itself, after entering this context manager, left the SELECT
+    unprotected, and a SELECT can itself stall behind a lock the row's own
+    later UPDATE would never even see (e.g. another session holding an
+    ACCESS EXCLUSIVE lock on the table). ``None`` (the default) leaves the
+    session on Postgres's server-wide default, unchanged for every other
+    caller of this shared helper.
     """
     from app.core.db import async_session
     from app.platform.jobs.models import IngestJob
-    from sqlalchemy import select
+    from sqlalchemy import select, text
 
     async with async_session() as session:
+        if lock_and_statement_timeout_ms is not None:
+            # `SET LOCAL` takes a literal, not a bind parameter (Postgres
+            # rejects `SET x = $1`); this interpolates an integer the caller
+            # computed from a module constant, never request-supplied data.
+            await session.execute(
+                text(f"SET LOCAL lock_timeout = {lock_and_statement_timeout_ms}")
+            )
+            await session.execute(
+                text(f"SET LOCAL statement_timeout = {lock_and_statement_timeout_ms}")
+            )
         filters = [IngestJob.id == job_uuid]
         if attempt_id is not None:
             filters.append(IngestJob.attempt_id == attempt_id)

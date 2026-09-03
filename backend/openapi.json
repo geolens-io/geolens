@@ -57972,7 +57972,7 @@
     },
     "/tiles/raster-proxy/{dataset_id}/{z}/{x}/{y}.{fmt}": {
       "get": {
-        "description": "API-side raster tile proxy: auth check + fetch from Titiler.\n\nUsed by Vite dev proxy and as a fallback for deployments without nginx.\nProduction deployments with nginx should use the nginx raster-tiles path\nfor better caching and performance.\n\ncolormap_name: Optional Titiler colormap for single-band display. Validated\nagainst _ALLOWED_COLORMAPS (T-1140-01). Gray is the Titiler default for\nsingle-band \u2014 passing gray is a no-op (not forwarded). colormap_name is not\nforwarded for DEM layers (render_params starts with 'algorithm=').\n\nstretch: Optional stretch strategy. percentile/stddev compute a stats-based\nrescale from Titiler band statistics. Multi-band rasters produce one rescale=\nfragment per band (up to 3, RASTER-STRETCH-03).\n\npmin/pmax: Configurable percentile clip bounds (default 2/98). Must satisfy\n0 <= pmin < pmax <= 100. Forwarded as repeated p= params to /cog/statistics.\nThe _band_stats_cache key includes pmin/pmax so different bounds never serve\nstale cached stats (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).\n\nsigma: Standard-deviation multiplier for stretch=stddev (default 2.0).\nMust be > 0.",
+        "description": "API-side raster tile proxy: auth check + fetch from Titiler.\n\nUsed by Vite dev proxy and as a fallback for deployments without nginx.\nProduction deployments with nginx should use the nginx raster-tiles path\nfor better caching and performance.\n\ncolormap_name: Optional Titiler colormap for single-band display. Validated\nagainst _ALLOWED_COLORMAPS (T-1140-01). Gray is the Titiler default for\nsingle-band \u2014 passing gray is a no-op (not forwarded). colormap_name is not\nforwarded for DEM layers (render_params starts with 'algorithm=').\n\nstretch: Optional stretch strategy. percentile/stddev compute a stats-based\nrescale from Titiler band statistics. Multi-band rasters produce one rescale=\nfragment per band (up to 3, RASTER-STRETCH-03).\n\npmin/pmax: Configurable percentile clip bounds (default 2/98), read and\nvalidated (0 <= pmin < pmax <= 100) only when stretch=percentile. Forwarded\nas repeated p= params to /cog/statistics. The _band_stats_cache key includes\npmin/pmax so different bounds never serve stale cached stats\n(RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).\n\nsigma: Standard-deviation multiplier for stretch=stddev (default 2.0), read\nand validated (> 0) only when stretch=stddev.\n\nfix(#1778 codex r2): pmin/pmax/sigma used to be validated whenever present,\nregardless of the active stretch mode, so an \"inactive\" value could still\n422. frontend/nginx.conf's raster proxy_cache_key blanks an inactive value\nout of the cache key to stop it defeating the cache; making that safe on\nevery input (including a repeated query parameter, where nginx's $arg_x\nreads the FIRST occurrence and this endpoint's scalar Query reads the\nLAST) needs \"inactive\" to mean the SAME thing on both sides: ignored, not\nmerely unvalidated for some inputs. A cache HIT must never disagree with\nwhat an uncached request would answer.",
         "operationId": "raster_tile_proxy_tiles_raster_proxy__dataset_id___z___x___y___fmt__get",
         "parameters": [
           {
@@ -58073,7 +58073,7 @@
             }
           },
           {
-            "description": "Lower percentile clip for stretch=percentile (0\u2013100, default 2). Absent = current p2 behavior. Must be less than pmax.",
+            "description": "Lower percentile clip for stretch=percentile (0\u2013100, default 2). Absent = current p2 behavior. Must be less than pmax. Ignored, and not validated, when stretch is not percentile.",
             "in": "query",
             "name": "pmin",
             "required": false,
@@ -58086,12 +58086,12 @@
                   "type": "null"
                 }
               ],
-              "description": "Lower percentile clip for stretch=percentile (0\u2013100, default 2). Absent = current p2 behavior. Must be less than pmax.",
+              "description": "Lower percentile clip for stretch=percentile (0\u2013100, default 2). Absent = current p2 behavior. Must be less than pmax. Ignored, and not validated, when stretch is not percentile.",
               "title": "Pmin"
             }
           },
           {
-            "description": "Upper percentile clip for stretch=percentile (0\u2013100, default 98). Absent = current p98 behavior. Must be greater than pmin.",
+            "description": "Upper percentile clip for stretch=percentile (0\u2013100, default 98). Absent = current p98 behavior. Must be greater than pmin. Ignored, and not validated, when stretch is not percentile.",
             "in": "query",
             "name": "pmax",
             "required": false,
@@ -58104,12 +58104,12 @@
                   "type": "null"
                 }
               ],
-              "description": "Upper percentile clip for stretch=percentile (0\u2013100, default 98). Absent = current p98 behavior. Must be greater than pmin.",
+              "description": "Upper percentile clip for stretch=percentile (0\u2013100, default 98). Absent = current p98 behavior. Must be greater than pmin. Ignored, and not validated, when stretch is not percentile.",
               "title": "Pmax"
             }
           },
           {
-            "description": "Standard-deviation multiplier for stretch=stddev (default 2.0). Absent = current 2.0\u03c3 behavior. Must be > 0.",
+            "description": "Standard-deviation multiplier for stretch=stddev (default 2.0). Absent = current 2.0\u03c3 behavior. Must be > 0. Ignored, and not validated, when stretch is not stddev.",
             "in": "query",
             "name": "sigma",
             "required": false,
@@ -58122,7 +58122,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Standard-deviation multiplier for stretch=stddev (default 2.0). Absent = current 2.0\u03c3 behavior. Must be > 0.",
+              "description": "Standard-deviation multiplier for stretch=stddev (default 2.0). Absent = current 2.0\u03c3 behavior. Must be > 0. Ignored, and not validated, when stretch is not stddev.",
               "title": "Sigma"
             }
           }

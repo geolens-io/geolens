@@ -3051,7 +3051,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # failure write down with it and the job sat `running` with no reason. Most
     # of the lines are the docstring and comment stating that the order is the
     # contract. Cap 2395 -> 2426, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2426,
+    # fix(#1778 codex r6): +21 — `_job_phase_session` takes an optional
+    # `lock_and_statement_timeout_ms`, applied via `SET LOCAL` BEFORE its own
+    # SELECT rather than leaving a caller to set it after entering the
+    # context manager, where it could not protect that SELECT from stalling
+    # behind a lock the row's own later write would never see (e.g. an
+    # ACCESS EXCLUSIVE table lock). `None` by default, so every other caller
+    # of this shared helper is unchanged. Cap 2426 -> 2447, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2447,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -3854,7 +3861,51 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # redacted message. Net of two hand-rolled UPDATE blocks and two now-unused
     # IngestJob imports removed; the rest is the comment saying which exit owns
     # the unlink decision. Cap 1143 -> 1161, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1161,
+    # fix(#1778): +48 — `_heartbeat_service_import_progress`'s per-tick session
+    # open/write/commit/close now runs under `asyncio.shield`, split into its
+    # own `_service_import_heartbeat_tick` helper so the loop can shield the
+    # whole thing. A `.cancel()` used to be able to land mid-connect or
+    # mid-commit; asyncpg does not always finish tearing a connection down
+    # cleanly when that happens, and the leftover surfaced later, against
+    # unrelated work, as `ConnectionError: unexpected connection_lost() call`
+    # (test_ingest_progress.py's service-worker-progress test, seen in the
+    # merge queue). Cancellation can now only land at the `asyncio.sleep`
+    # between ticks. Cap 1161 -> 1209, exact.
+    # fix(#1778 codex r2): +36 — the shield alone bounded WHERE a cancel could
+    # land, not HOW LONG draining one could take: a tick stuck on something
+    # with no timeout of its own (another transaction's row lock inside
+    # `session.commit()`) could hang the drain, and with it `ingest_service`'s
+    # own `finally`, forever. `_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS`
+    # bounds it; `asyncio.shield` still keeps the tick itself running in the
+    # background on a timeout rather than cancelling it, so its connection
+    # still gets to close cleanly. Cap 1209 -> 1245, exact.
+    # fix(#1778 codex r3): +36 — round 2's drain deadline bounded how long the
+    # caller would WAIT for a stuck tick, but the tick's own connection stayed
+    # checked out and blocked until whatever held the lock let go, so
+    # repeated stalls could still exhaust the pool. `_service_import_
+    # heartbeat_tick` now sets `lock_timeout`/`statement_timeout` on its own
+    # transaction, so a blocked commit fails INSIDE Postgres within a few
+    # seconds and releases its connection the ordinary way; the drain deadline
+    # survives only as a safety net for what a DB-side timeout cannot cover.
+    # Cap 1245 -> 1281, exact.
+    # fix(#1778 codex r6): +3 — the timeouts move into
+    # `_job_phase_session(lock_and_statement_timeout_ms=...)` so they also
+    # cover that helper's own initial SELECT, which used to run before this
+    # function's own `SET LOCAL` calls and could stall behind a lock the row
+    # never got far enough to hit. Cap 1281 -> 1284, exact.
+    # fix(#1778 codex r11): +49 — the tick's own SELECT is a snapshot, not a
+    # lock: if this shielded tick's connection stalls past the caller's
+    # cancellation drain, the caller moves on while the tick is still alive,
+    # and `_finalize_ingest` can commit status="complete"/progress=1.0 (or a
+    # retry can rotate attempt_id) before the tick's own commit runs. An
+    # unconditional ORM commit would then overwrite that finalized row by
+    # primary key with a stale progress. The write is now a single UPDATE
+    # gated on id + attempt_id + status="running" + current_step="ogr2ogr" +
+    # progress still below what it is about to write, matching the
+    # attempt-fenced shape `_finalize_ingest` already uses via
+    # `require_ingest_job_update`; zero rows affected logs at debug and does
+    # nothing. Cap 1284 -> 1333, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1333,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern
@@ -4425,8 +4476,31 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # every valid subset of a wide table produced one set of bytes under its own
     # key. The key comes from the effective projection now, and each call site
     # says which of its inputs decide that.
+    # fix(#1778 codex r2): +26 — pmin/pmax/sigma are now validated only when
+    # the ACTIVE stretch mode reads them (percentile for pmin/pmax, stddev for
+    # sigma), not whenever merely present. frontend/nginx.conf's raster
+    # proxy_cache_key blanks an inactive value out of the cache key so a
+    # random one cannot defeat the cache, and that is only safe if "inactive"
+    # means the SAME thing, ignored, on both sides — otherwise a value nginx
+    # blanks could still turn a cached 200 into what would have been a 422.
+    # Most of the growth is the docstring and Query() description updates
+    # recording that contract for both parameters and the endpoint.
+    # fix(#1778 codex r8): +41 — eff_pmin/eff_pmax/eff_sigma used to be
+    # resolved from "was the parameter merely present", independent of
+    # stretch mode, so an INACTIVE parameter's raw (unvalidated) request
+    # value still reached _fetch_band_statistics/_compute_stretch_rescale.
+    # `?stretch=stddev&pmin=1e309` (inf) reached `int(pmin)` there and
+    # raised an uncaught OverflowError, while nginx — which treats a value
+    # it blanks as harmless — found `1e309` inside its canonical float
+    # grammar and blanked it, sharing a cache key with a plain stddev
+    # request: a cached 200 once warm, a 500 cold. eff_pmin/eff_pmax/
+    # eff_sigma now gate on the SAME activity test the validation below
+    # already used, so an inactive parameter's raw value is never read by
+    # anything, and the validation itself now requires math.isfinite() on
+    # the active path explicitly rather than relying on inf/nan's
+    # comparison behavior to fail the existing bound check.
     # Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2639,
+    "backend/app/processing/tiles/router.py": 2706,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),

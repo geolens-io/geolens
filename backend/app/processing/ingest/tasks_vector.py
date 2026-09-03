@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
-from sqlalchemy import text
+from sqlalchemy import or_, text, update
 
 from app.core.db.tenant_session import tenant_task
 from app.core.url_redaction import scrub_secret_from_exception
@@ -50,6 +50,22 @@ _SERVICE_IMPORT_INITIAL_PROGRESS = 0.1
 _SERVICE_IMPORT_HEARTBEAT_INTERVAL_SECONDS = 5.0
 _SERVICE_IMPORT_HEARTBEAT_INCREMENT = 0.05
 _SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS = 0.65
+# fix(#1778 codex r3): the PRIMARY bound on one heartbeat tick's own database
+# wait. Set as `SET LOCAL lock_timeout` / `SET LOCAL statement_timeout` on the
+# tick's own transaction (see _service_import_heartbeat_tick), so a commit
+# blocked on another transaction's row lock fails on its own, INSIDE the
+# database, and releases the connection -- rather than depending on the
+# caller merely giving up on WAITING for it, which left the connection itself
+# still checked out and blocked, exhausting the worker's pool under repeated
+# stalled imports even though their parent tasks continued.
+_SERVICE_IMPORT_HEARTBEAT_TICK_DB_TIMEOUT_SECONDS = 3.0
+# fix(#1778 codex r2, revised r3): a SAFETY NET above the DB timeout above,
+# not the primary mechanism -- see _heartbeat_service_import_progress. Covers
+# only what a DB-side timeout cannot: a connection stuck before it ever
+# reaches Postgres (e.g. a network partition), where `SET LOCAL` never runs.
+# Comfortably above the DB timeout's own worst case (lock_timeout wait, then
+# statement_timeout once granted) so it should not fire in the common case.
+_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS = 10.0
 _ARCGIS_SERVICE_IMPORT_CHUNK_SIZE = 2000
 
 
@@ -102,37 +118,189 @@ async def _drop_attempt_staging_table(staging_table: str) -> None:
         )
 
 
+async def _service_import_heartbeat_tick(
+    job_uuid: uuid.UUID, attempt_id: uuid.UUID
+) -> bool:
+    """One heartbeat write: open a session, advance progress, commit, close.
+
+    Returns ``False`` when the caller's loop must stop (the job vanished or
+    left the step this heartbeat belongs to), ``True`` otherwise. Split out of
+    ``_heartbeat_service_import_progress`` so that function can ``shield`` the
+    whole tick from cancellation (fix(#1778)) — see that function's docstring.
+
+    fix(#1778 codex r3): sets ``lock_timeout``/``statement_timeout`` on this
+    transaction before touching the job row, so a commit blocked on another
+    transaction's row lock raises INSIDE Postgres within a few seconds
+    instead of waiting on whatever holds the lock. ``_job_phase_session``'s
+    own exception handling rolls back and re-raises on that error, which
+    releases this tick's connection back to the pool the ordinary way --
+    the caller no longer has to choose between waiting on a stuck connection
+    forever and abandoning one it can never reclaim.
+
+    fix(#1778 codex r6): those timeouts are now passed INTO
+    ``_job_phase_session`` (``lock_and_statement_timeout_ms``) rather than
+    set after entering it, so they cover the SELECT the helper runs
+    internally too -- issuing them after the ``async with`` line left that
+    initial SELECT unprotected, and a SELECT can itself stall behind a lock
+    the later UPDATE would never even see (e.g. another session's ACCESS
+    EXCLUSIVE on the table).
+
+    fix(#1778 codex r11): the SELECT above (run inside ``_job_phase_session``)
+    is a snapshot, not a lock. If THIS tick's own connection then stalls --
+    for whatever reason the DB timeout above does not itself close, e.g. a
+    connection stuck before it ever reaches Postgres -- long enough for the
+    caller's cancellation drain (the safety net two paragraphs up) to expire,
+    the caller moves on while this ``asyncio.shield``ed tick is still alive
+    in the background. ``_finalize_ingest`` can commit
+    ``status="complete"``/``progress=1.0`` in the meantime, or a retry can
+    rotate ``attempt_id`` -- and an unconditional ORM commit here would then
+    overwrite that finalized row BY PRIMARY KEY with this tick's stale
+    progress (never above ``_SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS``),
+    resurrecting a "still running" progress bar on a job that already
+    finished, or writing into a job attempt this worker no longer owns.
+
+    The write below re-checks every fact the SELECT read, atomically, in the
+    UPDATE's own WHERE clause, rather than trusting that earlier read: the
+    same attempt must still own the row, it must still be "running" on
+    "ogr2ogr", and the row's CURRENT progress -- not the value this tick
+    read minutes ago -- must still be below what it is about to write.
+    Matches the attempt-fenced UPDATE shape ``_finalize_ingest`` already uses
+    via ``require_ingest_job_update``/``update_ingest_job_for_attempt``, just
+    inlined here because this call site also needs the extra
+    ``current_step``/``progress`` guards those helpers do not take. Zero rows
+    affected means the job moved on since the SELECT: log and do nothing --
+    the same "abandon this write, it costs nothing the caller depends on"
+    posture the rest of this tick's timeout handling already takes for a
+    write that never lands.
+    """
+    from app.platform.jobs.models import IngestJob
+
+    _timeout_ms = int(_SERVICE_IMPORT_HEARTBEAT_TICK_DB_TIMEOUT_SECONDS * 1000)
+    async with _job_phase_session(
+        job_uuid,
+        phase="service_import_heartbeat",
+        attempt_id=attempt_id,
+        lock_and_statement_timeout_ms=_timeout_ms,
+    ) as (session, job):
+        if job is None:
+            return False
+        if job.status != "running" or job.current_step != "ogr2ogr":
+            return False
+
+        existing_progress = (
+            job.progress
+            if job.progress is not None
+            else _SERVICE_IMPORT_INITIAL_PROGRESS
+        )
+        next_progress = min(
+            _SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS,
+            existing_progress + _SERVICE_IMPORT_HEARTBEAT_INCREMENT,
+        )
+        if next_progress <= existing_progress:
+            return True
+
+        result = await session.execute(
+            update(IngestJob)
+            .where(
+                IngestJob.id == job_uuid,
+                IngestJob.attempt_id == attempt_id,
+                IngestJob.status == "running",
+                IngestJob.current_step == "ogr2ogr",
+                or_(
+                    IngestJob.progress.is_(None),
+                    IngestJob.progress < next_progress,
+                ),
+            )
+            .values(progress=next_progress)
+        )
+        await session.commit()
+        if not result.rowcount:  # type: ignore[attr-defined]
+            structlog.get_logger().debug(
+                "service_import_heartbeat_tick_stale",
+                job_id=str(job_uuid),
+                attempt_id=str(attempt_id),
+            )
+        return True
+
+
 async def _heartbeat_service_import_progress(
     job_uuid: uuid.UUID, attempt_id: uuid.UUID
 ) -> None:
-    """Advance service-ingest progress while GDAL loads remote features."""
+    """Advance service-ingest progress while GDAL loads remote features.
+
+    fix(#1778): each tick is run under ``asyncio.shield`` so the caller's
+    ``.cancel()`` (``ingest_service``'s ``finally: service_progress_task.
+    cancel(); await service_progress_task``) can only ever land at the
+    ``asyncio.sleep`` above, never while a tick's session is mid-connect,
+    mid-write, or mid-close. Without this, a cancel landing inside
+    ``_job_phase_session``'s ``async with async_session()`` left that
+    connection's setup or teardown interrupted, and asyncpg does not always
+    finish tearing itself down in that state — the connection outlived the
+    coroutine that owned it, and its eventual, asynchronous close surfaced
+    later, against unrelated work, as ``ConnectionError: unexpected
+    connection_lost() call``. Shielding costs at most one in-flight tick's
+    worth of extra shutdown latency (a single SELECT + UPDATE + COMMIT), the
+    same trade a clean subprocess kill/reap already makes elsewhere in this
+    package.
+
+    fix(#1778 codex r2, revised r3): the drain that lets a shielded tick
+    finish is bounded by ``_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS``,
+    a SAFETY NET, not the primary mechanism. The shield bounds WHERE a cancel
+    can land, not HOW LONG draining one can take, and round 2 covered that
+    gap by giving up on WAITING here -- which left the tick's connection
+    itself still checked out and blocked if it was stuck on a row lock,
+    exhausting the pool under repeated stalls even though this function
+    itself moved on. Round 3 bounds the tick's OWN database wait instead
+    (``_service_import_heartbeat_tick`` sets ``lock_timeout``/
+    ``statement_timeout`` on its transaction), so in the common case the
+    tick resolves -- successfully or by raising -- well inside this drain
+    window on its own, connection released either way. What survives here is
+    a last-resort bound for what a DB-side timeout cannot cover: a
+    connection stuck before it ever reaches Postgres. ``asyncio.shield``
+    still keeps the tick itself running in the background rather than
+    cancelling it on that rarer timeout, so a connection that DOES eventually
+    hear back from Postgres still gets to close cleanly. The heartbeat's
+    write is best-effort progress UI sugar the import's own result never
+    reads back, so abandoning one late tick, on the rare path where even the
+    DB timeout does not save it, costs nothing the caller depends on.
+    """
     while True:
         await asyncio.sleep(_SERVICE_IMPORT_HEARTBEAT_INTERVAL_SECONDS)
+        tick = asyncio.ensure_future(
+            _service_import_heartbeat_tick(job_uuid, attempt_id)
+        )
         try:
-            async with _job_phase_session(
-                job_uuid,
-                phase="service_import_heartbeat",
-                attempt_id=attempt_id,
-            ) as (session, job):
-                if job is None:
-                    return
-                if job.status != "running" or job.current_step != "ogr2ogr":
-                    return
-
-                existing_progress = (
-                    job.progress
-                    if job.progress is not None
-                    else _SERVICE_IMPORT_INITIAL_PROGRESS
-                )
-                next_progress = min(
-                    _SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS,
-                    existing_progress + _SERVICE_IMPORT_HEARTBEAT_INCREMENT,
-                )
-                if next_progress <= existing_progress:
-                    continue
-
-                job.progress = next_progress
-                await session.commit()
+            try:
+                keep_going = await asyncio.shield(tick)
+            except asyncio.CancelledError:
+                # The OUTER await was cancelled, not necessarily `tick` — let
+                # its already-open connection finish and close cleanly before
+                # this coroutine ends, but only for a bounded time (fix(#1778
+                # codex r2)): `asyncio.shield` here means a timeout below only
+                # stops WAITING for `tick`, it does not cancel it, so a tick
+                # stuck on something with no timeout of its own still gets to
+                # finish and close its own connection in the background.
+                if not tick.done():
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.shield(tick),
+                            timeout=_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS,
+                        )
+                    except asyncio.TimeoutError:
+                        # Expected to be rare after fix(#1778 codex r3): the
+                        # tick's own DB-level timeout should have already
+                        # resolved it well within this window. Reaching this
+                        # means something OUTSIDE the database's own timeout
+                        # handling is stuck (e.g. the connection never reached
+                        # Postgres at all).
+                        structlog.get_logger().warning(
+                            "service_import_heartbeat_drain_timed_out",
+                            job_id=str(job_uuid),
+                            timeout=_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS,
+                        )
+                    except BaseException:  # broad: draining an already-shielded tick's own connection cleanup; whatever it raises must not replace the pending cancellation `raise` below
+                        pass
+                raise
         except Exception:  # broad: best-effort heartbeat must not fail ingest
             # Heartbeat progress is best-effort and must not mask ingest work.
             structlog.get_logger().warning(
@@ -140,6 +308,10 @@ async def _heartbeat_service_import_progress(
                 job_id=str(job_uuid),
                 exc_info=True,
             )
+            continue
+
+        if not keep_going:
+            return
 
 
 async def _write_service_import_progress(

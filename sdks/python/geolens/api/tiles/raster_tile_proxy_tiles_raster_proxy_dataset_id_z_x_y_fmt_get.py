@@ -167,7 +167,7 @@ def sync_detailed(
     pmax: float | None | Unset = UNSET,
     sigma: float | None | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
-    """Raster Tile Proxy
+    r"""Raster Tile Proxy
 
      API-side raster tile proxy: auth check + fetch from Titiler.
 
@@ -184,13 +184,24 @@ def sync_detailed(
     rescale from Titiler band statistics. Multi-band rasters produce one rescale=
     fragment per band (up to 3, RASTER-STRETCH-03).
 
-    pmin/pmax: Configurable percentile clip bounds (default 2/98). Must satisfy
-    0 <= pmin < pmax <= 100. Forwarded as repeated p= params to /cog/statistics.
-    The _band_stats_cache key includes pmin/pmax so different bounds never serve
-    stale cached stats (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
+    pmin/pmax: Configurable percentile clip bounds (default 2/98), read and
+    validated (0 <= pmin < pmax <= 100) only when stretch=percentile. Forwarded
+    as repeated p= params to /cog/statistics. The _band_stats_cache key includes
+    pmin/pmax so different bounds never serve stale cached stats
+    (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
 
-    sigma: Standard-deviation multiplier for stretch=stddev (default 2.0).
-    Must be > 0.
+    sigma: Standard-deviation multiplier for stretch=stddev (default 2.0), read
+    and validated (> 0) only when stretch=stddev.
+
+    fix(#1778 codex r2): pmin/pmax/sigma used to be validated whenever present,
+    regardless of the active stretch mode, so an \"inactive\" value could still
+    422. frontend/nginx.conf's raster proxy_cache_key blanks an inactive value
+    out of the cache key to stop it defeating the cache; making that safe on
+    every input (including a repeated query parameter, where nginx's $arg_x
+    reads the FIRST occurrence and this endpoint's scalar Query reads the
+    LAST) needs \"inactive\" to mean the SAME thing on both sides: ignored, not
+    merely unvalidated for some inputs. A cache HIT must never disagree with
+    what an uncached request would answer.
 
     Args:
         dataset_id (UUID):
@@ -203,11 +214,14 @@ def sync_detailed(
         stretch (None | RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetStretchType0 | Unset):
             Stretch strategy: minmax (default), percentile, stddev
         pmin (float | None | Unset): Lower percentile clip for stretch=percentile (0–100, default
-            2). Absent = current p2 behavior. Must be less than pmax.
+            2). Absent = current p2 behavior. Must be less than pmax. Ignored, and not validated, when
+            stretch is not percentile.
         pmax (float | None | Unset): Upper percentile clip for stretch=percentile (0–100, default
-            98). Absent = current p98 behavior. Must be greater than pmin.
+            98). Absent = current p98 behavior. Must be greater than pmin. Ignored, and not validated,
+            when stretch is not percentile.
         sigma (float | None | Unset): Standard-deviation multiplier for stretch=stddev (default
-            2.0). Absent = current 2.0σ behavior. Must be > 0.
+            2.0). Absent = current 2.0σ behavior. Must be > 0. Ignored, and not validated, when
+            stretch is not stddev.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -255,7 +269,7 @@ def sync(
     pmax: float | None | Unset = UNSET,
     sigma: float | None | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
-    """Raster Tile Proxy
+    r"""Raster Tile Proxy
 
      API-side raster tile proxy: auth check + fetch from Titiler.
 
@@ -272,13 +286,24 @@ def sync(
     rescale from Titiler band statistics. Multi-band rasters produce one rescale=
     fragment per band (up to 3, RASTER-STRETCH-03).
 
-    pmin/pmax: Configurable percentile clip bounds (default 2/98). Must satisfy
-    0 <= pmin < pmax <= 100. Forwarded as repeated p= params to /cog/statistics.
-    The _band_stats_cache key includes pmin/pmax so different bounds never serve
-    stale cached stats (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
+    pmin/pmax: Configurable percentile clip bounds (default 2/98), read and
+    validated (0 <= pmin < pmax <= 100) only when stretch=percentile. Forwarded
+    as repeated p= params to /cog/statistics. The _band_stats_cache key includes
+    pmin/pmax so different bounds never serve stale cached stats
+    (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
 
-    sigma: Standard-deviation multiplier for stretch=stddev (default 2.0).
-    Must be > 0.
+    sigma: Standard-deviation multiplier for stretch=stddev (default 2.0), read
+    and validated (> 0) only when stretch=stddev.
+
+    fix(#1778 codex r2): pmin/pmax/sigma used to be validated whenever present,
+    regardless of the active stretch mode, so an \"inactive\" value could still
+    422. frontend/nginx.conf's raster proxy_cache_key blanks an inactive value
+    out of the cache key to stop it defeating the cache; making that safe on
+    every input (including a repeated query parameter, where nginx's $arg_x
+    reads the FIRST occurrence and this endpoint's scalar Query reads the
+    LAST) needs \"inactive\" to mean the SAME thing on both sides: ignored, not
+    merely unvalidated for some inputs. A cache HIT must never disagree with
+    what an uncached request would answer.
 
     Args:
         dataset_id (UUID):
@@ -291,11 +316,14 @@ def sync(
         stretch (None | RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetStretchType0 | Unset):
             Stretch strategy: minmax (default), percentile, stddev
         pmin (float | None | Unset): Lower percentile clip for stretch=percentile (0–100, default
-            2). Absent = current p2 behavior. Must be less than pmax.
+            2). Absent = current p2 behavior. Must be less than pmax. Ignored, and not validated, when
+            stretch is not percentile.
         pmax (float | None | Unset): Upper percentile clip for stretch=percentile (0–100, default
-            98). Absent = current p98 behavior. Must be greater than pmin.
+            98). Absent = current p98 behavior. Must be greater than pmin. Ignored, and not validated,
+            when stretch is not percentile.
         sigma (float | None | Unset): Standard-deviation multiplier for stretch=stddev (default
-            2.0). Absent = current 2.0σ behavior. Must be > 0.
+            2.0). Absent = current 2.0σ behavior. Must be > 0. Ignored, and not validated, when
+            stretch is not stddev.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -338,7 +366,7 @@ async def asyncio_detailed(
     pmax: float | None | Unset = UNSET,
     sigma: float | None | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
-    """Raster Tile Proxy
+    r"""Raster Tile Proxy
 
      API-side raster tile proxy: auth check + fetch from Titiler.
 
@@ -355,13 +383,24 @@ async def asyncio_detailed(
     rescale from Titiler band statistics. Multi-band rasters produce one rescale=
     fragment per band (up to 3, RASTER-STRETCH-03).
 
-    pmin/pmax: Configurable percentile clip bounds (default 2/98). Must satisfy
-    0 <= pmin < pmax <= 100. Forwarded as repeated p= params to /cog/statistics.
-    The _band_stats_cache key includes pmin/pmax so different bounds never serve
-    stale cached stats (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
+    pmin/pmax: Configurable percentile clip bounds (default 2/98), read and
+    validated (0 <= pmin < pmax <= 100) only when stretch=percentile. Forwarded
+    as repeated p= params to /cog/statistics. The _band_stats_cache key includes
+    pmin/pmax so different bounds never serve stale cached stats
+    (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
 
-    sigma: Standard-deviation multiplier for stretch=stddev (default 2.0).
-    Must be > 0.
+    sigma: Standard-deviation multiplier for stretch=stddev (default 2.0), read
+    and validated (> 0) only when stretch=stddev.
+
+    fix(#1778 codex r2): pmin/pmax/sigma used to be validated whenever present,
+    regardless of the active stretch mode, so an \"inactive\" value could still
+    422. frontend/nginx.conf's raster proxy_cache_key blanks an inactive value
+    out of the cache key to stop it defeating the cache; making that safe on
+    every input (including a repeated query parameter, where nginx's $arg_x
+    reads the FIRST occurrence and this endpoint's scalar Query reads the
+    LAST) needs \"inactive\" to mean the SAME thing on both sides: ignored, not
+    merely unvalidated for some inputs. A cache HIT must never disagree with
+    what an uncached request would answer.
 
     Args:
         dataset_id (UUID):
@@ -374,11 +413,14 @@ async def asyncio_detailed(
         stretch (None | RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetStretchType0 | Unset):
             Stretch strategy: minmax (default), percentile, stddev
         pmin (float | None | Unset): Lower percentile clip for stretch=percentile (0–100, default
-            2). Absent = current p2 behavior. Must be less than pmax.
+            2). Absent = current p2 behavior. Must be less than pmax. Ignored, and not validated, when
+            stretch is not percentile.
         pmax (float | None | Unset): Upper percentile clip for stretch=percentile (0–100, default
-            98). Absent = current p98 behavior. Must be greater than pmin.
+            98). Absent = current p98 behavior. Must be greater than pmin. Ignored, and not validated,
+            when stretch is not percentile.
         sigma (float | None | Unset): Standard-deviation multiplier for stretch=stddev (default
-            2.0). Absent = current 2.0σ behavior. Must be > 0.
+            2.0). Absent = current 2.0σ behavior. Must be > 0. Ignored, and not validated, when
+            stretch is not stddev.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -424,7 +466,7 @@ async def asyncio(
     pmax: float | None | Unset = UNSET,
     sigma: float | None | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
-    """Raster Tile Proxy
+    r"""Raster Tile Proxy
 
      API-side raster tile proxy: auth check + fetch from Titiler.
 
@@ -441,13 +483,24 @@ async def asyncio(
     rescale from Titiler band statistics. Multi-band rasters produce one rescale=
     fragment per band (up to 3, RASTER-STRETCH-03).
 
-    pmin/pmax: Configurable percentile clip bounds (default 2/98). Must satisfy
-    0 <= pmin < pmax <= 100. Forwarded as repeated p= params to /cog/statistics.
-    The _band_stats_cache key includes pmin/pmax so different bounds never serve
-    stale cached stats (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
+    pmin/pmax: Configurable percentile clip bounds (default 2/98), read and
+    validated (0 <= pmin < pmax <= 100) only when stretch=percentile. Forwarded
+    as repeated p= params to /cog/statistics. The _band_stats_cache key includes
+    pmin/pmax so different bounds never serve stale cached stats
+    (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
 
-    sigma: Standard-deviation multiplier for stretch=stddev (default 2.0).
-    Must be > 0.
+    sigma: Standard-deviation multiplier for stretch=stddev (default 2.0), read
+    and validated (> 0) only when stretch=stddev.
+
+    fix(#1778 codex r2): pmin/pmax/sigma used to be validated whenever present,
+    regardless of the active stretch mode, so an \"inactive\" value could still
+    422. frontend/nginx.conf's raster proxy_cache_key blanks an inactive value
+    out of the cache key to stop it defeating the cache; making that safe on
+    every input (including a repeated query parameter, where nginx's $arg_x
+    reads the FIRST occurrence and this endpoint's scalar Query reads the
+    LAST) needs \"inactive\" to mean the SAME thing on both sides: ignored, not
+    merely unvalidated for some inputs. A cache HIT must never disagree with
+    what an uncached request would answer.
 
     Args:
         dataset_id (UUID):
@@ -460,11 +513,14 @@ async def asyncio(
         stretch (None | RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetStretchType0 | Unset):
             Stretch strategy: minmax (default), percentile, stddev
         pmin (float | None | Unset): Lower percentile clip for stretch=percentile (0–100, default
-            2). Absent = current p2 behavior. Must be less than pmax.
+            2). Absent = current p2 behavior. Must be less than pmax. Ignored, and not validated, when
+            stretch is not percentile.
         pmax (float | None | Unset): Upper percentile clip for stretch=percentile (0–100, default
-            98). Absent = current p98 behavior. Must be greater than pmin.
+            98). Absent = current p98 behavior. Must be greater than pmin. Ignored, and not validated,
+            when stretch is not percentile.
         sigma (float | None | Unset): Standard-deviation multiplier for stretch=stddev (default
-            2.0). Absent = current 2.0σ behavior. Must be > 0.
+            2.0). Absent = current 2.0σ behavior. Must be > 0. Ignored, and not validated, when
+            stretch is not stddev.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

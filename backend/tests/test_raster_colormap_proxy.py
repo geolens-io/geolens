@@ -599,6 +599,137 @@ class TestRasterColormapProxy:
             f"Titiler was called despite invalid bounds ({description}): {self._tile_titiler_calls}"
         )
 
+    @pytest.mark.parametrize(
+        "bad_params,description",
+        [
+            ({"pmin": 200}, "pmin>100 under an inactive stretch mode"),
+            ({"pmax": 101}, "pmax>100 under an inactive stretch mode"),
+            ({"pmin": -1}, "pmin<0 under an inactive stretch mode"),
+            ({"sigma": 0}, "sigma=0 under an inactive stretch mode"),
+            ({"sigma": -1}, "sigma<0 under an inactive stretch mode"),
+            # fix(#1778 codex r8): pmin=1e309 (FastAPI coerces this literal
+            # to `inf`) under stretch=minmax -- minmax is inactive for
+            # pmin/pmax the same as stddev is, so this must be ignored the
+            # same as any other out-of-range value, never a 500.
+            (
+                {"pmin": "1e309"},
+                "pmin non-finite (1e309) under an inactive stretch mode",
+            ),
+        ],
+    )
+    async def test_out_of_range_bounds_are_ignored_under_an_inactive_stretch_mode(
+        self, client, bad_params, description
+    ):
+        """[T-1153-01] fix(#1778 codex r2): pmin/pmax/sigma are read and
+        validated ONLY when the active stretch mode reads them -- stretch=
+        minmax reads neither pmin/pmax nor sigma, so an out-of-range value
+        under it is ignored, not rejected.
+
+        This inverts what round 1 of this fix pinned (validate regardless of
+        mode). That version made "inactive" a claim the API could contradict:
+        frontend/nginx.conf's raster proxy_cache_key blanks an inactive value
+        out of the cache key so a random one cannot defeat the cache, and a
+        cache HIT must never answer with a status an uncached request would
+        not have given. Round 1 closed that by validating anyway and only
+        blanking well-formed values, but that still had two residuals (a
+        joint pmin/pmax ordering nginx cannot cheaply check, and a repeated
+        query parameter, where nginx reads the FIRST occurrence and this
+        endpoint's scalar Query reads the LAST). Making "inactive" mean
+        "ignored" here closes both: there is no verdict left to disagree
+        with, on either side, for a value that is never read.
+        """
+        params = {"stretch": "minmax"}
+        params.update(bad_params)
+        resp = await client.get(_TILE_PATH, params=params)
+        assert resp.status_code in (200, 204), (
+            f"Expected {description} to be ignored (200/204), got "
+            f"{resp.status_code}: {resp.text}"
+        )
+        assert len(self._tile_titiler_calls) == 1, (
+            f"Expected the tile fetch to proceed for {description}, got "
+            f"{self._tile_titiler_calls}"
+        )
+        # minmax never computes stats, active or not.
+        assert len(self._stats_titiler_calls) == 0
+
+    # ------------------------------------------------------------------
+    # fix(#1778 codex r8): "inactive means ignored" was decided at the
+    # validation gate but not enforced on eff_pmin/eff_pmax/eff_sigma
+    # themselves -- they were resolved from "was the parameter merely
+    # present", so an inactive parameter's RAW value still reached
+    # _fetch_band_statistics/_compute_stretch_rescale. A non-finite value
+    # (pmin=1e309, which FastAPI's float coercion turns into `inf`) is
+    # inside nginx's canonical float grammar (frontend/nginx.conf), so
+    # nginx blanked it and shared a cache key with a plain stddev request:
+    # cached 200 once warm, 500 (int(inf) -> OverflowError inside
+    # _fetch_band_statistics) on the first, cold request.
+    # ------------------------------------------------------------------
+
+    async def test_inactive_non_finite_pmin_under_stddev_matches_the_bare_request(
+        self, client
+    ):
+        """pmin is inactive under stretch=stddev (only sigma is read). A
+        non-finite pmin=1e309 must resolve to the SAME default (2.0) as an
+        absent pmin -- not crash int(pmin) inside _fetch_band_statistics,
+        and not reach Titiler's statistics call with its raw value at all.
+        Proven two ways: the second call's rendered tile URL is identical to
+        the bare call's, and it issues NO second /cog/statistics request --
+        it resolves to the SAME (open_path, eff_pmin, eff_pmax) cache key as
+        the bare request and hits _band_stats_cache instead."""
+        resp_bare = await client.get(_TILE_PATH, params={"stretch": "stddev"})
+        assert resp_bare.status_code in (200, 204)
+        bare_tile_url = self._tile_titiler_calls[0]
+        assert len(self._stats_titiler_calls) == 1
+
+        self._titiler_calls.clear()
+
+        resp_inf = await client.get(
+            _TILE_PATH, params={"stretch": "stddev", "pmin": "1e309"}
+        )
+        assert resp_inf.status_code in (200, 204), (
+            "Expected an inactive, non-finite pmin under stddev to be "
+            f"ignored (200/204), got {resp_inf.status_code}: {resp_inf.text}"
+        )
+        assert self._tile_titiler_calls[0] == bare_tile_url, (
+            "An inactive, non-finite pmin must render the identical tile "
+            f"as an absent pmin: {self._tile_titiler_calls[0]!r} != "
+            f"{bare_tile_url!r}"
+        )
+        # A cache hit, not a fresh statistics call carrying the raw pmin --
+        # proves eff_pmin resolved to the SAME key (open_path, 2.0, 98.0) as
+        # the bare request, not to (open_path, inf, 98.0).
+        assert len(self._stats_titiler_calls) == 0, (
+            "Expected the resolved default to hit _band_stats_cache instead "
+            f"of issuing a new statistics call: {self._stats_titiler_calls}"
+        )
+
+    async def test_active_non_finite_pmin_returns_422_before_titiler(self, client):
+        """pmin IS active under stretch=percentile. math.isfinite() must
+        reject a non-finite pmin explicitly (rather than relying on inf's
+        IEEE-754 comparison behavior, `inf < x` is False, to fail the
+        existing 0<=pmin<pmax<=100 bound check) -- 1e309 is well inside
+        nginx's canonical float grammar, so this must 422 before Titiler is
+        ever called on the ACTIVE path too."""
+        resp = await client.get(
+            _TILE_PATH, params={"stretch": "percentile", "pmin": "1e309"}
+        )
+        assert resp.status_code == 422
+        assert len(self._tile_titiler_calls) == 0
+        assert len(self._stats_titiler_calls) == 0
+
+    async def test_active_non_finite_sigma_returns_422_before_titiler(self, client):
+        """sigma IS active under stretch=stddev. A non-finite sigma=1e309
+        must 422 -- previously `sigma > 0` alone let `inf > 0` (True) pass,
+        which would have reached _compute_stretch_rescale's
+        `mean - sigma*std` / `mean + sigma*std` and produced a literal
+        inf/-inf rescale fragment instead of a clean 422."""
+        resp = await client.get(
+            _TILE_PATH, params={"stretch": "stddev", "sigma": "1e309"}
+        )
+        assert resp.status_code == 422
+        assert len(self._tile_titiler_calls) == 0
+        assert len(self._stats_titiler_calls) == 0
+
     async def test_dem_with_custom_bounds_no_rescale(self, client):
         """[T-1153-03] DEM (algorithm= render_params) ignores pmin/pmax/sigma — no rescale injected."""
         self._auth_render_params = "algorithm=terrainrgb"

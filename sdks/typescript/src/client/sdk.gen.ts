@@ -5670,13 +5670,24 @@ export const clusterTileEndpointTilesClustersTablePathZXYPbfGet = <ThrowOnError 
  * rescale from Titiler band statistics. Multi-band rasters produce one rescale=
  * fragment per band (up to 3, RASTER-STRETCH-03).
  *
- * pmin/pmax: Configurable percentile clip bounds (default 2/98). Must satisfy
- * 0 <= pmin < pmax <= 100. Forwarded as repeated p= params to /cog/statistics.
- * The _band_stats_cache key includes pmin/pmax so different bounds never serve
- * stale cached stats (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
+ * pmin/pmax: Configurable percentile clip bounds (default 2/98), read and
+ * validated (0 <= pmin < pmax <= 100) only when stretch=percentile. Forwarded
+ * as repeated p= params to /cog/statistics. The _band_stats_cache key includes
+ * pmin/pmax so different bounds never serve stale cached stats
+ * (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
  *
- * sigma: Standard-deviation multiplier for stretch=stddev (default 2.0).
- * Must be > 0.
+ * sigma: Standard-deviation multiplier for stretch=stddev (default 2.0), read
+ * and validated (> 0) only when stretch=stddev.
+ *
+ * fix(#1778 codex r2): pmin/pmax/sigma used to be validated whenever present,
+ * regardless of the active stretch mode, so an "inactive" value could still
+ * 422. frontend/nginx.conf's raster proxy_cache_key blanks an inactive value
+ * out of the cache key to stop it defeating the cache; making that safe on
+ * every input (including a repeated query parameter, where nginx's $arg_x
+ * reads the FIRST occurrence and this endpoint's scalar Query reads the
+ * LAST) needs "inactive" to mean the SAME thing on both sides: ignored, not
+ * merely unvalidated for some inputs. A cache HIT must never disagree with
+ * what an uncached request would answer.
  */
 export const rasterTileProxyTilesRasterProxyDatasetIdZXYFmtGet = <ThrowOnError extends boolean = false>(options: Options<RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetData, ThrowOnError>): RequestResult<RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetResponses, RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetErrors, ThrowOnError> => (options.client ?? client).get<RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetResponses, RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetErrors, ThrowOnError>({
     security: [
