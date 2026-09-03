@@ -31,7 +31,66 @@ _COPY_SUFFIX_RE = re.compile(r"\s*\(copy(?:\s+(\d+))?\)\s*$")
 _UNSET = object()
 
 
-async def discard_map_asset_objects(storage_keys: Iterable[str | None]) -> None:
+async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> Map:
+    """Take the row lock that serializes one map's asset replacements.
+
+    fix(#1778 round 2): the thumbnail and OG-image keys end in ``.jpg`` or
+    ``.png`` after the payload's encoding, so two overlapping uploads of one map
+    write two different objects and then race each other's cleanup. The losing
+    interleave: A puts ``.jpg``; B reads ``.jpg`` as the previous key, commits
+    its URI at ``.png`` and deletes ``.jpg``; A then commits its URI at ``.jpg``,
+    pointing the row at the object B just deleted. Both requests answer 204 and
+    the thumbnail endpoint answers 404 from then on.
+
+    Held from here to the caller's commit, which is where PostgreSQL releases a
+    row lock, so the read of the previous key, the object write and the URI
+    update are one serialized unit per map. Callers take it AFTER validating the
+    payload, so no decode or image verification happens under the lock.
+
+    This is one half of the fix. A row lock cannot outlive the commit that
+    releases it, so the cleanup that follows the commit is guarded separately,
+    by ``discard_map_asset_objects`` re-reading the committed row. Both halves
+    are needed: the lock stops the bad interleave from being produced, the
+    re-read stops a cleanup that was queued before it from acting on it.
+
+    Raises 404 when the map is gone, because a concurrent delete may have
+    committed while this request waited here. The raise lives in this helper
+    rather than at each of the three call sites so the three cannot drift, the
+    way ``check_map_ownership`` above owns the 403 for the same reason.
+    """
+    result = await session.execute(
+        select(Map).where(Map.id == map_id).with_for_update()
+    )
+    map_obj = result.scalar_one_or_none()
+    if map_obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Map not found",
+        )
+    return map_obj
+
+
+async def _live_map_asset_keys(
+    session: AsyncSession, map_id: uuid.UUID
+) -> frozenset[str]:
+    """The asset keys the map row points at right now, as committed.
+
+    Read after the caller's commit, so it starts a fresh transaction and sees
+    whatever another request committed in the meantime. An empty set is the
+    right answer for a deleted map: nothing references its objects any more.
+    """
+    result = await session.execute(
+        select(Map.thumbnail_uri, Map.og_image_uri).where(Map.id == map_id)
+    )
+    row = result.one_or_none()
+    return frozenset(key for key in (row or ()) if key)
+
+
+async def discard_map_asset_objects(
+    session: AsyncSession,
+    map_id: uuid.UUID,
+    storage_keys: Iterable[str | None],
+) -> None:
     """Best-effort removal of a map's stored thumbnail / OG-image objects.
 
     fix(#1778): nothing in the backend ever called ``storage.delete`` for a
@@ -41,15 +100,25 @@ async def discard_map_asset_objects(storage_keys: Iterable[str | None]) -> None:
     image on first open of every map, so essentially every map that has been
     opened owns two objects.
 
-    Two callers share this: the delete endpoint, and the two upload handlers,
-    where a re-upload in the other encoding writes ``.png`` beside the stored
-    ``.jpg``, repoints the column, and strands the old key in place.
+    Three callers share this, and all three hold
+    ``lock_map_for_asset_write`` from before their write until their commit:
+    ``delete_map_endpoint``, ``upload_thumbnail`` and ``upload_og_image``. The
+    two upload handlers reach it because a re-upload in the other encoding
+    writes ``.png`` beside the stored ``.jpg``, repoints the column, and strands
+    the old key in place.
 
-    Always best effort, and always after the row change is committed. The
-    object is a cached picture; a storage backend that is refusing calls must
-    not be able to stop an owner deleting their map, and a delete that already
-    committed cannot be undone by raising here. Failures are logged with the
-    key, which is derived from the map id and carries nothing secret.
+    fix(#1778 round 2): a key still named by the committed row is never
+    deleted. The lock is released by the commit that precedes this call, so a
+    request that read its previous key before another request committed can
+    arrive here holding a key that is live again. Re-reading the row is what
+    makes the outcome consistent with whatever committed last, rather than with
+    what this request saw on the way in.
+
+    Always best effort. The object is a cached picture; a storage backend that
+    is refusing calls must not be able to stop an owner deleting their map, and
+    a delete that already committed cannot be undone by raising here. Failures
+    are logged with the key, which is derived from the map id and carries
+    nothing secret.
 
     The provider import stays function-local, matching ``_reap_managed_storage``
     in the dataset lifecycle, so tests keep patching the provider attribute.
@@ -57,15 +126,19 @@ async def discard_map_asset_objects(storage_keys: Iterable[str | None]) -> None:
     from app.platform.storage.provider import get_storage
     from app.platform.storage.titiler_url import resolve_current_storage_key
 
-    for key in storage_keys:
-        if not key:
-            continue
+    candidates = {key for key in storage_keys if key}
+    if not candidates:
+        return
+    live = await _live_map_asset_keys(session, map_id)
+    for key in sorted(candidates - live):
         try:
             await get_storage().delete(resolve_current_storage_key(key))
         except Exception:  # broad: storage backends raise varied SDK/I/O errors
             logger.warning(
                 "map_asset_object_delete_failed", storage_key=key, exc_info=True
             )
+    for key in sorted(candidates & live):
+        logger.info("map_asset_object_delete_skipped_still_referenced", storage_key=key)
 
 
 async def check_map_ownership(map_obj: Map, user: Identity, db: AsyncSession) -> None:

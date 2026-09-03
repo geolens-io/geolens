@@ -73,6 +73,7 @@ from app.modules.catalog.maps.service import (
     get_map_with_layers,
     list_map_history,
     list_maps,
+    lock_map_for_asset_write,
     record_map_history_event,
     remove_layer,
     revoke_share_token_by_map,
@@ -848,7 +849,11 @@ async def delete_map_endpoint(
     # objects only once the row delete has committed. Snapshotting first also
     # keeps the reads out of the post-commit window, where every attribute on
     # map_obj is expired and a lazy refresh would raise.
-    asset_keys = [map_obj.thumbnail_uri, map_obj.og_image_uri]
+    # fix(#1778 round 2): under the same row lock the two upload handlers take,
+    # so a delete cannot interleave with an in-flight replacement and read a key
+    # that is about to be superseded.
+    locked = await lock_map_for_asset_write(db, map_id)
+    asset_keys = [locked.thumbnail_uri, locked.og_image_uri]
 
     map_name = await delete_map(db, map_id)
     await audit_emit(
@@ -863,7 +868,7 @@ async def delete_map_endpoint(
         ),
     )
     await db.commit()
-    await discard_map_asset_objects(asset_keys)
+    await discard_map_asset_objects(db, map_id, asset_keys)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -1046,7 +1051,12 @@ async def upload_thumbnail(
     # the same map's thumbnail as PNG after a JPEG repoints the column and
     # strands the old object. Snapshot the stored key now: after the capture
     # commits, map_obj's attributes are expired.
-    previous_key = map_obj.thumbnail_uri
+    # fix(#1778 round 2): read it under the row lock, held to the commit below,
+    # so two overlapping uploads of one map cannot each delete the object the
+    # other is about to point the row at. Taken here rather than at the top of
+    # the handler so no base64 decode or PIL verify runs under it.
+    locked = await lock_map_for_asset_write(db, map_id)
+    previous_key = locked.thumbnail_uri
 
     storage = get_storage()
     try:
@@ -1060,7 +1070,7 @@ async def upload_thumbnail(
 
     await _record_image_capture(db, map_id, thumbnail_uri=storage_key)
     if previous_key and previous_key != storage_key:
-        await discard_map_asset_objects([previous_key])
+        await discard_map_asset_objects(db, map_id, [previous_key])
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -1186,8 +1196,10 @@ async def upload_og_image(
 
     ext = "jpg" if "jpeg" in header else "png"
     storage_key = f"maps/og-images/{map_id}.{ext}"
-    # fix(#1778): same extension flip as the thumbnail PUT above.
-    previous_key = map_obj.og_image_uri
+    # fix(#1778): same extension flip as the thumbnail PUT above, and
+    # fix(#1778 round 2) the same row lock for the same reason.
+    locked = await lock_map_for_asset_write(db, map_id)
+    previous_key = locked.og_image_uri
 
     storage = get_storage()
     try:
@@ -1201,7 +1213,7 @@ async def upload_og_image(
 
     await _record_image_capture(db, map_id, og_image_uri=storage_key)
     if previous_key and previous_key != storage_key:
-        await discard_map_asset_objects([previous_key])
+        await discard_map_asset_objects(db, map_id, [previous_key])
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

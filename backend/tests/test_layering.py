@@ -1609,7 +1609,17 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # remaining place a bbox-scoped source_feature_count was paired
         # with a whole-dataset match_count). Budget 610 -> 612, exact.
         "backend/app/modules/catalog/datasets/domain/service_analysis.py": 612,
-        "backend/app/modules/catalog/maps/service_crud.py": 550,
+        # fix(#1778): +56 over the reviewed 550. The gallery listing's
+        # page-scoped layer counts, and the asset-object lifecycle the maps
+        # module had none of: the row lock that serializes one map's thumbnail
+        # and OG-image replacements, the post-commit re-read that refuses to
+        # delete a key the row still points at, and the best-effort discard the
+        # delete endpoint and both upload handlers share. Most of the growth is
+        # the two docstrings, which carry the part a later reader would
+        # otherwise simplify away: a row lock cannot outlive the commit that
+        # releases it, so the lock and the re-read are two halves of one fix and
+        # neither is redundant. Cap 550 -> 606, exact.
+        "backend/app/modules/catalog/maps/service_crud.py": 606,
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the
         # carve-out exact so further growth requires another review.
@@ -4742,7 +4752,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1778 round 1): +9 — the import route answers 422 for the per-map
     # layer limit, above the generic ValueError arm it subclasses, with the
     # comment saying why that order is load-bearing. Cap 1488 -> 1497, exact.
-    "backend/app/modules/catalog/maps/router.py": 1497,
+    # fix(#1778 round 2): +12 — the three asset call sites take the row lock
+    # that serializes a map's thumbnail and OG-image replacements, plus the
+    # comments recording what the race produced (a committed URI pointing at an
+    # object the other request had already deleted, both requests 204, the
+    # endpoint 404 from then on) and why the lock is taken after payload
+    # validation rather than at the top of each handler. The 404 for a
+    # concurrently deleted map lives in the helper, not repeated three times.
+    # This crosses the 1500 glob default the allowlist overrides, which is what
+    # this entry is for. The seam if it grows again is the asset surface: the
+    # thumbnail and OG-image routes move to router_assets.py, which already
+    # exists and holds 142 lines. Cap 1497 -> 1509, exact.
+    "backend/app/modules/catalog/maps/router.py": 1509,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.

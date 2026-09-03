@@ -14,6 +14,7 @@ from app.modules.catalog.maps.service_crud import (
     get_map,
     get_map_with_layers,
     list_maps,
+    lock_map_for_asset_write,
     update_map,
 )
 from app.modules.catalog.maps.service_diff import apply_layer_diff
@@ -65,6 +66,7 @@ __all__ = [
     "update_map",
     "delete_map",
     "discard_map_asset_objects",
+    "lock_map_for_asset_write",
     "record_map_history_event",
     "list_map_history",
     "bulk_check_dataset_access",
