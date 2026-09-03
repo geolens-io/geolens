@@ -859,8 +859,23 @@ register_error_handlers(app)
 app.state.limiter = limiter
 
 
-async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
     # fix(#315): advertise the retry window (exc.limit.limit.get_expiry(), seconds).
+    #
+    # fix(#1778): a plain def, not a coroutine, and it must stay one. slowapi's
+    # SlowAPIMiddleware enforces the GLOBAL default limit inside a synchronous
+    # BaseHTTPMiddleware dispatch and resolves this handler through
+    # `sync_check_limits`, which silently swaps a coroutine handler for
+    # slowapi's own `_rate_limit_exceeded_handler` ("cannot execute
+    # asynchronous code in a synchronous middleware"). That fallback returns a
+    # bare {"error": ...} in application/json with no Retry-After, because the
+    # Limiter is not built with headers_enabled. Only routes carrying an
+    # explicit @limiter.limit decorator take the exception-handler path
+    # instead, which is why every test of this contract passed while the
+    # majority of routes -- the undecorated ones -- answered a rate-limit
+    # rejection with a shape no SDK, CLI or apiFetch caller can parse. Nothing
+    # here awaits, so a sync handler serves both paths identically; Starlette
+    # runs it in a threadpool on the exception-handler path.
     headers = {}
     try:
         headers["Retry-After"] = str(int(exc.limit.limit.get_expiry()))
