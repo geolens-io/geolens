@@ -34,6 +34,22 @@ function ensureStopIds(
   }));
 }
 
+/**
+ * fix(round1 #1795, P2): count adjacent pairs that are NOT strictly
+ * ascending (`next <= prev`) — the same condition maplibre-gl's
+ * `interpolate` parser rejects. Used to compare a proposed stop list
+ * against the one it replaces, so commitStops can block a commit that makes
+ * ordering WORSE without also blocking incremental repair of an
+ * already-invalid legacy list (e.g. one saved by the old repeated-Add bug).
+ */
+function countOrderViolations(stops: ReadonlyArray<{ position: number }>): number {
+  let count = 0;
+  for (let i = 1; i < stops.length; i++) {
+    if (stops[i].position <= stops[i - 1].position) count++;
+  }
+  return count;
+}
+
 // Permissive allowlist for the raw-expression structural validator. The goal
 // is to reject obvious garbage (random strings, plain objects, unknown ops)
 // before commit; full MapLibre semantic validation happens at runtime.
@@ -183,16 +199,22 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
   const isCustomExpression = paintExpr != null && parsedFromPaint == null;
 
   function commitStops(nextStops: WorkingStop[]) {
-    // fix(#1778): refuse a non-ascending (equal or descending) stop list
-    // before it reaches paint. maplibre-gl's `interpolate` parser rejects the
-    // whole expression when adjacent positions are not STRICTLY ascending
-    // (`stops[i][0] >= label` is an error, so equal positions fail too), and
-    // an invalid expression would otherwise persist into the saved
-    // style_config. Leave pendingPositionEdits untouched here so a typed
-    // duplicate value still surfaces the duplicatePosition warning below.
-    for (let i = 1; i < nextStops.length; i++) {
-      if (nextStops[i].position <= nextStops[i - 1].position) return;
-    }
+    // fix(#1778, round1 #1795 P2): refuse a commit that makes stop
+    // ordering WORSE, not any commit that leaves some violation in place.
+    // A blanket "any non-ascending pair refuses" rule blocked incremental
+    // repair of a legacy list saved by the old repeated-Add bug (e.g.
+    // [0, 1, 1, 1]) — removing one duplicate, moving one stop, or even
+    // just recoloring one became a no-op, because the repaired list still
+    // had a violation somewhere else. Comparing violation COUNTS lets any
+    // commit that holds steady or improves through, and still blocks a
+    // commit that newly introduces or worsens non-ascending positions —
+    // maplibre-gl's `interpolate` parser rejects the whole expression when
+    // adjacent positions are not STRICTLY ascending (`stops[i][0] >= label`
+    // is an error, so equal positions violate too). Leave
+    // pendingPositionEdits untouched here so a typed duplicate value still
+    // surfaces the duplicatePosition warning below.
+    const previousViolations = liveStops ? countOrderViolations(liveStops) : 0;
+    if (countOrderViolations(nextStops) > previousViolations) return;
     // Compose the next paint snapshot once and pass it to both callbacks so the
     // upstream save sees a single consistent state. Without `nextPaint`,
     // `onBuilderChange` would resolve `paint` from a stale closure and shadow

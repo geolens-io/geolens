@@ -217,6 +217,123 @@ describe('LineGradientControls — UI', () => {
     expect(screen.getByText('style.lineGradient.duplicatePosition')).toBeInTheDocument();
   });
 
+  // fix(round1 #1795, P2): a legacy list saved by the old repeated-Add bug
+  // (e.g. [0, 1, 1, 1]) has violations already present. A blanket refusal
+  // on ANY violation made every repair of such a list a no-op. commitStops
+  // now compares violation COUNTS and only blocks a commit that makes
+  // ordering worse than what it replaces.
+  describe('ui: incremental repair of a legacy non-ascending stop list (fix round1 #1795)', () => {
+    it('removing one duplicate from [0, 1, 1, 1] commits (count improves)', () => {
+      const onPaintProp = vi.fn();
+      const onBuilderChange = vi.fn();
+      const stops = [
+        { position: 0, color: '#000', id: 'a' },
+        { position: 1, color: '#111', id: 'b' },
+        { position: 1, color: '#222', id: 'c' },
+        { position: 1, color: '#333', id: 'd' },
+      ];
+      render(
+        <LineGradientControls
+          paint={{ 'line-gradient': stopsToLineGradientExpression(stops) }}
+          styleConfig={{ builder: { lineGradient: { stops } } } as unknown as StyleConfig}
+          onPaintProp={onPaintProp}
+          onBuilderChange={onBuilderChange}
+          t={t}
+        />,
+      );
+      const removeButtons = screen.getAllByRole('button', { name: 'style.lineGradient.removeStop' });
+      fireEvent.click(removeButtons[3]); // remove the last duplicate (id 'd')
+
+      const gradientCalls = onPaintProp.mock.calls.filter((c: unknown[]) => c[0] === 'line-gradient');
+      expect(gradientCalls.length).toBeGreaterThan(0);
+      const lastBuilderCall = onBuilderChange.mock.calls[onBuilderChange.mock.calls.length - 1];
+      const committedStops = lastBuilderCall[0].lineGradient.stops as Array<{ position: number }>;
+      expect(committedStops.map((s) => s.position)).toEqual([0, 1, 1]);
+    });
+
+    it('moving one stop from [0, 1, 1, 1] to [0, 0.5, 1, 1] commits (count improves)', () => {
+      const onPaintProp = vi.fn();
+      const onBuilderChange = vi.fn();
+      const stops = [
+        { position: 0, color: '#000', id: 'a' },
+        { position: 1, color: '#111', id: 'b' },
+        { position: 1, color: '#222', id: 'c' },
+        { position: 1, color: '#333', id: 'd' },
+      ];
+      render(
+        <LineGradientControls
+          paint={{ 'line-gradient': stopsToLineGradientExpression(stops) }}
+          styleConfig={{ builder: { lineGradient: { stops } } } as unknown as StyleConfig}
+          onPaintProp={onPaintProp}
+          onBuilderChange={onBuilderChange}
+          t={t}
+        />,
+      );
+      const positionInputs = screen.getAllByRole('spinbutton', { name: 'style.lineGradient.position' });
+      fireEvent.change(positionInputs[1], { target: { value: '0.5' } });
+
+      const lastBuilderCall = onBuilderChange.mock.calls[onBuilderChange.mock.calls.length - 1];
+      const committedStops = lastBuilderCall[0].lineGradient.stops as Array<{ position: number }>;
+      expect(committedStops.map((s) => s.position)).toEqual([0, 0.5, 1, 1]);
+    });
+
+    it('a colour-only change on a legacy duplicate list still commits (count unchanged)', async () => {
+      const onPaintProp = vi.fn();
+      const onBuilderChange = vi.fn();
+      const user = userEvent.setup();
+      const stops = [
+        { position: 0, color: '#000000', id: 'a' },
+        { position: 1, color: '#111111', id: 'b' },
+        { position: 1, color: '#222222', id: 'c' },
+      ];
+      render(
+        <LineGradientControls
+          paint={{ 'line-gradient': stopsToLineGradientExpression(stops) }}
+          styleConfig={{ builder: { lineGradient: { stops } } } as unknown as StyleConfig}
+          onPaintProp={onPaintProp}
+          onBuilderChange={onBuilderChange}
+          t={t}
+        />,
+      );
+      // Open the swatch popover for the second stop (#111111) and change its
+      // hex value — updateStopColor -> commitStops with positions unchanged.
+      await user.click(screen.getByTitle('#111111'));
+      const hexInput = await screen.findByRole('textbox');
+      fireEvent.change(hexInput, { target: { value: '#abcdef' } });
+
+      const lastBuilderCall = onBuilderChange.mock.calls[onBuilderChange.mock.calls.length - 1];
+      expect(lastBuilderCall).toBeDefined();
+      const committedStops = lastBuilderCall[0].lineGradient.stops as Array<{ position: number; color: string }>;
+      expect(committedStops.map((s) => s.position)).toEqual([0, 1, 1]);
+      expect(committedStops[1].color.toLowerCase()).toBe('#abcdef');
+    });
+
+    it('from [0, 0.5, 1], setting the middle stop to 1 is refused (count would increase)', () => {
+      const onPaintProp = vi.fn();
+      const onBuilderChange = vi.fn();
+      const stops = [
+        { position: 0, color: '#000', id: 'a' },
+        { position: 0.5, color: '#111', id: 'b' },
+        { position: 1, color: '#222', id: 'c' },
+      ];
+      render(
+        <LineGradientControls
+          paint={{ 'line-gradient': stopsToLineGradientExpression(stops) }}
+          styleConfig={{ builder: { lineGradient: { stops } } } as unknown as StyleConfig}
+          onPaintProp={onPaintProp}
+          onBuilderChange={onBuilderChange}
+          t={t}
+        />,
+      );
+      const positionInputs = screen.getAllByRole('spinbutton', { name: 'style.lineGradient.position' });
+      fireEvent.change(positionInputs[1], { target: { value: '1' } });
+
+      const gradientCalls = onPaintProp.mock.calls.filter((c: unknown[]) => c[0] === 'line-gradient');
+      expect(gradientCalls).toHaveLength(0);
+      expect(onBuilderChange).not.toHaveBeenCalled();
+    });
+  });
+
   it('ui: line-gradient remove buttons are disabled at the minimum of 2 stops', () => {
     const expr = stopsToLineGradientExpression([{ position: 0, color: '#000' }, { position: 1, color: '#fff' }]);
     render(<LineGradientControls paint={{ 'line-gradient': expr }} styleConfig={{ builder: { lineGradient: { stops: [{ position: 0, color: '#000' }, { position: 1, color: '#fff' }] } } } as unknown as StyleConfig} onPaintProp={vi.fn()} onBuilderChange={vi.fn()} t={t} />);
