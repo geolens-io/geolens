@@ -370,14 +370,63 @@ interface BasemapLayerPaintState {
   stamped: Set<string>;
 }
 
-const basemapPaintStates = new WeakMap<MaplibreMap, Map<string, BasemapLayerPaintState>>();
+/** The per-layer states, tagged with the style generation they describe. */
+interface BasemapPaintCache {
+  generation: number;
+  states: Map<string, BasemapLayerPaintState>;
+}
+
+const basemapPaintStates = new WeakMap<MaplibreMap, BasemapPaintCache>();
+const basemapStyleGenerations = new WeakMap<MaplibreMap, { value: number }>();
+const generationListenerAttached = new WeakSet<MaplibreMap>();
+
+/**
+ * Start counting style generations for `map`.
+ *
+ * fix(#1778 codex round 5): per-key equality reconciliation cannot see a swap
+ * whose new native value happens to equal the override the old style was
+ * carrying (style A's water overridden to #d9dde0, style B's native water also
+ * #d9dde0). Nothing has changed from the paint's point of view, so clearing the
+ * override afterwards restored A's colour. A generation counter closes that,
+ * and unlike a style-identity token it does not depend on fields that move for
+ * unrelated reasons (`sprite` is rewritten by the symbol adapter's `addSprite`;
+ * `layers` and `sources` change on every data-layer add).
+ *
+ * MUST be called from the map-creation path (BuilderMap and ViewerMap
+ * `onLoad`), never lazily from an appearance pass. That is what makes this the
+ * earliest-registered `style.load` listener, so it has already bumped the
+ * counter by the time BuilderMap's own persistent handler triggers an
+ * appearance pass on the new style. Registering it lazily would reproduce the
+ * round-2 ordering bug exactly.
+ *
+ * Idempotent: a second call for the same map is a no-op, so a remount that
+ * reuses the instance cannot double-count.
+ */
+export function registerBasemapStyleGeneration(map: MaplibreMap): void {
+  if (generationListenerAttached.has(map)) return;
+  generationListenerAttached.add(map);
+  const counter = basemapStyleGenerations.get(map) ?? { value: 0 };
+  basemapStyleGenerations.set(map, counter);
+  // Partial map mocks in tests lack `on`, hence the optional call.
+  map.on?.('style.load', () => {
+    counter.value += 1;
+  });
+}
+
+/** Zero when no counter is registered, so a surface that has not opted in
+ *  degrades to the equality reconciliation alone rather than misbehaving. */
+function currentBasemapStyleGeneration(map: MaplibreMap): number {
+  return basemapStyleGenerations.get(map)?.value ?? 0;
+}
 
 function basemapPaintStateFor(map: MaplibreMap): Map<string, BasemapLayerPaintState> {
-  let states = basemapPaintStates.get(map);
-  if (!states) {
-    states = new Map();
-    basemapPaintStates.set(map, states);
-  }
+  const generation = currentBasemapStyleGeneration(map);
+  const cache = basemapPaintStates.get(map);
+  // A generation bump means a different style is loaded; everything cached
+  // describes the previous one, so treat it as empty and re-snapshot.
+  if (cache && cache.generation === generation) return cache.states;
+  const states = new Map<string, BasemapLayerPaintState>();
+  basemapPaintStates.set(map, { generation, states });
   return states;
 }
 
@@ -393,13 +442,13 @@ function basemapPaintStateFor(map: MaplibreMap): Map<string, BasemapLayerPaintSt
  * basemap's colours onto the new style, and the contaminated paint then became
  * the next pristine snapshot.
  *
- * A style-generation token would fix the ordering but not the detection: every
- * cheap style-identity field in this codebase moves for unrelated reasons
- * (`sprite` is rewritten by the symbol adapter's `addSprite`, and `layers` and
- * `sources` change on every data-layer add), and a token that cannot see a
- * difference between two styles is silently back to the same bug. Comparing
- * each cached key against the value this module last left there needs no token
- * and catches any writer, a new style included.
+ * fix(#1778 codex round 5): this is now the SECOND line of defence.
+ * registerBasemapStyleGeneration drops the whole cache when the style
+ * generation moves, which covers the one case equality cannot see: a new style
+ * whose native value equals the override the old one was carrying. The
+ * per-key comparison stays because it catches every OTHER writer, needs no
+ * cooperation from the surface hosting the map, and keeps working on a surface
+ * that never registered a counter.
  *
  * Per KEY rather than per layer on purpose: applySublayerOverrides runs
  * immediately after this helper and rewrites the `*-opacity` keys, so a

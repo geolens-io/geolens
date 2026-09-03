@@ -35,7 +35,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
-import { resolveAdapterType, prefixed, getDataDrivenColumnsForLayer } from '@/components/builder/map-sync';
+import { resolveAdapterType, prefixed, getDataDrivenColumnsForLayer, registerBasemapStyleGeneration } from '@/components/builder/map-sync';
 import { applyMapBasemapAppearance, syncMapComposition } from '@/components/builder/map-composition-sync';
 import type { SyncLayerInput } from '@/components/builder/map-sync';
 import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
@@ -382,6 +382,12 @@ export const ViewerMap = memo(function ViewerMap({
     (e: MapLibreEvent) => {
       const map = e.target;
       mapRef.current = map;
+      // fix(#1778 codex round 5): FIRST thing in the map-creation path, so this
+      // is the earliest-registered `style.load` listener and the basemap paint
+      // cache is already invalidated by the time any appearance pass runs
+      // against a newly loaded style. Registering it lazily from the appearance
+      // helper would put it behind the persistent handler below.
+      registerBasemapStyleGeneration(map);
 
       // First-party vs third-party request classification
       // (chore(#835): shared `isThirdPartyTileUrl` in lib/tile-utils). Used to

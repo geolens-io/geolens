@@ -15,7 +15,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import type { StyleSpecification } from 'maplibre-gl';
-import { applyBasemapConfigToMap } from '@/components/builder/map-sync';
+import { applyBasemapConfigToMap, registerBasemapStyleGeneration } from '@/components/builder/map-sync';
 import { DEFAULT_BASEMAP_CONFIG } from '@/lib/basemap-utils';
 import type { MapBasemapConfig } from '@/types/api';
 
@@ -198,5 +198,74 @@ describe('applyBasemapConfigToMap revert passes', () => {
       (c) => c[0] === 'water' && c[1] === 'fill-color',
     );
     expect(fillColorWrites).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fix(#1778 codex round 5 P2): the residual the round-2 note flagged. Per-key
+// equality reconciliation cannot see a swap whose new NATIVE value equals the
+// override the old style was carrying, because nothing changed from the paint's
+// point of view. A style-generation counter closes it, and the counter only
+// works if its listener is the earliest one registered, which is why
+// registerBasemapStyleGeneration lives in the map-creation path rather than in
+// an appearance pass.
+// ---------------------------------------------------------------------------
+describe('registerBasemapStyleGeneration', () => {
+  it('registers exactly one style.load listener, and only once per map', () => {
+    const map = createLiveStyleMap(waterLayer(POSITRON_WATER));
+
+    registerBasemapStyleGeneration(map as never);
+    registerBasemapStyleGeneration(map as never);
+    registerBasemapStyleGeneration(map as never);
+
+    const styleLoadRegistrations = map.on.mock.calls.filter((c) => c[0] === 'style.load');
+    expect(styleLoadRegistrations).toHaveLength(1);
+  });
+
+  it('tolerates a partial map mock with no `on`', () => {
+    expect(() => registerBasemapStyleGeneration({} as never)).not.toThrow();
+  });
+
+  it('re-snapshots pristine when the new style natively carries the old override value', () => {
+    const map = createLiveStyleMap(waterLayer(POSITRON_WATER));
+    const config: { current: MapBasemapConfig } = {
+      current: { ...DEFAULT_BASEMAP_CONFIG, land_water_tone: 'monochrome' },
+    };
+
+    // Registration order as production has it: the generation listener goes on
+    // in the map-creation path, BEFORE the appearance handler exists.
+    registerBasemapStyleGeneration(map as never);
+    map.on('style.load', () => applyBasemapConfigToMap(map as never, config.current));
+
+    map.loadStyle(waterLayer(POSITRON_WATER));
+    expect(map.paintOf('water')['fill-color']).toBe(MONOCHROME_WATER);
+
+    // Style B's OWN water colour is exactly the override style A was carrying,
+    // so every cached key still compares equal and the per-key reconciliation
+    // sees nothing at all.
+    map.loadStyle(waterLayer(MONOCHROME_WATER));
+    expect(map.paintOf('water')['fill-color']).toBe(MONOCHROME_WATER);
+
+    // Clearing the override must leave B's native colour in place, not restore
+    // A's. Counterfactual: without the generation counter this writes
+    // POSITRON_WATER.
+    config.current = { ...DEFAULT_BASEMAP_CONFIG };
+    applyBasemapConfigToMap(map as never, config.current);
+    expect(map.paintOf('water')['fill-color']).toBe(MONOCHROME_WATER);
+  });
+
+  it('still reverts to the styles own pristine after a generation bump', () => {
+    const map = createLiveStyleMap(waterLayer(POSITRON_WATER));
+    registerBasemapStyleGeneration(map as never);
+
+    applyBasemapConfigToMap(map as never, { ...DEFAULT_BASEMAP_CONFIG, land_water_tone: 'monochrome' });
+    expect(map.paintOf('water')['fill-color']).toBe(MONOCHROME_WATER);
+
+    map.loadStyle(waterLayer(DARK_WATER));
+    applyBasemapConfigToMap(map as never, { ...DEFAULT_BASEMAP_CONFIG, land_water_tone: 'monochrome' });
+    expect(map.paintOf('water')['fill-color']).toBe(MONOCHROME_WATER);
+
+    applyBasemapConfigToMap(map as never, { ...DEFAULT_BASEMAP_CONFIG });
+    expect(map.paintOf('water')['fill-color']).toBe(DARK_WATER);
   });
 });
