@@ -583,7 +583,18 @@ class Settings(BaseSettings):
     # fix(#448): queues this worker listens to. Lets a deployment run a second
     # worker service dedicated to e.g. WORKER_QUEUES=raster so long raster jobs
     # never stall vector ingests.
-    worker_queues: str = "priority,ingest,raster"
+    #
+    # fix(#1770 round 35): "ingest-auth-v2" added beside the three original
+    # ones. It is `app.platform.service_auth.HEADER_AUTH_JOB_QUEUE`
+    # (`test_service_auth_transport_1746.py` pins that this default names it)
+    # — a worker on this release has to drain it as well as "ingest", or a
+    # header-auth WFS/OGC API job never gets picked up at all. A deployment
+    # that already overrides WORKER_QUEUES (the dedicated-raster-worker case
+    # this comment already describes) must add it to that override by hand;
+    # this default only covers an install that has not customised the
+    # variable, which is every stock Compose or Helm install as of this
+    # release — neither template sets WORKER_QUEUES itself.
+    worker_queues: str = "priority,ingest,ingest-auth-v2,raster"
 
     # CONF-04 (Phase 277 / M-39): replaces raw os.environ.get("ENV_ONLY_CONFIG") in core/public_urls.py
     # Security-relevant: when true, the PersistentConfig DB layer is bypassed for reads

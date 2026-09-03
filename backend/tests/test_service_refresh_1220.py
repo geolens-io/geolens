@@ -129,6 +129,13 @@ async def _dispatch_harness():
     """
     task = MagicMock()
     task.defer_async = AsyncMock(return_value=None)
+    # fix(#1770 round 35): a header-auth credential (the default source_format
+    # here is "wfs") routes the dispatch through task.configure(queue=...)
+    # before defer_async. Returning the SAME mock from configure() keeps every
+    # existing `task.defer_async` assertion in this file valid whichever path
+    # the dispatch actually takes, and a test that cares about the queue
+    # verdict can still assert on `task.configure.call_args` directly.
+    task.configure = MagicMock(return_value=task)
     port = MagicMock()
     port.reupload_service_task.return_value = task
     with (

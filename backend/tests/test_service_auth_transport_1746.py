@@ -6833,3 +6833,189 @@ class TestASecretDoesNotSurviveInTheChain:
 
         assert secret not in str(raised.value)
         assert secret not in str(raised.value.__context__)
+
+
+class TestAHeaderAuthJobGoesOnTheVersionedQueue:
+    """fix(#1770 round 35, `service_auth.py` P1 on head 1ad209100).
+
+    A worker running the release before this PR has no notion of a composed
+    header line: its ``_sanitize_authorization_token`` takes no
+    ``service_format`` and applies the bare-bearer charset to whatever
+    ``token`` holds, so the first ``:`` or space in a line this PR composes
+    is refused as a bad character. During a rolling deploy that upgrades the
+    API before every worker, that turns a previously-working bearer WFS/OGC
+    API import into a deterministic failure that still spends the single-use
+    credential.
+
+    `header_auth_job_queue` routes a header-auth job to a queue only a
+    worker from this release listens to, so an old one never dequeues it —
+    the job sits exactly as it would while every worker is busy, and an
+    upgraded worker drains it once one exists. A task-name gate was
+    considered and rejected for the same reason #1689 and #1277 already
+    rejected it at this door: Procrastinate marks a job with no registered
+    task FAILED before the task body runs, so the ``ingest_jobs`` row this
+    codebase owns never updates and sits `pending` until the abandoned-run
+    sweep.
+    """
+
+    def test_a_header_auth_credential_gets_the_versioned_queue(self) -> None:
+        from app.platform.service_auth import (
+            HEADER_AUTH_JOB_QUEUE,
+            header_auth_job_queue,
+        )
+
+        assert (
+            header_auth_job_queue("Authorization: Bearer abc", service_format="wfs")
+            == HEADER_AUTH_JOB_QUEUE
+        )
+        assert (
+            header_auth_job_queue(
+                "Authorization: Basic abc", service_format="ogcapi_features"
+            )
+            == HEADER_AUTH_JOB_QUEUE
+        )
+        assert (
+            header_auth_job_queue("X-Api-Key: abc", service_format="wfs")
+            == HEADER_AUTH_JOB_QUEUE
+        )
+
+    def test_arcgis_and_no_credential_use_the_tasks_own_queue(self) -> None:
+        """ArcGIS's token is a URL query parameter, never a header line — a
+        worker from any generation reads it the same way, so it never needs
+        the versioned queue. No credential at all means no line was composed,
+        so there is nothing an old worker could misread either."""
+        from app.platform.service_auth import header_auth_job_queue
+
+        assert (
+            header_auth_job_queue(
+                "bare-arcgis-token", service_format="arcgis_featureserver"
+            )
+            is None
+        )
+        assert header_auth_job_queue(None, service_format="wfs") is None
+        assert header_auth_job_queue(None, service_format=None) is None
+
+    def test_every_service_credential_defer_site_routes_through_it(self) -> None:
+        """Structural: the import door, the refresh door and the reupload
+        door each judge the queue on the composed line and configure the
+        task with it — grepped rather than asserted per-branch, so a fourth
+        site added later without the same two calls fails here."""
+        import inspect
+
+        from app.modules.catalog.datasets.api import router_refresh, router_reupload
+        from app.processing.ingest import service as ingest_service_module
+
+        for module in (ingest_service_module, router_refresh, router_reupload):
+            source = inspect.getsource(module)
+            assert "header_auth_job_queue(" in source, (
+                f"{module.__name__} must judge the queue on the composed line"
+            )
+            assert ".configure(queue=" in source, (
+                f"{module.__name__} must apply the verdict to the deferred task"
+            )
+
+    def test_the_shipped_default_worker_queues_include_it(self) -> None:
+        """The class-level default, not the live `settings` singleton — this
+        must hold regardless of what a test or a deployment's env overrides
+        it to."""
+        from app.core.config import Settings
+        from app.platform.service_auth import HEADER_AUTH_JOB_QUEUE
+
+        default = Settings.model_fields["worker_queues"].default
+        queues = [q.strip() for q in default.split(",") if q.strip()]
+        assert HEADER_AUTH_JOB_QUEUE in queues
+
+    async def test_a_new_shape_job_lands_on_the_versioned_queue(self) -> None:
+        from procrastinate import App, testing
+
+        from app.platform.service_auth import HEADER_AUTH_JOB_QUEUE
+
+        connector = testing.InMemoryConnector()
+        app = App(connector=connector)
+
+        @app.task(name="demo.ingest_service", queue="ingest")
+        async def ingest_service(**kwargs):
+            return "ran"
+
+        async with app.open_async():
+            await ingest_service.configure(queue=HEADER_AUTH_JOB_QUEUE).defer_async(
+                job_id="j1"
+            )
+
+        (row,) = connector.jobs.values()
+        assert row["queue_name"] == HEADER_AUTH_JOB_QUEUE
+
+    async def test_an_old_worker_never_dequeues_it(self) -> None:
+        """The three queues a worker built before this release ships with —
+        `settings.worker_queues`' old default, unchanged — never name it, so
+        `fetch_job` never selects the row and it is never spent on a header
+        line the old worker cannot parse."""
+        from procrastinate import App, testing
+        from procrastinate.worker import Worker
+
+        from app.platform.service_auth import HEADER_AUTH_JOB_QUEUE
+
+        connector = testing.InMemoryConnector()
+        app = App(connector=connector)
+
+        @app.task(name="demo.ingest_service", queue="ingest")
+        async def ingest_service(**kwargs):
+            return "ran"
+
+        async with app.open_async():
+            await ingest_service.configure(queue=HEADER_AUTH_JOB_QUEUE).defer_async(
+                job_id="j1"
+            )
+
+            await Worker(
+                app,
+                queues=["priority", "ingest", "raster"],
+                wait=False,
+                listen_notify=False,
+                install_signal_handlers=False,
+            ).run()
+
+        (row,) = connector.jobs.values()
+        assert row["status"] == "todo", "an old worker must never claim it"
+        assert row["attempts"] == 0
+
+    async def test_an_upgraded_worker_drains_both_the_old_and_new_queue(self) -> None:
+        """The shipped default (`priority,ingest,ingest-auth-v2,raster`)
+        drains a header-auth job alongside an ordinary one on `ingest` — the
+        new queue is additive, not a replacement for the old one."""
+        from procrastinate import App, testing
+        from procrastinate.worker import Worker
+
+        from app.core.config import Settings
+        from app.platform.service_auth import HEADER_AUTH_JOB_QUEUE
+
+        connector = testing.InMemoryConnector()
+        app = App(connector=connector)
+
+        @app.task(name="demo.ingest_service", queue="ingest")
+        async def ingest_service(**kwargs):
+            return "ran"
+
+        @app.task(name="demo.ingest_file", queue="ingest")
+        async def ingest_file(**kwargs):
+            return "ran"
+
+        async with app.open_async():
+            await ingest_service.configure(queue=HEADER_AUTH_JOB_QUEUE).defer_async(
+                job_id="j1"
+            )
+            await ingest_file.defer_async(job_id="j2")
+
+            default = Settings.model_fields["worker_queues"].default
+            queues = [q.strip() for q in default.split(",") if q.strip()]
+
+            await Worker(
+                app,
+                queues=queues,
+                wait=False,
+                listen_notify=False,
+                install_signal_handlers=False,
+            ).run()
+
+        for row in connector.jobs.values():
+            assert row["status"] == "succeeded", row["task_name"]

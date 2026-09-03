@@ -32,7 +32,7 @@ call the functions directly and never build a request.
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -867,6 +867,11 @@ class TestServiceLayerTakesACredentialDirectly:
         task = AsyncMock()
         with patch("app.processing.ingest.tasks.ingest_service") as ingest_service:
             ingest_service.defer_async = task
+            # fix(#1770 round 35): a header-auth credential routes the
+            # dispatch through ingest_service.configure(queue=...) before
+            # defer_async. Returning the mock itself from configure() keeps
+            # `task` the object every assertion below already checks.
+            ingest_service.configure = MagicMock(return_value=ingest_service)
             await queue_ingest_job(
                 job,
                 str(admin_id),
@@ -958,6 +963,11 @@ class TestServiceLayerTakesACredentialDirectly:
         task = AsyncMock()
         with patch("app.processing.ingest.tasks.ingest_service") as ingest_service:
             ingest_service.defer_async = task
+            # fix(#1770 round 35): a header-auth credential routes the
+            # dispatch through ingest_service.configure(queue=...) before
+            # defer_async. Returning the mock itself from configure() keeps
+            # `task` the object every assertion below already checks.
+            ingest_service.configure = MagicMock(return_value=ingest_service)
             await queue_ingest_job(
                 job,
                 str(admin_id),
@@ -1253,6 +1263,11 @@ class TestImportCommitDoor:
             patch("app.processing.ingest.tasks.ingest_service") as ingest_service,
         ):
             ingest_service.defer_async = task
+            # fix(#1770 round 35): a header-auth credential routes the
+            # dispatch through ingest_service.configure(queue=...) before
+            # defer_async. Returning the mock itself from configure() keeps
+            # `task` the object every assertion below already checks.
+            ingest_service.configure = MagicMock(return_value=ingest_service)
             resp = await client.post(
                 f"/ingest/commit/{job.id}",
                 json={"title": "Parcels", **body},
@@ -1394,6 +1409,11 @@ class TestImportCommitDoor:
             patch("app.processing.ingest.tasks.ingest_service") as ingest_service,
         ):
             ingest_service.defer_async = task
+            # fix(#1770 round 35): a header-auth credential routes the
+            # dispatch through ingest_service.configure(queue=...) before
+            # defer_async. Returning the mock itself from configure() keeps
+            # `task` the object every assertion below already checks.
+            ingest_service.configure = MagicMock(return_value=ingest_service)
             resp = await client.post(
                 f"/ingest/commit/{job.id}",
                 json={"title": "Parcels", "auth": auth},

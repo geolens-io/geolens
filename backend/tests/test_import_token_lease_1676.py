@@ -147,6 +147,11 @@ async def _import_harness(defer_side_effect=None):
     """
     task = MagicMock()
     task.defer_async = AsyncMock(return_value=None, side_effect=defer_side_effect)
+    # fix(#1770 round 35): a header-auth credential routes the dispatch
+    # through task.configure(queue=...) before defer_async. Returning the
+    # mock itself from configure() keeps `task` the object every assertion
+    # here already checks, whether or not that branch fires.
+    task.configure = MagicMock(return_value=task)
     with (
         patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
         patch("app.processing.ingest.tasks.ingest_service", task),
@@ -158,6 +163,7 @@ async def _import_harness(defer_side_effect=None):
 async def _reupload_harness(defer_side_effect=None):
     task = MagicMock()
     task.defer_async = AsyncMock(return_value=None, side_effect=defer_side_effect)
+    task.configure = MagicMock(return_value=task)
     file_task = MagicMock()
     file_task.defer_async = AsyncMock(return_value=None)
     port = MagicMock()

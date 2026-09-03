@@ -1372,7 +1372,11 @@ async def queue_ingest_job(
     """
     import os
 
-    from app.platform.service_auth import bearer_credential, wire_credential
+    from app.platform.service_auth import (
+        bearer_credential,
+        header_auth_job_queue,
+        wire_credential,
+    )
 
     from app.platform.refresh.credentials import (
         CredentialStoreUnavailable,
@@ -1409,10 +1413,16 @@ async def queue_ingest_job(
         # later, and composed from whichever spelling the caller used: the
         # structured credential of plan D2, or the flat bearer token the
         # import-commit door still carries.
+        service_format = job_service_format(job)
         token = wire_credential(
             credential if credential is not None else bearer_credential(token),
-            service_format=job_service_format(job),
+            service_format=service_format,
         )
+        # fix(#1770 round 35): judged on the line just composed, before the
+        # lease below may swap it for a store reference — see
+        # `service_auth.header_auth_job_queue` for why that ordering is what
+        # makes this apply to either spelling.
+        service_queue = header_auth_job_queue(token, service_format=service_format)
 
         # feat(#1676): the import door's half of the lease. On an install with
         # a shared credential store this returns (None, ref) and the secret
@@ -1447,8 +1457,11 @@ async def queue_ingest_job(
             ) from exc
 
         async def _defer_service() -> None:
+            task = ingest_service
+            if service_queue is not None:
+                task = task.configure(queue=service_queue)
             await defer_async_with_tenant(
-                ingest_service,
+                task,
                 job_id=str(job.id),
                 attempt_id=str(job.attempt_id),
                 source_url=source_url,

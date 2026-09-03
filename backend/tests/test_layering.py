@@ -3489,7 +3489,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # which always means bearer and so could not authenticate the basic origin
     # that raised it. Most of the lines are the two comments recording those.
     # Cap 1345 -> 1364, exact.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1364,
+    # fix(#1770 round 35): +10 — the refresh door judges header_auth_job_queue
+    # on the composed credential line, before the store lease may swap it for
+    # a reference, and configures the deferred task's queue with the verdict
+    # so a worker from the release before this PR never dequeues a header
+    # line its own validator cannot parse. Cap 1364 -> 1374, exact.
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1374,
     # fix(#1335): stac_resolve.py's 1040 lines were split along their natural
     # seams — verdict taxonomy, identity checks, the asset gate (SSRF + COG
     # probe), and the by-search fallback each moved into a sibling module,
@@ -3865,7 +3870,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # from app.modules.*, so the number is restated here rather than imported
     # from password_policy.py; tests/test_oversized_password_1778.py pins the
     # two together. Cap 1513 -> 1537, exact.
-    "backend/app/core/config.py": 1537,
+    # fix(#1770 round 35, rebased onto #1778 above): worker_queues' default
+    # gains "ingest-auth-v2" beside the three original queues, so a worker
+    # built from this release drains the header-auth jobs a rolling deploy's
+    # upgraded API enqueues on it, alongside the comment recording why. This
+    # branch's own increment was 1513 -> 1524 before the rebase; re-measured
+    # with wc -l after both fixes landed together. Cap 1537 -> 1548, exact.
+    "backend/app/core/config.py": 1548,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of
@@ -4112,7 +4123,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # reserved (replacing the hand-rolled charset block), and the service
     # preview door converts its own `auth` object the way the four siblings
     # do. Cap 1294 -> 1306, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1306,
+    # fix(#1770 round 35): +19 — the reupload door judges
+    # header_auth_job_queue on the composed line before the store lease, and
+    # _dispatch_reupload_task grows a service_queue parameter so the verdict
+    # reaches the configure() call that used to hardcode the task's own
+    # queue. Cap 1306 -> 1325, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1325,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
@@ -4643,7 +4659,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # -> 1513) and this one's two (1465 -> 1490 -> 1499) are edits to
     # different parts of the module, so the merged file carries both. Measured
     # rather than added up. Cap 1513 -> 1547, exact.
-    "backend/app/processing/ingest/service.py": 1547,
+    # fix(#1770 round 35): +13 — the import door judges header_auth_job_queue
+    # on the line job_service_format/wire_credential just composed, before
+    # the credential-store lease may swap it for a reference, and configures
+    # ingest_service's queue with the verdict. Cap 1547 -> 1560, exact.
+    "backend/app/processing/ingest/service.py": 1560,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

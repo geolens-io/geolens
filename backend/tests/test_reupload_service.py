@@ -98,6 +98,13 @@ class TestServiceReuploadCommitDispatch:
         mock_reupload_file.configure.return_value.defer_async = AsyncMock(
             return_value=None
         )
+        # fix(#1770 round 35): this job's credential is a WFS bearer token, a
+        # header-auth format, so the dispatch calls .configure(queue=...)
+        # before defer_async — the same shape the file branch below already
+        # has to anticipate for its own (different) queue.
+        mock_reupload_service.configure.return_value.defer_async = AsyncMock(
+            return_value=None
+        )
         mock_catalog_port = MagicMock()
         mock_catalog_port.reupload_service_task.return_value = mock_reupload_service
         mock_catalog_port.reupload_file_task.return_value = mock_reupload_file
@@ -118,8 +125,18 @@ class TestServiceReuploadCommitDispatch:
         assert payload["status"] == "pending"
         assert payload["message"] == "Re-upload queued"
 
-        mock_reupload_service.defer_async.assert_awaited_once()
-        service_kwargs = mock_reupload_service.defer_async.call_args.kwargs
+        from app.platform.service_auth import HEADER_AUTH_JOB_QUEUE
+
+        # fix(#1770 round 35): a WFS bearer credential routes through the
+        # versioned queue, so the task the door actually defers on is the
+        # configured one, not the bare mock.
+        mock_reupload_service.configure.assert_called_once_with(
+            queue=HEADER_AUTH_JOB_QUEUE
+        )
+        mock_reupload_service.defer_async.assert_not_awaited()
+        configured_service = mock_reupload_service.configure.return_value
+        configured_service.defer_async.assert_awaited_once()
+        service_kwargs = configured_service.defer_async.call_args.kwargs
         assert service_kwargs["job_id"] == str(job.id)
         assert service_kwargs["dataset_id"] == str(dataset.id)
         assert service_kwargs["source_url"] == "https://example.com/wfs"
