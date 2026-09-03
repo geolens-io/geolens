@@ -446,6 +446,48 @@ upload_to_s3() {
 }
 
 # ---------------------------------------------------------------------------
+# fix(#1778 review round 3): shared S3 prefix listing
+# ---------------------------------------------------------------------------
+# `aws s3 ls s3://bucket/prefix/` on a prefix with NO objects exits 1 with
+# EMPTY stdout AND empty stderr — documented AWS CLI behavior, not a
+# failure. That is the ORDINARY case for backups/weekly/ before the first
+# Sunday cycle (or any prefix on a fresh install), and treating exit != 0 as
+# unconditionally fatal broke a cycle whose daily upload had already
+# succeeded (CI: "Backup Restore Round-trip", bundled mode — one cycle in,
+# backups/weekly/ has nothing yet).
+#
+# A real failure (bad creds, unreachable endpoint, missing s3:ListBucket)
+# DOES write to stderr and/or exits with something other than 0 or 1 — those
+# still propagate as an error, since a listing that silently returns nothing
+# every cycle would mean retention never runs at all. Both prune_s3_prefix
+# calls (daily, then weekly) go through this one helper, so the same rule
+# applies to both prefixes and to the orphaned-companion pass inside
+# prune_s3_prefix, which reuses the same listing rather than fetching again.
+#
+# Prints the listing to stdout on success (including the empty-prefix case,
+# where it prints nothing) and returns 0; returns 1 only for a genuine
+# failure, with the reason logged.
+s3_list_prefix() {
+    local prefix="$1"
+    shift
+
+    local out err rc=0
+    out="$(mktemp)" || return 1
+    err="$(mktemp)" || { rm -f "$out"; return 1; }
+    aws s3 ls "s3://${S3_BUCKET}/backups/${prefix}/" "$@" > "$out" 2> "$err" || rc=$?
+
+    if [ "$rc" -eq 0 ] || { [ "$rc" -eq 1 ] && [ ! -s "$out" ] && [ ! -s "$err" ]; }; then
+        cat "$out"
+        rm -f "$out" "$err"
+        return 0
+    fi
+
+    log "ERROR: could not list s3://${S3_BUCKET}/backups/${prefix}/ for retention pruning (exit ${rc}): $(cat "$err" 2>/dev/null) — offsite objects were not pruned this cycle"
+    rm -f "$out" "$err"
+    return 1
+}
+
+# ---------------------------------------------------------------------------
 # fix(#1778): S3 retention pruning
 # ---------------------------------------------------------------------------
 # upload_to_s3 only ever adds objects under backups/<prefix>/ — nothing ever
@@ -510,16 +552,15 @@ prune_s3_prefix() {
     fi
     aws_args+=(--region "${S3_REGION:-us-east-1}")
 
-    # A listing failure (bad creds, unreachable endpoint, missing
+    # A genuine listing failure (bad creds, unreachable endpoint, missing
     # s3:ListBucket) must not be swallowed: unlike a single upload retrying
     # next cycle, a listing that silently returns nothing every cycle would
-    # mean retention never runs at all — precisely the bug this fixes.
-    local ls_output ls_rc=0
-    ls_output="$(aws s3 ls "s3://${S3_BUCKET}/backups/${prefix}/" "${aws_args[@]}" 2>&1)" || ls_rc=$?
-    if [ "$ls_rc" -ne 0 ]; then
-        log "ERROR: could not list s3://${S3_BUCKET}/backups/${prefix}/ for retention pruning (exit ${ls_rc}) — offsite objects were not pruned this cycle"
-        return 1
-    fi
+    # mean retention never runs at all — precisely the bug this fixes. An
+    # EMPTY prefix (no objects at all — e.g. weekly/ before the first Sunday
+    # cycle) is not a failure; s3_list_prefix distinguishes the two (see its
+    # comment above).
+    local ls_output
+    ls_output="$(s3_list_prefix "$prefix" "${aws_args[@]}")" || return 1
 
     # "<timestamp>\t<name>" for every *.dump object, oldest first. A `[[ ]]`
     # glob test (not `case`, and not `grep`) filters the suffix, and

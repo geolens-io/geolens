@@ -33,6 +33,11 @@ case "$1 $2" in
         ;;
     "s3 ls")
         if [ "${AWS_STUB_LS_EXIT:-0}" != "0" ]; then
+            # fix(#1778 review round 3): a real `aws s3 ls` failure writes
+            # to stderr; an empty-prefix exit 1 writes NOTHING to either
+            # stream. AWS_STUB_LS_STDERR lets each test choose which one it
+            # is driving, independent of the exit code value.
+            [ -n "${AWS_STUB_LS_STDERR:-}" ] && printf '%s\n' "${AWS_STUB_LS_STDERR}" >&2
             exit "${AWS_STUB_LS_EXIT}"
         fi
         cat "${AWS_STUB_LS_FILE}"
@@ -76,11 +81,17 @@ def _extract_function(name: str) -> str:
 
 
 def _extract_prune_s3_prefix() -> str:
-    # fix(#1778 review round 2, P1): prune_s3_prefix calls
-    # s3_newest_complete_ts (the S3 analogue of the local newest-complete-set
-    # protection) — a separate function, so it must be extracted alongside
-    # prune_s3_prefix or the harness fails with "command not found".
-    return f"{_extract_function('s3_newest_complete_ts')}\n{_extract_function('prune_s3_prefix')}"
+    # prune_s3_prefix calls two separate functions that must be extracted
+    # alongside it or the harness fails with "command not found":
+    # s3_newest_complete_ts (fix(#1778 review round 2, P1) — the S3 analogue
+    # of the local newest-complete-set protection) and s3_list_prefix
+    # (fix(#1778 review round 3) — distinguishes an empty-prefix `aws s3 ls`
+    # exit 1 from a genuine listing failure).
+    return (
+        f"{_extract_function('s3_list_prefix')}\n"
+        f"{_extract_function('s3_newest_complete_ts')}\n"
+        f"{_extract_function('prune_s3_prefix')}"
+    )
 
 
 def _extract_run_backup_definitions() -> str:
@@ -131,6 +142,7 @@ def _run(
     keep: str = "2",
     ls_listing: str | None = _LS_LISTING,
     ls_exit: int = 0,
+    ls_stderr: str = "",
     rm_exit: int = 0,
     with_credentials: bool = True,
 ) -> tuple[subprocess.CompletedProcess, list[str]]:
@@ -168,6 +180,7 @@ def _run(
             "AWS_STUB_LS_FILE": str(ls_file),
             "AWS_STUB_DELETED_FILE": str(deleted_file),
             "AWS_STUB_LS_EXIT": str(ls_exit),
+            "AWS_STUB_LS_STDERR": ls_stderr,
             "AWS_STUB_RM_EXIT": str(rm_exit),
         },
     )
@@ -282,16 +295,55 @@ class TestPruneS3Prefix:
 
     def test_empty_prefix_does_not_abort_under_set_e(self, tmp_path: Path):
         """The prefix has zero objects (fresh install, or weekly/ before the
-        first Sunday cycle). Before the fix this used `grep` to filter the S3
-        listing; under this script's `set -euo pipefail`, `grep` matching
-        nothing exits 1 and would abort the whole cycle on this ordinary,
-        expected case — not just skip pruning."""
+        first Sunday cycle) and `aws s3 ls` exits 0 with empty output.
+        Before the fix this used `grep` to filter the S3 listing; under this
+        script's `set -euo pipefail`, `grep` matching nothing exits 1 and
+        would abort the whole cycle on this ordinary, expected case — not
+        just skip pruning."""
         result, deleted = _run(tmp_path, keep="2", ls_listing="")
         assert result.returncode == 0, result.stderr
         assert deleted == []
 
+    def test_empty_prefix_aws_cli_exit_1_is_not_a_failure(self, tmp_path: Path):
+        """fix(#1778 review round 3): documented AWS CLI behavior — `aws s3
+        ls` on a prefix with NO objects exits 1 with EMPTY stdout AND empty
+        stderr. This is the ordinary shape for backups/weekly/ before the
+        first Sunday cycle (CI's "Backup Restore Round-trip" bundled-mode
+        job: one cycle in, weekly/ has nothing yet), not a failure. Before
+        this fix, any nonzero exit was treated as a hard listing failure and
+        aborted the cycle outright, even though the daily upload it ran
+        alongside had already succeeded."""
+        result, deleted = _run(
+            tmp_path, keep="2", ls_listing="", ls_exit=1, ls_stderr=""
+        )
+        assert result.returncode == 0, result.stderr
+        assert deleted == []
+        assert "could not list" not in result.stderr
+
     def test_listing_failure_is_reported_and_fails(self, tmp_path: Path):
-        result, _deleted = _run(tmp_path, keep="2", ls_exit=1)
+        """A GENUINE listing failure (bad creds, unreachable endpoint,
+        missing s3:ListBucket) writes to stderr — that's what distinguishes
+        it from the empty-prefix exit 1 above, which writes nothing to
+        either stream."""
+        result, _deleted = _run(
+            tmp_path,
+            keep="2",
+            ls_exit=1,
+            ls_stderr="An error occurred (AccessDenied) when calling the ListObjectsV2 operation",
+        )
+        assert result.returncode != 0
+        assert "could not list" in result.stderr
+
+    def test_listing_failure_with_unusual_exit_code_and_no_output_still_fails(
+        self, tmp_path: Path
+    ):
+        """A non-1 exit code (an aws CLI crash, a network-level abort) with
+        empty output must still be treated as a failure — the "no failure"
+        carve-out is scoped to exit 1 specifically, matching the documented
+        empty-prefix behavior, not to "any exit code with empty output"."""
+        result, _deleted = _run(
+            tmp_path, keep="2", ls_listing="", ls_exit=255, ls_stderr=""
+        )
         assert result.returncode != 0
         assert "could not list" in result.stderr
 
