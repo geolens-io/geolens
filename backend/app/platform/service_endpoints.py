@@ -123,7 +123,46 @@ ENDPOINT_CHECK_FAILED_POLICY = (
 # The OGC API link relations that name something a client FETCHES. Deliberately
 # not every rel: `license`, `describedby` and `alternate` legitimately point at
 # other origins on ordinary services, and refusing those would refuse the web.
-_OGCAPI_OPERATION_RELS = frozenset({"conformance", "data", "items", "self"})
+#
+# fix(#1770 round 37 P2, `service_endpoints.py:126`): the rule is "only rels
+# the probe or materializer dereference" -- do not re-add a rel just because
+# it looks operation-shaped. `self` and `data` were both wrong by that rule
+# and are the reason this note exists: neither is ever GET'd anywhere in this
+# codebase. `self` names the document itself and nothing here reads it;
+# `data` is checked for PRESENCE only (`has_data_link` in
+# `adapters/ogcapi.py`, a classification signal), never for its href, since
+# `probe_ogcapi` builds `/collections` from the submitted URL directly rather
+# than following the `data` link there. Traced against the actual GET call
+# sites, not assumed:
+#
+#   - `conformance`: `_resolve_conformance` in `adapters/ogcapi.py` GETs it,
+#     WITH the credential when the fetch is same-origin (it degrades to "no
+#     conformance" rather than sending the credential cross-origin, which is
+#     a second, independent guard -- this set exists to refuse the import
+#     before that fetch is even attempted, with one consistent error).
+#   - `items`: `_advertised_items_href` / `_resolve_items_url` in
+#     `service_items.py` (`_ITEMS_REL`) GETs it to find where a collection
+#     keeps its features.
+#
+# `next` is deliberately NOT in this set, and that is a second thing worth
+# not re-adding by analogy. `_check_ogcapi` below never reads an items page
+# at all -- pagination there is entirely `service_items.py`'s, which already
+# refuses a cross-origin `next` on its own
+# (`test_a_cross_origin_next_is_refused_before_it_is_fetched`,
+# `TestAPagedCollectionCannotWalkOffTheOrigin`). The one place THIS module
+# reads a `next` -- the probe's own `/collections` listing walk, via
+# `_next_page` -- is credential-free exploration bounded by
+# `_MAX_COLLECTION_PAGES`, and r16 deliberately made a cross-origin or
+# unparseable `next` there STOP the walk rather than refuse the whole probe
+# (`test_a_listing_next_that_will_not_parse_stops_the_walk` pins it). Routing
+# that page's `next` through this set as well would turn `_next_page`'s soft
+# stop into a hard `CrossOriginEndpointError` and directly contradict that
+# test -- confirmed by trying it in round 37 before writing this note.
+#
+# `test_service_auth_transport_1746.py` greps the rel literals at the two
+# GET call sites above and asserts they equal this set, so the two cannot
+# drift apart again.
+_OGCAPI_OPERATION_RELS = frozenset({"conformance", "items"})
 
 # How far the PROBE follows a paginated collections listing. The probe has no
 # collection to check, so it walks the listing; the bound is what keeps a

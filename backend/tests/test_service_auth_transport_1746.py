@@ -2191,6 +2191,268 @@ class TestAWfsCheckOnlyValidatesTheOperationsTheReadPathUses:
             )
 
 
+class TestAnOgcApiCheckOnlyValidatesRelsSomethingDereferences:
+    """fix(#1770 round 37 P2, `service_endpoints.py:126`).
+
+    `_OGCAPI_OPERATION_RELS` used to include `self` and `data`. Neither is
+    ever GET'd: `self` names the document itself and nothing here reads it,
+    and `data` is a presence-only classification signal
+    (`has_data_link` in `adapters/ogcapi.py`) -- `probe_ogcapi` builds
+    `/collections` from the submitted URL directly rather than following the
+    `data` link there. A service reached through an alias that advertises a
+    canonical cross-origin `self` link (ordinary for a service behind a CDN
+    or a reverse proxy that rewrites the advertised host) failed `/probe` for
+    an endpoint nothing in this codebase ever contacts.
+
+    Corrected to `{"conformance", "items"}`. `next` deliberately stays out:
+    trying to add it (round 37, before this note existed) turned
+    `_next_page`'s deliberate r16 soft-degrade on the probe's own
+    `/collections` listing walk into a hard `CrossOriginEndpointError`,
+    breaking `test_a_listing_next_that_will_not_parse_stops_the_walk` below
+    -- and the OTHER place `next` is followed, `service_items.py`'s real page
+    walk, is a document `_check_ogcapi` never reads at all, already
+    independently refused by
+    `TestAPagedCollectionCannotWalkOffTheOrigin::test_a_cross_origin_next_is_refused_before_it_is_fetched`.
+    "Followed somewhere in this codebase" is necessary but not sufficient for
+    membership in this set; it has to be followed by code THIS check's
+    pre-flight is actually standing in front of.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _check(self, handler, monkeypatch, *, collection=None):
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        self._transport(monkeypatch, handler)
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        await assert_endpoints_stay_on_origin(
+            _SVC_OAPIF,
+            service_format="ogcapi_features",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            collection=collection,
+            deadline=None,
+        )
+
+    async def test_cross_origin_self_on_the_landing_page_and_collection_passes(
+        self, monkeypatch
+    ) -> None:
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/collections/c1"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": "c1",
+                        "links": [
+                            {"rel": "self", "href": f"{_FOREIGN}/oapif/collections/c1"},
+                            {
+                                "rel": "items",
+                                "href": f"{_SVC_OAPIF}/collections/c1/items",
+                            },
+                        ],
+                    },
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "conformsTo": [
+                        "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+                    ],
+                    "links": [{"rel": "self", "href": f"{_FOREIGN}/oapif"}],
+                },
+            )
+
+        # No CrossOriginEndpointError: neither `self` is ever followed.
+        await self._check(handle, monkeypatch, collection="c1")
+
+    async def test_cross_origin_items_still_refuses(self, monkeypatch) -> None:
+        from app.platform.service_endpoints import CrossOriginEndpointError
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/collections/c1"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": "c1",
+                        "links": [{"rel": "items", "href": f"{_FOREIGN}/oapif/items"}],
+                    },
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "conformsTo": [
+                        "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+                    ],
+                    "links": [],
+                },
+            )
+
+        with pytest.raises(CrossOriginEndpointError):
+            await self._check(handle, monkeypatch, collection="c1")
+
+    async def test_cross_origin_next_on_the_real_items_page_still_refuses(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Pin (c), against the mechanism that actually enforces it.
+
+        `_check_ogcapi` never reads an items page, so it has no `next` to
+        pre-validate for the real page walk -- `service_items.py`'s own
+        materializer is what follows `next` there, and it already refuses a
+        cross-origin one on its own. This is the same property
+        `TestAPagedCollectionCannotWalkOffTheOrigin` pins in full; this
+        version exists so the round-37 class states the invariant it depends
+        on explicitly rather than by reference alone.
+        """
+        from app.platform.service_items import (
+            ItemFetchFailedError,
+            materialise_oapif_items,
+        )
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/items"):
+                return _streamed(
+                    {
+                        "type": "FeatureCollection",
+                        "features": [_point("f0")],
+                        "links": [
+                            {
+                                "rel": "next",
+                                "href": f"{_FOREIGN}/oapif/collections/c1/items?page=2",
+                            }
+                        ],
+                    }
+                )
+            return httpx.Response(200, json=_collection_doc(None))
+
+        recorded = self._transport(monkeypatch, handle)
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+
+        # `ItemFetchFailedError.__str__` is the shared policy constant,
+        # never the specific `reason` string a call site raised with (see
+        # `EndpointCheckFailedError.__init__`), so the refusal is checked the
+        # same way the sibling class does: the exception type, plus what it
+        # actually prevented.
+        with pytest.raises(ItemFetchFailedError):
+            await materialise_oapif_items(
+                _SVC_OAPIF,
+                "c1",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                staging_dir=tmp_path,
+            )
+
+        assert "collector.example" not in {r.url.host for r in recorded}
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_listing_next_that_leaves_the_origin_still_stops_not_refuses(
+        self, monkeypatch
+    ) -> None:
+        """The r16 design this round's fix does not disturb.
+
+        `next` on the probe's own `/collections` listing is credential-free
+        exploration bounded by `_MAX_COLLECTION_PAGES`; a cross-origin one
+        there stops the walk rather than raising, the same as
+        `test_a_listing_next_that_will_not_parse_stops_the_walk` pins for the
+        unparseable case. Adding `next` to `_OGCAPI_OPERATION_RELS` (tried in
+        round 37 before this test existed) would have turned this into a
+        `CrossOriginEndpointError` and broken that sibling test.
+        """
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/collections"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "collections": [{"id": "c1", "links": []}],
+                        "links": [
+                            {
+                                "rel": "next",
+                                "href": f"{_FOREIGN}/oapif/collections?page=2",
+                            }
+                        ],
+                    },
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "conformsTo": [
+                        "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+                    ],
+                    "links": [],
+                },
+            )
+
+        # No `collection`: the probe walks the listing. Returns normally --
+        # no CrossOriginEndpointError -- because the walk just stopped there.
+        await self._check(handle, monkeypatch, collection=None)
+
+    def test_the_checked_set_matches_what_the_walkers_actually_dereference(
+        self,
+    ) -> None:
+        """Source-enumeration, hand-traced rather than blindly grepped.
+
+        A bare `rel") == "X"` grep also matches `data` in `adapters/ogcapi.py`
+        (`has_data_link = any(... lnk.get("rel") == "data" ...)`), which is a
+        presence check, not a fetch, and `next` in both consumer files, which
+        is followed but by code outside what this check stands in front of
+        (see the class docstring) -- so this asserts each MEMBER rel against
+        the specific function known to dereference it, and separately asserts
+        `self` never appears in either consumer file and `data`'s one match
+        is the `any(...)` presence check, never an argument to a fetch.
+        """
+        import inspect
+
+        from app.modules.catalog.sources.adapters import ogcapi as ogcapi_adapter
+        from app.platform import service_endpoints, service_items
+
+        adapter_source = inspect.getsource(ogcapi_adapter)
+        items_source = inspect.getsource(service_items)
+
+        # conformance: compared, then its resolved href is actually GET'd.
+        assert '.get("rel") == "conformance"' in adapter_source
+        assert "client.get(abs_href" in adapter_source
+
+        # items: `_ITEMS_REL` is the constant compared against, and
+        # `_resolve_items_url` (which reads it via `_advertised_items_href`)
+        # feeds the result into `_fetch_page`.
+        assert '_ITEMS_REL = "items"' in items_source
+        resolve_items_url = items_source[items_source.index("def _resolve_items_url") :]
+        resolve_items_url = resolve_items_url[: resolve_items_url.index("\n\n\n")]
+        assert "_fetch_page(" in resolve_items_url
+
+        # self: never compared against anywhere a link is read for a fetch.
+        assert '"self"' not in adapter_source
+        assert '"self"' not in items_source
+
+        # data: compared exactly once, and only to build a boolean -- one
+        # combined pattern rather than a proximity heuristic, so a reformat
+        # that only moves the `any(` onto the same line cannot make this
+        # pass without the assignment still being there.
+        assert adapter_source.count('.get("rel") == "data"') == 1
+        assert re.search(
+            r"has_data_link\s*=\s*any\(\s*isinstance\(lnk,\s*dict\)\s*and\s*"
+            r'lnk\.get\("rel"\)\s*==\s*"data"',
+            adapter_source,
+        )
+
+        assert service_endpoints._OGCAPI_OPERATION_RELS == {"conformance", "items"}
+
+
 class TestAServiceCannotPointTheCredentialSomewhereElse:
     """fix(#1746 B2b review r13/r14): the document GDAL reads, not the one we do.
 
