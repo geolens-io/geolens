@@ -737,8 +737,28 @@ def try_refresh(instance: str) -> Optional[str]:
     if parsed is None or not getattr(parsed, "access_token", None):
         return None
     new_access = parsed.access_token
-    store_bearer_token(instance, new_access, no_keyring=no_keyring)
+    # fix(#1778 review round 17): the sibling of round 15's
+    # replace_credentials() fix, in this function's own rotation path.
+    # store_bearer_token() can fall back to credentials.toml on its OWN
+    # (a transient or account-specific keyring failure -- see its
+    # `except KeyringError` -- even though `no_keyring` (detected from
+    # where the OLD refresh token lived) said "keyring"). Using the
+    # requested `no_keyring` instead of `backend` (the store call's
+    # ACTUAL outcome) for the refresh-token write below split the two
+    # rotated tokens across backends: the new access token in the file,
+    # the new refresh token in the keyring. After that access token
+    # expires, a LATER successful keyring bearer write is shadowed by
+    # the still-there, now-expired file bearer under
+    # load_bearer_token()'s file-over-keyring precedence, and commands
+    # loop on refresh forever. `backend != "keyring"` reflects what
+    # actually happened, exactly as replace_credentials() now does.
+    backend = store_bearer_token(instance, new_access, no_keyring=no_keyring)
     new_refresh = getattr(parsed, "refresh_token", None)
     if new_refresh:
-        store_refresh_token(instance, new_refresh, no_keyring=no_keyring)
+        store_refresh_token(instance, new_refresh, no_keyring=(backend != "keyring"))
+    # The round-10 marker must stay in step with a successful rotation
+    # too -- try_refresh only ever rotates a BEARER session (a refresh
+    # token is bearer-only), so this is unconditionally "bearer",
+    # matching replace_credentials()'s own unconditional marker write.
+    _set_credential_field(instance, _ACTIVE_KIND_FIELD, "bearer")
     return new_access

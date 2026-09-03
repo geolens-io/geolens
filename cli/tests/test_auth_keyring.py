@@ -180,3 +180,56 @@ class TestTryRefreshBackendRouting:
         assert mock_keyring.get(("geolens", f"{INSTANCE}:refresh")) == "new-refresh-kr", (
             "BUG-013: refresh did not write new refresh token to keyring"
         )
+
+    def test_a_bearer_write_failure_during_rotation_keeps_both_tokens_together(
+        self, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """fix(#1778 review round 17): the sibling of round 15's
+        replace_credentials() bug, in try_refresh()'s own rotation
+        path. The original credential lives in the keyring (so
+        _detect_credential_backend says no_keyring=False going in),
+        but the ROTATED access token's keyring write fails for the
+        bearer account specifically -- store_bearer_token() catches
+        that and falls back to the file, returning backend == "file".
+        The refresh account's OWN set_password is left free to
+        succeed. Before this fix, the refresh write still used the
+        original no_keyring=False and would have landed in the
+        keyring, splitting the two rotated tokens across backends."""
+        import keyring
+        from keyring.errors import KeyringError
+
+        # Original session lives in the keyring.
+        _auth.store_bearer_token(INSTANCE, "old-access", no_keyring=False)
+        _auth.store_refresh_token(INSTANCE, "old-refresh", no_keyring=False)
+        # A prior login already set the marker, as replace_credentials()
+        # always does -- try_refresh must keep it consistent, not leave
+        # it untouched by accident.
+        _auth._set_credential_field(INSTANCE, _auth._ACTIVE_KIND_FIELD, "bearer")
+
+        self._patch_sdk_refresh(monkeypatch, "new-access", "new-refresh")
+
+        original_set = keyring.set_password  # mock_keyring's dict-backed one
+        bearer_account = INSTANCE
+
+        def failing_set(service, username, password):
+            if username == bearer_account:
+                raise KeyringError("locked keychain needs a write unlock")
+            return original_set(service, username, password)
+
+        monkeypatch.setattr("keyring.set_password", failing_set)
+
+        new_tok = _auth.try_refresh(INSTANCE)
+        assert new_tok == "new-access"
+
+        # Both rotated tokens land in the FILE together -- not split
+        # across backends.
+        file_section = _auth._read_credentials_file().get(INSTANCE, {})
+        assert file_section.get("bearer_token") == "new-access"
+        assert file_section.get("refresh_token") == "new-refresh"
+        # The refresh account's keyring entry was never even asked --
+        # it would have accepted the write if it had been.
+        assert ("geolens", f"{INSTANCE}:refresh") not in mock_keyring or (
+            mock_keyring.get(("geolens", f"{INSTANCE}:refresh")) == "old-refresh"
+        )
+        # The marker stays consistent with the rotation.
+        assert _auth.load_active_credential_kind(INSTANCE) == "bearer"
