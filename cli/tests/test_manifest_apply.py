@@ -248,13 +248,21 @@ class TestComputeManifestApplyTimeout:
 
 
 class TestManifestApplyTimeoutReporting:
-    """fix(#1778 review round 18) parts (b)/(c): the timeout path must
-    be unambiguous -- the server keeps applying after the CLI gives up,
-    every entry is idempotent (fingerprinted, skip_complete on
-    re-apply), and re-running the same command is always safe. A
-    dry-run follow-up on the SAME endpoint (no new status/job-listing
-    endpoint -- out of scope, no async job mode) reports which entries
-    the server had already reached, best-effort."""
+    """fix(#1778 review round 18) parts (b)/(c), corrected by round 19:
+    the timeout path must be unambiguous -- the server keeps applying
+    after the CLI gives up, and an entry it has already queued or
+    completed is skipped on a later re-apply. Round 18 additionally
+    claimed re-running the SAME command was therefore always safe
+    immediately; round 19 removes that claim, because it is false: an
+    entry whose source was still downloading when the timeout hit has
+    no job row yet (_classify_dataset()'s in-flight check runs before
+    _create_job_and_queue()'s download, and the IngestJob row is only
+    inserted after it -- manifest_service.py), so re-applying right
+    away can queue that entry twice. A dry-run follow-up on the SAME
+    endpoint (no new status/job-listing endpoint -- out of scope, no
+    async job mode), bounded by a short fixed timeout regardless of
+    entry count (round 19 P2), reports which entries the server had
+    already reached, best-effort."""
 
     def _timing_out_client(self) -> FakeSdkClient:
         client = FakeSdkClient(FakeResponse(200, _apply_response()))
@@ -287,7 +295,16 @@ class TestManifestApplyTimeoutReporting:
         assert exc.budget == compute_manifest_apply_timeout(1)
         assert exc.exit_code == EXIT_NETWORK
 
-    def test_timeout_message_states_idempotency_and_safe_resume(self) -> None:
+    def test_timeout_message_explains_the_in_flight_download_window_not_blanket_safety(
+        self,
+    ) -> None:
+        """fix(#1778 review round 19): round 18's message claimed
+        re-running immediately was always safe -- untrue, since an
+        entry whose source was still downloading when the timeout hit
+        has no job row yet and can be queued twice by an immediate
+        re-apply. The message must explain THAT risk and give
+        actionable advice (check the catalog, or dry-run first), and
+        must NOT claim blanket idempotency/safety any more."""
         from geolens_cli.manifest_apply import (
             ManifestApplyTimeout,
             build_apply_timeout_message,
@@ -299,10 +316,14 @@ class TestManifestApplyTimeoutReporting:
         assert "810s" in message
         assert "3 dataset" in message
         assert "does not stop" in message.lower()
-        assert "idempotent" in message.lower()
-        assert "skip_complete" in message
+        assert "downloading" in message.lower()
+        assert "twice" in message.lower()
+        assert "dry-run" in message.lower()
         assert "re-running" in message.lower()
-        assert "safe" in message.lower()
+        # The round-18 overclaim must not have crept back in.
+        assert "idempotent" not in message.lower()
+        assert "is safe" not in message.lower()
+        assert "safely" not in message.lower()
 
     def test_report_apply_timeout_prints_and_returns_the_status_when_the_follow_up_succeeds(
         self,
@@ -340,6 +361,68 @@ class TestManifestApplyTimeoutReporting:
         # second real apply.
         assert client.httpx_client.calls[-1]["json"]["dry_run"] is True
 
+    def test_status_check_follow_up_uses_the_short_fixed_timeout_regardless_of_entry_count(
+        self,
+    ) -> None:
+        """fix(#1778 review round 19) P2: the dry-run follow-up must be
+        bounded by MANIFEST_APPLY_STATUS_CHECK_TIMEOUT_SECONDS (a
+        short, fixed 30s), NOT the entry-scaled budget the real apply
+        needed -- dry_run does no download/queue work, so its cost
+        does not grow with entry count. Pinned against a manifest with
+        a LARGE entry count (100, the backend's own maximum) to prove
+        this isn't accidentally still scaling."""
+        from geolens_cli.manifest_apply import (
+            MANIFEST_APPLY_STATUS_CHECK_TIMEOUT_SECONDS,
+            ManifestApplyTimeout,
+            compute_manifest_apply_timeout,
+            report_apply_timeout,
+        )
+
+        status_response = _apply_response(results=[])
+        client = FakeSdkClient(FakeResponse(200, status_response))
+        httpx_client = client.httpx_client
+
+        seen_timeout_during_status_check: list[float] = []
+        original_post = httpx_client.post
+
+        def spying_post(**kwargs):
+            seen_timeout_during_status_check.append(httpx_client.timeout)
+            return original_post(**kwargs)
+
+        httpx_client.post = spying_post
+        # A distinct sentinel (not 30.0, coincidentally also the
+        # status-check bound) so "restored afterward" is a real check,
+        # not an accident of both values matching.
+        httpx_client.timeout = 999.0
+
+        # 100 synthetic dataset entries -- large enough that the
+        # entry-scaled budget (compute_manifest_apply_timeout(100))
+        # would be the 3600s ceiling, nowhere near the fixed 30s this
+        # follow-up must actually use.
+        payload = {
+            "manifest_version": "1",
+            "dry_run": False,
+            "datasets": [{"key": f"entry-{i}"} for i in range(100)],
+        }
+        exc = ManifestApplyTimeout(entry_count=100, budget=compute_manifest_apply_timeout(100))
+
+        class FakeOutput:
+            def error(self, message: str) -> None:
+                pass
+
+            def warn(self, message: str) -> None:
+                pass
+
+        report_apply_timeout(client, payload, exc, FakeOutput())
+
+        assert seen_timeout_during_status_check == [
+            MANIFEST_APPLY_STATUS_CHECK_TIMEOUT_SECONDS
+        ]
+        assert seen_timeout_during_status_check[0] == 30.0
+        assert seen_timeout_during_status_check[0] != compute_manifest_apply_timeout(100)
+        # Restored to whatever it was before the follow-up ran.
+        assert httpx_client.timeout == 999.0
+
     def test_report_apply_timeout_warns_when_the_follow_up_also_fails(self) -> None:
         from geolens_cli.manifest_apply import (
             ManifestApplyTimeout,
@@ -365,6 +448,10 @@ class TestManifestApplyTimeoutReporting:
         assert result is None
         assert errors
         assert warnings and "could not" in warnings[0].lower()
+        # fix(#1778 review round 19): must not fall back to claiming
+        # safety just because the status check itself failed.
+        assert "is safe" not in warnings[0].lower()
+        assert "safely" not in warnings[0].lower()
 
 
 @pytest.mark.parametrize(
@@ -466,15 +553,18 @@ def _flaky_then_ok_sdk(monkeypatch: pytest.MonkeyPatch, status_response: dict) -
     return sdk
 
 
-def test_apply_command_reports_timeout_with_idempotency_guidance_and_status_check(
+def test_apply_command_reports_timeout_with_truthful_guidance_and_status_check(
     runner,
     tmp_xdg_home,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """fix(#1778 review round 18) end-to-end: the `apply` command's own
-    timeout handling (not just post_manifest_apply()) prints the
-    idempotent-resume guidance and renders the dry-run follow-up's
-    status, rather than the old bare "Request timed out"."""
+    """fix(#1778 review round 18) end-to-end, corrected by round 19: the
+    `apply` command's own timeout handling (not just
+    post_manifest_apply()) prints the in-flight-download-window
+    guidance and renders the dry-run follow-up's status, rather than
+    the old bare "Request timed out" -- and no longer claims an
+    immediate re-run is unconditionally safe/idempotent (round 18 did;
+    it wasn't true)."""
     status_response = _apply_response(
         results=[
             {"dataset_key": "roads", "action": "skip", "message": "skip_complete"}
@@ -485,9 +575,11 @@ def test_apply_command_reports_timeout_with_idempotency_guidance_and_status_chec
     result = runner.invoke(app, ["apply", str(_remote_manifest_path())])
 
     assert result.exit_code == EXIT_NETWORK, result.output
-    assert "idempotent" in result.output.lower()
     assert "skip_complete" in result.output
-    assert "safe" in result.output.lower()
+    assert "downloading" in result.output.lower()
+    assert "twice" in result.output.lower()
+    assert "dry-run" in result.output.lower()
+    assert "idempotent" not in result.output.lower()
     assert sdk.client.httpx_client.calls_made["n"] == 2, (
         "the original POST, then the dry-run status follow-up"
     )
@@ -501,7 +593,12 @@ def test_apply_json_output_reports_timeout_as_one_structured_payload(
 ) -> None:
     """fix(#1778 review round 18): --json mode must emit exactly ONE
     JSON object for a timeout, not report_apply_timeout's human-mode
-    output.error()/warn() writes bleeding in ahead of it."""
+    output.error()/warn() writes bleeding in ahead of it.
+
+    fix(#1778 review round 19): the "resumable": True field claimed an
+    immediate re-run was always safe -- not true, and removed. The
+    payload now carries a "guidance" string with the same accurate,
+    non-blanket explanation a human running the same command sees."""
     status_response = _apply_response(
         results=[
             {"dataset_key": "roads", "action": "skip", "message": "skip_complete"}
@@ -516,7 +613,10 @@ def test_apply_json_output_reports_timeout_as_one_structured_payload(
     assert len(lines) == 1, f"expected exactly one JSON object, got: {lines}"
     payload = json.loads(lines[0])
     assert payload["ok"] is False
-    assert payload["resumable"] is True
+    assert "resumable" not in payload
+    assert "downloading" in payload["guidance"].lower()
+    assert "twice" in payload["guidance"].lower()
+    assert "idempotent" not in payload["guidance"].lower()
     assert payload["status_check"]["counts"]["skip"] == 1
 
 

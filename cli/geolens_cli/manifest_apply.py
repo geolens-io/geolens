@@ -76,6 +76,17 @@ MANIFEST_APPLY_BASE_TIMEOUT_SECONDS: float = EXTENDED_REQUEST_TIMEOUT_SECONDS
 #: server's work, which continues regardless.
 MANIFEST_APPLY_TIMEOUT_CEILING_SECONDS: float = 3600.0
 
+#: fix(#1778 review round 19): the post-timeout dry-run status check
+#: (``attempt_apply_timeout_status_check``) does not need the
+#: entry-scaled budget above at all -- ``dry_run`` short-circuits
+#: BEFORE any download/queue work (see
+#: ``MANIFEST_SOURCE_DOWNLOAD_TIMEOUT_SECONDS``'s docstring), so its
+#: own cost does not grow with entry count. A short, FIXED bound keeps
+#: a stuck/overloaded server from making the status check itself hang
+#: for up to an hour -- the same ceiling the ORIGINAL apply could
+#: legitimately need but this cheaper follow-up never should.
+MANIFEST_APPLY_STATUS_CHECK_TIMEOUT_SECONDS: float = 30.0
+
 
 def compute_manifest_apply_timeout(entry_count: int) -> float:
     """Batch-aware timeout budget, in seconds, for an apply POST sending
@@ -228,7 +239,9 @@ def _exit_code_for_status(status_code: int) -> int:
     return EXIT_GENERIC
 
 
-def post_manifest_apply(client: Any, payload: Mapping[str, Any]) -> dict[str, Any]:
+def post_manifest_apply(
+    client: Any, payload: Mapping[str, Any], *, timeout: float | None = None
+) -> dict[str, Any]:
     """POST a validated manifest through the SDK-owned HTTP client.
 
     fix(#1778 review round 5): the backend validates and applies the
@@ -245,9 +258,21 @@ def post_manifest_apply(client: Any, payload: Mapping[str, Any]) -> dict[str, An
     ``typer.Exit``) so the caller can report the round-18 part (b)/(c)
     guidance instead of a bare "Request timed out" — see
     ``report_apply_timeout``.
+
+    fix(#1778 review round 19): ``timeout``, when given, OVERRIDES the
+    batch-aware budget instead of computing it from ``payload``'s own
+    entry count. Used by ``attempt_apply_timeout_status_check``'s
+    post-timeout dry-run follow-up, which needs the short FIXED
+    ``MANIFEST_APPLY_STATUS_CHECK_TIMEOUT_SECONDS`` bound regardless of
+    how many entries the manifest has — dry_run does no download/queue
+    work, so its cost does not scale with entry count the way the real
+    apply's does.
     """
     entry_count = _entry_count(payload)
-    budget = compute_manifest_apply_timeout(entry_count)
+    if timeout is not None:
+        budget = timeout
+    else:
+        budget = compute_manifest_apply_timeout(entry_count)
     with long_request_timeout(client, timeout=budget) as httpx_client:
         response = call_sdk(
             httpx_client.post,
@@ -290,26 +315,41 @@ def build_apply_timeout_message(exc: ManifestApplyTimeout) -> str:
     manifest SEQUENTIALLY after this client stops waiting — a POST
     already accepted by the ASGI server runs to completion there
     regardless of whether the CLI is still listening, so entries
-    already committed and queued stay committed and queued. Every
-    entry is idempotent: the server fingerprints each dataset
-    (``manifest_dataset_fingerprint``) and reports ``skip_complete``
-    instead of reprocessing it once the SAME fingerprint is submitted
-    again (``_classify_dataset`` in the same module). Re-running this
-    exact ``geolens apply`` command is therefore always safe — entries
-    the server already reached report ``skip_complete``/
-    ``skip_in_flight``, and only entries it had not yet reached (or
-    whose content actually changed) do real work.
+    already committed and queued stay committed and queued, and a
+    later re-apply skips them (the server fingerprints each dataset —
+    ``manifest_dataset_fingerprint`` — and reports ``skip_complete``
+    for a matching fingerprint instead of reprocessing it).
+
+    fix(#1778 review round 19): round 18's message ALSO claimed
+    re-running the exact same command was therefore always safe
+    immediately — that is not true, and this docstring exists to make
+    sure nobody re-adds the claim. ``_classify_dataset()`` checks for
+    an in-flight job BEFORE ``_create_job_and_queue()`` downloads the
+    entry's source, and the ``IngestJob`` row is only inserted AFTER
+    that download finishes (manifest_service.py). So while an entry's
+    source is still downloading when this timeout hits, the server has
+    no job row for it yet — a second apply submitted during that exact
+    window classifies the SAME entry as ``create`` again and queues it
+    a second time. A server-side reservation that closed this window
+    would be a backend change and is OUT OF SCOPE here (no
+    ``backend/app`` files in this PR); the honest fix on the CLI side
+    is to say so, not to promise blanket idempotency the server does
+    not yet provide for an entry that was mid-download at the exact
+    moment this request gave up.
     """
     return (
         f"Manifest apply timed out after {exc.budget:.0f}s "
-        f"({exc.entry_count} dataset(s) submitted), but the server does "
-        "NOT stop when this request does -- it continues applying the "
-        "manifest sequentially in the background of that same request, "
-        "and entries it already committed stay committed. Every entry "
-        "is idempotent: the server fingerprints each dataset and "
-        "reports skip_complete on a matching re-apply, so re-running "
-        "this exact command is safe and resumes from wherever the "
-        "server actually got to."
+        f"({exc.entry_count} dataset(s) submitted). The server does "
+        "NOT stop applying when this request does -- it keeps "
+        "processing the manifest sequentially, and entries it has "
+        "already queued or completed are skipped on a later re-apply. "
+        "But the entry whose source was still downloading when this "
+        "timeout hit is NOT yet visible as queued (the server only "
+        "records it once the download finishes), so re-applying "
+        "immediately can queue that entry twice. Check the catalog for "
+        "datasets still pending, or run `geolens apply --dry-run "
+        "<path>` to see which entries the server has already settled, "
+        "before re-running this exact command."
     )
 
 
@@ -330,11 +370,21 @@ def attempt_apply_timeout_status_check(
     entries completed" answer: this PR does not add a separate status
     or job-listing endpoint (out of scope — no async job mode), because
     the existing dry-run classification on this same endpoint already
-    covers the question. Best-effort: if the follow-up ALSO fails or
-    times out, the entry-by-entry answer just was not available right
-    now — the caller still knows re-running the ORIGINAL command is
-    safe regardless (every entry is idempotent), which
-    ``build_apply_timeout_message`` already said.
+    covers the question.
+
+    fix(#1778 review round 19): bounded by
+    ``MANIFEST_APPLY_STATUS_CHECK_TIMEOUT_SECONDS`` (a short, FIXED
+    30s) rather than the entry-scaled budget the real apply needed —
+    ``dry_run`` does no download/queue work, so its own cost does not
+    grow with entry count. Best-effort either way: if the follow-up
+    ALSO fails or times out, the entry-by-entry answer just was not
+    available right now. This does NOT mean re-running is therefore
+    safe — see ``build_apply_timeout_message``'s docstring for why an
+    entry that was mid-download when the ORIGINAL request timed out is
+    invisible to this check too (no job row exists for it yet either
+    way), so its absence from a "settled" classification specifically
+    does not distinguish "not reached" from "actively downloading,
+    about to double-queue if you re-apply right now".
 
     Side-effect-free (no ``output`` printing) so a ``--json`` caller
     can build one clean structured payload from the result instead of
@@ -344,7 +394,11 @@ def attempt_apply_timeout_status_check(
     status_payload = dict(payload)
     status_payload["dry_run"] = True
     try:
-        return post_manifest_apply(client, status_payload)
+        return post_manifest_apply(
+            client,
+            status_payload,
+            timeout=MANIFEST_APPLY_STATUS_CHECK_TIMEOUT_SECONDS,
+        )
     except (ManifestApplyTimeout, ManifestApplyRequestError):
         return None
 
@@ -355,8 +409,8 @@ def report_apply_timeout(
     exc: ManifestApplyTimeout,
     output: Any,
 ) -> dict[str, Any] | None:
-    """Human-mode convenience: prints the round-18 timeout explanation,
-    attempts the dry-run status follow-up
+    """Human-mode convenience: prints the round-18/19 timeout
+    explanation, attempts the dry-run status follow-up
     (``attempt_apply_timeout_status_check``), and prints a warning if
     it could not be completed. Returns the status report (or ``None``).
 
@@ -371,9 +425,12 @@ def report_apply_timeout(
     if status is None:
         output.warn(
             "Could not retrieve a completion status for this manifest "
-            "right now (the status check itself failed or timed out). "
-            "Re-running the command is still safe -- entries the "
-            "server already reached will report skip_complete."
+            "right now (the status check itself failed or timed out "
+            f"after {MANIFEST_APPLY_STATUS_CHECK_TIMEOUT_SECONDS:.0f}s). "
+            "Check the catalog for datasets still pending before "
+            "re-running -- an entry that was still downloading when "
+            "the original request timed out is not yet visible as "
+            "queued, and re-applying too soon can queue it twice."
         )
     return status
 

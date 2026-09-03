@@ -233,3 +233,79 @@ class TestTryRefreshBackendRouting:
         )
         # The marker stays consistent with the rotation.
         assert _auth.load_active_credential_kind(INSTANCE) == "bearer"
+
+    def test_an_unwritable_config_file_does_not_fail_a_keyring_backed_refresh(
+        self, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """fix(#1778 review round 19) P2 pin (a): the active_kind marker
+        write used to be unconditional AND fatal. When both rotated
+        tokens land safely in the keyring but credentials.toml itself
+        is unwritable (the marker's only home), the OLD code raised
+        straight out of try_refresh() -- reporting a refresh FAILURE
+        (D-13: caller prints "Session expired", exits EXIT_AUTH) even
+        though the rotation itself fully succeeded. The marker write
+        must be non-fatal: try_refresh() still returns the new access
+        token, and a subsequent load (what `whoami` uses) resolves it."""
+        # Marker starts as something other than "bearer" (here: unset)
+        # so the marker write is actually ATTEMPTED, not skipped by
+        # pin (b)'s short-circuit below.
+        _auth.store_bearer_token(INSTANCE, "old-access", no_keyring=False)
+        _auth.store_refresh_token(INSTANCE, "old-refresh", no_keyring=False)
+        assert _auth.load_active_credential_kind(INSTANCE) is None
+
+        self._patch_sdk_refresh(monkeypatch, "new-access", "new-refresh")
+
+        def raising_write(*args, **kwargs):
+            raise OSError("read-only filesystem")
+
+        monkeypatch.setattr(_auth, "_write_credentials_file", raising_write)
+
+        new_tok = _auth.try_refresh(INSTANCE)
+
+        assert new_tok == "new-access"
+        # Both rotated tokens landed in the keyring -- unaffected by
+        # the marker write's failure.
+        assert mock_keyring.get(("geolens", INSTANCE)) == "new-access"
+        assert mock_keyring.get(("geolens", f"{INSTANCE}:refresh")) == "new-refresh"
+        # "whoami works": load_bearer_token (what AppState.sdk() uses)
+        # resolves the freshly rotated token regardless of the marker.
+        loaded = _auth.load_bearer_token(INSTANCE)
+        assert loaded is not None
+        assert loaded.value == "new-access"
+
+    def test_marker_already_bearer_skips_the_write_entirely(
+        self, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """fix(#1778 review round 19) P2 pin (b): try_refresh() only
+        ever rotates a bearer session, so if the marker already reads
+        "bearer" there is nothing to update -- the write must be
+        skipped, not merely tolerated-on-failure. Proven by mocking
+        _write_credentials_file to raise unconditionally: if the
+        marker write were still attempted, try_refresh() would see
+        that raise (even though it's now non-fatal per pin (a)); this
+        asserts the writer is never even CALLED."""
+        _auth.store_bearer_token(INSTANCE, "old-access", no_keyring=False)
+        _auth.store_refresh_token(INSTANCE, "old-refresh", no_keyring=False)
+        _auth._set_credential_field(INSTANCE, _auth._ACTIVE_KIND_FIELD, "bearer")
+        assert _auth.load_active_credential_kind(INSTANCE) == "bearer"
+
+        self._patch_sdk_refresh(monkeypatch, "new-access", "new-refresh")
+
+        write_calls: list[dict] = []
+        original_write = _auth._write_credentials_file
+
+        def tracking_write(data):
+            write_calls.append(dict(data))
+            return original_write(data)
+
+        monkeypatch.setattr(_auth, "_write_credentials_file", tracking_write)
+
+        new_tok = _auth.try_refresh(INSTANCE)
+
+        assert new_tok == "new-access"
+        assert write_calls == [], (
+            "the marker write must be skipped entirely when the stored "
+            "active_kind is already \"bearer\", not merely attempted "
+            "and tolerated"
+        )
+        assert _auth.load_active_credential_kind(INSTANCE) == "bearer"

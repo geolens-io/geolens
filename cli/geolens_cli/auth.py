@@ -756,9 +756,31 @@ def try_refresh(instance: str) -> Optional[str]:
     new_refresh = getattr(parsed, "refresh_token", None)
     if new_refresh:
         store_refresh_token(instance, new_refresh, no_keyring=(backend != "keyring"))
-    # The round-10 marker must stay in step with a successful rotation
-    # too -- try_refresh only ever rotates a BEARER session (a refresh
-    # token is bearer-only), so this is unconditionally "bearer",
-    # matching replace_credentials()'s own unconditional marker write.
-    _set_credential_field(instance, _ACTIVE_KIND_FIELD, "bearer")
+    # fix(#1778 review round 19): the round-17 marker write below used
+    # to be unconditional AND fatal -- an unwritable credentials.toml
+    # (read-only or full XDG config dir) raised straight out of
+    # try_refresh() even though BOTH rotated tokens had already landed
+    # safely in the keyring a few lines up. That turned a successful
+    # rotation into a reported refresh FAILURE, which the caller (D-13)
+    # treats as "session expired" and exits EXIT_AUTH -- discarding a
+    # perfectly good new access token over a marker write that was
+    # only ever a tie-breaker for STALE competing credentials (round
+    # 10), not a requirement for using the one just rotated.
+    #
+    # Two changes, without reordering the rotation above:
+    # - skip the write entirely when the marker already reads "bearer"
+    #   (try_refresh only ever rotates a bearer session, so the common
+    #   case -- an ordinary refresh, not a kind switch -- has nothing
+    #   to update);
+    # - when a write IS needed, treat a failure as non-fatal: log and
+    #   keep going, rather than raising. A rotation that already
+    #   committed real tokens must not be undone by a best-effort
+    #   bookkeeping write failing after the fact.
+    if load_active_credential_kind(instance) != "bearer":
+        try:
+            _set_credential_field(instance, _ACTIVE_KIND_FIELD, "bearer")
+        except Exception as exc:
+            log.warning(
+                "active_kind_marker_write_failed_after_refresh", error=str(exc)
+            )
     return new_access

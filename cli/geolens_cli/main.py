@@ -366,16 +366,26 @@ def apply_manifest_command(
     except _manifest_apply.ManifestApplyTimeout as exc:
         # fix(#1778 review round 18): a batch-aware POST timeout is
         # reported distinctly from a plain request failure -- the
-        # server keeps applying after this client gives up, and every
-        # entry is idempotent (fingerprinted, skip_complete on
-        # re-apply), so this is NOT the same "the operation failed"
-        # shape as ManifestApplyRequestError below. Both branches
-        # attempt the same best-effort dry-run status follow-up
-        # (report_apply_timeout / attempt_apply_timeout_status_check
-        # are the human- and json-mode halves of the same round-18
-        # part (c) logic) so --json gets exactly one structured
-        # payload instead of report_apply_timeout's own
+        # server keeps applying after this client gives up, and an
+        # entry it has already queued or completed is skipped on a
+        # later re-apply, so this is NOT the same "the operation
+        # failed" shape as ManifestApplyRequestError below. Both
+        # branches attempt the same best-effort dry-run status
+        # follow-up (report_apply_timeout / attempt_apply_timeout_
+        # status_check are the human- and json-mode halves of the
+        # same round-18 part (c) logic) so --json gets exactly one
+        # structured payload instead of report_apply_timeout's own
         # output.error()/warn() writes bleeding into it.
+        #
+        # fix(#1778 review round 19): dropped the "resumable": True
+        # field -- it claimed re-running immediately was always safe,
+        # which is not true (see build_apply_timeout_message()'s
+        # docstring: an entry whose source was still downloading when
+        # the timeout hit has no job row yet, so an immediate re-apply
+        # can queue it twice). "guidance" carries the same accurate,
+        # non-blanket explanation --json gets that a human running the
+        # same command interactively already sees via report_apply_
+        # timeout(), instead of a bare boolean.
         if state.json_mode:
             status = _manifest_apply.attempt_apply_timeout_status_check(
                 sdk.client, payload
@@ -383,9 +393,9 @@ def apply_manifest_command(
             state.output.json(
                 {
                     "error": str(exc),
+                    "guidance": _manifest_apply.build_apply_timeout_message(exc),
                     "ok": False,
                     "path": str(path),
-                    "resumable": True,
                     "status_check": (
                         _manifest_apply.apply_report_payload(path, status)
                         if status is not None
