@@ -1,4 +1,4 @@
-"""Cluster-global revocation generation (fix(#1778 codex r3)).
+"""Cluster-global revocation generation (fix(#1778 codex r3/r4)).
 
 The problem this exists for
 ---------------------------
@@ -7,14 +7,12 @@ The problem this exists for
 are PROCESS-local, and production runs several Uvicorn workers behind one
 socket. That makes every process-local guarantee a per-worker guarantee:
 
-  1. Redis goes down. Worker B validates embed token T, and (before the
-     ``security`` rule below) caches a positive in its own fallback.
+  1. Redis goes down. Worker B validates embed token T and caches a positive.
   2. Worker A revokes T. A writes the denial to ITS fallback and queues it for
      replay in ITS queue. B knows nothing about either.
-  3. B keeps serving T from its fallback.
-  4. Redis recovers. Redis still holds the pre-outage positive for T, because
-     A's replay has not run yet and may never run if A gets no traffic. B reads
-     Redis and gets the positive.
+  3. B keeps serving T.
+  4. Redis recovers. Redis still holds the pre-outage positive, because A's
+     replay has not run and may never run if A gets no traffic. B reads it.
 
 Step 3 is closed by the ``security=True`` rule on the cache provider: a positive
 authorization decision is never served from a process-local store, so during an
@@ -22,42 +20,59 @@ outage every validation falls through to the database. Step 4 is what this
 module closes. The database is the one thing still up when Redis is not, so the
 revocation lands here, and every worker checks it.
 
-How it works
-------------
+Why the counter is read from the DATABASE every time
+----------------------------------------------------
 
-* A revoke calls :func:`bump_revocation_generation`, which is one ``nextval``
-  on ``catalog.security_revocation_generation``.
-* A positive validation-cache entry is stamped with the generation it was minted
-  under.
-* On a cache hit the validator compares the stamp with the current generation
-  and treats a stale stamp as a miss, re-reading the database.
+fix(#1778 codex r4): the first draft cached this number in Redis and re-read it
+from the database only on two triggers -- a missing key, and a circuit-breaker
+transition back to closed. Both of those were wrong in the same way, and the
+second was wrong twice over:
 
-The current generation is read from Redis, because reading it is on the hot
-path and a database round-trip per cache hit would undo the point of the cache.
-It is re-read from the DATABASE, and the Redis key rewritten, in exactly the two
-cases where the Redis copy cannot be trusted:
+* A Redis copy can be STALE-LOW. A worker reading generation G while a
+  revocation has committed at G+1 finds its cached entry stamped G, sees a
+  match, and serves a revoked token. Staleness is not conservative here.
+* The transition trigger fired one step too late. Nothing detects a lapsed
+  cooldown until some cache method looks, so the FIRST request after recovery
+  consumed a signal that had not been raised yet, read the stale Redis
+  generation, and accepted a pre-outage positive.
 
-* the Redis key is missing (eviction, flush, a fresh Redis), and
-* the worker's circuit breaker has just transitioned back to closed, which means
-  this worker was cut off from Redis and cannot know what happened while it was.
-  ``RedisCacheProvider.consume_recovery_signal()`` reports that transition once.
+Reading the counter from the database on every validation removes all of it: no
+publish to order, no signal to race, no staleness window, and no residual for a
+worker that happened to take no traffic during the outage. The cost is one
+single-row indexed read per validation, on a code path that already issues at
+least one database query on both its cache-hit and cache-miss branches
+(``map_contains_dataset``, plus the origin and tenant checks). That is the
+trade, and it is a cheap one.
 
-Residual, stated rather than papered over
------------------------------------------
+Why the counter is a transactional ROW, not a sequence
+------------------------------------------------------
 
-A worker that served no requests at all during the outage never opened its
-circuit, so it never sees a recovery signal, and its Redis reads succeeded
-throughout. If Redis itself still holds a pre-revocation positive for a token,
-that worker keeps trusting it until the entry's own TTL expires. That TTL is
-``EMBED_TOKEN_POSITIVE_TTL_SECONDS`` (300 seconds, five minutes) and it is the
-bound on this residual. It is not zero and this module does not claim it is.
+fix(#1778 codex r4): ``nextval`` takes no row lock, which is why the first draft
+used it, but it is also non-transactional, and that is fatal rather than
+convenient. The advance became visible to every other worker the instant it ran,
+while the ``is_active`` flip it stood for stayed invisible until the revoking
+transaction committed. A validator landing in that window read the NEW
+generation, read the token row as still active, and cached a positive stamped
+with the new generation, which then survived the commit and stayed valid until
+its TTL.
 
-Closing it completely would need either a push channel every worker subscribes
-to (Redis pub/sub, which is exactly the component that was down), or a database
-read of the generation on every cache hit, which is the cache round-trip the
-cache exists to avoid. Five minutes of exposure for a token revoked during a
-Redis outage, in a multi-worker deployment, on a worker that took no traffic
-during that outage, is the trade being made.
+An ``UPDATE ... RETURNING`` inside the revoking transaction makes the counter
+and the ``is_active`` flip become visible in the same instant, to everyone. A
+validator reads the generation BEFORE it reads the token row, so:
+
+* generation G (revoke uncommitted) -> the row may still read active, and the
+  entry is cached stamped G, which the next reader refuses once the revoke
+  commits and the generation is G+1;
+* generation G+1 -> the revoke has committed, so the row read that follows sees
+  ``is_active`` false and denies.
+
+There is no interleaving that caches a positive stamped with a generation the
+committed revocation has already passed.
+
+Concurrent revocations serialize on this one row. They already serialize on the
+embed-token rows they are flipping, they are rare, and every revoke path reaches
+the two in the same order (token flips first, counter second), so the lock adds
+no cycle.
 """
 
 from __future__ import annotations
@@ -66,101 +81,60 @@ import structlog
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.platform.cache.provider import get_cache
-
 logger = structlog.stdlib.get_logger(__name__)
 
-# Not tenant-scoped on purpose: the whole value of the generation is that every
-# worker, and in hosted mode every tenant's request path, agrees on one number.
-# A per-tenant counter would let a revoke in one tenant leave another tenant's
-# stale positives standing, which is the defect this closes rather than a
-# refinement of it.
-REVOCATION_GENERATION_CACHE_KEY = "security:revocation_generation"
+_TABLE = "catalog.security_revocation_generation"
 
-# Long, because the value is rewritten on every bump and on every recovery, and
-# a stale read here is only ever "an entry is re-validated against the database
-# once more than it needed to be".
-_GENERATION_CACHE_TTL = 3600
-
-_SEQUENCE = "catalog.security_revocation_generation"
+# Matches no stamp any entry can carry, so every comparison against it fails and
+# every caller falls through to the database. Returned when the counter cannot
+# be read at all, which is the fail-closed direction.
+_UNKNOWN_GENERATION = -1
 
 
 async def bump_revocation_generation(db: AsyncSession) -> int:
-    """Advance the generation and publish it. Returns the new value.
+    """Advance the generation inside the CALLER's transaction. Returns the new value.
 
-    ``nextval`` is non-transactional, so this survives a rollback of the
-    surrounding revoke. That is deliberate: a generation that ran ahead of the
-    revocations costs one extra database re-validation per cached entry, while
-    one that lagged would leave a revoked capability being served.
+    Deliberately not committed here and deliberately not run on a side session:
+    the whole point is that this becomes visible at the same instant as the
+    ``is_active`` flip the caller is making, so it must share the caller's
+    transaction. A revoke that rolls back leaves the generation where it was,
+    which is correct, because the revocation it stood for did not happen either.
     """
-    generation = int(await db.scalar(text(f"SELECT nextval('{_SEQUENCE}')")))
-    await _publish(generation)
-    return generation
+    generation = await db.scalar(
+        text(
+            f"UPDATE {_TABLE} SET generation = generation + 1 "
+            "WHERE id IS TRUE RETURNING generation"
+        )
+    )
+    if generation is None:
+        # The seeded row is gone. Refusing to invent one is the safe answer: a
+        # silent INSERT here would reset the counter and make every stale entry
+        # in the fleet compare equal again.
+        logger.error("revocation_generation_row_missing", operation="bump")
+        return _UNKNOWN_GENERATION
+    return int(generation)
 
 
 async def current_revocation_generation(db: AsyncSession) -> int:
     """The generation a cache entry must carry to still be trusted.
 
-    Reads Redis, except in the two cases where the Redis copy cannot be trusted:
-    the key is missing, or this worker has just come back from an outage. Both
-    fall through to the database and rewrite the Redis key.
+    Read in the caller's transaction, and read BEFORE the caller reads whatever
+    row the cached decision is about, so the two cannot disagree about which
+    side of a revocation they are on.
 
-    Never raises. A cache backend that cannot answer resolves to the database;
-    a database that cannot answer resolves to ``0``, which matches no stamp any
-    entry carries and therefore fails every comparison -- a cache miss for every
-    caller, which is the fail-closed direction.
-    """
-    cache = get_cache()
-
-    recovered = False
-    consume = getattr(cache, "consume_recovery_signal", None)
-    if consume is not None:
-        recovered = consume()
-
-    if not recovered:
-        try:
-            cached = await cache.get(REVOCATION_GENERATION_CACHE_KEY)
-        except Exception:  # broad: a cache backend failure must fall through to the database, never break authorization
-            cached = None
-        if isinstance(cached, int):
-            return cached
-
-    return await _refresh_from_database(db, recovered=recovered)
-
-
-async def _refresh_from_database(db: AsyncSession, *, recovered: bool) -> int:
-    try:
-        # last_value, not nextval: reading the generation must not advance it.
-        # A sequence that has never been advanced reports its START WITH value,
-        # which is the stamp every entry minted before the first revoke carries.
-        generation = int(await db.scalar(text(f"SELECT last_value FROM {_SEQUENCE}")))
-    except Exception:  # broad: authorization must fail closed rather than propagate a cache-plumbing error
-        logger.warning(
-            "revocation_generation_read_failed",
-            recovered=recovered,
-            exc_info=True,
-        )
-        return 0
-    if recovered:
-        logger.info(
-            "revocation_generation_refreshed_after_outage", generation=generation
-        )
-    await _publish(generation)
-    return generation
-
-
-async def _publish(generation: int) -> None:
-    """Best-effort write of the generation to the shared cache.
-
-    ``set_authoritative`` rather than ``set``: this value overrides whatever
-    Redis is holding, and it has to survive an outage the same way a revocation
-    denial does. If it does not land, the next reader finds the key missing and
-    goes to the database, which is the correct fallback.
+    Never raises: a counter that cannot be read resolves to a value no entry
+    carries, so every cached positive is refused and re-derived.
     """
     try:
-        cache = get_cache()
-        await cache.set_authoritative(
-            REVOCATION_GENERATION_CACHE_KEY, generation, ttl=_GENERATION_CACHE_TTL
+        generation = await db.scalar(
+            text(f"SELECT generation FROM {_TABLE} WHERE id IS TRUE")
         )
-    except Exception:  # broad: publishing the generation is an optimization; the database remains the source of truth
-        logger.warning("revocation_generation_publish_failed", exc_info=True)
+    except (
+        Exception
+    ):  # broad: authorization must fail closed rather than propagate a plumbing error
+        logger.warning("revocation_generation_read_failed", exc_info=True)
+        return _UNKNOWN_GENERATION
+    if generation is None:
+        logger.error("revocation_generation_row_missing", operation="read")
+        return _UNKNOWN_GENERATION
+    return int(generation)

@@ -94,11 +94,11 @@ class RedisCacheProvider:
       process-local fallback; when Redis is unreachable the read answers None
       and the caller re-derives from the database. A refusal is exempt, because
       refusing on stale information is fail-closed.
-    * ``platform/cache/revocation.py``, a database-backed generation every
-      revoke advances and every positive entry is stamped with. It uses
-      ``consume_recovery_signal()`` below to notice that this worker was cut off
-      and to re-read the generation from the database, which is the store that
-      stayed up.
+    * ``platform/cache/revocation.py``, a transactional database counter every
+      revoke advances and every positive entry is stamped with. It is read from
+      the database on every validation rather than cached here, precisely
+      because anything this class could tell a caller about its own outage would
+      be per-worker and one step behind.
 
     Callers that MUST pass ``security=True``, enumerated so the list can be
     checked rather than inferred (``tests/test_layering.py::
@@ -135,13 +135,6 @@ class RedisCacheProvider:
             OrderedDict()
         )
         self._replay_lock = asyncio.Lock()
-        # fix(#1778 codex r3): _was_open tracks whether this worker has been cut
-        # off from Redis; _recovery_signal is raised on the transition back and
-        # cleared by consume_recovery_signal(). It is how a caller that HAS a
-        # database session learns this worker cannot know what happened while it
-        # was away, and must re-read what it was trusting Redis for.
-        self._was_open = False
-        self._recovery_signal = False
 
     # ------------------------------------------------------------------
     # Circuit breaker helpers
@@ -163,33 +156,12 @@ class RedisCacheProvider:
         there is no other transition point to hook.
         """
         if self._is_circuit_open():
-            self._was_open = True
             return True
-        if self._was_open:
-            # fix(#1778 codex r3): raised BEFORE the drain, so a reader that
-            # consumes it is not overtaken by a replay that has not run yet.
-            # Every process-local guarantee this class makes is a per-worker
-            # guarantee, and an outage is exactly when the workers stop agreeing.
-            self._was_open = False
-            self._recovery_signal = True
         if self._pending_authoritative:
             await self._replay_pending_authoritative()
             # The drain talks to Redis, so it can reopen the circuit itself.
             return self._is_circuit_open()
         return False
-
-    def consume_recovery_signal(self) -> bool:
-        """True once per transition out of an outage, then False again.
-
-        fix(#1778 codex r3): read by ``platform/cache/revocation.py``, which
-        holds a database session and can therefore do what this class cannot --
-        re-read the revocation generation from the one store that stayed up, and
-        rewrite the Redis copy. Consuming is destructive so that the database
-        read happens once per outage rather than once per request.
-        """
-        signal = self._recovery_signal
-        self._recovery_signal = False
-        return signal
 
     def _record_success(self) -> None:
         self._failure_count = 0

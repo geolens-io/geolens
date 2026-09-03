@@ -237,8 +237,6 @@ class TestDenialReachesEveryStore:
         # replay state __init__ sets up has to be seeded here too.
         provider._pending_authoritative = OrderedDict()
         provider._replay_lock = asyncio.Lock()
-        provider._was_open = False
-        provider._recovery_signal = False
         return provider
 
     async def test_a_revoke_denies_through_the_next_redis_outage(self, monkeypatch):

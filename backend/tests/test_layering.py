@@ -4065,7 +4065,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # _update_user_role, which stay private. Most of the lines are the docstring
     # saying which invariants were missing and why a refusal is not an error for
     # an IdP-driven caller. 992 -> 1036, exact.
-    "backend/app/modules/admin/service.py": 1036,
+    # fix(#1778 codex r4): +19. The advisory lock now covers the PROMOTION
+    # branch too. Skipping it was justified by "a promotion cannot threaten the
+    # last-admin invariant", which is true and beside the point: two OAuth
+    # callbacks for one account both entered it unserialized, and
+    # _update_user_role's delete-then-insert collided on the (user_id, role_id)
+    # primary key, failing an otherwise valid login. Cap 1036 -> 1055, exact.
+    "backend/app/modules/admin/service.py": 1055,
     # fix(#1113 review): +15 — register_existing_table linearizes a
     # pre-existing geom_4326 (savepoint + error contract mirroring the
     # add_4326_column branch beside it); see linearize_existing_4326.
@@ -4954,7 +4960,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # comment on EMBED_TOKEN_POSITIVE_TTL_SECONDS, which names the residual this
     # bounds rather than closes, plus the note on what an unstamped pre-upgrade
     # entry does. Cap 1106 -> 1164, exact.
-    "backend/app/modules/embed_tokens/service.py": 1164,
+    # fix(#1778 codex r4): +10 for the comment saying why the generation bump
+    # shares the caller's transaction rather than running ahead of it, and why
+    # a failing bump must not be swallowed. Cap 1164 -> 1174, exact.
+    "backend/app/modules/embed_tokens/service.py": 1174,
     # fix(#1778): first entry for this module — it crossed the 1000-line
     # inclusion threshold on the property-filter typing. Property filters used
     # to bind the raw query-string value, so PostgreSQL had no

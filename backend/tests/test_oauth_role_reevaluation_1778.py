@@ -20,6 +20,7 @@ test_a_returning_user_is_demoted_when_the_group_is_gone fails with the account
 still holding admin.
 """
 
+import asyncio
 import uuid
 from contextlib import asynccontextmanager
 
@@ -511,3 +512,80 @@ async def test_the_first_email_linked_login_applies_the_new_provider_mapping(
     assert await _role_names(test_db_session, created.id) == {"viewer"}, (
         "the second provider's mapping was ignored on the linking login"
     )
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778 codex r4): two OAuth callbacks for the same account can arrive
+# together. Both used to enter set_role_from_identity_provider's PROMOTION
+# branch unserialized, and _update_user_role deletes and re-inserts
+# catalog.user_roles, whose primary key is (user_id, role_id) -- so the two
+# inserts collided and one otherwise valid login failed on a duplicate key.
+#
+# The promotion branch now takes the same admin-lifecycle advisory lock the
+# demotion branch does, which also makes _update_user_role's idempotency check
+# load-bearing: the second caller re-reads the roles under the lock, finds the
+# promotion already applied, and returns without touching the table.
+#
+# Counterfactual: move the lock back inside the non-admin branch and
+# test_concurrent_mapped_promotions_do_not_collide fails with a UniqueViolation
+# on catalog.user_roles.
+#
+# The SAML overlay reaches this through the SAME call chain: SAML JIT goes
+# through find_or_create_oauth_user, whose only role-change path is
+# _reconcile_mapped_role -> set_role_from_identity_provider, and that is the
+# only caller of it in the tree. So this covers both protocols; there is no
+# separate SAML branch to fix.
+# ---------------------------------------------------------------------------
+
+
+async def test_concurrent_mapped_promotions_do_not_collide(
+    client, test_db_session, enterprise
+):
+    """Two simultaneous logins for the same returning viewer whose IdP group now
+    maps to admin. Both must succeed, and the account must end up holding
+    exactly one role row."""
+    import app.core.db as db_module
+    from app.modules.admin.service import AdminService
+
+    provider = await _provider(test_db_session)
+    sub = f"concurrent-{uuid.uuid4().hex[:8]}"
+
+    created = await find_or_create_oauth_user(
+        test_db_session, provider, _userinfo(sub, ["everyone"]), {}
+    )
+    await test_db_session.commit()
+    user_id = created.id
+    assert await _role_names(test_db_session, user_id) == {"viewer"}
+
+    # Both callers must have READ the current roles before either writes, which
+    # is the state two simultaneous callbacks are actually in. Without a barrier
+    # the event loop is free to run one to completion first and the race never
+    # happens, which is exactly how the unlocked version passed.
+    ready = asyncio.Barrier(2)
+
+    async def promote() -> bool:
+        # Its own session, as a second Uvicorn worker would have.
+        async with db_module.async_session() as session:
+            user = await session.get(User, user_id)
+            await session.refresh(user, attribute_names=["roles"])
+            await ready.wait()
+            applied = await AdminService(session).set_role_from_identity_provider(
+                user, "admin"
+            )
+            # _reconcile_mapped_role flushes here, so the INSERT is issued
+            # before the commit rather than at it.
+            await session.flush()
+            await session.commit()
+            return applied
+
+    results = await asyncio.gather(promote(), promote(), return_exceptions=True)
+
+    failures = [r for r in results if isinstance(r, BaseException)]
+    assert not failures, f"a concurrent mapped promotion failed: {failures!r}"
+    assert all(r is True for r in results)
+
+    rows = await test_db_session.execute(
+        select(UserRole).where(UserRole.user_id == user_id)
+    )
+    assert len(rows.scalars().all()) == 1
+    assert await _role_names(test_db_session, user_id) == {"admin"}

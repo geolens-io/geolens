@@ -103,18 +103,28 @@ async def _deny_revoked_embed_tokens(db: AsyncSession, *token_hashes: str) -> No
     rather than deleting the key.
 
     fix(#1778 codex r3): also advances the cluster-global revocation generation.
-    The denial above is written through this worker's cache provider, and during
-    a Redis outage that reaches no other worker; the generation is a database
-    row every worker consults, so it is what carries the revocation across the
-    process boundary. It is bumped FIRST, so no positive entry can be minted
-    under the new generation while the revoke is still landing.
+    The denial below is written through this worker's cache provider, and during
+    a Redis outage that reaches no other worker; the generation is a database row
+    every worker consults, so it is what carries the revocation across the
+    process boundary.
+
+    fix(#1778 codex r4): the bump shares the CALLER's transaction, so it becomes
+    visible at the same instant as the ``is_active`` flip the caller has already
+    made. An earlier draft advanced a non-transactional sequence and published it
+    to Redis before the commit, which let a concurrent validator read the new
+    generation, read the token row as still active, and cache a positive stamped
+    with the new generation that then survived the commit. Ordering alone cannot
+    fix that; sharing the transaction does, because there is no instant at which
+    one is visible and the other is not.
+
+    It is also why this raises nothing on failure but the bump is NOT wrapped in
+    its own try/except: a bump that fails has poisoned the caller's transaction,
+    and swallowing it would let the revocation commit without the generation
+    that tells every other worker about it.
     """
     if not token_hashes:
         return
-    try:
-        await bump_revocation_generation(db)
-    except Exception:  # broad: a generation bump must not break the revocation the database row already records
-        logger.error("Revocation generation bump failed", exc_info=True)
+    await bump_revocation_generation(db)
     try:
         cache = get_cache()
         for token_hash in token_hashes:

@@ -476,15 +476,34 @@ class AdminService:
 
         The advisory lock is taken here, so call this only when a change is
         actually needed; the caller compares the current role first.
-        """
-        if role_name == "admin":
-            # A promotion cannot threaten the invariant, so no lock is needed
-            # for it; _update_user_role still bumps key_epoch.
-            await self._update_user_role(user, role_name)
-            return True
 
+        fix(#1778 codex r4): the lock covers a PROMOTION too, which it did not
+        at first. The reasoning for skipping it was that a promotion cannot
+        threaten the last-admin invariant, which is true and beside the point:
+        two OAuth callbacks for the same returning account can arrive together,
+        and both then ran ``_update_user_role`` unserialized. That deletes and
+        re-inserts ``catalog.user_roles``, whose primary key is
+        ``(user_id, role_id)``, so the two inserts collide and one otherwise
+        valid login fails on a duplicate key.
+
+        Holding the lock across both branches also makes ``_update_user_role``'s
+        idempotency check load-bearing: the second caller re-reads the roles
+        under the lock, finds the promotion already applied, and returns without
+        touching the table or bumping ``key_epoch`` a second time.
+
+        Same lock for both branches rather than a per-user row lock, because the
+        demotion branch needs the global one anyway (the last-admin count is
+        fleet-wide) and one lock cannot deadlock against itself.
+        """
         await self._lock_admin_lifecycle()
         await self.db.refresh(user, attribute_names=["roles"])
+
+        if role_name == "admin":
+            # A promotion cannot threaten the last-admin invariant, so it skips
+            # the check but not the lock.
+            await self._update_user_role(user, role_name, lock_held=True)
+            return True
+
         try:
             await self._ensure_not_last_admin(user, "demote", lock_held=True)
         except ValueError:
