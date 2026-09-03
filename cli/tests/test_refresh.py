@@ -685,3 +685,80 @@ class TestDatasetStatus:
         assert payload["source_freshness"] == "overdue"
         assert payload["source_health"] == "inaccessible"
         assert payload["source_health_detail"] == "unauthorized"
+
+
+class TestDatasetStatusRefreshRetry:
+    """fix(#1778): `geolens status` now spends a stored refresh token on a
+    401 instead of hard-failing — previously only `whoami` did this (D-13),
+    so a status check with an expired access token failed even though
+    login had stored a refresh token that could have renewed it."""
+
+    def test_expired_token_is_refreshed_and_the_retry_succeeds(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli import config as _config
+        from geolens_cli.main import app
+
+        mock_keyring[("geolens", INSTANCE)] = "expired-access-token"
+        mock_keyring[("geolens", f"{INSTANCE}:refresh")] = "valid-refresh-token"
+        _config.write_default_instance(INSTANCE, username="alice")
+
+        calls = {"status": 0}
+
+        def status_endpoint(**kwargs):
+            calls["status"] += 1
+            if calls["status"] == 1:
+                return SimpleNamespace(status_code=HTTPStatus.UNAUTHORIZED, parsed=None)
+            return SimpleNamespace(
+                status_code=HTTPStatus.OK,
+                parsed=TestDatasetStatus._dataset(),
+            )
+
+        monkeypatch.setattr(
+            "geolens.api.datasets."
+            "get_single_dataset_datasets_dataset_id_get.sync_detailed",
+            status_endpoint,
+        )
+        monkeypatch.setattr(
+            "geolens.api.auth.refresh_auth_refresh_post.sync_detailed",
+            lambda **kwargs: SimpleNamespace(
+                status_code=HTTPStatus.OK,
+                parsed=SimpleNamespace(
+                    access_token="rotated-access-token",
+                    refresh_token=None,
+                ),
+            ),
+        )
+
+        result = runner.invoke(app, ["status", str(DATASET_ID)])
+
+        assert result.exit_code == 0, result.output
+        assert calls["status"] == 2
+        assert mock_keyring[("geolens", INSTANCE)] == "rotated-access-token"
+
+    def test_refresh_failure_still_exits_auth(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli import config as _config
+        from geolens_cli._sdk_helpers import EXIT_AUTH
+        from geolens_cli.main import app
+
+        mock_keyring[("geolens", INSTANCE)] = "expired-access-token"
+        mock_keyring[("geolens", f"{INSTANCE}:refresh")] = "stale-refresh-token"
+        _config.write_default_instance(INSTANCE, username="alice")
+
+        monkeypatch.setattr(
+            "geolens.api.datasets."
+            "get_single_dataset_datasets_dataset_id_get.sync_detailed",
+            lambda **kwargs: SimpleNamespace(
+                status_code=HTTPStatus.UNAUTHORIZED, parsed=None
+            ),
+        )
+        monkeypatch.setattr(
+            "geolens.api.auth.refresh_auth_refresh_post.sync_detailed",
+            lambda **kwargs: SimpleNamespace(status_code=HTTPStatus.UNAUTHORIZED, parsed=None),
+        )
+
+        result = runner.invoke(app, ["status", str(DATASET_ID)])
+
+        assert result.exit_code == EXIT_AUTH, result.output

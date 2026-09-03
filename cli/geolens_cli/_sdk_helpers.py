@@ -98,3 +98,35 @@ def call_sdk(
     except httpx.NetworkError as exc:
         typer.secho(f"Network error: {exc}", fg="red", err=True)
         raise typer.Exit(EXIT_NETWORK)
+
+
+def call_sdk_with_reauth(
+    fn: Callable[..., Any],
+    *,
+    instance: str,
+    rebuild_client: Callable[[], Any],
+    client_kwarg: str = "client",
+    deadline_expired: Callable[[], bool] | None = None,
+    **kwargs: Any,
+) -> Any:
+    """Like ``call_sdk``, but refresh-retries once on 401/403 (D-13).
+
+    fix(#1778): a stored refresh token was only ever spent by ``whoami`` —
+    every other command hard-failed on an expired access token even though
+    login stores a refresh token whenever the server returns one. This
+    generalizes ``whoami``'s inline retry so other commands can opt in
+    without duplicating it: on 401/403, attempt one
+    ``auth.try_refresh(instance)``; if it yields a new access token,
+    ``rebuild_client()`` is called to obtain a client carrying the rotated
+    token and the request is retried once with it under ``client_kwarg``.
+    """
+    from . import auth as _auth  # lazy: avoid an import cycle with main.py
+
+    resp = call_sdk(fn, deadline_expired=deadline_expired, **kwargs)
+    if int(resp.status_code) in (401, 403):
+        new_access = _auth.try_refresh(instance)
+        if new_access:
+            sdk = rebuild_client()
+            kwargs[client_kwarg] = sdk.client
+            resp = call_sdk(fn, deadline_expired=deadline_expired, **kwargs)
+    return resp

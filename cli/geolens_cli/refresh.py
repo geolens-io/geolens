@@ -22,6 +22,7 @@ from ._sdk_helpers import (
     EXIT_GENERIC,
     EXIT_SERVER,
     call_sdk,
+    call_sdk_with_reauth,
     unwrap,
 )
 
@@ -292,15 +293,36 @@ def refresh_payload(response: Any, poll: RefreshPollResult | None = None) -> dic
     return payload
 
 
-def fetch_dataset_status(client: Any, dataset_id: UUID) -> Any:
-    """Read the generated dataset detail model used by ``geolens status``."""
+def fetch_dataset_status(
+    client: Any,
+    dataset_id: UUID,
+    *,
+    instance: str | None = None,
+    rebuild_client: Callable[[], Any] | None = None,
+) -> Any:
+    """Read the generated dataset detail model used by ``geolens status``.
+
+    fix(#1778): ``instance``/``rebuild_client`` are optional so existing
+    callers are unaffected — pass both to refresh-retry once on 401/403
+    instead of hard-failing on an access token that expired since login
+    (D-13; previously only ``whoami`` spent the stored refresh token).
+    """
     from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get
 
-    response = call_sdk(
-        get_single_dataset_datasets_dataset_id_get.sync_detailed,
-        dataset_id=dataset_id,
-        client=client,
-    )
+    if instance is not None and rebuild_client is not None:
+        response = call_sdk_with_reauth(
+            get_single_dataset_datasets_dataset_id_get.sync_detailed,
+            instance=instance,
+            rebuild_client=rebuild_client,
+            dataset_id=dataset_id,
+            client=client,
+        )
+    else:
+        response = call_sdk(
+            get_single_dataset_datasets_dataset_id_get.sync_detailed,
+            dataset_id=dataset_id,
+            client=client,
+        )
     return unwrap(response, expected=DATASET_STATUS_OK)
 
 

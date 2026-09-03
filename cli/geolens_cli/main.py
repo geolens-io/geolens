@@ -36,6 +36,7 @@ from ._sdk_helpers import (
     EXIT_NETWORK,
     EXIT_USAGE,
     call_sdk,
+    call_sdk_with_reauth,
     unwrap,
 )
 
@@ -500,16 +501,17 @@ def whoami(ctx: typer.Context) -> None:
 
     from geolens.api.auth import me_auth_me_get
 
+    # D-13: refresh-retries once on 401/403 via the shared helper — see
+    # _sdk_helpers.call_sdk_with_reauth (fix(#1778): this used to be
+    # open-coded here only, so every other command hard-failed instead of
+    # spending a stored refresh token).
     sdk = state.sdk()
-    resp = call_sdk(me_auth_me_get.sync_detailed, client=sdk.client)
-    if int(resp.status_code) == 401:
-        # D-13: refresh-retry once
-        new_access = _auth.try_refresh(instance)
-        if not new_access:
-            state.output.error("Session expired — run `geolens login` again")
-            raise typer.Exit(EXIT_AUTH)
-        sdk = state.sdk()  # re-construct with the rotated token
-        resp = call_sdk(me_auth_me_get.sync_detailed, client=sdk.client)
+    resp = call_sdk_with_reauth(
+        me_auth_me_get.sync_detailed,
+        instance=instance,
+        rebuild_client=state.sdk,
+        client=sdk.client,
+    )
     user = unwrap(resp, expected=200)
     email = (
         getattr(user, "email", None) or getattr(user, "username", None) or "<unknown>"
@@ -545,7 +547,16 @@ def status(
             "Dataset id must be a UUID", param_hint="dataset_id"
         ) from exc
 
-    dataset = _refresh.fetch_dataset_status(state.sdk().client, dataset_uuid)
+    sdk = state.sdk()
+    # fix(#1778): refresh-retry once on 401/403 (D-13) rather than hard-
+    # failing a scripted `status` check on an access token that expired
+    # since login.
+    dataset = _refresh.fetch_dataset_status(
+        sdk.client,
+        dataset_uuid,
+        instance=state.active_instance(),
+        rebuild_client=state.sdk,
+    )
     payload = _refresh.dataset_status_payload(dataset)
     if state.json_mode:
         state.output.json(payload)
