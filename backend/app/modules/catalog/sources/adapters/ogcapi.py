@@ -152,11 +152,17 @@ async def _resolve_conformance(
         # The href comes out of an untrusted landing page, so it is revalidated
         # on the line above rather than trusted because the base URL was.
         #
-        # The marker below must stay the LAST line before the call: the
-        # suppression query binds a marker to the line that follows it, so an
-        # explanatory comment inserted between the two silently disarms it.
-        # Prose goes above.
-        # codeql[py/full-ssrf] fix(#1746): Rule 2 posture — validate_url_for_ssrf gates the resolved href immediately above, and this client comes from make_safe_client, whose transport re-resolves, validates and pins the IP at connect time and revalidates every redirect hop
+        # fix(#1770 round 43): this line used to carry a CodeQL full-SSRF
+        # suppression marker, from when the line below was a direct
+        # `client.get`/`client.stream` call and this was genuinely the sink.
+        # Round 41 moved the actual sink into `bounded_probe_read`
+        # (`platform/probe_bounds.py`), so a marker here bound to a call
+        # site one hop away from the sink -- exactly the trap AGENTS.md
+        # warns about, a marker that reads as a defense and does nothing.
+        # The real marker now lives directly above the `stream` call in
+        # `probe_bounds.py`; the `validate_url_for_ssrf` call above is still
+        # real Rule 2 posture, just no longer this function's suppression
+        # to carry.
         conf_body, _ = await bounded_probe_read(
             client, abs_href, headers=headers, accept=OGC_JSON_ACCEPT
         )

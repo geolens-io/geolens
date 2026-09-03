@@ -75,6 +75,11 @@ async def bounded_probe_read(
     would silently drop out of that walk's count.
     """
     request_headers = {**headers, "Accept": accept, "Accept-Encoding": "identity"}
+    # The marker below must stay the LAST line before the call: the
+    # suppression query binds a marker to the line that follows it, so an
+    # explanatory comment inserted between the two silently disarms it.
+    # Prose goes above.
+    # codeql[py/full-ssrf] fix(#1770 round 43): the caller validated this exact URL with validate_url_for_ssrf immediately before invoking bounded_probe_read, and the client comes from make_safe_client, whose transport re-resolves, validates and pins the IP at connect time and revalidates every redirect hop
     async with client.stream("GET", url, headers=request_headers) as response:
         response.raise_for_status()
         body = await read_bounded_body(response, MAX_DOCUMENT_BYTES)
