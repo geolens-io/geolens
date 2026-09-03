@@ -3998,7 +3998,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # keys on the job row first, the way `ingest_raster` does. Most of the
     # growth is the comment saying why the id is decided outside phase 2.
     # Cap 1530 -> 1568, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1568,
+    # fix(#1778 audit): +7. record_unpublished_storage_keys now reports a
+    # confirmed fence miss rather than silently committing nothing, and this
+    # call site checks it: a miss means a retry has already superseded this
+    # attempt, so it returns before generating quicklooks or ever reaching
+    # phase 2, instead of relying on phase 2's own attempt-fenced load to
+    # catch it downstream. Cap 1568 -> 1575, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1575,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.

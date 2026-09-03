@@ -402,7 +402,7 @@ async def ingest_raster(
             # and must not be registered.
             archived_original_uri(planned_dataset_id, source_sha256=source_sha256),
         ]
-        await record_unpublished_storage_keys(
+        if not await record_unpublished_storage_keys(
             job_uuid,
             attempt_uuid,
             keys=_unpublished_keys,
@@ -419,7 +419,14 @@ async def ingest_raster(
             attempt_scope=str(planned_dataset_id),
             job_id=job_id,
             task="ingest_raster",
-        )
+        ):
+            # fix(#1778 audit): a confirmed fence miss. Phase 2's own
+            # attempt-fenced load below would catch this too, but stopping
+            # here is what actually keeps the recorder's contract ("do not
+            # write what nothing records") rather than depending on a second
+            # guard downstream to make it true, and it skips the quicklook
+            # generation this dead attempt no longer needs.
+            return
 
         # REMED-02 / ingest-audit P2-07: quicklook generation is the other
         # multi-second hotspot. Brief-session write before the two

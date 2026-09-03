@@ -576,7 +576,7 @@ async def ingest_vrt(
         # these keys need no `attempts/` segment of their own.
         planned_dataset_id = uuid.uuid4()
         _vrt_base_key = f"rasters/{planned_dataset_id}/{asset_sha256}"
-        await record_unpublished_storage_keys(
+        if not await record_unpublished_storage_keys(
             job_uuid,
             attempt_uuid,
             keys=[
@@ -589,7 +589,14 @@ async def ingest_vrt(
             attempt_scope=str(planned_dataset_id),
             job_id=job_id,
             task="ingest_vrt",
-        )
+        ):
+            # fix(#1778 audit): a confirmed fence miss. Phase 2's own
+            # attempt-fenced load below would catch this too, but stopping
+            # here is what actually keeps the recorder's contract ("do not
+            # write what nothing records") rather than depending on a second
+            # guard downstream to make it true, and it skips the quicklook
+            # generation this dead attempt no longer needs.
+            return
 
         # 8. Generate quicklooks (non-fatal)
         ql256: bytes | None = None

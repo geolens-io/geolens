@@ -506,7 +506,7 @@ async def reupload_raster(
         _replace_base_key = attempt_scoped_raster_base_key(
             dataset_uuid, attempt_uuid, asset_sha256
         )
-        await record_unpublished_storage_keys(
+        if not await record_unpublished_storage_keys(
             job_uuid,
             attempt_uuid,
             keys=[
@@ -518,7 +518,14 @@ async def reupload_raster(
             attempt_scope=str(attempt_uuid),
             job_id=job_id,
             task="reupload_raster",
-        )
+        ):
+            # fix(#1778 audit): a confirmed fence miss. Phase 2's own
+            # attempt-fenced load below would catch this too, but stopping
+            # here is what actually keeps the recorder's contract ("do not
+            # write what nothing records") rather than depending on a second
+            # guard downstream to make it true, and it skips the quicklook
+            # generation this dead attempt no longer needs.
+            return
 
         await _stamp_progress(
             job_uuid,

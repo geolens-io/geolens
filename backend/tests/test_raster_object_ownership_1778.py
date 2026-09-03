@@ -214,6 +214,119 @@ class TestUnpublishedStorageKeys:
         storage.delete.assert_not_awaited()
 
 
+class TestRecorderChecksItsOwnFence:
+    """fix(#1778 audit): every other fenced job-row write in this codebase
+    checks its match. ``update_ingest_job_for_attempt`` in ``heartbeat.py``
+    returns ``bool(rowcount)`` and every caller branches on a miss; this
+    recorder used to be the one exception, silently committing nothing when
+    the ``(job, attempt)`` pair it was handed no longer owned the row.
+
+    Reachable when the stale sweep fails a row on heartbeat timeout while the
+    original worker is merely paused (a GC pause, a slow syscall) rather than
+    dead, and a retry mints a new attempt on the same job: the paused worker
+    resumes, calls this recorder with its own dead attempt token, and used to
+    get told nothing about the miss. A kill before its own in-process cleanup
+    then left the staged objects it was about to write with no row naming
+    them anywhere -- the #1778 leak class reopened at the one recorder that
+    did not check its fence.
+    """
+
+    @pytest.mark.anyio
+    async def test_a_fenced_out_attempt_gets_no_write_and_a_false_return(
+        self, test_db_session
+    ) -> None:
+        from sqlalchemy import select
+
+        from app.platform.jobs.models import IngestJob
+        from app.processing.ingest.tasks_raster_common import (
+            UNPUBLISHED_STORAGE_KEYS_FIELD,
+            record_unpublished_storage_keys,
+        )
+
+        job = IngestJob(status="running", file_path="")
+        test_db_session.add(job)
+        await test_db_session.flush()
+        job_id = job.id
+        dead_attempt = job.attempt_id
+        assert dead_attempt is not None
+
+        # The retry: a new attempt supersedes this one on the same row,
+        # exactly what /jobs/{id}/retry does. The paused worker still holds
+        # `dead_attempt` and knows nothing of this yet.
+        job.attempt_id = uuid.uuid4()
+        await test_db_session.commit()
+
+        key = f"rasters/{job_id}/dead/abc/source.cog.tif"
+        proceed = await record_unpublished_storage_keys(
+            job_id,
+            dead_attempt,
+            keys=[key],
+            already_published=(),
+            attempt_scope="dead",
+            job_id=str(job_id),
+            task="ingest_raster",
+        )
+
+        assert proceed is False, (
+            "a fenced-out attempt must not be told it may proceed to write"
+        )
+
+        test_db_session.expire_all()
+        row = (
+            await test_db_session.execute(
+                select(IngestJob).where(IngestJob.id == job_id)
+            )
+        ).scalar_one()
+        assert UNPUBLISHED_STORAGE_KEYS_FIELD not in (row.user_metadata or {}), (
+            "the dead attempt's write must not have landed on the retry's row"
+        )
+
+    @pytest.mark.anyio
+    async def test_the_live_attempt_still_gets_a_true_return(
+        self, test_db_session
+    ) -> None:
+        """The other side of the same check: a live attempt is unaffected."""
+        from app.platform.jobs.models import IngestJob
+        from app.processing.ingest.tasks_raster_common import (
+            record_unpublished_storage_keys,
+        )
+
+        job = IngestJob(status="running", file_path="")
+        test_db_session.add(job)
+        await test_db_session.flush()
+        job_id = job.id
+        attempt_id = job.attempt_id
+        await test_db_session.commit()
+
+        key = f"rasters/{job_id}/live/abc/source.cog.tif"
+        proceed = await record_unpublished_storage_keys(
+            job_id,
+            attempt_id,
+            keys=[key],
+            already_published=(),
+            attempt_scope="live",
+            job_id=str(job_id),
+            task="ingest_raster",
+        )
+
+        assert proceed is True
+
+    def test_every_caller_treats_a_fence_miss_as_abort(self) -> None:
+        """A caller that ignored the return value would still write objects
+        nothing records, once the recorder itself learned to report a fence
+        miss. Enumerated across the same three sites
+        ``test_every_site_that_records_intended_keys_states_the_exclusion``
+        pins, so a future caller cannot add itself without answering this
+        too."""
+        for rel in (
+            "processing/ingest/tasks_raster.py",
+            "processing/ingest/tasks_raster_replace.py",
+            "processing/ingest/tasks_vrt.py",
+        ):
+            source = (APP / rel).read_text()
+            assert "if not await record_unpublished_storage_keys(" in source, rel
+
+
 class TestIdenticalReplacementKeepsTheLiveAsset:
     """fix(#1778 codex r1): a re-upload of the file the dataset already serves.
 

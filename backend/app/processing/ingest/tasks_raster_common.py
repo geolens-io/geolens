@@ -560,8 +560,27 @@ async def record_unpublished_storage_keys(
     attempt_scope: str,
     job_id: str,
     task: str,
-) -> None:
+) -> bool:
     """Persist the object keys this attempt is ABOUT to write, best effort.
+
+    Returns whether the caller may proceed to write those objects. ``False``
+    means this attempt is DEFINITIVELY fenced out: the ``(job_uuid,
+    attempt_uuid)`` pair matched no row, which happens when the stale sweep
+    fails the row on a heartbeat timeout while this worker is merely paused
+    (a GC pause, a slow syscall) rather than dead, and a retry has since
+    minted a new attempt on the same job. Every other fenced job-row write in
+    this codebase checks its match (``update_ingest_job_for_attempt`` in
+    ``heartbeat.py`` returns ``bool(rowcount)`` and every caller branches on
+    a miss); this one used to be the exception, silently committing nothing
+    and letting the caller carry on to write objects a dead attempt's row
+    would never record. A worker killed after that point leaves the objects
+    with no reference anywhere, the #1778 leak class reopened at the one
+    recorder that did not check its own fence.
+
+    An unreachable database or any other transient failure is a DIFFERENT
+    case and still returns ``True``: nothing there proves this attempt is
+    gone, and refusing to proceed over it would trade a possible leak for a
+    certain one. Only a confirmed zero-row match is a confirmed fence miss.
 
     fix(#1778). One JSONB write, committed on its own session before the
     publishing transaction opens, which is what makes the keys nameable after
@@ -608,9 +627,10 @@ async def record_unpublished_storage_keys(
     later write adds, and fenced on ``attempt_id`` so a retry's keys never land
     on another attempt's row.
 
-    Failure is swallowed. This buys reclaimability for a crash that may not
-    happen; refusing the ingest over it would trade a possible leak for a
-    certain failure.
+    A transient failure is swallowed, same as before. This buys
+    reclaimability for a crash that may not happen; refusing the ingest over
+    an error that says nothing about the fence would trade a possible leak
+    for a certain failure.
     """
     from sqlalchemy import bindparam, case, func, text, update
     from sqlalchemy.dialects.postgresql import JSONB
@@ -627,7 +647,7 @@ async def record_unpublished_storage_keys(
             "unpublished_storage_key_not_attempt_scoped", job_id=job_id, task=task
         )
     if not unpublished:
-        return
+        return True
     # fix(#1778 codex r9): APPEND to what the row already names, never replace
     # it. `/jobs/{id}/retry` preserves `user_metadata`, so a retried ingest
     # reached this with the previous attempt's keys still on the row; a merge
@@ -659,7 +679,7 @@ async def record_unpublished_storage_keys(
     )
     try:
         async with db_module.async_session() as session:
-            await session.execute(
+            result = await session.execute(
                 update(IngestJob)
                 .where(
                     IngestJob.id == job_uuid,
@@ -680,3 +700,15 @@ async def record_unpublished_storage_keys(
         structlog.get_logger().warning(
             "unpublished_storage_keys_not_recorded", job_id=job_id, task=task
         )
+        # An error here says nothing about the fence, so it does not license
+        # an abort. See the docstring: only a confirmed zero-row match does.
+        return True
+    if not result.rowcount:  # type: ignore[attr-defined]
+        # fix(#1778 audit): a confirmed miss. This attempt no longer owns the
+        # row, so the objects it is about to write would have nothing durable
+        # naming them; the caller must not write them.
+        structlog.get_logger().warning(
+            "unpublished_storage_keys_fence_missed", job_id=job_id, task=task
+        )
+        return False
+    return True
