@@ -515,6 +515,28 @@ else
   bad "a BOM-prefixed single-line .env did not return the value (got: $BOM_OUT)"
 fi
 
+# fix(#1798 CI on round 11, P2): the FIRST fix here built the BOM inside
+# awk via `sprintf("%c%c%c", 239, 187, 191)` — correct under the awk
+# builds checked locally (BWK awk on macOS, mawk in the postgres:18
+# image), but wrong on gawk under a UTF-8 locale: gawk's `%c` there
+# encodes each numeric argument as the UTF-8 bytes for that CODE POINT,
+# not the raw byte, so the 3-`%c` BOM never equalled the file's real
+# 3-byte BOM and this exact case went red on CI (gawk, LANG=...UTF-8).
+# C.UTF-8 is used rather than en_US.UTF-8 because it needs no locale
+# generation and is present by default on this repo's CI runner and on
+# every awk (gawk, mawk, BWK) tested by hand — confirmed the ORIGINAL
+# sprintf-based approach fails under it on gawk, same as en_US.UTF-8.
+# Re-runs the same case under it so a future regression to a
+# locale-dependent construct fails here again, on whatever awk this
+# runner actually has, instead of only surfacing on CI.
+BOM_UTF8_OUT="$(LANG=C.UTF-8 LC_ALL=C.UTF-8 sh "$BOM_DRIVER" 2>&1)"
+
+if [ "$BOM_UTF8_OUT" = "FOUND:[geolens]" ]; then
+  ok "a BOM-prefixed single-line .env still returns its key's value under a UTF-8 locale"
+else
+  bad "a BOM-prefixed single-line .env did not return the value under a UTF-8 locale (got: $BOM_UTF8_OUT)"
+fi
+
 # ============================================================================
 # CASE 8 — fix(#1798 review round 11 audit, P2): _env_interpolate's
 # multi-pass loop resolves a chained ${VAR} reference by looking up the

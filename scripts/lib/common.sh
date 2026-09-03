@@ -68,6 +68,24 @@ need_command() {
 # and none of the keys these scripts read plausibly use this form.
 _ENV_INTERP_MAX_PASSES=5
 
+# fix(#1798 CI on round 11, P2): the raw 3-byte UTF-8 BOM (EF BB BF),
+# computed ONCE here via a shell printf octal escape — always exactly
+# those 3 bytes regardless of the invoking shell's own locale. Passed
+# into every `^KEY=` awk scan below via `-v bom="$_ENV_BOM"`, with the
+# awk invocation ITSELF run under `LC_ALL=C` so its `index`/`substr`
+# operate byte-wise. The prior approach built the BOM INSIDE awk via
+# `sprintf("%c%c%c", 239, 187, 191)`: correct on the two awk builds this
+# was checked against locally (BWK awk on macOS, mawk in the postgres:18
+# image under an unset/C-ish locale) but wrong on gawk under a UTF-8
+# locale (confirmed on CI, gawk 5.x) — gawk's `%c` there encodes each
+# numeric argument as the UTF-8 bytes for that CODE POINT, not the raw
+# byte value, so `sprintf("%c", 239)` becomes the two bytes 0xC3 0xAF
+# (U+00EF) instead of the single byte 0xEF, and the 3-`%c` BOM never
+# equals the file's real 3-byte BOM. Building the BOM in the SHELL and
+# forcing `LC_ALL=C` on awk sidesteps any awk implementation's own
+# locale-aware `%c`/string handling entirely.
+_ENV_BOM="$(printf '\357\273\277')"
+
 # Escapes a literal string for use as a sed BRE search pattern with `/` as
 # the delimiter.
 _env_sed_escape_pattern() {
@@ -137,22 +155,18 @@ _env_unescape_double_quoted() {
 _env_line_of() {
   key="$1"
   file="$2"
-  # fix(#1798 review round 11 audit, P2): a leading UTF-8 BOM (bytes EF BB
-  # BF — common from PowerShell's default UTF-8 output or some Windows
-  # editors saving .env) sits BEFORE the first line's own text, so `^KEY=`
-  # never matched a key on line 1 at all: every guarded caller's fallback
-  # then read that as "key absent" and silently kept the inherited/unset
-  # value instead of the operator's actual line-1 setting. Stripped once,
-  # on NR==1 only, before the match — a NR==1 octal-escape regex (`sub(/^
-  # \357\273\277/, "")`) did NOT work on either awk tested against
-  # (BWK awk on macOS, mawk in the postgres:18 image); comparing
-  # substr($0,1,3) against a byte string built with sprintf("%c%c%c", ...)
-  # does, on both.
-  awk -v k="$key" '
-    NR==1 {
-      bom = sprintf("%c%c%c", 239, 187, 191)
-      if (substr($0, 1, 3) == bom) { $0 = substr($0, 4) }
-    }
+  # fix(#1798 review round 11 audit, P2; corrected on CI, round 12): a
+  # leading UTF-8 BOM (bytes EF BB BF — common from PowerShell's default
+  # UTF-8 output or some Windows editors saving .env) sits BEFORE the
+  # first line's own text, so `^KEY=` never matched a key on line 1 at
+  # all: every guarded caller's fallback then read that as "key absent"
+  # and silently kept the inherited/unset value instead of the operator's
+  # actual line-1 setting. Stripped once, on NR==1 only, before the
+  # match, using the shell-built $_ENV_BOM under `LC_ALL=C` — see its own
+  # comment above for why building the BOM INSIDE awk via
+  # `sprintf("%c%c%c", ...)` is not locale-independent.
+  LC_ALL=C awk -v k="$key" -v bom="$_ENV_BOM" '
+    NR==1 && index($0, bom) == 1 { $0 = substr($0, length(bom) + 1) }
     { pat = "^" k "="; if ($0 ~ pat) { n = NR } }
     END { print n + 0 }
   ' "$file"
@@ -167,14 +181,10 @@ _env_raw_before() {
   key="$1"
   file="$2"
   before="$3"
-  # fix(#1798 review round 11 audit, P2): same leading-BOM strip as
-  # _env_line_of above, and for the same reason — see its comment for why
-  # sprintf("%c%c%c", ...) is the portable form.
-  awk -v k="$key" -v before="$before" '
-    NR==1 {
-      bom = sprintf("%c%c%c", 239, 187, 191)
-      if (substr($0, 1, 3) == bom) { $0 = substr($0, 4) }
-    }
+  # fix(#1798 review round 11 audit, P2; corrected on CI, round 12): same
+  # leading-BOM strip as _env_line_of above, and for the same reason.
+  LC_ALL=C awk -v k="$key" -v before="$before" -v bom="$_ENV_BOM" '
+    NR==1 && index($0, bom) == 1 { $0 = substr($0, length(bom) + 1) }
     {
       pat = "^" k "="
       if ($0 ~ pat && (before == 0 || NR < before)) {
@@ -197,11 +207,10 @@ _env_line_of_before() {
   key="$1"
   file="$2"
   before="$3"
-  awk -v k="$key" -v before="$before" '
-    NR==1 {
-      bom = sprintf("%c%c%c", 239, 187, 191)
-      if (substr($0, 1, 3) == bom) { $0 = substr($0, 4) }
-    }
+  # fix(#1798 review round 11 audit, P2; corrected on CI, round 12): same
+  # leading-BOM strip as _env_line_of above, and for the same reason.
+  LC_ALL=C awk -v k="$key" -v before="$before" -v bom="$_ENV_BOM" '
+    NR==1 && index($0, bom) == 1 { $0 = substr($0, length(bom) + 1) }
     {
       pat = "^" k "="
       if ($0 ~ pat && (before == 0 || NR < before)) { n = NR }
@@ -422,16 +431,14 @@ get_env_value() {
   # reports "no such key" as its own failure so the caller can tell that
   # apart from "key present, value empty" (found=1, empty val, exit 0).
   #
-  # fix(#1798 review round 11 audit, P2): same leading-BOM strip as
-  # _env_line_of/_env_raw_before above — a BOM-prefixed .env with its
-  # FIRST key on line 1 made that key invisible here too, and every
-  # guarded caller's fallback then treated a genuinely PRESENT key as
-  # absent, silently keeping the inherited/unset value.
-  raw="$(awk -v k="$key" '
-    NR==1 {
-      bom = sprintf("%c%c%c", 239, 187, 191)
-      if (substr($0, 1, 3) == bom) { $0 = substr($0, 4) }
-    }
+  # fix(#1798 review round 11 audit, P2; corrected on CI, round 12): same
+  # leading-BOM strip as _env_line_of/_env_raw_before above — a
+  # BOM-prefixed .env with its FIRST key on line 1 made that key invisible
+  # here too, and every guarded caller's fallback then treated a
+  # genuinely PRESENT key as absent, silently keeping the inherited/unset
+  # value.
+  raw="$(LC_ALL=C awk -v k="$key" -v bom="$_ENV_BOM" '
+    NR==1 && index($0, bom) == 1 { $0 = substr($0, length(bom) + 1) }
     {
       pat = "^" k "="
       if ($0 ~ pat) {
