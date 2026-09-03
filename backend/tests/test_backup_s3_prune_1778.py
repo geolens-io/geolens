@@ -57,6 +57,16 @@ case "$1 $2" in
         fi
         exit "${AWS_STUB_RM_EXIT:-0}"
         ;;
+    "s3 cp")
+        # fix(#1778 review round 5, P2) test support: records every upload
+        # destination so a test can prove a DAILY artifact reached
+        # upload_to_s3 even when the WEEKLY copy step that runs before it
+        # (inside backup_staging/backup_globals) failed. Opt-in via
+        # AWS_STUB_UPLOADED_FILE so existing callers that never set it are
+        # unaffected.
+        [ -n "${AWS_STUB_UPLOADED_FILE:-}" ] && echo "$4" >> "${AWS_STUB_UPLOADED_FILE}"
+        exit 0
+        ;;
     *)
         exit 0
         ;;
@@ -499,6 +509,64 @@ class TestPruneS3Prefix:
             not in deleted
         ), "a companion was pruned as an orphan after its dump's rm failed"
 
+    def test_dump_key_containing_a_space_is_pruned_by_its_real_name(
+        self, tmp_path: Path
+    ):
+        """fix(#1778 review round 5, P2): `s3_list_prefix`'s output was
+        parsed with `awk '{print $NF}'` — the LAST whitespace-separated
+        field — everywhere a listing line was turned into an object key.
+        POSTGRES_DB="geo lens" produces a dump named "geo
+        lens_<ts>.dump"; $NF truncates that to "lens_<ts>.dump", so
+        retention pruning issues `aws s3 rm` against a key that was never
+        actually in the bucket — the real object survives, accumulates
+        forever, and every cycle reports success at deleting something it
+        never touched. With keep=2 and 3 dump-only entries (no globals, so
+        none is a "complete" set eligible for protection), 08-01 is the
+        single prune candidate."""
+        listing = "\n".join(
+            [
+                "2026-08-01 02:00:00        100 geo lens_20260801_020000.dump",
+                "2026-08-02 02:00:00        100 geo lens_20260802_020000.dump",
+                "2026-08-03 02:00:00        100 geo lens_20260803_020000.dump",
+            ]
+        )
+        result, deleted = _run(tmp_path, keep="2", ls_listing=listing)
+        assert result.returncode == 0, result.stderr
+        assert (
+            "s3://test-bucket/backups/daily/geo lens_20260801_020000.dump" in deleted
+        ), f"the real (space-containing) key was never targeted: {deleted}"
+        assert (
+            "s3://test-bucket/backups/daily/lens_20260801_020000.dump" not in deleted
+        ), f"a truncated key was targeted instead of the real one: {deleted}"
+
+    def test_orphaned_companion_key_with_a_space_is_deleted_by_its_real_name(
+        self, tmp_path: Path
+    ):
+        """fix(#1778 review round 5, P2): the final orphan-companion loop
+        parsed the SAME listing with the same `awk '{print $NF}'` bug. No
+        globals-*.sql/staging-*.tar.gz name in this script embeds a space
+        today (POSTGRES_DB only ever reaches the *.dump filename), but the
+        parsing bug is generic to any key in that position, so this pins it
+        directly against a stubbed listing rather than waiting for it to
+        recur naturally. The companion's timestamp (20260901_030000) never
+        matches the one kept dump (20260801_020000), so it is an orphan
+        regardless of the fix — only the rm TARGET should change."""
+        listing = "\n".join(
+            [
+                "2026-08-01 02:00:00        100 geolens_20260801_020000.dump",
+                "2026-08-05 02:05:00         50 globals extra-20260901_030000.sql",
+            ]
+        )
+        result, deleted = _run(tmp_path, keep="2", ls_listing=listing)
+        assert result.returncode == 0, result.stderr
+        assert (
+            "s3://test-bucket/backups/daily/globals extra-20260901_030000.sql"
+            in deleted
+        ), f"the real (space-containing) companion key was never targeted: {deleted}"
+        assert (
+            "s3://test-bucket/backups/daily/extra-20260901_030000.sql" not in deleted
+        ), f"a truncated companion key was targeted instead: {deleted}"
+
 
 def _run_full_cycle(
     tmp_path: Path, rm_exit: int = 0
@@ -688,3 +756,115 @@ class TestWeeklyCopyFailureStillPrunesDaily:
         assert marker.exists()
         remaining = sorted(p.name for p in daily_dir.glob("*.dump"))
         assert "geolens_20260101_020000.dump" not in remaining
+
+
+def _run_weekly_staging_globals_upload_cycle(
+    tmp_path: Path, weekly_dir_writable: bool = False
+) -> tuple[subprocess.CompletedProcess, list[str]]:
+    """fix(#1778 review round 5, P2) regression harness: a real Sunday
+    run_backup() cycle with BACKUP_S3_ENABLED=true and a non-empty
+    STAGING_DIR (so backup_staging does not take its early "not mounted" /
+    "empty" skip), while WEEKLY_DIR is read-only by default so the weekly
+    copy step inside both backup_staging and backup_globals fails — the
+    same "nearly full volume" shape TestWeeklyCopyFailureStillPrunesDaily
+    above drives against the dump copy. Every `aws s3 cp` destination is
+    recorded via AWS_STUB_UPLOADED_FILE so the test can prove the DAILY
+    staging archive and globals dump still reached upload_to_s3 despite the
+    weekly-copy failure.
+    """
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name, content in (
+        ("date", _DATE_STUB),
+        ("pg_dump", _PG_DUMP_STUB),
+        ("pg_restore", _PG_RESTORE_STUB),
+        ("pg_dumpall", _PG_DUMPALL_STUB),
+        ("aws", _AWS_STUB),
+    ):
+        stub = bin_dir / name
+        stub.write_text(content)
+        stub.chmod(0o755)
+
+    backup_dir = tmp_path / "backups"
+    weekly_dir = backup_dir / "weekly"
+    staging_dir = tmp_path / "staging"
+    staging_dir.mkdir()
+    (staging_dir / "object.bin").write_text("staged object bytes\n")
+
+    ls_file = tmp_path / "ls_output.txt"
+    ls_file.write_text("")
+    deleted_file = tmp_path / "deleted.txt"
+    deleted_file.write_text("")
+    uploaded_file = tmp_path / "uploaded.txt"
+    uploaded_file.write_text("")
+
+    extra_setup = "" if weekly_dir_writable else 'chmod 555 "$WEEKLY_DIR"\n'
+    harness = f"{_extract_run_backup_definitions()}\n{extra_setup}run_backup\n"
+    result = subprocess.run(
+        ["bash", "-c", harness],
+        capture_output=True,
+        text=True,
+        env={
+            "PATH": f"{bin_dir}:/usr/bin:/bin",
+            "BACKUP_DIR": str(backup_dir),
+            "STAGING_DIR": str(staging_dir),
+            "POSTGRES_DB": "geolens",
+            "POSTGRES_HOST": "db",
+            "POSTGRES_USER": "geolens",
+            "POSTGRES_PASSWORD": "test-password",
+            "BACKUP_RETENTION_DAILY": "7",
+            "BACKUP_RETENTION_WEEKLY": "4",
+            "BACKUP_S3_ENABLED": "true",
+            "S3_BUCKET": "test-bucket",
+            "S3_ACCESS_KEY_ID": "test-key",
+            "S3_SECRET_ACCESS_KEY": "test-secret",
+            "AWS_STUB_LS_FILE": str(ls_file),
+            "AWS_STUB_DELETED_FILE": str(deleted_file),
+            "AWS_STUB_UPLOADED_FILE": str(uploaded_file),
+            "AWS_STUB_LS_EXIT": "0",
+        },
+    )
+    weekly_dir.chmod(0o755)  # let tmp_path teardown clean up regardless
+    uploaded = [line for line in uploaded_file.read_text().splitlines() if line.strip()]
+    return result, uploaded
+
+
+class TestWeeklyCopyFailureStillUploadsDailyArtifact:
+    """fix(#1778 review round 5, P2): scripts/backup-entrypoint.sh:351 — on
+    a Sunday with WEEKLY_DIR unwritable but DAILY_DIR fine, backup_staging
+    returned after publishing the daily archive but before printing its
+    path, so `staging_archive="$(backup_staging "$timestamp")"` came back
+    empty and the valid daily artifact was never handed to upload_to_s3 —
+    not even under the daily/ prefix. backup_globals had the identical
+    shape for the globals dump. Both now fall through to their final printf
+    regardless of the weekly-copy outcome, matching how run_backup's own
+    weekly dump copy already behaves (dump_ok only gates a copy the dump
+    itself failed to survive, never a copy that just couldn't reach
+    WEEKLY_DIR).
+    """
+
+    def test_daily_artifacts_still_upload_despite_weekly_copy_failure(
+        self, tmp_path: Path
+    ):
+        result, uploaded = _run_weekly_staging_globals_upload_cycle(tmp_path)
+        assert result.returncode != 0, (
+            "a failed weekly copy must still fail the cycle: " + result.stdout
+        )
+        assert any("daily/staging-" in line for line in uploaded), (
+            f"the daily staging archive was never uploaded — uploads: {uploaded}"
+        )
+        assert any("daily/globals-" in line for line in uploaded), (
+            f"the daily globals dump was never uploaded — uploads: {uploaded}"
+        )
+
+    def test_successful_weekly_copy_uploads_both_daily_and_weekly(self, tmp_path: Path):
+        """Positive control: with WEEKLY_DIR writable, the same cycle
+        succeeds and uploads reach both prefixes."""
+        result, uploaded = _run_weekly_staging_globals_upload_cycle(
+            tmp_path, weekly_dir_writable=True
+        )
+        assert result.returncode == 0, result.stdout
+        assert any("daily/staging-" in line for line in uploaded)
+        assert any("daily/globals-" in line for line in uploaded)
+        assert any("weekly/staging-" in line for line in uploaded)
+        assert any("weekly/globals-" in line for line in uploaded)

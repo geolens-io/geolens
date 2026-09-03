@@ -340,6 +340,17 @@ backup_staging() {
     local size
     size="$(du -h "$archive" | cut -f1)"
     log "Object-storage archive complete: $(basename "$archive") (${size})" >&2
+    # fix(#1778 review round 5, P2): a weekly-copy failure here must not
+    # `return` before the final printf below — $archive is already
+    # published under DAILY_DIR at this point, and run_backup's caller does
+    # `staging_archive="$(backup_staging "$timestamp")" || cycle_failed=1`.
+    # Returning early left $staging_archive empty, so the valid daily
+    # artifact was never handed to upload_to_s3 either — a nearly full
+    # WEEKLY_DIR volume silently orphaned a perfectly good daily archive
+    # from the offsite copy too. weekly_failed keeps the cycle marked
+    # failed (matching how run_backup's own weekly dump-copy failure
+    # behaves) while still printing the path every other path already does.
+    local weekly_failed=0
     if [ "${CYCLE_IS_WEEKLY:-0}" -eq 1 ]; then
         # Same .tmp-then-rename as the weekly dump/globals copies, and for the
         # same reason: a container killed mid-cp must never leave a truncated
@@ -348,11 +359,15 @@ backup_staging() {
             || ! mv "${WEEKLY_DIR}/$(basename "$archive").tmp" "${WEEKLY_DIR}/$(basename "$archive")"; then
             log "ERROR: could not write the weekly object-storage copy to ${WEEKLY_DIR}" >&2
             rm -f "${WEEKLY_DIR}/$(basename "$archive").tmp"
-            return 1
+            weekly_failed=1
+        else
+            log "Weekly object-storage copy saved: $(basename "$archive")" >&2
         fi
-        log "Weekly object-storage copy saved: $(basename "$archive")" >&2
     fi
     printf '%s\n' "$archive"
+    if [ "$weekly_failed" -eq 1 ]; then
+        return 1
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -374,6 +389,7 @@ backup_staging() {
 backup_globals() {
     local timestamp="$1"
     local globals_file="${DAILY_DIR}/globals-${timestamp}.sql"
+    local weekly_failed=0
 
     log "Dumping cluster globals: $(basename "$globals_file")" >&2
     # fix(#995): write to .tmp and rename on success, for the same reason the
@@ -418,16 +434,27 @@ backup_globals() {
         # rename so the file is never visible under its final name at a wider
         # mode.
         local weekly_copy="${WEEKLY_DIR}/$(basename "$globals_file")"
+        # fix(#1778 review round 5, P2): as with backup_staging above, a
+        # weekly-copy failure must not `return` before the final printf —
+        # $globals_file is already published under DAILY_DIR, and
+        # run_backup's caller does `globals_dump="$(backup_globals
+        # "$timestamp")" || cycle_failed=1`. Returning early left
+        # $globals_dump empty, orphaning the valid daily globals dump from
+        # the offsite upload too.
         if ! cp "$globals_file" "${weekly_copy}.tmp" \
             || ! chmod 600 "${weekly_copy}.tmp" \
             || ! mv "${weekly_copy}.tmp" "$weekly_copy"; then
             log "ERROR: could not write the weekly globals copy to ${WEEKLY_DIR}" >&2
             rm -f "${weekly_copy}.tmp"
-            return 1
+            weekly_failed=1
+        else
+            log "Weekly globals copy saved: $(basename "$globals_file")" >&2
         fi
-        log "Weekly globals copy saved: $(basename "$globals_file")" >&2
     fi
     printf '%s\n' "$globals_file"
+    if [ "$weekly_failed" -eq 1 ]; then
+        return 1
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -559,8 +586,22 @@ s3_list_prefix() {
 # on a fresh cluster.
 s3_newest_complete_ts() {
     local listing="$1"
-    local names name ts best=""
-    names="$(printf '%s\n' "$listing" | awk '{print $NF}')"
+    local names name ts best="" _d _t _s
+    # fix(#1778 review round 5, P2): `awk '{print $NF}'` returns only the
+    # LAST whitespace-separated field — a key containing a space
+    # (POSTGRES_DB="geo lens" produces geo lens_<ts>.dump) gets truncated to
+    # its final word, so the timestamp-completeness check below can compare
+    # against a name that was never actually in the bucket. `aws s3 ls`
+    # lines are `<date> <time> <size> <key>`: read the first three fields
+    # by name and let `key` (the LAST read variable) absorb everything
+    # after them verbatim, spaces included, the same fix applied to
+    # prune_s3_prefix below.
+    names="$(
+        while IFS=' ' read -r _d _t _s name; do
+            [ -n "$name" ] || continue
+            printf '%s\n' "$name"
+        done <<< "$listing"
+    )"
     while IFS= read -r name; do
         if [[ "$name" == globals-*.sql ]]; then
             ts="$(printf '%s' "$name" | sed -nE 's/^globals-([0-9]{8}_[0-9]{6})\.sql$/\1/p')"
@@ -620,16 +661,25 @@ prune_s3_prefix() {
     #     substitution AND contains its own nested `$( )` confuses bash's
     #     parser (measured on bash 5.2: "syntax error near unexpected token
     #     `newline'") — `[[ ]]` sidesteps it entirely.
-    local dumps name ts
+    local dumps name ts _d _t _s
+    # fix(#1778 review round 5, P2): read the first three fields (date,
+    # time, size) by name and let `name` — the last variable `read`
+    # assigns — absorb the rest of the line verbatim. `awk '{print $NF}'`
+    # (the prior approach) returns only the FINAL whitespace-separated
+    # token, so a key containing a space (POSTGRES_DB="geo lens" produces
+    # geo lens_<ts>.dump) was silently truncated to "lens_<ts>.dump" — a
+    # name retention pruning would never find in the bucket, so its `aws s3
+    # rm` deletes nothing, prune_s3_prefix still reports it pruned, and the
+    # real object accumulates forever.
     dumps="$(
-        printf '%s\n' "$ls_output" | awk '{print $NF}' \
-            | while IFS= read -r name; do
-                if [[ "$name" == *.dump ]]; then
-                    ts="$(printf '%s' "$name" | sed -nE 's/^.*[_-]([0-9]{8}_[0-9]{6})\.dump$/\1/p')"
-                    [ -n "$ts" ] || continue
-                    printf '%s\t%s\n' "$ts" "$name"
-                fi
-            done | sort
+        while IFS=' ' read -r _d _t _s name; do
+            [ -n "$name" ] || continue
+            if [[ "$name" == *.dump ]]; then
+                ts="$(printf '%s' "$name" | sed -nE 's/^.*[_-]([0-9]{8}_[0-9]{6})\.dump$/\1/p')"
+                [ -n "$ts" ] || continue
+                printf '%s\t%s\n' "$ts" "$name"
+            fi
+        done <<< "$ls_output" | sort
     )"
 
     # fix(#1778 review, P2): a `| while` loop runs in a SUBSHELL — a `local`
@@ -706,7 +756,14 @@ prune_s3_prefix() {
     local kept_ts
     kept_ts="$(printf '%s\n' "$dumps" | cut -f1)"
 
-    while IFS= read -r name; do
+    # fix(#1778 review round 5, P2): same fixed-column read as the dumps
+    # loop above, not `awk '{print $NF}'` — a companion whose key contains
+    # a space would otherwise be misparsed to its final word, comparing a
+    # timestamp extracted from a truncated name against $kept_ts and either
+    # deleting the wrong (nonexistent) object or leaving the real one
+    # behind indefinitely.
+    while IFS=' ' read -r _d _t _s name; do
+        [ -n "$name" ] || continue
         if [[ "$name" == *.sql || "$name" == *.tar.gz ]]; then
             ts="$(printf '%s' "$name" | sed -nE 's/^.*[_-]([0-9]{8}_[0-9]{6})\.(sql|tar\.gz)$/\1/p')"
             [ -n "$ts" ] || continue
@@ -718,7 +775,7 @@ prune_s3_prefix() {
                 fi
             fi
         fi
-    done < <(printf '%s\n' "$ls_output" | awk '{print $NF}')
+    done <<< "$ls_output"
 
     # fix(#1778 review, P2): surface a partial-prune cycle to the caller so
     # run_backup marks it failed (cycle_failed=1) — the same treatment a
