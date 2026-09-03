@@ -30,6 +30,7 @@ from . import refresh as _refresh
 from . import replace as _replace
 from . import scan as _scan
 from ._sdk_helpers import (
+    DEFAULT_HTTP_TIMEOUT_SECONDS,
     EXIT_AUTH,
     EXIT_GENERIC,
     EXIT_NETWORK,
@@ -95,10 +96,18 @@ class AppState:
         bearer = _auth.load_bearer_token(instance)
         api_key = _auth.load_api_key(instance)
         if bearer:
-            return GeolensClient(base_url=instance, bearer_token=bearer.value)
-        if api_key:
-            return GeolensClient(base_url=instance, api_key=api_key.value)
-        return GeolensClient(base_url=instance)
+            client = GeolensClient(base_url=instance, bearer_token=bearer.value)
+        elif api_key:
+            client = GeolensClient(base_url=instance, api_key=api_key.value)
+        else:
+            client = GeolensClient(base_url=instance)
+        # fix(#1778, #1787): the SDK's generated transport otherwise carries
+        # timeout=None (unbounded), so every command hangs forever against a
+        # black-holed host instead of exiting EXIT_NETWORK. Commands that
+        # poll (publish --wait, analysis materialize --wait) bound each
+        # individual request further still — see publish.resolve_dataset_id.
+        client.client.get_httpx_client().timeout = DEFAULT_HTTP_TIMEOUT_SECONDS
+        return client
 
 
 def _version_callback(value: bool) -> None:

@@ -285,6 +285,55 @@ class TestUploadFile:
         # Result has the SDK Response shape
         assert int(result.status_code) == 201
 
+    def test_upload_raises_the_timeout_then_restores_it(
+        self, tmp_path: Path
+    ) -> None:
+        """fix(#1778): AppState.sdk() now bounds every request to
+        _sdk_helpers.DEFAULT_HTTP_TIMEOUT_SECONDS (30s), too short for a
+        large geospatial file on an ordinary connection. upload_file()
+        must raise the bound for the POST itself and put the original
+        value back afterward, so a later request on this same client
+        (preview/commit/poll) is not left with the upload's longer bound.
+        """
+        from geolens_cli.publish import _UPLOAD_REQUEST_TIMEOUT_SECONDS, upload_file
+
+        sample = tmp_path / "cities.geojson"
+        sample.write_text('{"type":"FeatureCollection","features":[]}')
+
+        seen_timeout_during_post = None
+
+        mock_httpx = MagicMock()
+        mock_httpx.timeout = 30.0  # AppState.sdk()'s default bound
+
+        def fake_post(*args, **kwargs):
+            nonlocal seen_timeout_during_post
+            seen_timeout_during_post = mock_httpx.timeout
+            raw_response = MagicMock()
+            raw_response.status_code = 201
+            raw_response.content = (
+                b'{"job_id":"00000000-0000-0000-0000-000000000001",'
+                b'"status":"pending","message":"ok"}'
+            )
+            raw_response.headers = {}
+            raw_response.json.return_value = {
+                "job_id": "00000000-0000-0000-0000-000000000001",
+                "status": "pending",
+                "message": "ok",
+            }
+            return raw_response
+
+        mock_httpx.post.side_effect = fake_post
+
+        sdk_client = MagicMock()
+        sdk_client.get_httpx_client.return_value = mock_httpx
+        sdk_client.raise_on_unexpected_status = False
+
+        upload_file(sdk_client, sample)
+
+        assert seen_timeout_during_post == _UPLOAD_REQUEST_TIMEOUT_SECONDS
+        assert seen_timeout_during_post != 30.0
+        assert mock_httpx.timeout == 30.0
+
 
 # ---------------------------------------------------------------------------
 # Task 2 — geolens publish CLI command body
@@ -1782,6 +1831,62 @@ class TestResolveDatasetIdNetworkError:
                 monotonic=iter([0.0, 1.0]).__next__,
             )
         assert exc_info.value.exit_code == EXIT_NETWORK
+
+
+class TestResolveDatasetIdBoundsEachRequest:
+    """fix(#1778, #1787): resolve_dataset_id's own poll requests inherited
+    the client's default timeout=None (unbounded) — the deadline computed
+    from `timeout` is only checked BETWEEN polls, so a single stalled
+    connection could hang --wait forever regardless of how short the
+    caller's overall deadline was. Each request must be bound to
+    _SNAPSHOT_REQUEST_TIMEOUT_SECONDS (the same short bound already used
+    for the one-shot follow-up read of this identical endpoint), and the
+    transport's original timeout restored once polling stops."""
+
+    def test_each_poll_request_is_bounded_and_original_timeout_restored(
+        self, monkeypatch
+    ) -> None:
+        from types import SimpleNamespace
+
+        from geolens_cli import publish as _publish
+
+        transport = SimpleNamespace(timeout="unset-original")
+        client = MagicMock()
+        client.get_httpx_client.return_value = transport
+
+        seen_timeouts: list = []
+
+        def next_status(**kwargs):
+            seen_timeouts.append(transport.timeout)
+            return MagicMock(
+                status_code=HTTPStatus.OK,
+                parsed=SimpleNamespace(status="running", dataset_id=None),
+            )
+
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            next_status,
+        )
+
+        outcome = _publish.resolve_dataset_id(
+            client,
+            "00000000-0000-0000-0000-000000000001",
+            timeout=120.0,
+            sleep=lambda *_: None,
+            monotonic=iter([0.0, 1.0, 200.0]).__next__,
+        )
+
+        assert outcome.stopped_because == "timeout"
+        assert seen_timeouts, "no poll request was observed"
+        # Every poll request was bounded well under the 120s overall
+        # deadline — previously it inherited the client's default
+        # (unbounded) timeout.
+        assert all(
+            t == _publish._SNAPSHOT_REQUEST_TIMEOUT_SECONDS for t in seen_timeouts
+        )
+        # The transport's timeout is restored to whatever it was before
+        # polling started, not left at the short per-request bound.
+        assert transport.timeout == "unset-original"
 
 
 # ---------------------------------------------------------------------------

@@ -76,3 +76,29 @@ class TestTrailingSlashOverrideFindsStoredCredential:
         token = _auth.load_bearer_token(resolved)
         assert token is not None
         assert token.value == "tok-xyz"
+
+
+class TestSdkHasADefaultHttpTimeout:
+    """fix(#1778): AppState.sdk() built its client with the SDK's default
+    timeout=None (unbounded) — every command hung forever against a host
+    that black-holes packets instead of exiting EXIT_NETWORK, and
+    _sdk_helpers.call_sdk's httpx.TimeoutException branch could never
+    fire. No login/keyring state is needed: AppState.sdk() constructs an
+    anonymous client whenever no bearer token or API key is stored."""
+
+    def test_sdk_client_transport_has_a_bound(
+        self, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        import httpx
+
+        from geolens_cli import _sdk_helpers
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        state = _make_state(config_instance=CANONICAL)
+
+        transport = state.sdk().client.get_httpx_client()
+
+        assert transport.timeout != httpx.Timeout(None)
+        assert transport.timeout == httpx.Timeout(
+            _sdk_helpers.DEFAULT_HTTP_TIMEOUT_SECONDS
+        )

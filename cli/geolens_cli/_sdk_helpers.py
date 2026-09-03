@@ -28,6 +28,17 @@ EXIT_AUTH = 3
 EXIT_NETWORK = 4
 EXIT_SERVER = 5
 
+#: fix(#1778): the SDK builds its httpx client with timeout=None (no limit
+#: at all, not httpx's 5s default — see main.py's AppState.sdk()), so
+#: without a default here every command (login, whoami, status, publish,
+#: apply, export stac, analysis preview, default refresh) hangs forever
+#: against a host that black-holes packets, and this module's own
+#: httpx.TimeoutException branch above can never fire. A plain float
+#: (not httpx.Timeout) so callers stay clear of OCCLI-06's import
+#: restriction; httpx accepts either. The long upload stage in publish.py
+#: overrides this with a more generous bound for the file transfer itself.
+DEFAULT_HTTP_TIMEOUT_SECONDS: float = 30.0
+
 
 class DeadlineTimeout(Exception):
     """An SDK request consumed the caller's operation deadline."""
