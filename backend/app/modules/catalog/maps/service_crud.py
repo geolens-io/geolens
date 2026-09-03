@@ -8,7 +8,8 @@ from typing import cast
 
 import structlog
 from fastapi import HTTPException, status
-from sqlalchemy import Row, Select, func, or_, select
+from sqlalchemy import Row, Select, func, or_, select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -57,6 +58,31 @@ def new_map_asset_key(prefix: str, map_id: uuid.UUID, ext: str) -> str:
     return f"{prefix}/{map_id}-{uuid.uuid4().hex}.{ext}"
 
 
+def _is_lock_timeout_error(exc: BaseException) -> bool:
+    """True for PostgreSQL 55P03 (lock_timeout exceeded), asyncpg or wrapped.
+
+    fix(audit finding, round 8): asyncpg raises ``LockNotAvailableError``
+    directly; ``AsyncSession.execute`` wraps it in SQLAlchemy's ``DBAPIError``
+    with ``.orig`` pointing at that same exception. Check both shapes, the way
+    a sibling helper on the ingest side and ``app.platform.jobs.router``'s
+    ``_is_lock_conflict`` already do for their own callers. This module keeps
+    its own copy rather than importing either: the ingest one sits behind the
+    CatalogPort boundary this domain is not allowed to reach past directly, and
+    the platform one is a private, unexported name. Neither is worth a shared
+    cross-domain dependency for four lines of SQLSTATE matching.
+    """
+    try:
+        from asyncpg.exceptions import LockNotAvailableError
+
+        if isinstance(exc, LockNotAvailableError):
+            return True
+    except ImportError:
+        pass
+
+    orig = getattr(exc, "orig", None)
+    return orig is not None and getattr(orig, "sqlstate", None) == "55P03"
+
+
 async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> Row:
     """Take the row lock that serializes one map's asset replacements.
 
@@ -92,12 +118,42 @@ async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> 
     would be the ones from BEFORE the wait on the lock. Whatever the other
     request committed while this one waited is exactly what this read exists to
     see. A column select never consults the identity map, so it cannot go stale.
+
+    fix(audit finding, round 8): a ``SET LOCAL lock_timeout`` bounds the wait.
+    The lock used to be held from here through the caller's commit with no
+    engine-side timeout, which is fine for the lock's own purpose (serializing
+    replacements) but not for what got layered on top later: the write this
+    lock guards awaits ``storage.put`` before the commit, and the S3 provider's
+    connect/read timeouts plus its adaptive retries can take on the order of a
+    minute (``app/platform/storage/s3.py``). A degraded backend held every
+    other writer to the same map (the other image upload, a rename, a delete)
+    queued behind it with no bound, instead of failing fast. ``'2s'`` matches
+    the budget ``lock_map_for_asset_write``'s callers can already spend before
+    they answer (a row lock that is still contended after two seconds is
+    contended by another live request, not by network latency inside this one),
+    and matches the timeout the same pattern already uses in
+    ``app.platform.jobs.router`` (``SET LOCAL lock_timeout = '2s'`` there too).
+    A losing wait raises 55P03, mapped below to 409 rather than 500: nothing
+    was written, and the client's retry is the correct next action.
     """
-    result = await session.execute(
-        select(Map.thumbnail_uri, Map.og_image_uri)
-        .where(Map.id == map_id)
-        .with_for_update()
-    )
+    await session.execute(text("SET LOCAL lock_timeout = '2s'"))
+    try:
+        result = await session.execute(
+            select(Map.thumbnail_uri, Map.og_image_uri)
+            .where(Map.id == map_id)
+            .with_for_update()
+        )
+    except DBAPIError as exc:
+        if not _is_lock_timeout_error(exc):
+            raise
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "map_asset_write_locked",
+                "message": "Another write to this map's assets is in progress. Retry shortly.",
+            },
+        ) from exc
     row = result.one_or_none()
     if row is None:
         raise HTTPException(
@@ -223,9 +279,20 @@ class MapAssetPublication:
         PHYSICAL, not logical: the writers resolve their keys differently (map
         images cross ``resolve_current_storage_key`` into the tenant prefix,
         sprite icons are deliberately global), and the rollback deletes what it
-        is given rather than resolving anything itself. Recording before the
-        write would target an object that does not exist, which is harmless;
-        recording after the commit would never be rolled back, which is not.
+        is given rather than resolving anything itself.
+
+        fix(#1778 round 7): call this BEFORE awaiting the write, not after.
+        Object storage can durably accept a PUT and still fail the client with a
+        timeout or a dropped connection, so a raise from the write says nothing
+        about whether the bytes landed; recording afterwards left the ledger
+        empty and the object unreferenced and unreclaimed, one more per retry.
+        Recording first costs nothing, because the key is freshly generated and
+        never reused: the rollback either deletes an object this request wrote,
+        or no-ops on a key nothing ever wrote, which every provider treats as
+        success (local "no error if missing", S3 silently ignores, Azure catches
+        ResourceNotFoundError).
+        ``test_every_object_write_records_before_putting_1778`` fails the build
+        if a writer puts before it records.
         """
         self._pending.append(physical_key)
 

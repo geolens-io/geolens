@@ -345,9 +345,14 @@ async def create_icon_asset(
     storage_key = f"maps/icons/{icon_id}{extension}"
     # Persist the sanitized form so the bytes on disk match what validation
     # accepted (SEC-09). For PNG this is the original bytes unchanged.
-    await get_storage().put(storage_key, sanitized_content)
+    # fix(#1778 round 7): recorded before the write, like the two image
+    # handlers. Object storage can durably accept a PUT and still fail the
+    # client, so a raise from the put says nothing about whether the bytes
+    # landed; the key is freshly generated and never reused, so a rollback
+    # delete is either a real cleanup or a no-op on a key nothing wrote.
     if publication is not None:
         publication.record(storage_key)
+    await get_storage().put(storage_key, sanitized_content)
     asset = MapIconAsset(
         id=icon_id,
         name=Path(filename or "Icon").stem or "Icon",

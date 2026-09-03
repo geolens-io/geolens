@@ -1070,6 +1070,14 @@ async def upload_thumbnail(
     # being reused every retry would add another.
     async with map_asset_publication() as publication:
         physical_key = _map_asset_storage_key(storage_key)
+        # fix(#1778 round 7): recorded BEFORE the write is awaited. Object
+        # storage can durably accept a PUT and still fail the client with a
+        # timeout or a dropped connection, so a raise here says nothing about
+        # whether the bytes landed. Recording first is free: the key is freshly
+        # generated and never reused, so the rollback's delete either removes an
+        # object this request wrote or is a no-op on a key that was never
+        # written, which every provider treats as success.
+        publication.record(physical_key)
         try:
             await storage.put(physical_key, image_bytes)
         except Exception:  # broad: storage backend (S3/MinIO/local) can throw varied SDK/I/O errors; map to 502
@@ -1078,7 +1086,6 @@ async def upload_thumbnail(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Thumbnail storage unavailable",
             )
-        publication.record(physical_key)
 
         await _record_image_capture(db, map_id, thumbnail_uri=storage_key)
         # fix(#1778 round 5): the commit is the boundary, not the end of this
@@ -1226,6 +1233,9 @@ async def upload_og_image(
     # fix(#1778 round 4): same publication guard as the thumbnail PUT above.
     async with map_asset_publication() as publication:
         physical_key = _map_asset_storage_key(storage_key)
+        # fix(#1778 round 7): recorded before the write, same as the thumbnail
+        # PUT above and for the same reason.
+        publication.record(physical_key)
         try:
             await storage.put(physical_key, image_bytes)
         except (
@@ -1236,7 +1246,6 @@ async def upload_og_image(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="OG image storage unavailable",
             )
-        publication.record(physical_key)
 
         await _record_image_capture(db, map_id, og_image_uri=storage_key)
         # fix(#1778 round 5): the commit is the boundary, not the end of this

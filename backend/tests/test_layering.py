@@ -1654,7 +1654,19 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # verifying from an independent session before deleting was refused: it
         # is a database call on an error path, over a connection that has just
         # proven unreliable, to decide a deletion. Cap 741 -> 783, exact.
-        "backend/app/modules/catalog/maps/service_crud.py": 783,
+        # fix(#1778 round 7): +11 — record()'s docstring now states the ordering
+        # as a rule rather than an aside, including the provider evidence that
+        # deleting a never-written key is a no-op everywhere (local, S3, Azure),
+        # which is what makes recording before the write free.
+        # Cap 783 -> 794, exact.
+        # fix(audit finding, round 8): +56 — lock_map_for_asset_write now runs
+        # under SET LOCAL lock_timeout = '2s' and maps a lost race (55P03) to a
+        # 409 instead of hanging, plus the _is_lock_timeout_error helper that
+        # detects it across asyncpg and SQLAlchemy wrapping. Most of the growth
+        # is the docstring addition explaining why an unbounded wait here was a
+        # real problem once the row lock started spanning an object-storage
+        # PUT with minute-scale S3 timeouts. Cap 794 -> 850, exact.
+        "backend/app/modules/catalog/maps/service_crud.py": 850,
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the
         # carve-out exact so further growth requires another review.
@@ -4831,7 +4843,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # each handler can mark its publication immediately before awaiting it, and
     # a commit that made the row durable but never acknowledged it deletes
     # nothing. Cap 1534 -> 1545, exact.
-    "backend/app/modules/catalog/maps/router.py": 1545,
+    # fix(#1778 round 7): +9 — the ledger entry moved above the write it covers,
+    # with the comment saying why that is free: object storage can durably
+    # accept a PUT and still fail the client, and the key is never reused, so a
+    # rollback delete either cleans up or no-ops. Cap 1545 -> 1554, exact.
+    "backend/app/modules/catalog/maps/router.py": 1554,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.

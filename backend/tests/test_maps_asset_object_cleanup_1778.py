@@ -937,6 +937,62 @@ def test_every_object_write_in_the_maps_package_is_published_1778() -> None:
     assert unguarded == [], unguarded
 
 
+def test_every_object_write_records_before_putting_1778() -> None:
+    """fix(#1778 round 7): the ledger entry precedes the write it covers.
+
+    Object storage can durably accept a PUT and still fail the client with a
+    timeout or a dropped connection, so a raise from the write says nothing
+    about whether the bytes landed. Recording afterwards left the ledger empty
+    for exactly that case, and since keys are never reused the object was
+    unreferenced and unreclaimable, one more per retry. Recording first is free:
+    the rollback either deletes what this request wrote or no-ops on a key
+    nothing wrote.
+    """
+    import ast
+    from pathlib import Path
+
+    package = Path(__file__).resolve().parents[1] / "app/modules/catalog/maps"
+    writers: dict[str, tuple[int, int]] = {}
+    for path in sorted(package.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            body = [child for stmt in node.body for child in ast.walk(stmt)]
+            puts = [
+                child.lineno
+                for child in body
+                if isinstance(child, ast.Call)
+                and isinstance(child.func, ast.Attribute)
+                and child.func.attr == "put"
+            ]
+            if not puts:
+                continue
+            records = [
+                child.lineno
+                for child in body
+                if isinstance(child, ast.Call)
+                and isinstance(child.func, ast.Attribute)
+                and child.func.attr == "record"
+            ]
+            writers[f"{path.name}::{node.name}"] = (
+                min(records) if records else -1,
+                min(puts),
+            )
+
+    assert set(writers) == {
+        "router.py::upload_thumbnail",
+        "router.py::upload_og_image",
+        "sprites.py::create_icon_asset",
+    }, sorted(writers)
+    offenders = [
+        where
+        for where, (record_line, put_line) in writers.items()
+        if record_line < 0 or record_line > put_line
+    ]
+    assert offenders == [], offenders
+
+
 def test_every_publication_settles_at_the_commit_1778() -> None:
     """fix(#1778 round 5): the rollback boundary is the commit, not the block.
 
@@ -1342,3 +1398,208 @@ class TestAnIndeterminateCommitKeepsTheObject:
             provider_module._storage = original
 
         assert deleted == ["maps/thumbnails/after-settling.jpg"]
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778 round 7): a write whose outcome is ambiguous is still rolled back
+# ---------------------------------------------------------------------------
+
+
+def _put_then_fail_the_client(monkeypatch):
+    """Write the object for real, then raise as object storage timing out.
+
+    S3 and MinIO can durably accept a PUT and still fail the client with a
+    timeout or a dropped connection. Recording the key only after the write
+    returned left the ledger empty for exactly that case, so the object was
+    never referenced by a row and never cleaned up, one more per retry.
+    """
+    storage = _storage()
+    original_put = storage.put
+
+    async def _put_then_raise(key: str, data):
+        await original_put(key, data)
+        raise TimeoutError("the object landed, the acknowledgement did not")
+
+    monkeypatch.setattr(storage, "put", _put_then_raise)
+
+
+class TestAnAmbiguousWriteIsRolledBack:
+    @pytest.mark.parametrize(
+        ("route", "prefix"),
+        [("thumbnail", "maps/thumbnails"), ("og-image", "maps/og-images")],
+    )
+    async def test_the_object_is_deleted_even_though_the_put_raised(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        monkeypatch,
+        route: str,
+        prefix: str,
+    ) -> None:
+        map_id = await _create_map(client, admin_auth_header)
+        _put_then_fail_the_client(monkeypatch)
+
+        resp = await client.put(
+            f"/maps/{map_id}/{route}/",
+            json={"data_uri": _jpeg_data_uri()},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 502, resp.text
+        assert await _objects(prefix, map_id) == set()
+
+    async def test_every_retry_of_an_ambiguous_write_leaves_nothing(
+        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        """The leak compounded because the keys are never reused."""
+        map_id = await _create_map(client, admin_auth_header)
+        _put_then_fail_the_client(monkeypatch)
+
+        for _ in range(3):
+            resp = await client.put(
+                f"/maps/{map_id}/thumbnail/",
+                json={"data_uri": _jpeg_data_uri()},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 502, resp.text
+
+        assert await _objects("maps/thumbnails", map_id) == set()
+
+    async def test_the_icon_object_is_deleted_too(
+        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        from PIL import Image
+
+        before = set(await _storage().list("maps/icons/"))
+        _put_then_fail_the_client(monkeypatch)
+
+        png = BytesIO()
+        Image.new("RGB", (8, 8), color=(3, 2, 1)).save(png, format="PNG")
+        with pytest.raises(TimeoutError):
+            await client.post(
+                "/maps/icons",
+                files={"file": ("icon.png", png.getvalue(), "image/png")},
+                headers=admin_auth_header,
+            )
+
+        assert set(await _storage().list("maps/icons/")) == before
+
+    async def test_a_stored_image_survives_an_ambiguous_replacement(
+        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        """The rollback removes the new key only, never the one on the row."""
+        map_id = await _create_map(client, admin_auth_header)
+        await client.put(
+            f"/maps/{map_id}/thumbnail/",
+            json={"data_uri": _jpeg_data_uri()},
+            headers=admin_auth_header,
+        )
+        stored = await _the_object("maps/thumbnails", map_id)
+
+        _put_then_fail_the_client(monkeypatch)
+        resp = await client.put(
+            f"/maps/{map_id}/thumbnail/",
+            json={"data_uri": _png_data_uri()},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 502, resp.text
+        assert await _objects("maps/thumbnails", map_id) == {stored}
+        served = await client.get(
+            f"/maps/{map_id}/thumbnail/", headers=admin_auth_header
+        )
+        assert served.status_code == 200, served.text
+
+    async def test_deleting_a_key_that_was_never_written_is_a_no_op(
+        self, client: AsyncClient
+    ) -> None:
+        """What makes recording before the write free, asserted on the provider."""
+        await _storage().delete(f"maps/thumbnails/{uuid.uuid4()}-never-written.jpg")
+
+
+# ---------------------------------------------------------------------------
+# fix(audit finding, round 8): a contended map row fails fast, not slow
+# ---------------------------------------------------------------------------
+
+
+class TestLockMapForAssetWriteFailsFast:
+    """``lock_map_for_asset_write`` bounds its wait with ``SET LOCAL lock_timeout``.
+
+    Before this fix the row lock had no engine-side timeout: it was held from
+    before the ``storage.put`` through the caller's commit, and the S3
+    provider's connect/read timeouts plus its adaptive retries can run to
+    roughly a minute on a degraded backend (``app/platform/storage/s3.py``).
+    Every other writer to the same map queued behind that with no bound. A
+    genuinely contended row (held here from a second, real database session,
+    not mocked) must now fail with 409 within a couple of seconds rather than
+    hang.
+    """
+
+    async def test_a_contended_map_row_returns_409_quickly(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ) -> None:
+        import time
+
+        from sqlalchemy import select
+
+        from app.modules.catalog.maps.models import Map
+
+        map_id = await _create_map(client, admin_auth_header)
+
+        # A second, real session holds the row lock the app's request needs.
+        # No commit/rollback until the assertions below are done with it.
+        await test_db_session.execute(
+            select(Map.id).where(Map.id == uuid.UUID(map_id)).with_for_update()
+        )
+        try:
+            started = time.monotonic()
+            resp = await client.put(
+                f"/maps/{map_id}/thumbnail/",
+                json={"data_uri": _jpeg_data_uri()},
+                headers=admin_auth_header,
+            )
+            elapsed = time.monotonic() - started
+
+            assert resp.status_code == 409, resp.text
+            assert resp.json()["detail"]["code"] == "map_asset_write_locked"
+            # lock_timeout is '2s'; generous slack for CI scheduling noise, but
+            # nowhere near the ~190s an unbounded wait against a degraded
+            # storage backend could reach.
+            assert elapsed < 5, elapsed
+        finally:
+            await test_db_session.rollback()
+
+        # The lock released with the second session's rollback; the same
+        # request now succeeds instead of racing a lock that no longer exists.
+        resp = await client.put(
+            f"/maps/{map_id}/thumbnail/",
+            json={"data_uri": _jpeg_data_uri()},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 204, resp.text
+
+    async def test_the_icon_route_holds_no_per_map_lock(self) -> None:
+        """The finding does not apply to icons: confirmed, not assumed.
+
+        Icons are deliberately global (fix(#1621), see ``sprites.py``) and
+        ``create_icon_asset`` never calls ``lock_map_for_asset_write`` or takes
+        any ``with_for_update()`` of its own. There is no per-map row for an
+        icon upload to contend on, so it has nothing to bound.
+        """
+        import ast
+        import inspect
+
+        from app.modules.catalog.maps import sprites as sprites_module
+
+        source = inspect.getsource(sprites_module.create_icon_asset)
+        tree = ast.parse(source)
+        calls = {
+            node.func.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        }
+        assert "with_for_update" not in calls
+        assert "lock_map_for_asset_write" not in source
