@@ -415,6 +415,17 @@ async def test_cleanup_and_retention_reaper_delete_only_tenant_key(
     # fix(#1709 review r7): nine — the childless-`fanned_out` reconciliation
     # (a fan-out parent whose dispatch died before its first child
     # committed) runs between the running-jobs sweep and the VRT sweep.
+    # fix(#1778 codex r5/r7): nine — the retention purge used to read its
+    # exempted rows first, the terminal rows that still name an unreaped
+    # artifact, which it refused to delete so the record survived for the
+    # next sweep to retry. Missing it here shifted every later result by one:
+    # the purge's DELETE consumed the survivor SELECT's double, `deleted_paths`
+    # came back empty and the tenant-scoped delete this test exists for was
+    # never made.
+    # fix(#1778 codex r10): back down to nine — that exempted-rows SELECT
+    # moved OUT of this block entirely, into the unconditional
+    # artifact-carrying SELECT that now runs after the purge (see below), so
+    # nothing here answers it any more.
     empty_scalars = [MagicMock() for _ in range(9)]
     for result in empty_scalars:
         result.scalars.return_value = []
@@ -427,12 +438,17 @@ async def test_cleanup_and_retention_reaper_delete_only_tenant_key(
     deleted.all.return_value = [(uuid.uuid4(), logical, None)]
     survivors = MagicMock()
     survivors.scalars.return_value = []
+    # fix(#1778 codex r10): the artifact-carrying SELECT, unconditional and
+    # run after the retention block. No rows in this fixture carry an
+    # unreaped artifact.
+    artifact_rows = MagicMock()
+    artifact_rows.all.return_value = []
     # fix(#1202 review r8): one more SELECT for the post-expiry staging sweep.
     post_expiry = MagicMock()
     post_expiry.all.return_value = []
     db = AsyncMock()
     db.execute = AsyncMock(
-        side_effect=[*empty_scalars, deleted, survivors, post_expiry]
+        side_effect=[*empty_scalars, deleted, survivors, artifact_rows, post_expiry]
     )
 
     with _tenant_mode(monkeypatch, "multi_tenant", TENANT_A):

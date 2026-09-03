@@ -10,8 +10,10 @@ pointer.
 
 **Invariant 10, last-known-good is sacred.** The previous COG is not deleted or
 overwritten until the replacement has been written to storage AND read back
-successfully. The new asset lands under keys derived from its own content hash,
-so it cannot collide with the live asset's; the pointer moves in a single
+successfully. The new asset lands under keys derived from this attempt's id and
+its own content hash, so it can collide neither with the live asset's nor with
+another attempt's (fix(#1778 codex r3) added the first half of that; see
+``attempt_scoped_raster_base_key``); the pointer moves in a single
 transaction alongside the tile-cache bump; and only after that transaction
 commits are the superseded objects reaped. Every failure before the commit
 leaves the old COG serving tiles, which is what the dataset's map layers keep
@@ -73,8 +75,10 @@ from app.processing.ingest.tasks_raster_common import (
     _enforce_strict_cog,
     _resolve_managed_raster_storage_keys,
     absorb_cancellation,
+    attempt_scoped_raster_base_key,
     extract_source_raster_metadata,
     publish_commit_landed,
+    record_unpublished_storage_keys,
 )
 from app.processing.ingest.tasks_raster_swap import (
     _prior_asset_keys_to_reap,
@@ -323,11 +327,37 @@ async def reupload_raster(
                 quicklook_256_uri=raster_asset.quicklook_256_uri,
                 quicklook_512_uri=raster_asset.quicklook_512_uri,
             )
+            # fix(#1778 codex r1): the same three objects in LOGICAL form. The
+            # durable reaper works in logical keys (it resolves them in its own
+            # tenant context), so comparing against the physical list above
+            # would silently match nothing on a hosted deployment and leave the
+            # live asset reapable. Same reason `_prior_asset_keys_to_reap`
+            # gives for keeping its own two lists in one form.
+            prior_logical_keys = [
+                key
+                for key in (
+                    raster_asset.asset_uri,
+                    raster_asset.quicklook_256_uri,
+                    raster_asset.quicklook_512_uri,
+                )
+                if key
+            ]
 
             # feat(#1219): pending -> running on the run row this job's commit
             # door already reserved. Raster reuses that admission gate rather
             # than opening a second one, so there is nothing to create here.
             await claim_run_for_job(session, job_uuid)
+            # fix(#1778): committed HERE rather than at the end of the block.
+            # `claim_run_for_job` -> `transition_run` issues an UPDATE ...
+            # RETURNING on `dataset_refresh_runs`, so the run row stays
+            # exclusively locked until this transaction ends. The download
+            # below is the multi-GB phase a user is most likely to abandon, and
+            # `cancel_job` runs its own run transition under a 2s lock_timeout:
+            # holding the row across the download turned every cancel in that
+            # window into a 409 `job_finishing` whose rollback also discarded
+            # the job cancellation it had already written. One extra round trip
+            # buys a cancellable download.
+            await session.commit()
 
             from app.processing.ingest.service import resolve_file_path
 
@@ -379,15 +409,11 @@ async def reupload_raster(
             um: dict = job.user_metadata or {}
             source_filename: str | None = job.source_filename
 
-            # The claim above rides its own commit, but `claim_run_for_job`
-            # does not — and this session closes at the end of the block, so
-            # without this the pending -> running transition rolls back. The
-            # run then sits `pending` for the whole conversion, and
-            # `record_refresh_success` (which expects `running`) declines to
-            # finalize it: a successful replace would leave a stuck active
-            # reservation that the admission index honors by refusing every
-            # later refresh until the sweep. Same commit `reupload_file` ends
-            # its phase 1 with.
+            # The pending -> running transition is already durable (committed
+            # above the download). This closes the read transaction
+            # `_validate_upload_file_safety` opened, so the block does not hand
+            # an idle-in-transaction connection back to the pool. Same commit
+            # `reupload_file` ends its phase 1 with.
             await session.commit()
 
         # ----------------------------------------------------------------- #
@@ -455,6 +481,52 @@ async def reupload_raster(
         asset_sha256 = await asyncio.to_thread(sha256_file, local_cog_path)
         cog_size = os.path.getsize(local_cog_path)
 
+        # fix(#1778): name the three objects phase 2 is about to write on the
+        # durable job row, before phase 2 takes the `ingest_jobs` row lock. A
+        # SIGKILL between the puts and the terminal `finally` leaves them with
+        # no reference anywhere: the swap rolled back, so the live asset still
+        # names the OLD keys and `delete_dataset`'s prefix reap only runs when
+        # the dataset is deleted.
+        #
+        # fix(#1778 codex r3): the prefix is attempt-scoped, so these three keys
+        # are this attempt's alone: not the live asset's (which an identical
+        # re-upload would otherwise reproduce exactly, since it converts to the
+        # same COG and hashes the same), and not a later attempt's (which the
+        # reaper would otherwise be able to delete after its survivor snapshot
+        # and before its delete, once this pass's commit released the run
+        # reservation). `already_published` and the reaper's survivor check
+        # both stay, as defence in depth behind the key layout.
+        #
+        # The kept original is deliberately NOT registered here. Its key is
+        # derived from the SOURCE hash, so re-uploading bytes this dataset has
+        # already archived resolves to an object an earlier replace wrote and a
+        # live `dataset_assets` row still points at. `archive_lossy_original`
+        # registers it only when its own pre-write probe proves absence, and
+        # that probe result is not available this early.
+        _replace_base_key = attempt_scoped_raster_base_key(
+            dataset_uuid, attempt_uuid, asset_sha256
+        )
+        if not await record_unpublished_storage_keys(
+            job_uuid,
+            attempt_uuid,
+            keys=[
+                f"{_replace_base_key}/source.cog.tif",
+                f"{_replace_base_key}/quicklook_256.png",
+                f"{_replace_base_key}/quicklook_512.png",
+            ],
+            already_published=prior_logical_keys,
+            attempt_scope=str(attempt_uuid),
+            job_id=job_id,
+            task="reupload_raster",
+        ):
+            # fix(#1778 audit): a confirmed fence miss. Phase 2's own
+            # attempt-fenced load below would catch this too, but stopping
+            # here is what actually keeps the recorder's contract ("do not
+            # write what nothing records") rather than depending on a second
+            # guard downstream to make it true, and it skips the quicklook
+            # generation this dead attempt no longer needs.
+            return
+
         await _stamp_progress(
             job_uuid,
             attempt_uuid,
@@ -469,9 +541,17 @@ async def reupload_raster(
         # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session): write the new objects, then swap the
         # pointer and all its dependent rows in ONE transaction.
+        #
+        # fix(#1778 audit r11): require_status="running", same reason as the
+        # sibling in tasks_raster.py -- an (job, attempt)-only fence still
+        # matches a row the stale sweep already failed without a retry
+        # rotating the attempt, and this phase puts objects to storage.
         # ----------------------------------------------------------------- #
         async with _job_phase_session(
-            job_uuid, phase="phase2", attempt_id=attempt_uuid
+            job_uuid,
+            phase="phase2",
+            attempt_id=attempt_uuid,
+            require_status="running",
         ) as (session, job):
             if job is None:
                 return
@@ -496,7 +576,12 @@ async def reupload_raster(
             from app.platform.storage import get_storage
 
             storage = get_storage()
-            base_key = f"rasters/{dataset.id}/{asset_sha256}"
+            # fix(#1778 codex r3): the same derivation the durable record used,
+            # through the one helper, so the two cannot drift into recording
+            # one prefix and writing another.
+            base_key = attempt_scoped_raster_base_key(
+                dataset.id, attempt_uuid, asset_sha256
+            )
             cog_key = f"{base_key}/source.cog.tif"
             ql256_key = f"{base_key}/quicklook_256.png"
             ql512_key = f"{base_key}/quicklook_512.png"
@@ -508,13 +593,19 @@ async def reupload_raster(
 
             # The new content hash gives these a prefix the live asset does not
             # share, so these three puts cannot touch what is still serving.
+            #
+            # fix(#1778): registered BEFORE the put, the rule
+            # archive_lossy_original states two files away. A cancelled put can
+            # have completed (both providers drain the worker thread), and
+            # CancelledError is a BaseException, so an append below the put
+            # never runs and leaves the object unreferenced.
+            written_storage_keys.append(_storage_cog_key)
             with open(local_cog_path, "rb") as fobj:
                 await storage.put(_storage_cog_key, fobj)
-            written_storage_keys.append(_storage_cog_key)
-            await storage.put(_storage_ql256_key, io.BytesIO(ql256))
             written_storage_keys.append(_storage_ql256_key)
-            await storage.put(_storage_ql512_key, io.BytesIO(ql512))
+            await storage.put(_storage_ql256_key, io.BytesIO(ql256))
             written_storage_keys.append(_storage_ql512_key)
+            await storage.put(_storage_ql512_key, io.BytesIO(ql512))
 
             # fix(#1290 review): every field below reads the CONVERTED COG's
             # own metadata. Persisting the source's described a file the

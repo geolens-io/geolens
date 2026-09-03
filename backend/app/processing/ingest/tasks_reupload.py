@@ -234,6 +234,14 @@ async def reupload_file(
             # `started_at` deliberately stays at dispatch time, so the gap to
             # this write IS the queue wait.
             await claim_run_for_job(session, job_uuid)
+            # fix(#1778): committed before the download, not after it. The
+            # transition holds a row lock on `dataset_refresh_runs` until this
+            # transaction ends, and `cancel_job` transitions that same row under
+            # a 2s lock_timeout, so holding it across `resolve_file_path` made
+            # every cancel during the staging download return 409
+            # `job_finishing` and roll back the job cancellation it had already
+            # committed. The raster peer commits at the same point.
+            await session.commit()
 
             # Resolve S3 key to local file for ogr2ogr
             from app.processing.ingest.service import resolve_file_path

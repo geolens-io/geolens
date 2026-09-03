@@ -16,6 +16,7 @@ import asyncio
 import os
 import uuid
 from datetime import datetime, timezone
+from collections.abc import Iterable
 from typing import Any
 
 import structlog
@@ -169,12 +170,19 @@ async def create_raster_dataset(
     visibility: str,
     record_status: str = "published",
     original_srid: int | None = None,
+    dataset_id: uuid.UUID | None = None,
 ) -> tuple:
     """Create Record + Dataset + RasterAsset records for a raster ingest.
 
     ``meta`` describes the CONVERTED COG — the file this dataset will serve
     (fix(#1290 review)). ``original_srid`` is the one value that must describe
     the upload instead, so the caller reads it off the source and passes it in.
+
+    fix(#1778): ``dataset_id`` lets the caller decide the id BEFORE this
+    transaction opens. The object keys the tail is about to write embed it, and
+    naming them on the durable job row is only possible if the id exists while
+    that row can still be written to. Default None keeps every other caller on
+    the database-generated id.
 
     Returns (record, dataset, raster_asset).
     """
@@ -224,6 +232,7 @@ async def create_raster_dataset(
 
     table_name = f"raster_{record.id.hex[:16]}"
     dataset = Dataset(
+        **({"id": dataset_id} if dataset_id is not None else {}),
         record_id=record.id,
         table_name=table_name,
         source_format="geotiff",
@@ -492,3 +501,214 @@ def absorb_cancellation(exc: BaseException) -> None:
     task = asyncio.current_task()
     if task is not None:
         task.uncancel()
+
+
+# fix(#1778): the `user_metadata` field a raster tail names its pre-commit
+# object keys under. `written_storage_keys` is a local list, so a SIGKILL or an
+# OOM between the puts and the terminal `finally` reclaimed nothing: `base_key`
+# embeds a dataset id that rolls back with the transaction, so no row, no
+# `delete_dataset` prefix reap and no staging reconciler (`STAGING_PREFIX` is
+# `staging/` only) could ever name the objects again. The VRT publish path
+# already had an out-of-process owner for this class
+# (`_stale_generation_storage_keys` in the job sweep); this field extends the
+# same shape to `rasters/` and `originals/`.
+def attempt_scoped_raster_base_key(
+    dataset_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    asset_sha256: str,
+) -> str:
+    """The object prefix ONE replace attempt may write under.
+
+    fix(#1778 codex r3). The replace tail used to key on dataset id plus the
+    content hash alone, which is deterministic across attempts: re-running the
+    same upload derives the same three keys. That is a collision the durable
+    reaper cannot survive. ``fail_stale_jobs`` commits, and that commit both
+    settles the dead attempt and releases the dataset's active-run reservation
+    through the refresh-run sweep, so a replacement can be admitted while the
+    post-commit cleanup is still running. The new attempt then writes the same
+    keys the reaper is about to delete, after the survivor snapshot and before
+    the delete, with no row naming them yet, and its own commit lands a
+    ``RasterAsset`` pointing at bytes that are gone.
+
+    Attempt fencing closes that structurally rather than by ordering, which is
+    what the VRT publish path already does with
+    ``rasters/{id}/generations/{generation_id}/``: no two attempts can name the
+    same object, so there is no window left to get the ordering wrong in. Same
+    convention as ``attempt_scoped_staging_table``, which fences the vector
+    tails' staging tables on the identical fact.
+
+    The content hash stays in the key. It is what invariant 10 rests on (a
+    replacement cannot overwrite the live asset in place) and it keeps the
+    stored key content-addressed; the attempt segment makes it
+    attempt-addressed as well.
+
+    The first-ingest tail needs no equivalent: its keys sit under a dataset id
+    generated inside the task, so a retry produces a different one.
+    """
+    return f"rasters/{dataset_id}/attempts/{attempt_id}/{asset_sha256}"
+
+
+UNPUBLISHED_STORAGE_KEYS_FIELD = "unpublished_storage_keys"
+
+
+async def record_unpublished_storage_keys(
+    job_uuid: uuid.UUID,
+    attempt_uuid: uuid.UUID,
+    *,
+    keys: list[str],
+    already_published: "Iterable[str]",
+    attempt_scope: str,
+    job_id: str,
+    task: str,
+) -> bool:
+    """Persist the object keys this attempt is ABOUT to write, best effort.
+
+    Returns whether the caller may proceed to write those objects. ``False``
+    means this attempt is DEFINITIVELY fenced out: the ``(job_uuid,
+    attempt_uuid)`` pair matched no row, which happens when the stale sweep
+    fails the row on a heartbeat timeout while this worker is merely paused
+    (a GC pause, a slow syscall) rather than dead, and a retry has since
+    minted a new attempt on the same job. Every other fenced job-row write in
+    this codebase checks its match (``update_ingest_job_for_attempt`` in
+    ``heartbeat.py`` returns ``bool(rowcount)`` and every caller branches on
+    a miss); this one used to be the exception, silently committing nothing
+    and letting the caller carry on to write objects a dead attempt's row
+    would never record. A worker killed after that point leaves the objects
+    with no reference anywhere, the #1778 leak class reopened at the one
+    recorder that did not check its own fence.
+
+    An unreachable database or any other transient failure is a DIFFERENT
+    case and still returns ``True``: nothing there proves this attempt is
+    gone, and refusing to proceed over it would trade a possible leak for a
+    certain one. Only a confirmed zero-row match is a confirmed fence miss.
+
+    fix(#1778). One JSONB write, committed on its own session before the
+    publishing transaction opens, which is what makes the keys nameable after
+    the process is gone. Logical keys (never tenant-resolved) so the sweep
+    resolves them in its own tenant context, the way it already does for
+    ``_staged_presigned_keys``.
+
+    fix(#1778 codex r1): ``already_published`` is what the LIVE asset names,
+    and it is subtracted here rather than at either call site. A replace whose
+    conversion reproduces the published COG byte for byte (re-uploading the
+    same file) derives the same ``asset_sha256``, so the three keys this
+    attempt intends ARE the three keys the dataset is currently serving. A
+    crash any time after this write, even before the first put, then handed the
+    stale-job reaper permission to delete the live COG and both quicklooks. The
+    in-process failure cleanup has always excluded ``prior_physical_keys``; the
+    durable record has to carry the same exclusion, because the process that
+    knows it is the one that may not be there. Subtracting inside this function
+    rather than at the call sites means a future writer of intended keys gets
+    the exclusion by having to answer the question.
+
+    The reaper carries the second half of this: it refuses to delete a key a
+    live row still references, whatever the job row says.
+
+    fix(#1778 codex r3): ``attempt_scope`` is a token unique to this attempt,
+    and a key that does not contain it is DROPPED rather than recorded. That is
+    the rule the recorded set has to satisfy for the reaper to be safe at all,
+    because the reaper deletes on the strength of "the attempt that wrote this
+    is gone": a key two attempts can both name is one the reaper can delete out
+    from under the live one. Checking it here, at the single point where keys
+    become durable, is what stops a future writer from recording a shared key
+    and finding out about it from a support ticket. The replace tail's token is
+    its attempt id, carried by every key through
+    ``attempt_scoped_raster_base_key``; the first-ingest tail's is the dataset
+    id it generates per attempt.
+
+    Ordering is the whole mechanism and it is narrow. This must run BEFORE the
+    phase-2 session takes the ``ingest_jobs`` row lock (phase 2's first
+    statements dirty ``current_step``/``progress``): a second session updating
+    that row while phase 2 holds it would block until phase 2 ended, and phase
+    2 would be waiting on this call. So it lives beside the pre-phase-2
+    progress write, never inside phase 2.
+
+    A JSONB merge rather than an assignment, so it cannot clobber a field a
+    later write adds, and fenced on ``attempt_id`` so a retry's keys never land
+    on another attempt's row.
+
+    A transient failure is swallowed, same as before. This buys
+    reclaimability for a crash that may not happen; refusing the ingest over
+    an error that says nothing about the fence would trade a possible leak
+    for a certain failure.
+    """
+    from sqlalchemy import bindparam, case, func, text, update
+    from sqlalchemy.dialects.postgresql import JSONB
+
+    import app.core.db as db_module
+
+    from app.platform.jobs.models import IngestJob
+
+    published = set(already_published)
+    candidates = [key for key in keys if key not in published]
+    unpublished = [key for key in candidates if attempt_scope in key]
+    if len(unpublished) < len(candidates):
+        structlog.get_logger().warning(
+            "unpublished_storage_key_not_attempt_scoped", job_id=job_id, task=task
+        )
+    if not unpublished:
+        return True
+    # fix(#1778 codex r9): APPEND to what the row already names, never replace
+    # it. `/jobs/{id}/retry` preserves `user_metadata`, so a retried ingest
+    # reached this with the previous attempt's keys still on the row; a merge
+    # that set the field to this attempt's keys alone dropped them, and an
+    # attempt whose own best-effort delete had also failed lost its objects'
+    # last durable pointer with it. Neither stale pass nor the retention purge
+    # could then name them.
+    #
+    # A flat list that each attempt extends, rather than a map keyed by
+    # attempt. Which attempt wrote a key is not something any reader needs --
+    # the question every one of them asks is "is this key still owed a reap" --
+    # and keeping the shape a list means the reader is unchanged and a row
+    # written before this commit still reaps.
+    #
+    # The CASE keeps it total: `jsonb || jsonb` concatenates two arrays, but
+    # would fold an array into a non-array, so anything that is not an array
+    # is replaced rather than appended to.
+    _existing_keys = func.coalesce(
+        IngestJob.user_metadata[UNPUBLISHED_STORAGE_KEYS_FIELD],
+        text("'[]'::jsonb"),
+    )
+    _new_keys = bindparam("unpublished_patch", value=unpublished, type_=JSONB)
+    _accumulated_keys = case(
+        (
+            func.jsonb_typeof(_existing_keys) == "array",
+            _existing_keys.op("||")(_new_keys),
+        ),
+        else_=_new_keys,
+    )
+    try:
+        async with db_module.async_session() as session:
+            result = await session.execute(
+                update(IngestJob)
+                .where(
+                    IngestJob.id == job_uuid,
+                    IngestJob.attempt_id == attempt_uuid,
+                )
+                .values(
+                    user_metadata=func.coalesce(
+                        IngestJob.user_metadata, text("'{}'::jsonb")
+                    ).op("||")(
+                        func.jsonb_build_object(
+                            UNPUBLISHED_STORAGE_KEYS_FIELD, _accumulated_keys
+                        )
+                    )
+                )
+            )
+            await session.commit()
+    except Exception:  # broad: reclaimability is best effort, the ingest is not
+        structlog.get_logger().warning(
+            "unpublished_storage_keys_not_recorded", job_id=job_id, task=task
+        )
+        # An error here says nothing about the fence, so it does not license
+        # an abort. See the docstring: only a confirmed zero-row match does.
+        return True
+    if not result.rowcount:  # type: ignore[attr-defined]
+        # fix(#1778 audit): a confirmed miss. This attempt no longer owns the
+        # row, so the objects it is about to write would have nothing durable
+        # naming them; the caller must not write them.
+        structlog.get_logger().warning(
+            "unpublished_storage_keys_fence_missed", job_id=job_id, task=task
+        )
+        return False
+    return True

@@ -20,6 +20,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.db import Base
 from app.core.geo import wkt_metres_per_unit
 
+# fix(#1778): shared with the OGC Records serializer, which cannot import from
+# `app.processing` (CATPORT-02/04). See the module docstring for the two
+# producer shapes these two functions reconcile.
+from app.core.raster_bands import band_display_name, stac_band_nodata
+
 
 class RasterAsset(Base):
     __tablename__ = "raster_assets"
@@ -141,14 +146,24 @@ class RasterAsset(Base):
         if self.band_info:
             bands = []
             for b in self.band_info:
+                if not isinstance(b, dict):
+                    continue
                 band: dict = {}
                 if b.get("dtype"):
                     band["data_type"] = b["dtype"]
-                if b.get("nodata") is not None:
-                    band["nodata"] = b["nodata"]
-                if b.get("color_interp"):
-                    band["name"] = b["color_interp"]
-                bands.append(band)
+                nodata = stac_band_nodata(b.get("nodata"))
+                if nodata is not None:
+                    band["nodata"] = nodata
+                name = band_display_name(b)
+                if name:
+                    band["name"] = name
+                # fix(#1778): an empty entry is dropped rather than appended.
+                # A Producer-B row carries none of the three keys above, so
+                # this list used to come out as `[{}, {}, {}]` and `if bands:`
+                # published it: structurally invalid, and worse than omitting
+                # the field.
+                if band:
+                    bands.append(band)
             if bands:
                 props["raster:bands"] = bands
 

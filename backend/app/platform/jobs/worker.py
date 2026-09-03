@@ -104,13 +104,26 @@ async def _recover_stale_jobs_for_current_scope() -> None:
         # Mirrors fail_stale_jobs (router.py:39) which the lifespan
         # sweeper runs every 5 minutes for the same purpose. The advisory
         # lock ensures startup recovery and the sweeper don't collide.
-        stale_result = await session.execute(
-            update(IngestJob)
+        #
+        # fix(#1778 audit r12): the candidate set is read through its own
+        # `FOR UPDATE SKIP LOCKED` subquery, mirroring fail_stale_jobs's own
+        # fix for the identical race -- see that query's comment for why a
+        # `lock_timeout` on this set-based UPDATE would abort the WHOLE
+        # batch on one busy row rather than skipping just that row. A row a
+        # live phase-2 transaction holds `FOR NO KEY UPDATE` on is excluded
+        # here and picked up by a later pass once that transaction ends.
+        stale_candidates = (
+            select(IngestJob.id)
             .where(
                 IngestJob.status == "running",
                 func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
                 < stale_cutoff,
             )
+            .with_for_update(skip_locked=True)
+        )
+        stale_result = await session.execute(
+            update(IngestJob)
+            .where(IngestJob.id.in_(stale_candidates))
             .values(
                 status="failed",
                 error_message=(
@@ -214,7 +227,11 @@ async def _recover_stale_jobs_for_current_scope() -> None:
         # consistent — mirrors the fail_stale_jobs periodic sweep.
         from app.platform.jobs.router import (
             _reap_stale_generation_storage,
+            _reap_unadopted_analysis_outputs,
+            reap_unpublished_storage_keys,
             sweep_stale_vrt_assets,
+            unadopted_analysis_tables_from_metadata,
+            unpublished_storage_keys_from_metadata,
         )
 
         (
@@ -229,6 +246,34 @@ async def _recover_stale_jobs_for_current_scope() -> None:
         # restored ownership is durable can orphan a 'ready' asset against
         # bytes a rolled-back commit never actually freed for deletion.
         await _reap_stale_generation_storage(stale_generation_storage_keys)
+        # fix(#1778): the same treatment for a killed raster ingest or
+        # replace's own pre-commit objects. This pass matters more than the
+        # periodic sweep for that class: an OOM-killed worker is restarted, and
+        # the restart runs this before any lifespan sweeper gets there, so
+        # without it the keys are settled `failed` here and never seen again.
+        # Read off the rows this pass just moved off `running`, and deleted
+        # only after the commit above, for the reason the line above gives.
+        # fix(#1778 codex r1): through the shared reaper, which carries the
+        # survivor check and the tenant resolution, so this pass cannot delete
+        # a key a live row still names either.
+        await reap_unpublished_storage_keys(
+            tuple(
+                key
+                for job in stale_jobs
+                for key in unpublished_storage_keys_from_metadata(job.user_metadata)
+            )
+        )
+        # fix(#1778): and the analysis peer, same pass, same ordering.
+        # fix(#1778 codex r7/r10): (job, table) pairs, so the drop can refuse a
+        # table the job it is reaping did not create, and ALL of the names a
+        # row records, because the record accumulates across attempts.
+        await _reap_unadopted_analysis_outputs(
+            tuple(
+                (job.id, name)
+                for job in stale_jobs
+                for name in unadopted_analysis_tables_from_metadata(job.user_metadata)
+            )
+        )
         total = len(stale_jobs) + len(orphaned_jobs)
         if total or vrt_assets_recovered:
             log.info(

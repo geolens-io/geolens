@@ -1701,7 +1701,16 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # client-side grid-alignment check can compare each axis
         # independently, matching the backend's _check_grid_alignment.
         # Cap 539 -> 548, exact.
-        "backend/app/modules/catalog/search/service_records.py": 548,
+        # fix(#1778): +11, rebased onto the above rather than the 526 baseline
+        # it was originally measured against. The band array now builds
+        # through the shared `app.core.raster_bands` normalisers, so this
+        # representation stops dropping the colour-interpretation name of
+        # every locally ingested raster (it read a `name` key no producer
+        # writes) and stops emitting empty band entries for a remotely
+        # described COG, while keeping the round-4-P2 explicit-null case
+        # above (moved to sit beside the normaliser call it now depends on).
+        # Cap 548 -> 559, exact.
+        "backend/app/modules/catalog/search/service_records.py": 559,
         # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
         # wrapper) + the gated/approximated vector-only match COUNT in
         # _run_rrf_merge (perf audit 2026-07-10 §2d). Cap 350 → 390
@@ -3149,7 +3158,24 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # behind a lock the row's own later write would never see (e.g. an
     # ACCESS EXCLUSIVE table lock). `None` by default, so every other caller
     # of this shared helper is unchanged. Cap 2426 -> 2447, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2447,
+    # fix(#1778 audit r11): +23, rebased onto the above rather than the 2426
+    # baseline it was originally measured against. `_job_phase_session` also
+    # gains `require_status`, an independent optional status predicate that
+    # joins the attempt fence, addressing a coexisting gap: an (id, attempt)
+    # -only match still admitted a row the stale sweep had already failed on
+    # a heartbeat timeout, with no retry having rotated the attempt token
+    # yet, so a worker only paused could resume and write whatever that
+    # phase writes. The two parameters are independent and both now live on
+    # the same signature. Almost all of the growth is the docstring stating
+    # which phases must pass which. Cap 2447 -> 2470, exact.
+    # fix(#1778 audit r12): +25. `require_status`'s SELECT now takes `FOR NO
+    # KEY UPDATE`, closing the TOCTOU a plain status check left open: the
+    # sweep could still fail a row in the window between the read and the
+    # phase's first put, since a SELECT is not a lock. Most of the growth is
+    # the docstring stating why `NO KEY UPDATE` over plain `UPDATE`, and
+    # pointing at the sweep-side fixes that now have to contend with this
+    # lock instead of racing past it. Cap 2470 -> 2495, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2495,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -3227,7 +3253,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1746 codex r1): +5 — the marker comment now states the claim
     # narrowly ("the last successful pull was MADE with a token"), because the
     # worker never sees a challenge on the happy path. Cap 1278 -> 1283, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1283,
+    # fix(#1778): +8. The pending -> running run transition is committed
+    # before `resolve_file_path` instead of after it, plus the comment saying
+    # why. Holding the `dataset_refresh_runs` row lock across the staging
+    # download made every cancel in that window a 409 that also rolled back the
+    # job cancellation it had already written. Cap 1283 -> 1291, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1291,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -3428,7 +3459,81 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # migration, plus the two residual gaps it records (the one-statement
     # window between a door's own commit and the stamp, and S3-mode direct
     # uploads landing in the bound half). Cap 1827 -> 1857, exact.
-    "backend/app/platform/jobs/sweep.py": 1857,
+    # fix(#1778): +134. Two out-of-process reapers for artifacts a hard kill
+    # used to strand forever. `unpublished_storage_keys_from_metadata` reads the
+    # `rasters/`/`originals/` keys a raster tail named on its own job row before
+    # writing them, and `unadopted_analysis_table_from_metadata` plus
+    # `_reap_unadopted_analysis_outputs` do the same for an analysis output
+    # table; both are collected in `fail_stale_jobs` and deleted only after its
+    # commit, alongside the existing stale-generation keys. Roughly half of it
+    # is the docstrings stating why the analysis reap takes its own session.
+    # Cap 1857 -> 1991.
+    # fix(#1778 codex r1): +86. The raster reap gained a survivor check that an
+    # earlier revision argued it did not need: an identical re-upload derives
+    # the same content hash, so a replace's intended keys can BE the live
+    # asset's, and a crash then licensed deleting the raster the dataset was
+    # serving. `_live_referenced_storage_keys` asks the four columns that name
+    # an object, `reap_unpublished_storage_keys` refuses what they return and
+    # deletes nothing at all when the query fails, and both stale-job passes
+    # go through it. Cap 1991 -> 2077.
+    # fix(#1778 codex r4): +23. The retention purge is the LAST actor holding a
+    # pointer to a terminal job's unpublished keys and analysis output table,
+    # so a job that failed on its own and whose best-effort cleanup then failed
+    # once had nothing left looking at it. Its DELETE ... RETURNING already
+    # carried `user_metadata`; the rows now feed the same two post-commit reaps
+    # the running-row sweep feeds, survivor checks included. Cap 2077 -> 2100.
+    # fix(#1778 codex r5): +152. Feeding the reap was not enough, because the
+    # reap runs after the commit and can fail as a whole, and by then the
+    # pointer is gone. The purge now refuses to delete a row that still names
+    # an unreaped artifact, which makes the job row the durable pending-reap
+    # record a retry needs without a new table, and both reapers clear that
+    # record once they have a final answer (deleted, or refused because a live
+    # row names it) so the next pass can purge the row. The survivor query also
+    # went from four IN clauses to one shared array bind, because four binds
+    # per key crossed asyncpg's 32767-argument ceiling at about 8192 keys and
+    # the resulting failure skipped every delete. Cap 2100 -> 2252.
+    # fix(#1778 codex r6): +36. Both arms that clear an artifact record now key
+    # the settle off a NAMED outcome instead of off control flow. The analysis
+    # arm was reading "the call returned" as success, but the callee catches
+    # its own probe and DROP failures, so a failed cleanup stripped the table's
+    # last durable name and orphaned it; the storage arm was correct only by
+    # where a statement sat inside a try block. `STORAGE_KEY_FINAL_OUTCOMES`
+    # and the try/else restructure are most of the growth. Cap 2252 -> 2288.
+    # fix(#1778 codex r7): +14. The analysis reap is keyed on the owning JOB
+    # rather than on a table name two jobs could hold in sequence: it carries
+    # (job, table) pairs, hands the owner to the drop so it can refuse a table
+    # that job did not create, and clears the record by row id. Cap 2288 ->
+    # 2302.
+    # fix(#1778 codex r9): +26. The storage-key record accumulates across
+    # attempts now, so clearing it wholesale would forget keys the pass never
+    # answered for. The clear removes the settled keys one by one and drops the
+    # field only once nothing is owed on it, which is a correlated statement
+    # rather than an operator, and the comment says why the binds are cast and
+    # why it uses jsonb_exists_any over `?|`. Cap 2302 -> 2328, exact.
+    # fix(#1778 codex r10): +46. The analysis output record now accumulates
+    # across attempts too (same shape `unpublished_storage_keys` took in r9),
+    # keyed and cleared by TABLE NAME rather than by job id, because a job
+    # can now name more than one table. `unadopted_analysis_table_from_metadata`
+    # became `unadopted_analysis_tables_from_metadata`, delegating to the
+    # writer's own normaliser so the two cannot disagree about the shape. The
+    # two artifact collections that used to run inside `fail_stale_jobs`
+    # (running-row transitions, and the retention purge's exempted-rows
+    # SELECT) are replaced by one unconditional SELECT after the retention
+    # block, because both could miss a row that owed a reap -- a job that
+    # failed on an earlier pass, or one whose dead attempt's keys were carried
+    # over onto a row that is now its dataset's latest complete job and so
+    # exempt from the purge. `_CLEAR_SETTLED_LIST_SQL` also gained an arm for
+    # the field's pre-PR plain-string shape, which the array-only WHERE clause
+    # had silently excluded from ever clearing. Cap 2328 -> 2374, exact.
+    # fix(#1778 audit r12): +18. The running-jobs UPDATE now reads its
+    # candidates through a `FOR UPDATE SKIP LOCKED` subquery instead of
+    # matching them directly in the UPDATE's own WHERE clause, so a row a
+    # live phase-2 transaction holds locked is excluded from the pass
+    # instead of blocking it, or, if this were guarded by a `lock_timeout`
+    # instead, aborting the entire batch on one busy row. Most of the growth
+    # is the comment stating why a set-based UPDATE cannot use `lock_timeout`
+    # the way a single-row write does. Cap 2374 -> 2392, exact.
+    "backend/app/platform/jobs/sweep.py": 2392,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and
@@ -3899,7 +4004,51 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # stand-down that skipped it stranded bytes no row references and no quota
     # counts. `ingest_vrt` records that it has nothing to reap on that path.
     # Cap 1442 -> 1480, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1480,
+    # fix(#1778): +16. The storage keys are registered before their puts
+    # rather than after (a cancelled put can have completed), the two in-thread
+    # source reads go through the safe-open-env wrappers in `raster/vrt.py`, and
+    # `create_vrt_dataset` accepts a caller-chosen dataset id so the manifest
+    # tail can name its object keys before phase 2 opens. Cap 1480 -> 1496.
+    # fix(#1778 codex r3): +34. The two safe-env wrappers moved here from
+    # `raster/vrt.py` and call `extract_raster_metadata` / `generate_quicklook`
+    # through this module's globals. Those two names are patch targets for the
+    # VRT integration and source-management suites, and putting the wrappers in
+    # `raster/vrt.py` with function-level imports removed the attributes AND
+    # would have made the patches no-ops once restored. The docstrings say so,
+    # because the next reader will want to move them back. Cap 1496 -> 1530.
+    # fix(#1778 codex r4): +38. `ingest_vrt` puts the VRT and its quicklooks
+    # before the terminal commit and recorded nothing, so a kill in between
+    # lost `written_storage_keys` with the process AND rolled back the dataset
+    # id the keys embed. It now preselects that id and records the intended
+    # keys on the job row first, the way `ingest_raster` does. Most of the
+    # growth is the comment saying why the id is decided outside phase 2.
+    # Cap 1530 -> 1568, exact.
+    # fix(#1778 audit): +7. record_unpublished_storage_keys now reports a
+    # confirmed fence miss rather than silently committing nothing, and this
+    # call site checks it: a miss means a retry has already superseded this
+    # attempt, so it returns before generating quicklooks or ever reaching
+    # phase 2, instead of relying on phase 2's own attempt-fenced load to
+    # catch it downstream. Cap 1568 -> 1575, exact.
+    # fix(#1778 audit r11): +25. Neither of this file's two "phase 2" blocks
+    # goes through `_job_phase_session` (they predate the helper and match
+    # the fence by hand), so both gain `IngestJob.status == "running"`
+    # directly in their own SELECT, matching the sibling tails. The
+    # `ingest_vrt` one closes the same object-storage leak the other raster
+    # tails' phase 2 does; the `regenerate_vrt` one closes a job-completion
+    # race the existing `current_generation_id` check does not cover, since
+    # that field lives on a different row than `ingest_jobs.status` and the
+    # sweep never touches it. Cap 1575 -> 1600, exact.
+    # fix(#1778 audit r12): +28. `ingest_vrt`'s hand-matched phase-2 SELECT
+    # gains `.with_for_update(key_share=True)`, the same TOCTOU close as the
+    # other two raster tails, since its puts sit inside this same session
+    # exactly like theirs do. `regenerate_vrt`'s own phase-2 SELECT is
+    # deliberately left unlocked -- most of the growth here is the comment
+    # explaining why: it loads the job row before a RasterAsset row a few
+    # lines down, and `cancel_job` locks those two in the opposite order for
+    # a vrt_regenerate job specifically to avoid an AB-BA deadlock with this
+    # worker, so locking the job row here first would reopen that cycle. Cap
+    # 1600 -> 1628, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1628,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.
@@ -4007,7 +4156,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # attempt-fenced shape `_finalize_ingest` already uses via
     # `require_ingest_job_update`; zero rows affected logs at debug and does
     # nothing. Cap 1284 -> 1333, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1333,
+    # fix(#1778 audit r11): +23, rebased onto the above rather than the 1161
+    # baseline it was originally measured against. Both of this file's
+    # "phase 2" call sites (`ingest_file`, `ingest_service`) gain
+    # `require_status="running"` on their `_job_phase_session` load. Neither
+    # writes an untracked storage object -- each phase's own terminal write
+    # already fences on status via `require_ingest_job_update`, so a
+    # fenced-out attempt cannot resurrect a failed row -- but this stops a
+    # paused, not-dead worker from running the whole finalize pipeline
+    # against a doomed row in the first place, for consistency with the
+    # raster tails. Cap 1333 -> 1356, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1356,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern
@@ -4423,7 +4582,52 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # that this table was CTAS'd here so delete may reclaim it. Without the
     # flag it is indistinguishable from an operator's registered table and
     # every analysis output would leak one on delete. Cap 1413 -> 1420, exact.
-    "backend/app/processing/analysis/tasks.py": 1420,
+    # fix(#1778): +42. The generated output table name is persisted to
+    # `user_metadata` in the transaction that creates the table, and the
+    # probe-then-drop the two fence-miss handlers each carried inline is now one
+    # `drop_unadopted_analysis_output` the stale-job sweeps call too. The
+    # helper's docstring and its identifier re-validation are most of the net
+    # growth; the two inlined copies came out. Cap 1420 -> 1462.
+    # fix(#1778 codex r6): +33. `drop_unadopted_analysis_output` returns what
+    # it established rather than the same None whether it dropped the table or
+    # failed to. The sweep clears the recorded name on the strength of that
+    # call, and the name is the table's last durable pointer, so a swallowed
+    # failure read as success orphaned the table permanently. The five outcomes
+    # and the note on why a raised probe is "failed" and not "adopted" are the
+    # growth. Cap 1462 -> 1495.
+    # fix(#1778 codex r7): +79. Output table names are scoped by the job that
+    # creates them, so two jobs can never hold one physical name and the sweep
+    # can verify ownership from the name alone, with no marker, registry or
+    # lock. `analysis_output_table_name` and `analysis_output_table_belongs_to`
+    # plus the ownership gate in the drop are the code; the docstring stating
+    # the interleaving that made a shared name unsafe, and why the scope is by
+    # job and not by attempt, is most of the growth. The gate is a REQUIRED
+    # keyword with no default: the in-worker handlers pass their own id either
+    # way, so an optional one would have bought nothing but a way to forget it.
+    # Cap 1495 -> 1580, exact.
+    # fix(#1778 codex r10): +122. The scope grows an attempt half — job scoping
+    # alone left a retry able to derive the same name as its predecessor, since
+    # `/jobs/{id}/retry` keeps `IngestJob.id` and only mints a new attempt
+    # token. `analysis_output_table_name` takes both now, and the record
+    # accumulates across attempts (`recorded_analysis_output_tables`,
+    # `append_analysis_output_record`) rather than overwriting, the shape
+    # `unpublished_storage_keys` took in r9 and for the same reason: overwriting
+    # a retry's own field dropped the previous attempt's pointer. The other
+    # half of the growth is `resolve_analysis_output_table`, which
+    # collision-checks the SCOPED candidate against pg_class directly —
+    # `generate_table_name`'s own `_N` walk only ever probed the unscoped base,
+    # so it could hand back a name that scoped straight onto an orphan a
+    # previous attempt of the same job left behind. Cap 1580 -> 1702, exact.
+    # fix(#1778 audit r11): +23. `analysis_output_table_name` takes an
+    # optional `collision_suffix` now instead of the caller pre-pending `_N`
+    # to `base` and calling it again -- the second trim of an already-trimmed
+    # string threw away the very characters that made one candidate differ
+    # from the next, so a `base` at or past the reservation point made every
+    # walked suffix identical and exhausted the whole `_N` walk instead of
+    # self-healing. The tag is reserved for up front, in the same limit
+    # computation as the scope, the idiom `generate_table_name`'s own
+    # `_with_collision_suffix` already uses. Cap 1702 -> 1725, exact.
+    "backend/app/processing/analysis/tasks.py": 1725,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

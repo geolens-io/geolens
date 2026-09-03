@@ -32,7 +32,11 @@ from app.core.db import tenant_task
 from app.processing.embeddings.helpers import defer_embedding
 from app.processing.raster.cog import extract_raster_metadata, sha256_file
 from app.processing.raster.quicklook import generate_quicklook
-from app.processing.raster.vrt import build_vrt, resolve_vrt_source_path
+from app.processing.raster.vrt import (
+    build_vrt,
+    gdal_safe_open_env,
+    resolve_vrt_source_path,
+)
 from app.processing.raster.vrt_rewrite import rewrite_vrt_sources
 from app.platform.storage import get_storage
 
@@ -44,7 +48,42 @@ from app.processing.ingest.tasks_common import (
 from app.processing.ingest.tasks_raster_common import (
     absorb_cancellation,
     publish_commit_landed,
+    record_unpublished_storage_keys,
 )
+
+
+def read_vrt_metadata(vrt_path: str) -> dict:
+    """``extract_raster_metadata`` on a built VRT, under the safe open env.
+
+    fix(#1778). Steps 6 and 8 below open every ``/vsis3`` source the assembled
+    VRT names, in-process rather than through a subprocess, so they are the one
+    place in this task that ``GDAL_SUBPROCESS_TIMEOUT_SECONDS`` does not reach.
+    ``_VRT_SAFE_ENV`` carries the ``GDAL_HTTP_*`` clamps that bound them, and a
+    rasterio ``Env`` sets thread-local GDAL config, so the env has to be entered
+    INSIDE the ``asyncio.to_thread`` call rather than around it. That is the
+    whole reason this is a function and not a ``with`` block at the call site.
+
+    fix(#1778 codex r3): it lives in THIS module, and calls
+    ``extract_raster_metadata`` through the module global rather than a local
+    import, because that name is a patch target
+    (``test_regenerate_vrt_integration``'s ``quicklook_stub`` patches its peer
+    the same way). An earlier revision put both wrappers in ``raster/vrt.py``
+    with function-level imports, which removed the attribute the fixture
+    patches and made the patch a no-op in the same stroke.
+    """
+    with gdal_safe_open_env():
+        return extract_raster_metadata(vrt_path)
+
+
+def render_vrt_quicklook(vrt_path: str, size: int) -> bytes:
+    """``generate_quicklook`` on a built VRT, under the safe open env.
+
+    fix(#1778): the peer of :func:`read_vrt_metadata` and the heavier of the
+    two, since it reads pixels from every source rather than headers. Same
+    module-global call for the same reason.
+    """
+    with gdal_safe_open_env():
+        return generate_quicklook(vrt_path, size)
 
 
 async def _reap_superseded_generation_objects(
@@ -242,6 +281,7 @@ async def create_vrt_dataset(
     record_status: str = "published",
     snapshot_at: datetime | None = None,
     built_from: dict | None = None,
+    dataset_id: uuid.UUID | None = None,
 ) -> tuple:
     """Create Record + Dataset + RasterAsset records for a VRT dataset.
 
@@ -250,6 +290,10 @@ async def create_vrt_dataset(
     - source_format=None (avoids chk_datasets_source_format constraint)
     - Sets vrt_type and resolution_strategy on RasterAsset
     - Inserts vrt_source_links rows with position ordering
+
+    fix(#1778): ``dataset_id`` has the same job it has on
+    ``create_raster_dataset``: let the manifest-VRT tail name its object keys
+    on the durable job row before this transaction opens.
 
     Returns (record, dataset, raster_asset).
     """
@@ -292,6 +336,7 @@ async def create_vrt_dataset(
 
     table_name = f"vrt_{record.id.hex[:16]}"
     dataset = Dataset(
+        **({"id": dataset_id} if dataset_id is not None else {}),
         record_id=record.id,
         table_name=table_name,
         source_format=None,  # VRT datasets have no source_format (avoids chk constraint)
@@ -506,7 +551,7 @@ async def ingest_vrt(
         )
 
         # 6. Extract metadata from assembled VRT
-        meta = await asyncio.to_thread(extract_raster_metadata, vrt_path)
+        meta = await asyncio.to_thread(read_vrt_metadata, vrt_path)
         if not meta.get("crs_wkt"):
             raise ValueError("Assembled VRT has no coordinate reference system.")
 
@@ -514,12 +559,51 @@ async def ingest_vrt(
         asset_sha256 = await asyncio.to_thread(sha256_file, vrt_path)
         vrt_size = os.path.getsize(vrt_path)
 
+        # fix(#1778 codex r4): the same treatment `ingest_raster` gets, and for
+        # the same reason. Steps 10 and 11 put the VRT and its quicklooks
+        # before the terminal commit, and `written_storage_keys` is a local
+        # list: a kill between the put and that commit loses it with the
+        # process AND rolls back the dataset row whose id the keys embed, so
+        # nothing left alive could reconstruct them. Recording the intended
+        # keys on the durable job row before the first put is what makes them
+        # nameable, and both stale-job passes reap what no live row references.
+        #
+        # The id is decided here rather than by the phase-2 INSERT because the
+        # keys embed it and the job row has to be able to name them before the
+        # transaction that can roll it away opens. It is generated per task
+        # invocation, so a retry cannot reproduce one: that is this tail's
+        # attempt fence, the same one `ingest_raster` relies on, and the reason
+        # these keys need no `attempts/` segment of their own.
+        planned_dataset_id = uuid.uuid4()
+        _vrt_base_key = f"rasters/{planned_dataset_id}/{asset_sha256}"
+        if not await record_unpublished_storage_keys(
+            job_uuid,
+            attempt_uuid,
+            keys=[
+                f"{_vrt_base_key}/source.vrt",
+                f"{_vrt_base_key}/quicklook_256.png",
+                f"{_vrt_base_key}/quicklook_512.png",
+            ],
+            # A brand new dataset id: no row can already name one of these.
+            already_published=(),
+            attempt_scope=str(planned_dataset_id),
+            job_id=job_id,
+            task="ingest_vrt",
+        ):
+            # fix(#1778 audit): a confirmed fence miss. Phase 2's own
+            # attempt-fenced load below would catch this too, but stopping
+            # here is what actually keeps the recorder's contract ("do not
+            # write what nothing records") rather than depending on a second
+            # guard downstream to make it true, and it skips the quicklook
+            # generation this dead attempt no longer needs.
+            return
+
         # 8. Generate quicklooks (non-fatal)
         ql256: bytes | None = None
         ql512: bytes | None = None
         try:
-            ql256 = await asyncio.to_thread(generate_quicklook, vrt_path, 256)
-            ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
+            ql256 = await asyncio.to_thread(render_vrt_quicklook, vrt_path, 256)
+            ql512 = await asyncio.to_thread(render_vrt_quicklook, vrt_path, 512)
         except Exception:  # broad: quicklook generation is non-fatal; rasterio rendering can fail for any reason
             logger_vrt.warning(
                 "Quicklook generation failed for VRT %s", job_id, exc_info=True
@@ -528,13 +612,34 @@ async def ingest_vrt(
         # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session): create DB records, store assets,
         # commit job.
+        #
+        # fix(#1778 audit r11): status == "running" joins the attempt fence.
+        # A stale sweep can fail this job on heartbeat timeout WITHOUT a
+        # retry ever rotating the attempt token, so an (id, attempt)-only
+        # match still passed for a worker that was merely paused, not dead --
+        # and this phase puts the VRT and its quicklooks to storage, which no
+        # rollback can undo. This does not use `_job_phase_session` (the
+        # shared helper other tails go through) because it never adopted the
+        # helper in the first place; the fence has to match by hand here for
+        # the same reason.
+        #
+        # fix(#1778 audit r12): `.with_for_update(key_share=True)` closes the
+        # window a plain status check leaves open -- a SELECT is not a lock,
+        # so the sweep could still fail this row between this read and the
+        # puts below completing (see the sibling fix in `_job_phase_session`'s
+        # docstring for the full shape). The lock is held for as long as this
+        # session stays open, which is through the puts and up to the commit
+        # below.
         # ----------------------------------------------------------------- #
         async with async_session() as session:
             result = await session.execute(
-                select(IngestJob).where(
+                select(IngestJob)
+                .where(
                     IngestJob.id == job_uuid,
                     IngestJob.attempt_id == attempt_uuid,
+                    IngestJob.status == "running",
                 )
+                .with_for_update(key_share=True)
             )
             job = result.scalar_one_or_none()
             if job is None:
@@ -562,6 +667,7 @@ async def ingest_vrt(
                     vrt_type=vrt_type,
                     resolution_strategy=resolution_strategy,
                     source_dataset_ids=ids,
+                    dataset_id=planned_dataset_id,
                 )
 
                 # 10. Store VRT and quicklooks to managed storage
@@ -570,6 +676,10 @@ async def ingest_vrt(
                 from app.platform.storage import get_storage
 
                 storage = get_storage()
+                # fix(#1778 codex r4): the same value the durable record above
+                # named, since `dataset.id` IS `planned_dataset_id`. Written as
+                # the dataset's own id rather than the local so the key still
+                # reads as a property of the row it belongs to.
                 base_key = f"rasters/{dataset.id}/{asset_sha256}"
                 vrt_key = f"{base_key}/source.vrt"
 
@@ -610,16 +720,19 @@ async def ingest_vrt(
                     ql512_key, tenant_id=current_tenant_var.get()
                 )
 
+                # fix(#1778): registered before the put, per
+                # archive_lossy_original's rule. A cancelled put can have
+                # completed, and CancelledError skips every statement below it.
+                written_storage_keys.append(_storage_vrt_key)
                 with open(vrt_path, "rb") as fobj:
                     await storage.put(_storage_vrt_key, fobj)
-                written_storage_keys.append(_storage_vrt_key)
 
                 if ql256 is not None:
-                    await storage.put(_storage_ql256_key, io.BytesIO(ql256))
                     written_storage_keys.append(_storage_ql256_key)
+                    await storage.put(_storage_ql256_key, io.BytesIO(ql256))
                 if ql512 is not None:
-                    await storage.put(_storage_ql512_key, io.BytesIO(ql512))
                     written_storage_keys.append(_storage_ql512_key)
+                    await storage.put(_storage_ql512_key, io.BytesIO(ql512))
 
                 # 11. Update asset URIs and create distribution.
                 # asset_uri stays as the logical (un-prefixed) key — the tenant
@@ -1031,7 +1144,7 @@ async def regenerate_vrt(
         )
 
         # 6 & 7. Extract metadata (also serves as post-validation)
-        meta = await asyncio.to_thread(extract_raster_metadata, vrt_path)
+        meta = await asyncio.to_thread(read_vrt_metadata, vrt_path)
         if not meta.get("crs_wkt"):
             raise ValueError("Regenerated VRT has no coordinate reference system.")
 
@@ -1043,8 +1156,8 @@ async def regenerate_vrt(
         ql256: bytes | None = None
         ql512: bytes | None = None
         try:
-            ql256 = await asyncio.to_thread(generate_quicklook, vrt_path, 256)
-            ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
+            ql256 = await asyncio.to_thread(render_vrt_quicklook, vrt_path, 256)
+            ql512 = await asyncio.to_thread(render_vrt_quicklook, vrt_path, 512)
         except Exception:  # broad: quicklook generation is non-fatal; rasterio rendering can fail for any reason
             logger_regen.warning(
                 "Quicklook regeneration failed for VRT %s",
@@ -1099,16 +1212,19 @@ async def regenerate_vrt(
             next_ql512_uri, tenant_id=_ctv.get()
         )
 
+        # fix(#1778): registered before the put, per archive_lossy_original's
+        # rule. A cancelled put can have completed, and CancelledError skips
+        # every statement below it.
+        written_storage_keys.append(next_vrt_physical_key)
         with open(vrt_path, "rb") as fobj:
             await storage.put(next_vrt_physical_key, fobj)
-        written_storage_keys.append(next_vrt_physical_key)
 
         if ql256 is not None:
-            await storage.put(next_ql256_physical_key, io.BytesIO(ql256))
             written_storage_keys.append(next_ql256_physical_key)
+            await storage.put(next_ql256_physical_key, io.BytesIO(ql256))
         if ql512 is not None:
-            await storage.put(next_ql512_physical_key, io.BytesIO(ql512))
             written_storage_keys.append(next_ql512_physical_key)
+            await storage.put(next_ql512_physical_key, io.BytesIO(ql512))
 
         prior_storage_keys = _prior_generation_storage_keys_to_reap(
             vrt_key=vrt_storage_key,
@@ -1122,12 +1238,44 @@ async def regenerate_vrt(
         # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session): update RasterAsset metadata, mark
         # job complete, update dataset footprint.
+        #
+        # fix(#1778 audit r11): status == "running" joins the attempt fence.
+        # The `current_generation_id` check below already refuses a NEWER
+        # generation's publish from overwriting this one, but says nothing
+        # about a job the stale sweep already failed without any newer
+        # generation existing yet -- `vrt_asset.current_generation_id` lives
+        # on a different row than `ingest_jobs.status` and the sweep never
+        # touches it. Without this, a worker only paused, not dead, could
+        # still complete the job and switch the live pointer onto this
+        # generation's objects after the sweep declared it dead. The objects
+        # written above are unaffected either way: they are reaped by the
+        # separate stale-generation mechanism (`sweep_stale_vrt_assets`) on
+        # their own timeout, independent of this fence.
+        #
+        # fix(#1778 audit r12): deliberately NOT locked here, unlike the
+        # sibling phase-2 sites. This job row is loaded BEFORE the RasterAsset
+        # row a few lines down, and `cancel_job` (jobs/router.py) takes those
+        # two locks in the opposite order for a vrt_regenerate job (asset
+        # first, job second) specifically to avoid an AB-BA deadlock between
+        # itself and this worker -- see that function's own comment on why
+        # asset-first is the worker's invariant. Locking the job row here
+        # would put it back in job-then-asset order and reopen exactly that
+        # cycle. The residual TOCTOU this leaves is narrow and already
+        # bounded: the objects above are written either way and reaped by
+        # `sweep_stale_vrt_assets` on their own timeout regardless of this
+        # fence, and `current_generation_id` still refuses a stale publish
+        # once a newer generation exists. What a sweep-inserted status flip
+        # in this exact window could still do is let a paused-not-dead worker
+        # complete over a row the sweep just failed, the same class round 11
+        # already narrowed considerably; closing it completely here is not
+        # worth reordering these two locks.
         # ----------------------------------------------------------------- #
         async with async_session() as session:
             result = await session.execute(
                 select(IngestJob).where(
                     IngestJob.id == job_uuid,
                     IngestJob.attempt_id == attempt_uuid,
+                    IngestJob.status == "running",
                 )
             )
             job = result.scalar_one_or_none()

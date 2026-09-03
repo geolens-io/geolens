@@ -29,6 +29,7 @@ from app.platform.jobs.models import owned_presigned_staging_key
 from app.processing.ingest.tasks_raster_swap import (
     archive_lossy_original,
     archived_original_asset_key,
+    archived_original_uri,
     upsert_archived_original_row,
 )
 from app.processing.ingest.tasks_raster_common import (
@@ -42,6 +43,7 @@ from app.processing.ingest.tasks_raster_common import (
     create_raster_dataset,
     extract_source_raster_metadata,
     publish_commit_landed,
+    record_unpublished_storage_keys,
 )
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
@@ -379,6 +381,53 @@ async def ingest_raster(
         asset_sha256 = await asyncio.to_thread(sha256_file, local_cog_path)
         cog_size = os.path.getsize(local_cog_path)
 
+        # fix(#1778): the dataset id is decided HERE rather than by the phase-2
+        # INSERT, because the object keys below embed it and the durable job
+        # row has to be able to name them before the transaction that could
+        # roll that id away ever opens. Nothing else changes: phase 2 hands
+        # this id to create_*_dataset and `base_key` is built from the same
+        # value it always was.
+        planned_dataset_id = uuid.uuid4()
+        _base_key = f"rasters/{planned_dataset_id}/{asset_sha256}"
+        _unpublished_keys = [
+            f"{_base_key}/source.vrt"
+            if is_manifest_vrt
+            else f"{_base_key}/source.cog.tif",
+            f"{_base_key}/quicklook_256.png",
+            f"{_base_key}/quicklook_512.png",
+            # The kept original of a lossy conversion. Its key is content-
+            # derived and the dataset id is brand new here, so this attempt is
+            # necessarily the only writer of it - unlike the replace tail,
+            # where the same key can already hold an earlier upload's archive
+            # and must not be registered.
+            archived_original_uri(planned_dataset_id, source_sha256=source_sha256),
+        ]
+        if not await record_unpublished_storage_keys(
+            job_uuid,
+            attempt_uuid,
+            keys=_unpublished_keys,
+            # fix(#1778 codex r1): empty, and provably so. Every key above is
+            # under a dataset id generated three lines up, so no row can name
+            # one. The replace tail passes the live asset's keys here, because
+            # an identical re-upload derives the same content hash and would
+            # otherwise register the objects the dataset is serving.
+            already_published=(),
+            # fix(#1778 codex r3): every key above sits under this id, and it
+            # is generated per task invocation, so a retry cannot reproduce
+            # one. That is this tail's attempt fence; the replace tail has a
+            # fixed dataset id and uses its attempt id instead.
+            attempt_scope=str(planned_dataset_id),
+            job_id=job_id,
+            task="ingest_raster",
+        ):
+            # fix(#1778 audit): a confirmed fence miss. Phase 2's own
+            # attempt-fenced load below would catch this too, but stopping
+            # here is what actually keeps the recorder's contract ("do not
+            # write what nothing records") rather than depending on a second
+            # guard downstream to make it true, and it skips the quicklook
+            # generation this dead attempt no longer needs.
+            return
+
         # REMED-02 / ingest-audit P2-07: quicklook generation is the other
         # multi-second hotspot. Brief-session write before the two
         # generate_quicklook calls so the UI advances. Routed through
@@ -403,9 +452,19 @@ async def ingest_raster(
         # P2-05): create DB records, store assets, commit job. Re-load the
         # job in a fresh session — its attributes were already snapshotted
         # into ``um`` / ``source_filename`` above.
+        #
+        # fix(#1778 audit r11): require_status="running". The load used to
+        # match on (job, attempt) alone, so a row the stale sweep already
+        # failed on a heartbeat timeout, WITHOUT a retry rotating the
+        # attempt, still matched -- and this phase puts objects to storage,
+        # which no rollback can undo. A worker only paused, not dead, could
+        # resume here and write bytes nothing durable names.
         # ----------------------------------------------------------------- #
         async with _job_phase_session(
-            job_uuid, phase="phase2", attempt_id=attempt_uuid
+            job_uuid,
+            phase="phase2",
+            attempt_id=attempt_uuid,
+            require_status="running",
         ) as (session, job):
             if job is None:
                 return
@@ -439,6 +498,7 @@ async def ingest_raster(
                     vrt_type=um.get("vrt_type", "mosaic"),
                     resolution_strategy=um.get("resolution_strategy", "finest"),
                     source_dataset_ids=[],
+                    dataset_id=planned_dataset_id,
                 )
             else:
                 record, dataset, raster_asset = await create_raster_dataset(
@@ -455,6 +515,7 @@ async def ingest_raster(
                     summary=um.get("summary"),
                     visibility=um.get("visibility", "private"),
                     record_status=um.get("record_status", "published"),
+                    dataset_id=planned_dataset_id,
                 )
 
             # feat(#1472): the manifest's credit line. Covers both branches
@@ -505,15 +566,24 @@ async def ingest_raster(
                 ql512_key,
             )
 
-            # GAP-017: record each key right after its put so the failure
-            # path can delete exactly what was written (and nothing more).
+            # GAP-017: record each key so the failure path can delete exactly
+            # what was written (and nothing more).
+            #
+            # fix(#1778): registered BEFORE the put, not after it, which is the
+            # rule archive_lossy_original already follows (tasks_raster_swap.py).
+            # Ownership is registered by INTENT: both providers drain their
+            # worker thread before re-raising CancelledError, so a cancelled put
+            # can have COMPLETED, and CancelledError is a BaseException, so an
+            # append below it never runs and the finished object is left with
+            # nothing naming it. Reaping a key the write never created is an
+            # idempotent no-op, so the other direction costs nothing.
+            written_storage_keys.append(_storage_cog_key)
             with open(local_cog_path, "rb") as fobj:
                 await storage.put(_storage_cog_key, fobj)
-            written_storage_keys.append(_storage_cog_key)
-            await storage.put(_storage_ql256_key, io.BytesIO(ql256))
             written_storage_keys.append(_storage_ql256_key)
-            await storage.put(_storage_ql512_key, io.BytesIO(ql512))
+            await storage.put(_storage_ql256_key, io.BytesIO(ql256))
             written_storage_keys.append(_storage_ql512_key)
+            await storage.put(_storage_ql512_key, io.BytesIO(ql512))
 
             # 11. Update asset URIs and create distribution.
             # asset_uri stays as the logical (un-prefixed) key — the tenant

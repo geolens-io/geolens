@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 import structlog
 
 from app.core.config import settings
+from app.core.raster_bands import band_display_name, stac_band_nodata
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.source_freshness import (
@@ -503,35 +504,45 @@ def dataset_to_ogc_record(
         if raster_meta.get("band_count"):
             ogc_record["properties"]["band_count"] = raster_meta["band_count"]
 
-        # Build bands array from band_info
+        # Build bands array from band_info.
+        # fix(#1778): through the same two normalisers the STAC serializer
+        # uses (`app.core.raster_bands`), so one dataset cannot report a band
+        # one way here and another way there. `name` used to be read directly, a key no producer writes,
+        # so the colour interpretation of every locally ingested raster was
+        # dropped from this representation alone. Empty entries are skipped for
+        # the reason given in `to_stac_properties`.
         bands = []
         band_info = raster_meta.get("band_info")
         if band_info and isinstance(band_info, list):
             for bi in band_info:
+                if not isinstance(bi, dict):
+                    continue
                 band_entry: dict = {}
-                if isinstance(bi, dict):
-                    if bi.get("name"):
-                        band_entry["name"] = bi["name"]
-                    if bi.get("dtype"):
-                        band_entry["data_type"] = bi["dtype"]
-                    if bi.get("nodata") is not None:
-                        band_entry["nodata"] = bi["nodata"]
-                    elif raster_meta.get("nodata") is None:
-                        # fix(#1805 review round 4 P2): this band's own
-                        # stats don't carry a nodata value, but the asset
-                        # WAS probed (band_info exists) and its
-                        # authoritative RasterAsset.nodata column is None --
-                        # NoData is confirmed absent, not merely unrecorded
-                        # for this band. Emit the key explicitly so the
-                        # client can tell "absent" from "unavailable"
-                        # (OGCRasterBand.nodata omitted below means the
-                        # latter -- e.g. a remote COG whose band-level
-                        # stats carry only min/max/mean even though the
-                        # asset-level column IS set).
-                        band_entry["nodata"] = None
-                    if bi.get("description"):
-                        band_entry["description"] = bi["description"]
-                bands.append(band_entry)
+                band_name = band_display_name(bi)
+                if band_name:
+                    band_entry["name"] = band_name
+                if bi.get("dtype"):
+                    band_entry["data_type"] = bi["dtype"]
+                nodata = stac_band_nodata(bi.get("nodata"))
+                if nodata is not None:
+                    band_entry["nodata"] = nodata
+                elif raster_meta.get("nodata") is None:
+                    # fix(#1805 review round 4 P2): kept across the move to
+                    # the shared normaliser. This band's own stats don't
+                    # carry a value `stac_band_nodata` can parse, but the
+                    # asset WAS probed (band_info exists) and its
+                    # authoritative RasterAsset.nodata column is None --
+                    # NoData is confirmed absent, not merely unrecorded for
+                    # this band. Emit the key explicitly so the client can
+                    # tell "absent" from "unavailable" (nodata omitted below
+                    # means the latter -- e.g. a remote COG whose band-level
+                    # stats carry only min/max/mean even though the
+                    # asset-level column IS set).
+                    band_entry["nodata"] = None
+                if bi.get("description"):
+                    band_entry["description"] = bi["description"]
+                if band_entry:
+                    bands.append(band_entry)
         if bands:
             ogc_record["properties"]["raster:bands"] = bands
 

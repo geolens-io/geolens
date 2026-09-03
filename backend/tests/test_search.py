@@ -1587,7 +1587,11 @@ async def test_search_datasets_raster_band_nodata_presence(
     shape the client's tri-state nodataState() depends on telling apart.
 
     Pins both states plus the "defined" state as a sanity anchor:
-      - A defined nodata value serializes as that value.
+      - A defined nodata value serializes as that value. fix(#1778): through
+        the shared `stac_band_nodata` normaliser, a defined value now
+        serializes as a NUMBER rather than the raw stored string, since the
+        STAC Raster Extension requires one; the three sentinel strings
+        (nan/inf/-inf) still pass through as strings.
       - Confirmed-absent (RasterAsset.nodata column is None, band lacks its
         own key) serializes as an explicit `nodata: null` -- the key IS
         present.
@@ -1655,7 +1659,7 @@ async def test_search_datasets_raster_band_nodata_presence(
     features = {f["id"]: f for f in resp.json()["features"]}
 
     defined_band = features[str(defined_ds.id)]["properties"]["raster:bands"][0]
-    assert defined_band["nodata"] == "-9999"
+    assert defined_band["nodata"] == -9999.0
 
     absent_band = features[str(absent_ds.id)]["properties"]["raster:bands"][0]
     assert "nodata" in absent_band

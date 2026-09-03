@@ -14,7 +14,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 
 import structlog
 from prometheus_client import Counter
@@ -334,21 +334,13 @@ async def _fail_cancelled_job(
             # no row means the DROP is safe. If the probe itself errors,
             # prefer leaking the table to dropping a registered dataset's
             # storage.
-            if out_table is not None:
-                adopted = True
-                try:
-                    adopted = await _output_table_adopted(session, out_table)
-                except Exception:  # broad: prefer leak over loss
-                    logger.warning("analysis.adoption_probe_failed", job_id=job_id)
-                    await session.rollback()
-                if not adopted:
-                    try:
-                        await session.execute(
-                            text(f'DROP TABLE IF EXISTS "{schema}"."{out_table}"')
-                        )
-                        await session.commit()
-                    except Exception:  # broad: best-effort cleanup of the orphan
-                        await session.rollback()
+            await drop_unadopted_analysis_output(
+                session,
+                out_table=out_table,
+                schema=schema,
+                job_id=job_id,
+                owner_job_uuid=uuid.UUID(job_id),
+            )
             return
         await session.commit()
         if out_table is not None:
@@ -786,6 +778,296 @@ async def _output_table_adopted(session: AsyncSession, out_table: str) -> bool:
     return (await session.execute(stmt)).first() is not None
 
 
+# fix(#1778): the `user_metadata` field an analysis job names its output table
+# under. `out_table` is generated inside the worker and nothing durable carried
+# it, so a SIGKILL after the materialize commit left `data.<out_table>` (plus
+# its GIST index, up to MAX_OUTPUT_BYTES) with no catalog row, no DROP and no
+# reconciler that could ever name it. The name is written in the SAME
+# transaction that creates the table, so the two become durable together and a
+# row that has one has the other.
+ANALYSIS_OUTPUT_TABLE_FIELD = "analysis_out_table"
+
+
+def recorded_analysis_output_tables(user_metadata: object) -> tuple[str, ...]:
+    """Every output table name a job row records, in the order recorded.
+
+    fix(#1778 codex r10): the field is a LIST that each attempt appends to. A
+    plain string is what it held before this commit and is read as a
+    one-element list, so an existing row keeps its pointer. Anything else
+    yields nothing rather than raising, because this reads a schemaless JSONB
+    blob.
+    """
+    if not isinstance(user_metadata, dict):
+        return ()
+    recorded = user_metadata.get(ANALYSIS_OUTPUT_TABLE_FIELD)
+    if isinstance(recorded, str):
+        return (recorded,) if recorded else ()
+    if not isinstance(recorded, list):
+        return ()
+    return tuple(name for name in recorded if isinstance(name, str) and name)
+
+
+def append_analysis_output_record(user_metadata: "dict | None", out_table: str) -> dict:
+    """Add ``out_table`` to the record without dropping what is already there.
+
+    fix(#1778 codex r10): `/jobs/{id}/retry` preserves ``user_metadata``, so
+    writing this attempt's name over the field dropped the previous attempt's
+    and stranded its table with nothing naming it. Appending is what lets every
+    reaper iterate all of them.
+    """
+    names = list(recorded_analysis_output_tables(user_metadata))
+    if out_table not in names:
+        names.append(out_table)
+    return {**(user_metadata or {}), ANALYSIS_OUTPUT_TABLE_FIELD: names}
+
+
+# fix(#1778 codex r10): the scope an analysis output table carries, 8 hex
+# characters of the job and 8 of the attempt. Job alone was not enough: a retry
+# keeps `IngestJob.id` and changes only `attempt_id`, so every attempt of one
+# job derived the same name and a sweep holding attempt 1's could drop the
+# table attempt 2 had just created under it.
+_ANALYSIS_SCOPE_CHARS = 8
+_ANALYSIS_TABLE_MAX_CHARS = 63
+
+
+def analysis_output_scope(job_uuid: uuid.UUID, attempt_uuid: uuid.UUID) -> str:
+    """The suffix that says which attempt of which job owns a table."""
+    return (
+        f"_{job_uuid.hex[:_ANALYSIS_SCOPE_CHARS]}"
+        f"{attempt_uuid.hex[:_ANALYSIS_SCOPE_CHARS]}"
+    )
+
+
+def analysis_output_table_name(
+    base: str,
+    job_uuid: uuid.UUID,
+    attempt_uuid: uuid.UUID,
+    *,
+    collision_suffix: int | None = None,
+) -> str:
+    """The physical name ONE attempt of one job may write its output to.
+
+    fix(#1778 codex r7) scoped this by job, which stopped two DIFFERENT jobs
+    sharing a name. fix(#1778 codex r10) adds the attempt, because a retry is
+    the same job: `/jobs/{id}/retry` keeps the id and mints a new attempt
+    token, so every attempt derived one name. A stale sweep could capture
+    attempt 1's name, settle the job `failed`, and then probe and drop while
+    attempt 2 was creating that same name -- and the ownership check passed,
+    because the name really was this job's.
+
+    The objection to attempt scoping in r8 was that it strands the previous
+    attempt's orphan with nothing naming it, since the row has one field. That
+    is answered by making the record accumulate: it holds a LIST of names that
+    each attempt appends to, exactly as `unpublished_storage_keys` does since
+    r9, and every reaper iterates all of them. So the name identifies one
+    attempt's table and the record remembers every attempt's.
+
+    fix(#1778 audit r11): ``collision_suffix`` names the `_N` tag
+    ``resolve_analysis_output_table``'s walk tries, and it has to be applied
+    HERE, on the original ``base``, not by the caller pre-pending `_N` to
+    ``base`` and calling this again. The base is trimmed to leave room for
+    the scope AND the tag together, computed fresh from ``base`` every call
+    -- the same idiom `generate_table_name`'s own `_with_collision_suffix`
+    uses, and for the identical reason: trimming an ALREADY-TRIMMED string a
+    second time truncates the very characters that make one candidate differ
+    from the next. A ``base`` at or past the reserved limit (46 chars with no
+    tag) used to make every walked candidate identical once trimmed, so a
+    redelivery of the same attempt with an existing scoped table exhausted
+    the whole `_N` walk and raised instead of self-healing.
+    """
+    scope = analysis_output_scope(job_uuid, attempt_uuid)
+    tag = f"_{collision_suffix}" if collision_suffix is not None else ""
+    limit = _ANALYSIS_TABLE_MAX_CHARS - len(scope) - len(tag)
+    return f"{base[:limit]}{tag}{scope}"
+
+
+def analysis_output_table_belongs_to(out_table: str, job_uuid: uuid.UUID) -> bool:
+    """Whether ``out_table`` carries ``job_uuid``'s scope.
+
+    fix(#1778 codex r7): the ownership check every reaper makes before it drops
+    anything. The name embeds its owner, so this needs no catalog read, no
+    comment and no lock.
+
+    fix(#1778 codex r10): the attempt half is required to be PRESENT but is not
+    compared, because the reaper reads the name off the row that recorded it
+    and so already knows the attempt was one of this job's. What this refuses
+    is a name belonging to a different job, or one with no scope at all.
+    """
+    return (
+        re.search(
+            rf"_{re.escape(job_uuid.hex[:_ANALYSIS_SCOPE_CHARS])}"
+            rf"[0-9a-f]{{{_ANALYSIS_SCOPE_CHARS}}}$",
+            out_table,
+        )
+        is not None
+    )
+
+
+# fix(#1778 codex r10): how many `_N` walks the scoped-name probe makes before
+# giving up, and how much of the base it probes on. Same bound and same reason
+# as `generate_table_name`'s own.
+_MAX_SCOPED_COLLISION_SUFFIX = 20
+_SCOPED_PROBE_CHARS = 20
+
+
+async def resolve_analysis_output_table(
+    session: AsyncSession,
+    *,
+    base: str,
+    job_uuid: uuid.UUID,
+    attempt_uuid: uuid.UUID,
+    schema: str,
+) -> str:
+    """The scoped output name, collision-checked AS SCOPED.
+
+    fix(#1778 codex r10). ``generate_table_name`` walks its ``_N`` suffixes
+    against the UNSCOPED base while the relation on disk carries the scope, so
+    its candidate set and the names that actually exist never intersected: a
+    base of ``parcels`` probes ``parcels%``, finds ``parcels_ab12cd34ef56ab78``
+    in pg_class, asks whether ``parcels`` is taken, and hands back ``parcels``
+    unsuffixed, which scopes straight back onto the occupied name and fails at
+    CREATE TABLE. Attempt scoping makes that rare, because a retry gets a
+    different suffix, but not unreachable: the same attempt can be delivered
+    twice, and then the scoped name is identical.
+
+    So the walk happens here, on the name that will actually be created. One
+    prefix probe answers every candidate, and it reads pg_class rather than
+    information_schema for the reason ``generate_table_name`` gives: the
+    standard filters information_schema to relations the current role has
+    privileges on, and an orphan this role never granted itself is exactly the
+    one this has to see.
+
+    fix(#1778 audit r11): every candidate below is derived from the SAME
+    original ``base`` via ``collision_suffix``, never by pre-pending `_N` to
+    ``base`` and trimming again. ``analysis_output_table_name`` reserves room
+    for the tag itself now, so a long ``base`` still yields a genuinely
+    distinct candidate per suffix instead of the same truncated string N
+    times over.
+    """
+    probe_prefix = base[:_SCOPED_PROBE_CHARS]
+    taken = {
+        row[0]
+        for row in (
+            await session.execute(
+                text(
+                    "SELECT c.relname FROM pg_catalog.pg_class c"
+                    " JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace"
+                    " WHERE n.nspname = :schema AND c.relname LIKE :pattern"
+                ).bindparams(schema=schema, pattern=f"{probe_prefix}%")
+            )
+        ).all()
+    }
+    candidate = analysis_output_table_name(base, job_uuid, attempt_uuid)
+    if candidate not in taken:
+        return candidate
+    for suffix in range(2, _MAX_SCOPED_COLLISION_SUFFIX + 1):
+        candidate = analysis_output_table_name(
+            base, job_uuid, attempt_uuid, collision_suffix=suffix
+        )
+        if candidate not in taken:
+            return candidate
+    raise ValueError(
+        "Could not find a free analysis output table name for this attempt."
+    )
+
+
+# A generated analysis table name, as `generate_table_name` produces them. The
+# name reaches the sweeps through a schemaless JSONB blob and is interpolated
+# into DDL, so it is re-checked at every use rather than trusted for having
+# been sanitized once.
+_ANALYSIS_TABLE_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
+
+
+# fix(#1778 codex r6): what `drop_unadopted_analysis_output` actually managed
+# to establish. The distinction that matters to the stale-job sweeps is FINAL
+# versus RETRYABLE: a caller may forget the table's name only once the answer
+# can never change, because that name is the last durable pointer to it.
+#
+#   "adopted"  a dataset row owns the table. Final: it is not an orphan.
+#   "dropped"  the DROP committed. Final: there is nothing left to name.
+#   "invalid"  the recorded name is not an identifier `generate_table_name`
+#              could have produced, so no table of that name was made by this
+#              system and no retry can change the string. Final.
+#   "skipped"  nothing was named. Final, vacuously.
+#   "failed"   the probe or the DROP raised. NOT final. The table may exist and
+#              be unadopted, so the record has to survive for the next sweep.
+ANALYSIS_OUTPUT_FINAL_OUTCOMES = frozenset({"adopted", "dropped", "invalid", "skipped"})
+
+AnalysisOutputOutcome = Literal["skipped", "invalid", "adopted", "dropped", "failed"]
+
+
+async def drop_unadopted_analysis_output(
+    session: AsyncSession,
+    *,
+    out_table: str | None,
+    schema: str,
+    job_id: str,
+    owner_job_uuid: uuid.UUID,
+) -> AnalysisOutputOutcome:
+    """Drop an analysis output table no dataset row has adopted.
+
+    fix(#1778): the probe-then-drop the two fence-miss handlers already ran,
+    lifted into one function so the stale-job sweeps can apply the same policy
+    to a job whose worker was killed outright. Failure direction is the one
+    those handlers chose: an adoption probe that itself errors leaks a table
+    rather than dropping a registered dataset's storage.
+
+    The name is re-validated here because the sweeps read it out of
+    ``user_metadata``, a JSONB blob with no schema, and it is interpolated into
+    a DDL statement that takes no bind parameters.
+
+    fix(#1778 codex r7): ``owner_job_uuid`` is the job whose record is being
+    reaped, and a name that is not that job's is refused. It is required, with
+    no default. The in-worker handlers would pass their own id either way, so
+    an optional gate would have bought nothing but a way to forget it: the
+    caller that most needs the check is a sweep acting on a name read off a row
+    that may be older than the table now standing at it.
+
+    fix(#1778 codex r6): it REPORTS, rather than returning the same ``None``
+    whether it dropped the table or failed to. The two fence-miss handlers can
+    ignore that -- they are inside the worker, and the job row still names the
+    table afterwards -- but the sweeps cannot. They clear the recorded name on
+    the strength of this call, and the name is the last durable pointer to the
+    table, so a swallowed failure read as success stripped the record and left
+    the table orphaned for good: exactly the leak this function exists to stop,
+    reintroduced by the function itself.
+
+    Note that a probe that RAISES is "failed" and not "adopted". Treating an
+    unreadable catalog as adoption is the right call for whether to DROP -- it
+    prefers a leak to destroying a live dataset's storage -- and the wrong one
+    for whether the question is settled, because nothing was established.
+    """
+    if out_table is None:
+        return "skipped"
+    if not _ANALYSIS_TABLE_NAME_RE.match(out_table):
+        logger.warning("analysis.output_table_name_rejected", job_id=job_id)
+        return "invalid"
+    # fix(#1778 codex r7): the ownership gate. A sweep reaping a job's record
+    # may only drop the table THAT job named, and the name says which job that
+    # is. Without this the sweep was free to drop a table a different job had
+    # since created under a reused name, between the adoption probe and the
+    # DROP. "invalid" rather than "failed": a name that is not this job's can
+    # never become this job's, so retrying it forever would pin the row.
+    if not analysis_output_table_belongs_to(out_table, owner_job_uuid):
+        logger.warning("analysis.output_table_not_owned", job_id=job_id)
+        return "invalid"
+    try:
+        adopted = await _output_table_adopted(session, out_table)
+    except Exception:  # broad: prefer leak over loss
+        logger.warning("analysis.adoption_probe_failed", job_id=job_id)
+        await session.rollback()
+        return "failed"
+    if adopted:
+        return "adopted"
+    try:
+        await session.execute(text(f'DROP TABLE IF EXISTS "{schema}"."{out_table}"'))
+        await session.commit()
+    except Exception:  # broad: best-effort cleanup of the orphan
+        await session.rollback()
+        return "failed"
+    return "dropped"
+
+
 async def _mark_job_failed(
     session: AsyncSession,
     *,
@@ -832,21 +1114,13 @@ async def _mark_job_failed(
         # DROP is safe. Failure direction stays safe: if the probe itself
         # errors, prefer leaking the table to dropping a registered
         # dataset's storage.
-        if out_table is not None:
-            adopted = True
-            try:
-                adopted = await _output_table_adopted(session, out_table)
-            except Exception:  # broad: prefer leak over loss
-                logger.warning("analysis.adoption_probe_failed", job_id=job_id)
-                await session.rollback()
-            if not adopted:
-                try:
-                    await session.execute(
-                        text(f'DROP TABLE IF EXISTS "{schema}"."{out_table}"')
-                    )
-                    await session.commit()
-                except Exception:  # broad: best-effort cleanup of the orphan
-                    await session.rollback()
+        await drop_unadopted_analysis_output(
+            session,
+            out_table=out_table,
+            schema=schema,
+            job_id=job_id,
+            owner_job_uuid=uuid.UUID(job_id),
+        )
         return
     await session.commit()
     if out_table is not None:
@@ -1162,7 +1436,38 @@ async def _materialize(
                 mask_table_ref=mask_table_ref,
             )
 
-            out_table, collision_warning = await generate_table_name(title, session)
+            _base_table, collision_warning = await generate_table_name(title, session)
+            # fix(#1778 codex r7/r10): scoped by this job AND this attempt, so
+            # neither another job nor another attempt of this one can be handed
+            # the same physical name. `generate_table_name` still chooses the
+            # readable half and still collides against the catalog and the
+            # retired names, which is what the eventual dataset table_name
+            # needs; the `_N` walk that matters for the RELATION is the scoped
+            # one below, because the unscoped walk can never see a scoped name.
+            out_table = await resolve_analysis_output_table(
+                session,
+                base=_base_table,
+                job_uuid=uuid.UUID(job_id),
+                attempt_uuid=attempt_id,
+                schema=_schema,
+            )
+            # fix(#1778): the name, on the durable row, in the same transaction
+            # that creates the table (the commit after ANALYZE below). Without
+            # it a hard kill after that commit left the table unreachable: the
+            # stale sweep is a plain status UPDATE, every DROP of this table
+            # lives in a handler this process would never run, and no
+            # reconciler can name a table nothing recorded.
+            #
+            # fix(#1778 codex r10): a LIST that each attempt APPENDS to, the
+            # shape `unpublished_storage_keys` took in r9 and for the same
+            # reason. `/jobs/{id}/retry` preserves `user_metadata`, so writing
+            # this attempt's name over the field dropped the previous attempt's
+            # and stranded its table with nothing naming it. A string from
+            # before this commit is read as a one-element list, so an existing
+            # row keeps its pointer.
+            job.user_metadata = append_analysis_output_record(
+                job.user_metadata, out_table
+            )
             if collision_warning:
                 # fix(#786): persisted like the upload path (tasks_vector) —
                 # the job-status endpoint surfaces

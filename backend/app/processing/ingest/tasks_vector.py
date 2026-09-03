@@ -672,9 +672,24 @@ async def ingest_file(
         # P2-05): post-ogr2ogr finalization. Re-load the job in a fresh
         # session — its attributes were already snapshotted into
         # ``um`` / ``source_filename`` / ``layer_name`` above.
+        #
+        # fix(#1778 audit r11): require_status="running". _finalize_ingest's
+        # own terminal write already fences on status via
+        # require_ingest_job_update (default expected_status="running"), so a
+        # fenced-out attempt cannot resurrect a row the sweep failed -- the
+        # transaction rolls back and no row is left wrong. But nothing here
+        # keeps a paused, not-dead worker from wastefully running the whole
+        # finalize pipeline (grant_reader_access, dataset creation, quality
+        # scoring) against a doomed row first; this stops it at the door,
+        # for the same reason the raster tails' phase 2 does now, even
+        # though vector ingest writes no untracked storage object that a
+        # rollback cannot undo.
         # ----------------------------------------------------------------- #
         async with _job_phase_session(
-            job_uuid, phase="phase2", attempt_id=attempt_uuid
+            job_uuid,
+            phase="phase2",
+            attempt_id=attempt_uuid,
+            require_status="running",
         ) as (session, job):
             if job is None:
                 return
@@ -1184,9 +1199,17 @@ async def ingest_service(
 
         # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session): post-ogr2ogr finalization.
+        #
+        # fix(#1778 audit r11): require_status="running", same reasoning as
+        # the sibling in ingest_file above -- this phase's own terminal write
+        # is already fenced by status through require_ingest_job_update, this
+        # closes the door earlier rather than wasting the finalize work.
         # ----------------------------------------------------------------- #
         async with _job_phase_session(
-            job_uuid, phase="phase2", attempt_id=attempt_uuid
+            job_uuid,
+            phase="phase2",
+            attempt_id=attempt_uuid,
+            require_status="running",
         ) as (session, job):
             if job is None:
                 return
