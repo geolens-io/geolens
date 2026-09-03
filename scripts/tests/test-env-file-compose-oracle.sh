@@ -243,6 +243,60 @@ _assert_errors_like_compose() {
   ok "$_aelc_desc (both get_env_value and Compose itself fail to resolve it)"
 }
 
+# fix(#1778 round 22, P2): _compose_value/_assert_matches_compose cannot
+# distinguish "KEY is genuinely UNSET" from "KEY is SET to an empty
+# string" -- a direct ${KEY} query collapses both to the same JSON "" (a
+# real, separately-confirmed Compose behavior: querying an unset name
+# directly prints a "variable is not set" WARNING on stderr but still
+# resolves to "" in the JSON body, identical to a name actually set to
+# "" -- case 74's own original assertion was built on that collapsed
+# value and got the wrong idea about which state it was even measuring).
+#
+# The `-` vs `:-` operator pair distinguishes them without that
+# ambiguity: `-` substitutes its fallback ONLY when the name is
+# genuinely UNSET; `:-` ALSO substitutes when the name is SET but empty.
+# Comparing both pins all three states from two data points, which is
+# more robust than trusting a single sentinel string to never coincide
+# with a real value:
+#   unset:         `-`-probe = SENTINEL,  `:-`-probe = SENTINEL
+#   set empty:     `-`-probe = "",        `:-`-probe = SENTINEL
+#   set non-empty: `-`-probe = the value, `:-`-probe = the value
+_COMPOSE_PRESENCE_SENTINEL="__R22_PRESENCE_SENTINEL__"
+_compose_presence_probe() {
+  _cpp_key="$1"
+  _cpp_op="$2"
+  _cpp_file="$3"
+  cat > "$COMPOSE_YML" <<YML
+services:
+  svc:
+    image: busybox
+    environment:
+      X: \${${_cpp_key}${_cpp_op}${_COMPOSE_PRESENCE_SENTINEL}}
+YML
+  _cpp_json="$(docker compose -f "$COMPOSE_YML" --env-file "$_cpp_file" config --format json 2>/dev/null && printf x)" || { printf ''; return 1; }
+  _cpp_json="${_cpp_json%x}"
+  printf '%s' "$_cpp_json" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+val = data["services"]["svc"]["environment"].get("X")
+sys.stdout.write(val if val is not None else "")
+'
+}
+
+# Prints "unset", "empty", or "nonempty" -- Compose'"'"'s TRUE presence state
+# for KEY in FILE, per the probe pair above.
+_compose_presence() {
+  _cprs_dash="$(_compose_presence_probe "$1" "-" "$2")"
+  _cprs_colondash="$(_compose_presence_probe "$1" ":-" "$2")"
+  if [ "$_cprs_dash" = "$_COMPOSE_PRESENCE_SENTINEL" ] && [ "$_cprs_colondash" = "$_COMPOSE_PRESENCE_SENTINEL" ]; then
+    printf 'unset'
+  elif [ "$_cprs_colondash" = "$_COMPOSE_PRESENCE_SENTINEL" ]; then
+    printf 'empty'
+  else
+    printf 'nonempty'
+  fi
+}
+
 # ============================================================================
 # Corpus — one .env per case family, one key each, mirroring the fixtures
 # already pinned (without a live Compose comparison) in
@@ -933,18 +987,57 @@ _assert_matches_compose USES "$GRAM_LEAD_TAB_ENV" \
   "a leading tab before a key is skipped"
 
 # A bare KEY line with no '=' -- Compose inherits from the process
-# environment; verified both when unset there (resolves empty) and when
-# set (resolves to that value), exercising round 13b's env precedence too.
+# environment; verified both when unset there and when set (resolves to
+# that value), exercising round 13b's env precedence too.
+#
+# fix(#1778 round 22, P2): case 74's ORIGINAL assertion here (via
+# _assert_matches_compose, a direct ${KEY} query) claimed a bare KEY line
+# with nothing to inherit "resolves to empty, not absent" -- that value
+# was correct (both sides really do produce "") but the CONCLUSION drawn
+# from it was wrong, because a direct query cannot tell "empty" and
+# "absent" apart in the first place (see _compose_presence's own comment
+# above). The `-`/`:-` probe pair can, and says the opposite: the name is
+# genuinely UNSET. Corrected to assert presence via that pair instead,
+# and to require get_env_value's OWN contract to match (absent -> rc 1,
+# not rc 0 with empty output).
 GRAM_BARE_UNSET_ENV="$WORK/.env.grammar_bare_unset"
 printf 'USES\n' > "$GRAM_BARE_UNSET_ENV"
-_assert_matches_compose USES "$GRAM_BARE_UNSET_ENV" \
-  "a bare KEY line (no '=') with no process-environment value resolves to empty, not absent"
+
+GRAM_BARE_UNSET_PRESENCE="$(_compose_presence USES "$GRAM_BARE_UNSET_ENV")"
+if [ "$GRAM_BARE_UNSET_PRESENCE" = "unset" ]; then
+  ok "compose oracle: a bare KEY line with no process-environment value is genuinely UNSET, not set-to-empty (the -/:- probe pair agrees)"
+else
+  bad "compose oracle: expected a bare KEY line with no process-environment value to be UNSET, probe pair says [$GRAM_BARE_UNSET_PRESENCE]"
+fi
+
+if _our_value USES "$GRAM_BARE_UNSET_ENV" >/dev/null 2>&1; then
+  bad "get_env_value reports FOUND for a bare KEY line the oracle says is UNSET (value=[$(_our_value USES "$GRAM_BARE_UNSET_ENV" 2>/dev/null)])"
+else
+  ok "get_env_value reports ABSENT (nonzero exit) for a bare KEY line with no process-environment value, matching the oracle's UNSET"
+fi
+
+# Twin: the REAL caller path (env_value_into) must not overwrite an
+# existing shell value with an empty string for this case either -- it
+# has to behave exactly like the key being absent from the file, per
+# get_env_value's own now-corrected found/absent contract.
+if _our_value_via_env_value_into USES "$GRAM_BARE_UNSET_ENV" >/dev/null 2>&1; then
+  bad "env_value_into reports success for a bare KEY line the oracle says is UNSET (would have assigned an empty string)"
+else
+  ok "env_value_into reports failure too for a bare KEY line with no process-environment value (a caller's existing/default value survives)"
+fi
 
 GRAM_BARE_SET_ENV="$WORK/.env.grammar_bare_set"
 printf 'USES\n' > "$GRAM_BARE_SET_ENV"
 export USES=frominherit
 _assert_matches_compose USES "$GRAM_BARE_SET_ENV" \
   "a bare KEY line (no '=') inherits its value from the process environment"
+
+GRAM_BARE_SET_PRESENCE="$(_compose_presence USES "$GRAM_BARE_SET_ENV")"
+if [ "$GRAM_BARE_SET_PRESENCE" = "nonempty" ]; then
+  ok "compose oracle: a bare KEY line with a real inherited value is genuinely SET (the -/:- probe pair agrees)"
+else
+  bad "compose oracle: expected a bare KEY line with a real inherited value to be SET/nonempty, probe pair says [$GRAM_BARE_SET_PRESENCE]"
+fi
 unset USES
 
 # CRLF line endings -- a trailing \r is line-terminator, never content.

@@ -785,6 +785,93 @@ else
   bad "a bare shell assignment was wrongly treated as inherited: expected POSTGRES_DB=dbfallback, got: $OUT_10E"
 fi
 
+# ============================================================================
+# CASE 11 — fix(#1778 round 22, P2) at scripts/lib/common.sh:176-195
+# (dash branch): a NAME is identified per PHYSICAL line of `export -p`'s
+# output. An inherited value containing a real embedded newline
+# immediately followed by text that itself looks like "export X=" gets
+# misread as a second, phantom declaration of X. Two distinct failures
+# followed from that:
+#   (a) under `set -u`, blindly `eval`-reading a phantom that is not
+#       really set anywhere aborts the WHOLE capture with a misleading
+#       "could not enumerate the process environment (export -p failed)"
+#       — the real cause (an unset phantom name) never surfaces.
+#   (b) if the phantom name happens to be COMPOSE_FILE — which this file
+#       itself gave a local default via `: "${COMPOSE_FILE:=...}"` BEFORE
+#       the snapshot was taken in rounds 20-21 — the phantom write
+#       succeeds (COMPOSE_FILE genuinely was "set", just never actually
+#       exported/inherited) and contaminates the snapshot with
+#       "docker-compose.yml" as if an operator had exported it. Anything
+#       that later references ${COMPOSE_FILE} through interpolation then
+#       prefers that phantom value over .env's own COMPOSE_FILE=... line.
+#
+# Fixed two ways: the dash branch now confirms a candidate name is
+# REALLY set (`${name+set}`, the nounset-safe existence test) before
+# `eval`-reading it, so a phantom that is not a real name anywhere is
+# silently skipped instead of crashing; and COMPOSE_FILE's own default
+# assignment moved to AFTER the snapshot block, so it is never a
+# pre-existing local value the phantom mechanism could read back as
+# "inherited" in the first place.
+#
+# Both scenarios below are run under REAL dash (not just "sh", which on
+# macOS happens to be bash) AND bash, each with PATH restricted to
+# /usr/bin:/bin so no Homebrew coreutils tool can mask anything.
+# ============================================================================
+
+PHANTOM_HARNESS="$WORK/phantom_harness.sh"
+cat > "$PHANTOM_HARNESS" <<HARNESSEOF
+#!/bin/sh
+set -eu
+export NL="\$(printf 'a\nexport PHANTOM=1')"
+. "$FAKE/scripts/lib/common.sh"
+echo "SNAPSHOT_BUILT_OK"
+if [ -f "\${_ENV_SNAPSHOT_DIR}/PHANTOM" ]; then
+  echo "PHANTOM_LEAKED"
+else
+  echo "PHANTOM_ABSENT"
+fi
+HARNESSEOF
+chmod +x "$PHANTOM_HARNESS"
+
+for _shell in dash bash; do
+  PHANTOM_OUT="$(env -i PATH=/usr/bin:/bin "$_shell" "$PHANTOM_HARNESS" 2>&1)"
+  PHANTOM_RC=$?
+  if [ "$PHANTOM_RC" -eq 0 ] && printf '%s\n' "$PHANTOM_OUT" | grep -qF 'SNAPSHOT_BUILT_OK' \
+      && printf '%s\n' "$PHANTOM_OUT" | grep -qF 'PHANTOM_ABSENT'; then
+    ok "[$_shell, PATH=/usr/bin:/bin] a newline-plus-export-lookalike value does not crash the snapshot, and the phantom name is not written"
+  else
+    bad "[$_shell, PATH=/usr/bin:/bin] phantom-name handling regressed (rc=$PHANTOM_RC): $PHANTOM_OUT"
+  fi
+done
+
+CONTAM_ENV="$WORK/.env.compose_file_contam"
+cat > "$CONTAM_ENV" <<'EOF'
+COMPOSE_FILE=docker-compose.prod.yml
+DERIVED=${COMPOSE_FILE}-suffix
+EOF
+
+CONTAM_HARNESS="$WORK/contam_harness.sh"
+cat > "$CONTAM_HARNESS" <<HARNESSEOF
+#!/bin/sh
+set -eu
+export NL="\$(printf 'a\nexport COMPOSE_FILE=docker-compose.yml')"
+. "$FAKE/scripts/lib/common.sh"
+env_value_into DERIVED DERIVED "$CONTAM_ENV" || true
+printf 'DERIVED=%s\n' "\${DERIVED:-<unset>}"
+HARNESSEOF
+chmod +x "$CONTAM_HARNESS"
+
+for _shell in dash bash; do
+  CONTAM_OUT="$(env -i PATH=/usr/bin:/bin "$_shell" "$CONTAM_HARNESS" 2>&1)"
+  if printf '%s\n' "$CONTAM_OUT" | grep -qF 'DERIVED=docker-compose.prod.yml-suffix'; then
+    ok "[$_shell, PATH=/usr/bin:/bin] a phantom COMPOSE_FILE name does not shadow .env's own COMPOSE_FILE value in a later \${COMPOSE_FILE} reference"
+  else
+    bad "[$_shell, PATH=/usr/bin:/bin] COMPOSE_FILE contamination regressed: expected DERIVED=docker-compose.prod.yml-suffix, got: $CONTAM_OUT"
+  fi
+done
+
+unset _shell
+
 echo "1..$((PASS + FAIL))"
 echo "# ${PASS} passed, ${FAIL} failed"
 [ "$FAIL" -eq 0 ]

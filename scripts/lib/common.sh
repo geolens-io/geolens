@@ -12,15 +12,13 @@
 # fix(#1778 round 20, P1; relocated round 21): this file has ONE side
 # effect on source — see the snapshot block below `fail()`'s definition,
 # which needs `fail` to exist before it runs and so cannot sit this early
-# in the file. Everything else here still only defines functions and the
-# few constants below; the caller sets COMPOSE_FILE before invoking
-# compose().
-
-# COMPOSE_FILE is selected by the caller (upgrade.sh/restore.sh/check-env.sh
-# read it from .env via env_value_into). Default to the source-build file so
-# a bare source still works. Always relative to PROJECT_ROOT (Compose's own
-# convention for this variable), never an absolute path a caller might set.
-: "${COMPOSE_FILE:=docker-compose.yml}"
+# in the file. Everything else here still only defines functions.
+#
+# fix(#1778 round 22, P2): COMPOSE_FILE's own default assignment (below,
+# after the snapshot block) moved from HERE, right after this comment, to
+# AFTER the snapshot -- see that block's own comment for why a
+# pre-snapshot assignment of any kind is exactly the class of bug this
+# round closed. The caller sets COMPOSE_FILE before invoking compose().
 
 # fix(#1798 review round 16, P2, review 5104847831): a caller must tell
 # Compose where the PROJECT lives for its OWN purposes -- reading `.env` to
@@ -186,9 +184,28 @@ if [ -z "${_ENV_SNAPSHOT_DIR:-}" ]; then
           *[!A-Za-z0-9_]*) continue ;;
           "") continue ;;
         esac
-        _ess_saw_name=1
-        eval "printf '%s' \"\${${_ess_name}}\"" > "${_ENV_SNAPSHOT_DIR}/${_ess_name}" \
-          || fail "could not write the environment snapshot for ${_ess_name}"
+        # fix(#1778 round 22, P2): a NAME is identified per PHYSICAL line
+        # of `export -p`'s output, so an inherited value containing a
+        # real embedded newline immediately followed by text that itself
+        # looks like "export SOMENAME=" produces a PHANTOM name that was
+        # never actually exported. Blindly `eval`-reading a phantom under
+        # `set -u` aborts the whole capture (a bare `${PHANTOM}`
+        # reference to an unset name is a hard nounset error, not merely
+        # a nonzero exit this loop's own `|| fail` could catch -- it
+        # never even reaches that check). `${name+set}` is the sanctioned
+        # nounset-safe existence test (POSIX exempts `+`/`:+` from
+        # triggering it), so confirm the candidate is REALLY set first; a
+        # phantom is silently skipped, same as any other non-matching
+        # line, instead of crashing the snapshot. A phantom that happens
+        # to collide with a genuinely different real name (rather than a
+        # made-up one) is harmless here too: this reads that name's OWN
+        # live value via the same safe indirection every other name uses,
+        # never the crafted line's own text.
+        if eval "[ \"\${${_ess_name}+set}\" = set ]" 2>/dev/null; then
+          _ess_saw_name=1
+          eval "printf '%s' \"\${${_ess_name}}\"" > "${_ENV_SNAPSHOT_DIR}/${_ess_name}" \
+            || fail "could not write the environment snapshot for ${_ess_name}"
+        fi
       done
       [ "$_ess_saw_name" -eq 1 ] \
         || fail "export -p produced no recognizable NAME= line -- cannot build an environment snapshot"
@@ -210,6 +227,28 @@ if [ -z "${_ENV_SNAPSHOT_DIR:-}" ]; then
   # relying on this one surviving.
   trap '_env_snapshot_cleanup' EXIT
 fi
+
+# COMPOSE_FILE is selected by the caller (upgrade.sh/restore.sh/check-env.sh
+# read it from .env via env_value_into). Default to the source-build file so
+# a bare source still works. Always relative to PROJECT_ROOT (Compose's own
+# convention for this variable), never an absolute path a caller might set.
+#
+# fix(#1778 round 22, P2): this default assignment must run AFTER the
+# snapshot block above, never before it. It used to sit at the very top
+# of the file (before the snapshot existed at all, in round 20/21) --
+# meaning by the time the snapshot was captured, COMPOSE_FILE was already
+# a locally-set (never exported) shell variable. On the dash branch, a
+# phantom name discovered from a mis-split multi-line value (see that
+# branch's own comment) that happened to read as "COMPOSE_FILE" would
+# then find it genuinely set -- via THIS default, not via inheritance --
+# and write "docker-compose.yml" into the snapshot as if an operator had
+# exported it. env_value_into's own interpolation-reference path
+# (_env_resolve_name) would then prefer that phantom "inherited" value
+# over whatever .env's own COMPOSE_FILE=... line said, silently pointing
+# compose at the wrong file. Running this line after the snapshot means
+# COMPOSE_FILE is genuinely unset at capture time unless an operator
+# really did export it.
+: "${COMPOSE_FILE:=docker-compose.yml}"
 
 # Removes the snapshot directory. Exposed (not just the bare trap above)
 # so a caller that installs its OWN later EXIT trap -- replacing this
@@ -1044,16 +1083,18 @@ _env_resolve_name() {
   if [ "$_esr_type" = "B" ]; then
     # A bare `KEY` line (no `=`) referenced via ${NAME} — Compose treats
     # this as "inherit from the process environment", but we already
-    # checked the process environment above and it did not have NAME; a
-    # bare line with nothing to inherit resolves to "", matching the
-    # oracle-verified direct-query behavior in get_env_value. NOT run
-    # through _env_dequote: this text never came from a quoted/unquoted
-    # .env value at all, so there is nothing to unescape or comment-strip
-    # — doing so anyway could corrupt a real environment value that just
-    # happens to contain " #" or trailing whitespace.
-    _ern_have_value=1
-    _ern_ref_bound=0
-    _ern_from_env=1
+    # checked the snapshot above and it did not have NAME.
+    #
+    # fix(#1778 round 22, P2): a bare line with nothing to inherit is
+    # genuinely UNSET, not "set to empty" — verified against the oracle:
+    # POSTGRES_DB=${SOMEBARE-fallback} with SOMEBARE a bare, uninherited
+    # line resolves to "fallback" (the `-` operator, which only
+    # substitutes its default for a truly UNSET name, still fires here).
+    # Leaving _ern_have_value at its function-entry default of 0 — the
+    # same outcome "no record for this name at all" already produces —
+    # makes every presence-testing operator (`-`/`:-`/`+`/`:+`/`?`/`:?`)
+    # treat this exactly like any other never-defined name, which is
+    # what a bare line with nothing to inherit actually is.
     return 0
   fi
 
@@ -1551,19 +1592,29 @@ get_env_value() {
 
   if [ "$_esr_type" = "B" ]; then
     # A bare `KEY` line (no `=` at all) — Compose treats this as "inherit
-    # from the process environment", verified against the oracle: resolves
-    # to that value, or "" if the environment doesn't have it either. This
-    # IS "present" for get_env_value's own found/absent contract (rc 0),
-    # distinct from KEY being entirely absent from the file (rc 1) — no
-    # quoting/escaping/interpolation applies, since the value never came
-    # from this file's own text at all.
-    # fix(#1778 round 20, P1 class): checks the frozen snapshot, not the
-    # live "${key+set}" — see the snapshot block's own comment near the
-    # top of this file.
+    # from the process environment" — no quoting/escaping/interpolation
+    # applies, since the value never came from this file's own text at
+    # all. fix(#1778 round 20, P1 class): checks the frozen snapshot, not
+    # the live "${key+set}" — see the snapshot block's own comment near
+    # the top of this file.
+    #
+    # fix(#1778 round 22, P2): when the snapshot has nothing to inherit,
+    # this is genuinely ABSENT (rc 1), not "present with an empty string"
+    # (rc 0) — verified against the oracle directly: with no process
+    # value at all, ${KEY-fallback} AND ${KEY:-fallback} both resolve to
+    # "fallback" (docker compose config --format json), meaning Compose
+    # treats KEY as unset, not set-to-empty; only a genuinely SET value
+    # (even an empty one) makes `-` skip the fallback. The OLD rc-0-with-
+    # empty-output contract meant env_value_into would ASSIGN an empty
+    # string into its target for a bare, uninherited key, when the
+    # correct behavior is to leave the target untouched (preserving
+    # whatever it already had), exactly like KEY being absent from the
+    # file entirely.
     if _env_snapshot_has "$key"; then
       _env_snapshot_value "$key"
+      return 0
     fi
-    return 0
+    return 1
   fi
 
   # raw is the LOGICAL value — a single physical line for an unquoted
