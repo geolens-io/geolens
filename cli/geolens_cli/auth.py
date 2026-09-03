@@ -326,7 +326,9 @@ def _restore_credentials(instance: str, snapshot: _CredentialSnapshot) -> None:
         log.warning("credential_restore_failed", account="file", error=str(exc))
 
 
-def _delete_stale_credentials(instance: str, *, keep: str, keep_backend: str) -> None:
+def _delete_stale_credentials(
+    instance: str, *, keep: str, keep_backend: str, snapshot: _CredentialSnapshot
+) -> None:
     """Delete every stored credential for ``instance`` except ``keep``'s
     value in the backend it was just stored to (``keep_backend``).
 
@@ -401,9 +403,36 @@ def _delete_stale_credentials(instance: str, *, keep: str, keep_backend: str) ->
     already fell back — an unreadable keyring is tolerated the same as
     "no such entry": there is nothing here that can safely be told
     apart from a keyring that simply doesn't exist on this box.
+
+    fix(#1778 review round 14): ``snapshot`` (the pre-swap read this
+    same ``replace_credentials()`` call already took) gates every
+    keyring delete below — an account whose snapshot came back
+    ``_UNKNOWN`` is skipped entirely, never handed to
+    ``keyring.delete_password``, even if the keyring has since become
+    readable again. Without that gate: the snapshot recorded
+    ``_UNKNOWN`` for an account precisely because it could not be read
+    at snapshot time; if the keyring becomes readable again later in
+    THIS SAME call (a transient hiccup) and this cleanup then deletes
+    that account, and a LATER step in the transaction (another
+    account's cleanup, the refresh-token write) then fails,
+    ``_restore_credentials`` cannot put it back either — it applies the
+    identical ``_UNKNOWN`` skip, for the identical reason (see its own
+    docstring). The failed login would then irreversibly remove a
+    credential nothing in this call ever actually read. Skipping the
+    delete costs nothing: the round-10 marker already makes a stale
+    entry in another backend harmless (readers consult the marker
+    before any bearer-first/file-first precedence), so this cleanup
+    was only ever tidiness, never correctness-bearing.
     """
+    snapshot_by_name = {
+        "bearer": snapshot.keyring_bearer,
+        "api_key": snapshot.keyring_api_key,
+        "refresh": snapshot.keyring_refresh,
+    }
     for name, account_fn in _ACCOUNT_FN_BY_KIND.items():
         if name == keep and keep_backend == "keyring":
+            continue
+        if snapshot_by_name[name] is _UNKNOWN:
             continue
         account = account_fn(instance)
         try:
@@ -602,9 +631,26 @@ def replace_credentials(
     # credential store left in a state nothing had rolled back.
     try:
         _set_credential_field(instance, _ACTIVE_KIND_FIELD, kind)
-        _delete_stale_credentials(instance, keep=kind, keep_backend=backend)
+        _delete_stale_credentials(
+            instance, keep=kind, keep_backend=backend, snapshot=snapshot
+        )
         if refresh_token:
-            store_refresh_token(instance, refresh_token, no_keyring=no_keyring)
+            # fix(#1778 review round 14): must use store_no_keyring (the
+            # backend actually chosen for the access token above), not
+            # the caller's original no_keyring. When the target keyring
+            # read was unknown, round 13 forces the access token into
+            # credentials.toml but the keyring itself may still be
+            # perfectly willing to accept the refresh token -- if it
+            # were stored there with the original no_keyring=False, the
+            # two tokens would land in DIFFERENT backends. try_refresh()
+            # detects the backend from the refresh token's own location
+            # (_detect_credential_backend) and rewrites BOTH tokens back
+            # to whatever it finds, so a rotation would move the refresh
+            # token into the keyring while load_bearer_token() keeps
+            # preferring the (now stale, unrotated) file-backed bearer
+            # under its file-over-keyring precedence -- every subsequent
+            # 401 refreshes again, never converging.
+            store_refresh_token(instance, refresh_token, no_keyring=store_no_keyring)
     except Exception:
         _restore_credentials(instance, snapshot)
         raise
