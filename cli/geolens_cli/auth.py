@@ -475,6 +475,45 @@ def _load_refresh_fingerprint(instance: str) -> Optional[str]:
         raise KeyringCredentialUnreadable("refresh_fingerprint", str(exc)) from exc
 
 
+def _rewrite_refresh_fingerprint(
+    instance: str, bearer_token: str, *, no_keyring: bool
+) -> None:
+    """Rewrite ONLY the pairing fingerprint to match ``bearer_token``,
+    without touching the refresh token value itself.
+
+    fix(#1778 round 31): used by try_refresh() when a rotation renews
+    the access token but the server does NOT issue a new refresh
+    token -- the existing (unrotated) refresh token still needs its
+    fingerprint updated to the NEW bearer, or the next refresh attempt
+    would find it "mismatched" against the very rotation this call
+    just performed and discard a perfectly good, still-valid refresh
+    token as if it were stale.
+
+    fix(#1807 round 2): still the right call whenever the bearer stayed
+    in the backend it was already in, which is every rotation but the
+    fallback one. Rewriting the unchanged refresh SECRET there (what
+    round 1 did unconditionally) asks a second account for a write
+    nothing needs, and a keyring that accepts the bearer and
+    fingerprint accounts while refusing the refresh one -- with no
+    usable file fallback behind it -- then loses a rotation this helper
+    would have completed: try_refresh() reports failure with the new
+    bearer already stored against the OLD fingerprint, and the next
+    attempt discards a still-valid refresh token as unpaired. Only the
+    backend-MOVED case needs the whole pair rewritten; see
+    try_refresh().
+    """
+    fingerprint = _fingerprint_bearer(bearer_token)
+    if not no_keyring:
+        try:
+            keyring.set_password(
+                SERVICE, _keyring_account_refresh_fingerprint(instance), fingerprint
+            )
+            return
+        except KeyringError as exc:
+            log.warning("keyring_unavailable_falling_back_to_file", error=str(exc))
+    _set_credential_field(instance, "refresh_fingerprint", fingerprint)
+
+
 def _delete_keyring_refresh_entries(instance: str) -> None:
     """Best-effort delete of the refresh token AND its pairing
     fingerprint from the KEYRING only, leaving the file side alone.
@@ -1454,10 +1493,23 @@ def try_refresh(instance: str) -> Optional[str]:
     looking for a refresh_token in the FILE -- answered "keyring,"
     wrote the newly rotated bearer there, and had it shadowed by the
     stale file bearer that outranks it. Commands refreshed on every
-    call instead of converging. Both branches now write the refresh
-    token and its fingerprint together through ``store_refresh_token()``
-    into the backend the bearer ACTUALLY landed in, and the superseded
-    keyring copy is dropped once the file write has committed.
+    call instead of converging. A rotation whose bearer MOVED backends
+    now writes the refresh token and its fingerprint together through
+    ``store_refresh_token()`` into the backend the bearer actually
+    landed in, and drops the superseded keyring copy once that write
+    has committed.
+
+    fix(#1807 round 2): only when it moved. Rewriting the unchanged
+    refresh SECRET on every retained-token rotation (round 1) needs a
+    write to an account that had nothing to say, and a keyring that
+    accepts the bearer and fingerprint accounts while refusing the
+    refresh one -- with an unusable credentials.toml behind it -- lost
+    a rotation the fingerprint-only path completes: this returned
+    ``None`` with the new bearer already stored against the OLD
+    fingerprint, so the next attempt discarded a still-valid refresh
+    token as unpaired. An unchanged backend takes
+    ``_rewrite_refresh_fingerprint()`` again, which touches exactly the
+    one member that is actually stale.
     """
     try:
         refresh = load_refresh_token_strict(instance)
@@ -1535,6 +1587,10 @@ def try_refresh(instance: str) -> Optional[str]:
     # a whole or is reported as a whole. Never logs a token value.
     try:
         backend = store_bearer_token(instance, new_access, no_keyring=no_keyring)
+        # fix(#1807 round 2): did the bearer actually land in the backend
+        # this rotation asked for? Only the keyring -> file fallback is a
+        # MOVE; `no_keyring` already means "the file, deliberately."
+        backend_moved = not no_keyring and backend != "keyring"
         new_refresh = getattr(parsed, "refresh_token", None)
         if new_refresh:
             store_refresh_token(
@@ -1565,16 +1621,31 @@ def try_refresh(instance: str) -> Optional[str]:
             # file-backed bearer shadows it under load_bearer_token()'s
             # file-over-keyring precedence: every subsequent command
             # 401s, refreshes, and 401s again instead of converging.
-            # The retained token is now rewritten through
-            # store_refresh_token() -- value AND fingerprint together,
-            # into the bearer's ACTUAL backend -- exactly as the
+            # A MOVED bearer therefore takes the whole retained pair
+            # with it, through store_refresh_token(), exactly as the
             # new-refresh-token branch above already does.
-            store_refresh_token(
-                instance,
-                refresh,
-                bearer_token=new_access,
-                no_keyring=(backend != "keyring"),
-            )
+            #
+            # fix(#1807 round 2): only when it moved. Round 1 rewrote
+            # the pair unconditionally, which asks a second keyring
+            # account for a write of a secret that did not change --
+            # and a keyring accepting the bearer and fingerprint
+            # accounts while refusing the refresh one, with no usable
+            # file fallback behind it, then turned a rotation this
+            # branch used to complete into a reported failure, with the
+            # new bearer already stored against the OLD fingerprint for
+            # the next attempt to discard as unpaired. Unchanged
+            # backend -> update the fingerprint member alone, in place.
+            if backend_moved:
+                store_refresh_token(
+                    instance,
+                    refresh,
+                    bearer_token=new_access,
+                    no_keyring=(backend != "keyring"),
+                )
+            else:
+                _rewrite_refresh_fingerprint(
+                    instance, new_access, no_keyring=(backend != "keyring")
+                )
     except Exception as exc:
         log.warning(
             "refresh_rotated_but_not_stored",
@@ -1594,7 +1665,7 @@ def try_refresh(instance: str) -> Optional[str]:
     # never raises), only after the file write above has already
     # committed, and only on the keyring side: the file holds the copy
     # that must survive.
-    if not no_keyring and backend != "keyring":
+    if backend_moved:
         _delete_keyring_refresh_entries(instance)
     # fix(#1778 review round 19): the round-17 marker write below used
     # to be unconditional AND fatal -- an unwritable credentials.toml

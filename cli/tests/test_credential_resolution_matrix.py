@@ -396,3 +396,101 @@ class TestRefreshPairingBackendFallbackRow:
         )
         resolved = _auth.load_bearer_token(INSTANCE)
         assert resolved is not None and resolved.value == server.issued[-1]
+
+
+# ---------------------------------------------------------------------------
+# fix(#1807 round 2): the row above's mirror -- the backend does NOT move,
+# and the retained refresh token's own keyring account is the one refusing
+# writes (readable, and paired to a bearer that just rotated; the bearer and
+# fingerprint accounts still accept writes) with no usable credentials.toml
+# behind it.
+#
+# Rewriting the whole retained pair here, as the first cut of #1807 did,
+# asks that account for a write of a secret that did not change -- the
+# write fails, the file fallback fails, and try_refresh() reports a
+# rotation the server already performed as a failure, with the new bearer
+# stored against the OLD fingerprint. The next attempt then reads that
+# mismatch and discards a still-valid refresh token as unpaired. Updating
+# only the fingerprint member, in place, completes the rotation.
+# ---------------------------------------------------------------------------
+
+
+class TestRefreshPairingRefreshAccountWriteRejectedRow:
+    """fix(#1807 round 2): a retained refresh token whose backend did not
+    move must not be rewritten -- only the fingerprint pairing it to the
+    new bearer is stale, and the account holding the token may well
+    refuse the write."""
+
+    def _setup(self, mock_keyring, monkeypatch) -> _FakeAuthServer:
+        mock_keyring[("geolens", INSTANCE)] = OLD_BEARER
+        mock_keyring[("geolens", f"{INSTANCE}:refresh")] = RETAINED_REFRESH
+        mock_keyring[("geolens", f"{INSTANCE}:refresh_fp")] = _auth._fingerprint_bearer(
+            OLD_BEARER
+        )
+        _config.write_default_instance(INSTANCE, username="alice")
+
+        # The refresh ACCOUNT alone rejects writes; it stays readable,
+        # and the bearer + fingerprint accounts write normally.
+        def picky_set_password(svc: str, user: str, pwd: str) -> None:
+            if user == f"{INSTANCE}:refresh":
+                raise KeyringError("this account is not writable")
+            mock_keyring[(svc, user)] = pwd
+
+        monkeypatch.setattr("keyring.set_password", picky_set_password)
+
+        # ...and there is no credentials.toml fallback behind it, so a
+        # write that reaches the file fails outright rather than quietly
+        # succeeding in the other backend.
+        def unwritable(*_a, **_k):
+            raise OSError("read-only file system")
+
+        monkeypatch.setattr(_auth, "_write_credentials_file", unwritable)
+
+        server = _FakeAuthServer()
+        server.issue(OLD_BEARER)
+        server.expire_all()
+        monkeypatch.setattr(
+            "geolens.api.auth.refresh_auth_refresh_post.sync_detailed",
+            server.refresh_endpoint,
+        )
+        monkeypatch.setattr(
+            "geolens.api.auth.me_auth_me_get.sync_detailed", server.me_endpoint
+        )
+        return server
+
+    def test_only_the_fingerprint_is_rewritten_when_the_backend_did_not_move(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli.main import app
+
+        server = self._setup(mock_keyring, monkeypatch)
+
+        result = runner.invoke(app, ["whoami"])
+
+        assert result.exit_code == 0, result.output
+        assert server.refresh_calls == 1
+        rotated = server.issued[-1]
+
+        assert mock_keyring[("geolens", INSTANCE)] == rotated
+        assert mock_keyring[
+            ("geolens", f"{INSTANCE}:refresh_fp")
+        ] == _auth._fingerprint_bearer(rotated), (
+            "the fingerprint is the only member that went stale -- it must "
+            "be updated in place, in the backend the pair already lives in"
+        )
+        assert mock_keyring[("geolens", f"{INSTANCE}:refresh")] == RETAINED_REFRESH, (
+            "the retained token itself did not change; rewriting it needs a "
+            "write this account refuses"
+        )
+        assert not _config.credentials_path().exists(), (
+            "nothing should have been pushed to the file backend here"
+        )
+
+        # Still paired on the next resolve: the rotated bearer expires,
+        # and the retained token is spent again rather than discarded as
+        # unpaired.
+        server.expire_all()
+        result = runner.invoke(app, ["whoami"])
+        assert result.exit_code == 0, result.output
+        assert server.refresh_calls == 2
+        assert mock_keyring[("geolens", f"{INSTANCE}:refresh")] == RETAINED_REFRESH
