@@ -248,7 +248,6 @@ class TestIdenticalReplacementKeepsTheLiveAsset:
     @pytest.mark.asyncio
     async def test_a_genuinely_new_key_is_still_recorded(self) -> None:
         from app.processing.ingest.tasks_raster_common import (
-            UNPUBLISHED_STORAGE_KEYS_FIELD,
             record_unpublished_storage_keys,
         )
 
@@ -267,8 +266,11 @@ class TestIdenticalReplacementKeepsTheLiveAsset:
 
         session.execute.assert_awaited_once()
         stmt = session.execute.await_args.args[0]
+        # fix(#1778 codex r9): the bind is the array the attempt appends; the
+        # field name reaches the statement through jsonb_build_object, because
+        # the value now concatenates onto whatever the row already names.
         recorded = stmt.compile().params["unpublished_patch"]
-        assert recorded == {UNPUBLISHED_STORAGE_KEYS_FIELD: [fresh]}
+        assert recorded == [fresh]
 
     @pytest.mark.asyncio
     async def test_the_reaper_refuses_a_key_a_live_row_names(self) -> None:
@@ -500,7 +502,6 @@ class TestAttemptScopedReplaceKeys:
         raster.
         """
         from app.processing.ingest.tasks_raster_common import (
-            UNPUBLISHED_STORAGE_KEYS_FIELD,
             record_unpublished_storage_keys,
         )
 
@@ -527,7 +528,7 @@ class TestAttemptScopedReplaceKeys:
         session.execute.assert_awaited_once()
         stmt = session.execute.await_args.args[0]
         recorded = stmt.compile().params["unpublished_patch"]
-        assert recorded == {UNPUBLISHED_STORAGE_KEYS_FIELD: mine}
+        assert recorded == mine
 
     def test_the_replace_tail_derives_both_key_sets_from_the_one_helper(
         self,
@@ -1111,6 +1112,211 @@ class TestReapScalesAndStaysRetryable:
         assert "unpublished_storage_keys" in rows[partial_id], (
             "a row with an unsettled key keeps its whole record for the retry"
         )
+
+
+class TestTheRecordAccumulatesAcrossAttempts:
+    """fix(#1778 codex r9): a retry used to forget the previous attempt's keys.
+
+    `/jobs/{id}/retry` preserves `user_metadata`, so a retried ingest reached
+    the recorder with attempt 1's keys still on the row. The JSONB merge set
+    the field to attempt 2's keys alone, and an attempt whose own best-effort
+    delete had also failed lost its objects' last durable pointer with it:
+    neither stale pass nor the retention purge could name them afterwards.
+
+    The record is a flat list each attempt extends. Which attempt wrote a key
+    is not something any reader needs -- every one of them asks only whether a
+    key is still owed a reap -- and keeping the shape a list is what lets a row
+    written before this commit still reap.
+    """
+
+    @staticmethod
+    async def _record(job_id, attempt_uuid, keys):
+        from app.processing.ingest.tasks_raster_common import (
+            record_unpublished_storage_keys,
+        )
+
+        await record_unpublished_storage_keys(
+            job_id,
+            attempt_uuid,
+            keys=keys,
+            already_published=(),
+            attempt_scope="",
+            job_id=str(job_id),
+            task="ingest_raster",
+        )
+
+    @staticmethod
+    async def _reload(session, job_id):
+        from sqlalchemy import select
+
+        from app.platform.jobs.models import IngestJob
+
+        session.expire_all()
+        return (
+            await session.execute(select(IngestJob).where(IngestJob.id == job_id))
+        ).scalar_one()
+
+    @pytest.mark.anyio
+    async def test_a_retry_keeps_the_previous_attempts_keys(
+        self, test_db_session
+    ) -> None:
+        from app.platform.jobs.models import IngestJob
+        from app.platform.jobs.sweep import unpublished_storage_keys_from_metadata
+
+        attempt_one, attempt_two = uuid.uuid4(), uuid.uuid4()
+        job = IngestJob(status="failed", file_path="", attempt_id=attempt_one)
+        test_db_session.add(job)
+        await test_db_session.flush()
+        job_id = job.id
+        await test_db_session.commit()
+
+        first = ["rasters/a/attempts/one/h/source.cog.tif"]
+        await self._record(job_id, attempt_one, first)
+
+        # The retry keeps user_metadata and takes a new attempt token.
+        row = await self._reload(test_db_session, job_id)
+        row.attempt_id = attempt_two
+        await test_db_session.commit()
+
+        second = ["rasters/a/attempts/two/h/source.cog.tif"]
+        await self._record(job_id, attempt_two, second)
+
+        row = await self._reload(test_db_session, job_id)
+        assert unpublished_storage_keys_from_metadata(row.user_metadata) == tuple(
+            first + second
+        ), "attempt 1's objects lost their last durable pointer"
+
+    @pytest.mark.anyio
+    async def test_clearing_removes_only_the_settled_keys(
+        self, test_db_session
+    ) -> None:
+        """A key whose delete raised keeps its place in the record."""
+        from app.platform.jobs.models import IngestJob
+        from app.platform.jobs.sweep import (
+            _clear_settled_artifact_records,
+            unpublished_storage_keys_from_metadata,
+        )
+
+        settled = "rasters/a/attempts/one/h/source.cog.tif"
+        unsettled = "rasters/a/attempts/two/h/source.cog.tif"
+        job = IngestJob(
+            status="failed",
+            file_path="",
+            user_metadata={
+                "unpublished_storage_keys": [settled, unsettled],
+                "keep_me": True,
+            },
+        )
+        test_db_session.add(job)
+        await test_db_session.flush()
+        job_id = job.id
+        await test_db_session.commit()
+
+        await _clear_settled_artifact_records(storage_keys={settled})
+
+        row = await self._reload(test_db_session, job_id)
+        assert unpublished_storage_keys_from_metadata(row.user_metadata) == (
+            unsettled,
+        ), "the unsettled key must survive for the next sweep"
+        assert row.user_metadata["keep_me"] is True
+
+        await _clear_settled_artifact_records(storage_keys={unsettled})
+
+        row = await self._reload(test_db_session, job_id)
+        assert "unpublished_storage_keys" not in row.user_metadata, (
+            "the field goes once nothing is owed, so the purge can take the row"
+        )
+        assert row.user_metadata["keep_me"] is True
+
+    @pytest.mark.anyio
+    async def test_both_attempts_keys_are_reaped_in_one_sweep(
+        self, test_db_session
+    ) -> None:
+        """End to end: the pin the review asked for.
+
+        Attempt 1 fails with a failed delete, the retry writes new keys, both
+        attempts' keys are on the row, one sweep reaps both, and the record
+        clears only for what it settled.
+        """
+        from app.platform.jobs.models import IngestJob
+        from app.platform.jobs.sweep import reap_unpublished_storage_keys
+
+        first = "rasters/a/attempts/one/h/source.cog.tif"
+        second = "rasters/a/attempts/two/h/source.cog.tif"
+        job = IngestJob(
+            status="failed",
+            file_path="",
+            user_metadata={"unpublished_storage_keys": [first, second]},
+        )
+        test_db_session.add(job)
+        await test_db_session.flush()
+        job_id = job.id
+        await test_db_session.commit()
+
+        storage = MagicMock()
+        storage.delete = AsyncMock()
+        with (
+            patch("app.platform.storage.get_storage", return_value=storage),
+            patch(
+                "app.platform.jobs.sweep._live_referenced_storage_keys",
+                AsyncMock(return_value=set()),
+            ),
+        ):
+            reaped, skipped, failures = await reap_unpublished_storage_keys(
+                (first, second)
+            )
+
+        assert (reaped, skipped, failures) == (2, 0, 0)
+        assert {call.args[0] for call in storage.delete.await_args_list} == {
+            first,
+            second,
+        }
+        row = await self._reload(test_db_session, job_id)
+        assert "unpublished_storage_keys" not in row.user_metadata
+
+    @pytest.mark.anyio
+    async def test_a_row_written_before_this_commit_still_reaps(
+        self, test_db_session
+    ) -> None:
+        """A plain list is the shape both before and after, by design."""
+        from app.platform.jobs.models import IngestJob
+        from app.platform.jobs.sweep import (
+            _clear_settled_artifact_records,
+            unpublished_storage_keys_from_metadata,
+        )
+
+        legacy = "rasters/legacy/h/source.cog.tif"
+        job = IngestJob(
+            status="failed",
+            file_path="",
+            user_metadata={"unpublished_storage_keys": [legacy]},
+        )
+        test_db_session.add(job)
+        await test_db_session.flush()
+        job_id = job.id
+        await test_db_session.commit()
+
+        row = await self._reload(test_db_session, job_id)
+        assert unpublished_storage_keys_from_metadata(row.user_metadata) == (legacy,)
+
+        await _clear_settled_artifact_records(storage_keys={legacy})
+
+        row = await self._reload(test_db_session, job_id)
+        assert "unpublished_storage_keys" not in row.user_metadata
+
+    def test_the_recorder_is_the_only_writer_of_the_record(self) -> None:
+        """Enumerated, so a second writer cannot reintroduce the replace."""
+        writers = set()
+        for module in sorted(APP.rglob("*.py")):
+            body = module.read_text()
+            if "UNPUBLISHED_STORAGE_KEYS_FIELD" not in body:
+                continue
+            if "update(IngestJob)" in body or "UPDATE catalog.ingest_jobs" in body:
+                writers.add(str(module.relative_to(APP)))
+        assert writers == {
+            "processing/ingest/tasks_raster_common.py",
+            "platform/jobs/sweep.py",
+        }, writers
 
 
 def _mock_db_for_fail_stale(

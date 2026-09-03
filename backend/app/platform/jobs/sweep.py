@@ -866,6 +866,39 @@ async def _live_referenced_storage_keys(keys: tuple[str, ...]) -> set[str]:
 STORAGE_KEY_FINAL_OUTCOMES = frozenset({"deleted", "refused"})
 
 
+# fix(#1778 codex r9): the settled keys come off the recorded list one by one,
+# and the field is dropped only when the list empties. Expressed as SQL rather
+# than read-modify-write in Python because two rows can name overlapping keys
+# and the sweep must not race itself.
+#
+# `jsonb_exists_any` rather than the `?|` operator it implements: `?` is not a
+# bind marker for SQLAlchemy, but keeping it out of the string leaves nothing
+# for a driver or a future dialect to misread. Every bind is cast explicitly,
+# because `jsonb - $1` is ambiguous between the text, integer and text[] forms
+# until the parameter has a type.
+_CLEAR_SETTLED_STORAGE_KEYS_SQL = """
+UPDATE catalog.ingest_jobs SET user_metadata =
+  CASE WHEN (
+         SELECT coalesce(jsonb_agg(k), '[]'::jsonb)
+         FROM jsonb_array_elements_text(user_metadata -> (:field)::text) AS k
+         WHERE NOT (k = ANY((:settled)::text[]))
+       ) = '[]'::jsonb
+       THEN user_metadata - (:field)::text
+       ELSE jsonb_set(
+              user_metadata,
+              ARRAY[(:field)::text],
+              (
+                SELECT coalesce(jsonb_agg(k), '[]'::jsonb)
+                FROM jsonb_array_elements_text(user_metadata -> (:field)::text) AS k
+                WHERE NOT (k = ANY((:settled)::text[]))
+              )
+            )
+  END
+WHERE jsonb_typeof(user_metadata -> (:field)::text) = 'array'
+  AND jsonb_exists_any(user_metadata -> (:field)::text, (:settled)::text[])
+"""
+
+
 async def _clear_settled_artifact_records(
     *,
     storage_keys: set[str] = frozenset(),  # type: ignore[assignment]
@@ -895,7 +928,7 @@ async def _clear_settled_artifact_records(
     correctness.
     """
     from sqlalchemy import Text, bindparam, cast, literal
-    from sqlalchemy.dialects.postgresql import JSONB
+    from sqlalchemy.dialects.postgresql import ARRAY
 
     from app.core.db import async_session
     from app.platform.jobs.models import IngestJob
@@ -909,26 +942,19 @@ async def _clear_settled_artifact_records(
     try:
         async with async_session() as session:
             if storage_keys:
+                # fix(#1778 codex r9): remove the settled KEYS, not the whole
+                # field. The record accumulates across attempts now, so a
+                # retried job's row names the previous attempt's objects as
+                # well as this one's, and dropping the field wholesale would
+                # forget keys this pass never reached an answer about. The
+                # field itself goes only once nothing is left owed on it,
+                # which is what lets the retention purge finally take the row.
                 await session.execute(
-                    update(IngestJob)
-                    .where(
-                        IngestJob.user_metadata[UNPUBLISHED_STORAGE_KEYS_FIELD].is_not(
-                            None
+                    text(_CLEAR_SETTLED_STORAGE_KEYS_SQL).bindparams(
+                        bindparam("field", value=UNPUBLISHED_STORAGE_KEYS_FIELD),
+                        bindparam(
+                            "settled", value=sorted(storage_keys), type_=ARRAY(Text)
                         ),
-                        IngestJob.user_metadata[UNPUBLISHED_STORAGE_KEYS_FIELD].op(
-                            "<@"
-                        )(
-                            bindparam(
-                                "settled_keys",
-                                value=sorted(storage_keys),
-                                type_=JSONB,
-                            )
-                        ),
-                    )
-                    .values(
-                        user_metadata=IngestJob.user_metadata.op("-")(
-                            cast(literal(UNPUBLISHED_STORAGE_KEYS_FIELD), Text)
-                        )
                     )
                 )
             if analysis_job_ids:

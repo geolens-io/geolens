@@ -3486,8 +3486,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # rather than on a table name two jobs could hold in sequence: it carries
     # (job, table) pairs, hands the owner to the drop so it can refuse a table
     # that job did not create, and clears the record by row id. Cap 2288 ->
-    # 2302, exact.
-    "backend/app/platform/jobs/sweep.py": 2302,
+    # 2302.
+    # fix(#1778 codex r9): +26. The storage-key record accumulates across
+    # attempts now, so clearing it wholesale would forget keys the pass never
+    # answered for. The clear removes the settled keys one by one and drops the
+    # field only once nothing is owed on it, which is a correlated statement
+    # rather than an operator, and the comment says why the binds are cast and
+    # why it uses jsonb_exists_any over `?|`. Cap 2302 -> 2328, exact.
+    "backend/app/platform/jobs/sweep.py": 2328,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and

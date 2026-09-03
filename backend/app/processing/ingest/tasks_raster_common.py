@@ -612,7 +612,7 @@ async def record_unpublished_storage_keys(
     happen; refusing the ingest over it would trade a possible leak for a
     certain failure.
     """
-    from sqlalchemy import bindparam, func, text, update
+    from sqlalchemy import bindparam, case, func, text, update
     from sqlalchemy.dialects.postgresql import JSONB
 
     import app.core.db as db_module
@@ -628,6 +628,35 @@ async def record_unpublished_storage_keys(
         )
     if not unpublished:
         return
+    # fix(#1778 codex r9): APPEND to what the row already names, never replace
+    # it. `/jobs/{id}/retry` preserves `user_metadata`, so a retried ingest
+    # reached this with the previous attempt's keys still on the row; a merge
+    # that set the field to this attempt's keys alone dropped them, and an
+    # attempt whose own best-effort delete had also failed lost its objects'
+    # last durable pointer with it. Neither stale pass nor the retention purge
+    # could then name them.
+    #
+    # A flat list that each attempt extends, rather than a map keyed by
+    # attempt. Which attempt wrote a key is not something any reader needs --
+    # the question every one of them asks is "is this key still owed a reap" --
+    # and keeping the shape a list means the reader is unchanged and a row
+    # written before this commit still reaps.
+    #
+    # The CASE keeps it total: `jsonb || jsonb` concatenates two arrays, but
+    # would fold an array into a non-array, so anything that is not an array
+    # is replaced rather than appended to.
+    _existing_keys = func.coalesce(
+        IngestJob.user_metadata[UNPUBLISHED_STORAGE_KEYS_FIELD],
+        text("'[]'::jsonb"),
+    )
+    _new_keys = bindparam("unpublished_patch", value=unpublished, type_=JSONB)
+    _accumulated_keys = case(
+        (
+            func.jsonb_typeof(_existing_keys) == "array",
+            _existing_keys.op("||")(_new_keys),
+        ),
+        else_=_new_keys,
+    )
     try:
         async with db_module.async_session() as session:
             await session.execute(
@@ -640,10 +669,8 @@ async def record_unpublished_storage_keys(
                     user_metadata=func.coalesce(
                         IngestJob.user_metadata, text("'{}'::jsonb")
                     ).op("||")(
-                        bindparam(
-                            "unpublished_patch",
-                            value={UNPUBLISHED_STORAGE_KEYS_FIELD: unpublished},
-                            type_=JSONB,
+                        func.jsonb_build_object(
+                            UNPUBLISHED_STORAGE_KEYS_FIELD, _accumulated_keys
                         )
                     )
                 )
