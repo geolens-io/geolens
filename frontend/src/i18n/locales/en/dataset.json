@@ -394,7 +394,8 @@
     "columnsAdded": "Columns Added ({{count}})",
     "columnsRemoved": "Columns Removed ({{count}})",
     "typeChanges": "Type Changes ({{count}})",
-    "noChanges": "No schema changes detected."
+    "noChanges": "No schema changes detected.",
+    "rowCountUnknown": "Columns are unchanged. The row count could not be established."
   },
   "map": {
     "ariaLabel": "Dataset map",

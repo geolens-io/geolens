@@ -124,8 +124,17 @@ export function SchemaDiffView({ schemaDiff }: SchemaDiffViewProps) {
         </div>
       )}
 
+      {/* fix(#1746): an unknown delta is not "no change". Coalescing it to 0
+          said "No schema changes detected" about a re-upload whose row count
+          nobody had established, which is the opposite of what null means. */}
+      {!hasChanges && schemaDiff.row_count_delta === null && (
+        <p className="text-sm text-muted-foreground">
+          {t('schemaDiff.rowCountUnknown')}
+        </p>
+      )}
+
       {/* No changes message */}
-      {!hasChanges && (schemaDiff.row_count_delta ?? 0) === 0 && (
+      {!hasChanges && schemaDiff.row_count_delta === 0 && (
         <p className="text-sm text-muted-foreground">
           {t('schemaDiff.noChanges')}
         </p>

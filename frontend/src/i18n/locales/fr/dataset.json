@@ -443,7 +443,8 @@
     "columnsAdded": "Colonnes ajoutées ({{count}})",
     "columnsRemoved": "Colonnes supprimées ({{count}})",
     "typeChanges": "Changements de type ({{count}})",
-    "noChanges": "Aucune modification de schéma détectée."
+    "noChanges": "Aucune modification de schéma détectée.",
+    "rowCountUnknown": "Les colonnes sont inchangées. Le nombre de lignes n'a pas pu être établi."
   },
   "map": {
     "ariaLabel": "Carte du jeu de données",

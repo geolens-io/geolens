@@ -5293,3 +5293,266 @@ class TestEveryReadStatesWhatItWants:
             "accept"
             not in _inspect.signature(service_endpoints.credential_headers).parameters
         )
+
+
+class TestAnXmlDocumentIsBoundedByItsElements:
+    """fix(#1746 B2b review r26): the JSON counter answers ~0 for XML.
+
+    `structural_tokens` counts commas and JSON brackets, so a WFS capabilities
+    body made of millions of tiny elements reported near-zero complexity and
+    sailed past every bound this module had. The full ElementTree was then
+    built in the API and worker processes.
+    """
+
+    uses_the_real_endpoint_check = True
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _check(self, service_format="wfs", url=None):
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        await assert_endpoints_stay_on_origin(
+            url or (_SVC_WFS if service_format == "wfs" else _SVC_OAPIF),
+            service_format=service_format,
+            credential_line=f"{pair[0]}: {pair[1]}",
+            deadline=None,
+        )
+
+    def test_the_count_cannot_undercount_the_elements(self) -> None:
+        """The premise, checked against the parser's own element count."""
+        import defusedxml.ElementTree as ET
+
+        from app.platform import service_endpoints
+
+        for raw in (
+            b"<r/>",
+            b"<r><a/><a/><a/></r>",
+            b'<r><a b="1"/></r>',
+            b"<r><a>text</a></r>",
+            b"<r><![CDATA[< < < <]]></r>",
+            b"<?xml version='1.0'?><r><a/></r>",
+        ):
+            parsed = len(list(ET.fromstring(raw).iter()))
+            assert service_endpoints.structural_elements(raw) >= parsed, raw
+
+    async def test_a_million_tiny_elements_is_refused_before_parsing(
+        self, monkeypatch
+    ) -> None:
+        """Under the byte cap, ruinous as a tree, and never handed to the parser."""
+        from app.platform import service_endpoints
+
+        raw = b"<r>" + b"<a/>" * 1_000_000 + b"</r>"
+        assert len(raw) < service_endpoints.MAX_DOCUMENT_BYTES
+        # The JSON counter sees nothing to worry about, which is the finding.
+        assert service_endpoints.structural_tokens(raw) == 0
+
+        parsed: list = []
+        real_fromstring = service_endpoints.ET.fromstring
+
+        def _fromstring(payload, *args, **kwargs):
+            parsed.append(len(payload))
+            raise AssertionError("the document must not reach the parser")
+
+        self._transport(monkeypatch, lambda request: httpx.Response(200, content=raw))
+        monkeypatch.setattr(service_endpoints.ET, "fromstring", _fromstring)
+        assert real_fromstring is not None
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check()
+
+        assert parsed == []
+
+    async def test_an_ordinary_capabilities_document_still_passes(
+        self, monkeypatch
+    ) -> None:
+        """The bound is generous to anything real.
+
+        A capabilities document advertising a thousand feature types is three
+        orders of magnitude inside it.
+        """
+        from app.platform import service_endpoints
+
+        feature_types = b"".join(
+            b"<FeatureType><Name>t%d</Name><Title>T</Title>"
+            b"<DefaultCRS>EPSG:4326</DefaultCRS></FeatureType>" % n
+            for n in range(1000)
+        )
+        raw = (
+            b'<?xml version="1.0" encoding="UTF-8"?>'
+            b'<WFS_Capabilities xmlns:xlink="http://www.w3.org/1999/xlink">'
+            b'<OperationsMetadata><Operation name="GetFeature"><DCP><HTTP>'
+            b'<Get xlink:href="' + _SVC_WFS.encode() + b'"/>'
+            b"</HTTP></DCP></Operation></OperationsMetadata>"
+            b"<FeatureTypeList>" + feature_types + b"</FeatureTypeList>"
+            b"</WFS_Capabilities>"
+        )
+        elements = service_endpoints.structural_elements(raw)
+        assert elements * 50 < service_endpoints.MAX_DOCUMENT_ELEMENTS, elements
+
+        self._transport(monkeypatch, lambda request: httpx.Response(200, content=raw))
+
+        await self._check()
+
+    async def test_a_doctype_is_refused(self, monkeypatch) -> None:
+        """The other way a small body becomes a huge tree.
+
+        defusedxml already refuses entity DECLARATIONS by default, which is the
+        billion-laughs case, but it allows a DOCTYPE including one naming an
+        external subset. A capabilities document has no use for either.
+        """
+        raw = (
+            b'<?xml version="1.0"?>'
+            b'<!DOCTYPE WFS_Capabilities SYSTEM "http://collector.example/x.dtd">'
+            b"<WFS_Capabilities/>"
+        )
+        recorded = self._transport(
+            monkeypatch, lambda request: httpx.Response(200, content=raw)
+        )
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check()
+
+        assert "collector.example" not in _hosts(recorded)
+
+    async def test_an_entity_declaration_is_a_refusal_not_a_crash(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1746 B2b review r26): found while implementing the bound.
+
+        `DefusedXmlException` is a `ValueError`, NOT a `ParseError`, and the
+        handler caught only `ParseError`. A capabilities document carrying an
+        entity declaration therefore escaped uncaught and surfaced as a 500
+        rather than as the coded refusal every other unreadable description
+        gets.
+        """
+        raw = (
+            b'<?xml version="1.0"?>'
+            b'<!DOCTYPE r [<!ENTITY x "expanded">]>'
+            b"<WFS_Capabilities>&x;</WFS_Capabilities>"
+        )
+        self._transport(monkeypatch, lambda request: httpx.Response(200, content=raw))
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check()
+
+    async def test_a_json_document_is_still_bounded_by_tokens(
+        self, monkeypatch
+    ) -> None:
+        """The dispatch goes the other way for an OGC API document.
+
+        A landing page full of `[[1]],` has almost no `<` in it, so an element
+        bound would let it through; the token bound is what catches it.
+        """
+        from app.platform import service_endpoints
+
+        raw = b'{"links":[' + b"[[1]]," * 20_000 + b"[[1]]]}"
+        assert service_endpoints.structural_elements(raw) == 0
+
+        self._transport(monkeypatch, lambda request: httpx.Response(200, content=raw))
+        monkeypatch.setattr(service_endpoints, "MAX_DOCUMENT_TOKENS", 10_000)
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check(service_format="ogcapi_features")
+
+
+class TestEachDocumentKindGetsItsOwnBound:
+    """fix(#1746 B2b review r26): the bound is keyed on the negotiated kind."""
+
+    def test_the_dispatch_follows_the_accept_value(self) -> None:
+        from app.platform.service_endpoints import (
+            OGC_JSON_ACCEPT,
+            WFS_XML_ACCEPT,
+            EndpointCheckFailedError,
+            require_decodable,
+        )
+
+        xml_ish = b"<r>" + b"<a/>" * 100 + b"</r>"
+        json_ish = b"[" + b"1," * 100 + b"1]"
+
+        # XML body, XML accept: the element bound bites, the token one cannot.
+        with pytest.raises(EndpointCheckFailedError):
+            require_decodable(
+                xml_ish,
+                accept=WFS_XML_ACCEPT,
+                token_budget=10,
+                element_budget=10,
+            )
+        require_decodable(
+            xml_ish, accept=WFS_XML_ACCEPT, token_budget=0, element_budget=10_000
+        )
+
+        # JSON body, JSON accept: the reverse.
+        with pytest.raises(EndpointCheckFailedError):
+            require_decodable(
+                json_ish,
+                accept=OGC_JSON_ACCEPT,
+                token_budget=10,
+                element_budget=10,
+            )
+        require_decodable(
+            json_ish, accept=OGC_JSON_ACCEPT, token_budget=10_000, element_budget=0
+        )
+
+    def test_every_read_is_bounded_by_the_parser_it_feeds(self) -> None:
+        """Each `fetch_document` call names one of the two known accept values.
+
+        Keyed on the value rather than on a free string, so a read cannot
+        negotiate for something neither bound understands and take the JSON
+        branch by default.
+        """
+        import ast
+        import inspect as _inspect
+
+        from app.platform import service_endpoints, service_items
+
+        known = {"OGC_JSON_ACCEPT", "WFS_XML_ACCEPT"}
+        seen: list[str] = []
+        for module in (service_endpoints, service_items):
+            tree = ast.parse(_inspect.getsource(module))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                name = getattr(node.func, "id", None) or getattr(
+                    node.func, "attr", None
+                )
+                if name != "fetch_document":
+                    continue
+                accept = next(k for k in node.keywords if k.arg == "accept")
+                # Either a constant by name, or the parameter a wrapper threads
+                # through (the wrappers' own defaults are checked below).
+                assert isinstance(accept.value, ast.Name), ast.dump(accept.value)
+                assert accept.value.id in known | {"accept"}, accept.value.id
+                seen.append(f"{module.__name__}:{accept.value.id}")
+
+        assert len(seen) == 2, seen
+
+    def test_the_wrappers_default_to_a_known_value(self) -> None:
+        """The two wrappers that thread `accept` through start from a constant."""
+        import inspect as _inspect
+
+        from app.platform import service_endpoints, service_items
+
+        endpoints_default = (
+            _inspect.signature(service_endpoints._fetch).parameters["accept"].default
+        )
+        assert endpoints_default == service_endpoints.OGC_JSON_ACCEPT
+
+        items_source = _inspect.getsource(service_items._fetch_page)
+        assert "accept=OGC_JSON_ACCEPT" in items_source

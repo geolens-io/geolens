@@ -443,7 +443,8 @@
     "columnsAdded": "Columnas agregadas ({{count}})",
     "columnsRemoved": "Columnas eliminadas ({{count}})",
     "typeChanges": "Cambios de tipo ({{count}})",
-    "noChanges": "No se detectaron cambios de esquema."
+    "noChanges": "No se detectaron cambios de esquema.",
+    "rowCountUnknown": "Las columnas no han cambiado. No se pudo determinar el número de filas."
   },
   "map": {
     "ariaLabel": "Mapa del conjunto de datos",

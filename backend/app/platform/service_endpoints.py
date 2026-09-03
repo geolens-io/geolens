@@ -83,6 +83,7 @@ from collections.abc import Callable
 from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse, urlunparse
 
 import defusedxml.ElementTree as ET
+from defusedxml.common import DefusedXmlException
 import httpx
 import structlog
 
@@ -159,6 +160,25 @@ MAX_DOCUMENT_BYTES = 32 * 1024 * 1024
 # decoded at the worst measured cost, and a collections listing of 1,000
 # entries costs about 20,000.
 MAX_DOCUMENT_TOKENS = 1_000_000
+
+# And the same bound for XML, because `structural_tokens` counts JSON
+# punctuation and answers ~0 for a capabilities document. fix(#1746 B2b review
+# r26): a 32 MiB body of millions of tiny elements sailed past every bound this
+# module had and built the whole ElementTree in the API and worker processes.
+#
+# Measured the same way as the JSON figure, `tracemalloc` peak over 1 MiB
+# bodies:
+#
+#     <a/>          21.0x     84.1 bytes per `<`
+#     <a></a>       12.6x     44.0 bytes per `<`
+#     <a><b/></a>   20.7x     75.9 bytes per `<`
+#     <a b="1"/>    33.9x    339.0 bytes per `<`   <- worst, attributes cost a dict
+#
+# 500,000 elements at the worst measured 339 bytes is ~162 MiB, which is the
+# figure this is chosen for and the same ceiling `MAX_DOCUMENT_TOKENS` targets.
+# A WFS capabilities document listing five thousand feature types costs on the
+# order of 40,000 elements, so this is more than ten times anything real.
+MAX_DOCUMENT_ELEMENTS = 500_000
 
 # How long an endpoint check may take when the caller has a clock. `None`
 # means no caller deadline, which is the direct-call and offline case.
@@ -258,7 +278,14 @@ def _wfs_operation_hrefs(xml_bytes: bytes) -> list[str]:
     hrefs: list[str] = []
     # Bytes rather than str: `ET` refuses a `str` carrying an XML encoding
     # declaration outright, and reads the declaration correctly from bytes.
-    root = ET.fromstring(xml_bytes)
+    #
+    # fix(#1746 B2b review r26): `forbid_dtd=True`. defusedxml already refuses
+    # entity declarations by default (`forbid_entities`), which is the billion
+    # laughs case, but it allows a DOCTYPE, including one naming an external
+    # subset. A WFS capabilities document has no use for either, and the
+    # element bound above only counts what is in the body -- it cannot see a
+    # tree the doctype would have expanded.
+    root = ET.fromstring(xml_bytes, forbid_dtd=True)
     for element in root.iter():
         tag = element.tag.split("}")[-1] if "}" in element.tag else element.tag
         if tag not in ("Get", "Post"):
@@ -344,18 +371,49 @@ def structural_tokens(body: bytes) -> int:
     return body.count(b",") + body.count(b"[") + body.count(b"{")
 
 
+def structural_elements(body: bytes) -> int:
+    """An upper bound on the elements ``body`` will parse to.
+
+    fix(#1746 B2b review r26). Every element and every processing instruction
+    opens with ``<``, so this cannot undercount. It overcounts freely: a
+    closing tag has one too, and text inside CDATA may contain them. Both are
+    the safe direction, and neither can hide an element.
+
+    ``<`` cannot appear in element text or in an attribute value in a
+    well-formed document -- it has to be escaped -- so outside CDATA the count
+    is close to twice the element count rather than unboundedly above it.
+
+    One `bytes.count` pass over the raw body, before any parsing.
+    """
+    return body.count(b"<")
+
+
+def _wants_xml(accept: str) -> bool:
+    return "xml" in accept.lower()
+
+
 def require_decodable(
     body: bytes,
-    token_budget: int,
     *,
+    accept: str,
+    token_budget: int,
+    element_budget: int,
     error: type[EndpointCheckFailedError] = EndpointCheckFailedError,
 ) -> None:
-    """Refuse a document that would cost too much to decode. fix(#1746 r22/r23).
+    """Refuse a document that would cost too much to build. fix(#1746 r22/r23/r26).
 
-    A byte cap bounds the wire, not the object graph. Called from
-    `fetch_document` below, which is the only place either module makes a
-    request, so it covers every document either one reads.
+    A byte cap bounds the wire, not the object graph, and the two document
+    kinds this reads expand through completely different structures. The kind
+    is not guessed: it is the ``accept`` value the read already negotiated
+    with, so a document is bounded by the parser it is actually going to.
+
+    Called from `fetch_document` below, which is the only place either module
+    makes a request, so it covers every document either one reads.
     """
+    if _wants_xml(accept):
+        if structural_elements(body) > element_budget:
+            raise error("document is too complex to parse")
+        return
     if structural_tokens(body) > token_budget:
         raise error("document is too complex to decode")
 
@@ -487,6 +545,7 @@ async def fetch_document(
     accept: str,
     budget: int | None = None,
     token_budget: int | None = None,
+    element_budget: int | None = None,
     error: type[EndpointCheckFailedError] = EndpointCheckFailedError,
     on_first_request: "Callable[[], None] | None" = None,
 ) -> tuple[bytes, str]:
@@ -516,6 +575,7 @@ async def fetch_document(
     # changes the constant would be silently ignored.
     budget = MAX_DOCUMENT_BYTES if budget is None else budget
     token_budget = MAX_DOCUMENT_TOKENS if token_budget is None else token_budget
+    element_budget = MAX_DOCUMENT_ELEMENTS if element_budget is None else element_budget
     # Copied rather than mutated: the caller's dict is reused across the pages
     # of a walk, and the negotiation belongs to this read.
     headers = {**headers, "Accept": accept}
@@ -547,7 +607,13 @@ async def fetch_document(
             # changes what a relative href in the body is relative to, and
             # resolving against the pre-redirect URL asks for the wrong path.
             final_url = str(response.url)
-        require_decodable(body, token_budget, error=error)
+        require_decodable(
+            body,
+            accept=accept,
+            token_budget=token_budget,
+            element_budget=element_budget,
+            error=error,
+        )
         return body, final_url
     except (httpx.HTTPError, SSRFError, ValueError) as exc:
         raise error(str(exc)) from None
@@ -593,7 +659,12 @@ async def _check_wfs(
     )
     try:
         hrefs = _wfs_operation_hrefs(xml_bytes)
-    except ET.ParseError as exc:
+    except (ET.ParseError, DefusedXmlException) as exc:
+        # fix(#1746 B2b review r26): `DefusedXmlException` is a `ValueError`,
+        # NOT a `ParseError`, so catching only the latter let a capabilities
+        # document carrying an entity declaration escape as an uncaught
+        # exception and surface as a 500. It is a refusal like any other
+        # unreadable description.
         raise EndpointCheckFailedError(str(exc)) from None
     _assert_same_origin(url, hrefs, from_url)
 
