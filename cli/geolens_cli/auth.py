@@ -256,33 +256,90 @@ def _read_credentials_section_tolerant(instance: str) -> dict:
         return {}
 
 
-def load_bearer_token(instance: str) -> Optional[BearerToken]:
-    """Return the active bearer token per the D-35 precedence."""
+class KeyringCredentialUnreadable(Exception):
+    """Raised by the STRICT credential readers (``load_bearer_token_strict``
+    /``load_api_key_strict``) when the OS keyring itself
+    refuses a read for a specific account (locked, backend down,
+    permission denied, ...) -- distinct from a clean read that simply
+    found nothing (a confirmed-absent credential, returned as
+    ``None``, same as always).
+
+    fix(#1778 review round 27): ``load_bearer_token()``/``load_api_key()``
+    (below) swallow exactly this exception to preserve their existing
+    tolerant contract for every caller that does not need to tell the
+    two apart -- see their own docstrings.
+    """
+
+    def __init__(self, kind: str, detail: str) -> None:
+        super().__init__(f"{kind} credential unreadable: {detail}")
+        self.kind = kind
+        self.detail = detail
+
+
+def load_bearer_token_strict(instance: str) -> Optional[BearerToken]:
+    """Like ``load_bearer_token()``, but raises ``KeyringCredentialUnreadable``
+    instead of swallowing a keyring read failure to ``None``.
+
+    fix(#1778 review round 27): AppState.sdk() needs to tell "the
+    marked-active bearer account is unreadable right now" apart from
+    "there is genuinely no bearer credential" -- conflating the two
+    (the OLD, and still current, behavior of load_bearer_token() itself)
+    let it silently fall through to a competing, possibly-stale api_key
+    credential the round-14/23/25 _UNKNOWN cleanup gate deliberately
+    left in place. GEOLENS_TOKEN and a file-backed value both
+    short-circuit before ever touching the keyring here, exactly as
+    load_bearer_token() does -- only the keyring leg can raise.
+    """
     env_token = _config.get_token_from_env()
     if env_token:
         return BearerToken(env_token)
-    # credentials.toml > keyring (file is explicit; keyring is fallback)
     data = _read_credentials_section_tolerant(instance)
     token = data.get("bearer_token")
     if token:
         return BearerToken(token)
     try:
         kr_token = keyring.get_password(SERVICE, _keyring_account_token(instance))
-    except KeyringError:
-        return None
+    except KeyringError as exc:
+        raise KeyringCredentialUnreadable("bearer", str(exc)) from exc
     return BearerToken(kr_token) if kr_token else None
 
 
-def load_api_key(instance: str) -> Optional[ApiKey]:
+def load_api_key_strict(instance: str) -> Optional[ApiKey]:
+    """Like ``load_api_key()``, but raises ``KeyringCredentialUnreadable``
+    instead of swallowing a keyring read failure to ``None`` -- see
+    ``load_bearer_token_strict()``'s docstring."""
     data = _read_credentials_section_tolerant(instance)
     key = data.get("api_key")
     if key:
         return ApiKey(key)
     try:
         kr_key = keyring.get_password(SERVICE, _keyring_account_api_key(instance))
-    except KeyringError:
-        return None
+    except KeyringError as exc:
+        raise KeyringCredentialUnreadable("api_key", str(exc)) from exc
     return ApiKey(kr_key) if kr_key else None
+
+
+def load_bearer_token(instance: str) -> Optional[BearerToken]:
+    """Return the active bearer token per the D-35 precedence.
+
+    Tolerant: a keyring read failure degrades to "not found," same as
+    every call site here relied on before round 27. AppState.sdk()'s
+    marker-authoritative branch uses ``load_bearer_token_strict()``
+    instead, specifically to NOT tolerate this.
+    """
+    try:
+        return load_bearer_token_strict(instance)
+    except KeyringCredentialUnreadable:
+        return None
+
+
+def load_api_key(instance: str) -> Optional[ApiKey]:
+    """Return the active API key per the D-35 precedence. Tolerant --
+    see ``load_bearer_token()``'s docstring."""
+    try:
+        return load_api_key_strict(instance)
+    except KeyringCredentialUnreadable:
+        return None
 
 
 def load_refresh_token(instance: str) -> Optional[str]:

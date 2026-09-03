@@ -8,7 +8,9 @@ anonymous client.
 from __future__ import annotations
 
 import pytest
+import typer
 
+from geolens_cli import _sdk_helpers
 from geolens_cli import auth as _auth
 from geolens_cli import config as _config
 from geolens_cli import output as _output
@@ -234,3 +236,154 @@ class TestActiveCredentialKindMarkerPrecedence:
 
         assert sdk.credential_kind == "bearer"
         assert sdk.client.token == "new-bearer"
+
+
+
+class TestMarkerIsAuthoritativeEvenWhenItsOwnCredentialCannotBeRead:
+    """fix(#1778 review round 27): AppState.sdk() consulted the
+    active_kind marker, but still read BOTH `bearer` and `api_key`
+    tolerantly up front -- so when the marker named `api_key` and
+    reading it raised an account-specific KeyringError,
+    load_api_key() swallowed that to None (indistinguishable from
+    "genuinely nothing stored"), the marker check simply failed to
+    match, and execution fell through to the tolerant bearer-first
+    fallback a few lines down. Every command then silently ran as the
+    OLD (bearer) principal -- exactly the stale credential the
+    round-14/23/25 _UNKNOWN cleanup gate deliberately left behind.
+
+    A PRESENT marker is now authoritative: its named kind is read with
+    a STRICT reader that tells "unreadable" (raises -- resolution
+    fails naming the kind and the keyring error, NO fallback) apart
+    from "confirmed absent" (a clean read found nothing -- "not logged
+    in," still no fallback). Only with NO marker at all does the old
+    tolerant bearer-first precedence apply."""
+
+    def _patch_account_unreadable(self, monkeypatch, account: str) -> None:
+        import keyring as _keyring_mod
+        from keyring.errors import KeyringError
+
+        real_get_password = _keyring_mod.get_password
+
+        def flaky_get_password(svc: str, user: str):
+            if user == account:
+                raise KeyringError("keyring locked")
+            return real_get_password(svc, user)
+
+        monkeypatch.setattr(_keyring_mod, "get_password", flaky_get_password)
+
+    def test_marker_api_key_unreadable_fails_without_falling_back_to_bearer(
+        self, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Pin: marker=api_key + api-key read raises + bearer readable
+        -> command fails with the keyring error, bearer never used."""
+        from unittest.mock import MagicMock
+
+        from geolens_cli._sdk_helpers import EXIT_NETWORK
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        _auth.replace_credentials(CANONICAL, "api_key", "the-api-key")
+        assert _auth.load_active_credential_kind(CANONICAL) == "api_key"
+        # A stale bearer credential sits in the keyring, however it got
+        # there (round 14's _UNKNOWN cleanup gate is one real way) --
+        # written directly since this test only cares what is
+        # PHYSICALLY present, not the mechanism.
+        mock_keyring[("geolens", CANONICAL)] = "stale-bearer-token"
+
+        self._patch_account_unreadable(monkeypatch, f"{CANONICAL}:api_key")
+
+        spy_make_client = MagicMock(wraps=_sdk_helpers.make_client)
+        monkeypatch.setattr("geolens_cli.main.make_client", spy_make_client)
+
+        state = _make_state(config_instance=CANONICAL)
+        with pytest.raises(typer.Exit) as exc_info:
+            state.sdk()
+
+        assert exc_info.value.exit_code == EXIT_NETWORK
+        for call in spy_make_client.call_args_list:
+            assert call.kwargs.get("bearer_token") is None, (
+                "the stale bearer credential must never be used"
+            )
+
+    def test_marker_api_key_absent_reports_not_logged_in_without_falling_back_to_bearer(
+        self, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Pin: marker=api_key + api-key absent (a clean read finds
+        nothing) + bearer readable -> "not logged in", bearer never
+        used."""
+        from unittest.mock import MagicMock
+
+        from geolens_cli._sdk_helpers import EXIT_AUTH
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        _auth.replace_credentials(CANONICAL, "api_key", "the-api-key")
+        assert _auth.load_active_credential_kind(CANONICAL) == "api_key"
+        # The api_key credential is genuinely gone now (e.g. revoked
+        # and removed out of band) -- a normal, successful read finds
+        # nothing, distinct from the unreadable case above.
+        del mock_keyring[("geolens", f"{CANONICAL}:api_key")]
+        mock_keyring[("geolens", CANONICAL)] = "stale-bearer-token"
+
+        spy_make_client = MagicMock(wraps=_sdk_helpers.make_client)
+        monkeypatch.setattr("geolens_cli.main.make_client", spy_make_client)
+
+        state = _make_state(config_instance=CANONICAL)
+        with pytest.raises(typer.Exit) as exc_info:
+            state.sdk()
+
+        assert exc_info.value.exit_code == EXIT_AUTH
+        for call in spy_make_client.call_args_list:
+            assert call.kwargs.get("bearer_token") is None, (
+                "the stale bearer credential must never be used"
+            )
+
+    def test_marker_bearer_unreadable_fails_without_falling_back_to_api_key(
+        self, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Pin: marker=bearer + bearer read raises + api-key readable
+        -> fails, the mirror of the api_key case above."""
+        from unittest.mock import MagicMock
+
+        from geolens_cli._sdk_helpers import EXIT_NETWORK
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        _auth.replace_credentials(CANONICAL, "bearer", "the-bearer-token")
+        assert _auth.load_active_credential_kind(CANONICAL) == "bearer"
+        mock_keyring[("geolens", f"{CANONICAL}:api_key")] = "stale-api-key"
+
+        self._patch_account_unreadable(monkeypatch, CANONICAL)
+
+        spy_make_client = MagicMock(wraps=_sdk_helpers.make_client)
+        monkeypatch.setattr("geolens_cli.main.make_client", spy_make_client)
+
+        state = _make_state(config_instance=CANONICAL)
+        with pytest.raises(typer.Exit) as exc_info:
+            state.sdk()
+
+        assert exc_info.value.exit_code == EXIT_NETWORK
+        for call in spy_make_client.call_args_list:
+            assert call.kwargs.get("api_key") is None, (
+                "the stale API key must never be used"
+            )
+
+    def test_no_marker_falls_back_to_bearer_when_api_key_is_unreadable(
+        self, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Pin: no marker + api-key unreadable + bearer readable ->
+        the existing tolerant bearer-first precedence still applies,
+        pinned explicitly so a future change cannot silently drift
+        this (the ONLY case round 27 leaves unchanged, since there is
+        no marker to be authoritative about)."""
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        # No login at all -- written directly so no active_kind marker
+        # is ever set.
+        mock_keyring[("geolens", CANONICAL)] = "the-bearer-token"
+        assert _auth.load_active_credential_kind(CANONICAL) is None
+
+        self._patch_account_unreadable(monkeypatch, f"{CANONICAL}:api_key")
+
+        state = _make_state(config_instance=CANONICAL)
+        sdk = state.sdk()
+
+        assert sdk.credential_kind == "bearer"
+        assert sdk.credential_provenance == "stored-bearer"
+        assert sdk.client.token == "the-bearer-token"

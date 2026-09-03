@@ -106,8 +106,6 @@ class AppState:
             # make_client()'s own docstring.
             return make_client(instance, bearer_token=env_token, provenance="env")
 
-        bearer = _auth.load_bearer_token(instance)
-        api_key = _auth.load_api_key(instance)
         # fix(#1778, #1787): make_client() binds every request to
         # DEFAULT_HTTP_TIMEOUT_SECONDS — the SDK's generated transport
         # otherwise carries timeout=None (unbounded), so every command
@@ -124,13 +122,62 @@ class AppState:
         # stored; cleanup at login time is best-effort tidiness, not
         # what this decision depends on. Falls back to the old
         # bearer-first precedence when there's no marker (a
-        # pre-round-10 credentials.toml) or the marked kind's own value
-        # is missing.
+        # pre-round-10 credentials.toml).
+        #
+        # fix(#1778 review round 27): rounds 10-25 still read BOTH
+        # `bearer` and `api_key` tolerantly up front, THEN consulted the
+        # marker -- so when the marker named `api_key` but reading it
+        # raised an account-specific KeyringError (load_api_key()
+        # swallows that to None, indistinguishable from "genuinely
+        # nothing stored"), the marker check below simply failed to
+        # match and execution fell through to the tolerant `bearer`
+        # fallback a few lines down. That silently ran every command as
+        # the OLD (bearer) principal, using exactly the stale credential
+        # the round-14 _UNKNOWN cleanup gate deliberately left behind
+        # for this exact reason. A PRESENT marker is now authoritative:
+        # its named kind is read with the STRICT reader, which tells
+        # "unreadable" (raises -- resolution fails naming the kind and
+        # the keyring error, no fallback to the other kind) apart from
+        # "confirmed absent" (a clean read found nothing -- "not logged
+        # in," still no fallback, since the marker says which kind is
+        # active). Only with NO marker at all does the old tolerant
+        # bearer-first precedence apply, unchanged, below.
         active_kind = _auth.load_active_credential_kind(instance)
-        if active_kind == "api_key" and api_key:
-            return make_client(instance, api_key=api_key.value, provenance="stored-api-key")
-        if active_kind == "bearer" and bearer:
-            return make_client(instance, bearer_token=bearer.value, provenance="stored-bearer")
+        if active_kind == "api_key":
+            try:
+                api_key = _auth.load_api_key_strict(instance)
+            except _auth.KeyringCredentialUnreadable as exc:
+                self.output.error(
+                    f"The active API key could not be read from the "
+                    f"keyring ({exc.detail}). Run `geolens login` again, "
+                    "or fix the keyring."
+                )
+                raise typer.Exit(EXIT_NETWORK) from exc
+            if api_key:
+                return make_client(
+                    instance, api_key=api_key.value, provenance="stored-api-key"
+                )
+            self.output.error("Authentication required. Run `geolens login` first.")
+            raise typer.Exit(EXIT_AUTH)
+        if active_kind == "bearer":
+            try:
+                bearer = _auth.load_bearer_token_strict(instance)
+            except _auth.KeyringCredentialUnreadable as exc:
+                self.output.error(
+                    f"The active bearer token could not be read from the "
+                    f"keyring ({exc.detail}). Run `geolens login` again, "
+                    "or fix the keyring."
+                )
+                raise typer.Exit(EXIT_NETWORK) from exc
+            if bearer:
+                return make_client(
+                    instance, bearer_token=bearer.value, provenance="stored-bearer"
+                )
+            self.output.error("Authentication required. Run `geolens login` first.")
+            raise typer.Exit(EXIT_AUTH)
+
+        bearer = _auth.load_bearer_token(instance)
+        api_key = _auth.load_api_key(instance)
         if bearer:
             return make_client(instance, bearer_token=bearer.value, provenance="stored-bearer")
         if api_key:
