@@ -76,19 +76,25 @@ def upgrade() -> None:
     # Seed the row here rather than lazily: a reader that finds no row cannot
     # tell "never revoked" from "counter missing", and the safe answer to the
     # second is to refuse every cached positive.
-    # fix(#1778 codex r5): seeded from the clock, not from 1. The reader
-    # re-creates this row if it is ever deleted, and a re-seed that restarted at
-    # 1 would walk back up through values that cache entries elsewhere in the
-    # fleet are still stamped with, making a revoked entry compare equal again.
-    # An epoch seed puts every (re-)seed far above any counter that reached its
-    # value by counting revocations, so issued values never repeat.
+    # fix(#1778 codex r6 P2): a random 62-bit value, not a wall-clock second.
+    # The clock seed adopted in r5 could collide with itself -- deleting the
+    # row and re-seeding within the same wall-clock second reproduces the
+    # exact same value, and under sustained revocation traffic the counter's
+    # integer value can outrun the epoch-seconds count outright, landing a
+    # later re-seed BEHIND a counter it was meant to get ahead of. Monotonic
+    # wall-clock time was never the guarantee this needed. A value drawn
+    # uniformly from [0, 2**62) makes a collision with any earlier stamp --
+    # from this seed, an app-level re-seed, or a counted revocation -- a
+    # ~2**-62 event, independent of timing. The reader in
+    # app/platform/cache/revocation.py re-creates this row with the identical
+    # expression if it is ever deleted.
     #
     # The COLUMN default stays 1: it is never used, since every row this table
     # will ever hold is inserted right here, and keeping it a literal is what
     # lets the ORM model in core/db/models.py match for `alembic check`.
     op.execute(
         f"INSERT INTO catalog.{_TABLE} (id, generation) "
-        "VALUES (TRUE, EXTRACT(EPOCH FROM clock_timestamp())::bigint) "
+        "VALUES (TRUE, (floor(random() * 4611686018427387904))::bigint) "
         "ON CONFLICT (id) DO NOTHING"
     )
 

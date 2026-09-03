@@ -273,26 +273,95 @@ class TestTheGenerationIsTransactional:
         # And it still answers, from the database.
         assert await self._generation(test_db_session) >= 1
 
-    async def test_a_deleted_counter_row_is_re_created_above_its_old_values(
+    async def test_a_deleted_counter_row_is_healed_and_the_heal_persists(
         self, test_db_session, clean_tables
     ):
-        """fix(#1778 codex r5): the reader heals the row rather than living with
-        the sentinel, and re-seeds from the clock so the counter never walks back
-        up through values stale entries are still stamped with."""
+        """fix(#1778 codex r6 P1): the heal must survive past the call that
+        discovered the row missing. It runs on its own connection, committed
+        independently of whatever session happens to be reading when it fires,
+        so a second, unrelated session sees it too.
+
+        The delete is committed before the heal runs, deliberately: round 5's
+        test deleted and healed inside the SAME uncommitted session, which
+        this fix turns into a deadlock rather than a false pass -- a second
+        connection's ``INSERT ... ON CONFLICT`` blocks on the row lock an
+        uncommitted DELETE from elsewhere still holds. A committed delete is
+        also the only version of "the row is gone" any other worker's request
+        can actually observe.
+
+        Counterfactual: heal on the caller's own session (round 5's shape) and
+        the row a second, independent session reads back is gone again.
+        """
         import app.core.db as db_module
 
-        async with db_module.async_session() as session:
-            before = await self._generation(session)
-            await session.execute(
+        async with db_module.async_session() as delete_session:
+            await delete_session.execute(
                 text("DELETE FROM catalog.security_revocation_generation")
             )
-            healed = await self._generation(session)
-            assert healed != UNKNOWN_GENERATION, "the row was not re-created"
-            assert healed > before, (
-                "the re-seeded counter restarted low enough to collide with a "
-                "generation some cache entry could still be stamped with"
+            await delete_session.commit()
+
+        async with db_module.async_session() as reader_session:
+            healed = await self._generation(reader_session)
+            assert healed != UNKNOWN_GENERATION, "the row was not healed"
+
+        async with db_module.async_session() as second_session:
+            row = await second_session.scalar(
+                text(
+                    "SELECT generation FROM catalog.security_revocation_generation "
+                    "WHERE id IS TRUE"
+                )
             )
-            await session.rollback()
+        assert row is not None, (
+            "the healed row did not survive past the session that healed it"
+        )
+        assert row == healed
+
+    async def test_a_deleted_counter_row_is_recreated_with_a_fresh_random_seed(
+        self, test_db_session, clean_tables
+    ):
+        """fix(#1778 codex r6 P2): two heals must not produce the same
+        generation. Round 5 seeded the heal from
+        ``EXTRACT(EPOCH FROM clock_timestamp())::bigint`` -- whole wall-clock
+        seconds -- so two heals landing in the same second reproduced the
+        identical value, and a Redis positive stamped with the pre-delete
+        generation would then compare equal to it and be trusted again after
+        "recovery". A fleet under sustained revocation traffic can hit the
+        same collision without any clock coincidence at all, by walking the
+        counter's integer value past the current epoch-seconds count.
+
+        Counterfactual: seed the heal from the epoch-seconds expression again
+        and this fails whenever both heals land in the same wall-clock second,
+        which a same-process test loop hits on essentially every run, not as
+        a rare edge case.
+        """
+        import app.core.db as db_module
+        from app.platform.cache.revocation import _reseed_missing_generation_row
+
+        async def _delete_and_commit() -> None:
+            async with db_module.async_session() as session:
+                await session.execute(
+                    text("DELETE FROM catalog.security_revocation_generation")
+                )
+                await session.commit()
+
+        try:
+            await _delete_and_commit()
+            first = await _reseed_missing_generation_row()
+
+            await _delete_and_commit()
+            second = await _reseed_missing_generation_row()
+
+            assert first != second, (
+                "two heals produced the same generation -- an epoch-second "
+                "seed collides with itself here, and a cache entry stamped "
+                "with the pre-delete generation would wrongly compare equal "
+                "to it after recovery"
+            )
+        finally:
+            # Idempotent: a no-op if a row already exists (the ordinary case,
+            # since the heals above each leave one behind), and the safety
+            # net if an assertion above fired before the second heal ran.
+            await _reseed_missing_generation_row()
 
     async def test_an_unreadable_counter_is_not_a_generation(self):
         """Fail closed: the sentinel must never compare equal to anything.
@@ -459,3 +528,82 @@ class TestTheValidatorRefusesAStaleGeneration:
         assert await cache.get(TOKEN_KEY) is None, (
             "a positive was cached with a generation no reader can check it against"
         )
+
+
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
+class TestTheHealSurvivesARealRequest:
+    """fix(#1778 codex r6 P1): drives the heal through the real dependency
+    chain -- an actual read request on ``get_db()`` -- rather than calling
+    ``current_revocation_generation`` directly. Every production caller of
+    that function is a read endpoint, and ``core/dependencies.py``'s
+    ``get_db()`` commits NOTHING on a successful request; the assertion here
+    is about what the request leaves behind, not what the function returns.
+    """
+
+    async def test_a_read_endpoints_heal_of_the_counter_row_survives_the_request(
+        self, client, admin_auth_header, test_db_session
+    ):
+        """Counterfactual: heal on the request's own ``db`` session (round 5's
+        shape) and the row a second, independent session reads back afterward
+        is gone again -- the request's session never committed it.
+        """
+        from app.core.config import settings
+        from tests.factories import get_user_id
+        from tests.test_embed_tokens import (
+            _cleanup_data_table,
+            _create_data_table,
+            _create_map_with_layer,
+            _create_private_dataset,
+        )
+
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        table_name = f"embed_heal_{uuid.uuid4().hex[:8]}"
+        dataset = await _create_private_dataset(
+            test_db_session, created_by=user_id, table_name=table_name
+        )
+        map_obj, _ = await _create_map_with_layer(
+            test_db_session, client, admin_auth_header, dataset, created_by=user_id
+        )
+        await _create_data_table(test_db_session, table_name)
+
+        try:
+            create_resp = await client.post(
+                f"/maps/{map_obj.id}/embed-tokens/",
+                json={},
+                headers=admin_auth_header,
+            )
+            assert create_resp.status_code == 201
+            raw_token = create_resp.json()["raw_token"]
+
+            await test_db_session.execute(
+                text("DELETE FROM catalog.security_revocation_generation")
+            )
+            await test_db_session.commit()
+
+            tile_resp = await client.get(
+                f"/tiles/data.{table_name}/0/0/0.pbf",
+                headers={"X-Embed-Token": raw_token},
+            )
+            assert tile_resp.status_code in (200, 204), (
+                "the read request itself must still succeed while the counter "
+                "row is missing -- validate_embed_token_access falls through "
+                "to the database and neither caches nor denies on an unusable "
+                "generation"
+            )
+
+            import app.core.db as db_module
+
+            async with db_module.async_session() as second_session:
+                row = await second_session.scalar(
+                    text(
+                        "SELECT generation FROM catalog.security_revocation_generation "
+                        "WHERE id IS TRUE"
+                    )
+                )
+            assert row is not None, (
+                "the counter row healed during the request did not survive "
+                "past it -- the heal ran on the request's own get_db() "
+                "session, which is never committed on a successful read"
+            )
+        finally:
+            await _cleanup_data_table(test_db_session, table_name)

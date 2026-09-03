@@ -111,13 +111,21 @@ def is_usable_generation(generation: int) -> bool:
     return generation != UNKNOWN_GENERATION
 
 
-# Seeded from the clock rather than from 1. fix(#1778 codex r5): the reader
-# re-creates the row if it has been deleted, and a re-seed that restarted at 1
-# would walk back up through values that stale entries elsewhere in the fleet
-# are still stamped with, making a revoked entry compare equal again. Seeding
-# from the epoch puts every re-seed far above any counter that reached its value
-# by counting revocations, so the sequence of issued values never repeats.
-_SEED_EXPR = "EXTRACT(EPOCH FROM clock_timestamp())::bigint"
+# fix(#1778 codex r6 P2): a random 62-bit value, not a wall-clock second. The
+# epoch seed used through round 5 could collide with itself: deleting the row
+# and healing it again inside the same wall-clock second reproduces the exact
+# same seed, and a Redis positive stamped with the pre-delete value would then
+# compare equal to it and be trusted after "recovery". It also degrades under
+# sustained load rather than only at that one boundary: a fleet revoking fast
+# enough can walk the counter's integer value past the current epoch-seconds
+# count, and a later re-seed then lands BEHIND the counter it is replacing
+# instead of ahead of it. Monotonic wall-clock time was never the guarantee
+# this needed. A value drawn uniformly from [0, 2**62) makes a collision with
+# ANY earlier stamp, from any prior seed or any counted revocation, a
+# ~2**-62 event, independent of timing. 2**62 rather than the full 63-bit
+# signed range so the floor() and the cast can never round the boundary into
+# a negative bigint.
+_SEED_EXPR = "(floor(random() * 4611686018427387904))::bigint"
 
 
 async def bump_revocation_generation(db: AsyncSession) -> int:
@@ -168,20 +176,36 @@ async def current_revocation_generation(db: AsyncSession) -> int:
             text(f"SELECT generation FROM {_TABLE} WHERE id IS TRUE")
         )
         if generation is None:
-            # fix(#1778 codex r5): re-create the row rather than living with the
-            # sentinel, so an unusable generation is something that happens once
-            # instead of a state the deployment sits in. The seed comes from the
-            # clock, so the re-created counter starts above anything the old one
-            # could have counted its way to, and no stale entry can match it.
+            # fix(#1778 codex r6 P1): the heal must NOT run on `db`. Every
+            # production caller of this function is a read endpoint on
+            # get_db() (core/dependencies.py), whose session is committed on
+            # NOTHING -- it either rolls back on an exception or is simply
+            # closed at the end of a successful request. Round 5's heal ran
+            # the INSERT on that same session, so it "worked" for the rest of
+            # THIS request and then vanished the instant the session closed:
+            # the next validation found the row missing again and re-healed
+            # it, over and over, while every revoke kept raising
+            # RevocationGenerationError until an operator repaired the table
+            # by hand. Healing on its own connection, committed independently
+            # of whatever the caller's session does with its own transaction,
+            # is the only way the fix outlives the request that triggered it.
             logger.error("revocation_generation_row_missing", operation="read")
+            healed_generation = await _reseed_missing_generation_row()
+            logger.warning(
+                "revocation_generation_row_healed",
+                generation=healed_generation,
+            )
+            # Re-read through the CALLER's session rather than trusting the
+            # value the heal returned directly. The heal committed on a
+            # separate connection; this SELECT is a fresh statement in `db`'s
+            # transaction, and under READ COMMITTED (the default, and nothing
+            # in this request path raises the isolation level) a fresh
+            # statement always sees a just-committed row from elsewhere. That
+            # keeps this function to one source of truth -- what `db` itself
+            # can see -- rather than a value trusted from a connection this
+            # session never touches.
             generation = await db.scalar(
-                text(
-                    f"INSERT INTO {_TABLE} (id, generation) "
-                    f"VALUES (TRUE, {_SEED_EXPR}) "
-                    "ON CONFLICT (id) DO UPDATE SET generation = "
-                    f"{_TABLE_NAME}.generation "
-                    "RETURNING generation"
-                )
+                text(f"SELECT generation FROM {_TABLE} WHERE id IS TRUE")
             )
     except (
         Exception
@@ -190,4 +214,30 @@ async def current_revocation_generation(db: AsyncSession) -> int:
         return UNKNOWN_GENERATION
     if generation is None:
         return UNKNOWN_GENERATION
+    return int(generation)
+
+
+async def _reseed_missing_generation_row() -> int:
+    """Recreate the deleted singleton counter row on its own connection.
+
+    fix(#1778 codex r6 P1): committed independently of the caller, and NEVER
+    on the caller's `AsyncSession` -- see the call site in
+    ``current_revocation_generation`` for why that failed to persist. Late
+    imports ``app.core.db.engine`` the same way ``get_db()`` late-imports
+    ``async_session``: a module-scope import would snapshot the engine
+    ``client``/test fixtures rebind before their override takes effect,
+    silently healing against the wrong database in tests.
+    """
+    from app.core.db import engine  # noqa: PLC0415
+
+    async with engine.begin() as conn:
+        generation = await conn.scalar(
+            text(
+                f"INSERT INTO {_TABLE} (id, generation) "
+                f"VALUES (TRUE, {_SEED_EXPR}) "
+                "ON CONFLICT (id) DO UPDATE SET generation = "
+                f"{_TABLE_NAME}.generation "
+                "RETURNING generation"
+            )
+        )
     return int(generation)
