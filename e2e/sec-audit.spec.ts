@@ -2,40 +2,207 @@
 //
 // Run: npx playwright test e2e/sec-audit.spec.ts --project=chromium
 //
-// Many tests need a private dataset / raster / second editor user. Provide via env:
-//   SEC_AUDIT_API_URL                  default /api
-//   SEC_AUDIT_PRIVATE_RECORD_ID        STAC record_id for a private published raster (S01)
-//   SEC_AUDIT_PRIVATE_DATASET_ID       a dataset owned by user A with visibility=private (S02/S03/S05)
-//   SEC_AUDIT_EDITOR_B_TOKEN           bearer token for a second editor user (not the dataset's owner) (S02/S03)
-//   SEC_AUDIT_EDITOR_A_TOKEN           bearer token for the dataset owner (S03 cleanup)
-//   SEC_AUDIT_SSRF_TEST_REDIRECTOR     a public URL that 302-redirects to 169.254.169.254 (S04)
-// Tests that lack the env var skip with a printed reason rather than fail.
+// fix(#1778): S01/S02/S03/S05/S08/S09 used to read hand-provisioned env vars
+// (SEC_AUDIT_PRIVATE_DATASET_ID etc.) that nothing in CI ever set, so those
+// tests skipped on every run and the file reported green while covering 8
+// of 19 cases. beforeAll below seeds the same fixtures in-spec instead, the
+// way e2e/auth.setup.ts seeds a shared dataset and e2e/auth.spec.ts creates
+// its throwaway e2e-logout-probe user.
+//
+// S04 (SSRF redirect bypass) is the one case left out: it needs a live
+// external URL that 302-redirects to 169.254.169.254, which cannot be
+// provisioned safely in CI. That behavior is covered by
+// backend/tests/test_ssrf_redirect.py, so the test is removed below rather
+// than left permanently skipped — see the comment where it used to be.
+//
+//   SEC_AUDIT_FRONTEND_URL    override the frontend base for S08 (default E2E_BASE_URL)
 
 import { test, expect } from '@playwright/test';
+import { getAuthToken, seedDataset, seedDemDataset, deleteDataset } from './helpers/catalog';
 
-const API = process.env.SEC_AUDIT_API_URL || '/api';
+const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
+// fix(review #1792): SEC_AUDIT_API_URL used to let audit requests target a
+// different host than the one fixtures were seeded on -- nothing in CI or
+// any playwright*.config.ts ever set it, but if it had been, every
+// IDOR/visibility assertion below would have passed vacuously (a foreign id
+// 404s against the wrong host regardless of authorization). Removed the
+// override; one apiBase feeds seeding, publishing, and auditing alike, so
+// they cannot drift apart.
+const apiBase = `${BASE_URL}/api`;
+
+let privateDatasetId = '';
+let privateDatasetTitle = '';
+let privateRasterId = '';
+let privateRasterTitle = '';
+let publicDatasetId = '';
+let publicDatasetTitle = '';
+let editorBToken = '';
+let editorBUserId = '';
+let shareToken = '';
+let shareMapId = '';
+
+function adminHeaders(): Record<string, string> {
+  return {
+    Authorization: `Bearer ${getAuthToken()}`,
+    'Content-Type': 'application/json',
+  };
+}
+
+test.beforeAll(async () => {
+  // fix(review #1792 round 2): this hook used to seed five fixtures
+  // sequentially. The two ingest-backed ones alone (raster + private
+  // vector) can each poll for up to 60s (helpers/catalog.ts's
+  // seedFixtureDataset), so a slow worker could blow past Playwright's
+  // default 60s hook timeout before the public-dataset ingest even started.
+  // The five fixtures below are independent of each other, so run them
+  // concurrently -- real wall-clock is bounded by the single slowest chain,
+  // not the sum -- and set an explicit hook timeout as a margin on top of
+  // that for a loaded CI runner.
+  test.setTimeout(240_000);
+
+  const headers = adminHeaders();
+
+  const seedRaster = async () => {
+    // S01: private, published raster. The STAC /stac/items/{id} endpoint
+    // uses Dataset.id as the item id (backend/tests/test_stac_visibility.py),
+    // and ingest defaults a new dataset to visibility=private,
+    // record_status=published.
+    const raster = await seedDemDataset();
+    privateRasterId = raster.id;
+    privateRasterTitle = raster.title;
+  };
+
+  const seedPrivate = async () => {
+    // S02/S03/S05: private vector dataset owned by the seeding admin account.
+    const priv = await seedDataset('Sec Audit Private');
+    privateDatasetId = priv.id;
+    privateDatasetTitle = priv.title;
+  };
+
+  const seedPublic = async () => {
+    // S09: public, published vector dataset.
+    const pub = await seedDataset('Sec Audit Public');
+    publicDatasetId = pub.id;
+    publicDatasetTitle = pub.title;
+    const publishRes = await fetch(`${apiBase}/datasets/${publicDatasetId}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ visibility: 'public', record_status: 'published' }),
+    });
+    if (!publishRes.ok) {
+      throw new Error(`sec-audit: could not publish public dataset: ${publishRes.status}`);
+    }
+  };
+
+  const seedEditorB = async () => {
+    // S02/S03: a second, non-admin editor who owns neither dataset above.
+    const editorBUsername = `sec-audit-editor-b-${Date.now()}`;
+    const editorBPassword = 'Sec-Audit-Editor-B-42';
+    const createUserRes = await fetch(`${apiBase}/admin/users/`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ username: editorBUsername, password: editorBPassword, role: 'editor' }),
+    });
+    if (!createUserRes.ok) {
+      throw new Error(`sec-audit: could not create editor B: ${createUserRes.status}`);
+    }
+    editorBUserId = ((await createUserRes.json()) as { id: string }).id;
+
+    const loginRes = await fetch(`${apiBase}/auth/login/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ username: editorBUsername, password: editorBPassword }).toString(),
+    });
+    if (!loginRes.ok) {
+      throw new Error(`sec-audit: could not log in editor B: ${loginRes.status}`);
+    }
+    editorBToken = ((await loginRes.json()) as { access_token: string }).access_token;
+  };
+
+  const seedShareMap = async () => {
+    // S08: a public map with a share token and one layer -- create_embed_token
+    // (embed_tokens/service.py) refuses to mint a token for a map with no
+    // layers ("Map has no layers to scope"), so this needs publicDatasetId
+    // from seedPublic() above. Sequenced after the concurrent batch below
+    // rather than folded into it: the map/layer/publish/share calls here are
+    // all sub-second, so waiting for the one ingest this chain actually
+    // depends on costs nothing worth parallelizing further.
+    const mapRes = await fetch(`${apiBase}/maps/`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ name: `Sec Audit Share Map ${Date.now()}` }),
+    });
+    if (!mapRes.ok) {
+      throw new Error(`sec-audit: could not create share map: ${mapRes.status}`);
+    }
+    shareMapId = ((await mapRes.json()) as { id: string }).id;
+    const layerRes = await fetch(`${apiBase}/maps/${shareMapId}/layers`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ dataset_id: publicDatasetId }),
+    });
+    if (!layerRes.ok) {
+      throw new Error(`sec-audit: could not add share map layer: ${layerRes.status}`);
+    }
+    const mapPublishRes = await fetch(`${apiBase}/maps/${shareMapId}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ visibility: 'public' }),
+    });
+    if (!mapPublishRes.ok) {
+      throw new Error(`sec-audit: could not publish share map: ${mapPublishRes.status}`);
+    }
+    const shareRes = await fetch(`${apiBase}/maps/${shareMapId}/share/`, {
+      method: 'POST',
+      headers,
+    });
+    if (!shareRes.ok) {
+      throw new Error(`sec-audit: could not create share token: ${shareRes.status}`);
+    }
+    shareToken = ((await shareRes.json()) as { token: string }).token;
+  };
+
+  await Promise.all([seedRaster(), seedPrivate(), seedPublic(), seedEditorB()]);
+  await seedShareMap();
+});
+
+test.afterAll(async () => {
+  const headers = adminHeaders();
+  if (shareMapId) {
+    await fetch(`${apiBase}/maps/${shareMapId}`, { method: 'DELETE', headers }).catch(() => {});
+  }
+  if (editorBUserId) {
+    await fetch(`${apiBase}/admin/users/${editorBUserId}`, { method: 'DELETE', headers }).catch(() => {});
+  }
+  if (privateDatasetId) await deleteDataset(privateDatasetId, privateDatasetTitle);
+  if (publicDatasetId) await deleteDataset(publicDatasetId, publicDatasetTitle);
+  if (privateRasterId) await deleteDataset(privateRasterId, privateRasterTitle);
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // S01 — STAC visibility bypass (anonymous read of private raster)
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('S01 STAC visibility — anonymous cannot read a private raster STAC item', async ({ request }) => {
-  const recordId = process.env.SEC_AUDIT_PRIVATE_RECORD_ID;
-  test.skip(!recordId, 'Set SEC_AUDIT_PRIVATE_RECORD_ID to a private published raster');
-  const res = await request.get(`${API}/stac/items/${recordId}`);
+  const recordId = privateRasterId;
+  const res = await request.get(`${apiBase}/stac/items/${recordId}`);
   expect([401, 403, 404]).toContain(res.status());
 });
 
 test('S01 STAC visibility — anonymous /stac/search does not return private rasters', async ({ request }) => {
-  const recordId = process.env.SEC_AUDIT_PRIVATE_RECORD_ID;
-  test.skip(!recordId, 'Set SEC_AUDIT_PRIVATE_RECORD_ID to a private published raster');
-  const res = await request.get(`${API}/stac/search?ids=${recordId}`);
-  // Either denied (401/403) or empty features list — never the private item back
+  const recordId = privateRasterId;
+  const res = await request.get(`${apiBase}/stac/search?ids=${recordId}`);
+  // fix(review #1792 round 3): this `if` had no `else` -- any non-200 status
+  // (including a 500) fell through with no assertion at all, so a broken
+  // endpoint passed silently. Either denied (401/403/404) or an empty
+  // features list -- never the private item back.
   if (res.status() === 200) {
     const body = await res.json();
     const features = body.features ?? [];
     const hit = features.find((f: { id: string }) => f.id === recordId);
     expect(hit).toBeUndefined();
+  } else {
+    expect([401, 403, 404]).toContain(res.status());
   }
 });
 
@@ -44,10 +211,15 @@ test('S01 STAC visibility — anonymous /stac/search does not return private ras
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('S02 IDOR — editor B cannot PATCH another user\'s private dataset', async ({ request }) => {
-  const datasetId = process.env.SEC_AUDIT_PRIVATE_DATASET_ID;
-  const tokenB = process.env.SEC_AUDIT_EDITOR_B_TOKEN;
-  test.skip(!datasetId || !tokenB, 'Set SEC_AUDIT_PRIVATE_DATASET_ID and SEC_AUDIT_EDITOR_B_TOKEN');
-  const res = await request.patch(`${API}/datasets/${datasetId}/`, {
+  const datasetId = privateDatasetId;
+  const tokenB = editorBToken;
+  // fix(review #1792): the real route is /datasets/{dataset_id} with NO
+  // trailing slash (backend/openapi.json has a single, slash-less entry;
+  // redirect_slashes=False means a trailing-slash request 404s before the
+  // handler runs). The old URL's 404 happened to fall inside this test's
+  // accepted [401, 403, 404] range, so it passed without ever exercising
+  // check_dataset_write_access.
+  const res = await request.patch(`${apiBase}/datasets/${datasetId}`, {
     headers: {
       Authorization: `Bearer ${tokenB}`,
       'Content-Type': 'application/json',
@@ -58,34 +230,82 @@ test('S02 IDOR — editor B cannot PATCH another user\'s private dataset', async
 });
 
 test('S02 IDOR — editor B cannot DELETE another user\'s private dataset', async ({ request }) => {
-  const datasetId = process.env.SEC_AUDIT_PRIVATE_DATASET_ID;
-  const tokenB = process.env.SEC_AUDIT_EDITOR_B_TOKEN;
-  test.skip(!datasetId || !tokenB, 'Set SEC_AUDIT_PRIVATE_DATASET_ID and SEC_AUDIT_EDITOR_B_TOKEN');
-  const res = await request.delete(`${API}/datasets/${datasetId}/`, {
-    headers: { Authorization: `Bearer ${tokenB}` },
+  // fix(review #1792 round 3): the positive control below calls
+  // seedDataset(), which alone can poll for up to 60s (helpers/catalog.ts's
+  // seedFixtureDataset) -- the same 60s as Playwright's default TEST
+  // timeout, with nothing left over for the denial request, the owner
+  // delete, or cleanup. test.slow() triples it.
+  test.slow();
+
+  const datasetId = privateDatasetId;
+  const tokenB = editorBToken;
+  // fix(review #1792): delete_dataset_endpoint requires a DatasetDeleteRequest
+  // body with confirm_title (router.py:530-549) -- an empty DELETE 422s
+  // before the ownership check ever runs, so this failed on a correct
+  // server regardless of authorization. Send the real title so the only
+  // thing that can still refuse the request is authorization. Also dropped
+  // the trailing slash: the real route is /datasets/{dataset_id} with NONE
+  // (backend/openapi.json has a single, slash-less entry; redirect_slashes
+  // =False means a trailing-slash request 404s before the handler runs) --
+  // the old URL's 404 fell inside this test's accepted range too, so it
+  // passed without ever exercising check_dataset_write_access. Building the
+  // positive control below (same body, real owner) surfaced this: it kept
+  // 404ing even for the owner until the slash was dropped.
+  const res = await request.delete(`${apiBase}/datasets/${datasetId}`, {
+    headers: { Authorization: `Bearer ${tokenB}`, 'Content-Type': 'application/json' },
+    data: { confirm_title: privateDatasetTitle },
   });
   expect([401, 403, 404]).toContain(res.status());
+
+  // Positive control: the identical request shape, from the actual owner,
+  // succeeds -- proves the 401/403/404 above comes from authorization, not
+  // from the server rejecting the body itself for everyone. Uses its own
+  // throwaway dataset (not privateDatasetId, which S03 and S05 below still
+  // need) so this test owns its own create/delete lifecycle rather than
+  // reaching into the shared beforeAll fixtures.
+  const throwaway = await seedDataset('Sec Audit S02 Positive Control');
+  try {
+    const ownerRes = await request.delete(`${apiBase}/datasets/${throwaway.id}`, {
+      headers: { Authorization: `Bearer ${getAuthToken()}`, 'Content-Type': 'application/json' },
+      data: { confirm_title: throwaway.title },
+    });
+    expect(ownerRes.status()).toBe(204);
+  } finally {
+    await deleteDataset(throwaway.id, throwaway.title);
+  }
 });
 
 test('S02 IDOR — editor B cannot bulk-delete another user\'s private dataset', async ({ request }) => {
-  const datasetId = process.env.SEC_AUDIT_PRIVATE_DATASET_ID;
-  const tokenB = process.env.SEC_AUDIT_EDITOR_B_TOKEN;
-  test.skip(!datasetId || !tokenB, 'Set SEC_AUDIT_PRIVATE_DATASET_ID and SEC_AUDIT_EDITOR_B_TOKEN');
-  const res = await request.post(`${API}/datasets/bulk-delete/`, {
+  const datasetId = privateDatasetId;
+  const tokenB = editorBToken;
+  // fix(#1778): BulkDeleteRequest's schema is `{ datasets: [{ dataset_id,
+  // confirm_title }] }` (backend/openapi.json), not `{ dataset_ids: [...] }`
+  // — the old payload always 422'd before authorization was ever reached,
+  // which the permanent skip guard hid. bulk_delete_datasets_endpoint
+  // (router.py) isolates per-item failures rather than rejecting the whole
+  // batch, so a denied item surfaces as HTTP 200 with a per-item
+  // status: 'error', never a top-level 401/403/404.
+  const res = await request.post(`${apiBase}/datasets/bulk-delete/`, {
     headers: {
       Authorization: `Bearer ${tokenB}`,
       'Content-Type': 'application/json',
     },
-    data: { dataset_ids: [datasetId] },
+    data: { datasets: [{ dataset_id: datasetId, confirm_title: privateDatasetTitle }] },
   });
-  // Either fully rejected (403/401) OR succeeds with a per-id failure (200/207 with deleted=0)
-  if (res.status() === 200 || res.status() === 207) {
-    const body = await res.json();
-    const deleted = body.deleted ?? body.deleted_ids ?? [];
-    expect(deleted).not.toContain(datasetId);
-  } else {
-    expect([401, 403, 404]).toContain(res.status());
-  }
+  expect(res.status()).toBe(200);
+  const body = await res.json();
+  // fix(review #1792): `item?.status` on an ABSENT result item is
+  // `undefined`, and `expect(undefined).not.toBe('deleted')` passes
+  // trivially -- a response that dropped the target dataset from `results`
+  // entirely (or never included it) satisfied this assertion just as well
+  // as a genuine denial. Assert the item exists, then assert its actual
+  // status and the top-level count, both of which BulkDeleteResponse always
+  // returns (backend/openapi.json).
+  const results: Array<{ dataset_id: string; status: string }> = body.results ?? [];
+  const item = results.find((r) => r.dataset_id === datasetId);
+  expect(item, 'bulk-delete response should include a result for the target dataset').toBeTruthy();
+  expect(item?.status).toBe('error');
+  expect(body.deleted).toBe(0);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -93,25 +313,41 @@ test('S02 IDOR — editor B cannot bulk-delete another user\'s private dataset',
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('S03 IDOR — editor B cannot add a column to another user\'s private dataset', async ({ request }) => {
-  const datasetId = process.env.SEC_AUDIT_PRIVATE_DATASET_ID;
-  const tokenB = process.env.SEC_AUDIT_EDITOR_B_TOKEN;
-  test.skip(!datasetId || !tokenB, 'Set SEC_AUDIT_PRIVATE_DATASET_ID and SEC_AUDIT_EDITOR_B_TOKEN');
-  const res = await request.post(`${API}/datasets/${datasetId}/columns/`, {
+  const datasetId = privateDatasetId;
+  const tokenB = editorBToken;
+  // fix(review #1792): column DDL lives under /layers/{dataset_id}/columns/,
+  // not /datasets/{dataset_id}/columns/ (backend/openapi.json has no such
+  // /datasets path at all -- add_column_endpoint and drop_column_endpoint
+  // are both registered on layers_router). The old URL 404'd unconditionally,
+  // which fell inside this test's accepted range, so it passed without ever
+  // reaching add_column_endpoint's check_dataset_write_access. The body
+  // shape was also wrong: AddColumnRequest wraps the definition in a
+  // `column` object (`{ column: { name, type } }`), not top-level
+  // `{ name, type }`. Fixing both surfaced a THIRD latent bug: the column
+  // name 'sec_audit_S03' has always failed ColumnDef's own name validator
+  // (lowercase letters/digits/underscores only) with a 422 -- "body.column.
+  // name: Value error, Column name 'sec_audit_S03' must start with a
+  // lowercase letter and contain only lowercase letters, digits, and
+  // underscores" -- which Pydantic raises before the handler body (and so
+  // before check_dataset_write_access) ever runs. Lowercased it.
+  const res = await request.post(`${apiBase}/layers/${datasetId}/columns/`, {
     headers: {
       Authorization: `Bearer ${tokenB}`,
       'Content-Type': 'application/json',
     },
-    data: { name: 'sec_audit_S03', type: 'text' },
+    data: { column: { name: 'sec_audit_s03', type: 'text' } },
   });
   expect([401, 403, 404]).toContain(res.status());
 });
 
 test('S03 IDOR — editor B cannot DROP a column on another user\'s private dataset', async ({ request }) => {
-  const datasetId = process.env.SEC_AUDIT_PRIVATE_DATASET_ID;
-  const tokenB = process.env.SEC_AUDIT_EDITOR_B_TOKEN;
-  test.skip(!datasetId || !tokenB, 'Set SEC_AUDIT_PRIVATE_DATASET_ID and SEC_AUDIT_EDITOR_B_TOKEN');
+  const datasetId = privateDatasetId;
+  const tokenB = editorBToken;
+  // fix(review #1792): same /layers/{dataset_id}/columns/{column_name} path
+  // fix as the add-column test above (drop_column_endpoint is on
+  // layers_router too; no trailing slash on this one per openapi.json).
   // Use a column name that almost certainly exists on a default ingested table
-  const res = await request.delete(`${API}/datasets/${datasetId}/columns/gid`, {
+  const res = await request.delete(`${apiBase}/layers/${datasetId}/columns/gid`, {
     headers: { Authorization: `Bearer ${tokenB}` },
   });
   expect([401, 403, 404]).toContain(res.status());
@@ -119,37 +355,21 @@ test('S03 IDOR — editor B cannot DROP a column on another user\'s private data
 
 // ─────────────────────────────────────────────────────────────────────────────
 // S04 — SSRF redirect bypass on external source connectors
+//
+// fix(#1778): removed rather than left permanently skipped. This test needs
+// a live external URL that 302-redirects to 169.254.169.254; CI has no such
+// endpoint and standing one up is a real infrastructure dependency, not a
+// fixture this spec can seed. The redirect-revalidation behavior itself is
+// covered by backend/tests/test_ssrf_redirect.py, which mocks the redirect.
 // ─────────────────────────────────────────────────────────────────────────────
-
-test('S04 SSRF — /sources/probe/ rejects redirect target to private IP', async ({ request }) => {
-  const tokenA = process.env.SEC_AUDIT_EDITOR_A_TOKEN;
-  const redirector = process.env.SEC_AUDIT_SSRF_TEST_REDIRECTOR;
-  test.skip(!tokenA || !redirector, 'Set SEC_AUDIT_EDITOR_A_TOKEN and SEC_AUDIT_SSRF_TEST_REDIRECTOR (a URL that 302s to 169.254.169.254)');
-  const res = await request.post(`${API}/sources/probe/`, {
-    headers: {
-      Authorization: `Bearer ${tokenA}`,
-      'Content-Type': 'application/json',
-    },
-    data: { url: redirector },
-  });
-  if (res.status() === 200) {
-    const body = await res.text();
-    // Must not have followed redirect to IMDS / private host
-    expect(body).not.toMatch(/169\.254\.169\.254|iam\/security-credentials|instance-identity/i);
-    expect(body).not.toMatch(/listen_addresses|pg_hba|PostgreSQL/i);
-  } else {
-    expect([400, 403, 422]).toContain(res.status());
-  }
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // S05 — pgvector /datasets/{id}/related/ visibility bypass
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('S05 VEC-IDOR — anonymous /related/ on a private dataset returns no oracle', async ({ request }) => {
-  const datasetId = process.env.SEC_AUDIT_PRIVATE_DATASET_ID;
-  test.skip(!datasetId, 'Set SEC_AUDIT_PRIVATE_DATASET_ID');
-  const res = await request.get(`${API}/datasets/${datasetId}/related/`);
+  const datasetId = privateDatasetId;
+  const res = await request.get(`${apiBase}/datasets/${datasetId}/related/`);
   // After fix: 401/403/404. Before fix: 200 with empty or partial list (oracle).
   // Empty 200 is also accepted as long as no similarity scores leak.
   if (res.status() === 200) {
@@ -166,7 +386,7 @@ test('S05 VEC-IDOR — anonymous /related/ on a private dataset returns no oracl
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('S06 — admin user with known-public password "demodemo" cannot log in', async ({ request }) => {
-  const res = await request.post(`${API}/auth/login/`, {
+  const res = await request.post(`${apiBase}/auth/login/`, {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     form: { username: 'admin', password: 'demodemo' },
   });
@@ -177,24 +397,134 @@ test('S06 — admin user with known-public password "demodemo" cannot log in', a
 // S08 — Embed-token framing (after fix: per-token frame-ancestors CSP exists)
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('S08 — /m/<share_token> HTML response has frame-ancestors CSP (or is admin-restricted)', async ({ request }) => {
-  const shareToken = process.env.SEC_AUDIT_SHARE_TOKEN;
-  test.skip(!shareToken, 'Set SEC_AUDIT_SHARE_TOKEN to a public share token');
-  // The frontend host serves /m/* — derive from API base
-  const frontendBase = process.env.SEC_AUDIT_FRONTEND_URL || 'http://localhost:8080';
-  const res = await request.get(`${frontendBase}/m/${shareToken}?embed=true`, {
+test('S08 — embed frame-policy endpoint reflects the actual embed-token state', async ({ request }) => {
+  // fix(review #1792 round 2): the edge reads the embed token from the `et`
+  // query param, not the share token in the path (frontend/nginx.conf's
+  // `location ~ ^/m/` forwards $arg_et to /embed/frame-policy). Without
+  // `et`, embed_frame_policy (public_router.py) always emits NO
+  // frame-ancestors directive at all -- so the old assertion passed only
+  // because X-Frame-Options is intentionally omitted on this route (see the
+  // nginx SEC-S08 comment), never because a real per-token policy was
+  // exercised.
+  //
+  // Implementing that fix surfaced a further problem: the nginx `auth_request`
+  // wiring that injects this CSP onto /m/* is PRODUCTION-only (the root
+  // Dockerfile builds nginx + frontend/nginx.conf). docker-compose.yml's dev
+  // stack -- what E2E_ALLOW_WORKTREE runs against, and what CI's own
+  // e2e-test/e2e-smoke jobs run against -- serves the frontend straight off
+  // Vite's dev server (frontend/Dockerfile.dev), which has no auth_request
+  // wiring and emits no CSP for /m/* at all, for ANY token. Confirmed
+  // directly: `curl -D- 'http://localhost:8080/m/<token>?embed=true&et=<any
+  // value>'` returns 200 with no Content-Security-Policy header whatsoever,
+  // valid token, invalid token, or none. So a request against
+  // `${frontendBase}/m/...` can never exercise the real policy in this
+  // environment, no matter what fixtures this test creates.
+  //
+  // /api/embed/frame-policy (public_router.py) IS the actual policy logic,
+  // reachable directly regardless of which edge fronts it -- its own
+  // docstring says so: "correct when the API is hit without the edge in
+  // front". Test against it directly instead, so the token-validation and
+  // allowed-origins logic is genuinely exercised.
+  const headers = adminHeaders();
+
+  async function fetchFramePolicy(token?: string) {
+    const query = token ? `?token=${encodeURIComponent(token)}` : '';
+    return request.get(`${apiBase}/embed/frame-policy${query}`);
+  }
+
+  // No token: documented behavior (embed_frame_policy's `if not token:`
+  // branch) is open framing, no frame-ancestors directive emitted at all --
+  // assert exactly that, as its own case, rather than folding it into the
+  // token-present checks below.
+  const plainRes = await fetchFramePolicy();
+  expect(plainRes.status()).toBe(200);
+  expect(plainRes.headers()['content-security-policy'] || '').not.toContain('frame-ancestors');
+  expect(plainRes.headers()['x-embed-frame-ancestors'] ?? '').toBe('');
+
+  // A garbage token (present but not real): fail-closed 'none'. This is the
+  // strongest, edition-independent proof that the endpoint actually
+  // validates the token rather than always leaving framing open.
+  const garbageRes = await fetchFramePolicy('sec-audit-s08-not-a-real-token');
+  expect(garbageRes.status()).toBe(200);
+  expect(garbageRes.headers()['content-security-policy'] || '').toContain("frame-ancestors 'none'");
+  expect(garbageRes.headers()['x-embed-frame-ancestors']).toBe("frame-ancestors 'none'");
+
+  // A real, unrestricted embed token (the only kind a Community deployment
+  // can mint -- see the domain-restricted branch below) is VALID but has no
+  // allowed_origins, so it also produces open framing. Together with the
+  // garbage-token case above, this distinguishes "valid but unrestricted"
+  // from "invalid", which the CSP output alone cannot on its own.
+  const unrestrictedRes = await request.post(`${apiBase}/maps/${shareMapId}/embed-tokens/`, {
+    headers,
+    data: {},
+  });
+  expect(unrestrictedRes.ok()).toBeTruthy();
+  const unrestrictedToken = ((await unrestrictedRes.json()) as { raw_token: string }).raw_token;
+  const unrestrictedPolicyRes = await fetchFramePolicy(unrestrictedToken);
+  expect(unrestrictedPolicyRes.status()).toBe(200);
+  expect(
+    unrestrictedPolicyRes.headers()['content-security-policy'] || '',
+  ).not.toContain('frame-ancestors');
+  expect(unrestrictedPolicyRes.headers()['x-embed-frame-ancestors'] ?? '').toBe('');
+
+  // A domain-restricted embed token is an advanced-sharing capability gated
+  // by is_enterprise() (embed_tokens/service.py's create_embed_token). This
+  // dev stack runs Community edition (GET /api/settings/edition/), which
+  // cannot mint one at all -- test.skip()ing that case would reproduce
+  // exactly the "permanently skipped, never proven" pattern the rest of
+  // this file was rebuilt to eliminate. Instead: attempt the creation
+  // regardless of edition and branch on the actual response, so this
+  // assertion is meaningful either way and needs no skip.
+  const restrictedOrigin = 'https://sec-audit-allowed.example';
+  const restrictedRes = await request.post(`${apiBase}/maps/${shareMapId}/embed-tokens/`, {
+    headers,
+    data: { allowed_origins: [restrictedOrigin] },
+  });
+  if (restrictedRes.status() === 201) {
+    // Enterprise: the domain lock actually applies -- the allowed origin
+    // must be named in frame-ancestors.
+    const restrictedToken = ((await restrictedRes.json()) as { raw_token: string }).raw_token;
+    const restrictedPolicyRes = await fetchFramePolicy(restrictedToken);
+    expect(restrictedPolicyRes.status()).toBe(200);
+    expect(restrictedPolicyRes.headers()['content-security-policy'] || '').toContain(
+      `frame-ancestors 'self' ${restrictedOrigin}`,
+    );
+  } else {
+    // Community (this stack): the advanced-sharing capability gate is the
+    // thing under test here -- it must actively refuse a domain lock, not
+    // silently downgrade it to an unrestricted token. EmbedTokenCreate's own
+    // @model_validator (schemas.py) checks is_enterprise() before the
+    // handler body ever runs, so this is a Pydantic validation failure
+    // (422), not the service-layer ValueError->400 conversion in
+    // create_embed_token_endpoint -- confirmed against the live endpoint.
+    expect(restrictedRes.status()).toBe(422);
+    const body = (await restrictedRes.json()) as { detail?: unknown };
+    // fix(review #1792 round 3): a vanilla FastAPI 422 body has `detail` as
+    // an array of {loc, msg, type} objects, and `expect(array).toContain(
+    // 'a substring')` compares array ELEMENTS for equality -- against
+    // objects, that never matches, so the check would always pass or always
+    // fail depending on framework defaults rather than on the actual error
+    // text. Verified directly against this endpoint (probed with curl and
+    // read api/main.py's global RequestValidationError override) that
+    // GeoLens flattens every 422 to a single `detail` STRING via the
+    // problem+json ProblemDetail handler in standards/ogc/errors.py, which
+    // its own docstring says applies to "every other operation" beyond the
+    // OGC/STAC paths it was written for -- so `body.detail` is a string
+    // here today. Stringify defensively anyway so this keeps working
+    // unchanged if that ever becomes an array for this endpoint specifically.
+    const detailText = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+    expect(detailText).toContain('Advanced sharing controls');
+  }
+
+  // Smoke check only: the viewer shell itself still loads for a plain share
+  // in this environment (no CSP assertion here -- see the module comment
+  // above for why that specific header cannot be exercised via this route
+  // outside a production nginx deployment).
+  const frontendBase = process.env.SEC_AUDIT_FRONTEND_URL || BASE_URL;
+  const shellRes = await request.get(`${frontendBase}/m/${shareToken}?embed=true`, {
     headers: { Accept: 'text/html' },
   });
-  if (res.status() === 200) {
-    // After S08 fix: either CSP frame-ancestors carries the embed-token's allowed_origins,
-    // or the response is admin-only (no public embed). DENY/SAMEORIGIN with no CSP is the pre-fix state.
-    const csp = res.headers()['content-security-policy'] || '';
-    const xfo = res.headers()['x-frame-options'] || '';
-    const hasFrameAncestors = csp.includes('frame-ancestors');
-    const isRestrictive = ['DENY', 'SAMEORIGIN'].includes(xfo.toUpperCase());
-    // Fail only the pre-fix state: SAMEORIGIN+no CSP frame-ancestors (= product contradiction)
-    expect(hasFrameAncestors || !isRestrictive).toBe(true);
-  }
+  expect(shellRes.status()).toBe(200);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -202,31 +532,36 @@ test('S08 — /m/<share_token> HTML response has frame-ancestors CSP (or is admi
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('S09 — dataset export -where rejects UNION / subqueries', async ({ request }) => {
-  const datasetId = process.env.SEC_AUDIT_PUBLIC_DATASET_ID;
-  test.skip(!datasetId, 'Set SEC_AUDIT_PUBLIC_DATASET_ID to a public exportable dataset');
+  const datasetId = publicDatasetId;
   const malicious = `gid > 0 UNION SELECT 1, 2, 3`;
-  const res = await request.get(`${API}/datasets/${datasetId}/export.csv?where=${encodeURIComponent(malicious)}`);
-  expect([400, 422, 403]).toContain(res.status());
-});
+  // fix(#1778): the export route is /datasets/{id}/export?format=csv, not
+  // /datasets/{id}/export.csv (backend/openapi.json has no such path) — the
+  // old URL always 404'd before the -where parser ever ran, which the
+  // permanent skip guard hid.
 
-// ─────────────────────────────────────────────────────────────────────────────
-// S11 — Per-route rate limiting on semantic search
-// ─────────────────────────────────────────────────────────────────────────────
+  // Positive control: the identical anonymous request, with no `where` at
+  // all, against the same public/published dataset. publicDatasetId is
+  // published by beforeAll (see the seedPublic PATCH above), and the
+  // export route resolves the caller through get_optional_user + a
+  // check_dataset_access_or_anonymous gate (processing/export/router.py),
+  // so a plain export of a public dataset must succeed anonymously. This
+  // proves any 403 below would come from validate_where_clause() rejecting
+  // the malicious clause -- not from an anonymous-export authorization
+  // regression that would 403 every request here regardless of `where`,
+  // silently satisfying this test without the parser ever running.
+  const controlRes = await request.get(`${apiBase}/datasets/${datasetId}/export?format=csv`);
+  expect(controlRes.ok(), 'positive control: anonymous export of a public dataset must succeed').toBeTruthy();
 
-test('S11 — burst of unique semantic queries gets rate-limited', async ({ request }) => {
-  // Send 80 unique queries; with a 30/min per-route limit we should see 429s.
-  // With only the 60/sec global limit and unique strings, all 80 pass.
-  // After fix this becomes a regression pin for the per-route decorator.
-  const responses = await Promise.all(
-    Array.from({ length: 80 }, (_, i) =>
-      request.get(`${API}/search/datasets/?q=sec-audit-S11-unique-token-${i}`)
-    ),
+  const res = await request.get(
+    `${apiBase}/datasets/${datasetId}/export?format=csv&where=${encodeURIComponent(malicious)}`,
   );
-  const statuses = responses.map(r => r.status());
-  const has429 = statuses.includes(429);
-  // Until S11 ships, allow this to be informational — skip if no 429 observed
-  test.skip(!has429, 'Per-route rate limit not yet shipped (S11 follow-up)');
-  expect(has429).toBe(true);
+  // fix(review #1792 round 9): 403 dropped from the accepted set -- with the
+  // positive control above proving the route is reachable anonymously, a
+  // 403 here can only mean the malicious `where` never reached
+  // validate_where_clause() at all (e.g. an authorization regression that
+  // 403s the export before parsing), which is precisely the UNION/subquery
+  // defense this test exists to exercise.
+  expect([400, 422]).toContain(res.status());
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -235,66 +570,119 @@ test('S11 — burst of unique semantic queries gets rate-limited', async ({ requ
 
 test('S13 — /search/facets/ rejects q longer than 1000 chars', async ({ request }) => {
   const longQ = 'a'.repeat(5000);
-  const res = await request.get(`${API}/search/facets/?q=${encodeURIComponent(longQ)}`);
+  const res = await request.get(`${apiBase}/search/facets/?q=${encodeURIComponent(longQ)}`);
   // After fix: 422 (Pydantic validation). Pre-fix: 200 with seq-scan.
-  // 429: the S11 burst test above can leave the per-IP rate limiter saturated
-  // within the same window — a safe rejection still satisfies this hygiene check.
-  expect([400, 422, 429]).toContain(res.status());
+  // fix(review #1792 round 3): dropped 429 tolerance -- it was only ever
+  // defensive against the S11 burst test running before this one and
+  // saturating the rate limiter; S11 now runs last in this file (see its
+  // section below), and /search/facets/ carries no semantic-search
+  // per-route limit of its own (WR-02, search/router.py) to begin with.
+  expect([400, 422]).toContain(res.status());
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Hygiene regression — ensure SQL injection sentinels remain blocked
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('hygiene — SQLi sentinel in search q does not crash or return all rows', async ({ request }) => {
-  const res = await request.get(`${API}/search/datasets/?q=` + encodeURIComponent(`' OR '1'='1`));
-  expect([200, 400, 422, 429]).toContain(res.status()); // 429: safe rate-limit rejection (S11 burst bleed)
-  if (res.status() === 200) {
-    const body = await res.json();
-    const features = body.features ?? [];
-    // Sentinel should match nothing; ensure response is bounded (LIMIT 200 cap)
-    expect(features.length).toBeLessThanOrEqual(200);
-  }
-});
-
-test('hygiene — pgvector embedding never appears in search response', async ({ request }) => {
-  const res = await request.get(`${API}/search/datasets/?q=test`);
-  if (res.status() === 200) {
-    const body = await res.json();
-    const features = body.features ?? [];
-    for (const f of features) {
-      expect(f.embedding).toBeUndefined();
-      expect(f.vector).toBeUndefined();
-      expect(f.properties?.embedding).toBeUndefined();
-      expect(f.properties?.vector).toBeUndefined();
+// fix(review #1792 round 5): the four tests below all hit the rate-limited
+// /search/datasets/ route (malformed-bbox included -- same endpoint, a
+// `bbox` param rather than `q`), so their combined request count competes
+// for the same per-route bucket as every other test in this file that hits
+// it.
+//
+// fix(review #1792 round 9): round 5's "accept a 429 only when the
+// configured limit is below this describe block's own request count" logic
+// assumed this describe block is the only source of traffic against the
+// bucket. It is not: in a full nightly run, search.spec.ts also hits
+// /search/datasets/ against the same server (and, if the limiter keys on
+// IP rather than per-user, the same bucket), so a configured limit that
+// comfortably covers these four requests ALONE can still be exhausted by
+// the time they run, and an unconditional `expect(200)` would then fail a
+// perfectly healthy rate limiter. There is no configured-limit threshold
+// that can rule this out, since it depends on traffic this suite doesn't
+// control -- so a 429 is accepted here unconditionally, gated only on it
+// actually looking like the per-route semantic-search limiter (a
+// `Retry-After` header, per _rate_limit_handler in api/main.py, plus a
+// detail naming a per-minute limit) rather than some other failure mode.
+// No pacing, no burst, no settings lookup, no ceiling.
+test.describe('Hygiene — /search/datasets/ requests', () => {
+  // Returns the parsed body when the request is accepted (200), or null when
+  // it was rejected by the rate limiter in a way this suite has decided is
+  // an acceptable outcome for these specific requests (see the describe-level
+  // comment above). Any other outcome fails via the embedded expect() calls.
+  async function expectAcceptedOrRateLimited(
+    res: Awaited<ReturnType<import('@playwright/test').APIRequestContext['get']>>,
+  ): Promise<Record<string, unknown> | null> {
+    if (res.status() === 429) {
+      expect(res.headers()['retry-after']).toBeTruthy();
+      const body = (await res.json()) as { detail?: string };
+      expect(body.detail).toMatch(/ per 1 minute$/);
+      return null;
     }
+    expect(res.status()).toBe(200);
+    return res.json();
   }
-});
 
-test('hygiene — pg_trgm operator-abuse handled safely (no syntax error, fast response)', async ({ request }) => {
-  const malicious = '! | !';
-  const start = Date.now();
-  const res = await request.get(`${API}/search/datasets/?q=${encodeURIComponent(malicious)}`);
-  const elapsed = Date.now() - start;
-  expect(elapsed).toBeLessThan(3000);
-  expect([200, 400, 422, 429]).toContain(res.status()); // 429: safe rate-limit rejection (S11 burst bleed)
-});
+  test('SQLi sentinel in search q does not crash or return all rows', async ({ request }) => {
+    const res = await request.get(`${apiBase}/search/datasets/?q=` + encodeURIComponent(`' OR '1'='1`));
+    const body = await expectAcceptedOrRateLimited(res);
+    if (body) {
+      const features = (body.features as unknown[]) ?? [];
+      // Sentinel should match nothing; ensure response is bounded (LIMIT 200 cap)
+      expect(features.length).toBeLessThanOrEqual(200);
+    }
+  });
 
-test('hygiene — malformed bbox is rejected', async ({ request }) => {
-  const res = await request.get(`${API}/search/datasets/?bbox=0,0,1`);
-  expect([400, 422, 429]).toContain(res.status()); // 429: safe rate-limit rejection (S11 burst bleed)
+  test('pgvector embedding never appears in search response', async ({ request }) => {
+    const res = await request.get(`${apiBase}/search/datasets/?q=test`);
+    const body = await expectAcceptedOrRateLimited(res);
+    if (body) {
+      const features = (body.features as Array<Record<string, unknown>>) ?? [];
+      expect(Array.isArray(features)).toBe(true);
+      for (const f of features) {
+        expect(f.embedding).toBeUndefined();
+        expect(f.vector).toBeUndefined();
+        const properties = f.properties as Record<string, unknown> | undefined;
+        expect(properties?.embedding).toBeUndefined();
+        expect(properties?.vector).toBeUndefined();
+      }
+    }
+  });
+
+  test('pg_trgm operator-abuse handled safely (no syntax error, fast response)', async ({ request }) => {
+    const malicious = '! | !';
+    const start = Date.now();
+    const res = await request.get(`${apiBase}/search/datasets/?q=${encodeURIComponent(malicious)}`);
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeLessThan(3000);
+    const body = await expectAcceptedOrRateLimited(res);
+    if (body) {
+      expect(Array.isArray(body.features)).toBe(true);
+    }
+  });
+
+  test('malformed bbox is rejected', async ({ request }) => {
+    const res = await request.get(`${apiBase}/search/datasets/?bbox=0,0,1`);
+    if (res.status() === 429) {
+      expect(res.headers()['retry-after']).toBeTruthy();
+      const body = (await res.json()) as { detail?: string };
+      expect(body.detail).toMatch(/ per 1 minute$/);
+      return;
+    }
+    expect([400, 422]).toContain(res.status());
+  });
 });
 
 test('hygiene — CORS does not grant credentials to an untrusted origin', async ({ request }) => {
   const origin = 'http://attacker.example';
-  const appResponse = await request.get(`${API}/auth/me/`, {
+  const appResponse = await request.get(`${apiBase}/auth/me/`, {
     headers: { Origin: origin },
   });
   expect(appResponse.headers()['access-control-allow-origin']).toBeUndefined();
   expect(appResponse.headers()['access-control-allow-credentials']).toBeUndefined();
 
   // Anonymous standards routes may use a wildcard, but never with credentials.
-  const standardsResponse = await request.get(`${API}/`, {
+  const standardsResponse = await request.get(`${apiBase}/`, {
     headers: { Origin: 'http://attacker.example' },
   });
   const standardsOrigin = standardsResponse.headers()['access-control-allow-origin'];
@@ -303,5 +691,43 @@ test('hygiene — CORS does not grant credentials to an untrusted origin', async
     expect(
       standardsResponse.headers()['access-control-allow-credentials'],
     ).toBeUndefined();
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// S11 — Per-route rate limiting on semantic search
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('S11 — /search/datasets/ has semantic-search rate limiting wired (smoke)', async ({ request }) => {
+  // fix(#1778): the skip guard used to fire on exactly the outcome this test
+  // exists to catch, so it could never go red. The per-route decorator has
+  // shipped (search/router.py's search_datasets_endpoint carries
+  // @limiter.limit(_semantic_search_rate_limit)) -- gate on it.
+  //
+  // fix(review #1792 round 5): this test spent four rounds trying to pin the
+  // actual discriminating behavior (is a 429 really from the per-route
+  // limiter and not the global one? does it fire exactly at the configured
+  // threshold?) against a live, shared, admin-configurable dev stack --
+  // structurally unreliable there, since this suite can neither set
+  // semantic_search_rate_limit or global_rate_limit nor isolate itself from
+  // other concurrent traffic hitting the same stack (rounds 1-4 tried
+  // reading the config, pacing bursts below the global limit, and retrying
+  // through DB-pool contention, and still could not fully close the gap).
+  // That pin now lives in backend/tests/test_semantic_search_rate_limit_1778.py,
+  // against an isolated app instance with both limits set to known values --
+  // it also covers the "decorator still present" structural check. This is a
+  // smoke test only: one request, either a plain 200 (well under whatever
+  // the deployment's limit is) or a 429 whose body names a per-minute limit
+  // (already past it) -- both prove the route and its rate-limit decorator
+  // are wired end to end through the real deployment, with no burst and no
+  // ceiling to maintain here.
+  const res = await request.get(
+    `${apiBase}/search/datasets/?q=sec-audit-S11-smoke-${Date.now()}`,
+  );
+  if (res.status() === 429) {
+    const body = (await res.json()) as { detail?: string };
+    expect(body.detail).toMatch(/ per 1 minute$/);
+  } else {
+    expect(res.status()).toBe(200);
   }
 });

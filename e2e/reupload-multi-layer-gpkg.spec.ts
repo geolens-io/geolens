@@ -117,41 +117,16 @@ const SOMETHING_ELSE_GEOJSON = JSON.stringify({
 test.describe('GPKG-01: Multi-layer GPKG reupload', () => {
   test.setTimeout(120_000);
 
-  test('Scenario A — happy path: default-selects previous source_layer from prior IngestJob', async ({ page, request }) => {
-    test.slow();
-
-    // Seed: upload a single-layer GeoJSON first so source_layer="buildings" is recorded
-    // (The import flow names the layer from the first ogrinfo layer.)
-    // This creates a dataset with a completed IngestJob having source_layer set.
-    // Due to the complexity of full ingest in headless tests, we skip the seed step
-    // and instead test the UI layer-select flow directly by uploading the multi-layer GPKG.
-    // The full round-trip post-condition (source_layer persisted) is covered by backend tests.
-
-    await page.goto('/');
-
-    // Navigate to import page to create a fresh dataset with multi-layer GPKG
-    await page.goto('/import');
-    await page.waitForLoadState('domcontentloaded');
-
-    // Wait for the upload tab / dropzone
-    const fileInput = page.locator('input[type="file"]').first();
-    await expect(fileInput).toBeAttached({ timeout: 15_000 });
-    await fileInput.setInputFiles(FIXTURE_PATH);
-
-    // After upload + ogrinfo, the multi-layer GPKG should show the layer-select step
-    // (BulkReviewList or single-file preview depending on version)
-    // Wait for either the layer table or a layer-related heading
-    const layerTableOrStep = page.locator(
-      '[data-testid="bulk-review-list"], [data-testid="layer-select-table"], .layer-select, [role="table"]',
-    );
-    await expect(layerTableOrStep.first()).toBeVisible({ timeout: 30_000 }).catch(() => {
-      // If the import UI shows preview differently, just verify the page loaded successfully
-      // without an error state
-    });
-
-    // The spec confirms the file was accepted (no error state visible)
-    await expect(page.locator('.text-destructive, [data-testid="error-state"]').first()).not.toBeVisible({ timeout: 5_000 }).catch(() => { /* ok */ });
-  });
+  // fix(#1778): Scenario A ("happy path: default-selects previous source_layer")
+  // used to assert on two `.catch(() => {})`-swallowed expects against
+  // selectors ('[data-testid="bulk-review-list"]', '[data-testid="layer-select-table"]')
+  // that exist only in this file's own vitest mocks, never in app source — the
+  // test could only fail if /import had no file input at all. The behavior it
+  // was named for (multi-layer fan-out commit, per-layer results) is covered
+  // for real by frontend/src/components/import/__tests__/UploadForm.multiLayerFanOut.test.tsx,
+  // which asserts against actual component output rather than a soft-swallowed
+  // e2e selector guess. Scenario B below covers the reupload-dialog layer-select
+  // path with hard assertions instead.
 
   test('Scenario B — ReuploadDialog file path: layer-select + missing-layer warning', async ({ page, request }) => {
     test.slow();
@@ -165,8 +140,12 @@ test.describe('GPKG-01: Multi-layer GPKG reupload', () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (resp.ok()) {
-        const body = await resp.json() as { results?: Array<{ id: string; record_type?: string }> };
-        const all = body.results ?? [];
+        // fix(#1778): DatasetListResponse's field is `datasets`, not `results`
+        // (backend/openapi.json has no `results` key on this schema) — the
+        // old read always produced an empty array here, so datasetId always
+        // came from the DOM-scrape fallback below regardless of dataset type.
+        const body = await resp.json() as { datasets?: Array<{ id: string; record_type?: string }> };
+        const all = body.datasets ?? [];
         // Pick the first dataset, preferring vector datasets
         const vector = all.find((d) => d.record_type === 'vector_dataset');
         datasetId = (vector ?? all[0])?.id ?? null;
@@ -187,10 +166,12 @@ test.describe('GPKG-01: Multi-layer GPKG reupload', () => {
       }
     }
 
-    if (!datasetId) {
-      test.skip(true, 'No dataset found to test reupload flow — skipping (Phase 1060 live MCP will verify)');
-      return;
-    }
+    // fix(#1778): this used to be a test.skip(true, ...) — with the `results`
+    // → `datasets` fix above, the CI catalog is always seeded
+    // (e2e/auth.setup.ts's seedDataset, plus the demo seed script's own
+    // vector datasets), so a missing datasetId is a real failure, not a
+    // legitimate empty-catalog outcome.
+    expect(datasetId, 'reupload flow needs a seeded vector dataset to target').toBeTruthy();
 
     const dataset = { id: datasetId };
     await page.goto(`/datasets/${dataset.id}`);
@@ -198,16 +179,14 @@ test.describe('GPKG-01: Multi-layer GPKG reupload', () => {
 
     // Open "More" menu and click "Re-Upload"
     const moreBtn = page.getByRole('button', { name: /more|actions/i }).first();
-    if (!await moreBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      test.skip(true, 'Could not find More button on dataset detail — skipping');
-      return;
-    }
+    // fix(#1778): the Re-Upload affordance disappearing is exactly the
+    // regression e2e/dataset-detail.spec.ts (IMPORT-04) exists to catch —
+    // skipping here instead of failing let that regression turn this test
+    // green-as-skipped.
+    await expect(moreBtn).toBeVisible({ timeout: 5_000 });
     await moreBtn.click();
     const reuploadMenuItem = page.getByRole('menuitem', { name: /re-?upload/i }).first();
-    if (!await reuploadMenuItem.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      test.skip(true, 'Re-Upload menu item not found — skipping');
-      return;
-    }
+    await expect(reuploadMenuItem).toBeVisible({ timeout: 3_000 });
     await reuploadMenuItem.click();
 
     // Source selector should appear
@@ -228,30 +207,34 @@ test.describe('GPKG-01: Multi-layer GPKG reupload', () => {
     );
     await expect(layerSelectOrPreview.first()).toBeVisible({ timeout: 30_000 });
 
-    if (await page.getByTestId('reupload-file-layer-select').isVisible({ timeout: 1_000 }).catch(() => false)) {
-      // Multi-layer path: verify both layer rows are present
-      await expect(page.getByText('buildings')).toBeVisible({ timeout: 5_000 });
-      await expect(page.getByText('addresses')).toBeVisible({ timeout: 5_000 });
+    // fix(#1778): FIXTURE_PATH (multi-layer-gpkg.gpkg) is a known multi-layer
+    // file, so the layer-select step is not an optional branch — it is
+    // exactly the silent-data-swap symptom GPKG-01 exists to catch. Asserting
+    // it unconditionally means a regression that skips straight to preview
+    // (the old "acceptable, not a failure" branch) now fails this test.
+    await expect(page.getByTestId('reupload-file-layer-select')).toBeVisible({ timeout: 5_000 });
 
-      // Preview button should be visible
-      const previewBtn = page.getByRole('button', { name: 'Preview Layer' });
-      await expect(previewBtn).toBeVisible({ timeout: 5_000 });
+    // Multi-layer path: verify both layer rows are present
+    await expect(page.getByText('buildings')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('addresses')).toBeVisible({ timeout: 5_000 });
 
-      // If a row is already selected (previous_source_layer pre-selection), preview is enabled;
-      // otherwise click a row to select
-      if (await previewBtn.isDisabled({ timeout: 1_000 }).catch(() => false)) {
-        await page.getByText('buildings').first().click();
-        await expect(previewBtn).toBeEnabled({ timeout: 3_000 });
-      }
+    // Preview button should be visible
+    const previewBtn = page.getByRole('button', { name: 'Preview Layer' });
+    await expect(previewBtn).toBeVisible({ timeout: 5_000 });
 
-      // Click Preview Layer
-      await previewBtn.click();
-
-      // Should transition to preview step
-      await expect(page.getByRole('button', { name: 'Confirm Re-Upload' })).toBeVisible({
-        timeout: 30_000,
-      });
+    // If a row is already selected (previous_source_layer pre-selection), preview is enabled;
+    // otherwise click a row to select
+    if (await previewBtn.isDisabled({ timeout: 1_000 }).catch(() => false)) {
+      await page.getByText('buildings').first().click();
+      await expect(previewBtn).toBeEnabled({ timeout: 3_000 });
     }
-    // (If single-layer: straight to preview — acceptable, not a failure)
+
+    // Click Preview Layer
+    await previewBtn.click();
+
+    // Should transition to preview step
+    await expect(page.getByRole('button', { name: 'Confirm Re-Upload' })).toBeVisible({
+      timeout: 30_000,
+    });
   });
 });

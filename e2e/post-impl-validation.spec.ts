@@ -53,8 +53,10 @@ test.describe.serial('Post-impl validation', () => {
       localStorage.setItem('geolens-auth', JSON.stringify({ state: { token: t, user: { username: 'admin', roles: ['admin'] } }, version: 0 }));
     }, authToken);
     await page.reload();
+    // fix(#1778): a bare .catch(() => {}) swallowed the rejection this expect()
+    // exists to raise, so a rendered error boundary passed the test silently.
     // Page should not show error boundary
-    await expect(page.locator('text=Something went wrong')).not.toBeVisible({ timeout: 5000 }).catch(() => {});
+    await expect(page.locator('text=Something went wrong')).not.toBeVisible({ timeout: 5000 });
     // Should have some content
     await expect(page.locator('body')).not.toBeEmpty();
   });
@@ -66,8 +68,16 @@ test.describe.serial('Post-impl validation', () => {
     }, authToken);
     await page.reload();
     await page.waitForLoadState('networkidle');
+    // fix(#1778): same swallow as test 2 above — the error-boundary check
+    // could never fail.
+    //
+    // fix(review #1792): `toHaveText` normalizes and compares the WHOLE
+    // element text, so `body` (header/nav/footer chrome plus page content)
+    // never equals exactly 'Page error' even when an error boundary IS
+    // rendering it -- this assertion passed in exactly the failure state.
+    // `toContainText` checks substring containment instead.
     // Should see maps page content
-    await expect(page.locator('body')).not.toHaveText('Page error', { timeout: 10000 }).catch(() => {});
+    await expect(page.locator('body')).not.toContainText('Page error', { timeout: 10000 });
     expect(page.url()).toContain('/maps');
   });
 
@@ -157,12 +167,14 @@ test.describe.serial('Post-impl validation', () => {
     await viewerPage.goto(`${BASE}/m/${shareData.token}`);
     await viewerPage.waitForLoadState('networkidle');
 
+    // fix(#1778): dropped the swallowing .catch() so a rendered error boundary
+    // fails this test, and asserted on hasCanvas instead of computing it and
+    // never reading it — a blank viewer used to pass on the URL check alone.
     // Should not show "Something went wrong" error boundary
-    await expect(viewerPage.locator('text=Something went wrong')).not.toBeVisible({ timeout: 10000 }).catch(() => {});
+    await expect(viewerPage.locator('text=Something went wrong')).not.toBeVisible({ timeout: 10000 });
 
     // Should render a map canvas
-    const hasCanvas = await viewerPage.locator('canvas').isVisible().catch(() => false);
-    // Canvas may take time for WebGL init - just verify no crash
+    await expect(viewerPage.locator('canvas').first()).toBeVisible({ timeout: 15000 });
     expect(viewerPage.url()).toContain('/m/');
 
     await viewerPage.close();
@@ -268,14 +280,22 @@ test.describe.serial('Post-impl validation', () => {
   });
 
   test('12. Admin settings page loads without crash', async ({ page }) => {
+    // fix(#1778): dropped the manual localStorage-set-then-reload dance —
+    // the chromium project's storageState already authenticates every test
+    // in this file (see playwright.config.ts), so the extra reload was pure
+    // redundancy. It also raced the SPA's own client-side
+    // /admin/settings -> /admin/settings/general redirect: with the
+    // swallowed .catch() this always reported success either way, so the
+    // race was invisible; asserting for real surfaced it as a flake
+    // (occasionally landing back on /login). A single goto with the
+    // project's own auth avoids the race outright.
     await page.goto(`${BASE}/admin/settings`);
-    await page.evaluate((t) => {
-      localStorage.setItem('geolens-auth', JSON.stringify({ state: { token: t, user: { username: 'admin', roles: ['admin'] } }, version: 0 }));
-    }, authToken);
-    await page.reload();
     await page.waitForLoadState('networkidle');
 
     // Should not show error boundary
-    await expect(page.locator('text=Something went wrong')).not.toBeVisible({ timeout: 5000 }).catch(() => {});
+    await expect(page.locator('text=Something went wrong')).not.toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { level: 1, name: 'General' })).toBeVisible({
+      timeout: 10000,
+    });
   });
 });
