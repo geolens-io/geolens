@@ -232,6 +232,11 @@ jobs:
               # catch a selector matching nothing.
               - 'infra/monitoring/alerts.yml'
               - 'infra/monitoring/alerts.test.yml'
+              # fix(#1778): test_alert_rules.py reads this one by literal path
+              # too -- it checks that the worker scrape job discovers every
+              # replica, because the job counters live in the process that did
+              # the work and an unscraped replica is invisible.
+              - 'infra/monitoring/prometheus.yml'
               # fix(#561): a change to this workflow can alter HOW Backend Tests
               # runs (e.g. the -n4 parallelization / coverage core), so the suite
               # must run on PRs that touch it — otherwise CI-config changes ship
@@ -1098,6 +1103,15 @@ jobs:
         run: |
           docker run --rm -v "$PWD/infra/monitoring:/w:ro" \
             --entrypoint promtool "$PROMETHEUS_IMAGE" test rules /w/alerts.test.yml
+
+      # fix(#1778): the scrape config was never validated by anything. It grew
+      # a dns_sd_configs block so the worker job discovers every replica, and a
+      # typo there is a config Prometheus refuses at startup — which an
+      # operator finds out about instead of CI.
+      - name: promtool check config
+        run: |
+          docker run --rm -v "$PWD/infra/monitoring:/w:ro" \
+            --entrypoint promtool "$PROMETHEUS_IMAGE" check config /w/prometheus.yml
 
   # ---------- CLI ----------
   # Structural enforcement that the CLI never grows

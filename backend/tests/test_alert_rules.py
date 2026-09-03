@@ -42,6 +42,16 @@ from app.observability.metrics import LATENCY_LOWR_BUCKETS
 REPO_ROOT = pathlib.Path(__file__).parent.parent.parent
 ALERTS_PATH = REPO_ROOT / "infra" / "monitoring" / "alerts.yml"
 ALERTS_TEST_PATH = REPO_ROOT / "infra" / "monitoring" / "alerts.test.yml"
+PROMETHEUS_PATH = REPO_ROOT / "infra" / "monitoring" / "prometheus.yml"
+
+# fix(#1778): metrics whose value is produced per PROCESS rather than read
+# from shared state. The job counters are incremented inside whichever worker
+# replica performed the terminal transition, so each replica exports its own
+# series for the same queue and any alert over them has to aggregate. The
+# gauges in the same family are the opposite case -- every replica polls the
+# same procrastinate_jobs rows, so they all report the same number and
+# `max by (queue)` is right for them.
+PER_PROCESS_JOB_COUNTERS = ("geolens_jobs_completed_total", "geolens_jobs_failed_total")
 
 # Bulk reads: the response is whatever the caller asked for, so over a second is
 # the cost of the payload rather than a symptom. Excluded from the interactive
@@ -433,4 +443,88 @@ def test_every_alert_has_a_promtool_case():
     assert not stale, (
         f"{ALERTS_TEST_PATH.name} asserts on alerts that alerts.yml no longer "
         f"defines: {stale}"
+    )
+
+
+def test_alerts_over_per_process_job_counters_aggregate_across_replicas():
+    """fix(#1778): a bare increase() on these is evaluated per series.
+
+    The counters move at the terminal transition, in the worker process that
+    performed it, so several worker replicas each export their own series for
+    one queue. Under a bare `increase(...) > 5`, six failures split three and
+    three across two replicas cross nothing and the alert stays silent while
+    the queue is visibly failing. Every rule over one of these must sum first.
+
+    The check is on the shape rather than on one rule's text, so a future
+    throughput alert on `geolens_jobs_completed_total` cannot ship with the
+    same defect.
+    """
+    rules = _load_rules()
+
+    matched = []
+    for name, rule in rules.items():
+        expr = rule["expr"]
+        for counter in PER_PROCESS_JOB_COUNTERS:
+            if counter not in expr:
+                continue
+            matched.append((name, counter))
+            # `sum by (...)` has to wrap the range function, not sit beside it:
+            # `increase(sum by (queue) (x[15m]))` is not valid PromQL, and
+            # `sum by (queue) (x) > 5` on a counter is a lifetime total rather
+            # than a rate. Require the aggregation and the range function to
+            # appear in that order.
+            sum_at = expr.find("sum by")
+            fn_at = min(
+                (expr.find(fn) for fn in ("increase(", "rate(") if fn in expr),
+                default=-1,
+            )
+            assert sum_at != -1, (
+                f"{name} reads {counter}, which is exported per worker "
+                "replica, without a `sum by` -- PromQL evaluates it per series "
+                "and failures split across replicas never cross the threshold"
+            )
+            assert fn_at != -1, (
+                f"{name} reads the counter {counter} without a range function; "
+                "a raw counter is a lifetime total, not a rate"
+            )
+            assert sum_at < fn_at, (
+                f"{name} must aggregate OUTSIDE the range function: "
+                "`sum by (queue) (increase(...[15m]))`"
+            )
+
+    assert matched, (
+        "no alert reads any of "
+        f"{PER_PROCESS_JOB_COUNTERS} -- this test would pass vacuously. If the "
+        "counters were renamed, update PER_PROCESS_JOB_COUNTERS with them."
+    )
+
+
+def test_the_reference_scrape_config_discovers_every_worker_replica():
+    """fix(#1778): one static worker target is lossy the moment there are two.
+
+    The job counters live in the process that did the work, so a replica
+    nobody scrapes contributes nothing to the sum the alert evaluates and its
+    failures are invisible. The api job stays static on purpose -- its metrics
+    are per-process too, but `UVICORN_WORKERS` runs them behind one address in
+    prometheus_client multiprocess mode, so one target already sees them all.
+    """
+    config = yaml.safe_load(PROMETHEUS_PATH.read_text())
+    jobs = {job["job_name"]: job for job in config["scrape_configs"]}
+    assert "geolens-worker" in jobs, (
+        f"{PROMETHEUS_PATH.name} no longer defines a worker scrape job"
+    )
+
+    worker = jobs["geolens-worker"]
+    discovery = [key for key in worker if key.endswith("_sd_configs")]
+    assert discovery, (
+        "the worker job must discover its targets (a *_sd_configs block), not "
+        "name one: with several replicas a static single target drops every "
+        "other replica's job counters"
+    )
+
+    statics = worker.get("static_configs") or []
+    single_targets = [cfg for cfg in statics if len(cfg.get("targets", [])) == 1]
+    assert not single_targets, (
+        "the worker job still carries a single static target beside its "
+        f"discovery block: {single_targets}"
     )

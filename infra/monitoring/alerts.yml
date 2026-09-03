@@ -239,7 +239,17 @@ groups:
             Threshold is tunable.
 
       - alert: GeoLensJobFailures
-        expr: increase(geolens_jobs_failed_total[15m]) > 5
+        # fix(#1778): `sum by (queue)`, not a bare increase(). The job counters
+        # are incremented at the terminal transition inside the worker process
+        # that performed it, so with several worker replicas each exports its
+        # own series for the same queue. A bare increase() is evaluated per
+        # series, so six failures split three-and-three across two replicas
+        # never crossed a threshold of five and the alert stayed silent while
+        # the queue was visibly failing. Summing by queue is the number an
+        # operator actually means, and it is exact as long as every replica is
+        # scraped -- see the worker job in prometheus.yml, which discovers them
+        # rather than naming one.
+        expr: sum by (queue) (increase(geolens_jobs_failed_total[15m])) > 5
         for: 2m
         labels:
           severity: warning
