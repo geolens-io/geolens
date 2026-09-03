@@ -366,6 +366,7 @@
     "loadingKeys": "Loading keys...",
     "noKeys": "No API keys",
     "showingOf": "Showing {{shown}} of {{total}}",
+    "loadMore": "Load more",
     "active": "Active",
     "revoked": "Revoked",
     "created": "Created {{date}}",

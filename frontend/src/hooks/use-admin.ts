@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useQueries, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { queryKeys } from '@/lib/query-keys';
 import {
@@ -355,12 +355,30 @@ export function useBulkRevokeEmbedTokens() {
 }
 
 // API Key hooks
-export function useApiKeys(userId: string) {
-  return useQuery({
-    queryKey: queryKeys.admin.apiKeys(userId),
-    queryFn: () => listApiKeys(userId),
-    enabled: !!userId,
+// fix(#1805 review round 3 P2): pageCount pages are fetched independently
+// (one query per page, each its own cache entry via queryKeys.admin.apiKeys
+// pageIndex) and flattened here, rather than accumulating into local
+// component state -- a create/revoke mutation invalidates every loaded
+// page's query in place, so the flattened list always reflects the latest
+// data with no manual re-append/dedupe bookkeeping.
+export const API_KEYS_PAGE_SIZE = 50;
+
+export function useApiKeys(userId: string, pageCount: number = 1) {
+  const queries = useQueries({
+    queries: Array.from({ length: pageCount }, (_, i) => ({
+      queryKey: queryKeys.admin.apiKeys(userId, i),
+      queryFn: () =>
+        listApiKeys(userId, { skip: i * API_KEYS_PAGE_SIZE, limit: API_KEYS_PAGE_SIZE }),
+      enabled: !!userId,
+    })),
   });
+
+  const items = queries.flatMap((q) => q.data?.items ?? []);
+  const total = queries[0]?.data?.total;
+  const isLoading = queries.some((q) => q.isLoading);
+  const hasMore = total !== undefined && total > items.length;
+
+  return { items, total, isLoading, hasMore };
 }
 
 export function useCreateApiKey() {

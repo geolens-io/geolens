@@ -341,6 +341,7 @@
     "loadingKeys": "Chargement des clés...",
     "noKeys": "Aucune clé API",
     "showingOf": "Affichage de {{shown}} sur {{total}}",
+    "loadMore": "Charger plus",
     "active": "Actif",
     "revoked": "Révoquée",
     "created": "Créée le {{date}}",

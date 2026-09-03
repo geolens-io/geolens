@@ -341,6 +341,7 @@
     "loadingKeys": "Schlüssel werden geladen...",
     "noKeys": "Keine API-Schlüssel",
     "showingOf": "{{shown}} von {{total}} angezeigt",
+    "loadMore": "Mehr laden",
     "active": "Aktiv",
     "revoked": "Widerrufen",
     "created": "Erstellt {{date}}",
