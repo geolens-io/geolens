@@ -183,6 +183,30 @@ need_command() {
 # locale-aware `%c`/string handling entirely.
 _ENV_BOM="$(printf '\357\273\277')"
 
+# fix(#1798 review round 17, P2s, review 5105248083): a raw carriage
+# return and a raw tab, built the same shell-printf-octal way as the BOM
+# above and for the same reason (locale-independent, always exactly one
+# byte). _ENV_CR strips a trailing \r from every physical line the
+# tokenizer below reads (Compose accepts CRLF .env files — verified
+# against the oracle: `KEY=v\r\n` resolves to `v`, not `v\r`).
+# _ENV_TAB joins a literal space as "whitespace" everywhere Compose's own
+# dotenv grammar allows it: leading indentation before a key, around `=`,
+# and after an `export ` prefix.
+_ENV_CR="$(printf '\r')"
+_ENV_TAB="$(printf '\t')"
+# fix(#1798 review round 17, P2s, review 5105248083): a literal newline
+# character, for splitting file content into physical lines. Built with
+# the SAME sentinel technique used throughout this file for a decoded
+# value that might end in a real newline: plain `$(printf '\n')` would
+# strip its own trailing newline via command substitution, leaving an
+# EMPTY string instead of the single byte this constant needs to be —
+# exactly the bug class round 13 fixed for decoded .env VALUES, hit again
+# here for a shell CONSTANT. `x` survives the strip (it is not a
+# newline), then parameter expansion removes it, which does not re-trigger
+# command substitution's own trailing-newline stripping.
+_ENV_NL="$(printf '\nx')"
+_ENV_NL="${_ENV_NL%x}"
+
 # fix(#1798 review round 10, P2): decodes the escape sequences Compose's
 # own env-file reference documents for a double-quoted value —
 # https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/#env-file-syntax
@@ -228,35 +252,62 @@ _env_unescape_double_quoted() {
     | tr "${_s_nl}${_s_cr}" '\n\r'
 }
 
-# The 1-based line number of key's LAST `key=` definition in file, or 0 if
-# absent. A repeated key follows "last write wins", the same assumption
-# get_env_value's own single-match awk scan already makes implicitly for the
-# top-level lookup (it keeps scanning and only the last match survives via
-# `exit` never firing early... no — see get_env_value: it DOES exit on the
-# first match. This bound-lookup helper intentionally takes the LAST match
-# instead, so a same-cycle interpolation lookup and the top-level lookup
-# could in principle disagree on a file with a duplicate key; not a
-# realistic shape for this repo's .env, so left as the simpler behavior.)
-_env_line_of() {
-  key="$1"
-  file="$2"
-  # fix(#1798 review round 11 audit, P2; corrected on CI, round 12): a
-  # leading UTF-8 BOM (bytes EF BB BF — common from PowerShell's default
-  # UTF-8 output or some Windows editors saving .env) sits BEFORE the
-  # first line's own text, so `^KEY=` never matched a key on line 1 at
-  # all: every guarded caller's fallback then read that as "key absent"
-  # and silently kept the inherited/unset value instead of the operator's
-  # actual line-1 setting. Stripped once, on NR==1 only, before the
-  # match, using the shell-built $_ENV_BOM under `LC_ALL=C` — see its own
-  # comment above for why building the BOM INSIDE awk via
-  # `sprintf("%c%c%c", ...)` is not locale-independent.
-  LC_ALL=C awk -v k="$key" -v bom="$_ENV_BOM" '
-    NR==1 && index($0, bom) == 1 { $0 = substr($0, length(bom) + 1) }
-    { pat = "^" k "="; if ($0 ~ pat) { n = NR } }
-    END { print n + 0 }
-  ' "$file"
-}
-
+# fix(#1798 review round 17, P2s, review 5105248083): the WHOLE dotenv
+# LINE grammar now lives in exactly two places: _env_parse_assignment_line
+# (what does ONE physical line mean, in isolation — a comment, blank, an
+# `export`-prefixed or plain assignment, a bare inherit-from-environment
+# key, or nothing that matches at all) and _env_tokenize (walk every
+# physical line of the file ONCE, in order, using
+# _env_parse_assignment_line for every line that ISN'T a multiline quote's
+# continuation, and _env_quote_scan to decide when one is). No lookup
+# below greps physical lines on its own any more — every one of them
+# calls _env_tokenize and then SELECTS among the records it already
+# identified (_env_select_record), exactly the structural fix requested:
+# a key-shaped physical line INSIDE a multiline value's own body
+# (`POSTGRES_DB='alpha\nPOSTGRES_DB=inner\nomega'`) can never be mistaken
+# for a real redefinition again, because the tokenizer only ever asks
+# _env_parse_assignment_line about a line once it already knows — from
+# _env_quote_scan on the PRECEDING lines — that line is not still inside
+# an open quote.
+#
+# Every rule below was verified against a live `docker compose config`,
+# not assumed (compose's dotenv parser is the godotenv fork in
+# compose-go/dotenv):
+#   - leading whitespace (spaces AND tabs) before KEY is skipped.
+#   - an optional `export` + whitespace prefix is stripped before KEY.
+#   - whitespace around `=` is trimmed (`KEY = v` and `KEY=v` are the
+#     same key/value).
+#   - a bare `KEY` line (no `=` at all) means "inherit from the process
+#     environment" — resolves to that value, or "" if the environment
+#     doesn't have it either (with a warning on real Compose's side this
+#     parser has no channel to raise, matching the policy already
+#     documented on the interpolation resolver above for the same
+#     reason). This DOES count as `key=file` for a top-level
+#     get_env_value/env_value_into lookup (rc 0), unlike a key genuinely
+#     absent from the file altogether (rc 1) — Compose treats them
+#     differently too (an inherited key can still be queried; an absent
+#     one has nothing to inherit FROM).
+#   - CRLF line endings: a trailing \r is part of the line terminator,
+#     never the value (`KEY=v\r\n` resolves to `v`, not `v\r`).
+#   - a comment line may have leading whitespace before its `#`.
+#   - `#` immediately after an unquoted value with NO preceding space is
+#     literal, not a comment (`FOO=bar#baz` -> `bar#baz`) — the space
+#     before `#` is required, matching the round-3 policy already
+#     documented on get_env_value below.
+#   - trailing whitespace on an UNQUOTED value is trimmed; a QUOTED
+#     value's trailing whitespace is content and kept (both already
+#     documented on get_env_value below; unaffected by this round).
+#   - `KEY=` (nothing after `=`) is a present, empty value — rc 0, "".
+#   - duplicate definitions: the LAST one wins, whether or not either is
+#     `export`-prefixed, and REGARDLESS of whether an earlier series of
+#     physical lines happened to be inside a completely unrelated key's
+#     multiline value (the P2 bug this round fixes) or a genuine
+#     later top-level redefinition (which must still win — the fix must
+#     not overcorrect into ignoring real duplicates).
+#   - a key name that is a literal prefix of another (`DB=` vs
+#     `DB_NAME=`) never cross-matches — key extraction stops at the
+#     first non-identifier character, so `DB_NAME` is never mistaken for
+#     `DB` followed by literal text.
 # fix(#1798 review round 16, P2, review 5104847831): scans $1 for the
 # first UNESCAPED occurrence of quote character $2. For `"`, escape-aware
 # (a `\"` pair does not close it, matching the existing double-quoted
@@ -268,21 +319,20 @@ _env_line_of() {
 #
 # Character-scanning (the same technique _env_brace_match already uses)
 # rather than a `grep -qE`/`sed -E` regex, because $1 here can be a
-# MULTI-LINE string (a value gathered across several physical lines by
-# _env_raw_logical below) — grep/sed apply `^`/`$` per PHYSICAL line by
-# default, which cannot validate or extract a multi-line quoted value as
-# ONE logical unit the way this function needs to. A plain character scan
-# has no such limitation: it works identically whether $1 is one line or
-# several.
+# MULTI-LINE string (a value gathered across several physical lines) —
+# grep/sed apply `^`/`$` per PHYSICAL line by default, which cannot
+# validate or extract a multi-line quoted value as ONE logical unit the
+# way this function needs to. A plain character scan has no such
+# limitation: it works identically whether $1 is one line or several.
+# Used both by _env_tokenize (round 17, deciding whether a value's quote
+# closes on its own line or needs to gather more) and by
+# _env_dequote/get_env_value's own dequoting dispatch (round 16).
 #
 # Sets three globals: _eqs_found (1 if a close was located, 0 if $1 ran
-# out first — meaningful to a caller checking for a MALFORMED, same-line
-# quote; a caller checking a value _env_raw_logical already confirmed
-# closes somewhere never sees 0 here), _eqs_before (the quoted CONTENT,
-# exclusive of both quote characters), and _eqs_after (everything in $1
-# following the close — a caller validates this is empty/whitespace/a
-# comment before trusting _eqs_before, the same policy the regex this
-# replaces already enforced).
+# out first), _eqs_before (the quoted CONTENT, exclusive of both quote
+# characters), and _eqs_after (everything in $1 following the close — a
+# caller validates this is empty/whitespace/a comment before trusting
+# _eqs_before, the same policy the regex this replaces already enforced).
 _env_quote_scan() {
   _eqs_text="$1"
   _eqs_quote="$2"
@@ -309,141 +359,330 @@ _env_quote_scan() {
   return 0
 }
 
-# The raw text of `key`'s definition on `line` (already known — from
-# _env_line_of/_env_line_of_before — to be a `key=` line), the same
-# BOM-aware `substr($0, length(k)+2)` extraction get_env_value/
-# _env_raw_before always did inline, factored out so _env_raw_logical
-# below can call it once before deciding whether more lines are needed.
-_env_raw_at_line() {
-  _eral_file="$1"
-  _eral_line="$2"
-  _eral_key="$3"
-  LC_ALL=C awk -v line="$_eral_line" -v k="$_eral_key" -v bom="$_ENV_BOM" '
-    NR==line {
-      if (NR==1 && index($0, bom) == 1) { $0 = substr($0, length(bom) + 1) }
-      print substr($0, length(k) + 2)
-      exit
-    }
-  ' "$_eral_file"
+_env_lstrip_ws() {
+  _elw_s="$1"
+  while :; do
+    case "$_elw_s" in
+      " "*) _elw_s="${_elw_s# }" ;;
+      "$_ENV_TAB"*) _elw_s="${_elw_s#"$_ENV_TAB"}" ;;
+      *) break ;;
+    esac
+  done
+  printf '%s' "$_elw_s"
 }
 
-# The whole verbatim text of physical line `$2` of file `$1` — used only
-# for a CONTINUATION line during multiline gathering (never line 1, so no
-# BOM handling is needed here; that only ever applies to a key's OWN
-# opening line).
-_env_raw_line_verbatim() {
-  awk -v line="$2" 'NR==line { print; exit }' "$1"
-}
+# Parses ONE physical line (already CR-stripped by the caller) in
+# isolation, per the grammar documented above. Sets _epa_matched (1 if
+# this line is a comment/blank — not a record at all — 0 is never
+# returned; see below), and when it identifies a record: _epa_key,
+# _epa_bare (1 for a bare inherit-from-environment key, 0 for a real
+# `=` assignment), and _epa_value (the assignment's raw value, with
+# surrounding `=`-adjacent whitespace already trimmed — meaningless when
+# _epa_bare=1). Sets _epa_is_record (1/0) separately from _epa_matched
+# (a comment or blank line IS "matched" in the sense that it was
+# correctly classified as "not a record", as opposed to line text this
+# function doesn't recognize as a key at all — e.g. leading punctuation —
+# which is _epa_is_record=0 too, treated the same as a comment: neither
+# starts a record, so _env_tokenize skips it either way. The distinction
+# only matters for callers that care WHY a line produced no record; none
+# currently do, so both are folded into the same _epa_is_record=0 result.)
+_env_parse_assignment_line() {
+  _epa_line="$1"
+  _epa_is_record=0
+  _epa_key=""
+  _epa_bare=0
+  _epa_value=""
 
-# fix(#1798 review round 16, P2, review 5104847831): Compose allows a
-# quoted .env value to span physical lines — verified against the oracle,
-# not assumed: a value opening a quote with no closing quote on that SAME
-# line accumulates SUBSEQUENT physical lines, joined by a real newline
-# (confirmed byte-for-byte: `USES='line1\nline2'` — a genuine embedded
-# newline between the quotes — resolves to a value containing that same
-# real newline byte), until the closing quote is found. `#`/`=` inside the
-# accumulated body are literal content, never a comment or a new key,
-# because gathering only ever asks "does THIS physical line contain the
-# closing quote" (_env_quote_scan) — it never runs the `^KEY=`/comment
-# awk logic against a continuation line at all. A double-quoted value's
-# escape decoding (`\n`, `\"`, ...) is applied to the FULLY GATHERED,
-# already-joined content by the caller (get_env_value/_env_dequote via
-# _env_unescape_double_quoted) — verified that a literal `\n` escape
-# and a real physical-line join decode to the identical byte, so there is
-# no ordering hazard between them.
-#
-# `line` must already be known (via _env_line_of/_env_line_of_before) to
-# be `key`'s own defining line — this never searches for it.
-#
-# Exit status: 0 — prints the logical raw text (the single physical line,
-# if unquoted or a same-line-closed quote; several real-newline-joined
-# physical lines otherwise). 2 — the value opens a quote that NEVER closes
-# before EOF; prints nothing. Verified against the oracle: Compose's own
-# `.env` load hard-fails on this ("unterminated quoted value"), so this
-# is a DIFFERENT outcome than "not found" (which is the caller's own
-# concern, via _env_line_of/_env_line_of_before, before this is ever
-# invoked at all — this function is never called for a key that doesn't
-# exist).
-_env_raw_logical() {
-  _erl_file="$1"
-  _erl_line="$2"
-  _erl_key="$3"
+  _epa_s="$(_env_lstrip_ws "$_epa_line")"
+  case "$_epa_s" in
+    ""|"#"*) return 0 ;;
+  esac
 
-  _erl_raw="$(_env_raw_at_line "$_erl_file" "$_erl_line" "$_erl_key")"
-
-  case "$_erl_raw" in
-    \"*) _erl_quote='"' ;;
-    \'*) _erl_quote="'" ;;
-    *)
-      printf '%s' "$_erl_raw"
-      return 0
+  case "$_epa_s" in
+    "export "*|"export$_ENV_TAB"*)
+      _epa_s="${_epa_s#export}"
+      _epa_s="$(_env_lstrip_ws "$_epa_s")"
       ;;
   esac
 
-  _env_quote_scan "${_erl_raw#?}" "$_erl_quote"
-  if [ "$_eqs_found" -eq 1 ]; then
-    printf '%s' "$_erl_raw"
-    return 0
-  fi
+  _epa_first="${_epa_s%"${_epa_s#?}"}"
+  case "$_epa_first" in
+    [A-Za-z_]) : ;;
+    *) return 0 ;;
+  esac
 
-  _erl_total_lines="$(awk 'END { print NR }' "$_erl_file")"
-  _erl_acc="$_erl_raw"
-  _erl_next="$_erl_line"
-  while [ "$_erl_next" -lt "$_erl_total_lines" ]; do
-    _erl_next=$((_erl_next + 1))
-    _erl_more="$(_env_raw_line_verbatim "$_erl_file" "$_erl_next")"
-    _erl_acc="${_erl_acc}
-${_erl_more}"
-    _env_quote_scan "$_erl_more" "$_erl_quote"
-    if [ "$_eqs_found" -eq 1 ]; then
-      printf '%s' "$_erl_acc"
-      return 0
-    fi
+  _epa_scan="$_epa_s"
+  while [ -n "$_epa_scan" ]; do
+    _epa_c="${_epa_scan%"${_epa_scan#?}"}"
+    case "$_epa_c" in
+      [A-Za-z0-9_]) _epa_key="${_epa_key}${_epa_c}"; _epa_scan="${_epa_scan#?}" ;;
+      *) break ;;
+    esac
   done
 
-  return 2
+  _epa_scan="$(_env_lstrip_ws "$_epa_scan")"
+  case "$_epa_scan" in
+    "="*)
+      _epa_value="$(_env_lstrip_ws "${_epa_scan#=}")"
+      _epa_bare=0
+      ;;
+    *)
+      _epa_bare=1
+      ;;
+  esac
+  _epa_is_record=1
+  return 0
+}
+
+# Walks EVERY physical line of `$1` exactly once, in order, producing a
+# stream of records — one line per record, "TYPE START END KEY" — that
+# every lookup below selects among (_env_select_record) instead of
+# grepping the file itself. TYPE is `A` (a real `key=value` assignment,
+# possibly spanning START..END physical lines if it opens a multiline
+# quote), `B` (a bare inherit-from-environment key — always START==END),
+# or `U` (an assignment that opens a quote which never closes before
+# EOF — always the LAST record, since nothing after it can be parsed).
+# CR/BOM stripping happens ONCE here, on this one read of the file, and
+# nowhere else needs to repeat it.
+_env_tokenize() {
+  _etk_file="$1"
+  _etk_content="$(cat "$_etk_file" && printf x)" || return 1
+  _etk_content="${_etk_content%x}"
+  case "$_etk_content" in
+    "$_ENV_BOM"*) _etk_content="${_etk_content#"$_ENV_BOM"}" ;;
+  esac
+
+  _etk_lineno=0
+  _etk_in_quote=0
+  _etk_quote_char=""
+  _etk_cur_key=""
+  _etk_cur_start=0
+  _etk_result=""
+  _etk_remaining="$_etk_content"
+
+  while :; do
+    _etk_lineno=$((_etk_lineno + 1))
+    case "$_etk_remaining" in
+      *"$_ENV_NL"*)
+        _env_split_on_token "$_etk_remaining" "$_ENV_NL"
+        _etk_line="$_env_split_before"
+        _etk_remaining="$_env_split_after"
+        _etk_at_eof=0
+        ;;
+      *)
+        _etk_line="$_etk_remaining"
+        _etk_remaining=""
+        _etk_at_eof=1
+        ;;
+    esac
+    case "$_etk_line" in
+      *"$_ENV_CR") _etk_line="${_etk_line%"$_ENV_CR"}" ;;
+    esac
+
+    if [ "$_etk_in_quote" -eq 1 ]; then
+      _env_quote_scan "$_etk_line" "$_etk_quote_char"
+      if [ "$_eqs_found" -eq 1 ]; then
+        _etk_in_quote=0
+        _etk_result="${_etk_result}A ${_etk_cur_start} ${_etk_lineno} ${_etk_cur_key}
+"
+      fi
+    else
+      _env_parse_assignment_line "$_etk_line"
+      if [ "$_epa_is_record" -eq 1 ]; then
+        _etk_cur_key="$_epa_key"
+        _etk_cur_start="$_etk_lineno"
+        if [ "$_epa_bare" -eq 1 ]; then
+          _etk_result="${_etk_result}B ${_etk_lineno} ${_etk_lineno} ${_epa_key}
+"
+        else
+          case "$_epa_value" in
+            \"*|\'*)
+              _etk_quote_char="${_epa_value%"${_epa_value#?}"}"
+              _env_quote_scan "${_epa_value#?}" "$_etk_quote_char"
+              if [ "$_eqs_found" -eq 1 ]; then
+                _etk_result="${_etk_result}A ${_etk_cur_start} ${_etk_lineno} ${_etk_cur_key}
+"
+              else
+                _etk_in_quote=1
+              fi
+              ;;
+            *)
+              _etk_result="${_etk_result}A ${_etk_cur_start} ${_etk_lineno} ${_etk_cur_key}
+"
+              ;;
+          esac
+        fi
+      fi
+    fi
+
+    [ "$_etk_at_eof" -eq 0 ] || break
+  done
+
+  if [ "$_etk_in_quote" -eq 1 ]; then
+    _etk_result="${_etk_result}U ${_etk_cur_start} ${_etk_lineno} ${_etk_cur_key}
+"
+  fi
+
+  printf '%s' "$_etk_result"
+}
+
+# Selects the LAST record for `key` in the `records` stream (from
+# _env_tokenize) whose start line is strictly before `before` (before=0
+# disables the bound) — Compose's own "last definition wins" rule,
+# applied only to REAL records the tokenizer identified, never to a
+# key-shaped line inside another key's multiline value. Sets
+# _esr_found (0 none, 1 found, 2 found but it is a `U` — unterminated —
+# record: a DIFFERENT outcome than "not found", callers must not treat
+# this as though the key were simply undefined), _esr_type (A/B),
+# _esr_start, _esr_end.
+_env_select_record() {
+  _esr_records="$1"
+  _esr_key="$2"
+  _esr_before="$3"
+  _esr_found=0
+  _esr_type=""
+  _esr_start=0
+  _esr_end=0
+
+  _esr_remaining="$_esr_records"
+  while [ -n "$_esr_remaining" ]; do
+    case "$_esr_remaining" in
+      *"$_ENV_NL"*)
+        _env_split_on_token "$_esr_remaining" "$_ENV_NL"
+        _esr_rec="$_env_split_before"
+        _esr_remaining="$_env_split_after"
+        ;;
+      *)
+        _esr_rec="$_esr_remaining"
+        _esr_remaining=""
+        ;;
+    esac
+    [ -n "$_esr_rec" ] || continue
+    # shellcheck disable=SC2086  # deliberate word-splitting: _esr_rec is
+    # this function's own machine-generated "TYPE START END KEY" record
+    # (from _env_tokenize), never glob-special, exactly 4 space-separated
+    # fields -- quoting it would parse it as ONE field instead of four.
+    set -- $_esr_rec
+    _esr_rtype="$1"
+    _esr_rstart="$2"
+    _esr_rend="$3"
+    _esr_rkey="$4"
+    if [ "$_esr_rkey" = "$_esr_key" ] && { [ "$_esr_before" = "0" ] || [ "$_esr_rstart" -lt "$_esr_before" ]; }; then
+      _esr_type="$_esr_rtype"
+      _esr_start="$_esr_rstart"
+      _esr_end="$_esr_rend"
+      if [ "$_esr_rtype" = "U" ]; then
+        _esr_found=2
+      else
+        _esr_found=1
+      fi
+    fi
+  done
+}
+
+# Re-derives the raw value of a KNOWN `A`-type record (start/end already
+# located by _env_tokenize + _env_select_record) — the opening line's own
+# value (via _env_parse_assignment_line, so `export`/whitespace-around-`=`
+# are handled identically to how the record was FOUND, not re-guessed)
+# plus every physical line start+1..end verbatim, newline-joined. Never
+# called for a `B` (bare) or `U` (unterminated) record — callers handle
+# those themselves.
+_env_extract_record_raw() {
+  _eer_file="$1"
+  _eer_start="$2"
+  _eer_end="$3"
+
+  _eer_content="$(cat "$_eer_file" && printf x)" || return 1
+  _eer_content="${_eer_content%x}"
+  case "$_eer_content" in
+    "$_ENV_BOM"*) _eer_content="${_eer_content#"$_ENV_BOM"}" ;;
+  esac
+
+  _eer_lineno=0
+  _eer_remaining="$_eer_content"
+  _eer_acc=""
+  while :; do
+    _eer_lineno=$((_eer_lineno + 1))
+    case "$_eer_remaining" in
+      *"$_ENV_NL"*)
+        _env_split_on_token "$_eer_remaining" "$_ENV_NL"
+        _eer_line="$_env_split_before"
+        _eer_remaining="$_env_split_after"
+        _eer_at_eof=0
+        ;;
+      *)
+        _eer_line="$_eer_remaining"
+        _eer_remaining=""
+        _eer_at_eof=1
+        ;;
+    esac
+    case "$_eer_line" in
+      *"$_ENV_CR") _eer_line="${_eer_line%"$_ENV_CR"}" ;;
+    esac
+
+    if [ "$_eer_lineno" -eq "$_eer_start" ]; then
+      _env_parse_assignment_line "$_eer_line"
+      _eer_acc="$_epa_value"
+    elif [ "$_eer_lineno" -gt "$_eer_start" ] && [ "$_eer_lineno" -le "$_eer_end" ]; then
+      _eer_acc="${_eer_acc}
+${_eer_line}"
+    fi
+
+    if [ "$_eer_lineno" -ge "$_eer_end" ] || [ "$_eer_at_eof" -eq 1 ]; then
+      break
+    fi
+  done
+  printf '%s' "$_eer_acc"
+}
+
+# The 1-based line number of key's LAST definition (of any type) strictly
+# before line `before` (before=0 disables the bound), or 0 if none. A
+# thin _env_select_record wrapper kept under its established name — see
+# _env_interpolate's own doc comment for why a fresh bound is re-derived
+# per substitution rather than reusing the outer key's original one.
+_env_line_of_before() {
+  key="$1"
+  file="$2"
+  before="$3"
+  _elob_records="$(_env_tokenize "$file")" || { echo 0; return 0; }
+  _env_select_record "$_elob_records" "$key" "$before"
+  echo "$_esr_start"
+}
+
+# The 1-based line number of key's LAST definition (of any type) in file,
+# or 0 if absent — _env_line_of_before with no bound.
+_env_line_of() {
+  _env_line_of_before "$1" "$2" 0
 }
 
 # Raw (unprocessed — no quote/comment stripping) LOGICAL value of key,
-# from the LAST line strictly before line `before` (before=0 disables the
-# bound) — possibly spanning several physical lines, see _env_raw_logical
-# above. Exit status: 0 found (prints the value); 1 key has no such
-# definition, so the caller can tell "defined here, value empty" apart
-# from "not defined before this line" and correctly fall through to the
-# process environment; 2 key IS defined here, but its value is an
-# unterminated multiline quote — DIFFERENT from "not found", a caller must
-# not silently fall through to the process environment on this one (see
+# from the LAST record strictly before line `before` (before=0 disables
+# the bound) — possibly spanning several physical lines (a multiline
+# quote) or resolved directly from the process environment (a bare key).
+# Exit status: 0 found (prints the value); 1 key has no such record at
+# all, so the caller can tell "defined here, value empty" apart from "not
+# defined before this line" and correctly fall through to the process
+# environment; 2 key IS defined here, but its value is an unterminated
+# multiline quote — DIFFERENT from "not found", a caller must not
+# silently fall through to the process environment on this one (see
 # _env_resolve_name).
 _env_raw_before() {
   key="$1"
   file="$2"
   before="$3"
-  _erb_line="$(_env_line_of_before "$key" "$file" "$before")"
-  [ "$_erb_line" -ne 0 ] || return 1
-  _env_raw_logical "$file" "$_erb_line" "$key"
-}
-
-# The 1-based line number of key's LAST definition strictly before line
-# `before` (before=0 disables the bound), or 0 if none — the same bound
-# _env_raw_before applies, exposed on its own so _env_interpolate can
-# re-derive a fresh "before" bound scoped to THIS key's own defining line
-# (see the fix(#1798 review round 11 audit, P2) comment on _env_interpolate
-# below for why reusing the outer key's original before_line for every
-# substitution pass is wrong).
-_env_line_of_before() {
-  key="$1"
-  file="$2"
-  before="$3"
-  # fix(#1798 review round 11 audit, P2; corrected on CI, round 12): same
-  # leading-BOM strip as _env_line_of above, and for the same reason.
-  LC_ALL=C awk -v k="$key" -v before="$before" -v bom="$_ENV_BOM" '
-    NR==1 && index($0, bom) == 1 { $0 = substr($0, length(bom) + 1) }
-    {
-      pat = "^" k "="
-      if ($0 ~ pat && (before == 0 || NR < before)) { n = NR }
-    }
-    END { print n + 0 }
-  ' "$file"
+  _erb_records="$(_env_tokenize "$file")" || return 1
+  _env_select_record "$_erb_records" "$key" "$before"
+  case "$_esr_found" in
+    0) return 1 ;;
+    2) return 2 ;;
+  esac
+  if [ "$_esr_type" = "B" ]; then
+    if eval "[ \"\${${key}+set}\" = set ]" 2>/dev/null; then
+      eval "printf '%s' \"\${${key}}\""
+    fi
+    return 0
+  fi
+  _env_extract_record_raw "$file" "$_esr_start" "$_esr_end"
 }
 
 # Strips Compose .env quoting/escaping from a raw value — the same rules
@@ -568,42 +807,62 @@ _env_resolve_name() {
     return 0
   fi
 
-  if _ern_earlier="$(_env_raw_before "$_ern_name" "$_ern_file" "$_ern_bound")"; then
-    # fix(#1798 review round 13, P2, review 5103870781): a value decoded
-    # from a double-quoted `\n`/`\r`/`\t` escape can end in a real,
-    # trailing control byte — `$(...)` unconditionally strips trailing
-    # newlines, so capturing _env_dequote's output directly would
-    # silently truncate exactly that byte before it ever reaches the
-    # substitution. Sentinel-protect the capture: append a marker byte
-    # inside the SAME command substitution (so it rides along with
-    # whatever trailing bytes the real value has) and strip only the
-    # marker back off afterward. `&&` (not `;`) between the decode and
-    # the marker means a failure inside _env_dequote is never masked as
-    # success with an empty value — it aborts the marker, the
-    # substitution's own exit status reflects the failure, and this
-    # function fails closed via `|| return 1` instead of quietly
-    # returning less text than the input actually had.
-    _ern_resolved="$(_env_dequote "$_ern_earlier" && printf x)" || return 1
-    _ern_resolved="${_ern_resolved%x}"
+  # fix(#1798 review round 17, P2s, review 5105248083): calls
+  # _env_tokenize/_env_select_record directly (rather than going through
+  # _env_raw_before) so _esr_type is read in THIS function's own process
+  # — _env_raw_before runs inside a `$(...)` subshell at its call site,
+  # and a subshell's own variable assignments never propagate back out,
+  # so _esr_type would already be stale/unset here if read after a
+  # `_env_raw_before` call instead.
+  _ern_records="$(_env_tokenize "$_ern_file")" || return 1
+  _env_select_record "$_ern_records" "$_ern_name" "$_ern_bound"
+  case "$_esr_found" in
+    0) return 0 ;;
+    2)
+      # NAME IS defined here, but its value is an unterminated multiline
+      # quote — Compose's own .env load hard-fails on this. Propagate
+      # that as a real failure instead of silently falling through to
+      # have_value=0 (which would treat a malformed, in-progress value as
+      # though NAME were simply never defined, and quietly resolve a
+      # reference to it via the process environment or a `:-`/`-`
+      # fallback instead).
+      return 1
+      ;;
+  esac
+
+  if [ "$_esr_type" = "B" ]; then
+    # A bare `KEY` line (no `=`) referenced via ${NAME} — Compose treats
+    # this as "inherit from the process environment", but we already
+    # checked the process environment above and it did not have NAME; a
+    # bare line with nothing to inherit resolves to "", matching the
+    # oracle-verified direct-query behavior in get_env_value. NOT run
+    # through _env_dequote: this text never came from a quoted/unquoted
+    # .env value at all, so there is nothing to unescape or comment-strip
+    # — doing so anyway could corrupt a real environment value that just
+    # happens to contain " #" or trailing whitespace.
     _ern_have_value=1
-    _ern_ref_bound="$(_env_line_of_before "$_ern_name" "$_ern_file" "$_ern_bound")"
+    _ern_ref_bound=0
     return 0
-  else
-    # fix(#1798 review round 16, P2, review 5104847831): _env_raw_before
-    # returns 2 (distinct from 1, "not found before this line") when NAME
-    # IS defined here but its value is an unterminated multiline quote —
-    # Compose's own .env load hard-fails on this. Propagate that as a
-    # real failure instead of silently falling through to have_value=0
-    # (which would treat a malformed, in-progress value as though NAME
-    # were simply never defined, and quietly resolve a reference to it
-    # via the process environment or a `:-`/`-` fallback instead). `$?`
-    # is captured as the FIRST statement of this `else` branch — a bare
-    # `if ... fi` with no `else` reports its OWN exit status as 0 when
-    # the condition was false (POSIX), which would have silently
-    # discarded exactly the "2" this needs to see.
-    _ern_rb_rc=$?
-    [ "$_ern_rb_rc" -ne 2 ] || return 1
   fi
+
+  # fix(#1798 review round 13, P2, review 5103870781): a value decoded
+  # from a double-quoted `\n`/`\r`/`\t` escape can end in a real,
+  # trailing control byte — `$(...)` unconditionally strips trailing
+  # newlines, so capturing _env_dequote's output directly would silently
+  # truncate exactly that byte before it ever reaches the substitution.
+  # Sentinel-protect the capture: append a marker byte inside the SAME
+  # command substitution (so it rides along with whatever trailing bytes
+  # the real value has) and strip only the marker back off afterward.
+  # `&&` (not `;`) between the decode and the marker means a failure
+  # inside _env_dequote is never masked as success with an empty value —
+  # it aborts the marker, the substitution's own exit status reflects the
+  # failure, and this function fails closed via `|| return 1` instead of
+  # quietly returning less text than the input actually had.
+  _ern_earlier="$(_env_extract_record_raw "$_ern_file" "$_esr_start" "$_esr_end")" || return 1
+  _ern_resolved="$(_env_dequote "$_ern_earlier" && printf x)" || return 1
+  _ern_resolved="${_ern_resolved%x}"
+  _ern_have_value=1
+  _ern_ref_bound="$_esr_start"
   return 0
 }
 
@@ -1031,20 +1290,45 @@ get_env_value() {
 
   [ -f "$file" ] || return 1
 
-  # Last matching `key=` line wins (Compose's own duplicate-key rule).
-  _gev_line="$(_env_line_of "$key" "$file")"
-  [ "$_gev_line" -ne 0 ] || return 1
+  # fix(#1798 review round 17, P2s, review 5105248083): selects among the
+  # records _env_tokenize already identified for the WHOLE file in one
+  # pass, instead of a standalone `^key=` scan blind to multiline
+  # continuations (round 16's P2 #1 — a key-shaped line inside another
+  # key's multiline value could win the "last definition" lookup) and
+  # blind to `export`/bare-key/CRLF/whitespace-around-`=` lines (P2 #2 and
+  # the rest of this round's grammar sweep — see _env_tokenize's own doc
+  # comment for the full list, each verified against the oracle).
+  _gev_records="$(_env_tokenize "$file")" || return 1
+  _env_select_record "$_gev_records" "$key" 0
+  case "$_esr_found" in
+    0) return 1 ;;
+    2) return 1 ;;
+  esac
+  _gev_line="$_esr_start"
 
-  # fix(#1798 review round 16, P2, review 5104847831): raw is the LOGICAL
-  # value — a single physical line for an unquoted value or a quote that
-  # closes on its own line, several real-newline-joined physical lines for
-  # a quote that does not (see _env_raw_logical's own doc comment for the
-  # full grammar, verified against the oracle). `|| return 1` here also
-  # catches _env_raw_logical's rc=2 (an unterminated multiline quote) —
-  # Compose's own .env load hard-fails on that shape, so get_env_value
-  # fails closed to match, the same policy round 14 already established
-  # for an unterminated `${VAR` interpolation reference.
-  raw="$(_env_raw_logical "$file" "$_gev_line" "$key")" || return 1
+  if [ "$_esr_type" = "B" ]; then
+    # A bare `KEY` line (no `=` at all) — Compose treats this as "inherit
+    # from the process environment", verified against the oracle: resolves
+    # to that value, or "" if the environment doesn't have it either. This
+    # IS "present" for get_env_value's own found/absent contract (rc 0),
+    # distinct from KEY being entirely absent from the file (rc 1) — no
+    # quoting/escaping/interpolation applies, since the value never came
+    # from this file's own text at all.
+    if eval "[ \"\${${key}+set}\" = set ]" 2>/dev/null; then
+      eval "printf '%s' \"\${${key}}\""
+    fi
+    return 0
+  fi
+
+  # raw is the LOGICAL value — a single physical line for an unquoted
+  # value or a quote that closes on its own line, several
+  # real-newline-joined physical lines for a quote that does not (see
+  # _env_extract_record_raw). The unterminated-quote case (_esr_found=2)
+  # was already caught above, before ever reaching here — Compose's own
+  # .env load hard-fails on that shape, so get_env_value fails closed to
+  # match, the same policy round 14 established for an unterminated
+  # `${VAR` interpolation reference.
+  raw="$(_env_extract_record_raw "$file" "$_esr_start" "$_esr_end")" || return 1
 
   case "$raw" in
     \"*)

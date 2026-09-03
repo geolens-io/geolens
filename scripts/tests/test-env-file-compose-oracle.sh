@@ -867,6 +867,125 @@ EOF
 _assert_errors_like_compose USES "$MULTI_UNTERM_ENV" \
   "an unterminated multiline quote (EOF reached, never closed) fails closed, matching Compose exactly"
 
+
+# ============================================================================
+# Round 17 (review 5105248083) -- closes the WHOLE dotenv LINE grammar the
+# way round 14 closed the interpolation grammar. Two P2s, both in the
+# line-locating scan: a key-shaped physical line INSIDE another key's
+# multiline value could win the "last definition" lookup (P2 #1), and the
+# scan never recognized Compose's optional `export ` prefix at all (P2
+# #2). Fixed structurally with one tokenizer (_env_tokenize) that walks
+# the file ONCE into logical records; every lookup below selects among
+# those records instead of grepping physical lines itself. The REST of
+# this corpus sweeps Compose's own dotenv grammar (the godotenv fork in
+# compose-go/dotenv) case by case, each pinned against the oracle.
+# ============================================================================
+
+# P2 #1 -- a key-shaped line INSIDE another key's multiline value must
+# never be mistaken for a real redefinition.
+GRAM_P2A_ENV="$WORK/.env.grammar_p2a"
+cat > "$GRAM_P2A_ENV" <<'EOF'
+POSTGRES_DB='alpha
+POSTGRES_DB=inner
+omega'
+EOF
+_assert_matches_compose POSTGRES_DB "$GRAM_P2A_ENV" \
+  "a key-shaped physical line inside another key's multiline value is never a new definition"
+
+# P2 #2 -- the optional \`export \` prefix.
+GRAM_P2B_ENV="$WORK/.env.grammar_p2b"
+printf 'export USES=hello\n' > "$GRAM_P2B_ENV"
+_assert_matches_compose USES "$GRAM_P2B_ENV" \
+  "an export-prefixed assignment is recognized"
+
+# Whitespace around \`=\`.
+GRAM_EQ_WS_ENV="$WORK/.env.grammar_eq_ws"
+printf 'USES = hello\n' > "$GRAM_EQ_WS_ENV"
+_assert_matches_compose USES "$GRAM_EQ_WS_ENV" \
+  "whitespace around '=' is trimmed from both the key and the value"
+
+# Leading whitespace/tabs before KEY.
+GRAM_LEAD_WS_ENV="$WORK/.env.grammar_lead_ws"
+printf '   USES=hello\n' > "$GRAM_LEAD_WS_ENV"
+_assert_matches_compose USES "$GRAM_LEAD_WS_ENV" \
+  "leading whitespace before a key is skipped"
+GRAM_LEAD_TAB_ENV="$WORK/.env.grammar_lead_tab"
+printf '\tUSES=hello\n' > "$GRAM_LEAD_TAB_ENV"
+_assert_matches_compose USES "$GRAM_LEAD_TAB_ENV" \
+  "a leading tab before a key is skipped"
+
+# A bare KEY line with no '=' -- Compose inherits from the process
+# environment; verified both when unset there (resolves empty) and when
+# set (resolves to that value), exercising round 13b's env precedence too.
+GRAM_BARE_UNSET_ENV="$WORK/.env.grammar_bare_unset"
+printf 'USES\n' > "$GRAM_BARE_UNSET_ENV"
+_assert_matches_compose USES "$GRAM_BARE_UNSET_ENV" \
+  "a bare KEY line (no '=') with no process-environment value resolves to empty, not absent"
+
+GRAM_BARE_SET_ENV="$WORK/.env.grammar_bare_set"
+printf 'USES\n' > "$GRAM_BARE_SET_ENV"
+export USES=frominherit
+_assert_matches_compose USES "$GRAM_BARE_SET_ENV" \
+  "a bare KEY line (no '=') inherits its value from the process environment"
+unset USES
+
+# CRLF line endings -- a trailing \r is line-terminator, never content.
+GRAM_CRLF_ENV="$WORK/.env.grammar_crlf"
+printf 'USES=hello\r\n' > "$GRAM_CRLF_ENV"
+_assert_matches_compose USES "$GRAM_CRLF_ENV" \
+  "a CRLF line ending is not part of the value"
+
+# A comment line may have leading whitespace before its '#'.
+GRAM_COMMENT_WS_ENV="$WORK/.env.grammar_comment_ws"
+printf '  # a comment\nUSES=hello\n' > "$GRAM_COMMENT_WS_ENV"
+_assert_matches_compose USES "$GRAM_COMMENT_WS_ENV" \
+  "a comment line with leading whitespace is still a comment, not a key"
+
+# '#' directly after an unquoted value with NO preceding space is literal
+# (Compose requires a space before an inline comment).
+GRAM_HASH_NOSPACE_ENV="$WORK/.env.grammar_hash_nospace"
+printf 'USES=hello#nospace\n' > "$GRAM_HASH_NOSPACE_ENV"
+_assert_matches_compose USES "$GRAM_HASH_NOSPACE_ENV" \
+  "'#' immediately after an unquoted value with no preceding space is literal, not a comment"
+
+# Trailing whitespace: trimmed when unquoted, kept when quoted.
+GRAM_TRAIL_WS_ENV="$WORK/.env.grammar_trail_ws"
+printf 'USES=hello   \n' > "$GRAM_TRAIL_WS_ENV"
+_assert_matches_compose USES "$GRAM_TRAIL_WS_ENV" \
+  "trailing whitespace on an unquoted value is trimmed"
+GRAM_TRAIL_WS_Q_ENV="$WORK/.env.grammar_trail_ws_quoted"
+printf "USES='hello   '\n" > "$GRAM_TRAIL_WS_Q_ENV"
+_assert_matches_compose USES "$GRAM_TRAIL_WS_Q_ENV" \
+  "trailing whitespace INSIDE a quoted value is content, kept verbatim"
+
+# An empty value.
+GRAM_EMPTY_ENV="$WORK/.env.grammar_empty"
+printf 'USES=\n' > "$GRAM_EMPTY_ENV"
+_assert_matches_compose USES "$GRAM_EMPTY_ENV" \
+  "KEY= (nothing after '=') is a present, empty value"
+
+# A key defined twice where the SECOND is a genuine later definition
+# (not a multiline continuation) -- last wins, must not be confused with
+# the P2 #1 fix that makes a continuation line NOT count as a definition.
+GRAM_DUP_REAL_ENV="$WORK/.env.grammar_dup_real"
+printf 'USES=first\nUSES=second\n' > "$GRAM_DUP_REAL_ENV"
+_assert_matches_compose USES "$GRAM_DUP_REAL_ENV" \
+  "a genuine later duplicate definition (not a multiline continuation) wins, last-write rule preserved"
+
+# An export-prefixed redefinition after a plain one.
+GRAM_EXPORT_REDEF_ENV="$WORK/.env.grammar_export_redef"
+printf 'USES=first\nexport USES=second\n' > "$GRAM_EXPORT_REDEF_ENV"
+_assert_matches_compose USES "$GRAM_EXPORT_REDEF_ENV" \
+  "an export-prefixed redefinition after a plain one still wins (export doesn't change last-write)"
+
+# A key whose name is a literal prefix of another -- must not cross-match.
+GRAM_PREFIX_ENV="$WORK/.env.grammar_prefix"
+printf 'DB=short\nDB_NAME=long\n' > "$GRAM_PREFIX_ENV"
+_assert_matches_compose DB "$GRAM_PREFIX_ENV" \
+  "a key name that is a literal prefix of another key resolves to its own value"
+_assert_matches_compose DB_NAME "$GRAM_PREFIX_ENV" \
+  "the longer key is not swallowed by the shorter one it starts with"
+
 echo "1..$((PASS + FAIL))"
 echo "# ${PASS} passed, ${FAIL} failed"
 [ "$FAIL" -eq 0 ]
