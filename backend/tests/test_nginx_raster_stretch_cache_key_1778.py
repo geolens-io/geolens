@@ -1,6 +1,6 @@
 """The raster tile cache key must not vary on an arg the active stretch mode
 ignores, and a cache HIT must never change what an uncached request would
-answer (#1778, codebase audit 2026-08-30; codex rounds 1-7 on #1791).
+answer (#1778, codebase audit 2026-08-30; codex rounds 1-9 on #1791).
 
 frontend/nginx.conf's raster_cache proxy_cache_key used to hold
 $arg_pmin/$arg_pmax/$arg_sigma unconditionally. In
@@ -105,6 +105,29 @@ value too, not just an inactive one that would otherwise blank: two
 different raw spellings of the identical semantic float (`pmin=1` vs
 `pmin=%31`) must not sit unmodified in the cache key and mint two entries
 for one tile.
+
+Round 9 found the round-4/round-1 duplicate detector only counted
+occurrences containing `=` -- a BARE occurrence (no `=` at all) of a name
+was invisible to it. `?stretch=minmax&pmin=5&pmin` has nginx's $arg_pmin
+resolve from the earlier, well-formed `pmin=5` (ngx_http_arg requires an
+immediate `=` to match at all, so the bare occurrence is skipped entirely,
+the same as if it were absent), while Starlette keeps the bare `pmin` as a
+real ("pmin", "") pair (keep_blank_values=True) that the scalar Query
+dependency reads as the LAST occurrence -- empty string, which pydantic's
+float coercion 422s on unconditionally. That request was canonical to
+every check through round 8, so it collapsed onto the plain
+`?stretch=minmax` cache entry: warm 200, cold 422.
+
+The round-9 rule: a bare occurrence of any of the four names, anywhere,
+also sets $geolens_raster_noncanonical_name (folded into the SAME map as
+the round-1 duplicate/round-4 mis-case checks, since it is one more
+"$args is not in strict canonical form" condition, not a new kind of
+check). One regex per name checking "does a bare occurrence exist at all"
+is sufficient -- it does not need to literally COUNT occurrences, because a
+bare occurrence with nothing else is the single-bare case (still 422s,
+since the last occurrence is that bare pair), and a bare occurrence
+alongside a `name=` occurrence is already >= 2 total occurrences, the same
+"at most once" property rule 1 already polices.
 
 These are structural (they read the conf and simulate nginx's own map
 evaluation in Python), because there is no nginx binary in this test
@@ -861,3 +884,54 @@ def test_a_colon_inside_a_value_cannot_forge_a_false_negative():
     non-canonical, never toward canonical."""
     conf = _conf()
     assert _noncanonical(conf, _qs(stretch="minmax", pmin="1:2")) == "1"
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778 codex r9): a BARE occurrence (no `=`) of stretch/pmin/pmax/sigma
+# is invisible to nginx's $arg_x lookup (ngx_http_arg requires an immediate
+# `=` after the name to resolve it at all) but is a real ("name", "") pair
+# to Starlette (keep_blank_values=True). `?stretch=minmax&pmin=5&pmin` has
+# nginx resolve $arg_pmin from the EARLIER, well-formed `pmin=5` (its arg
+# scan never matches the bare occurrence and keeps looking), while FastAPI's
+# scalar Query reads the LAST occurrence -- the bare one, "" -- and 422s on
+# it unconditionally, before the "ignore when inactive" logic ever runs.
+# That request read as perfectly canonical to every check before round 9,
+# so it collapsed onto the plain `?stretch=minmax` cache entry: warm 200,
+# cold 422.
+# ---------------------------------------------------------------------------
+
+
+def test_bare_occurrence_alongside_a_wellformed_one_is_noncanonical():
+    """The coordinator's named cases: a bare occurrence AFTER a `name=` one,
+    and a bare occurrence BEFORE it -- order must not matter, since nginx's
+    arg scan and Starlette's last-occurrence read disagree about the SAME
+    underlying byte layout regardless of which occurrence comes first."""
+    conf = _conf()
+    assert _noncanonical(conf, "stretch=minmax&pmin=5&pmin") == "1"
+    assert _noncanonical(conf, "stretch=minmax&pmin&pmin=5") == "1"
+
+
+def test_bare_occurrence_alone_is_noncanonical():
+    """A SINGLE bare occurrence, with no other occurrence of the name at
+    all, is still non-canonical: nginx's $arg_pmin resolves to "" (not
+    found, same as absent), so an inactive parameter's blank looks safe --
+    but FastAPI still sees ("pmin", "") as PRESENT and 422s on the empty
+    string, regardless of stretch mode. Covers the coordinator's
+    case-insensitive spelling (PMIN), a bare `stretch`, and the other two
+    render-parameter names for completeness -- every name this config
+    sanitises must get the same guard."""
+    conf = _conf()
+    assert _noncanonical(conf, "stretch=minmax&PMIN") == "1"
+    assert _noncanonical(conf, "stretch=minmax&pmax") == "1"
+    assert _noncanonical(conf, "stretch=minmax&sigma") == "1"
+    assert _noncanonical(conf, "stretch") == "1"
+
+
+def test_bare_occurrence_positive_control_stays_canonical():
+    """Positive control: `pmin=5` alone, with or without a sibling
+    well-formed parameter, and with no bare occurrence anywhere, must stay
+    canonical -- the round-9 guard must not fire on an ordinary, single,
+    well-formed occurrence."""
+    conf = _conf()
+    assert _noncanonical(conf, "stretch=minmax&pmin=5") == "0"
+    assert _noncanonical(conf, "stretch=minmax&pmin=5&pmax=95") == "0"
