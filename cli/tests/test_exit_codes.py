@@ -833,6 +833,97 @@ class TestActiveKindMarkerWriteIsRollbackProtected:
         assert loaded.value == "old-bearer-token"
 
 
+class TestInteractiveLoginRollbackRestoresTheWholeCredentialSet:
+    """fix(#1778 round 32): _CredentialSnapshot/_restore_credentials
+    covered bearer/api_key/refresh but not the refresh token's pairing
+    fingerprint -- round 31 added the fingerprint to delete_
+    credentials()/_delete_stale_credentials() by hand, but not to this
+    pair, so a login that failed AFTER the fingerprint had already
+    been swept by cleanup restored the OLD bearer+refresh pair WITHOUT
+    their matching fingerprint. The next 401 then discarded the
+    restored (perfectly valid) refresh token as unpaired instead of
+    spending it."""
+
+    def test_a_final_write_failure_restores_all_four_members_and_a_later_refresh_still_works(
+        self, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        import pytest
+
+        from geolens_cli import auth as _auth
+
+        instance = "https://x.example.com/api"
+
+        # An existing, fully paired interactive session.
+        _auth.replace_credentials(
+            instance, "bearer", "old-bearer-token", refresh_token="old-refresh-token"
+        )
+        old_bearer = mock_keyring[("geolens", instance)]
+        old_refresh = mock_keyring[("geolens", f"{instance}:refresh")]
+        old_fingerprint = mock_keyring[("geolens", f"{instance}:refresh_fp")]
+        assert old_bearer == "old-bearer-token"
+        assert old_refresh == "old-refresh-token"
+        assert old_fingerprint == _auth._fingerprint_bearer("old-bearer-token")
+
+        # A new interactive-style login (same kind: "bearer") that
+        # fails on the FINAL write -- the new refresh token's own
+        # store call, after the marker write and cleanup (which sweeps
+        # the OLD refresh token + fingerprint, since "refresh" is
+        # never `keep`) have already run.
+        original_store_refresh_token = _auth.store_refresh_token
+
+        def raising_store_refresh_token(*args, **kwargs):
+            raise OSError("read-only filesystem")
+
+        monkeypatch.setattr(_auth, "store_refresh_token", raising_store_refresh_token)
+
+        with pytest.raises(OSError):
+            _auth.replace_credentials(
+                instance,
+                "bearer",
+                "new-bearer-token",
+                refresh_token="new-refresh-token",
+            )
+
+        # All four members restored BYTE-FOR-BYTE.
+        assert mock_keyring[("geolens", instance)] == old_bearer
+        assert mock_keyring[("geolens", f"{instance}:refresh")] == old_refresh
+        assert mock_keyring[("geolens", f"{instance}:refresh_fp")] == old_fingerprint
+
+        # A subsequent 401 refreshes successfully using the RESTORED
+        # pair -- this is the property round 31's gap broke: with the
+        # fingerprint missing after a restore, try_refresh() would
+        # have judged the restored (perfectly valid) refresh token
+        # "unpaired" and discarded it instead of spending it.
+        # Restore JUST store_refresh_token -- monkeypatch.undo() would
+        # also un-patch keyring itself (mock_keyring uses the SAME
+        # monkeypatch fixture), which is not what this step is about.
+        monkeypatch.setattr(_auth, "store_refresh_token", original_store_refresh_token)
+        import geolens
+        import geolens.api.auth.refresh_auth_refresh_post as _refresh_mod
+        import geolens.models.refresh_request as _refresh_req_mod
+        from unittest.mock import MagicMock
+
+        class FakeParsed:
+            pass
+
+        parsed = FakeParsed()
+        parsed.access_token = "rotated-access-token"
+        parsed.refresh_token = None
+
+        class FakeResp:
+            status_code = 200
+
+        FakeResp.parsed = parsed
+
+        monkeypatch.setattr(geolens, "GeolensClient", MagicMock())
+        monkeypatch.setattr(_refresh_mod, "sync_detailed", MagicMock(return_value=FakeResp()))
+        monkeypatch.setattr(_refresh_req_mod, "RefreshRequest", MagicMock())
+
+        new_access = _auth.try_refresh(instance)
+
+        assert new_access == "rotated-access-token"
+
+
 class TestCleanupFileRewriteFailureIsRollbackProtected:
     """Distinct from TestActiveKindMarkerWriteIsRollbackProtected above:
     that test's marker-write failure is the FIRST credentials.toml

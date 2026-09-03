@@ -87,6 +87,26 @@ def _fingerprint_bearer(bearer_token: str) -> str:
     return hashlib.sha256(bearer_token.encode()).hexdigest()[:16]
 
 
+# fix(#1778 round 32): the credential SET for an instance, defined
+# ONCE as a tuple of (name, keyring-account-fn, file-field-name)
+# triples. Round 31 added the refresh_fingerprint as a fourth member
+# of this set, but delete_credentials()/_delete_stale_credentials()
+# were updated by hand while _CredentialSnapshot/_restore_credentials
+# were not -- a login rollback silently dropped it, leaving a restored
+# bearer+refresh pair without the fingerprint that proves they belong
+# together. Every operation that must treat the whole set uniformly
+# (snapshot, restore, logout, stale-credential cleanup) now iterates
+# THIS tuple instead of hand-listing its own subset, so a fifth member
+# added here later cannot be forgotten in one of them the same way --
+# enforced by test_credential_set_structural.py.
+_CREDENTIAL_SET = (
+    ("bearer", _keyring_account_token, "bearer_token"),
+    ("api_key", _keyring_account_api_key, "api_key"),
+    ("refresh", _keyring_account_refresh, "refresh_token"),
+    ("refresh_fingerprint", _keyring_account_refresh_fingerprint, "refresh_fingerprint"),
+)
+
+
 class CredentialsFileCorrupt(Exception):
     """Raised by ``_read_credentials_file()`` when credentials.toml
     exists but is not valid TOML.
@@ -371,18 +391,39 @@ def load_api_key(instance: str) -> Optional[ApiKey]:
 
 
 def load_refresh_token(instance: str) -> Optional[str]:
+    """Tolerant: a keyring read failure degrades to "not found." See
+    ``load_refresh_token_strict()`` for the pairing check's own
+    three-state read, which must NOT make this mistake."""
+    try:
+        return load_refresh_token_strict(instance)
+    except KeyringCredentialUnreadable:
+        return None
+
+
+def load_refresh_token_strict(instance: str) -> Optional[str]:
+    """Three-state STRICT refresh-token read (fix(#1778 round 32)):
+    returns the stored value, ``None`` if genuinely absent, or raises
+    ``KeyringCredentialUnreadable("refresh", ...)`` if the keyring
+    account itself could not be read. The pairing check in
+    try_refresh() must be able to tell "no refresh token here" apart
+    from "can't tell right now" -- a transient/account-specific
+    KeyringError collapsing to ``None`` looked identical to a
+    confirmed absence, and there was nothing to discard or warn about
+    either way.
+    """
     data = _read_credentials_section_tolerant(instance)
     refresh = data.get("refresh_token")
     if refresh:
         return refresh
     try:
         return keyring.get_password(SERVICE, _keyring_account_refresh(instance))
-    except KeyringError:
-        return None
+    except KeyringError as exc:
+        raise KeyringCredentialUnreadable("refresh", str(exc)) from exc
 
 
 def _load_stored_bearer_value(instance: str) -> Optional[str]:
-    """Like ``load_bearer_token()``, but NEVER consults GEOLENS_TOKEN.
+    """Like ``load_bearer_token_strict()``, but NEVER consults
+    GEOLENS_TOKEN.
 
     fix(#1778 round 31): try_refresh() must compare a refresh token's
     pairing fingerprint against the STORED bearer specifically -- the
@@ -393,6 +434,14 @@ def _load_stored_bearer_value(instance: str) -> Optional[str]:
     ``load_bearer_token()`` in practice; kept separate anyway so the
     pairing check can never be fooled by that precedence rule even in
     principle.
+
+    fix(#1778 round 32): now STRICT -- raises
+    ``KeyringCredentialUnreadable("bearer", ...)`` on a keyring read
+    failure instead of collapsing it to ``None``. A transient or
+    account-specific KeyringError here used to look identical to "no
+    bearer stored," which made a POSSIBLY VALID pairing look stale and
+    triggered the destructive discard-and-warn path in try_refresh()
+    for a refresh token that may have been perfectly fine.
     """
     data = _read_credentials_section_tolerant(instance)
     token = data.get("bearer_token")
@@ -400,15 +449,19 @@ def _load_stored_bearer_value(instance: str) -> Optional[str]:
         return token
     try:
         return keyring.get_password(SERVICE, _keyring_account_token(instance))
-    except KeyringError:
-        return None
+    except KeyringError as exc:
+        raise KeyringCredentialUnreadable("bearer", str(exc)) from exc
 
 
 def _load_refresh_fingerprint(instance: str) -> Optional[str]:
     """The pairing fingerprint stored alongside the refresh token, or
-    ``None`` if there isn't one (a legacy profile predating round 31,
-    or a fingerprint write that failed independently of the refresh
-    token's own write)."""
+    ``None`` if there isn't one (a legacy profile predating round 31).
+
+    fix(#1778 round 32): now STRICT -- raises
+    ``KeyringCredentialUnreadable("refresh_fingerprint", ...)`` on a
+    keyring read failure rather than treating it as "no fingerprint,"
+    for the same reason as ``_load_stored_bearer_value()`` above.
+    """
     data = _read_credentials_section_tolerant(instance)
     fp = data.get("refresh_fingerprint")
     if fp:
@@ -417,8 +470,8 @@ def _load_refresh_fingerprint(instance: str) -> Optional[str]:
         return keyring.get_password(
             SERVICE, _keyring_account_refresh_fingerprint(instance)
         )
-    except KeyringError:
-        return None
+    except KeyringError as exc:
+        raise KeyringCredentialUnreadable("refresh_fingerprint", str(exc)) from exc
 
 
 def _rewrite_refresh_fingerprint(
@@ -449,7 +502,7 @@ def _rewrite_refresh_fingerprint(
 
 def _discard_unpaired_refresh_token(instance: str) -> None:
     """Best-effort delete of the refresh token AND its fingerprint from
-    BOTH backends -- fix(#1778 round 31).
+    BOTH backends -- fix(#1778 round 31, fixed round 32).
 
     Called from try_refresh() when a stored refresh token cannot be
     PROVEN to belong to the currently stored bearer (no fingerprint at
@@ -458,35 +511,48 @@ def _discard_unpaired_refresh_token(instance: str) -> None:
     is already reporting "no refresh available," and a delete failure
     here must not turn that into a crash (mirrors ``delete_credentials()``'s
     own best-effort, idempotent design).
+
+    fix(#1778 round 32): the docstring already claimed "never raises,"
+    but the file WRITE at the end was unguarded -- an unwritable
+    credentials.toml (read-only, full) raised straight out of this
+    function and past try_refresh(), which has no rollback net the way
+    replace_credentials() does. whoami/status died with a storage
+    traceback instead of the normal auth error this function exists to
+    produce cleanly. Every step now explicitly catches KeyringError
+    (covers PasswordDeleteError and the rest of that family) and
+    OSError, logs once, and continues -- see
+    tests/test_best_effort_helpers_never_raise.py.
     """
     for account_fn in (_keyring_account_refresh, _keyring_account_refresh_fingerprint):
         try:
             keyring.delete_password(SERVICE, account_fn(instance))
-        except Exception:
+        except (KeyringError, OSError):
             pass
     try:
         data = _read_credentials_file()
+        section = data.get(instance)
+        if not section:
+            return
+        changed = False
+        for field in ("refresh_token", "refresh_fingerprint"):
+            if section.pop(field, None) is not None:
+                changed = True
+        if not changed:
+            return
+        if section:
+            data[instance] = section
+        else:
+            data.pop(instance, None)
+        if data:
+            _write_credentials_file(data)
+        else:
+            path = _config.credentials_path()
+            if path.exists():
+                path.unlink()
     except CredentialsFileCorrupt:
         return
-    section = data.get(instance)
-    if not section:
-        return
-    changed = False
-    for field in ("refresh_token", "refresh_fingerprint"):
-        if section.pop(field, None) is not None:
-            changed = True
-    if not changed:
-        return
-    if section:
-        data[instance] = section
-    else:
-        data.pop(instance, None)
-    if data:
-        _write_credentials_file(data)
-    else:
-        path = _config.credentials_path()
-        if path.exists():
-            path.unlink()
+    except OSError as exc:
+        log.warning("stale_refresh_token_file_cleanup_failed", error=str(exc))
 
 
 #: fix(#1778 review round 10): the field name for the "active credential
@@ -722,22 +788,19 @@ def ensure_credentials_file_readable() -> None:
 # ---------- Delete ----------
 
 def delete_credentials(instance: str) -> None:
-    """Remove all FOUR keyring entries (bearer, refresh, api_key, and
-    -- fix(#1778 round 31) -- the refresh token's pairing fingerprint)
-    AND the credentials.toml section.
+    """Remove every member of the credential set (fix(#1778 round 32):
+    _CREDENTIAL_SET -- bearer, refresh, api_key, and the refresh
+    token's pairing fingerprint) from the keyring, AND the
+    credentials.toml section.
 
     Missing entries are silently ignored — logout is idempotent.
     """
-    for account in (
-        _keyring_account_token(instance),
-        _keyring_account_refresh(instance),
-        _keyring_account_api_key(instance),
-        _keyring_account_refresh_fingerprint(instance),
-    ):
+    for _name, account_fn, _field in _CREDENTIAL_SET:
         try:
-            keyring.delete_password(SERVICE, account)
-        except Exception:
-            # PasswordDeleteError + KeyringError + missing entries all swallowed.
+            keyring.delete_password(SERVICE, account_fn(instance))
+        except (KeyringError, OSError):
+            # PasswordDeleteError (a KeyringError subclass) + missing
+            # entries all swallowed -- logout is idempotent.
             pass
     _clear_credential_section(instance)
 
@@ -745,11 +808,6 @@ def delete_credentials(instance: str) -> None:
 # ---------- Atomic credential swap (login) ----------
 
 _FIELD_BY_KIND = {"bearer": "bearer_token", "api_key": "api_key"}
-_ACCOUNT_FN_BY_KIND = {
-    "bearer": _keyring_account_token,
-    "api_key": _keyring_account_api_key,
-    "refresh": _keyring_account_refresh,
-}
 
 
 class _Unknown:
@@ -782,11 +840,22 @@ class _CredentialSnapshot:
 
     Each keyring field is a string (the stored value), ``None``
     (confirmed absent), or ``_UNKNOWN`` (the read itself failed — see
-    ``_Unknown``)."""
+    ``_Unknown``).
+
+    fix(#1778 round 32): ``keyring_refresh_fingerprint`` closes the gap
+    that let round 31's rollback silently drop the pairing fingerprint
+    -- ``bearer``/``api_key``/``refresh`` were already covered, but
+    nothing snapshotted or restored the fourth member of
+    ``_CREDENTIAL_SET``, so a login that failed after storing a new
+    refresh token restored the OLD bearer+refresh pair without their
+    matching fingerprint, and the next 401 discarded the restored
+    (perfectly valid) refresh token as unpaired.
+    """
 
     keyring_bearer: _KeyringValue
     keyring_api_key: _KeyringValue
     keyring_refresh: _KeyringValue
+    keyring_refresh_fingerprint: _KeyringValue
     file_section: dict
 
 
@@ -797,10 +866,17 @@ def _snapshot_credentials(instance: str) -> _CredentialSnapshot:
         except KeyringError:
             return _UNKNOWN
 
+    # fix(#1778 round 32): iterates _CREDENTIAL_SET (the single
+    # definition of the four-member set) rather than hand-listing each
+    # account -- see test_credential_set_structural.py.
+    bearer, api_key, refresh, fingerprint = (
+        _kr(account_fn(instance)) for _name, account_fn, _field in _CREDENTIAL_SET
+    )
     return _CredentialSnapshot(
-        keyring_bearer=_kr(_keyring_account_token(instance)),
-        keyring_api_key=_kr(_keyring_account_api_key(instance)),
-        keyring_refresh=_kr(_keyring_account_refresh(instance)),
+        keyring_bearer=bearer,
+        keyring_api_key=api_key,
+        keyring_refresh=refresh,
+        keyring_refresh_fingerprint=fingerprint,
         # fix(#1778 review round 22): tolerant on a corrupt file --
         # snapshotting "nothing" is safe even though it is not
         # literally accurate, because every WRITE path that could act
@@ -821,22 +897,29 @@ def _restore_credentials(instance: str, snapshot: _CredentialSnapshot) -> None:
     further to fall back to here, so each write is independently
     swallowed-and-logged rather than raised.
     """
-    for account, value in (
-        (_keyring_account_token(instance), snapshot.keyring_bearer),
-        (_keyring_account_api_key(instance), snapshot.keyring_api_key),
-        (_keyring_account_refresh(instance), snapshot.keyring_refresh),
-    ):
+    # fix(#1778 round 32): iterates _CREDENTIAL_SET, including the
+    # fingerprint (round 31 left it out of both the snapshot dataclass
+    # and this restore loop -- see _CredentialSnapshot's own docstring).
+    values_by_name = {
+        "bearer": snapshot.keyring_bearer,
+        "api_key": snapshot.keyring_api_key,
+        "refresh": snapshot.keyring_refresh,
+        "refresh_fingerprint": snapshot.keyring_refresh_fingerprint,
+    }
+    for name, account_fn, _field in _CREDENTIAL_SET:
+        value = values_by_name[name]
         if value is _UNKNOWN:
             # fix(#1778 review round 9): never learned whether this
             # account held a credential — see _Unknown. Neither
             # deleting nor overwriting it is safe; leave it alone.
             continue
+        account = account_fn(instance)
         try:
             if value is None:
                 keyring.delete_password(SERVICE, account)
             else:
                 keyring.set_password(SERVICE, account, value)
-        except Exception as exc:
+        except (KeyringError, OSError) as exc:
             log.warning("credential_restore_failed", account=account, error=str(exc))
 
     try:
@@ -851,7 +934,7 @@ def _restore_credentials(instance: str, snapshot: _CredentialSnapshot) -> None:
             path = _config.credentials_path()
             if path.exists():
                 path.unlink()
-    except Exception as exc:
+    except (CredentialsFileCorrupt, OSError) as exc:
         log.warning("credential_restore_failed", account="file", error=str(exc))
 
 
@@ -953,12 +1036,24 @@ def _delete_stale_credentials(
     before any bearer-first/file-first precedence), so this cleanup
     was only ever tidiness, never correctness-bearing.
     """
+    # fix(#1778 round 32): iterates _CREDENTIAL_SET (the single
+    # definition of the four-member set: bearer, api_key, refresh,
+    # refresh_fingerprint) instead of the round-31 approach of a
+    # snapshot-gated loop over three members PLUS a separate,
+    # differently-behaved best-effort block bolted on for the fourth --
+    # see test_credential_set_structural.py. The fingerprint now gets
+    # the SAME treatment as "refresh" (skipped on _UNKNOWN, propagated
+    # when keep_backend == "keyring"), which is correct: an orphaned
+    # fingerprint is inert on its own, but treating its cleanup
+    # DIFFERENTLY from the refresh token it travels with is exactly
+    # the kind of per-member special-casing this round closes.
     snapshot_by_name = {
         "bearer": snapshot.keyring_bearer,
         "api_key": snapshot.keyring_api_key,
         "refresh": snapshot.keyring_refresh,
+        "refresh_fingerprint": snapshot.keyring_refresh_fingerprint,
     }
-    for name, account_fn in _ACCOUNT_FN_BY_KIND.items():
+    for name, account_fn, _field in _CREDENTIAL_SET:
         if name == keep and keep_backend == "keyring":
             continue
         if snapshot_by_name[name] is _UNKNOWN:
@@ -982,33 +1077,21 @@ def _delete_stale_credentials(
         if exists:
             keyring.delete_password(SERVICE, account)
 
-    # fix(#1778 round 31): the refresh account above is never `keep`
-    # (`keep` is always "bearer" or "api_key"), so it is always a
-    # cleanup candidate here -- its pairing fingerprint must go with
-    # it whenever it does. Independent of the snapshot-gated loop
-    # above (an orphaned fingerprint with no matching refresh token is
-    # inert: try_refresh() bails on `if not refresh` before it would
-    # ever read one), so this is pure best-effort tidiness, not
-    # something a read/delete failure here should escalate.
-    try:
-        fp_account = _keyring_account_refresh_fingerprint(instance)
-        if keyring.get_password(SERVICE, fp_account) is not None:
-            keyring.delete_password(SERVICE, fp_account)
-    except Exception:
-        pass
-
     # fix(#1778 review round 22): unlike _set_credential_field's and
-    # _clear_credential_section's writes, this cleanup is best-effort
-    # tidiness (round 10's docstring above: "now tidiness, not the
-    # thing correctness depends on"), not something a failure here
-    # should turn into the whole login failing. Called from inside
-    # replace_credentials()'s rollback-protected try block -- letting
-    # CredentialsFileCorrupt propagate would trigger a snapshot
-    # rollback and re-raise, reporting a hard login failure over a step
-    # that was only ever cleaning up STALE data, for a file that was
-    # already broken before this login ever started. Log and skip the
-    # file-side cleanup instead; the keyring-side cleanup above already
-    # ran regardless.
+    # _clear_credential_section's writes, only the READ here is
+    # best-effort tidiness -- a PRE-EXISTING corrupt file is not
+    # something THIS login broke, so that alone must not fail it (log
+    # and skip). The WRITE below is deliberately NOT swallowed: it
+    # runs inside replace_credentials()'s rollback-protected try block
+    # specifically so a genuine write failure DURING this call (a
+    # filesystem that just went read-only, say) propagates and
+    # triggers _restore_credentials() -- see
+    # TestCleanupFileRewriteFailureIsRollbackProtected. This is
+    # DIFFERENT from _discard_unpaired_refresh_token() (fix(#1778
+    # round 32)), which runs from try_refresh() with no such rollback
+    # net and must never let a write failure escape at all -- the same
+    # exception type means something different depending on which
+    # transaction (if any) is listening for it.
     try:
         data = _read_credentials_file()
     except CredentialsFileCorrupt as exc:
@@ -1022,8 +1105,7 @@ def _delete_stale_credentials(
     if not section:
         return
     keep_field = _FIELD_BY_KIND.get(keep)
-    # fix(#1778 round 31): refresh_fingerprint travels with refresh_token.
-    for field in ("bearer_token", "api_key", "refresh_token", "refresh_fingerprint"):
+    for _name, _account_fn, field in _CREDENTIAL_SET:
         if field == keep_field and keep_backend == "file":
             continue
         section.pop(field, None)
@@ -1357,13 +1439,37 @@ def try_refresh(instance: str) -> Optional[str]:
     fingerprint at all -- it is treated as absent, discarded from
     storage (``_discard_unpaired_refresh_token()``), and this returns
     ``None`` exactly as if there had never been a refresh token here.
+
+    fix(#1778 round 32): round 31's pairing check read the refresh
+    token, the bearer, and the fingerprint TOLERANTLY -- a transient
+    or account-specific KeyringError on any one of them collapsed to
+    ``None``, indistinguishable from a confirmed absence, and the
+    pairing check then judged a POSSIBLY VALID pairing "stale" and ran
+    the destructive discard on a refresh token that may have been
+    perfectly fine. All three reads are now STRICT (three-state:
+    present / confirmed absent / unreadable). Unreadable on ANY of
+    them aborts the whole pairing decision immediately -- no cleanup,
+    no refresh attempt, exactly one warning, ``None`` -- never
+    deleting on an unknown. Only a CONFIRMED absence or a CONFIRMED
+    mismatch reaches the destructive discard-and-warn path below.
     """
-    refresh = load_refresh_token(instance)
-    if not refresh:
+    try:
+        refresh = load_refresh_token_strict(instance)
+        if not refresh:
+            return None
+        stored_bearer = _load_stored_bearer_value(instance)
+        fingerprint = _load_refresh_fingerprint(instance)
+    except KeyringCredentialUnreadable as exc:
+        # fix(#1778 round 32): a read failure proves nothing -- the
+        # pairing might still be perfectly valid. Never delete on an
+        # unknown; just decline to refresh this time.
+        log.warning(
+            "refresh_pairing_check_skipped_unreadable",
+            member=exc.kind,
+            error=exc.detail,
+        )
         return None
 
-    stored_bearer = _load_stored_bearer_value(instance)
-    fingerprint = _load_refresh_fingerprint(instance)
     if (
         stored_bearer is None
         or fingerprint is None

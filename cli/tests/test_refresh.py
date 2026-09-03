@@ -1505,3 +1505,136 @@ class TestRefreshPairingMatrix:
                 refresh_state,
                 "the refresh endpoint must never be called on this row",
             )
+
+
+# fix(#1778 round 32): every one of the four credential-set members
+# {bearer, api_key, refresh, refresh_fingerprint} unreadable, one row
+# each. bearer/refresh/refresh_fingerprint are all read by the pairing
+# check itself: an unreadable one there proves nothing, so the
+# expected outcome is uniformly "no deletion, no refresh call, the
+# normal auth error." api_key is NOT read by the pairing check at all
+# (it is unrelated to which bearer a refresh token rotates) -- its own
+# unreadability is tolerated by the ALREADY-tolerant "no marker"
+# precedence path (round 27/30), so the honest, code-accurate
+# expectation for that row is that the refresh proceeds and succeeds,
+# completely unaffected. Included anyway, with its own true
+# expectation, to prove unrelated interference does not leak into the
+# refresh decision either way.
+UNREADABLE_MEMBER_ACCOUNTS = {
+    "bearer": INSTANCE,
+    "api_key": f"{INSTANCE}:api_key",
+    "refresh": f"{INSTANCE}:refresh",
+    "refresh_fingerprint": f"{INSTANCE}:refresh_fp",
+}
+UNREADABLE_MEMBER_BLOCKS_REFRESH = {
+    "bearer": True,
+    "api_key": False,
+    "refresh": True,
+    "refresh_fingerprint": True,
+}
+
+
+class TestUnreadableMemberNeverDeletesOrRefreshes:
+    """fix(#1778 round 32): a transient/account-specific KeyringError
+    on ANY credential-set member the pairing check actually reads
+    (bearer, refresh, refresh_fingerprint) must never be treated as
+    "confirmed absent" -- that collapse is exactly what let the
+    pairing check judge a possibly-valid refresh token stale and run
+    the destructive discard on it (the round-32 finding at
+    auth.py:1372). api_key is pinned too, with its own true (different)
+    expectation, since the pairing check never reads it at all."""
+
+    @pytest.mark.parametrize("member", sorted(UNREADABLE_MEMBER_ACCOUNTS))
+    def test_member_unreadable_row(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, member: str
+    ) -> None:
+        from geolens_cli import auth as _auth
+        from geolens_cli import config as _config
+        from geolens_cli._sdk_helpers import EXIT_AUTH
+        from geolens_cli.main import app
+        from keyring.errors import KeyringError
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+
+        # A fully healthy, PAIRED session -- if the unreadable member
+        # were simply ignored (wrongly treated as absent) where it
+        # matters, this would otherwise refresh successfully. Proves
+        # the outcome is caused by the unreadability itself, not by an
+        # already-broken setup.
+        bearer = "interactive-bearer-token"
+        mock_keyring[("geolens", INSTANCE)] = bearer
+        mock_keyring[("geolens", f"{INSTANCE}:refresh")] = "some-refresh-token"
+        mock_keyring[("geolens", f"{INSTANCE}:refresh_fp")] = _auth._fingerprint_bearer(
+            bearer
+        )
+        _config.write_default_instance(INSTANCE, username="alice")
+
+        target_account = UNREADABLE_MEMBER_ACCOUNTS[member]
+        real_get_password = __import__("keyring").get_password
+        real_delete_password = __import__("keyring").delete_password
+
+        def flaky_get_password(service, account):
+            if account == target_account:
+                raise KeyringError(f"{member} account unreadable")
+            return real_get_password(service, account)
+
+        delete_calls: list[str] = []
+
+        def spying_delete_password(service, account):
+            delete_calls.append(account)
+            return real_delete_password(service, account)
+
+        monkeypatch.setattr("keyring.get_password", flaky_get_password)
+        monkeypatch.setattr("keyring.delete_password", spying_delete_password)
+
+        refresh_calls = {"count": 0}
+
+        def refresh_endpoint(**kwargs):
+            refresh_calls["count"] += 1
+            return SimpleNamespace(
+                status_code=HTTPStatus.OK,
+                parsed=SimpleNamespace(
+                    access_token="rotated-access-token", refresh_token=None
+                ),
+            )
+
+        monkeypatch.setattr(
+            "geolens.api.auth.refresh_auth_refresh_post.sync_detailed",
+            refresh_endpoint,
+        )
+
+        calls = {"status": 0}
+
+        def status_endpoint(**kwargs):
+            calls["status"] += 1
+            if calls["status"] == 1:
+                return SimpleNamespace(status_code=HTTPStatus.UNAUTHORIZED, parsed=None)
+            return SimpleNamespace(
+                status_code=HTTPStatus.OK, parsed=TestDatasetStatus._dataset()
+            )
+
+        monkeypatch.setattr(
+            "geolens.api.datasets."
+            "get_single_dataset_datasets_dataset_id_get.sync_detailed",
+            status_endpoint,
+        )
+
+        result = runner.invoke(app, ["status", str(DATASET_ID)])
+
+        assert delete_calls == [], (
+            member,
+            "nothing may be deleted when a member's state cannot be confirmed",
+        )
+        if UNREADABLE_MEMBER_BLOCKS_REFRESH[member]:
+            assert result.exit_code == EXIT_AUTH, result.output
+            assert refresh_calls["count"] == 0, (
+                member,
+                "the refresh endpoint must never be called when a "
+                "pairing-relevant member is unreadable",
+            )
+        else:
+            # api_key: unrelated to pairing: the tolerant "no marker"
+            # precedence path already swallows this read failure
+            # (round 27/30), so the refresh proceeds normally.
+            assert result.exit_code == 0, result.output
+            assert refresh_calls["count"] == 1, member
