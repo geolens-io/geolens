@@ -88,11 +88,31 @@ test.describe('Vector tile pipeline', () => {
   test('MVT tiles are requested and served for a vector dataset', async ({ page }) => {
     const mvt: { url: string; status: number }[] = [];
     const thirdPartyPbf: string[] = [];
+    let inFlightDatasetTiles = 0;
 
     page.on('response', (r) => {
       const url = r.url();
       if (isDatasetTile(url)) mvt.push({ url, status: r.status() });
       else if (url.includes('.pbf')) thirdPartyPbf.push(url);
+    });
+
+    // fix(#1624): track in-flight dataset tile requests directly, rather than
+    // `networkidle`. Load states are sticky per document: once the page had
+    // already reached networkidle during the pre-dataset gap, a later
+    // `waitForLoadState('networkidle')` resolved immediately without opening a
+    // new quiet window, so sibling tiles in the same batch could still be in
+    // flight and a later 4xx/5xx was missed. These listeners are registered
+    // before navigation for the same reason as the response wait below: a
+    // request that starts during `goto` or before the canvas check must still
+    // be counted.
+    page.on('request', (r) => {
+      if (isDatasetTile(r.url())) inFlightDatasetTiles++;
+    });
+    page.on('requestfinished', (r) => {
+      if (isDatasetTile(r.url())) inFlightDatasetTiles--;
+    });
+    page.on('requestfailed', (r) => {
+      if (isDatasetTile(r.url())) inFlightDatasetTiles--;
     });
 
     // fix(#1624): register this wait before navigation. The `page.on('response')`
@@ -120,11 +140,23 @@ test.describe('Vector tile pipeline', () => {
     // through to the length assertion, which still reports the real #8186
     // signature.
     await firstDatasetTile.catch(() => undefined);
-    // The dataset source is now confirmed added, so the remaining tiles in
-    // this batch are already in flight or complete: networkidle here waits
-    // out that trailing traffic instead of racing its start, so the status
-    // check below sees every response, not just the first.
-    await page.waitForLoadState('networkidle');
+
+    // Wait for the current batch of dataset tile requests to finish, then
+    // debounce: MapLibre can issue a second batch after the fit-to-bounds
+    // settles, so only stop once `mvt.length` holds steady across two
+    // consecutive 500ms samples.
+    await expect.poll(() => inFlightDatasetTiles, { timeout: 20_000 }).toBe(0);
+    let previousMvtLength: number | null = null;
+    await expect
+      .poll(
+        () => {
+          const isStable = mvt.length === previousMvtLength;
+          previousMvtLength = mvt.length;
+          return isStable;
+        },
+        { timeout: 20_000, intervals: [500] },
+      )
+      .toBe(true);
 
     // THE assertion. Zero here is the #8186 silent-worker signature. Scoped to
     // this dataset's own route, so third-party basemap/glyph .pbf traffic
