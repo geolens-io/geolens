@@ -131,6 +131,31 @@ class AppState:
             return make_client(instance, bearer_token=bearer.value)
         if api_key:
             return make_client(instance, api_key=api_key.value)
+        # fix(#1778 review round 22, corrected round 23): neither the
+        # file nor the keyring produced a usable credential. Round 22
+        # added an UNCONDITIONAL preflight in whoami/status specifically
+        # to catch a corrupt credentials.toml here -- but that broke
+        # GEOLENS_TOKEN and keyring-only logins for those two commands,
+        # since it ran before EITHER of those had a chance to succeed.
+        # The check belongs HERE instead, in the one shared resolver
+        # EVERY command goes through, gated on actually having nothing
+        # else to fall back to: if this is about to return an ANONYMOUS
+        # client (which would just 401 on the first real request with a
+        # generic auth error), check whether an unreadable
+        # credentials.toml was part of why nothing resolved, and say so
+        # specifically instead of leaving the user to guess "not logged
+        # in" when the real problem is a local file that needs repair.
+        # A healthy (or missing) file is a no-op here, unchanged from
+        # before for every command that reaches this point via keyring
+        # or GEOLENS_TOKEN.
+        try:
+            _auth.ensure_credentials_file_readable()
+        except _auth.CredentialsFileCorrupt as exc:
+            self.output.error(
+                f"{exc.path} is corrupt ({exc.detail}). Fix or move the "
+                "file, then try again."
+            )
+            raise typer.Exit(EXIT_GENERIC) from exc
         return make_client(instance)
 
 
@@ -679,30 +704,6 @@ def logout(ctx: typer.Context) -> None:
     state.output.success(f"Logged out of {instance}")
 
 
-def _ensure_credentials_file_readable_or_exit(state: "AppState") -> None:
-    """Surface a corrupt credentials.toml explicitly for a read-only
-    command (whoami/status), instead of letting the tolerant
-    load_bearer_token()/load_api_key()/load_active_credential_kind()
-    quietly treat it as "nothing here" and report a misleading
-    "not logged in" / EXIT_AUTH when the real problem is a local file
-    that needs repair.
-
-    fix(#1778 review round 22): every OTHER command's credential
-    resolution (AppState.sdk(), used well beyond just whoami/status)
-    deliberately keeps tolerating a corrupt file so it can still work
-    via keyring alone -- this check is specific to the two commands
-    whose entire job is reporting on the stored credential itself.
-    """
-    try:
-        _auth.ensure_credentials_file_readable()
-    except _auth.CredentialsFileCorrupt as exc:
-        state.output.error(
-            f"{exc.path} is corrupt ({exc.detail}). Fix or move the "
-            "file, then try again."
-        )
-        raise typer.Exit(EXIT_GENERIC) from exc
-
-
 @app.command()
 def whoami(ctx: typer.Context) -> None:
     """Print the current user/instance (calls /auth/me; refresh-retries once on 401)."""
@@ -711,7 +712,6 @@ def whoami(ctx: typer.Context) -> None:
     if not instance:
         state.output.error("No active instance. Run `geolens login <url>` first.")
         raise typer.Exit(EXIT_AUTH)
-    _ensure_credentials_file_readable_or_exit(state)
 
     from geolens.api.auth import me_auth_me_get
 
@@ -760,7 +760,6 @@ def status(
         raise typer.BadParameter(
             "Dataset id must be a UUID", param_hint="dataset_id"
         ) from exc
-    _ensure_credentials_file_readable_or_exit(state)
 
     sdk = state.sdk()
     # fix(#1778): refresh-retry once on 401 (D-13) rather than hard-

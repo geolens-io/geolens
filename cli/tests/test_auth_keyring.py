@@ -435,3 +435,234 @@ class TestCredentialsFileCorruption:
         assert mock_keyring.get(("geolens", INSTANCE)) == "new-access"
         assert mock_keyring.get(("geolens", f"{INSTANCE}:refresh")) == "new-refresh"
         assert warnings, "a warning must be logged for the skipped marker write"
+
+
+class TestWhoamiStatusToleratesCorruptFileWhenSomethingElseResolves:
+    """fix(#1778 review round 23): round 22 added an UNCONDITIONAL
+    corrupt-file preflight at the top of whoami/status, so a corrupt
+    credentials.toml made both commands fail even when GEOLENS_TOKEN was
+    set or a perfectly good keyring credential existed -- both of which
+    the pre-round-22 resolver would have happily used. The check now
+    lives inside AppState.sdk()'s own final fallback branch (the one
+    that's about to give up and return an anonymous client), so it only
+    ever fires when the file was genuinely the last option."""
+
+    def test_whoami_succeeds_with_env_token_despite_a_corrupt_file(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Pin: corrupt file + GEOLENS_TOKEN -> whoami succeeds."""
+        from unittest.mock import MagicMock
+
+        import geolens
+        import geolens.api.auth.me_auth_me_get as _me_mod
+
+        from geolens_cli.main import app
+
+        instance = "https://x.example.com/api"
+        _write_corrupt_credentials_file(instance)
+        monkeypatch.setenv("GEOLENS_TOKEN", "env-token")
+
+        class FakeUser:
+            email = "env-user@example.com"
+
+        class FakeResp:
+            status_code = 200
+            parsed = FakeUser()
+
+        monkeypatch.setattr(geolens, "GeolensClient", MagicMock())
+        monkeypatch.setattr(_me_mod, "sync_detailed", MagicMock(return_value=FakeResp()))
+
+        result = runner.invoke(app, ["--instance", instance, "whoami"])
+
+        assert result.exit_code == 0, result.output
+        assert "corrupt" not in result.output.lower()
+        assert "env-user@example.com" in result.output
+
+    def test_whoami_succeeds_with_a_keyring_credential_despite_a_corrupt_file(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Pin: corrupt file + keyring credential -> whoami succeeds."""
+        from unittest.mock import MagicMock
+
+        import geolens
+        import geolens.api.auth.me_auth_me_get as _me_mod
+
+        from geolens_cli import config as _cfg
+        from geolens_cli.main import app
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com/api"
+        canonical = _cfg.normalize_instance_url(instance)
+        _auth.store_bearer_token(canonical, "keyring-token", no_keyring=False)
+        _write_corrupt_credentials_file(canonical)
+
+        class FakeUser:
+            email = "keyring-user@example.com"
+
+        class FakeResp:
+            status_code = 200
+            parsed = FakeUser()
+
+        monkeypatch.setattr(geolens, "GeolensClient", MagicMock())
+        monkeypatch.setattr(_me_mod, "sync_detailed", MagicMock(return_value=FakeResp()))
+
+        result = runner.invoke(app, ["--instance", instance, "whoami"])
+
+        assert result.exit_code == 0, result.output
+        assert "corrupt" not in result.output.lower()
+        assert "keyring-user@example.com" in result.output
+
+    def test_whoami_names_the_corrupt_path_when_nothing_else_resolves(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Pin: corrupt file + nothing else -> error names the path,
+        not the generic "not logged in" message."""
+        from geolens_cli.main import app
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com/api"
+        path = _write_corrupt_credentials_file(instance)
+
+        result = runner.invoke(app, ["--instance", instance, "whoami"])
+
+        assert result.exit_code != 0, result.output
+        assert str(path) in result.output
+        assert "corrupt" in result.output.lower()
+        assert "not logged in" not in result.output.lower()
+        assert "no active instance" not in result.output.lower()
+
+
+class TestLoginKindSwapMakesTheMarkerMandatory:
+    """fix(#1778 review round 23): round 22 let a corrupt credentials.toml
+    swallow the active_kind marker write to a warning UNCONDITIONALLY --
+    fine for a same-kind re-login (nothing about resolution precedence
+    changes), but a KIND SWAP (bearer -> api_key or back) makes that
+    marker the only thing keeping a still-lingering old credential in
+    the other backend from outranking the one just stored. Login now
+    refuses a kind swap up front when the file is unreadable (nothing
+    stored), and preserves round 22's own non-fatal behavior on a
+    same-kind login."""
+
+    def test_login_refuses_a_kind_swap_when_the_file_is_corrupt_leaving_everything_untouched(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Pin: corrupt file + kind swap -> login refused, keyring
+        unchanged, file unchanged."""
+        from geolens_cli.main import app
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com"
+        from geolens_cli import config as _cfg
+
+        canonical = _cfg.normalize_instance_url(instance)
+
+        # Establish an existing BEARER login via the keyring.
+        _auth.replace_credentials(canonical, "bearer", "old-bearer-token")
+        bearer_account = ("geolens", canonical)
+        assert mock_keyring.get(bearer_account) == "old-bearer-token"
+
+        path = _write_corrupt_credentials_file(canonical)
+        original_bytes = path.read_bytes()
+
+        # Now attempt a KIND SWAP: log in with an API key instead.
+        result = runner.invoke(app, ["login", instance, "--api-key", "new-api-key"])
+
+        assert result.exit_code != 0, result.output
+        assert "corrupt" in result.output.lower()
+        assert path.read_bytes() == original_bytes, "a refusal must not rewrite the file"
+        assert mock_keyring.get(bearer_account) == "old-bearer-token", (
+            "the old bearer credential must be untouched"
+        )
+        api_key_account = ("geolens", f"{canonical}:api_key")
+        assert api_key_account not in mock_keyring, (
+            "the new API key must never have been stored"
+        )
+
+    def test_login_succeeds_on_a_same_kind_relogin_despite_a_corrupt_file(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Pin: corrupt file + same kind -> succeeds as in round 22."""
+        from geolens_cli.main import app
+        from geolens_cli import config as _cfg
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com"
+        canonical = _cfg.normalize_instance_url(instance)
+
+        _auth.replace_credentials(canonical, "bearer", "old-bearer-token")
+
+        path = _write_corrupt_credentials_file(canonical)
+        original_bytes = path.read_bytes()
+
+        # Same kind (bearer) re-login.
+        result = runner.invoke(app, ["login", instance, "--token", "new-bearer-token"])
+
+        assert result.exit_code == 0, result.output
+        assert path.read_bytes() == original_bytes, "the corrupt file must not be rewritten"
+        assert "corrupt" in result.output.lower()
+        loaded = _auth.load_bearer_token(canonical)
+        assert loaded is not None
+        assert loaded.value == "new-bearer-token"
+
+    def test_login_kind_swap_with_unknown_old_kind_and_marker_failure_rolls_back(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Pin: kind swap + cleanup _UNKNOWN on the old kind + marker
+        write failure -> the just-stored secret is removed, login
+        fails, and the old credential is untouched.
+
+        No corrupt file is involved in the setup here -- the file is
+        healthy (so the round-23 preflight passes) but two things are
+        engineered directly: the pre-swap snapshot cannot read the OLD
+        kind's keyring account (-> _UNKNOWN, same as a transient keyring
+        hiccup), and the marker write itself is made to fail. This
+        isolates the "marker write is mandatory" branch from the
+        up-front preflight covered by the sibling tests above.
+        """
+        from geolens_cli import config as _cfg
+        from geolens_cli.main import app
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com"
+        canonical = _cfg.normalize_instance_url(instance)
+
+        # Establish an existing BEARER login via the keyring -- this is
+        # the "old kind" credential that must survive untouched.
+        _auth.replace_credentials(canonical, "bearer", "old-bearer-token")
+        bearer_account = ("geolens", canonical)
+        assert mock_keyring.get(bearer_account) == "old-bearer-token"
+
+        import keyring as _keyring_mod
+        from keyring.errors import KeyringError
+
+        real_get_password = _keyring_mod.get_password
+
+        def flaky_get_password(svc: str, user: str):
+            if user == canonical:
+                # The bearer (old-kind) account is unreadable during
+                # THIS login's pre-swap snapshot -> recorded as _UNKNOWN.
+                raise KeyringError("keyring temporarily unavailable")
+            return real_get_password(svc, user)
+
+        monkeypatch.setattr(_keyring_mod, "get_password", flaky_get_password)
+
+        def failing_set_credential_field(instance_arg, field, value):
+            raise _auth.CredentialsFileCorrupt(
+                _cfg.credentials_path(), "simulated marker write failure"
+            )
+
+        monkeypatch.setattr(_auth, "_set_credential_field", failing_set_credential_field)
+        # The round-23 preflight only checks readability, which the
+        # (currently absent) credentials.toml passes -- so the swap
+        # proceeds to the store call, and fails at the marker write.
+
+        result = runner.invoke(app, ["login", instance, "--api-key", "new-api-key"])
+
+        assert result.exit_code != 0, result.output
+        api_key_account = ("geolens", f"{canonical}:api_key")
+        assert api_key_account not in mock_keyring, (
+            "the just-stored API key must be removed on rollback"
+        )
+        assert mock_keyring.get(bearer_account) == "old-bearer-token", (
+            "the old bearer credential must be untouched"
+        )

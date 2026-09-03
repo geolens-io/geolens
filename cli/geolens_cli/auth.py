@@ -623,6 +623,30 @@ def _delete_stale_credentials(
             path.unlink()
 
 
+def _resolve_current_active_kind(instance: str) -> Optional[str]:
+    """Best-effort resolution of the credential kind currently in effect
+    for ``instance``, mirroring ``AppState.sdk()``'s own precedence (the
+    active_kind marker first, then bearer-over-api_key) via the
+    TOLERANT reads -- ``load_active_credential_kind``/``load_bearer_token``/
+    ``load_api_key`` already degrade a corrupt credentials.toml to
+    "nothing here, check the other backend" -- so this can run safely
+    before ``replace_credentials`` knows whether the file is healthy.
+
+    fix(#1778 review round 23): ``replace_credentials`` needs to know,
+    BEFORE storing anything, whether this login is about to CHANGE the
+    active kind (bearer -> api_key or back) so it can decide how
+    strictly to treat the marker write below.
+    """
+    marker = load_active_credential_kind(instance)
+    if marker is not None:
+        return marker
+    if load_bearer_token(instance) is not None:
+        return "bearer"
+    if load_api_key(instance) is not None:
+        return "api_key"
+    return None
+
+
 def replace_credentials(
     instance: str,
     kind: str,
@@ -701,6 +725,43 @@ def replace_credentials(
         raise ValueError(f"unknown credential kind: {kind!r}")
 
     snapshot = _snapshot_credentials(instance)
+
+    previous_kind = _resolve_current_active_kind(instance)
+    kind_changed = previous_kind is not None and previous_kind != kind
+
+    # fix(#1778 review round 23): a kind swap (bearer -> api_key or back)
+    # makes the active_kind marker written below load-bearing, not mere
+    # tidiness -- it is the ONLY thing that keeps a still-lingering OLD
+    # credential in the other backend from outranking the one this login
+    # is about to store (AppState.sdk() falls back to bearer-first
+    # precedence whenever the marker is missing or stale). Round 22 let
+    # a corrupt file swallow that write to a warning and carry on
+    # regardless of kind -- fine for a same-kind re-login (nothing about
+    # precedence changes), wrong for a swap: login would report success
+    # while quietly leaving the OLD kind in charge. Refuse UP FRONT here,
+    # before the new secret is stored anywhere, so a refusal leaves both
+    # backends exactly as they were -- unlike the marker-write failure
+    # handled below, which can only roll back what THIS call already
+    # stored.
+    if kind_changed:
+        ensure_credentials_file_readable()
+
+    # fix(#1778 review round 23): mirrors _delete_stale_credentials's own
+    # round-14 _UNKNOWN gate for the SAME (old-kind) keyring account --
+    # when the pre-swap snapshot could not read it, that cleanup skips
+    # it below rather than risk deleting something it never actually
+    # saw. The marker is what makes a skipped, still-lingering old
+    # credential harmless; if the marker write ITSELF then also fails,
+    # nothing stops that old credential from resurfacing under
+    # AppState.sdk()'s bearer-first fallback. Detected here (rather than
+    # inside _delete_stale_credentials, which runs after the marker
+    # write) so the marker's own except block below can decide whether
+    # to treat a failure there as fatal.
+    old_kind = "api_key" if kind == "bearer" else "bearer"
+    old_kind_snapshot = (
+        snapshot.keyring_api_key if old_kind == "api_key" else snapshot.keyring_bearer
+    )
+    mandatory_marker = kind_changed and old_kind_snapshot is _UNKNOWN
 
     # fix(#1778 review round 12): _UNKNOWN used to be checked ONLY on the
     # rollback path, after the mutating store_bearer_token/store_api_key
@@ -782,6 +843,19 @@ def replace_credentials(
         try:
             _set_credential_field(instance, _ACTIVE_KIND_FIELD, kind)
         except CredentialsFileCorrupt as exc:
+            if mandatory_marker:
+                # fix(#1778 review round 23): unlike the ordinary case
+                # below, there is no stale-entry safety net here -- the
+                # old kind's keyring entry could not be verified or
+                # deleted (round 14's _UNKNOWN gate on
+                # _delete_stale_credentials, computed above as
+                # old_kind_snapshot), so the marker is the ONLY thing
+                # standing between this login and a silent fallback to
+                # the OLD credential. Propagate so the outer except
+                # rolls the whole swap back -- the secret just stored a
+                # few lines up is removed, and the untouched old
+                # credential is left exactly where it was.
+                raise
             # fix(#1778 review round 22): a PRE-EXISTING corrupt
             # credentials.toml is not something THIS login broke, and
             # the primary credential already landed safely in
