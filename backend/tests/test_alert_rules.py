@@ -30,6 +30,7 @@ structure, and runs wherever the backend suite runs.
 from __future__ import annotations
 
 import collections
+import json
 import pathlib
 import re
 from typing import Any
@@ -43,6 +44,7 @@ REPO_ROOT = pathlib.Path(__file__).parent.parent.parent
 ALERTS_PATH = REPO_ROOT / "infra" / "monitoring" / "alerts.yml"
 ALERTS_TEST_PATH = REPO_ROOT / "infra" / "monitoring" / "alerts.test.yml"
 PROMETHEUS_PATH = REPO_ROOT / "infra" / "monitoring" / "prometheus.yml"
+DASHBOARD_PATH = REPO_ROOT / "infra" / "monitoring" / "grafana-dashboard.json"
 
 # fix(#1778): metrics whose value is produced per PROCESS rather than read
 # from shared state. The job counters are incremented inside whichever worker
@@ -52,6 +54,14 @@ PROMETHEUS_PATH = REPO_ROOT / "infra" / "monitoring" / "prometheus.yml"
 # same procrastinate_jobs rows, so they all report the same number and
 # `max by (queue)` is right for them.
 PER_PROCESS_JOB_COUNTERS = ("geolens_jobs_completed_total", "geolens_jobs_failed_total")
+
+# fix(#1778 codex r8): the gauges in the same family, which need the OTHER
+# aggregator. Every replica polls the same procrastinate_jobs rows and reports
+# the same number, so `max by (queue)` reads one queue's depth while
+# `sum by (queue)` would multiply it by the replica count. Bare, they draw N
+# identically labelled overlapping lines -- the same defect as the counters,
+# with a different fix.
+PER_REPLICA_JOB_GAUGES = ("geolens_jobs_queue_depth", "geolens_jobs_active")
 
 # Bulk reads: the response is whatever the caller asked for, so over a second is
 # the cost of the payload rather than a symptom. Excluded from the interactive
@@ -527,4 +537,107 @@ def test_the_reference_scrape_config_discovers_every_worker_replica():
     assert not single_targets, (
         "the worker job still carries a single static target beside its "
         f"discovery block: {single_targets}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778 codex r8): the dashboard reads the same per-replica series
+# ---------------------------------------------------------------------------
+
+
+def _dashboard_targets() -> list[tuple[str, str]]:
+    """(panel title, expr) for every target in the shipped dashboard."""
+    dashboard = json.loads(DASHBOARD_PATH.read_text())
+    targets: list[tuple[str, str]] = []
+    for panel in dashboard.get("panels", []):
+        title = panel.get("title", "<untitled>")
+        for target in panel.get("targets", []):
+            expr = target.get("expr")
+            if expr:
+                targets.append((title, expr))
+    assert targets, f"no panel targets parsed out of {DASHBOARD_PATH.name}"
+    return targets
+
+
+def test_dashboard_aggregates_the_per_replica_job_counters():
+    """A bare rate() draws one partial line per worker replica.
+
+    Round 4 made the worker scrape job discover every replica, so each exports
+    its own completed/failed series for the same queue. The alert sums them;
+    the panel showed several identically named partial rates until it did too.
+    """
+    matched = []
+    for title, expr in _dashboard_targets():
+        for counter in PER_PROCESS_JOB_COUNTERS:
+            if counter not in expr:
+                continue
+            matched.append((title, counter))
+            sum_at = expr.find("sum by")
+            fn_at = min(
+                (expr.find(fn) for fn in ("increase(", "rate(") if fn in expr),
+                default=-1,
+            )
+            assert sum_at != -1, (
+                f"dashboard panel {title!r} reads {counter}, which is exported "
+                "per worker replica, without a `sum by`"
+            )
+            assert fn_at != -1, (
+                f"dashboard panel {title!r} reads the counter {counter} without "
+                "a range function"
+            )
+            assert sum_at < fn_at, (
+                f"dashboard panel {title!r} must aggregate OUTSIDE the range "
+                "function: `sum by (queue) (rate(...[15m]))`"
+            )
+
+    assert matched, (
+        "no dashboard panel reads any of "
+        f"{PER_PROCESS_JOB_COUNTERS} -- this test would pass vacuously"
+    )
+
+
+def test_dashboard_aggregates_the_per_replica_job_gauges():
+    """The gauges need `max by`, not `sum by`: summing multiplies the depth."""
+    matched = []
+    for title, expr in _dashboard_targets():
+        for gauge in PER_REPLICA_JOB_GAUGES:
+            if gauge not in expr:
+                continue
+            matched.append((title, gauge))
+            assert "max by" in expr, (
+                f"dashboard panel {title!r} reads {gauge} bare; with several "
+                "worker replicas that is N identical overlapping lines"
+            )
+            assert "sum by" not in expr, (
+                f"dashboard panel {title!r} sums {gauge}, which multiplies one "
+                "queue's depth by the replica count"
+            )
+
+    assert matched, (
+        f"no dashboard panel reads any of {PER_REPLICA_JOB_GAUGES} -- "
+        "this test would pass vacuously"
+    )
+
+
+def test_no_alert_or_panel_reads_a_job_series_without_aggregating():
+    """The sweep, over both files at once.
+
+    Every expression anywhere in infra/monitoring that names a job metric has
+    to say how it combines the replicas. Written as one pass so a metric added
+    to one file and not the other cannot slip through.
+    """
+    job_metrics = PER_PROCESS_JOB_COUNTERS + PER_REPLICA_JOB_GAUGES
+    sources = [(f"alert {name}", rule["expr"]) for name, rule in _load_rules().items()]
+    sources += [(f"panel {title!r}", expr) for title, expr in _dashboard_targets()]
+
+    offenders = [
+        (where, expr)
+        for where, expr in sources
+        if any(metric in expr for metric in job_metrics)
+        and "sum by" not in expr
+        and "max by" not in expr
+    ]
+    assert not offenders, (
+        "job metrics read without an aggregator, so each worker replica draws "
+        f"its own series: {offenders}"
     )

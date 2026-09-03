@@ -237,6 +237,11 @@ jobs:
               # replica, because the job counters live in the process that did
               # the work and an unscraped replica is invisible.
               - 'infra/monitoring/prometheus.yml'
+              # fix(#1778 codex r8): and the dashboard, for the other half of
+              # that -- once discovery finds every replica, a panel reading a
+              # per-replica job series without an aggregator draws one partial
+              # line per replica.
+              - 'infra/monitoring/grafana-dashboard.json'
               # fix(#561): a change to this workflow can alter HOW Backend Tests
               # runs (e.g. the -n4 parallelization / coverage core), so the suite
               # must run on PRs that touch it — otherwise CI-config changes ship
