@@ -1153,3 +1153,175 @@ class TestReauthReviewRoundThree:
 
         assert result.exit_code == 0, result.output
         assert calls["status"] == 2
+
+
+class TestRefreshPersistenceFailureNeverCrashes:
+    """fix(#1778 round 29): try_refresh()'s optional-return contract
+    ("None on failure, never raise") covered the HTTP call and response
+    parsing, but not the actual PERSISTENCE of a successful rotation --
+    store_bearer_token()/store_refresh_token() propagate uncaught when
+    a sink genuinely cannot be written (keyring locked AND the
+    credentials.toml fallback also fails). The only caller
+    (_sdk_helpers.call_sdk_with_reauth) does not catch storage
+    exceptions, so a command already deep in its own request handling
+    died with an unrelated traceback -- AFTER the server had already
+    rotated the refresh token server-side, which is worse than an
+    ordinary failed refresh: the old refresh token is now invalid too.
+
+    Parametrized over every persistence sink named in the finding
+    (bearer write, refresh-token write, an unwritable credentials.toml
+    specifically) x both callers of try_refresh() through
+    call_sdk_with_reauth (whoami, status). manifest apply's own retry
+    path was also audited: it never calls call_sdk_with_reauth (plain
+    call_sdk only, no reauth), so there is nothing to parametrize
+    there."""
+
+    def _break_bearer_sink(self, monkeypatch, mock_keyring) -> None:
+        """The original session is keyring-backed; both the keyring
+        write and the file fallback fail for the bearer account --
+        store_bearer_token() has nowhere left to land the new access
+        token."""
+        from geolens_cli import auth as _auth
+        from keyring.errors import KeyringError
+
+        mock_keyring[("geolens", INSTANCE)] = "expired-access-token"
+        mock_keyring[("geolens", f"{INSTANCE}:refresh")] = "valid-refresh-token"
+
+        monkeypatch.setattr(
+            "keyring.set_password",
+            lambda *a, **k: (_ for _ in ()).throw(KeyringError("keyring locked")),
+        )
+        monkeypatch.setattr(
+            _auth,
+            "_write_credentials_file",
+            lambda *a, **k: (_ for _ in ()).throw(OSError("read-only file system")),
+        )
+
+    def _break_refresh_sink(self, monkeypatch, mock_keyring) -> None:
+        """The original session is keyring-backed; the bearer write
+        succeeds (keyring is fine for that account), but the refresh-
+        token write's OWN keyring account is separately broken and the
+        file fallback also fails."""
+        from geolens_cli import auth as _auth
+        from keyring.errors import KeyringError
+
+        mock_keyring[("geolens", INSTANCE)] = "expired-access-token"
+        mock_keyring[("geolens", f"{INSTANCE}:refresh")] = "valid-refresh-token"
+
+        real_set_password = __import__("keyring").set_password
+
+        def flaky_set_password(service, account, value):
+            if account.endswith(":refresh"):
+                raise KeyringError("keyring locked for this account")
+            return real_set_password(service, account, value)
+
+        monkeypatch.setattr("keyring.set_password", flaky_set_password)
+        monkeypatch.setattr(
+            _auth,
+            "_write_credentials_file",
+            lambda *a, **k: (_ for _ in ()).throw(OSError("read-only file system")),
+        )
+
+    def _break_credentials_file_sink(self, monkeypatch, mock_keyring) -> None:
+        """The ORIGINAL session is FILE-backed (--no-keyring login, or
+        an unavailable keyring at the time), per _detect_credential_
+        backend, so no_keyring=True forces both writes straight to
+        credentials.toml with no keyring leg to fall back to -- and
+        the file itself has since become unwritable."""
+        from geolens_cli import auth as _auth
+
+        _auth.store_bearer_token(INSTANCE, "expired-access-token", no_keyring=True)
+        _auth.store_refresh_token(INSTANCE, "valid-refresh-token", no_keyring=True)
+
+        monkeypatch.setattr(
+            _auth,
+            "_write_credentials_file",
+            lambda *a, **k: (_ for _ in ()).throw(OSError("read-only file system")),
+        )
+
+    _SINKS = {
+        "bearer_keyring_and_file_fail": _break_bearer_sink,
+        "refresh_keyring_and_file_fail": _break_refresh_sink,
+        "credentials_file_unwritable": _break_credentials_file_sink,
+    }
+
+    def _setup_refresh_endpoint(self, monkeypatch) -> dict:
+        calls = {"count": 0}
+
+        def refresh_endpoint(**kwargs):
+            calls["count"] += 1
+            return SimpleNamespace(
+                status_code=HTTPStatus.OK,
+                parsed=SimpleNamespace(
+                    access_token="rotated-access-token",
+                    refresh_token="rotated-refresh-token",
+                ),
+            )
+
+        monkeypatch.setattr(
+            "geolens.api.auth.refresh_auth_refresh_post.sync_detailed",
+            refresh_endpoint,
+        )
+        return calls
+
+    @pytest.mark.parametrize("sink", sorted(_SINKS))
+    @pytest.mark.parametrize("caller", ["whoami", "status"])
+    def test_a_storage_failure_after_a_successful_rotation_never_crashes(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sink: str, caller: str
+    ) -> None:
+        from geolens_cli import auth as _auth
+        from geolens_cli import config as _config
+        from geolens_cli._sdk_helpers import EXIT_AUTH
+        from geolens_cli.main import app
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        _config.write_default_instance(INSTANCE, username="alice")
+
+        self._SINKS[sink](self, monkeypatch, mock_keyring)
+        refresh_calls = self._setup_refresh_endpoint(monkeypatch)
+
+        warnings: list[str] = []
+        original_warning = _auth.log.warning
+
+        def spying_warning(event, **kwargs):
+            warnings.append(event)
+            return original_warning(event, **kwargs)
+
+        monkeypatch.setattr(_auth.log, "warning", spying_warning)
+
+        if caller == "whoami":
+            import geolens
+            import geolens.api.auth.me_auth_me_get as _me_mod
+            from unittest.mock import MagicMock
+
+            monkeypatch.setattr(geolens, "GeolensClient", MagicMock())
+            monkeypatch.setattr(
+                _me_mod,
+                "sync_detailed",
+                MagicMock(
+                    return_value=SimpleNamespace(status_code=HTTPStatus.UNAUTHORIZED, parsed=None)
+                ),
+            )
+            result = runner.invoke(app, ["--instance", INSTANCE, "whoami"])
+        else:
+            monkeypatch.setattr(
+                "geolens.api.datasets."
+                "get_single_dataset_datasets_dataset_id_get.sync_detailed",
+                lambda **kwargs: SimpleNamespace(
+                    status_code=HTTPStatus.UNAUTHORIZED, parsed=None
+                ),
+            )
+            result = runner.invoke(app, ["status", str(DATASET_ID)])
+
+        # No traceback: typer/click only ever produces a clean exit
+        # this way when nothing propagated out uncaught.
+        assert result.exception is None or isinstance(result.exception, SystemExit), (
+            f"an exception escaped: {result.exception!r}"
+        )
+        assert result.exit_code == EXIT_AUTH, result.output
+        # The refresh endpoint really was called (the rotation this
+        # test is about genuinely happened server-side) -- the bug this
+        # closes is specifically about what happens AFTER that succeeds.
+        assert refresh_calls["count"] == 1
+        # Exactly one warning explaining the situation, not a crash.
+        assert warnings.count("refresh_rotated_but_not_stored") == 1

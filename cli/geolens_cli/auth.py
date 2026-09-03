@@ -950,6 +950,26 @@ def try_refresh(instance: str) -> Optional[str]:
     BUG-013 fix: rotated tokens are written back to the SAME backend that
     held the original credential (file vs keyring) so that a file-backed
     credential is not shadowed by a newly keyring-written token.
+
+    fix(#1778 round 29): the optional-return contract ("None on failure,
+    never raise") covers the HTTP call and response parsing above, but
+    round 17-19 left the actual PERSISTENCE of a successful rotation
+    unguarded for two of its three sinks -- store_bearer_token()/
+    store_refresh_token() propagate uncaught when both the keyring
+    write AND the credentials.toml fallback fail (a locked keychain
+    plus a read-only XDG config dir, say). The only caller
+    (_sdk_helpers.call_sdk_with_reauth) does not catch storage
+    exceptions, so a command already deep in its own request handling
+    died with an unrelated traceback -- after the server had ALREADY
+    rotated the refresh token server-side, which is the specific thing
+    that makes this worse than an ordinary failed refresh: the OLD
+    refresh token is now invalid too, and nothing local recorded the
+    new one. Every sink is now covered: bearer + refresh-token writes
+    below are wrapped in ONE block, emitting exactly one warning and
+    returning None on ANY failure there (never raising); the
+    active_kind marker write keeps round 19's own separate, already-
+    non-fatal handling unchanged -- a marker-only failure must NOT
+    discard a rotation whose actual credentials already landed safely.
     """
     refresh = load_refresh_token(instance)
     if not refresh:
@@ -998,10 +1018,28 @@ def try_refresh(instance: str) -> Optional[str]:
     # load_bearer_token()'s file-over-keyring precedence, and commands
     # loop on refresh forever. `backend != "keyring"` reflects what
     # actually happened, exactly as replace_credentials() now does.
-    backend = store_bearer_token(instance, new_access, no_keyring=no_keyring)
-    new_refresh = getattr(parsed, "refresh_token", None)
-    if new_refresh:
-        store_refresh_token(instance, new_refresh, no_keyring=(backend != "keyring"))
+    # fix(#1778 round 29): both writes below can propagate -- see this
+    # function's own docstring. Wrapped together (not each in its own
+    # try/except) because they are one logical step from the caller's
+    # point of view: "persist the rotation," which either succeeds as
+    # a whole or is reported as a whole. Never logs a token value.
+    try:
+        backend = store_bearer_token(instance, new_access, no_keyring=no_keyring)
+        new_refresh = getattr(parsed, "refresh_token", None)
+        if new_refresh:
+            store_refresh_token(
+                instance, new_refresh, no_keyring=(backend != "keyring")
+            )
+    except Exception as exc:
+        log.warning(
+            "refresh_rotated_but_not_stored",
+            error=str(exc),
+            hint=(
+                "the server rotated this session but the new credentials "
+                "could not be saved locally -- run `geolens login` again"
+            ),
+        )
+        return None
     # fix(#1778 review round 19): the round-17 marker write below used
     # to be unconditional AND fatal -- an unwritable credentials.toml
     # (read-only or full XDG config dir) raised straight out of
