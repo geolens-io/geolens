@@ -31,13 +31,22 @@ OS-level permission error, and a value that is neither "bearer" nor
 failure, never silently collapse to "absent".
 
 24 (marker, keyring) combinations x 2 env states = 48 matrix rows.
+
+fix(#1807): plus one row the table's axes cannot express, at the
+bottom of this file -- the BACKEND itself moving mid-rotation, when
+store_bearer_token() falls back from the keyring to credentials.toml
+and the retained refresh token has to follow it. See that section's
+own comment for the finding.
 """
 from __future__ import annotations
 
 import pathlib as _pathlib
+from http import HTTPStatus
+from types import SimpleNamespace
 
 import pytest
 import typer
+from keyring.errors import KeyringError
 
 from geolens_cli import auth as _auth
 from geolens_cli import config as _config
@@ -217,3 +226,173 @@ class TestCredentialResolutionMatrixEnvSet:
         assert sdk.credential_kind == "bearer"
         assert sdk.credential_provenance == "env"
         assert sdk.client.token == ENV_TOKEN
+
+
+# ---------------------------------------------------------------------------
+# fix(#1807): the backend-fallback row of the refresh pairing matrix.
+#
+# Every row above holds the BACKEND fixed: a credential written to the
+# keyring stays in the keyring. store_bearer_token() can break that on
+# its own, though -- a transient or account-specific KeyringError makes
+# it fall back to credentials.toml even when the caller asked for the
+# keyring -- and try_refresh()'s "the server issued no new refresh
+# token" branch used to move only the pairing fingerprint with it,
+# leaving the retained refresh token behind in the keyring.
+#
+# The next refresh then read the two halves from different backends:
+# _detect_credential_backend() looks for a refresh_token in the FILE,
+# found none, answered "keyring," and wrote the newly rotated bearer
+# there -- where the stale file-backed bearer written by the fallback
+# outranks it under load_bearer_token()'s file-over-keyring precedence.
+# Every later command 401s, refreshes, 401s again, and never converges.
+#
+# This row drives the whole sequence through the real CLI: a bearer
+# whose keyring write fails once, a refresh response with no
+# replacement refresh token, then a second expiry with the keyring
+# healthy again.
+# ---------------------------------------------------------------------------
+
+OLD_BEARER = "kr-bearer-token-expired"
+RETAINED_REFRESH = "kr-refresh-token-retained"
+
+
+class _FakeAuthServer:
+    """A /auth/me + /auth/refresh pair where only the most recently
+    issued access token is accepted, and a refresh never issues a
+    replacement refresh token (the exact response shape this row is
+    about)."""
+
+    def __init__(self) -> None:
+        self.issued: list[str] = []
+        self.refresh_calls = 0
+        self.accepted: set[str] = set()
+
+    def issue(self, token: str) -> str:
+        self.issued.append(token)
+        self.accepted = {token}
+        return token
+
+    def expire_all(self) -> None:
+        self.accepted = set()
+
+    def refresh_endpoint(self, **kwargs):
+        self.refresh_calls += 1
+        rotated = self.issue(f"rotated-access-token-{self.refresh_calls}")
+        return SimpleNamespace(
+            status_code=HTTPStatus.OK,
+            # No replacement refresh token -- the retained one stays valid.
+            parsed=SimpleNamespace(access_token=rotated, refresh_token=None),
+        )
+
+    def me_endpoint(self, **kwargs):
+        presented = getattr(kwargs.get("client"), "token", None)
+        if presented not in self.accepted:
+            return SimpleNamespace(status_code=HTTPStatus.UNAUTHORIZED, parsed=None)
+        return SimpleNamespace(
+            status_code=HTTPStatus.OK,
+            parsed=SimpleNamespace(email="alice@example.com", id="u-1", role="admin"),
+        )
+
+
+class TestRefreshPairingBackendFallbackRow:
+    """fix(#1807): a keyring bearer write that falls back to the file
+    must take the RETAINED refresh token and its fingerprint with it,
+    and the profile must then converge on the file backend instead of
+    refreshing on every command."""
+
+    def _setup(self, mock_keyring, monkeypatch) -> tuple[_FakeAuthServer, dict]:
+        # A keyring-backed interactive session: bearer + refresh token
+        # + the fingerprint pairing them (round 31).
+        mock_keyring[("geolens", INSTANCE)] = OLD_BEARER
+        mock_keyring[("geolens", f"{INSTANCE}:refresh")] = RETAINED_REFRESH
+        mock_keyring[("geolens", f"{INSTANCE}:refresh_fp")] = _auth._fingerprint_bearer(
+            OLD_BEARER
+        )
+        _config.write_default_instance(INSTANCE, username="alice")
+
+        # The bearer ACCOUNT specifically refuses writes while this flag
+        # is on -- store_bearer_token()'s documented fallback trigger.
+        # Every other account (and this one, once the flag clears)
+        # writes normally.
+        fail_bearer_write = {"on": True}
+
+        def flaky_set_password(svc: str, user: str, pwd: str) -> None:
+            if fail_bearer_write["on"] and user == INSTANCE:
+                raise KeyringError("this account is temporarily locked")
+            mock_keyring[(svc, user)] = pwd
+
+        monkeypatch.setattr("keyring.set_password", flaky_set_password)
+
+        server = _FakeAuthServer()
+        server.issue(OLD_BEARER)
+        server.expire_all()  # the stored bearer is already expired
+        monkeypatch.setattr(
+            "geolens.api.auth.refresh_auth_refresh_post.sync_detailed",
+            server.refresh_endpoint,
+        )
+        monkeypatch.setattr(
+            "geolens.api.auth.me_auth_me_get.sync_detailed", server.me_endpoint
+        )
+        return server, fail_bearer_write
+
+    def test_retained_refresh_token_follows_the_bearer_into_the_file(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli.main import app
+
+        server, _ = self._setup(mock_keyring, monkeypatch)
+
+        result = runner.invoke(app, ["whoami"])
+
+        assert result.exit_code == 0, result.output
+        assert server.refresh_calls == 1
+        rotated = server.issued[-1]
+
+        section = _auth._read_credentials_file()[INSTANCE]
+        assert section["bearer_token"] == rotated, (
+            "the keyring write failed, so the rotated bearer must be in the file"
+        )
+        assert section["refresh_token"] == RETAINED_REFRESH, (
+            "the retained refresh token must move to the bearer's ACTUAL "
+            "backend, not stay behind in the keyring"
+        )
+        assert section["refresh_fingerprint"] == _auth._fingerprint_bearer(rotated), (
+            "the fingerprint must pair the retained token with the NEW bearer"
+        )
+        assert ("geolens", f"{INSTANCE}:refresh") not in mock_keyring, (
+            "the superseded keyring copy of the refresh token must be dropped"
+        )
+        assert ("geolens", f"{INSTANCE}:refresh_fp") not in mock_keyring, (
+            "the superseded keyring copy of the fingerprint must be dropped"
+        )
+
+    def test_the_next_refresh_converges_instead_of_looping(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli.main import app
+
+        server, fail_bearer_write = self._setup(mock_keyring, monkeypatch)
+
+        # 1. The expired stored bearer 401s, the fallback rotation runs.
+        assert runner.invoke(app, ["whoami"]).exit_code == 0
+        assert server.refresh_calls == 1
+
+        # 2. That rotated token expires too, with the keyring healthy
+        #    again -- the state the loop used to start from.
+        fail_bearer_write["on"] = False
+        server.expire_all()
+        assert runner.invoke(app, ["whoami"]).exit_code == 0
+        assert server.refresh_calls == 2
+
+        # 3. Nothing has expired since, so this command must simply use
+        #    the credential step 2 stored. Before the fix it read the
+        #    stale file bearer (step 2 wrote its rotation to the
+        #    keyring, where the file shadows it) and refreshed again.
+        result = runner.invoke(app, ["whoami"])
+        assert result.exit_code == 0, result.output
+        assert server.refresh_calls == 2, (
+            "a converged profile must not refresh again -- the bearer "
+            "resolved here is shadowed by a stale copy in the other backend"
+        )
+        resolved = _auth.load_bearer_token(INSTANCE)
+        assert resolved is not None and resolved.value == server.issued[-1]
