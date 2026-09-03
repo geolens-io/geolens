@@ -396,10 +396,15 @@ will not treat adoption as a collision override. Legacy `v1` markers are
 unscoped and therefore require the same one-time safe adoption as an unmarked
 dedicated login.
 
-Load `.env` into the verification shell and query through the runtime login:
+Load the needed values into the verification shell and query through the
+runtime login. `scripts/env-value.sh` reads `.env` through the same
+get_env_value parser `restore.sh`/`check-env.sh` use, never by sourcing it —
+an operator-typed value can legally contain characters `.` would execute:
 
 ```bash
-set -a; . ./.env; set +a
+GEOLENS_RUNTIME_DB_PASSWORD="$(scripts/env-value.sh GEOLENS_RUNTIME_DB_PASSWORD)"
+GEOLENS_RUNTIME_DB_ROLE="$(scripts/env-value.sh GEOLENS_RUNTIME_DB_ROLE)"
+POSTGRES_DB="$(scripts/env-value.sh POSTGRES_DB)"
 docker compose exec -T db env PGPASSWORD="$GEOLENS_RUNTIME_DB_PASSWORD" \
   psql -h 127.0.0.1 -U "$GEOLENS_RUNTIME_DB_ROLE" -d "$POSTGRES_DB" -c \
   "SELECT current_user, rolsuper, rolbypassrls, rolcreaterole,
@@ -525,8 +530,10 @@ first (step 0 of [full restore](#step-by-step-full-restore-db--object-storage)
 extracts all three artifacts together), then replay it **before** `pg_restore`:
 
 ```bash
-# Load .env so $POSTGRES_USER / $POSTGRES_DB are set in this shell.
-set -a; . ./.env; set +a
+# Load $POSTGRES_USER / $POSTGRES_DB via get_env_value (not shell-sourcing
+# .env — see the runtime-role verification note above for why).
+POSTGRES_USER="$(scripts/env-value.sh POSTGRES_USER)"
+POSTGRES_DB="$(scripts/env-value.sh POSTGRES_DB)"
 
 # On the new cluster, BEFORE pg_restore. Substitute the timestamp of the dump
 # you are restoring; ./restore is where step 0 put the extracted artifacts.
@@ -594,8 +601,9 @@ may serve traffic until 2b has finished. Managed/external Postgres: drop the
 `docker compose exec -T db` prefix and pass the provider's `-h`, `-p`, and `-U`
 instead.
 
-Keep `.env` loaded in this shell (`set -a; . ./.env; set +a`, as in step 1) —
-`$POSTGRES_USER` and `$POSTGRES_DB` expand on the host, not in the container.
+Keep `$POSTGRES_USER`/`$POSTGRES_DB` set in this shell (via
+`scripts/env-value.sh`, as in step 1) — they expand on the host, not in the
+container.
 The dump path is a host path; copy the dump out of the `backup_data` volume
 first, exactly as in "Step-by-step: full restore" below.
 

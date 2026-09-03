@@ -713,6 +713,19 @@ if [ -n "$migrate_cid" ]; then
     compose logs --tail 30 migrate 2>&1 | sed 's/^/  /' >&2
     fail "Migrations did NOT complete. The database may already hold part of ${TARGET_VERSION}'s migrations, and $TARGET_VERSION was NOT started. The version pin in .env still reads ${PREVIOUS_VERSION}."
   fi
+else
+  # fix(#1798 review round 11 audit, low-confidence item): `compose up -d
+  # --no-deps migrate` just reported success starting this exact
+  # container, and `ps -aq` (unlike a bare `ps -q`) includes stopped/
+  # exited ones — so an EMPTY migrate_cid here means something already
+  # went wrong (a Docker-level race or daemon hiccup) between that success
+  # and this lookup, not a normal "not created yet" state the way it can
+  # be for the db-image-staleness probes elsewhere in this file. Silently
+  # falling through to "migrations applied." would tell the operator (and
+  # the code below that commits the upgrade forward, unarming the
+  # rollback trap) that the schema is safe to build on when there is no
+  # evidence it ran at all.
+  fail "Could not find the migrate one-shot container after starting it — migrations may not have run. $TARGET_VERSION was NOT started and the version pin in .env still reads ${PREVIOUS_VERSION}."
 fi
 say "  migrations applied."
 # Committed forward. The schema is the new release's, so the trap must not put

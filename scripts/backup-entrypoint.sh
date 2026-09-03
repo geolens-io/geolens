@@ -536,17 +536,60 @@ upload_to_s3() {
 # like " geo_<ts>.dump" (POSTGRES_DB=" geo") still lost its leading space.
 # There is no whitespace-safe way to recover a key from a whitespace-column
 # text format when the key itself may contain arbitrary whitespace — the
-# fix is to stop using that format. The JSON API returns each key as one
-# already-delimited string; no column parsing of any kind happens below
-# this function, so round 5's per-caller `read -r _d _t _s name` parsing is
-# gone too (see s3_newest_complete_ts and prune_s3_prefix).
+# fix is to stop using that format.
 #
-# Prints one object key per line to stdout on success (including the
-# empty-prefix case, where it prints nothing) and returns 0; returns 1 only
-# for a genuine failure, with the reason logged.
+# fix(#1798 review round 11, P2): switched again — from one bare key per
+# NEWLINE-terminated line to one bare key per NUL-terminated record.
+# common.sh's round-10 fix made this script's cousins correctly decode
+# Compose's documented `\n`/`\r`/`\t` escapes in a double-quoted .env value,
+# which means POSTGRES_DB (and therefore every dump/companion filename
+# built from it) can legally contain an embedded NEWLINE, not just a tab —
+# `print(key)` (newline-terminated) turned ONE such key into what LOOKED
+# like two separate listing lines to every downstream `while read` loop,
+# which then kept only the suffix after the embedded newline and issued
+# `aws s3 rm` against a key that was never in the bucket: the real dump
+# survived, and retention reported the cycle unhealthy forever, every
+# cycle, with no way to self-heal. NUL is the one byte an S3 key can never
+# contain (AWS rejects it outright), so it is the only delimiter that is
+# unconditionally safe regardless of what the key holds — newline and tab
+# both remain legal key bytes and are NOT safe delimiters. `sys.stdout
+# .buffer.write(...)` (not `print`) writes raw bytes with an explicit
+# trailing `\0`, matching what `while IFS= read -r -d '' rec; do ...; done`
+# expects on the bash side.
+#
+# Bash strings (and therefore `$(...)` command substitution) cannot hold a
+# NUL byte at all, so this function's contract changed: it no longer
+# returns the listing via stdout captured into a variable — it WRITES the
+# NUL-terminated listing to the file path the caller passes as $2. Every
+# caller reads that file with `read -r -d ''` into a bash ARRAY (see
+# prune_s3_prefix below); an array element is never re-split on anything,
+# so a key survives with every embedded newline, tab, or leading/internal
+# space intact all the way to the `aws s3 rm` argv it is finally used in.
+#
+# On sh/dash portability: `read -d ''` and bash arrays are bash-only
+# (POSIX sh has neither). This file's shebang is already `#!/usr/bin/env
+# bash` (never `sh`), it is invoked directly by exec-form `entrypoint:
+# ["/scripts/backup-entrypoint.sh"]` in both compose files and by
+# `ENTRYPOINT` in the Dockerfile — never via `sh -c` or `sh
+# backup-entrypoint.sh` — and it has relied on other bash-only features
+# ([[ ]], `aws_args=()` arrays, `<<<`, `< <(...)`) throughout since long
+# before this fix. The postgres:18 base image carries bash for exactly
+# this reason. There is no sh/dash-invoked consumer of these functions to
+# support, so the whole selection/deletion decision stays in bash rather
+# than moving into python and handing bash only a NUL-separated delete
+# list for `xargs -0` — that split would buy nothing here and would cost
+# the existing per-key error handling (a failed `aws s3 rm` must not drop
+# its dump from the kept set; see the deletion loop below) a second
+# bash<->python round trip to preserve.
+#
+# Prints one object key per NUL-terminated record to the file at $2 on
+# success (including the empty-prefix case, where the file ends up empty)
+# and returns 0; returns 1 only for a genuine failure, with the reason
+# logged.
 s3_list_prefix() {
     local prefix="$1"
-    shift
+    local out_file="$2"
+    shift 2
 
     local out err rc=0
     out="$(mktemp)" || return 1
@@ -565,27 +608,30 @@ s3_list_prefix() {
     # than assumed impossible across every awscli version this image might
     # run.
     if [ "$rc" -eq 0 ] || { [ "$rc" -eq 1 ] && [ ! -s "$out" ] && [ ! -s "$err" ]; }; then
-        # fix(#1778 review round 6, P2): the JSON tool actually available
-        # in this image — checked against the built backup stage
-        # (Dockerfile): no jq, but the `awscli` apt package pulls in
-        # python3 as a transitive dependency (verified present: `aws`
-        # itself is a python3 script). Prints each `.Contents[].Key`
-        # value with the "backups/<prefix>/" directory portion stripped
+        # fix(#1778 review round 6, P2 / round 11, P2): the JSON tool
+        # actually available in this image — checked against the built
+        # backup stage (Dockerfile): no jq, but the `awscli` apt package
+        # pulls in python3 as a transitive dependency (verified present:
+        # `aws` itself is a python3 script). Writes each `.Contents[].Key`
+        # value, with the "backups/<prefix>/" directory portion stripped
         # (matching the bare filename `aws s3 ls` used to hand callers)
-        # and every remaining byte — including leading/internal spaces —
-        # untouched. An empty or Contents-less response prints nothing.
+        # and every remaining byte — including embedded newlines/tabs and
+        # leading/internal spaces — untouched, NUL-terminated to $out_file.
+        # An empty or Contents-less response writes nothing.
         if python3 -c '
 import json, sys
 
 raw = sys.stdin.read()
 data = json.loads(raw) if raw.strip() else {}
 strip = "backups/" + sys.argv[1] + "/"
+out = sys.stdout.buffer
 for obj in data.get("Contents", []):
     key = obj["Key"]
     if key.startswith(strip):
         key = key[len(strip):]
-    print(key)
-' "$prefix" < "$out"; then
+    out.write(key.encode("utf-8", "surrogateescape"))
+    out.write(b"\0")
+' "$prefix" < "$out" > "$out_file"; then
             rm -f "$out" "$err"
             return 0
         fi
@@ -594,15 +640,14 @@ for obj in data.get("Contents", []):
         return 1
     fi
 
-    # fix(#1778 review round 3, P2): this function's caller captures stdout
-    # via `ls_output="$(s3_list_prefix ...)"` — a bare `log` call here (the
-    # file's log() is a plain `echo`, no redirect) would be swallowed into
-    # that command substitution instead of reaching the container log, so
-    # the operator sees only the generic "offsite objects were not pruned"
-    # symptom with none of the diagnostic. Every log call in a function
-    # whose stdout is consumed by the caller (this one, backup_staging,
-    # backup_globals) must go to stderr for the same reason; the latter two
-    # already do.
+    # fix(#1778 review round 3, P2): this function's caller reads the
+    # listing from a file it wrote (round 11) rather than stdout captured
+    # via `$(...)`, but the same reasoning still applies to `log` here: the
+    # file's log() is a plain `echo`, no redirect, and belongs on stderr so
+    # it reaches the container log instead of getting lost. Every log call
+    # in a function whose stdout is otherwise consumed by the caller (this
+    # one, backup_staging, backup_globals) must go to stderr for the same
+    # reason; the latter two already do.
     log "ERROR: could not list s3://${S3_BUCKET}/backups/${prefix}/ for retention pruning (exit ${rc}): $(cat "$err" 2>/dev/null) — offsite objects were not pruned this cycle" >&2
     rm -f "$out" "$err"
     return 1
@@ -625,35 +670,44 @@ for obj in data.get("Contents", []):
 #
 # fix(#1778 review round 2, P1): the S3 analogue of newest_complete_ts()
 # below — the timestamp of the newest set that is COMPLETE (a *.dump object
-# with the globals-*.sql that pairs with it), read from the SAME `aws s3 ls`
-# listing prune_s3_prefix already fetched (no second S3 round trip). Without
-# this, a partial upload cycle (the dump uploads, the globals upload fails)
-# can destroy the only complete offsite set: the partial cycle's own dump
-# still counts toward `keep`, evicts the previous COMPLETE dump under
+# with the globals-*.sql that pairs with it), read from the SAME listing
+# prune_s3_prefix already fetched (no second S3 round trip). Without this,
+# a partial upload cycle (the dump uploads, the globals upload fails) can
+# destroy the only complete offsite set: the partial cycle's own dump still
+# counts toward `keep`, evicts the previous COMPLETE dump under
 # BACKUP_RETENTION_DAILY=1, and that complete dump's globals companion is
 # pruned right behind it as an orphan in the very same cycle — a
 # disaster-recovery restore then has a dump but no globals to rebuild roles
 # on a fresh cluster.
+#
+# fix(#1798 review round 11, P2): takes the listing as POSITIONAL
+# PARAMETERS ("$@"), one key per parameter, instead of a newline-joined
+# string — the caller expands a bash array into this call, and array
+# elements are never re-split, so a key containing a newline or tab is one
+# parameter here, not several. The `_${ts}.dump` membership check below
+# used to be `grep -qE ... <<< "$names"` over a newline-joined blob, which
+# would have matched a `.dump` suffix trapped inside a DIFFERENT key's
+# embedded newline; a plain `[[ glob ]]` test against each parameter in
+# turn cannot cross a parameter boundary at all.
 s3_newest_complete_ts() {
-    local listing="$1"
-    local names name ts best=""
-    # fix(#1778 review round 6, P2): $listing is now s3_list_prefix's JSON
-    # output already reduced to one bare key per line (see its comment) —
-    # there are no date/time/size columns left to strip, so round 5's
-    # fixed-column `read` (itself a fix for round 3's `awk '{print $NF}'`
-    # truncating a key with a space) is no longer needed at all.
-    names="$listing"
-    while IFS= read -r name; do
+    local name ts best="" n2 matched
+    for name in "${@:-}"; do
+        [ -n "$name" ] || continue
         if [[ "$name" == globals-*.sql ]]; then
             ts="$(printf '%s' "$name" | sed -nE 's/^globals-([0-9]{8}_[0-9]{6})\.sql$/\1/p')"
             [ -n "$ts" ] || continue
-            if printf '%s\n' "$names" | grep -qE "_${ts}\.dump\$"; then
-                if [ -z "$best" ] || [ "$ts" \> "$best" ]; then
-                    best="$ts"
+            matched=0
+            for n2 in "${@:-}"; do
+                if [[ "$n2" == *"_${ts}.dump" ]]; then
+                    matched=1
+                    break
                 fi
+            done
+            if [ "$matched" -eq 1 ] && { [ -z "$best" ] || [ "$ts" \> "$best" ]; }; then
+                best="$ts"
             fi
         fi
-    done <<< "$names"
+    done
     printf '%s' "$best"
 }
 
@@ -685,39 +739,25 @@ prune_s3_prefix() {
     # EMPTY prefix (no objects at all — e.g. weekly/ before the first Sunday
     # cycle) is not a failure; s3_list_prefix distinguishes the two (see its
     # comment above).
-    local ls_output
-    ls_output="$(s3_list_prefix "$prefix" "${aws_args[@]}")" || return 1
+    #
+    # fix(#1798 review round 11, P2): the listing is now a NUL-terminated
+    # file, read once into a bash ARRAY — every pass below (protection,
+    # retention counting, orphan detection) iterates or expands that array,
+    # never a newline-joined string, so an embedded newline or tab in a key
+    # can never be mistaken for a record or field boundary again.
+    local listing_file
+    listing_file="$(mktemp)" || return 1
+    if ! s3_list_prefix "$prefix" "$listing_file" "${aws_args[@]:-}"; then
+        rm -f "$listing_file"
+        return 1
+    fi
 
-    # "<timestamp>\t<name>" for every *.dump object, oldest first. A `[[ ]]`
-    # glob test (not `case`, and not `grep`) filters the suffix, and
-    # `sed -nE ...p` (not `grep -oE`) extracts the timestamp — two separate
-    # bash pitfalls, both real:
-    #   - this file runs under `set -euo pipefail`, and a `grep` that matches
-    #     nothing exits 1 — on the ordinary "nothing to prune yet" cycle that
-    #     would abort the whole backup, not just skip pruning. `[[ ]]` and
-    #     `sed -n` both exit 0 regardless of whether anything matched, the
-    #     same reason dump_listing() below uses `find` (never errors on zero
-    #     matches) and `sed -nE`.
-    #   - a `case`/`esac` block that both sits inside a `$( )` command
-    #     substitution AND contains its own nested `$( )` confuses bash's
-    #     parser (measured on bash 5.2: "syntax error near unexpected token
-    #     `newline'") — `[[ ]]` sidesteps it entirely.
-    local dumps name ts
-    # fix(#1778 review round 6, P2): $ls_output is now s3_list_prefix's
-    # JSON-derived output — one bare key per line, nothing else — so round
-    # 5's fixed-column `read -r _d _t _s name` (needed only to skip the
-    # date/time/size columns `aws s3 ls` used to print) is gone; there are
-    # no other columns left to skip.
-    dumps="$(
-        while IFS= read -r name; do
-            [ -n "$name" ] || continue
-            if [[ "$name" == *.dump ]]; then
-                ts="$(printf '%s' "$name" | sed -nE 's/^.*[_-]([0-9]{8}_[0-9]{6})\.dump$/\1/p')"
-                [ -n "$ts" ] || continue
-                printf '%s\t%s\n' "$ts" "$name"
-            fi
-        done <<< "$ls_output" | sort
-    )"
+    local -a all_names=()
+    local name
+    while IFS= read -r -d '' name; do
+        all_names+=("$name")
+    done < "$listing_file"
+    rm -f "$listing_file"
 
     # fix(#1778 review, P2): a `| while` loop runs in a SUBSHELL — a `local`
     # variable set inside it (a failure flag) never reaches this function's
@@ -725,10 +765,10 @@ prune_s3_prefix() {
     # from *inside* that subshell and the loop (and therefore the pipeline,
     # and therefore this function) still exited 0: `cycle_failed` in
     # run_backup never got set, `.last-success` was touched, and the offsite
-    # bucket kept growing with the healthcheck reporting green. Both deletion
-    # loops below use `< <(...)` process substitution instead of `| while` —
-    # the loop body then runs in THIS shell, so `rm_failed=1` actually
-    # persists past the loop.
+    # bucket kept growing with the healthcheck reporting green. Neither
+    # deletion loop below uses `| while` (round 11 moved both to plain
+    # `for` over bash arrays, which never subshells), so `rm_failed=1`
+    # correctly persists past both.
     local rm_failed=0
 
     # fix(#1778 review round 2, P1): protect the newest COMPLETE set (a dump
@@ -739,102 +779,141 @@ prune_s3_prefix() {
     # s3_newest_complete_ts's comment above for why this matters more here
     # than it might look: a partial upload cycle can otherwise take out the
     # only restorable-onto-a-fresh-cluster set in a single pass.
-    local protect protect_line=""
-    protect="$(s3_newest_complete_ts "$ls_output")"
-    if [ -n "$protect" ]; then
-        protect_line="$(printf '%s\n' "$dumps" | grep "^${protect}	" || true)"
+    local protect=""
+    if [ "${#all_names[@]}" -gt 0 ]; then
+        protect="$(s3_newest_complete_ts "${all_names[@]:-}")"
     fi
 
-    local candidates
-    if [ -n "$protect" ]; then
-        candidates="$(printf '%s\n' "$dumps" | grep -v "^${protect}	" || true)"
-    else
-        candidates="$dumps"
-    fi
-
-    if [ -n "$candidates" ]; then
-        local count
-        count="$(printf '%s\n' "$candidates" | wc -l | tr -d ' ')"
-        if [ "$count" -gt "$keep" ]; then
-            local to_remove=$((count - keep))
-            log "Pruning ${to_remove} old offsite backup(s) from s3://${S3_BUCKET}/backups/${prefix}/"
-            # fix(#1778 review round 3, P2): a dump whose `aws s3 rm` FAILED
-            # is still an object in S3 — it must not be dropped from the
-            # kept set below just because it was sliced off the candidate
-            # list for deletion. Before this fix, a failed dump deletion
-            # left the dump behind but its timestamp missing from `dumps`,
-            # so the orphan-companion pass right below read its globals/
-            # staging as orphaned and deleted them, turning a complete
-            # backup set into an incomplete one.
-            local -a failed_lines=()
-            # fix(#1798 review round 8, P2): `IFS=$'\t' read -r line_ts
-            # line_name` treats tab as IFS WHITESPACE — a run of consecutive
-            # tabs collapses into ONE delimiter and a LEADING one is
-            # stripped from the field that follows. A key beginning with a
-            # tab (rare, but legal in S3) sits right after this record's own
-            # ts<TAB>name separator, so the two tabs collapsed into one and
-            # the key's own leading tab was silently eaten — `aws s3 rm`
-            # then targeted a key that was never in the bucket, the real
-            # object survived, and the cycle still reported success at
-            # deleting it. `cut` has no such collapsing: `-f1` is everything
-            # up to the FIRST tab (the timestamp — always exactly one
-            # delimiter in, since it is a strict digit/underscore match with
-            # no tabs of its own) and `-f2-` is everything AFTER it,
-            # re-joined with the original delimiter rather than
-            # word-split — an embedded or leading tab in the name survives
-            # verbatim. `IFS= read -r line_record` (no splitting at all)
-            # reads the whole "ts<TAB>name" line into one variable first, so
-            # neither field is ever exposed to read's own splitting.
-            while IFS= read -r line_record; do
-                [ -n "$line_record" ] || continue
-                line_ts="$(printf '%s' "$line_record" | cut -f1)"
-                line_name="$(printf '%s' "$line_record" | cut -f2-)"
-                [ -n "$line_name" ] || continue
-                if ! aws s3 rm "s3://${S3_BUCKET}/backups/${prefix}/${line_name}" "${aws_args[@]}" > /dev/null; then
-                    log "ERROR: could not delete s3://${S3_BUCKET}/backups/${prefix}/${line_name}"
-                    rm_failed=1
-                    failed_lines+=("${line_ts}	${line_name}")
-                fi
-            done < <(printf '%s\n' "$candidates" | head -n "$to_remove")
-            candidates="$(printf '%s\n' "$candidates" | tail -n "+$((to_remove + 1))")"
-            if [ "${#failed_lines[@]}" -gt 0 ]; then
-                candidates="$(printf '%s\n' "$candidates" "${failed_lines[@]}" | sed '/^$/d' | sort)"
+    # fix(#1798 review round 11, P2): dump timestamp/name are two PARALLEL
+    # arrays, indexed together, not a single "ts\tname" string. That
+    # tab-joined text record (round 8's own fix for a key containing a
+    # tab) was itself still a newline-delimited multi-record blob under
+    # the hood (`dumps="$(... | sort)"`, then `grep`/`cut`/`head`/`tail`
+    # over it) — safe against a tab INSIDE one record, never safe against
+    # a newline splitting one record into two. Splitting ts and name into
+    # separate arrays removes every text-joining step a key's own bytes
+    # could collide with; nothing about a dump name is ever fed through
+    # `sort`, `grep`, `cut`, `head`, or `tail` again.
+    local -a dump_ts=() dump_name=()
+    local -a protect_ts=() protect_name=()
+    local ts
+    for name in "${all_names[@]:-}"; do
+        [ -n "$name" ] || continue
+        if [[ "$name" == *.dump ]]; then
+            # `sed -nE ...p` (not `grep -oE`) extracts the timestamp: this
+            # file runs under `set -euo pipefail`, and a `grep` that
+            # matches nothing exits 1 — on the ordinary "nothing to prune
+            # yet" cycle that would abort the whole backup, not just skip
+            # pruning. `sed -n` exits 0 regardless of whether anything
+            # matched, the same reason dump_listing() below uses `find`
+            # (never errors on zero matches).
+            ts="$(printf '%s' "$name" | sed -nE 's/^.*[_-]([0-9]{8}_[0-9]{6})\.dump$/\1/p')"
+            [ -n "$ts" ] || continue
+            if [ -n "$protect" ] && [ "$ts" = "$protect" ]; then
+                protect_ts+=("$ts")
+                protect_name+=("$name")
+            else
+                dump_ts+=("$ts")
+                dump_name+=("$name")
             fi
         fi
+    done
+
+    # Sort dump_ts/dump_name together, oldest first, via a NUL-safe INDEX
+    # permutation: real `sort` runs over "<timestamp> <index>" lines —
+    # both fields are always plain, whitespace-free ASCII (the timestamp
+    # is a strict digit/underscore match; the index is a small integer) —
+    # never over a dump NAME, so a name's own newlines/tabs never reach a
+    # text-processing tool that would treat them as record or field
+    # separators. The sorted index order is then used to permute the
+    # actual (ts, name) arrays.
+    if [ "${#dump_ts[@]}" -gt 0 ]; then
+        local _i sort_input=""
+        for ((_i = 0; _i < ${#dump_ts[@]}; _i++)); do
+            sort_input="${sort_input}${dump_ts[$_i]} ${_i}"$'\n'
+        done
+        local -a order=()
+        local _sts _sidx
+        while IFS=' ' read -r _sts _sidx; do
+            [ -n "$_sidx" ] || continue
+            order+=("$_sidx")
+        done < <(printf '%s' "$sort_input" | sort)
+        local -a sorted_ts=() sorted_name=()
+        for _i in "${order[@]:-}"; do
+            [ -n "$_i" ] || continue
+            sorted_ts+=("${dump_ts[$_i]}")
+            sorted_name+=("${dump_name[$_i]}")
+        done
+        dump_ts=("${sorted_ts[@]:-}")
+        dump_name=("${sorted_name[@]:-}")
+    fi
+
+    local count="${#dump_ts[@]}"
+    if [ "$count" -gt "$keep" ]; then
+        local to_remove=$((count - keep))
+        log "Pruning ${to_remove} old offsite backup(s) from s3://${S3_BUCKET}/backups/${prefix}/"
+        # fix(#1778 review round 3, P2): a dump whose `aws s3 rm` FAILED
+        # is still an object in S3 — it must not be dropped from the
+        # kept set below just because it was sliced off the candidate
+        # list for deletion. Before this fix, a failed dump deletion
+        # left the dump behind but its timestamp missing from the kept
+        # set, so the orphan-companion pass right below read its globals/
+        # staging as orphaned and deleted them, turning a complete
+        # backup set into an incomplete one.
+        local -a failed_ts=() failed_name=()
+        local _i
+        for ((_i = 0; _i < to_remove; _i++)); do
+            if ! aws s3 rm "s3://${S3_BUCKET}/backups/${prefix}/${dump_name[$_i]}" "${aws_args[@]:-}" > /dev/null; then
+                log "ERROR: could not delete s3://${S3_BUCKET}/backups/${prefix}/${dump_name[$_i]}"
+                rm_failed=1
+                failed_ts+=("${dump_ts[$_i]}")
+                failed_name+=("${dump_name[$_i]}")
+            fi
+        done
+        local -a surviving_ts=() surviving_name=()
+        for ((_i = to_remove; _i < count; _i++)); do
+            surviving_ts+=("${dump_ts[$_i]}")
+            surviving_name+=("${dump_name[$_i]}")
+        done
+        if [ "${#failed_ts[@]}" -gt 0 ]; then
+            surviving_ts+=("${failed_ts[@]}")
+            surviving_name+=("${failed_name[@]}")
+        fi
+        dump_ts=("${surviving_ts[@]:-}")
+        dump_name=("${surviving_name[@]:-}")
     fi
 
     # Recombine the surviving candidates with the protected entry (if any) —
     # its companion must not be pruned as an orphan below just because the
     # protected dump sat outside the count-based candidate set.
-    if [ -n "$protect_line" ]; then
-        dumps="$(printf '%s\n%s\n' "$candidates" "$protect_line" | sed '/^$/d' | sort)"
-    else
-        dumps="$candidates"
+    if [ "${#protect_ts[@]}" -gt 0 ]; then
+        dump_ts+=("${protect_ts[@]}")
+        dump_name+=("${protect_name[@]}")
     fi
-    local kept_ts
-    kept_ts="$(printf '%s\n' "$dumps" | cut -f1)"
+    local -a kept_ts=("${dump_ts[@]:-}")
 
-    # fix(#1778 review round 6, P2): same simplification as the dumps loop
-    # above — $ls_output is already one bare key per line (no date/time/
-    # size columns to skip), so round 5's fixed-column `read` is gone here
-    # too. It also could not have fully fixed this loop on its own: `read`
-    # strips LEADING whitespace off the field it assigns, so a key like
-    # " geo_<ts>.dump" (POSTGRES_DB=" geo") still lost its leading space
-    # even with the column-aware read. The JSON listing has no such gap —
-    # every byte of the key survives from `.Contents[].Key` to here.
-    while IFS= read -r name; do
+    for name in "${all_names[@]:-}"; do
+        [ -n "$name" ] || continue
         if [[ "$name" == *.sql || "$name" == *.tar.gz ]]; then
             ts="$(printf '%s' "$name" | sed -nE 's/^.*[_-]([0-9]{8}_[0-9]{6})\.(sql|tar\.gz)$/\1/p')"
             [ -n "$ts" ] || continue
-            if ! printf '%s\n' "$kept_ts" | grep -qx "$ts"; then
+            local _found=0 _kt
+            for _kt in "${kept_ts[@]:-}"; do
+                [ -n "$_kt" ] || continue
+                if [ "$_kt" = "$ts" ]; then
+                    _found=1
+                    break
+                fi
+            done
+            if [ "$_found" -eq 0 ]; then
                 log "Pruning orphaned s3://${S3_BUCKET}/backups/${prefix}/${name} (its dump aged out)"
-                if ! aws s3 rm "s3://${S3_BUCKET}/backups/${prefix}/${name}" "${aws_args[@]}" > /dev/null; then
+                if ! aws s3 rm "s3://${S3_BUCKET}/backups/${prefix}/${name}" "${aws_args[@]:-}" > /dev/null; then
                     log "ERROR: could not delete s3://${S3_BUCKET}/backups/${prefix}/${name}"
                     rm_failed=1
                 fi
             fi
         fi
-    done <<< "$ls_output"
+    done
 
     # fix(#1778 review, P2): surface a partial-prune cycle to the caller so
     # run_backup marks it failed (cycle_failed=1) — the same treatment a

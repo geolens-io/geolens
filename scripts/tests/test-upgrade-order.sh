@@ -149,7 +149,17 @@ if [ "$1" = "compose" ]; then
       # the gate passes immediately. `ps -q <service>` -> a per-service cid
       # for wait_for_healthy's start_period lookup (test(#826)).
       for a in "$@"; do
-        if [ "$a" = "migrate" ]; then echo "mig-cid"; exit 0; fi
+        if [ "$a" = "migrate" ]; then
+          # fix(#1798 review round 11 audit, low-confidence item):
+          # DOCKER_MIGRATE_CID_MISSING models `compose ps -aq migrate`
+          # finding nothing right after `compose up -d --no-deps migrate`
+          # just reported success starting it — a Docker-level race the
+          # upgrade script must now fail loudly on instead of silently
+          # treating as "migrations applied."
+          [ "${DOCKER_MIGRATE_CID_MISSING:-0}" = "1" ] && exit 0
+          echo "mig-cid"
+          exit 0
+        fi
       done
       case "$*" in
         *--format*)
@@ -397,6 +407,7 @@ run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
       DOCKER_DB_RUNNING_IMAGE_ID="${DB_RUNNING_IMAGE_ID:-}" \
       DOCKER_DB_BUILT_IMAGE_ID="${DB_BUILT_IMAGE_ID:-}" \
       DOCKER_DB_BUILT_IMAGE_MISSING="${DB_BUILT_IMAGE_MISSING:-0}" \
+      DOCKER_MIGRATE_CID_MISSING="${MIGRATE_CID_MISSING:-0}" \
       sh "$FAKE/scripts/upgrade.sh" "$@" </dev/null > "$WORK/out.txt" 2>&1 )
   echo $? > "$WORK/code.txt"
 }
@@ -1508,6 +1519,36 @@ else
   sed 's/^/    # /' "$WORK/out.txt"
 fi
 reset_db_image_probe
+
+# ============================================================================
+# CASE 12 — fix(#1798 review round 11 audit, low-confidence item): `compose
+# ps -aq migrate` finding NOTHING right after `compose up -d --no-deps
+# migrate` just reported success starting it used to be silently treated
+# as "migrations applied" (the exit-code check was skipped entirely, not
+# just the belated container). The upgrade now fails loudly instead.
+# ============================================================================
+seed_prod_env
+MIGRATE_CID_MISSING=1
+run_upgrade ok 1.2.4
+MIGRATE_CID_MISSING=0
+
+if [ "$(cat "$WORK/code.txt")" != "0" ] \
+   && grep -qF "Could not find the migrate one-shot container" "$WORK/out.txt"; then
+  ok "an empty migrate_cid after a successful compose up fails the upgrade loudly"
+else
+  bad "an empty migrate_cid did not fail the upgrade (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+if [ -z "$(pos_of app_up)" ]; then
+  ok "the NEW app is never brought up when the migrate container could not be found"
+else
+  bad "the new app was brought up despite the missing migrate container: calls=$(tr '\n' ',' < "$WORK/calls.log")"
+fi
+if [ -n "$(pos_of restore_app)" ]; then
+  ok "the previous release is restored, matching every other migrate-step failure"
+else
+  bad "no restore was attempted after the missing migrate container: calls=$(tr '\n' ',' < "$WORK/calls.log")"
+fi
 
 echo "1..$((PASS + FAIL))"
 echo "# $PASS passed, $FAIL failed"

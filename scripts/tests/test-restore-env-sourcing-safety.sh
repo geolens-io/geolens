@@ -483,6 +483,78 @@ else
   bad "restore.sh fell back to the 'geolens' default instead of the process-environment override"
 fi
 
+
+# ============================================================================
+# CASE 7 — fix(#1798 review round 11 audit, P2): a leading UTF-8 BOM (bytes
+# EF BB BF, common from PowerShell's default UTF-8 output or some Windows
+# editors saving .env) sits BEFORE the first line's own text, so `^KEY=`
+# never matched a key on line 1 at all — get_env_value returned "not
+# found" (rc=1) for a key that genuinely IS on line 1, and every guarded
+# caller's fallback then silently kept the inherited/unset value instead
+# of the operator's actual setting.
+# ============================================================================
+BOM_ENV="$WORK/.env.bom"
+printf '\357\273\277POSTGRES_DB=geolens\n' > "$BOM_ENV"
+
+BOM_DRIVER="$WORK/bom_driver.sh"
+cat > "$BOM_DRIVER" <<DRIVER
+#!/bin/sh
+set -eu
+. "$FAKE/scripts/lib/common.sh"
+if val="\$(get_env_value POSTGRES_DB "$BOM_ENV")"; then
+  echo "FOUND:[\$val]"
+else
+  echo "NOTFOUND:[]"
+fi
+DRIVER
+BOM_OUT="$(sh "$BOM_DRIVER" 2>&1)"
+
+if [ "$BOM_OUT" = "FOUND:[geolens]" ]; then
+  ok "a BOM-prefixed single-line .env still returns its key's value"
+else
+  bad "a BOM-prefixed single-line .env did not return the value (got: $BOM_OUT)"
+fi
+
+# ============================================================================
+# CASE 8 — fix(#1798 review round 11 audit, P2): _env_interpolate's
+# multi-pass loop resolves a chained ${VAR} reference by looking up the
+# REFERENCED key's raw value and re-scanning IT for further ${VAR} tokens —
+# but it reused the OUTER key's own `before_line` bound for every
+# subsequent pass, instead of re-deriving the bound for each newly
+# substituted value's OWN defining line. With C=orig / B=${C} / C=updated
+# (C redefined AFTER B) / A=${B}: resolving B directly correctly bounds the
+# ${C} lookup to "before B's own line" and gets "orig" — but resolving A
+# (a DIFFERENT key, defined after both C definitions) reused A's own
+# before_line for the ${C} token that came from substituting B's value,
+# so that lookup saw the LATER "C=updated" line too and returned
+# "updated" instead of "orig". A and B must agree on what ${C} means.
+# ============================================================================
+CHAIN_ENV="$WORK/.env.chain"
+cat > "$CHAIN_ENV" <<'EOF'
+C=orig
+B="${C}"
+C=updated
+A="${B}"
+EOF
+
+CHAIN_DRIVER="$WORK/chain_driver.sh"
+cat > "$CHAIN_DRIVER" <<DRIVER
+#!/bin/sh
+set -eu
+. "$FAKE/scripts/lib/common.sh"
+echo "A:[\$(get_env_value A "$CHAIN_ENV")]"
+echo "B:[\$(get_env_value B "$CHAIN_ENV")]"
+DRIVER
+CHAIN_OUT="$(sh "$CHAIN_DRIVER" 2>&1)"
+A_VAL="$(printf '%s\n' "$CHAIN_OUT" | sed -n 's/^A:\[\(.*\)\]$/\1/p')"
+B_VAL="$(printf '%s\n' "$CHAIN_OUT" | sed -n 's/^B:\[\(.*\)\]$/\1/p')"
+
+if [ "$A_VAL" = "$B_VAL" ]; then
+  ok "a chained \${VAR} reference resolves consistently regardless of which key asks for it (A=[$A_VAL] B=[$B_VAL])"
+else
+  bad "a chained \${VAR} reference resolved inconsistently: A=[$A_VAL] B=[$B_VAL] (expected both to equal B's own resolution)"
+fi
+
 echo "1..$((PASS + FAIL))"
 echo "# ${PASS} passed, ${FAIL} failed"
 [ "$FAIL" -eq 0 ]

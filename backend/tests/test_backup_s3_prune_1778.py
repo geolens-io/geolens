@@ -51,7 +51,12 @@ case "$1 $2" in
         cat "${AWS_STUB_LS_FILE}"
         ;;
     "s3 rm")
-        echo "$3" >> "${AWS_STUB_DELETED_FILE}"
+        # fix(#1798 review round 11, P2) test support: NUL-terminated, not
+        # newline-terminated — a deletion target can now itself contain an
+        # embedded newline (POSTGRES_DB="geo\\nlens", decoded per
+        # common.sh's round-10 fix), and `echo`'s own newline terminator
+        # would make that one record unreadable back apart from two.
+        printf '%s\\0' "$3" >> "${AWS_STUB_DELETED_FILE}"
         # fix(#1778 review round 3, P2) test support: a uniform
         # AWS_STUB_RM_EXIT can't tell "the dump's own deletion failed" apart
         # from "a companion's deletion was wrongly attempted" — both would
@@ -203,11 +208,21 @@ def _run(
     rm_exit: int = 0,
     rm_fail_pattern: str = "",
     with_credentials: bool = True,
+    ls_names: list[str] | None = None,
 ) -> tuple[subprocess.CompletedProcess, list[str]]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     ls_file = tmp_path / "ls_output.txt"
-    ls_file.write_text(_ls_json(ls_listing))
+    if ls_names is not None:
+        # fix(#1798 review round 11, P2) test support: _ls_json's
+        # `.splitlines()` fixture format is one bare name per line — no
+        # good for a name that ITSELF contains a newline, which is
+        # exactly what this parameter exists to test. Builds the
+        # `Contents` JSON directly from the exact key strings given,
+        # bypassing that split entirely.
+        ls_file.write_text(json.dumps({"Contents": [{"Key": n} for n in ls_names]}))
+    else:
+        ls_file.write_text(_ls_json(ls_listing))
     deleted_file = tmp_path / "deleted.txt"
     deleted_file.write_text("")
 
@@ -243,7 +258,11 @@ def _run(
             "AWS_STUB_RM_EXIT": str(rm_exit),
         },
     )
-    deleted = [line for line in deleted_file.read_text().splitlines() if line.strip()]
+    deleted = [
+        item.decode("utf-8", "surrogateescape")
+        for item in deleted_file.read_bytes().split(b"\0")
+        if item
+    ]
     return result, deleted
 
 
@@ -655,6 +674,50 @@ class TestPruneS3Prefix:
         assert (
             "s3://test-bucket/backups/daily/crew_20260801_020000.dump" not in deleted
         ), f"a tab/space-stripped key was targeted instead: {deleted}"
+
+    def test_dump_key_with_an_embedded_newline_and_tab_is_pruned_by_its_real_name(
+        self, tmp_path: Path
+    ):
+        """fix(#1798 review round 11, P2): common.sh's round-10 fix made
+        get_env_value correctly decode Compose's documented \\n/\\r/\\t
+        escapes in a double-quoted .env value — POSTGRES_DB="geo\\nlens"
+        is real, legal Compose syntax, and every dump/companion filename
+        this script builds from $POSTGRES_DB can now legally contain an
+        embedded NEWLINE, not just a tab (round 8). Before this fix,
+        s3_list_prefix's python emitter used `print(key)` — NEWLINE
+        terminated — so a key with an embedded newline was written to the
+        listing as what LOOKED like two separate records; every bash
+        `while read` loop over that listing then kept only the suffix
+        after the embedded newline and issued `aws s3 rm` against a key
+        that was never in the bucket. The real dump survived and
+        retention reported the cycle unhealthy forever, every cycle, with
+        no way to self-heal. Uses `_run(..., ls_names=...)` (not
+        `ls_listing`, which is itself newline-joined — no good for
+        testing a name that contains one) to hand the harness the exact
+        key bytes directly. With keep=2 and 3 dump-only entries, 08-01 is
+        the single prune candidate."""
+        result, deleted = _run(
+            tmp_path,
+            keep="2",
+            ls_names=[
+                "crew\ndispatch\t_20260801_020000.dump",
+                "crew\ndispatch\t_20260802_020000.dump",
+                "crew\ndispatch\t_20260803_020000.dump",
+            ],
+        )
+        assert result.returncode == 0, result.stderr
+        assert (
+            "s3://test-bucket/backups/daily/crew\ndispatch\t_20260801_020000.dump"
+            in deleted
+        ), f"the real (newline+tab) key was never targeted: {deleted}"
+        assert (
+            "s3://test-bucket/backups/daily/dispatch\t_20260801_020000.dump"
+            not in deleted
+        ), f"a newline-truncated key was targeted instead: {deleted}"
+        assert (
+            "s3://test-bucket/backups/daily/crew\ndispatch_20260801_020000.dump"
+            not in deleted
+        ), f"a tab-truncated key was targeted instead: {deleted}"
 
 
 def _run_full_cycle(

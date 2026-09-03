@@ -137,7 +137,22 @@ _env_unescape_double_quoted() {
 _env_line_of() {
   key="$1"
   file="$2"
+  # fix(#1798 review round 11 audit, P2): a leading UTF-8 BOM (bytes EF BB
+  # BF — common from PowerShell's default UTF-8 output or some Windows
+  # editors saving .env) sits BEFORE the first line's own text, so `^KEY=`
+  # never matched a key on line 1 at all: every guarded caller's fallback
+  # then read that as "key absent" and silently kept the inherited/unset
+  # value instead of the operator's actual line-1 setting. Stripped once,
+  # on NR==1 only, before the match — a NR==1 octal-escape regex (`sub(/^
+  # \357\273\277/, "")`) did NOT work on either awk tested against
+  # (BWK awk on macOS, mawk in the postgres:18 image); comparing
+  # substr($0,1,3) against a byte string built with sprintf("%c%c%c", ...)
+  # does, on both.
   awk -v k="$key" '
+    NR==1 {
+      bom = sprintf("%c%c%c", 239, 187, 191)
+      if (substr($0, 1, 3) == bom) { $0 = substr($0, 4) }
+    }
     { pat = "^" k "="; if ($0 ~ pat) { n = NR } }
     END { print n + 0 }
   ' "$file"
@@ -152,7 +167,14 @@ _env_raw_before() {
   key="$1"
   file="$2"
   before="$3"
+  # fix(#1798 review round 11 audit, P2): same leading-BOM strip as
+  # _env_line_of above, and for the same reason — see its comment for why
+  # sprintf("%c%c%c", ...) is the portable form.
   awk -v k="$key" -v before="$before" '
+    NR==1 {
+      bom = sprintf("%c%c%c", 239, 187, 191)
+      if (substr($0, 1, 3) == bom) { $0 = substr($0, 4) }
+    }
     {
       pat = "^" k "="
       if ($0 ~ pat && (before == 0 || NR < before)) {
@@ -161,6 +183,30 @@ _env_raw_before() {
       }
     }
     END { if (found) { print val; exit 0 } else { exit 1 } }
+  ' "$file"
+}
+
+# The 1-based line number of key's LAST definition strictly before line
+# `before` (before=0 disables the bound), or 0 if none — the same bound
+# _env_raw_before applies, exposed on its own so _env_interpolate can
+# re-derive a fresh "before" bound scoped to THIS key's own defining line
+# (see the fix(#1798 review round 11 audit, P2) comment on _env_interpolate
+# below for why reusing the outer key's original before_line for every
+# substitution pass is wrong).
+_env_line_of_before() {
+  key="$1"
+  file="$2"
+  before="$3"
+  awk -v k="$key" -v before="$before" '
+    NR==1 {
+      bom = sprintf("%c%c%c", 239, 187, 191)
+      if (substr($0, 1, 3) == bom) { $0 = substr($0, 4) }
+    }
+    {
+      pat = "^" k "="
+      if ($0 ~ pat && (before == 0 || NR < before)) { n = NR }
+    }
+    END { print n + 0 }
   ' "$file"
 }
 
@@ -235,12 +281,34 @@ _env_interpolate() {
 
     have_value=0
     resolved=""
+    # fix(#1798 review round 11 audit, P2): defaults to the CURRENT
+    # before_line (unchanged) unless this pass's resolution narrows it —
+    # see below.
+    next_before_line="$before_line"
     if earlier="$(_env_raw_before "$name" "$file" "$before_line")"; then
       resolved="$(_env_dequote "$earlier")"
       have_value=1
+      # fix(#1798 review round 11 audit, P2): the multi-pass loop below
+      # re-scans $value for a NEW ${VAR} token after every substitution —
+      # including one exposed by substituting IN "$name"'s own value,
+      # which used to be resolved against the OUTER key's before_line
+      # unconditionally. With C=orig / B="${C}" / C=updated / A="${B}":
+      # resolving B directly correctly bounds the ${C} it exposes to
+      # "before B's own line" and gets "orig" — but resolving A reused
+      # A's OWN (later) before_line for that same ${C} token, so it saw
+      # C's redefinition on the intervening line too and returned
+      # "updated" — two different answers for what is meant to be the
+      # same reference. Re-deriving the bound to "before name's own
+      # winning line" here makes every subsequent pass see exactly what a
+      # direct lookup of "$name" would have seen.
+      next_before_line="$(_env_line_of_before "$name" "$file" "$before_line")"
     elif eval "[ \"\${${name}+set}\" = set ]" 2>/dev/null; then
       eval "resolved=\"\${${name}}\""
       have_value=1
+      # A process-environment value has no defining line in this file at
+      # all — a ${VAR} reference it happens to contain is not scoped to
+      # any point in the file, so no bound applies to what it can see.
+      next_before_line=0
     fi
 
     if [ "$have_value" -eq 1 ]; then
@@ -269,6 +337,7 @@ _env_interpolate() {
     pat="$(_env_sed_escape_pattern "$token")"
     rep="$(_env_sed_escape_replacement "$replacement")"
     value="$(printf '%s' "$value" | sed "s/${pat}/${rep}/")"
+    before_line="$next_before_line"
     pass=$((pass + 1))
   done
   printf '%s' "$value"
@@ -352,7 +421,17 @@ get_env_value() {
   # Last matching `key=` line wins (Compose's own duplicate-key rule); END
   # reports "no such key" as its own failure so the caller can tell that
   # apart from "key present, value empty" (found=1, empty val, exit 0).
+  #
+  # fix(#1798 review round 11 audit, P2): same leading-BOM strip as
+  # _env_line_of/_env_raw_before above — a BOM-prefixed .env with its
+  # FIRST key on line 1 made that key invisible here too, and every
+  # guarded caller's fallback then treated a genuinely PRESENT key as
+  # absent, silently keeping the inherited/unset value.
   raw="$(awk -v k="$key" '
+    NR==1 {
+      bom = sprintf("%c%c%c", 239, 187, 191)
+      if (substr($0, 1, 3) == bom) { $0 = substr($0, 4) }
+    }
     {
       pat = "^" k "="
       if ($0 ~ pat) {
