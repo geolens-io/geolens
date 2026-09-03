@@ -384,6 +384,12 @@ export function useLayerMapSync(
     layersRef.current = localLayers;
   }, [localLayers]);
 
+  // fix(#1778 codex round 3): map writes deferred to `idle` because the style
+  // was mid-swap, keyed by layer id and replayed in order. See applyLayerUpdate.
+  const pendingMapWritesRef = useRef(
+    new Map<string, { writes: ((target: MaplibreMap) => void)[]; listener: () => void }>(),
+  );
+
   // Shared state-mutation + live-map-update pipeline for layer edits.
   // Collapses the dup 30-line boilerplate from paint/opacity/layout/style
   // handlers into one place (KISS-2). `updater` produces the new layer spec
@@ -478,9 +484,41 @@ export function useLayerMapSync(
       // syncLayersToMap does not re-apply, and generic LAYOUT is exactly that
       // class, since only handleLayoutChange ever writes it. Retry on idle,
       // matching BuilderMap's sync effect and use-render-mode-layers.
+      //
+      // fix(#1778 codex round 3): the deferred writes are QUEUED per layer and
+      // replayed in the order they were made, never as one captured value.
+      // isStyleLoaded() flips true before `idle` fires, so a second edit landing
+      // in that window used to write immediately and then be overwritten by the
+      // older queued callback: toggle a layer off during a basemap swap and back
+      // on before idle, and the map ended up hidden while state said visible.
+      // Each applyFn closes over its own value (nextVisible, newOpacity,
+      // newLayout), so re-reading the latest layer at fire time would not help;
+      // replaying oldest-first does, because the newest write lands last.
+      const pending = pendingMapWritesRef.current;
+      const queued = pending.get(layerId);
       if (!map.isStyleLoaded()) {
-        map.once?.('idle', () => writeToMap(map));
+        if (queued) {
+          // A listener is already armed for this layer; ride it.
+          queued.writes.push(writeToMap);
+          return;
+        }
+        const writes: ((target: MaplibreMap) => void)[] = [writeToMap];
+        const listener = () => {
+          // Ignore a listener that was already flushed or superseded below.
+          if (pending.get(layerId)?.listener !== listener) return;
+          pending.delete(layerId);
+          for (const write of writes) write(map);
+        };
+        pending.set(layerId, { writes, listener });
+        map.once?.('idle', listener);
         return;
+      }
+      if (queued) {
+        // The style finished loading before `idle`. Drain the backlog first so
+        // this newer write is applied last and wins.
+        pending.delete(layerId);
+        map.off?.('idle', queued.listener);
+        for (const write of queued.writes) write(map);
       }
       writeToMap(map);
     },

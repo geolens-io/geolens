@@ -673,14 +673,38 @@ function hasDiff(diff: MapLayerDiffRequest): boolean {
 }
 
 // fix(#1778): only a status that means "this deployment has no layer-diff
-// endpoint" may escalate to the lossy full PUT. 405 (method not allowed) and
-// 501 (not implemented) are the two a router without the route can produce;
-// the old predicate also matched 400/404/409/422 with a prose regex, which is
-// exactly the shape the backend uses for a STALE diff. See
-// isStaleLayerDiffError below.
+// endpoint" may escalate to the lossy full PUT. The old predicate matched
+// 400/404/409/422 with a prose regex, which is exactly the shape the backend
+// uses for a STALE diff. See isStaleLayerDiffError below.
+//
+// fix(#1778 codex round 3): 404 is back, because it is the compatibility case
+// the PUT fallback exists for. A backend predating PATCH /maps/{id}/layers
+// answers 404 for the unknown route (FastAPI sends {"detail": "Not Found"}; an
+// edge proxy in front of it may send no JSON at all), and without 404 here
+// every layer-edit save against such a deployment would fail outright. 405 and
+// 501 are the other route-level answers.
+const ROUTE_LEVEL_UNSUPPORTED_STATUSES = new Set([404, 405, 501]);
+
+// The one legitimate 404 the route produces for ITSELF: the map is gone, not
+// the route (router.py's "Map not found", and apply_layer_diff's
+// "Map {id} not found"). A full PUT would only 404 again, so this surfaces as a
+// save failure instead. There is no 404 for a stale LAYER id: apply_layer_diff
+// raises ValueError for those and the router maps them to 400, which is what
+// isStaleLayerDiffError matches on, by detail and not by status alone.
+const MAP_NOT_FOUND_DETAIL = /^Map\b.*\bnot found$/i;
+
+/** The backend detail string, preferring the raw `detail` apiFetch stored on
+ *  the error. `message` has already been through translateApiErrorDetail and
+ *  may be localized, so it is only a fallback for a non-string detail. */
+function apiErrorDetailText(error: ApiError): string {
+  return typeof error.body === 'string' ? error.body : error.message;
+}
+
 function isUnsupportedLayerPatchError(error: unknown): boolean {
   if (!(error instanceof ApiError)) return false;
-  return error.status === 405 || error.status === 501;
+  if (!ROUTE_LEVEL_UNSUPPORTED_STATUSES.has(error.status)) return false;
+  if (error.status !== 404) return true;
+  return !MAP_NOT_FOUND_DETAIL.test(apiErrorDetailText(error));
 }
 
 // fix(#1778): the two details apply_layer_diff raises when the diff names layer
@@ -704,8 +728,7 @@ class StaleLayerDiffError extends Error {
 function isStaleLayerDiffError(error: unknown): boolean {
   if (!(error instanceof ApiError)) return false;
   if (error.status !== 400) return false;
-  const detail = typeof error.body === 'string' ? error.body : error.message;
-  return STALE_LAYER_DIFF_DETAIL.test(detail);
+  return STALE_LAYER_DIFF_DETAIL.test(apiErrorDetailText(error));
 }
 
 /**

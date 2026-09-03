@@ -1312,6 +1312,128 @@ describe('useBuilderSave', () => {
     expect(result.current.saveStatus).toBe('failed');
   });
 
+  // fix(#1778 codex round 3 P1): 404 is the compatibility case the full PUT
+  // exists for. A backend predating PATCH /maps/{id}/layers answers 404 for the
+  // unknown route, so narrowing "unsupported" to 405/501 alone would have made
+  // every layer-edit save fail against such a deployment.
+  // Counterfactual: drop 404 from ROUTE_LEVEL_UNSUPPORTED_STATUSES and the two
+  // route-missing cases stop reaching updateMap.
+  it('falls back to a full PUT when the layer-diff route answers 404 with no JSON detail', async () => {
+    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(
+      // An edge proxy in front of the API: no JSON body at all, so apiFetch
+      // leaves `body` undefined and only the localized message remains.
+      new ApiError('Not found', 404, undefined),
+    );
+    let state = makeSaveState({ localLayers: [makeLayer({ paint: { 'fill-color': '#000000' } })] });
+    const { result, rerender } = renderHook(() => useBuilderSave(state));
+    state = makeSaveState({
+      localLayers: [makeLayer({ paint: { 'fill-color': '#ff0000' } })],
+      hasUnsavedChanges: true,
+    });
+    rerender();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockGetMap).not.toHaveBeenCalled();
+    expect(mockUpdateMapMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          layers: [expect.objectContaining({ paint: { 'fill-color': '#ff0000' } })],
+        }),
+      }),
+    );
+  });
+
+  it('falls back to a full PUT on FastAPI\'s own route-missing 404 detail', async () => {
+    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(
+      new ApiError('Not Found', 404, 'Not Found'),
+    );
+    let state = makeSaveState({ localLayers: [makeLayer({ paint: { 'fill-color': '#000000' } })] });
+    const { result, rerender } = renderHook(() => useBuilderSave(state));
+    state = makeSaveState({
+      localLayers: [makeLayer({ paint: { 'fill-color': '#ff0000' } })],
+      hasUnsavedChanges: true,
+    });
+    rerender();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.layers).toBeDefined();
+  });
+
+  // The route's OWN 404: the map is gone, not the route. A full PUT would only
+  // 404 again, so this has to surface instead of pretending the endpoint is
+  // missing. There is no 404 for a stale layer id; the backend raises 400.
+  it('surfaces a map-not-found 404 instead of escalating to a full PUT', async () => {
+    const { toast } = await import('sonner');
+    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(
+      new ApiError('Map not found', 404, 'Map not found'),
+    );
+    let state = makeSaveState({ localLayers: [makeLayer({ paint: { 'fill-color': '#000000' } })] });
+    const { result, rerender } = renderHook(() => useBuilderSave(state));
+    state = makeSaveState({
+      localLayers: [makeLayer({ paint: { 'fill-color': '#ff0000' } })],
+      hasUnsavedChanges: true,
+    });
+    rerender();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockUpdateMapMutateAsync).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith('toasts.saveFailed');
+  });
+
+  it('surfaces the id-carrying map-not-found 404 the diff service raises', async () => {
+    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(
+      new ApiError(
+        'Map 0d3f2a1e-0000-4000-8000-000000000000 not found',
+        404,
+        'Map 0d3f2a1e-0000-4000-8000-000000000000 not found',
+      ),
+    );
+    let state = makeSaveState({ localLayers: [makeLayer({ paint: { 'fill-color': '#000000' } })] });
+    const { result, rerender } = renderHook(() => useBuilderSave(state));
+    state = makeSaveState({
+      localLayers: [makeLayer({ paint: { 'fill-color': '#ff0000' } })],
+      hasUnsavedChanges: true,
+    });
+    rerender();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockUpdateMapMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a 400 whose detail is not the stale-diff one', async () => {
+    const { toast } = await import('sonner');
+    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(
+      new ApiError('Layer count exceeds maximum 50', 400, 'Layer count exceeds maximum 50'),
+    );
+    let state = makeSaveState({ localLayers: [makeLayer({ paint: { 'fill-color': '#000000' } })] });
+    const { result, rerender } = renderHook(() => useBuilderSave(state));
+    state = makeSaveState({
+      localLayers: [makeLayer({ paint: { 'fill-color': '#ff0000' } })],
+      hasUnsavedChanges: true,
+    });
+    rerender();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockGetMap).not.toHaveBeenCalled();
+    expect(mockUpdateMapMutateAsync).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith('toasts.saveFailed');
+  });
+
   it('leaves a genuine validation rejection on the failure path', async () => {
     const { toast } = await import('sonner');
     // A 422 with prose the OLD predicate matched via /validation/i. It is not a
