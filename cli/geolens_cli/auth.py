@@ -191,6 +191,163 @@ def delete_credentials(instance: str) -> None:
     _clear_credential_section(instance)
 
 
+# ---------- Atomic credential swap (login) ----------
+
+_FIELD_BY_KIND = {"bearer": "bearer_token", "api_key": "api_key"}
+_ACCOUNT_FN_BY_KIND = {
+    "bearer": _keyring_account_token,
+    "api_key": _keyring_account_api_key,
+    "refresh": _keyring_account_refresh,
+}
+
+
+@dataclass(frozen=True)
+class _CredentialSnapshot:
+    """Raw values read directly from each backend — deliberately NOT
+    ``load_bearer_token()`` et al., which resolve GEOLENS_TOKEN env
+    precedence; a restore must reproduce exactly what storage held, not
+    what precedence would currently resolve to."""
+
+    keyring_bearer: Optional[str]
+    keyring_api_key: Optional[str]
+    keyring_refresh: Optional[str]
+    file_section: dict
+
+
+def _snapshot_credentials(instance: str) -> _CredentialSnapshot:
+    def _kr(account: str) -> Optional[str]:
+        try:
+            return keyring.get_password(SERVICE, account)
+        except KeyringError:
+            return None
+
+    return _CredentialSnapshot(
+        keyring_bearer=_kr(_keyring_account_token(instance)),
+        keyring_api_key=_kr(_keyring_account_api_key(instance)),
+        keyring_refresh=_kr(_keyring_account_refresh(instance)),
+        file_section=dict(_read_credentials_file().get(instance, {})),
+    )
+
+
+def _restore_credentials(instance: str, snapshot: _CredentialSnapshot) -> None:
+    """Best-effort restore to exactly the pre-swap state.
+
+    Only called when the delete-competing-kinds step of
+    ``replace_credentials`` fails partway through — there is nothing
+    further to fall back to here, so each write is independently
+    swallowed-and-logged rather than raised.
+    """
+    for account, value in (
+        (_keyring_account_token(instance), snapshot.keyring_bearer),
+        (_keyring_account_api_key(instance), snapshot.keyring_api_key),
+        (_keyring_account_refresh(instance), snapshot.keyring_refresh),
+    ):
+        try:
+            if value is None:
+                keyring.delete_password(SERVICE, account)
+            else:
+                keyring.set_password(SERVICE, account, value)
+        except Exception as exc:
+            log.warning("credential_restore_failed", account=account, error=str(exc))
+
+    try:
+        data = _read_credentials_file()
+        if snapshot.file_section:
+            data[instance] = dict(snapshot.file_section)
+        else:
+            data.pop(instance, None)
+        if data:
+            _write_credentials_file(data)
+        else:
+            path = _config.credentials_path()
+            if path.exists():
+                path.unlink()
+    except Exception as exc:
+        log.warning("credential_restore_failed", account="file", error=str(exc))
+
+
+def _delete_competing_kinds(instance: str, *, keep: str) -> None:
+    """Delete every stored credential kind for ``instance`` except ``keep``.
+
+    The keyring half mirrors ``delete_credentials()`` — missing entries
+    and backend errors are swallowed, matching D-13's existing
+    best-effort delete semantics. The credentials.toml write is allowed
+    to raise: ``replace_credentials`` is the one that needs to know, so
+    it can restore the pre-swap snapshot instead of leaving the file in
+    whatever partial state the failed write left it in.
+    """
+    for name, account_fn in _ACCOUNT_FN_BY_KIND.items():
+        if name == keep:
+            continue
+        try:
+            keyring.delete_password(SERVICE, account_fn(instance))
+        except Exception:
+            pass
+
+    data = _read_credentials_file()
+    section = data.get(instance)
+    if not section:
+        return
+    keep_field = _FIELD_BY_KIND.get(keep)
+    for field in ("bearer_token", "api_key", "refresh_token"):
+        if field == keep_field:
+            continue
+        section.pop(field, None)
+    if section:
+        data[instance] = section
+    else:
+        data.pop(instance, None)
+    if data:
+        _write_credentials_file(data)
+    else:
+        path = _config.credentials_path()
+        if path.exists():
+            path.unlink()
+
+
+def replace_credentials(
+    instance: str, kind: str, value: str, *, no_keyring: bool = False
+) -> str:
+    """Atomically swap the active credential for ``instance`` to ``kind``.
+
+    fix(#1778 review round 4): ``login`` used to call ``delete_credentials()``
+    BEFORE storing the replacement, so a storage failure (keyring falling
+    back to a read-only or full XDG path, a permissions error, ...) left
+    the user logged out — the working credential was already gone — with
+    login reporting failure too. This stores the new credential FIRST;
+    only once that succeeds are the competing credential kinds deleted.
+
+    If the store itself raises, nothing here has touched storage yet
+    (the snapshot read is read-only) — the exception propagates and the
+    prior credentials are untouched. If deleting the competing kinds
+    afterward fails partway — keyring and credentials.toml are separate
+    backends with no shared transaction, so that step is the one place
+    this can't be fully atomic — the pre-swap snapshot is restored
+    before re-raising, so the net effect is still "nothing changed"
+    rather than two live, conflicting credentials.
+
+    ``kind`` is ``"bearer"`` or ``"api_key"``. Returns ``'keyring'`` or
+    ``'file'`` (where the new credential landed).
+    """
+    if kind not in ("bearer", "api_key"):
+        raise ValueError(f"unknown credential kind: {kind!r}")
+
+    snapshot = _snapshot_credentials(instance)
+
+    if kind == "bearer":
+        backend = store_bearer_token(instance, value, no_keyring=no_keyring)
+    else:
+        backend = store_api_key(instance, value, no_keyring=no_keyring)
+
+    try:
+        _delete_competing_kinds(instance, keep=kind)
+    except Exception:
+        _restore_credentials(instance, snapshot)
+        raise
+
+    return backend
+
+
 # ---------- Refresh ----------
 
 def _detect_credential_backend(instance: str) -> bool:

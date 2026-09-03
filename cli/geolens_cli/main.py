@@ -431,15 +431,32 @@ def login(
         # command then used the old credential with no error. Evict the
         # other credential types for this instance first so the one just
         # stored is the only one that can be resolved.
-        _auth.delete_credentials(instance)
-        backend = _auth.store_api_key(instance, api_key, no_keyring=no_keyring)
+        #
+        # fix(#1778 review round 4): replace_credentials() stores the new
+        # credential BEFORE evicting the others — see its docstring
+        # (auth.py) for why deleting first left a user logged out on a
+        # storage failure. Never call delete_credentials() directly from
+        # login (tests/test_client_construction.py's sibling structural
+        # gate — see test_login_atomic_swap.py — checks this file for it).
+        try:
+            backend = _auth.replace_credentials(
+                instance, "api_key", api_key, no_keyring=no_keyring
+            )
+        except Exception as exc:
+            state.output.error(f"Could not store the API key: {exc}")
+            raise typer.Exit(EXIT_GENERIC) from exc
         _config.write_default_instance(instance, username=None)
         state.output.success(f"Stored API key for {instance} ({backend})")
         return
 
     if token:
-        _auth.delete_credentials(instance)
-        backend = _auth.store_bearer_token(instance, token, no_keyring=no_keyring)
+        try:
+            backend = _auth.replace_credentials(
+                instance, "bearer", token, no_keyring=no_keyring
+            )
+        except Exception as exc:
+            state.output.error(f"Could not store the bearer token: {exc}")
+            raise typer.Exit(EXIT_GENERIC) from exc
         _config.write_default_instance(instance, username=None)
         state.output.success(f"Stored bearer token for {instance} ({backend})")
         return
@@ -461,8 +478,13 @@ def login(
     resp = call_sdk(login_auth_login_post.sync_detailed, client=sdk.client, body=body)
     token_response = unwrap(resp, expected=200)
     access_token = token_response.access_token
-    _auth.delete_credentials(instance)
-    backend = _auth.store_bearer_token(instance, access_token, no_keyring=no_keyring)
+    try:
+        backend = _auth.replace_credentials(
+            instance, "bearer", access_token, no_keyring=no_keyring
+        )
+    except Exception as exc:
+        state.output.error(f"Could not store the bearer token: {exc}")
+        raise typer.Exit(EXIT_GENERIC) from exc
     refresh_token = getattr(token_response, "refresh_token", None)
     if refresh_token:
         _auth.store_refresh_token(instance, refresh_token, no_keyring=no_keyring)

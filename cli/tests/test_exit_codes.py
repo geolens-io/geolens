@@ -253,6 +253,131 @@ class TestLoginEvictsOtherCredentialType:
         assert loaded.value == "fresh.bearer.jwt"
 
 
+class TestLoginAtomicCredentialSwap:
+    """fix(#1778 review round 4): login used to call delete_credentials()
+    BEFORE storing the replacement, so a storage failure (keyring falling
+    back to a read-only or full XDG path, a permissions error, ...) left
+    the user logged out AND login reporting failure — the working
+    credential was already gone. login now stores the new credential
+    first via auth.replace_credentials() and only evicts the competing
+    kinds once that succeeds."""
+
+    def test_a_storage_failure_leaves_prior_credentials_intact_and_exits_nonzero(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli import auth as _auth
+        from geolens_cli import config as _config
+
+        instance = "https://x.example.com"
+        canonical = _config.normalize_instance_url(instance)
+
+        # Seed a working bearer + refresh token, as an earlier successful
+        # login would have left behind.
+        _auth.store_bearer_token(canonical, "old-bearer-token")
+        _auth.store_refresh_token(canonical, "old-refresh-token")
+
+        def boom(*args, **kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(_auth, "store_api_key", boom)
+
+        result = runner.invoke(app, ["login", instance, "--api-key", "new-key"])
+
+        assert result.exit_code != 0, result.output
+        loaded_bearer = _auth.load_bearer_token(canonical)
+        assert loaded_bearer is not None
+        assert loaded_bearer.value == "old-bearer-token"
+        assert _auth.load_refresh_token(canonical) == "old-refresh-token"
+        assert _auth.load_api_key(canonical) is None
+
+    def test_a_successful_swap_leaves_exactly_the_new_kind(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli import auth as _auth
+        from geolens_cli import config as _config
+
+        instance = "https://x.example.com"
+        canonical = _config.normalize_instance_url(instance)
+
+        _auth.store_bearer_token(canonical, "old-bearer-token")
+        _auth.store_refresh_token(canonical, "old-refresh-token")
+
+        result = runner.invoke(app, ["login", instance, "--api-key", "new-key"])
+
+        assert result.exit_code == 0, result.output
+        assert _auth.load_bearer_token(canonical) is None
+        assert _auth.load_refresh_token(canonical) is None
+        loaded_key = _auth.load_api_key(canonical)
+        assert loaded_key is not None
+        assert loaded_key.value == "new-key"
+
+    def test_replace_credentials_raising_touches_nothing(
+        self, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Unit-level: the store call itself raising must not have deleted
+        anything — the snapshot read is read-only, and the delete step
+        never runs until after the store succeeds."""
+        import pytest
+
+        from geolens_cli import auth as _auth
+
+        instance = "https://x.example.com/api"
+        _auth.store_bearer_token(instance, "old-bearer-token")
+        _auth.store_refresh_token(instance, "old-refresh-token")
+
+        def boom(*args, **kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(_auth, "store_api_key", boom)
+
+        with pytest.raises(OSError):
+            _auth.replace_credentials(instance, "api_key", "new-key")
+
+        loaded_bearer = _auth.load_bearer_token(instance)
+        assert loaded_bearer is not None
+        assert loaded_bearer.value == "old-bearer-token"
+        assert _auth.load_refresh_token(instance) == "old-refresh-token"
+        assert _auth.load_api_key(instance) is None
+
+    def test_delete_step_failure_restores_the_snapshot(
+        self, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """If the store succeeds but evicting the competing kinds then
+        fails partway (the credentials.toml write, specifically — the
+        keyring half already swallows its own errors), the pre-swap
+        snapshot must be restored rather than left in a mixed state."""
+        import pytest
+
+        from geolens_cli import auth as _auth
+
+        instance = "https://x.example.com/api"
+        _auth.store_bearer_token(instance, "old-bearer-token", no_keyring=True)
+        _auth.store_refresh_token(instance, "old-refresh-token", no_keyring=True)
+
+        def boom(*args, **kwargs):
+            raise OSError("disk full")
+
+        # Only the delete-competing-kinds step must fail — the initial
+        # store of the new api_key (also a credentials.toml write) needs
+        # to succeed so this actually exercises the restore path, not
+        # the already-covered "store itself raised" path above.
+        monkeypatch.setattr(_auth, "_delete_competing_kinds", boom)
+
+        with pytest.raises(OSError):
+            _auth.replace_credentials(instance, "api_key", "new-key", no_keyring=True)
+
+        # The failed delete-competing-kinds step must not have left the
+        # new api_key live without evicting the old bearer/refresh — the
+        # restore puts the file back to its pre-swap content, so the
+        # ORIGINAL bearer/refresh are exactly as they were, and the new
+        # api_key is gone again.
+        loaded_bearer = _auth.load_bearer_token(instance)
+        assert loaded_bearer is not None
+        assert loaded_bearer.value == "old-bearer-token"
+        assert _auth.load_refresh_token(instance) == "old-refresh-token"
+        assert _auth.load_api_key(instance) is None
+
+
 class TestManifestCommandExitCodes:
     """Offline manifest commands use usage errors for local input problems."""
 
