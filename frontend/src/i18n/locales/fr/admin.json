@@ -555,7 +555,11 @@
       "corsAllowedOriginsDescription": "Origines séparées par des virgules, chacune indiquée en entier. Les caractères génériques ne sont pas acceptés : les requêtes avec identifiants exigent des origines explicites.",
       "corsAllowedOriginsPlaceholder": "https://example.com, https://app.example.com",
       "ogcItemsMaxPageSize": "Taille de page maximale OGC Features (plafond du paramètre items)",
-      "ogcItemsMaxPageSizeDescription": "Nombre maximal d'entités renvoyées par page par le point de terminaison items d'OGC API Features. Les requêtes au-delà sont plafonnées, pas rejetées. Augmentez-le pour l'export GeoJSON en masse ; réduisez-le sur les déploiements à mémoire limitée."
+      "ogcItemsMaxPageSizeDescription": "Nombre maximal d'entités renvoyées par page par le point de terminaison items d'OGC API Features. Les requêtes au-delà sont plafonnées, pas rejetées. Augmentez-le pour l'export GeoJSON en masse ; réduisez-le sur les déploiements à mémoire limitée.",
+      "semanticSearchRateLimit": "Limite de recherche sémantique (par minute)",
+      "semanticSearchRateLimitDescription": "Nombre maximal de requêtes de recherche sémantique par minute et par adresse IP. Limite le coût de génération d'embeddings par demandeur.",
+      "basemapProxyRateLimit": "Limite du proxy de fonds de carte (par minute)",
+      "basemapProxyRateLimitDescription": "Nombre maximal de requêtes au proxy de tuiles de fond de carte par minute et par adresse IP. Limite la réutilisation d'une clé API commerciale via le proxy."
     },
     "security": {
       "title": "Sécurité",
@@ -571,6 +575,8 @@
       "saveFailed": "Échec de l'enregistrement des paramètres de sécurité",
       "passwordLogin": "Autoriser la connexion par mot de passe",
       "passwordLoginDescription": "Permet aux utilisateurs de se connecter avec un nom d'utilisateur et un mot de passe. La désactivation oblige les utilisateurs à se connecter via un fournisseur SSO — assurez-vous qu'au moins un fournisseur est activé avant de désactiver cette option.",
+      "emailVerificationRequired": "Exiger la vérification de l'e-mail",
+      "emailVerificationRequiredDescription": "Lorsque l'inscription en libre-service est activée, exige un e-mail confirmé avant l'activation d'un nouveau compte. Désactiver cette option revient à l'approbation par un administrateur.",
       "allowedEmailDomains": "Domaines de messagerie autorisés",
       "allowedEmailDomainsDescription": "Restreint l'inscription et la connexion aux adresses e-mail de ces domaines. Laissez vide pour autoriser tous les domaines.",
       "allowedEmailDomainsUnrestricted": "Sans restriction — tous les domaines de messagerie sont autorisés.",

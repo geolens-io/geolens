@@ -605,7 +605,11 @@
       "corsAllowedOriginsDescription": "Comma-separated origins, each listed in full. Wildcards are not accepted — credentialed requests require explicit origins.",
       "corsAllowedOriginsPlaceholder": "https://example.com, https://app.example.com",
       "ogcItemsMaxPageSize": "OGC Features Max Page Size (items limit ceiling)",
-      "ogcItemsMaxPageSizeDescription": "Maximum number of features returned per page by the OGC API Features items endpoint. Requests above this are clamped, not rejected. Raise it for bulk GeoJSON export; lower it on memory-constrained deployments."
+      "ogcItemsMaxPageSizeDescription": "Maximum number of features returned per page by the OGC API Features items endpoint. Requests above this are clamped, not rejected. Raise it for bulk GeoJSON export; lower it on memory-constrained deployments.",
+      "semanticSearchRateLimit": "Semantic Search Rate Limit (per minute)",
+      "semanticSearchRateLimitDescription": "Maximum semantic search requests per minute per IP address. Bounds embedding-generation cost per requester.",
+      "basemapProxyRateLimit": "Basemap Proxy Rate Limit (per minute)",
+      "basemapProxyRateLimitDescription": "Maximum basemap tile-proxy requests per minute per IP address. Bounds replay of a commercial basemap API key through the proxy."
     },
     "notifications": {
       "title": "Outbound Notifications",
@@ -636,6 +640,8 @@
       "saveFailed": "Failed to save security settings",
       "passwordLogin": "Allow Password Login",
       "passwordLoginDescription": "Allow users to sign in with a username and password. Disabling this requires users to sign in via an SSO provider — ensure at least one provider is enabled before turning this off.",
+      "emailVerificationRequired": "Require Email Verification",
+      "emailVerificationRequiredDescription": "When self-serve registration is on, require a confirmed email before a new account activates. Turning this off falls back to admin approval.",
       "allowedEmailDomains": "Allowed Email Domains",
       "allowedEmailDomainsDescription": "Restrict sign-up and sign-in to email addresses from these domains. Leave empty to allow any domain.",
       "allowedEmailDomainsUnrestricted": "No restrictions — all email domains are allowed.",

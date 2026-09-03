@@ -748,6 +748,9 @@ const AUTH_FIELDS = [
   { key: 'access_token_expire_minutes', defaultValue: 15 },
   { key: 'refresh_token_expire_days', defaultValue: 7 },
   { key: 'login_rate_limit', defaultValue: 5 },
+  // fix(#1778): SIGNUP-04 registers this on tab="auth" but no tab component
+  // ever read it, so it decided self-serve activation invisibly.
+  { key: 'email_verification_required', defaultValue: true },
 ] as const;
 
 export function SettingsAuthTab({ settings, envOnly, onSave, onReset, isSaving, saveFailed, onDirtyChange }: TabProps) {
@@ -788,6 +791,23 @@ export function SettingsAuthTab({ settings, envOnly, onSave, onReset, isSaving, 
           id="registration-toggle"
           checked={values.registration_enabled as boolean}
           onCheckedChange={setters.registration_enabled}
+          disabled={envOnly}
+        />
+      </div>
+
+      {/* SIGNUP-04 (Phase 1231): Email Verification Required toggle */}
+      <div className="flex items-center justify-between max-w-md">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="email-verification-toggle">{t('settings.security.emailVerificationRequired')}</Label>
+            <SettingSourceBadge source={findSetting(settings, 'email_verification_required')?.source ?? 'default'} settingKey="email_verification_required" onReset={onReset} />
+          </div>
+          <p className="text-sm text-muted-foreground">{t('settings.security.emailVerificationRequiredDescription')}</p>
+        </div>
+        <Switch
+          id="email-verification-toggle"
+          checked={values.email_verification_required as boolean}
+          onCheckedChange={setters.email_verification_required}
           disabled={envOnly}
         />
       </div>
