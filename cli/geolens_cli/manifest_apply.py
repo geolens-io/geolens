@@ -13,7 +13,14 @@ from urllib.parse import urlsplit
 from rich.console import Console
 from rich.table import Table
 
-from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_SERVER, EXIT_USAGE, call_sdk
+from ._sdk_helpers import (
+    EXIT_AUTH,
+    EXIT_GENERIC,
+    EXIT_SERVER,
+    EXIT_USAGE,
+    call_sdk,
+    upload_timeout,
+)
 
 APPLY_ENDPOINT = "/ingest/manifest/apply"
 _COUNT_KEYS = ("create", "update", "skip", "error")
@@ -108,13 +115,19 @@ def _exit_code_for_status(status_code: int) -> int:
 
 
 def post_manifest_apply(client: Any, payload: Mapping[str, Any]) -> dict[str, Any]:
-    """POST a validated manifest through the SDK-owned HTTP client."""
+    """POST a validated manifest through the SDK-owned HTTP client.
 
-    response = call_sdk(
-        client.get_httpx_client().post,
-        url=APPLY_ENDPOINT,
-        json=dict(payload),
-    )
+    fix(#1778 review round 5): the backend validates and applies the
+    manifest (create/update/skip/error per dataset) before responding,
+    which can outlast AppState.sdk()'s plain 30s bound for a manifest
+    with many datasets. Wrapped in ``upload_timeout()``.
+    """
+    with upload_timeout(client) as httpx_client:
+        response = call_sdk(
+            httpx_client.post,
+            url=APPLY_ENDPOINT,
+            json=dict(payload),
+        )
     status_code = int(response.status_code)
     if status_code != 200:
         detail = _detail_from_response(response)

@@ -361,7 +361,7 @@ class TestLoginAtomicCredentialSwap:
         # store of the new api_key (also a credentials.toml write) needs
         # to succeed so this actually exercises the restore path, not
         # the already-covered "store itself raised" path above.
-        monkeypatch.setattr(_auth, "_delete_competing_kinds", boom)
+        monkeypatch.setattr(_auth, "_delete_stale_credentials", boom)
 
         with pytest.raises(OSError):
             _auth.replace_credentials(instance, "api_key", "new-key", no_keyring=True)
@@ -376,6 +376,46 @@ class TestLoginAtomicCredentialSwap:
         assert loaded_bearer.value == "old-bearer-token"
         assert _auth.load_refresh_token(instance) == "old-refresh-token"
         assert _auth.load_api_key(instance) is None
+
+
+class TestLoginCrossBackendStaleCredential:
+    """fix(#1778 review round 5): when the old bearer/API key lives in
+    credentials.toml and the replacement of the SAME kind lands in the
+    keyring, the old delete-competing-kinds step never touched it (it
+    only ever deleted the OTHER kinds) — it kept skipping "bearer"
+    entirely because that was the kind being kept. load_bearer_token()
+    prefers the file over the keyring, so the stale file value kept
+    winning over the freshly-stored keyring one, even though login
+    reported success."""
+
+    def test_a_bearer_login_evicts_the_same_kind_from_the_file_too(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli import auth as _auth
+        from geolens_cli import config as _config
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com"
+        canonical = _config.normalize_instance_url(instance)
+
+        # Old bearer token lives in the FILE backend (an earlier
+        # --no-keyring login, say).
+        _auth.store_bearer_token(canonical, "old-file-bearer", no_keyring=True)
+        assert "bearer_token" in _auth._read_credentials_file()[canonical]
+
+        # Keyring is available for this login (mock_keyring never
+        # raises), so the new token lands there instead.
+        result = runner.invoke(app, ["login", instance, "--token", "new-keyring-bearer"])
+
+        assert result.exit_code == 0, result.output
+        loaded = _auth.load_bearer_token(canonical)
+        assert loaded is not None
+        assert loaded.value == "new-keyring-bearer"
+        file_section = _auth._read_credentials_file().get(canonical, {})
+        assert "bearer_token" not in file_section, (
+            "the old file-backed bearer token must be evicted once the "
+            "new one is confirmed stored in the keyring"
+        )
 
 
 class TestManifestCommandExitCodes:

@@ -173,6 +173,47 @@ class TestRequestBuilders:
             parse_join_fields(" , ")
 
 
+class TestRunMaterializeIsBounded:
+    """fix(#1778 review round 5): analysis materialize's submit expects a
+    synchronous 200 back (the backend validates/sets up the job before
+    responding, not a fire-and-forget 202), which can outlast
+    AppState.sdk()'s plain 30s bound for a large or complex request.
+    run_materialize() must raise the bound for the submit POST and
+    restore it afterward."""
+
+    def test_raises_the_timeout_then_restores_it(self, monkeypatch) -> None:
+        from unittest.mock import MagicMock
+
+        from geolens_cli._sdk_helpers import EXTENDED_REQUEST_TIMEOUT_SECONDS
+        from geolens_cli.analysis import run_materialize
+
+        seen_timeout_during_post = None
+
+        mock_httpx = MagicMock()
+        mock_httpx.timeout = 30.0  # AppState.sdk()'s default bound
+
+        client = MagicMock()
+        client.get_httpx_client.return_value = mock_httpx
+
+        def fake_sync_detailed(**kwargs):
+            nonlocal seen_timeout_during_post
+            seen_timeout_during_post = mock_httpx.timeout
+            return MagicMock(status_code=200, parsed=_FakeJob())
+
+        monkeypatch.setattr(
+            "geolens.api.datasets_analysis."
+            "analysis_materialize_endpoint_datasets_dataset_id_analysis_materialize_post"
+            ".sync_detailed",
+            fake_sync_detailed,
+        )
+
+        run_materialize(client, "dataset-1", request=MagicMock())
+
+        assert seen_timeout_during_post == EXTENDED_REQUEST_TIMEOUT_SECONDS
+        assert seen_timeout_during_post != 30.0
+        assert mock_httpx.timeout == 30.0
+
+
 # ---------------------------------------------------------------------------
 # Operation help text
 # ---------------------------------------------------------------------------

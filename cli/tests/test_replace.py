@@ -183,6 +183,54 @@ class TestUploadFile:
         assert files["file"][2] == "application/geo+json"
         assert int(result.status_code) == 201
 
+    def test_raises_the_timeout_then_restores_it(self, tmp_path: Path) -> None:
+        """fix(#1778 review round 5): the backend saves and validates the
+        replacement before responding, so a large file posted through
+        AppState.sdk()'s plain 30s bound could time out. upload_file()
+        must raise the bound for the POST itself (upload_timeout()) and
+        put the original value back afterward."""
+        from unittest.mock import MagicMock
+
+        from geolens_cli._sdk_helpers import EXTENDED_REQUEST_TIMEOUT_SECONDS
+        from geolens_cli.replace import upload_file
+
+        sample = tmp_path / "cities.geojson"
+        sample.write_text('{"type":"FeatureCollection","features":[]}')
+
+        seen_timeout_during_post = None
+
+        mock_httpx = MagicMock()
+        mock_httpx.timeout = 30.0  # AppState.sdk()'s default bound
+
+        def fake_post(*args, **kwargs):
+            nonlocal seen_timeout_during_post
+            seen_timeout_during_post = mock_httpx.timeout
+            raw_response = MagicMock()
+            raw_response.status_code = 201
+            raw_response.content = (
+                b'{"job_id":"00000000-0000-0000-0000-000000000202",'
+                b'"status":"pending","message":"ok"}'
+            )
+            raw_response.headers = {}
+            raw_response.json.return_value = {
+                "job_id": "00000000-0000-0000-0000-000000000202",
+                "status": "pending",
+                "message": "ok",
+            }
+            return raw_response
+
+        mock_httpx.post.side_effect = fake_post
+
+        sdk_client = MagicMock()
+        sdk_client.get_httpx_client.return_value = mock_httpx
+        sdk_client.raise_on_unexpected_status = False
+
+        upload_file(sdk_client, DATASET_ID, sample)
+
+        assert seen_timeout_during_post == EXTENDED_REQUEST_TIMEOUT_SECONDS
+        assert seen_timeout_during_post != 30.0
+        assert mock_httpx.timeout == 30.0
+
 
 def _problem(status: int, detail: str | dict) -> SimpleNamespace:
     from geolens.models.problem_detail import ProblemDetail

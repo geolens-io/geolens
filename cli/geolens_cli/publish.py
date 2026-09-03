@@ -42,7 +42,7 @@ from uuid import UUID
 
 import typer
 
-from ._sdk_helpers import EXIT_GENERIC, EXIT_SERVER, call_sdk
+from ._sdk_helpers import EXIT_GENERIC, EXIT_SERVER, call_sdk, upload_timeout
 
 # ---------------------------------------------------------------------------
 # Status-code constants — verified by Plan 04 Task 0 Q4 spike.
@@ -91,14 +91,6 @@ _DEFAULT_POLL_TIMEOUT_SECONDS: float = 120.0
 #: is enough for a status lookup; this is a diagnostic extra, not worth
 #: waiting long for.
 _SNAPSHOT_REQUEST_TIMEOUT_SECONDS: float = 5.0
-
-#: fix(#1778): AppState.sdk() now binds every request to
-#: _sdk_helpers.DEFAULT_HTTP_TIMEOUT_SECONDS (30s) so a black-holed host
-#: doesn't hang the CLI forever — too short for a large geospatial file
-#: upload on an ordinary connection. upload_file() below raises the bound
-#: to this more generous value for the transfer itself, then restores the
-#: default afterward.
-_UPLOAD_REQUEST_TIMEOUT_SECONDS: float = 600.0
 
 #: fix(#1778): job statuses that mean "this job will never produce a
 #: dataset_id through this endpoint". Previously only "failed" was terminal
@@ -162,19 +154,15 @@ def upload_file(client: Any, path: Path) -> Any:
     from geolens.api.datasets import upload_file_ingest_upload_post
     from geolens.types import Response
 
-    httpx_client = client.get_httpx_client()
-    # fix(#1778): raise the default 30s bound (AppState.sdk()) to a
-    # generous one for the transfer itself, then restore it so any later
-    # request on this same client (preview/commit/poll) isn't left with
-    # the upload's longer timeout.
-    original_timeout = httpx_client.timeout
-    httpx_client.timeout = _UPLOAD_REQUEST_TIMEOUT_SECONDS
-    try:
+    # fix(#1778, review round 5): a large geospatial file upload can
+    # easily outlast AppState.sdk()'s 30s default — upload_timeout()
+    # raises the bound for the transfer itself and restores it
+    # afterward, so a later request on this same client (preview/
+    # commit/poll) isn't left with the upload's longer timeout.
+    with upload_timeout(client) as httpx_client:
         with path.open("rb") as fh:
             files = {"file": (path.name, fh, guess_mime(path))}
             raw = httpx_client.post("/ingest/upload", files=files)
-    finally:
-        httpx_client.timeout = original_timeout
     parsed = upload_file_ingest_upload_post._parse_response(client=client, response=raw)
     return Response(
         status_code=HTTPStatus(raw.status_code),

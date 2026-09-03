@@ -24,7 +24,7 @@ from typing import Any, Optional
 from uuid import UUID
 
 from . import publish as _publish
-from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_SERVER, call_sdk
+from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_SERVER, call_sdk, upload_timeout
 from .refresh import _problem_detail
 
 #: Upload returns 201 Created (ReuploadResponse). Cited:
@@ -68,16 +68,22 @@ def upload_file(client: Any, dataset_id: UUID, path: Path) -> Any:
     payload directly on the SDK's httpx client instead. OCCLI-06: the client
     comes from ``client.get_httpx_client()``, never a direct ``httpx``
     construction.
+
+    fix(#1778 review round 5): the backend saves and validates the
+    replacement before responding, so a large file posted through
+    AppState.sdk()'s plain 30s-bound client could time out. Wrapped in
+    ``upload_timeout()`` — the same extended, restored bound
+    ``publish.upload_file`` uses.
     """
     from geolens.api.datasets_reupload import (
         reupload_dataset_datasets_dataset_id_reupload_post as _reupload,
     )
     from geolens.types import Response
 
-    httpx_client = client.get_httpx_client()
-    with path.open("rb") as fh:
-        files = {"file": (path.name, fh, _publish.guess_mime(path))}
-        raw = httpx_client.post(f"/datasets/{dataset_id}/reupload", files=files)
+    with upload_timeout(client) as httpx_client:
+        with path.open("rb") as fh:
+            files = {"file": (path.name, fh, _publish.guess_mime(path))}
+            raw = httpx_client.post(f"/datasets/{dataset_id}/reupload", files=files)
     parsed = _reupload._parse_response(client=client, response=raw)
     return Response(
         status_code=HTTPStatus(raw.status_code),

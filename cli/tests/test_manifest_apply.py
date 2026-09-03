@@ -56,6 +56,9 @@ class FakeHttpxClient:
     def __init__(self, response: FakeResponse) -> None:
         self.response = response
         self.calls: list[dict[str, Any]] = []
+        # fix(#1778 review round 5): upload_timeout() reads/restores this,
+        # matching real httpx.Client's `.timeout` attribute.
+        self.timeout = 30.0
 
     def post(self, **kwargs: Any) -> FakeResponse:
         self.calls.append(kwargs)
@@ -147,6 +150,34 @@ def test_post_manifest_apply_uses_sdk_owned_transport() -> None:
             "json": payload,
         }
     ]
+
+
+def test_post_manifest_apply_raises_the_timeout_then_restores_it() -> None:
+    """fix(#1778 review round 5): the backend validates and applies the
+    manifest before responding, which can outlast AppState.sdk()'s plain
+    30s bound for a manifest with many datasets. post_manifest_apply()
+    must raise the bound for the POST itself and restore it afterward."""
+    from geolens_cli._sdk_helpers import EXTENDED_REQUEST_TIMEOUT_SECONDS
+
+    response = FakeResponse(200, _apply_response())
+    client = FakeSdkClient(response)
+    httpx_client = client.httpx_client
+
+    seen_timeout_during_post: list[float] = []
+    original_post = httpx_client.post
+
+    def spying_post(**kwargs):
+        seen_timeout_during_post.append(httpx_client.timeout)
+        return original_post(**kwargs)
+
+    httpx_client.post = spying_post
+
+    payload = build_apply_payload(load_manifest(_manifest_path()), dry_run=False)
+    post_manifest_apply(client, payload)
+
+    assert seen_timeout_during_post == [EXTENDED_REQUEST_TIMEOUT_SECONDS]
+    assert seen_timeout_during_post[0] != 30.0
+    assert httpx_client.timeout == 30.0
 
 
 @pytest.mark.parametrize(

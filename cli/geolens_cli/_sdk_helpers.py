@@ -14,7 +14,8 @@ construct clients; httpx exception imports here are explicitly allowed.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, TypeVar
+from contextlib import contextmanager
+from typing import Any, Callable, Iterator, TypeVar
 
 import typer
 
@@ -35,13 +36,52 @@ EXIT_SERVER = 5
 #: against a host that black-holes packets, and this module's own
 #: httpx.TimeoutException branch above can never fire. A plain float
 #: (not httpx.Timeout) so callers stay clear of OCCLI-06's import
-#: restriction; httpx accepts either. The long upload stage in publish.py
-#: overrides this with a more generous bound for the file transfer itself.
+#: restriction; httpx accepts either. upload_timeout() below overrides
+#: this with a more generous bound for requests that carry a file body or
+#: that the backend processes synchronously before responding.
 DEFAULT_HTTP_TIMEOUT_SECONDS: float = 30.0
+
+#: fix(#1778 review round 5): AppState.sdk()'s 30s default is too short
+#: for a request that carries a large geospatial file (upload, replace/
+#: reupload) or that the backend saves/validates/computes synchronously
+#: before responding (apply's manifest POST, analysis materialize's
+#: submit — both expect 200/202 back from work already done, not a
+#: fire-and-forget 202 with nothing behind it). One shared bound so
+#: there is a single number to tune, not one guess per call site.
+EXTENDED_REQUEST_TIMEOUT_SECONDS: float = 600.0
 
 
 class DeadlineTimeout(Exception):
     """An SDK request consumed the caller's operation deadline."""
+
+
+@contextmanager
+def upload_timeout(client: Any) -> Iterator[Any]:
+    """Temporarily raise ``client``'s httpx transport timeout to
+    EXTENDED_REQUEST_TIMEOUT_SECONDS, restoring the original afterward.
+
+    fix(#1778 review round 5): every CLI request that carries a file
+    body or that waits on server-side processing before the response
+    must go through this — previously each call site open-coded its own
+    save/override/restore (or, in replace.py's and manifest_apply.py's
+    case, never raised the bound at all and just ate whatever
+    AppState.sdk()'s 30s default left it with). Routing every one
+    through a single helper closes the class: a new call site with the
+    same shape has nowhere else to get its timeout from.
+    tests/test_upload_timeout_usage.py structurally asserts every
+    ``files=``/multipart call in this package sits inside a
+    ``with upload_timeout(client):`` block.
+
+    Restored unconditionally (even on an exception) so a later request
+    on this same client isn't left with the extended bound.
+    """
+    httpx_client = client.get_httpx_client()
+    original_timeout = httpx_client.timeout
+    httpx_client.timeout = EXTENDED_REQUEST_TIMEOUT_SECONDS
+    try:
+        yield httpx_client
+    finally:
+        httpx_client.timeout = original_timeout
 
 
 def make_client(

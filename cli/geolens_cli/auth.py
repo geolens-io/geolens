@@ -266,8 +266,22 @@ def _restore_credentials(instance: str, snapshot: _CredentialSnapshot) -> None:
         log.warning("credential_restore_failed", account="file", error=str(exc))
 
 
-def _delete_competing_kinds(instance: str, *, keep: str) -> None:
-    """Delete every stored credential kind for ``instance`` except ``keep``.
+def _delete_stale_credentials(instance: str, *, keep: str, keep_backend: str) -> None:
+    """Delete every stored credential for ``instance`` except ``keep``'s
+    value in the backend it was just stored to (``keep_backend``).
+
+    Two related cleanups happen in one pass:
+
+    - every OTHER credential kind (the competing types) is deleted from
+      BOTH backends, same as before;
+    - ``keep`` itself is ALSO deleted from whichever backend it was NOT
+      just stored to (fix(#1778 review round 5)). ``store_bearer_token``/
+      ``store_api_key`` only ever write ONE backend per call (keyring, or
+      the file on fallback/``no_keyring``); a stale same-kind value left
+      in the OTHER backend from an earlier login was never cleaned up,
+      and ``load_bearer_token``/``load_api_key`` prefer the file over
+      keyring — so a stale file value kept winning over a freshly-stored
+      keyring value even though login reported the new one stored.
 
     The keyring half mirrors ``delete_credentials()`` — missing entries
     and backend errors are swallowed, matching D-13's existing
@@ -277,7 +291,7 @@ def _delete_competing_kinds(instance: str, *, keep: str) -> None:
     whatever partial state the failed write left it in.
     """
     for name, account_fn in _ACCOUNT_FN_BY_KIND.items():
-        if name == keep:
+        if name == keep and keep_backend == "keyring":
             continue
         try:
             keyring.delete_password(SERVICE, account_fn(instance))
@@ -290,7 +304,7 @@ def _delete_competing_kinds(instance: str, *, keep: str) -> None:
         return
     keep_field = _FIELD_BY_KIND.get(keep)
     for field in ("bearer_token", "api_key", "refresh_token"):
-        if field == keep_field:
+        if field == keep_field and keep_backend == "file":
             continue
         section.pop(field, None)
     if section:
@@ -315,16 +329,25 @@ def replace_credentials(
     back to a read-only or full XDG path, a permissions error, ...) left
     the user logged out — the working credential was already gone — with
     login reporting failure too. This stores the new credential FIRST;
-    only once that succeeds are the competing credential kinds deleted.
+    only once that succeeds is anything else touched.
 
     If the store itself raises, nothing here has touched storage yet
     (the snapshot read is read-only) — the exception propagates and the
-    prior credentials are untouched. If deleting the competing kinds
-    afterward fails partway — keyring and credentials.toml are separate
-    backends with no shared transaction, so that step is the one place
-    this can't be fully atomic — the pre-swap snapshot is restored
-    before re-raising, so the net effect is still "nothing changed"
-    rather than two live, conflicting credentials.
+    prior credentials are untouched. If the cleanup afterward fails
+    partway — keyring and credentials.toml are separate backends with no
+    shared transaction, so that step is the one place this can't be
+    fully atomic — the pre-swap snapshot is restored before re-raising,
+    so the net effect is still "nothing changed" rather than a mix of
+    old and new credentials.
+
+    fix(#1778 review round 5): the cleanup step deletes both the
+    competing credential kinds AND ``kind``'s own value from whichever
+    backend it did NOT just land in — see ``_delete_stale_credentials``.
+    Without that second part, a bearer token stored in credentials.toml
+    by an earlier ``--no-keyring`` login survived a later plain
+    ``login`` that stored the replacement in the keyring, and
+    ``load_bearer_token``'s file-over-keyring precedence kept resolving
+    the stale one.
 
     ``kind`` is ``"bearer"`` or ``"api_key"``. Returns ``'keyring'`` or
     ``'file'`` (where the new credential landed).
@@ -340,7 +363,7 @@ def replace_credentials(
         backend = store_api_key(instance, value, no_keyring=no_keyring)
 
     try:
-        _delete_competing_kinds(instance, keep=kind)
+        _delete_stale_credentials(instance, keep=kind, keep_backend=backend)
     except Exception:
         _restore_credentials(instance, snapshot)
         raise

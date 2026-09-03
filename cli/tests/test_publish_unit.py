@@ -295,7 +295,8 @@ class TestUploadFile:
         value back afterward, so a later request on this same client
         (preview/commit/poll) is not left with the upload's longer bound.
         """
-        from geolens_cli.publish import _UPLOAD_REQUEST_TIMEOUT_SECONDS, upload_file
+        from geolens_cli._sdk_helpers import EXTENDED_REQUEST_TIMEOUT_SECONDS
+        from geolens_cli.publish import upload_file
 
         sample = tmp_path / "cities.geojson"
         sample.write_text('{"type":"FeatureCollection","features":[]}')
@@ -330,7 +331,7 @@ class TestUploadFile:
 
         upload_file(sdk_client, sample)
 
-        assert seen_timeout_during_post == _UPLOAD_REQUEST_TIMEOUT_SECONDS
+        assert seen_timeout_during_post == EXTENDED_REQUEST_TIMEOUT_SECONDS
         assert seen_timeout_during_post != 30.0
         assert mock_httpx.timeout == 30.0
 
