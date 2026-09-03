@@ -2479,10 +2479,18 @@ class TestAnOgcApiCheckOnlyValidatesRelsSomethingDereferences:
         # no CrossOriginEndpointError -- because the walk just stopped there.
         await self._check(handle, monkeypatch, collection=None)
 
-    def test_the_checked_set_matches_what_the_walkers_actually_dereference(
+    def test_each_rel_is_traced_to_the_call_site_that_actually_dereferences_it(
         self,
     ) -> None:
         """Source-enumeration, hand-traced rather than blindly grepped.
+
+        fix(#1770 round 46b P3): renamed from `test_the_checked_set_matches_
+        what_the_walkers_actually_dereference` -- round 46 split the single
+        set this test's old name referred to into `_LANDING_RELS`/
+        `_COLLECTION_RELS` and moved the equality assertion into
+        `test_each_document_type_is_scoped_to_only_the_rel_it_reads` below,
+        so this test no longer mentions either set at all; what it still
+        checks is the MEMBERSHIP tracing the name now says.
 
         A bare `rel") == "X"` grep also matches `data` in `adapters/ogcapi.py`
         (`has_data_link = any(... lnk.get("rel") == "data" ...)`), which is a
@@ -2967,14 +2975,30 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
         a cross-origin `items` link used to refuse the whole probe. Nothing
         the probe does ever reads an entry's `items` href -- `probe_ogcapi`
         never mentions `items` at all, and the only place that rel is ever
-        dereferenced is `_check_ogcapi`'s direct per-collection fetch
-        (`_COLLECTION_RELS`, exercised by
-        `test_the_preview_refuses_a_cross_origin_items_link` and
-        `test_the_worker_refuses_a_cross_origin_items_link` below) and
-        `service_items.py`'s own independent guard at actual import time,
-        neither of which this probe reaches. The probe still never
-        contacts the foreign host -- it was never going to fetch that href
-        either way -- so this is Allowed, not merely "didn't crash".
+        dereferenced in production is `_resolve_items_url`'s own
+        `same_origin` guard in `service_items.py`, at actual import time --
+        `_check_ogcapi`'s `_COLLECTION_RELS` branch (`collection is not
+        None`) is UNREACHABLE here: `assert_endpoints_stay_on_origin`'s
+        only live OGC API caller is this probe route
+        (`sources/router.py`), which never passes a `collection`. The
+        probe still never contacts the foreign host -- it was never going
+        to fetch that href either way -- so this is Allowed, not merely
+        "didn't crash".
+
+        fix(#1770 round 46b P2): the corrected 200 + no-foreign-host
+        assertions pass identically if the listing walk stopped after page
+        1 -- they prove nothing about whether the walk actually REACHES the
+        later page carrying the cross-origin link, which is the whole
+        point of `collection_count=10` and the reason this test exists
+        rather than a same-page-1 version. Asserting that a `?page=9`
+        request was actually made restores that half of the pin: reducing
+        the walk to a single page makes this assertion fail even though
+        the 200 and the no-foreign-host checks above both still pass. Not
+        a bare count -- `probe_ogcapi` (the adapter's own layer-listing
+        read, unrelated to this security walk) also fetches `/collections`
+        once with no `page` param at all, so a total-request count would
+        couple this pin to that unrelated call's presence; the specific
+        page-9 query does not.
         """
         value = _value()
         resp, recorded = await self._probe(
@@ -2990,6 +3014,11 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
 
         assert resp.status_code == 200, resp.text
         assert "collector.example" not in _hosts(recorded)
+        assert any(
+            r.url.params.get("page") == "9"
+            for r in recorded
+            if r.url.path.endswith("/collections")
+        )
 
     # -- the preview door ---------------------------------------------------
 

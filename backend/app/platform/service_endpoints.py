@@ -192,9 +192,15 @@ ENDPOINT_CHECK_FAILED_POLICY = (
 # that test -- confirmed by trying it in round 37 before writing this note,
 # and unchanged by round 46's re-scoping.
 #
-# `test_service_auth_transport_1746.py` greps the rel literals at the two
-# GET call sites named above and asserts each equals its own set, and that
-# no other rel appears in either, so the two cannot drift apart again.
+# `test_service_auth_transport_1746.py` is what keeps this from drifting
+# apart again, in two tests: `test_each_rel_is_traced_to_the_call_site_
+# that_actually_dereferences_it` traces `conformance` to
+# `_resolve_conformance` and `items` to `_resolve_items_url`/
+# `_advertised_items_href`, the way this comment does above; `test_each_
+# document_type_is_scoped_to_only_the_rel_it_reads` asserts `_LANDING_RELS`/
+# `_COLLECTION_RELS` hold exactly their one member each and that
+# `_check_ogcapi`'s four `_ogcapi_link_hrefs` call sites each pass the set
+# (or `frozenset()`) this comment says they should.
 _LANDING_RELS = frozenset({"conformance"})
 _COLLECTION_RELS = frozenset({"items"})
 
@@ -1020,9 +1026,24 @@ async def _check_ogcapi(
         return
 
     # The probe has no collection yet, so it walks the listing. Bounded, and
-    # reaching the bound is recorded rather than treated as a clean pass: the
-    # complete check is the per-collection one above, which runs on the two
-    # paths that spend the credential.
+    # reaching the bound is recorded rather than treated as a clean pass.
+    #
+    # fix(#1770 round 46b P2): the per-collection branch above (`_COLLECTION_
+    # RELS`) is NOT reached by the two paths that spend the credential, and
+    # this comment used to claim it was. `assert_endpoints_stay_on_origin`'s
+    # only LIVE caller for `ogcapi_features` is this probe route
+    # (`sources/router.py`'s `/probe` handler), which never passes a
+    # `collection` -- the `collection is not None` branch is currently
+    # unreachable in production. Preview (`preview.py::_localise_protected_
+    # oapif`) and the worker (`ogr.py`) both materialise a protected OAPIF
+    # collection IN-PROCESS first and hand GDAL a local file with the
+    # credential/token already nulled out, so the `if credential/token`
+    # guard on THEIR `assert_endpoints_stay_on_origin` call is false and
+    # `_check_ogcapi` never runs for them at all -- the `items` guard those
+    # two paths actually rely on is `_resolve_items_url`'s own `same_origin`
+    # check in `service_items.py`, independent of this module. Traced end to
+    # end, not assumed: see `test_a_late_collections_items_link_is_allowed_
+    # at_the_probe`'s docstring in `test_service_auth_transport_1746.py`.
     page_url: str | None = f"{url.rstrip('/')}/collections"
     for _page in range(_MAX_COLLECTION_PAGES):
         if page_url is None:
@@ -1033,6 +1054,11 @@ async def _check_ogcapi(
         # -- `frozenset()` names that explicitly rather than skipping the
         # call. `next` is still handled separately below, by `_next_page`,
         # unchanged by this round.
+        # fix(#1770 round 46b P3): a deliberate no-op -- `_ogcapi_link_hrefs`
+        # returns `[]` for any document given `frozenset()`, so this can
+        # never refuse. Kept, rather than dropped, so `test_each_document_
+        # type_is_scoped_to_only_the_rel_it_reads` has a real call site to
+        # pin the scoping against.
         _assert_same_origin(url, _ogcapi_link_hrefs(listing, frozenset()), from_url)
         collections = listing.get("collections") if isinstance(listing, dict) else None
         for entry in collections or []:
@@ -1044,6 +1070,9 @@ async def _check_ogcapi(
             # a cross-origin `conformance` link on an entry -- an ordinary
             # provider-docs link nothing here ever follows -- no longer
             # refuses the whole import.
+            # fix(#1770 round 46b P3): also a deliberate no-op, for the same
+            # reason as the listing-page call above -- kept for the same
+            # structural test to pin.
             _assert_same_origin(url, _ogcapi_link_hrefs(entry, frozenset()), from_url)
         # Resolved against the document's own URL as well, for the same reason.
         page_url = _next_page(listing, from_url)

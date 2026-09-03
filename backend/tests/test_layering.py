@@ -2552,7 +2552,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Most of the added lines are the docstring tracing which document type
     # dereferences which rel, and why a collections listing page/entry
     # dereference neither. Cap 1055 -> 1116, exact.
-    "backend/app/platform/service_endpoints.py": 1116,
+    # fix(#1770 round 46b): +29. The pre-trigger audit's four fixes: the
+    # module comment correcting which paths actually reach `_COLLECTION_
+    # RELS` (none of preview/worker do; only the probe, which never passes
+    # a collection), naming the actual structural tests that now guard the
+    # rel scoping, and a one-line "deliberate no-op" comment at each of the
+    # two `frozenset()` call sites. Cap 1116 -> 1145, exact.
+    "backend/app/platform/service_endpoints.py": 1145,
     # fix(#1770 round 42): first entry, crossed _RATCHET_INCLUSION_LOC on the
     # completeness-predicate unification. `_page_proves_complete` is the one
     # function round 41's full-walk-only proof and round 42's sampled-preview
