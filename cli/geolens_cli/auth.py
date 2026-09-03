@@ -103,8 +103,20 @@ def _read_credentials_file() -> dict:
     path = _config.credentials_path()
     if not path.is_file():
         return {}
+    # fix(#1778 round 30): a PermissionError (or any other OSError) on
+    # the read() itself used to propagate straight past every caller
+    # here uncaught -- unlike a TOMLDecodeError, which every caller
+    # already handles via CredentialsFileCorrupt. There is no
+    # meaningful difference between "can't parse this file" and "can't
+    # even read this file" from any caller's point of view: both mean
+    # the file cannot be trusted, and both must be reported the same
+    # way rather than one of them crashing.
     try:
-        return tomllib.loads(path.read_text())
+        text = path.read_text()
+    except OSError as exc:
+        raise CredentialsFileCorrupt(path, str(exc)) from exc
+    try:
+        return tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:
         raise CredentialsFileCorrupt(path, str(exc)) from exc
 
@@ -327,9 +339,55 @@ def load_refresh_token(instance: str) -> Optional[str]:
 _ACTIVE_KIND_FIELD = "active_kind"
 
 
+def _read_active_kind_marker(instance: str) -> Optional[str]:
+    """STRICT marker reader (fix(#1778 round 30)): returns
+    ``"bearer"``/``"api_key"`` for a present, valid marker; ``None``
+    when the field is genuinely absent (no file, or the field itself
+    is missing) on an otherwise-readable file; raises
+    ``KeyringCredentialUnreadable("marker", ...)`` when the file
+    cannot be read/parsed OR the field holds a value that is neither
+    ``"bearer"`` nor ``"api_key"``.
+
+    Round 22-27's ``load_active_credential_kind()`` (below) collapsed
+    ALL three of those failure shapes -- a corrupt file, a permission
+    error, and a garbage value -- to the exact same ``None`` a
+    genuinely-never-set marker returns. Round 27 fixed AppState.sdk()
+    to treat a PRESENT marker as authoritative, but that fix only ever
+    fires when the marker can be READ; if the file becomes unreadable
+    after a kind switch, this function's old two-state contract made
+    that failure indistinguishable from "no marker was ever written,"
+    and resolution silently fell back to legacy bearer-first
+    precedence -- exactly the stale credential a kind switch's marker
+    exists to shadow. ``resolve_active_credential()`` below is the one
+    caller that needs this distinction; every OTHER existing caller
+    keeps using the tolerant ``load_active_credential_kind()`` and is
+    unaffected.
+    """
+    try:
+        data = _read_credentials_file().get(instance, {})
+    except CredentialsFileCorrupt as exc:
+        # fix(#1778 round 30): fold the path into the detail string --
+        # KeyringCredentialUnreadable has no path attribute of its own
+        # (a keyring account read failure has no meaningful path), but
+        # a corrupt-FILE failure specifically is much more actionable
+        # named, matching round 23's whoami/status message.
+        raise KeyringCredentialUnreadable(
+            "marker", f"{exc.path} is corrupt: {exc.detail}"
+        ) from exc
+    if _ACTIVE_KIND_FIELD not in data:
+        return None
+    kind = data[_ACTIVE_KIND_FIELD]
+    if kind not in ("bearer", "api_key"):
+        raise KeyringCredentialUnreadable(
+            "marker", f"unrecognized active_kind value: {kind!r}"
+        )
+    return kind
+
+
 def load_active_credential_kind(instance: str) -> Optional[str]:
     """Return ``"bearer"`` or ``"api_key"`` — whichever kind ``login``
-    most recently stored for ``instance`` — or ``None`` if never set.
+    most recently stored for ``instance`` — or ``None`` if never set OR
+    unreadable right now.
 
     fix(#1778 review round 10): a stale competing credential surviving
     in EITHER backend (keyring or credentials.toml) after a swap could
@@ -346,10 +404,145 @@ def load_active_credential_kind(instance: str) -> Optional[str]:
     time. Readers (``AppState.sdk()``) consult it FIRST: cleanup
     failing to evict a competing entry no longer matters for
     correctness, only for tidiness.
+
+    fix(#1778 round 30): TOLERANT wrapper around the strict
+    ``_read_active_kind_marker()`` above -- unchanged in name and
+    contract for every EXISTING caller (``try_refresh()``'s own
+    "does the marker already say bearer" write-skip check is a
+    narrower question than credential SELECTION and deliberately
+    keeps this tolerant behavior). ``resolve_active_credential()``
+    below is the one place that needs to tell "never set" apart from
+    "can't tell right now."
     """
-    data = _read_credentials_section_tolerant(instance)
-    kind = data.get(_ACTIVE_KIND_FIELD)
-    return kind if kind in ("bearer", "api_key") else None
+    try:
+        return _read_active_kind_marker(instance)
+    except KeyringCredentialUnreadable:
+        return None
+
+
+class ActiveCredentialMissing(Exception):
+    """Raised by ``resolve_active_credential()`` when the active_kind
+    marker names a kind but a clean, successful read confirms nothing
+    is stored for it -- "not logged in," not anonymous, and NOT a
+    fallback to whatever else might exist: the marker says a
+    credential of exactly this kind should be there."""
+
+    def __init__(self, instance: str, kind: str) -> None:
+        super().__init__(f"no {kind} credential found for {instance}")
+        self.instance = instance
+        self.kind = kind
+
+
+class CredentialAmbiguous(Exception):
+    """Raised by ``resolve_active_credential()`` when there is no
+    active_kind marker to consult AND more than one credential kind is
+    genuinely present (both reads succeeded and both found a real
+    value) -- round 30. Guessing here (the old bearer-first legacy
+    precedence, unconditional) risks silently authenticating as the
+    WRONG principal: an API-key login can leave a stale bearer behind
+    in the keyring (round 14's best-effort, not correctness-bearing,
+    cleanup), and there is no safe default once more than one real
+    credential exists with nothing recording which is current."""
+
+    def __init__(self, instance: str) -> None:
+        super().__init__(
+            f"multiple credentials found for {instance} with no active_kind "
+            "marker to disambiguate"
+        )
+        self.instance = instance
+
+
+@dataclass(frozen=True)
+class ResolvedCredential:
+    """The output of ``resolve_active_credential()``: which credential
+    (if any) is active for an instance, and where it came from."""
+
+    kind: str  # "bearer" | "api_key" | "anonymous"
+    value: Optional[str]
+    provenance: str  # "env" | "stored-bearer" | "stored-api-key" | "anonymous"
+
+
+def resolve_active_credential(instance: str) -> ResolvedCredential:
+    """THE single precedence implementation for "which credential is
+    active for ``instance``" (D-35). Consolidates round 10's marker
+    precedence, round 23/25/27's marker-authoritative fixes, and round
+    30's ambiguity/unreadable handling into one place, closing the
+    state matrix rather than patching another individual cell.
+
+    Enumerated call sites (fix(#1778 round 30) -- every consumer of a
+    credential-selection decision routes through THIS function; call
+    sites that consume its OUTPUT, or that ask a narrower question
+    than "which credential is active," are listed for completeness
+    but do not call it):
+
+    - ``AppState.sdk()`` (main.py) -- the ONLY caller. Every other
+      credential-consuming command (whoami, status, refresh, publish,
+      analysis, export, manifest apply, ...) reaches this exclusively
+      through ``state.sdk()``, so they inherit this resolver without
+      calling it directly.
+    - ``_sdk_helpers.call_sdk_with_reauth`` (the reauth helper) and
+      ``_sdk_helpers.make_client`` (the SDK-client factory) consume
+      this function's OUTPUT (``credential_kind``/``credential_
+      provenance``, set by ``AppState.sdk()`` when it calls
+      ``make_client()``) -- they do not re-implement precedence.
+    - ``try_refresh()`` (auth.py) calls the TOLERANT ``load_active_
+      credential_kind()`` for a narrower, different question --
+      "does the marker already say bearer" (a write-skip
+      optimization) -- not "which credential should this request use."
+      It is not a precedence implementation and deliberately keeps
+      the old graceful-degradation behavior: a corrupt file there
+      must not block a token rotation that already succeeded.
+    - ``login``/``logout`` (auth.py) do not resolve an active
+      credential at all -- ``login`` WRITES one (``replace_
+      credentials()``, whose own corrupt-file handling is round 28's
+      separate, already-closed matter), ``logout`` DELETES all three
+      backends unconditionally regardless of which is active.
+
+    Raises:
+        KeyringCredentialUnreadable: the marker, or the specific kind
+            it names, could not be read (a corrupt/unreadable
+            credentials.toml, a keyring read failure, or an
+            unrecognized marker value). Never silently treated as
+            absent.
+        ActiveCredentialMissing: the marker names a kind but a clean
+            read confirms nothing is stored for it.
+        CredentialAmbiguous: no marker, and more than one kind is
+            genuinely present with nothing to disambiguate them.
+    """
+    env_token = _config.get_token_from_env()
+    if env_token:
+        return ResolvedCredential("bearer", env_token, "env")
+
+    marker = _read_active_kind_marker(instance)  # may raise KeyringCredentialUnreadable
+
+    if marker == "api_key":
+        api_key = load_api_key_strict(instance)
+        if api_key:
+            return ResolvedCredential("api_key", api_key.value, "stored-api-key")
+        raise ActiveCredentialMissing(instance, "api_key")
+    if marker == "bearer":
+        bearer = load_bearer_token_strict(instance)
+        if bearer:
+            return ResolvedCredential("bearer", bearer.value, "stored-bearer")
+        raise ActiveCredentialMissing(instance, "bearer")
+
+    # fix(#1778 round 30): no marker at all -- the legacy bearer-over-
+    # api_key precedence (pre-round-10) applies, but ONLY when at most
+    # one kind is genuinely present. Uses the TOLERANT readers, not
+    # the strict ones: with no marker, there is no authoritative
+    # signal to be strict ABOUT, so a transiently-unreadable keyring
+    # account here degrades exactly as round 27 already established
+    # and pinned (no marker + one kind unreadable + the other kind
+    # readable -> fall back to the readable one, unchanged).
+    bearer = load_bearer_token(instance)
+    api_key = load_api_key(instance)
+    if bearer and api_key:
+        raise CredentialAmbiguous(instance)
+    if bearer:
+        return ResolvedCredential("bearer", bearer.value, "stored-bearer")
+    if api_key:
+        return ResolvedCredential("api_key", api_key.value, "stored-api-key")
+    return ResolvedCredential("anonymous", None, "anonymous")
 
 
 def ensure_credentials_file_readable() -> None:

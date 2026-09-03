@@ -88,24 +88,25 @@ class AppState:
         return self.config.instance
 
     def sdk(self):
-        """Lazy-construct an authenticated SDK client for the active instance."""
+        """Lazy-construct an authenticated SDK client for the active instance.
+
+        fix(#1778 round 30): credential SELECTION itself (GEOLENS_TOKEN
+        vs the active_kind marker vs legacy bearer-first precedence,
+        and everything that can go wrong reading any of those) is
+        entirely delegated to ``auth.resolve_active_credential()`` --
+        the one precedence implementation for this decision across the
+        whole package (see its own docstring for the full list of call
+        sites this closes over). This method's only remaining job is
+        translating that resolver's result (or one of its three typed
+        failure modes) into a constructed client or a reported CLI
+        error -- ``auth.py`` has no access to ``self.output``, so this
+        is the one place that translation can happen.
+        """
         instance = self.active_instance()
         if not instance:
             raise typer.BadParameter(
                 "No instance configured. Run `geolens login <url>` first or pass --instance.",
             )
-        # fix(#1778 review round 10): GEOLENS_TOKEN is an explicit,
-        # session-scoped override (D-35's top precedence) and wins
-        # outright, independent of the stored active-credential marker
-        # below.
-        env_token = _config.get_token_from_env()
-        if env_token:
-            # fix(#1778 review round 26): tagged "env" (not just
-            # "bearer") so call_sdk_with_reauth never spends a stored
-            # refresh token to rescue a rejected env override -- see
-            # make_client()'s own docstring.
-            return make_client(instance, bearer_token=env_token, provenance="env")
-
         # fix(#1778, #1787): make_client() binds every request to
         # DEFAULT_HTTP_TIMEOUT_SECONDS — the SDK's generated transport
         # otherwise carries timeout=None (unbounded), so every command
@@ -113,100 +114,48 @@ class AppState:
         # exiting EXIT_NETWORK. Commands that poll (publish --wait,
         # analysis materialize --wait) bound each individual request
         # further still — see publish.resolve_dataset_id.
-        #
-        # fix(#1778 review round 10): consult the active-credential-kind
-        # marker login writes unconditionally (auth.py's
-        # load_active_credential_kind) so a stale competing credential
-        # surviving in EITHER backend — keyring or credentials.toml —
-        # can never outrank the credential that was actually just
-        # stored; cleanup at login time is best-effort tidiness, not
-        # what this decision depends on. Falls back to the old
-        # bearer-first precedence when there's no marker (a
-        # pre-round-10 credentials.toml).
-        #
-        # fix(#1778 review round 27): rounds 10-25 still read BOTH
-        # `bearer` and `api_key` tolerantly up front, THEN consulted the
-        # marker -- so when the marker named `api_key` but reading it
-        # raised an account-specific KeyringError (load_api_key()
-        # swallows that to None, indistinguishable from "genuinely
-        # nothing stored"), the marker check below simply failed to
-        # match and execution fell through to the tolerant `bearer`
-        # fallback a few lines down. That silently ran every command as
-        # the OLD (bearer) principal, using exactly the stale credential
-        # the round-14 _UNKNOWN cleanup gate deliberately left behind
-        # for this exact reason. A PRESENT marker is now authoritative:
-        # its named kind is read with the STRICT reader, which tells
-        # "unreadable" (raises -- resolution fails naming the kind and
-        # the keyring error, no fallback to the other kind) apart from
-        # "confirmed absent" (a clean read found nothing -- "not logged
-        # in," still no fallback, since the marker says which kind is
-        # active). Only with NO marker at all does the old tolerant
-        # bearer-first precedence apply, unchanged, below.
-        active_kind = _auth.load_active_credential_kind(instance)
-        if active_kind == "api_key":
-            try:
-                api_key = _auth.load_api_key_strict(instance)
-            except _auth.KeyringCredentialUnreadable as exc:
-                self.output.error(
-                    f"The active API key could not be read from the "
-                    f"keyring ({exc.detail}). Run `geolens login` again, "
-                    "or fix the keyring."
-                )
-                raise typer.Exit(EXIT_NETWORK) from exc
-            if api_key:
-                return make_client(
-                    instance, api_key=api_key.value, provenance="stored-api-key"
-                )
-            self.output.error("Authentication required. Run `geolens login` first.")
-            raise typer.Exit(EXIT_AUTH)
-        if active_kind == "bearer":
-            try:
-                bearer = _auth.load_bearer_token_strict(instance)
-            except _auth.KeyringCredentialUnreadable as exc:
-                self.output.error(
-                    f"The active bearer token could not be read from the "
-                    f"keyring ({exc.detail}). Run `geolens login` again, "
-                    "or fix the keyring."
-                )
-                raise typer.Exit(EXIT_NETWORK) from exc
-            if bearer:
-                return make_client(
-                    instance, bearer_token=bearer.value, provenance="stored-bearer"
-                )
-            self.output.error("Authentication required. Run `geolens login` first.")
-            raise typer.Exit(EXIT_AUTH)
-
-        bearer = _auth.load_bearer_token(instance)
-        api_key = _auth.load_api_key(instance)
-        if bearer:
-            return make_client(instance, bearer_token=bearer.value, provenance="stored-bearer")
-        if api_key:
-            return make_client(instance, api_key=api_key.value, provenance="stored-api-key")
-        # fix(#1778 review round 22, corrected round 23): neither the
-        # file nor the keyring produced a usable credential. Round 22
-        # added an UNCONDITIONAL preflight in whoami/status specifically
-        # to catch a corrupt credentials.toml here -- but that broke
-        # GEOLENS_TOKEN and keyring-only logins for those two commands,
-        # since it ran before EITHER of those had a chance to succeed.
-        # The check belongs HERE instead, in the one shared resolver
-        # EVERY command goes through, gated on actually having nothing
-        # else to fall back to: if this is about to return an ANONYMOUS
-        # client (which would just 401 on the first real request with a
-        # generic auth error), check whether an unreadable
-        # credentials.toml was part of why nothing resolved, and say so
-        # specifically instead of leaving the user to guess "not logged
-        # in" when the real problem is a local file that needs repair.
-        # A healthy (or missing) file is a no-op here, unchanged from
-        # before for every command that reaches this point via keyring
-        # or GEOLENS_TOKEN.
         try:
-            _auth.ensure_credentials_file_readable()
-        except _auth.CredentialsFileCorrupt as exc:
+            resolved = _auth.resolve_active_credential(instance)
+        except _auth.KeyringCredentialUnreadable as exc:
+            # fix(#1778 round 30): covers a corrupt/unreadable
+            # credentials.toml (whether the marker itself or a named
+            # kind's own value), a keyring read failure for a marked
+            # kind, and an unrecognized marker value -- none of these
+            # are ever silently treated as "no marker" any more (round
+            # 30's own finding: that fallback is exactly what let a
+            # stale bearer resurface once the keyring became readable
+            # again while the file stayed corrupt). Mapped to
+            # EXIT_NETWORK, matching every other "keyring/file
+            # unavailable" case in this package.
             self.output.error(
-                f"{exc.path} is corrupt ({exc.detail}). Fix or move the "
-                "file, then try again."
+                f"The active {exc.kind} could not be read ({exc.detail}). "
+                "Run `geolens login` again, or fix the keyring/credentials file."
             )
-            raise typer.Exit(EXIT_GENERIC) from exc
+            raise typer.Exit(EXIT_NETWORK) from exc
+        except _auth.ActiveCredentialMissing as exc:
+            self.output.error("Authentication required. Run `geolens login` first.")
+            raise typer.Exit(EXIT_AUTH) from exc
+        except _auth.CredentialAmbiguous as exc:
+            # fix(#1778 round 30): no marker, and more than one
+            # credential kind genuinely exists -- guessing (the old
+            # unconditional bearer-first precedence) risked silently
+            # authenticating as the wrong principal. Nothing was ever
+            # stored or changed by reaching this; the operator just
+            # needs to log in again to record which one is current.
+            self.output.error(
+                "Multiple stored credentials were found with nothing "
+                "recording which is active. Run `geolens login` again."
+            )
+            raise typer.Exit(EXIT_AUTH) from exc
+
+        if resolved.kind == "bearer":
+            return make_client(
+                instance, bearer_token=resolved.value, provenance=resolved.provenance
+            )
+        if resolved.kind == "api_key":
+            return make_client(
+                instance, api_key=resolved.value, provenance=resolved.provenance
+            )
         return make_client(instance)
 
 

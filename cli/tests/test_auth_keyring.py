@@ -487,11 +487,17 @@ class TestWhoamiStatusToleratesCorruptFileWhenSomethingElseResolves:
     """fix(#1778 review round 23): round 22 added an UNCONDITIONAL
     corrupt-file preflight at the top of whoami/status, so a corrupt
     credentials.toml made both commands fail even when GEOLENS_TOKEN was
-    set or a perfectly good keyring credential existed -- both of which
-    the pre-round-22 resolver would have happily used. The check now
-    lives inside AppState.sdk()'s own final fallback branch (the one
-    that's about to give up and return an anonymous client), so it only
-    ever fires when the file was genuinely the last option."""
+    set -- which the pre-round-22 resolver would have happily used.
+
+    fix(#1778 round 30): round 23 ALSO tolerated a corrupt file when a
+    keyring credential happened to be readable -- superseded now.
+    resolve_active_credential() treats "the file is unreadable" as its
+    own failure mode, unconditionally, never silently falling back to
+    whatever the keyring has (round 30's own finding: that fallback is
+    exactly what let a stale bearer resurface once the keyring became
+    readable again while the file stayed corrupt). GEOLENS_TOKEN is
+    the ONE thing still unconditionally exempt -- it is checked before
+    the marker is ever read at all, matching D-35's top precedence."""
 
     def test_whoami_succeeds_with_env_token_despite_a_corrupt_file(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
@@ -524,39 +530,31 @@ class TestWhoamiStatusToleratesCorruptFileWhenSomethingElseResolves:
         assert "corrupt" not in result.output.lower()
         assert "env-user@example.com" in result.output
 
-    def test_whoami_succeeds_with_a_keyring_credential_despite_a_corrupt_file(
+    def test_whoami_refuses_despite_a_readable_keyring_credential_when_the_file_is_corrupt(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """Pin: corrupt file + keyring credential -> whoami succeeds."""
-        from unittest.mock import MagicMock
-
-        import geolens
-        import geolens.api.auth.me_auth_me_get as _me_mod
-
+        """Pin (round 30): corrupt file + a readable keyring credential
+        -> whoami now REFUSES (round 23's tolerance here is exactly
+        what the round-30 finding closed -- a corrupt file can itself
+        be hiding a stale competing credential, or a marker pointing
+        elsewhere, that a keyring-only check can never see)."""
         from geolens_cli import config as _cfg
+        from geolens_cli._sdk_helpers import EXIT_NETWORK
         from geolens_cli.main import app
 
         monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
         instance = "https://x.example.com/api"
         canonical = _cfg.normalize_instance_url(instance)
         _auth.store_bearer_token(canonical, "keyring-token", no_keyring=False)
-        _write_corrupt_credentials_file(canonical)
-
-        class FakeUser:
-            email = "keyring-user@example.com"
-
-        class FakeResp:
-            status_code = 200
-            parsed = FakeUser()
-
-        monkeypatch.setattr(geolens, "GeolensClient", MagicMock())
-        monkeypatch.setattr(_me_mod, "sync_detailed", MagicMock(return_value=FakeResp()))
+        path = _write_corrupt_credentials_file(canonical)
+        original_bytes = path.read_bytes()
 
         result = runner.invoke(app, ["--instance", instance, "whoami"])
 
-        assert result.exit_code == 0, result.output
-        assert "corrupt" not in result.output.lower()
-        assert "keyring-user@example.com" in result.output
+        assert result.exit_code == EXIT_NETWORK, result.output
+        assert "corrupt" in result.output.lower()
+        assert str(path) in result.output
+        assert path.read_bytes() == original_bytes, "a refusal must not rewrite the file"
 
     def test_whoami_names_the_corrupt_path_when_nothing_else_resolves(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
