@@ -767,7 +767,28 @@ prune_s3_prefix() {
             # staging as orphaned and deleted them, turning a complete
             # backup set into an incomplete one.
             local -a failed_lines=()
-            while IFS=$'\t' read -r line_ts line_name; do
+            # fix(#1798 review round 8, P2): `IFS=$'\t' read -r line_ts
+            # line_name` treats tab as IFS WHITESPACE — a run of consecutive
+            # tabs collapses into ONE delimiter and a LEADING one is
+            # stripped from the field that follows. A key beginning with a
+            # tab (rare, but legal in S3) sits right after this record's own
+            # ts<TAB>name separator, so the two tabs collapsed into one and
+            # the key's own leading tab was silently eaten — `aws s3 rm`
+            # then targeted a key that was never in the bucket, the real
+            # object survived, and the cycle still reported success at
+            # deleting it. `cut` has no such collapsing: `-f1` is everything
+            # up to the FIRST tab (the timestamp — always exactly one
+            # delimiter in, since it is a strict digit/underscore match with
+            # no tabs of its own) and `-f2-` is everything AFTER it,
+            # re-joined with the original delimiter rather than
+            # word-split — an embedded or leading tab in the name survives
+            # verbatim. `IFS= read -r line_record` (no splitting at all)
+            # reads the whole "ts<TAB>name" line into one variable first, so
+            # neither field is ever exposed to read's own splitting.
+            while IFS= read -r line_record; do
+                [ -n "$line_record" ] || continue
+                line_ts="$(printf '%s' "$line_record" | cut -f1)"
+                line_name="$(printf '%s' "$line_record" | cut -f2-)"
                 [ -n "$line_name" ] || continue
                 if ! aws s3 rm "s3://${S3_BUCKET}/backups/${prefix}/${line_name}" "${aws_args[@]}" > /dev/null; then
                     log "ERROR: could not delete s3://${S3_BUCKET}/backups/${prefix}/${line_name}"

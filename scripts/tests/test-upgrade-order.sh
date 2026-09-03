@@ -750,16 +750,29 @@ build_pos="$(pos_of db_build)"
 recreate_pos="$(pos_of db_recreate)"
 migrate_pos="$(pos_of migrate_up)"
 backup_pos="$(pos_of backup)"
+pull_pos="$(pos_of pull)"
+stop_pos="$(pos_of stop_app)"
 if [ -n "$build_pos" ]; then
   ok "a synced db/Dockerfile triggers a db image rebuild (compose build db)"
 else
   bad "db/Dockerfile was synced but no rebuild was triggered: calls=$(tr '\n' ',' < "$WORK/calls.log")"
 fi
-if [ -n "$build_pos" ] && [ -n "$backup_pos" ] && [ -n "$migrate_pos" ] \
-   && [ "$backup_pos" -lt "$build_pos" ] && [ "$build_pos" -lt "$migrate_pos" ]; then
-  ok "db rebuild runs between the backup and migrate ($backup_pos < $build_pos < $migrate_pos)"
+# fix(#1798 review round 8, P2): compose build db moved to BEFORE Step 6's
+# stop — a db/Dockerfile base-layer fetch (the one thing --ignore-buildable
+# deliberately skips) used to run inside the outage window, extending it or
+# failing the upgrade after downtime had already begun. It now runs in the
+# same pre-outage window as the pull.
+if [ -n "$pull_pos" ] && [ -n "$build_pos" ] && [ -n "$stop_pos" ] \
+   && [ "$pull_pos" -lt "$build_pos" ] && [ "$build_pos" -lt "$stop_pos" ]; then
+  ok "db rebuild runs after the pull and BEFORE the outage stop ($pull_pos < $build_pos < $stop_pos)"
 else
-  bad "db rebuild out of place (backup=$backup_pos build=$build_pos migrate=$migrate_pos)"
+  bad "db rebuild out of place relative to pull/stop (pull=$pull_pos build=$build_pos stop=$stop_pos)"
+fi
+if [ -n "$backup_pos" ] && [ -n "$recreate_pos" ] && [ -n "$migrate_pos" ] \
+   && [ "$backup_pos" -lt "$recreate_pos" ] && [ "$recreate_pos" -lt "$migrate_pos" ]; then
+  ok "the db container recreate still runs between the backup and migrate ($backup_pos < $recreate_pos < $migrate_pos)"
+else
+  bad "db recreate out of place (backup=$backup_pos recreate=$recreate_pos migrate=$migrate_pos)"
 fi
 if [ -n "$build_pos" ] && [ -n "$recreate_pos" ] && [ "$build_pos" -lt "$recreate_pos" ]; then
   ok "the db container is recreated AFTER the rebuild, to pick up the new image ($build_pos < $recreate_pos)"

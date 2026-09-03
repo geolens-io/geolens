@@ -622,6 +622,40 @@ class TestPruneS3Prefix:
             "s3://test-bucket/backups/daily/geo_20260801_020000.dump" not in deleted
         ), f"a leading-space-stripped key was targeted instead: {deleted}"
 
+    def test_dump_key_with_a_leading_tab_and_a_leading_space_is_pruned_by_its_real_name(
+        self, tmp_path: Path
+    ):
+        """fix(#1798 review round 8, P2): the deletion loop re-encoded each
+        candidate as a "<timestamp>\t<name>" text record and re-parsed it
+        with `IFS=$'\t' read -r line_ts line_name`. Tab is classified as
+        IFS WHITESPACE, so bash's `read` collapses a RUN of consecutive
+        tabs into one delimiter and strips a LEADING one from the field
+        that follows — a key beginning with a tab sits right after this
+        record's own ts<TAB>name separator, so the two collapsed into one
+        and the key's own leading tab was silently eaten. `aws s3 rm` then
+        targeted a key that was never in the bucket: the real object
+        survived, and the cycle still reported success at deleting it.
+        This is unrelated to (and unfixed by) the leading-SPACE case above
+        — space was never in the read's IFS, so it always survived; only
+        the record's own tab delimiter collided with a key's own leading
+        tab. Combines both characters in one name (tab then space) to
+        prove the fix handles them together, not just tab alone."""
+        listing = "\n".join(
+            [
+                "\t crew_20260801_020000.dump",
+                "\t crew_20260802_020000.dump",
+                "\t crew_20260803_020000.dump",
+            ]
+        )
+        result, deleted = _run(tmp_path, keep="2", ls_listing=listing)
+        assert result.returncode == 0, result.stderr
+        assert (
+            "s3://test-bucket/backups/daily/\t crew_20260801_020000.dump" in deleted
+        ), f"the real (leading-tab, leading-space) key was never targeted: {deleted}"
+        assert (
+            "s3://test-bucket/backups/daily/crew_20260801_020000.dump" not in deleted
+        ), f"a tab/space-stripped key was targeted instead: {deleted}"
+
 
 def _run_full_cycle(
     tmp_path: Path, rm_exit: int = 0
