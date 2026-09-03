@@ -72,6 +72,7 @@ from app.platform.service_endpoints import (
     MAX_DOCUMENT_BYTES,
     MAX_DOCUMENT_TOKENS,
     EndpointCheckFailedError,
+    OGC_JSON_ACCEPT,
     credential_headers,
     deadline_budget,
     fetch_document,
@@ -316,6 +317,11 @@ async def _fetch_page(
         client,
         url,
         headers,
+        # fix(#1746 B2b review r25): the same value the probe and the endpoint
+        # check ask for. An items page is an OGC API document like the rest,
+        # and a service that serves HTML for `*/*` must not be able to answer
+        # one of the three reads differently from the other two.
+        accept=OGC_JSON_ACCEPT,
         budget=budget,
         # Read at call time for the same reason `fetch_document` does it: a
         # default argument would freeze the constant at definition.
@@ -513,9 +519,7 @@ async def materialise_oapif_items(
     caller cannot tell a prefix from a collection and the worker would import
     one over an existing dataset.
     """
-    headers = credential_headers(
-        credential_line, accept="application/geo+json, application/json"
-    )
+    headers = credential_headers(credential_line)
     handle, path = tempfile.mkstemp(
         prefix="oapif_items_", suffix=".geojson", dir=str(staging_dir)
     )

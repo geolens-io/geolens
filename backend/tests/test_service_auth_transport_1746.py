@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import inspect
+import re
 import json
 import pathlib
 import time
@@ -5067,3 +5068,228 @@ class TestAnUnknownRowCountIsNotADelta:
         diff = compute_schema_diff([], [], old_feature_count=10, new_feature_count=4)
 
         assert diff["row_count_delta"] == -6
+
+
+class TestAServiceThatServesHtmlToAnyoneWhoAsks:
+    """fix(#1746 B2b review r25): the check negotiated, the probe negotiated, differently.
+
+    `probe_ogcapi` asks for `application/json`. The endpoint check asked for
+    nothing, so httpx sent `*/*` and a service that defaults that to HTML
+    answered the probe with a document and answered the check with a web page.
+    `_parsed_json` refused it and `/probe` reported `endpoint_check_failed`
+    about a service that was working perfectly.
+
+    Content negotiation belongs to the read now, not to whichever caller
+    remembered it: `fetch_document` takes a required `accept`.
+    """
+
+    uses_the_real_endpoint_check = True
+
+    @staticmethod
+    def _wants_json(request: httpx.Request) -> bool:
+        """What a content-negotiating service checks before choosing a body."""
+        accept = request.headers.get("Accept", "*/*")
+        return "json" in accept
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    def _picky_ogcapi(self, *, items_features: int = 3):
+        """HTML for `*/*`, JSON for anything that asks for JSON."""
+        html = b"<!doctype html><html><body>Collections</body></html>"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not self._wants_json(request):
+                return httpx.Response(
+                    200, headers={"Content-Type": "text/html"}, content=html
+                )
+            path = request.url.path
+            if path.endswith("/items"):
+                return _streamed(
+                    {
+                        "type": "FeatureCollection",
+                        "numberMatched": items_features,
+                        "features": [_point(f"f{n}") for n in range(items_features)],
+                        "links": [],
+                    }
+                )
+            if path.endswith("/collections"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "collections": [{"id": "c1", "links": []}],
+                        "links": [],
+                    },
+                )
+            if "/collections/" in path:
+                return httpx.Response(200, json={"id": "c1", "links": []})
+            return httpx.Response(
+                200,
+                json={
+                    "conformsTo": [
+                        "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+                    ],
+                    "links": [{"rel": "data", "href": f"{_SVC_OAPIF}/collections"}],
+                },
+            )
+
+        return handle
+
+    async def test_the_endpoint_check_passes_such_a_service(self, monkeypatch) -> None:
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        recorded = self._transport(monkeypatch, self._picky_ogcapi())
+
+        await assert_endpoints_stay_on_origin(
+            _SVC_OAPIF,
+            service_format="ogcapi_features",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            collection="c1",
+            deadline=None,
+        )
+
+        # Every read asked for JSON, so every read got a document.
+        assert recorded
+        assert all(self._wants_json(r) for r in recorded), [
+            r.headers.get("Accept") for r in recorded
+        ]
+
+    async def test_materialisation_reads_such_a_service(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        recorded = self._transport(monkeypatch, self._picky_ogcapi())
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+
+        extract = await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+        )
+
+        document = json.loads(pathlib.Path(extract.path).read_text())
+        assert len(document["features"]) == 3
+        assert all(self._wants_json(r) for r in recorded)
+
+    async def test_the_capabilities_read_asks_for_xml(self, monkeypatch) -> None:
+        """WFS negotiates by query, but the header must not say `*/*` either."""
+        from app.platform.service_endpoints import (
+            WFS_XML_ACCEPT,
+            assert_endpoints_stay_on_origin,
+        )
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        recorded = self._transport(
+            monkeypatch,
+            lambda request: httpx.Response(
+                200, text=_capabilities(f"{_SVC_ORIGIN}/geoserver/wfs")
+            ),
+        )
+
+        await assert_endpoints_stay_on_origin(
+            _SVC_WFS,
+            service_format="wfs",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            deadline=None,
+        )
+
+        assert recorded
+        assert all(r.headers["Accept"] == WFS_XML_ACCEPT for r in recorded)
+        assert all("*/*" not in r.headers["Accept"] for r in recorded)
+
+    async def test_the_three_reads_negotiate_identically(self, monkeypatch) -> None:
+        """The probe, the check and the items walk ask for the same thing.
+
+        This is the property the finding turns on: three reads of the same
+        service disagreeing about which representation they wanted is what let
+        one of them refuse what the others accepted.
+        """
+        from app.modules.catalog.sources.adapters import ogcapi as adapter
+        from app.platform.service_endpoints import OGC_JSON_ACCEPT
+
+        probe_accept = re.search(
+            r'headers: dict\[str, str\] = \{"Accept": "([^"]+)"\}',
+            inspect.getsource(adapter.probe_ogcapi),
+        )
+        assert probe_accept is not None, "probe_ogcapi no longer sets Accept"
+        # The shared value is a superset of the probe's, so a service that
+        # answers the probe answers the other two.
+        assert probe_accept.group(1) in OGC_JSON_ACCEPT
+
+
+class TestEveryReadStatesWhatItWants:
+    """fix(#1746 B2b review r25): structurally, not by review."""
+
+    def test_fetch_document_requires_an_accept(self) -> None:
+        import inspect as _inspect
+
+        from app.platform.service_endpoints import fetch_document
+
+        parameter = _inspect.signature(fetch_document).parameters["accept"]
+        assert parameter.kind is _inspect.Parameter.KEYWORD_ONLY
+        assert parameter.default is _inspect.Parameter.empty
+
+    def test_no_call_site_omits_it(self) -> None:
+        """Every `fetch_document(` in either module names its representation."""
+        import ast
+        import inspect as _inspect
+
+        from app.platform import service_endpoints, service_items
+
+        sites: list[str] = []
+        for module in (service_endpoints, service_items):
+            tree = ast.parse(_inspect.getsource(module))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                name = getattr(node.func, "id", None) or getattr(
+                    node.func, "attr", None
+                )
+                if name != "fetch_document":
+                    continue
+                sites.append(f"{module.__name__}:{node.lineno}")
+                assert "accept" in {k.arg for k in node.keywords}, sites[-1]
+
+        # One per module: the endpoint check's `_fetch` and the items
+        # `_fetch_page`. A third would be a new read to think about.
+        assert len(sites) == 2, sites
+
+    def test_the_credential_headers_no_longer_negotiate(self) -> None:
+        """The header builder must not grow an `Accept` back.
+
+        Splitting it between the credential and the read is what made the two
+        modules disagree; putting it back would reopen that.
+        """
+        import inspect as _inspect
+
+        from app.platform import service_endpoints
+
+        source = _inspect.getsource(service_endpoints.credential_headers)
+        assert '"Accept"' not in source
+        assert (
+            "accept"
+            not in _inspect.signature(service_endpoints.credential_headers).parameters
+        )

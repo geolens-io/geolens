@@ -164,6 +164,23 @@ MAX_DOCUMENT_TOKENS = 1_000_000
 # means no caller deadline, which is the direct-call and offline case.
 DEFAULT_CHECK_TIMEOUT = 30.0
 
+# What to ask a service for. fix(#1746 B2b review r25): content negotiation is
+# part of the read rather than a header a caller may or may not remember.
+# `probe_ogcapi` asks for JSON and the check did not, so a service that serves
+# HTML for `*/*` answered the probe with a document and answered the check with
+# a web page: `_parsed_json` then refused a perfectly valid service and
+# `/probe` reported `endpoint_check_failed` about nothing the caller could fix.
+#
+# The OGC value is the superset of what the probe and the items path ask for,
+# so all three reads negotiate identically and cannot disagree about which
+# representation they are looking at.
+OGC_JSON_ACCEPT = "application/geo+json, application/json"
+
+# WFS negotiates by query (`service=WFS&request=GetCapabilities`) rather than
+# by header, so this states the expectation rather than driving it. No `*/*`
+# term: that is exactly what lets a server answer with HTML.
+WFS_XML_ACCEPT = "application/xml, text/xml"
+
 
 class EndpointCheckFailedError(Exception):
     """A credentialed source's description could not be read, so nothing is known.
@@ -387,9 +404,7 @@ def deadline_budget(
     return remaining
 
 
-def credential_headers(
-    credential_line: str, *, accept: str | None = None
-) -> dict[str, str]:
+def credential_headers(credential_line: str) -> dict[str, str]:
     """The request headers a credentialed read carries. fix(#1746 r23).
 
     The line is the wire format everything downstream of a door speaks (plan
@@ -404,12 +419,14 @@ def credential_headers(
     description path got the first of them: refusing an encoded body while
     letting httpx advertise its default `gzip, deflate` meant a server that
     honoured the offer had its answer rejected as unreadable.
+
+    ``Accept`` is NOT set here. fix(#1746 B2b review r25): it belongs to the
+    read rather than to the credential, because which representation is wanted
+    is a property of the document being fetched, and leaving it to callers is
+    how the check came to negotiate differently from the probe.
     """
     name, _, value = credential_line.partition(HEADER_LINE_SEPARATOR)
-    headers = {name: value, "Accept-Encoding": "identity"}
-    if accept is not None:
-        headers["Accept"] = accept
-    return headers
+    return {name: value, "Accept-Encoding": "identity"}
 
 
 async def read_bounded_body(
@@ -467,6 +484,7 @@ async def fetch_document(
     url: str,
     headers: dict[str, str],
     *,
+    accept: str,
     budget: int | None = None,
     token_budget: int | None = None,
     error: type[EndpointCheckFailedError] = EndpointCheckFailedError,
@@ -488,12 +506,19 @@ async def fetch_document(
     ``on_first_request`` is fired before the request. Wrap it in `fire_once` if
     it should fire for the first read only, which is what a caller dating
     origin contacts wants.
+
+    ``accept`` has no default, so every read states which representation it
+    wants: `OGC_JSON_ACCEPT` for an OGC API document, `WFS_XML_ACCEPT` for
+    capabilities. A default would be a guess that is wrong for one of them.
     """
     # Resolved here rather than as default arguments: a default binds the
     # module constant once at definition time, so a caller (or a test) that
     # changes the constant would be silently ignored.
     budget = MAX_DOCUMENT_BYTES if budget is None else budget
     token_budget = MAX_DOCUMENT_TOKENS if token_budget is None else token_budget
+    # Copied rather than mutated: the caller's dict is reused across the pages
+    # of a walk, and the negotiation belongs to this read.
+    headers = {**headers, "Accept": accept}
     if on_first_request is not None:
         # Outside the guard below: a callback failure is this process's bug,
         # not the service's, and must not be reported as an unreadable
@@ -533,9 +558,17 @@ async def _fetch(
     url: str,
     headers: dict[str, str],
     on_first_request: "Callable[[], None] | None" = None,
+    *,
+    accept: str = OGC_JSON_ACCEPT,
 ) -> tuple[bytes, str]:
-    """This module's reads, with its own caps and exception."""
-    return await fetch_document(client, url, headers, on_first_request=on_first_request)
+    """This module's reads, with its own caps and exception.
+
+    Defaults to the OGC value because four of the five reads here are OGC API
+    documents; the capabilities read passes `WFS_XML_ACCEPT` explicitly.
+    """
+    return await fetch_document(
+        client, url, headers, accept=accept, on_first_request=on_first_request
+    )
 
 
 def _parsed_json(body: bytes) -> object:
@@ -552,7 +585,11 @@ async def _check_wfs(
     on_first_request: "Callable[[], None] | None" = None,
 ) -> None:
     xml_bytes, from_url = await _fetch(
-        client, _capabilities_url(url), headers, on_first_request
+        client,
+        _capabilities_url(url),
+        headers,
+        on_first_request,
+        accept=WFS_XML_ACCEPT,
     )
     try:
         hrefs = _wfs_operation_hrefs(xml_bytes)
