@@ -302,12 +302,131 @@ _env_split_on_token() {
   _env_split_after="${_est_text#*"$_est_token"}"
 }
 
-# Recursively resolves ${VAR...}/$VAR references in `text` per the
-# precedence and unresolved-reference policy documented on
-# _ENV_INTERP_MAX_PASSES above. `bound` is the line strictly before which a
-# reference may resolve against THIS file (the referencing key's own line,
-# from _env_line_of, so a key can never resolve a reference against itself
-# or a later line); `depth` counts the chain length so far and is capped by
+# Resolves NAME per Compose's own precedence (round 13b: process
+# environment first — even set-but-empty counts as "set" here — falling
+# back to an earlier line in FILE strictly before BOUND only when the
+# environment has no NAME at all). Sets three globals: _ern_have_value (1
+# if resolved from either source, 0 if neither has it), _ern_resolved (the
+# resolved value; meaningless when _ern_have_value=0), and _ern_ref_bound
+# (the line to bound a FURTHER reference found INSIDE this value's own
+# text against — NAME's own defining line for a file-sourced value, 0/
+# unbounded for a process-environment value, since it has no line in this
+# file at all). Returns non-zero only on a genuine internal failure
+# (propagated from _env_dequote); "NAME not found anywhere" is NOT a
+# failure — that is _ern_have_value=0, a normal outcome the caller decides
+# how to handle (literal token, a fallback, or its own hard error for
+# `:?`/`?`).
+_env_resolve_name() {
+  _ern_name="$1"
+  _ern_file="$2"
+  _ern_bound="$3"
+  _ern_have_value=0
+  _ern_resolved=""
+  _ern_ref_bound=0
+  if eval "[ \"\${${_ern_name}+set}\" = set ]" 2>/dev/null; then
+    eval "_ern_resolved=\"\${${_ern_name}}\""
+    _ern_have_value=1
+    _ern_ref_bound=0
+  elif _ern_earlier="$(_env_raw_before "$_ern_name" "$_ern_file" "$_ern_bound")"; then
+    # fix(#1798 review round 13, P2, review 5103870781): a value decoded
+    # from a double-quoted `\n`/`\r`/`\t` escape can end in a real,
+    # trailing control byte — `$(...)` unconditionally strips trailing
+    # newlines, so capturing _env_dequote's output directly would
+    # silently truncate exactly that byte before it ever reaches the
+    # substitution. Sentinel-protect the capture: append a marker byte
+    # inside the SAME command substitution (so it rides along with
+    # whatever trailing bytes the real value has) and strip only the
+    # marker back off afterward. `&&` (not `;`) between the decode and
+    # the marker means a failure inside _env_dequote is never masked as
+    # success with an empty value — it aborts the marker, the
+    # substitution's own exit status reflects the failure, and this
+    # function fails closed via `|| return 1` instead of quietly
+    # returning less text than the input actually had.
+    _ern_resolved="$(_env_dequote "$_ern_earlier" && printf x)" || return 1
+    _ern_resolved="${_ern_resolved%x}"
+    _ern_have_value=1
+    _ern_ref_bound="$(_env_line_of_before "$_ern_name" "$_ern_file" "$_ern_bound")"
+  fi
+  return 0
+}
+
+# fix(#1798 review round 14, review 5104197320): finds the `}` that closes
+# a `${...}` expression whose content (everything between the opening `${`
+# and that close) begins at $1, counting EVERY literal `{`/`}` toward a
+# depth that starts at 1 (already representing the consumed opening `${`)
+# — this is what lets a nested reference like `${A:-${B:-x}}` find the
+# OUTER close correctly instead of stopping at the first `}` belonging to
+# the inner one.
+#
+# Verified empirically against real `docker compose config` rather than
+# assumed: when depth genuinely never returns to 0 before $1 runs out (an
+# unbalanced literal `{` sitting inside a default/alt-value's own text,
+# with no operator-syntax reason for it — an obscure but real shape),
+# Compose does NOT hard-fail — it recovers leniently at the LAST `}` it
+# saw anywhere during the scan, using everything up to that point as the
+# expression's content. Only when $1 contains NO `}` at all — truly
+# unterminated, e.g. a `${VAR` with nothing left to close it — does
+# Compose hard-fail ("Invalid template" on both a live `docker compose
+# config` and its own .env-file load).
+#
+# Sets three globals: _ebm_inside (the expression's content, exclusive of
+# the opening `${` and the resolved closing `}`), _ebm_after (everything
+# in $1 following that closing `}`), and _ebm_found (1 if a close was
+# located at all — by depth reaching 0, or by the lenient last-`}`
+# recovery — 0 if $1 held no `}` whatsoever).
+_env_brace_match() {
+  _ebm_text="$1"
+  _ebm_depth=1
+  _ebm_inside=""
+  _ebm_last_inside=""
+  _ebm_last_after=""
+  _ebm_have_last=0
+  while [ -n "$_ebm_text" ]; do
+    _ebm_c="${_ebm_text%"${_ebm_text#?}"}"
+    _ebm_text="${_ebm_text#?}"
+    case "$_ebm_c" in
+      "{")
+        _ebm_depth=$((_ebm_depth + 1))
+        _ebm_inside="${_ebm_inside}${_ebm_c}"
+        ;;
+      "}")
+        _ebm_depth=$((_ebm_depth - 1))
+        if [ "$_ebm_depth" -eq 0 ]; then
+          _ebm_after="$_ebm_text"
+          _ebm_found=1
+          return 0
+        fi
+        # Not the definitive close — remember this position in case depth
+        # never reaches 0 and Compose's lenient last-`}` recovery applies.
+        _ebm_last_inside="$_ebm_inside"
+        _ebm_last_after="$_ebm_text"
+        _ebm_have_last=1
+        _ebm_inside="${_ebm_inside}${_ebm_c}"
+        ;;
+      *)
+        _ebm_inside="${_ebm_inside}${_ebm_c}"
+        ;;
+    esac
+  done
+  if [ "$_ebm_have_last" -eq 1 ]; then
+    _ebm_inside="$_ebm_last_inside"
+    _ebm_after="$_ebm_last_after"
+    _ebm_found=1
+    return 0
+  fi
+  _ebm_found=0
+  _ebm_after=""
+  return 0
+}
+
+# Recursively resolves Compose's full interpolation grammar in `text` —
+# $VAR, ${VAR}, ${VAR:-d}, ${VAR-d}, ${VAR:?m}, ${VAR?m}, ${VAR:+a},
+# ${VAR+a}, and the `$$` literal-dollar escape — per the precedence and
+# unresolved-reference policy documented on _ENV_INTERP_MAX_PASSES above.
+# `bound` is the line strictly before which a reference may resolve
+# against THIS file (the referencing key's own line, from _env_line_of, so
+# a key can never resolve a reference against itself or a later line);
+# `depth` counts the chain length so far and is capped by
 # _ENV_INTERP_MAX_PASSES to guarantee termination on a cyclic or
 # pathologically long reference chain.
 #
@@ -321,7 +440,44 @@ _env_split_on_token() {
 # before this call started. That is what makes
 # `POSTGRES_DB="${A}_${B}"` resolve `${B}` against the SAME outer bound
 # `${A}` used, instead of the narrower bound left over from resolving `${A}`
-# first.
+# first. A default/alt-value's OWN text (e.g. the `x` in `${A:-x}`) is
+# recursively resolved the SAME way, but against the outer `bound` too —
+# it sits in the referencing key's own value, not the referenced name's.
+#
+# fix(#1798 review round 14, review 5104197320): the previous version
+# found a whole `${...}`/`$VAR` token with a single `grep -oE` regex whose
+# fallback/error-message class was `[^}]*` — a single non-nesting run that
+# cannot support `${A:-${B:-x}}`, and had no `+`/`:+` alternative-value
+# forms at all (`COMPOSE_FILE=${USE_PROD:+docker-compose.prod.yml}` came
+# back completely literal). Replaced with a character-scanning loop that
+# finds the next `$` in the text (a literal search — see
+# _env_split_on_token — safe with an embedded real newline either side),
+# and dispatches on what follows it, entirely per real Compose's own
+# behavior (verified empirically, never assumed — see the oracle test's
+# corpus for every case this round closed):
+#   $$          -> a literal single $, consumed whole; nothing after it is
+#                  re-scanned as a fresh reference (verified: `docker
+#                  compose config --format json` does NOT resolve `$$` at
+#                  all — it appears to round-trip-normalize literal dollar
+#                  signs in its own output rather than show the final
+#                  value — so this was verified against `docker compose
+#                  config --environment` AND a real running container's
+#                  own environment, which agree with each other and NOT
+#                  with `--format json`; the oracle test's own
+#                  _compose_dollar_value helper documents this and is used
+#                  only for this corpus).
+#   ${...}      -> _env_brace_match finds the matching close (see its own
+#                  doc comment for the depth-counting + lenient-recovery
+#                  rule); a name with no `}` anywhere at all fails this
+#                  function closed (return 1) rather than guessing, since
+#                  Compose itself hard-fails loading a file with a
+#                  genuinely unterminated `${VAR`.
+#   $NAME       -> the longest [A-Za-z0-9_]* run starting right after the
+#                  $; unresolved is left COMPLETELY unchanged (policy
+#                  above), same as a bare unresolved ${NAME}.
+#   anything else (including `$` at the very end of the text) -> a bare
+#   literal $, left completely unchanged (verified: `$5`, `$ `, a trailing
+#   `$` all pass through untouched).
 _env_interp_resolve() {
   _eir_text="$1"
   _eir_file="$2"
@@ -336,108 +492,194 @@ _env_interp_resolve() {
   _eir_result=""
   _eir_remaining="$_eir_text"
   while :; do
-    _eir_token="$(printf '%s' "$_eir_remaining" | grep -oE '\$\{[A-Za-z_][A-Za-z0-9_]*(:?[-?][^}]*)?\}|\$[A-Za-z_][A-Za-z0-9_]*' | head -n 1)"
-    if [ -z "$_eir_token" ]; then
-      _eir_result="${_eir_result}${_eir_remaining}"
-      break
-    fi
-
-    _env_split_on_token "$_eir_remaining" "$_eir_token"
-    _eir_prefix="$_env_split_before"
-    _eir_after="$_env_split_after"
-
-    _eir_body="${_eir_token#\$}"
-    case "$_eir_body" in
-      "{"*"}")
-        _eir_body="${_eir_body#\{}"
-        _eir_body="${_eir_body%\}}"
+    case "$_eir_remaining" in
+      *'$'*) : ;;
+      *)
+        _eir_result="${_eir_result}${_eir_remaining}"
+        break
         ;;
     esac
-    case "$_eir_body" in
-      *:-*) _eir_name="${_eir_body%%:-*}"; _eir_op=":-"; _eir_fallback="${_eir_body#*:-}" ;;
-      *:\?*) _eir_name="${_eir_body%%:\?*}"; _eir_op=":?"; _eir_fallback="${_eir_body#*:\?}" ;;
-      *-*) _eir_name="${_eir_body%%-*}"; _eir_op="-"; _eir_fallback="${_eir_body#*-}" ;;
-      *) _eir_name="$_eir_body"; _eir_op=""; _eir_fallback="" ;;
+
+    _env_split_on_token "$_eir_remaining" '$'
+    _eir_prefix="$_env_split_before"
+    _eir_rest="$_env_split_after"
+    _eir_result="${_eir_result}${_eir_prefix}"
+
+    _eir_c1="${_eir_rest%"${_eir_rest#?}"}"
+
+    case "$_eir_c1" in
+      '$')
+        # $$ -> a literal single $ (see the doc comment above for why
+        # this is verified against real container runtime / --environment
+        # rather than `--format json`).
+        _eir_result="${_eir_result}\$"
+        _eir_remaining="${_eir_rest#?}"
+        continue
+        ;;
+      '{')
+        _env_brace_match "${_eir_rest#?}"
+        if [ "$_ebm_found" -eq 0 ]; then
+          # Genuinely unterminated ${... — no } anywhere. Compose itself
+          # hard-fails loading a file shaped like this; get_env_value
+          # fails closed for this key rather than guessing at a value.
+          return 1
+        fi
+        _eir_inside="$_ebm_inside"
+        _eir_remaining="$_ebm_after"
+
+        # fix(#1798 review round 14, review 5104197320): a name must START
+        # with [A-Za-z_] — verified empirically: `${5abc}` (digit-leading)
+        # is a hard "Invalid template" failure on real `docker compose
+        # config`, the SAME failure class as `${}` (empty name) and
+        # `${A!x}` (an operator character Compose does not document).
+        # Checking the first character SEPARATELY from the continuation
+        # class below (which does allow digits, same as the bare $NAME
+        # dispatch above) is what keeps a digit-leading name out of
+        # _eir_iname instead of being silently accepted as one.
+        _eir_iname=""
+        _eir_iscan="$_eir_inside"
+        _eir_ifirst="${_eir_iscan%"${_eir_iscan#?}"}"
+        case "$_eir_ifirst" in
+          [A-Za-z_])
+            while [ -n "$_eir_iscan" ]; do
+              _eir_inc="${_eir_iscan%"${_eir_iscan#?}"}"
+              case "$_eir_inc" in
+                [A-Za-z0-9_]) _eir_iname="${_eir_iname}${_eir_inc}"; _eir_iscan="${_eir_iscan#?}" ;;
+                *) break ;;
+              esac
+            done
+            ;;
+        esac
+
+        case "$_eir_iscan" in
+          ":-"*) _eir_op=":-"; _eir_arg="${_eir_iscan#:-}" ;;
+          ":+"*) _eir_op=":+"; _eir_arg="${_eir_iscan#:+}" ;;
+          ":?"*) _eir_op=":?"; _eir_arg="${_eir_iscan#:?}" ;;
+          "-"*) _eir_op="-"; _eir_arg="${_eir_iscan#-}" ;;
+          "+"*) _eir_op="+"; _eir_arg="${_eir_iscan#+}" ;;
+          "?"*) _eir_op="?"; _eir_arg="${_eir_iscan#\?}" ;;
+          "") _eir_op=""; _eir_arg="" ;;
+          *)
+            # A digit-leading/empty name, or an operator character Compose
+            # does not document.
+            _eir_op="_unrecognized"
+            ;;
+        esac
+
+        if [ -z "$_eir_iname" ] || [ "$_eir_op" = "_unrecognized" ]; then
+          # fix(#1798 review round 14, review 5104197320): verified against
+          # real `docker compose config` — `${}`, `${5abc}`, and `${A!x}`
+          # are ALL hard "Invalid template" failures (the same class as a
+          # genuinely unterminated `${VAR`), not literal-unchanged
+          # pass-through. get_env_value fails closed for this key to
+          # match, rather than guessing at malformed input.
+          return 1
+        fi
+
+        _env_resolve_name "$_eir_iname" "$_eir_file" "$_eir_bound" || return 1
+
+        case "$_eir_op" in
+          "")
+            if [ "$_ern_have_value" -eq 1 ]; then
+              _eir_replacement="$_ern_resolved"
+              _eir_rep_bound="$_ern_ref_bound"
+            else
+              _eir_result="${_eir_result}\${${_eir_iname}}"
+              continue
+            fi
+            ;;
+          ":-")
+            if [ "$_ern_have_value" -eq 1 ] && [ -n "$_ern_resolved" ]; then
+              _eir_replacement="$_ern_resolved"
+              _eir_rep_bound="$_ern_ref_bound"
+            else
+              _eir_replacement="$_eir_arg"
+              _eir_rep_bound="$_eir_bound"
+            fi
+            ;;
+          "-")
+            if [ "$_ern_have_value" -eq 1 ]; then
+              _eir_replacement="$_ern_resolved"
+              _eir_rep_bound="$_ern_ref_bound"
+            else
+              _eir_replacement="$_eir_arg"
+              _eir_rep_bound="$_eir_bound"
+            fi
+            ;;
+          ":+")
+            if [ "$_ern_have_value" -eq 1 ] && [ -n "$_ern_resolved" ]; then
+              _eir_replacement="$_eir_arg"
+            else
+              _eir_replacement=""
+            fi
+            _eir_rep_bound="$_eir_bound"
+            ;;
+          "+")
+            if [ "$_ern_have_value" -eq 1 ]; then
+              _eir_replacement="$_eir_arg"
+            else
+              _eir_replacement=""
+            fi
+            _eir_rep_bound="$_eir_bound"
+            ;;
+          ":?")
+            if [ "$_ern_have_value" -eq 1 ] && [ -n "$_ern_resolved" ]; then
+              _eir_replacement="$_ern_resolved"
+              _eir_rep_bound="$_ern_ref_bound"
+            else
+              # required-and-missing/empty — Compose itself hard-fails
+              # loading a file shaped like this ("required variable ... is
+              # missing a value"); get_env_value fails closed to match,
+              # not a value substitution.
+              return 1
+            fi
+            ;;
+          "?")
+            if [ "$_ern_have_value" -eq 1 ]; then
+              _eir_replacement="$_ern_resolved"
+              _eir_rep_bound="$_ern_ref_bound"
+            else
+              return 1
+            fi
+            ;;
+        esac
+
+        _eir_sub="$(_env_interp_resolve "$_eir_replacement" "$_eir_file" "$_eir_rep_bound" "$((_eir_depth + 1))" && printf x)" || return 1
+        _eir_sub="${_eir_sub%x}"
+        _eir_result="${_eir_result}${_eir_sub}"
+        continue
+        ;;
+      [A-Za-z_])
+        _eir_name=""
+        _eir_scan="$_eir_rest"
+        while [ -n "$_eir_scan" ]; do
+          _eir_nc="${_eir_scan%"${_eir_scan#?}"}"
+          case "$_eir_nc" in
+            [A-Za-z0-9_]) _eir_name="${_eir_name}${_eir_nc}"; _eir_scan="${_eir_scan#?}" ;;
+            *) break ;;
+          esac
+        done
+        _eir_remaining="$_eir_scan"
+
+        _env_resolve_name "$_eir_name" "$_eir_file" "$_eir_bound" || return 1
+        if [ "$_ern_have_value" -eq 1 ]; then
+          _eir_sub="$(_env_interp_resolve "$_ern_resolved" "$_eir_file" "$_ern_ref_bound" "$((_eir_depth + 1))" && printf x)" || return 1
+          _eir_sub="${_eir_sub%x}"
+          _eir_result="${_eir_result}${_eir_sub}"
+        else
+          _eir_result="${_eir_result}\$${_eir_name}"
+        fi
+        continue
+        ;;
+      *)
+        # A bare $ followed by anything that isn't `$`, `{`, or a
+        # name-start character — including end-of-string — is left
+        # completely unchanged (verified: $5, $ , a trailing $).
+        _eir_result="${_eir_result}\$"
+        _eir_remaining="$_eir_rest"
+        continue
+        ;;
     esac
-
-    _eir_have_value=0
-    _eir_resolved=""
-    _eir_ref_bound=0
-    # fix(#1798 review round 13b, P2 follow-up): Compose's OWN precedence
-    # here — verified empirically against real `docker compose config`
-    # while extending the oracle test, not assumed — is the shell's
-    # process environment FIRST, falling back to an earlier line in the
-    # SAME .env file only when the environment has no X at ALL. The prior
-    # order (file first, then environment) was this parser's own
-    # deliberate-but-unverified choice and disagreed with Compose whenever
-    # a key existed in both places. A variable EXPORTED but set to EMPTY
-    # still counts as "set" here — ${X} and ${X-d} resolve to the empty
-    # string, not the file's value or the fallback; only the `:-`/`:?`
-    # colon forms treat empty-and-set the same as unset, via the
-    # have_value branch below.
-    if eval "[ \"\${${_eir_name}+set}\" = set ]" 2>/dev/null; then
-      eval "_eir_resolved=\"\${${_eir_name}}\""
-      _eir_have_value=1
-      # A process-environment value has no defining line in this file at
-      # all — a ${VAR} reference it happens to contain is not scoped to
-      # any point in the file, so no bound applies to what it can see.
-      _eir_ref_bound=0
-    elif _eir_earlier="$(_env_raw_before "$_eir_name" "$_eir_file" "$_eir_bound")"; then
-      # fix(#1798 review round 13, P2, review 5103870781): a value decoded
-      # from a double-quoted `\n`/`\r`/`\t` escape can end in a real,
-      # trailing control byte — `$(...)` unconditionally strips trailing
-      # newlines, so capturing _env_dequote's output directly would
-      # silently truncate exactly that byte before it ever reaches the
-      # substitution. Sentinel-protect the capture: append a marker byte
-      # inside the SAME command substitution (so it rides along with
-      # whatever trailing bytes the real value has) and strip only the
-      # marker back off afterward. `&&` (not `;`) between the decode and
-      # the marker means a failure inside _env_dequote is never masked as
-      # success with an empty value — it aborts the marker, the
-      # substitution's own exit status reflects the failure, and this
-      # function fails closed via `|| return 1` instead of quietly
-      # returning less text than the input actually had.
-      _eir_resolved="$(_env_dequote "$_eir_earlier" && printf x)" || return 1
-      _eir_resolved="${_eir_resolved%x}"
-      _eir_have_value=1
-      _eir_ref_bound="$(_env_line_of_before "$_eir_name" "$_eir_file" "$_eir_bound")"
-    fi
-
-    if [ "$_eir_have_value" -eq 1 ]; then
-      # ${VAR:-default}: fall back only when VAR is set but EMPTY.
-      if [ "$_eir_op" = ":-" ] && [ -z "$_eir_resolved" ]; then
-        _eir_resolved="$_eir_fallback"
-      fi
-      # ${VAR-default} and ${VAR:?msg}: VAR is set (possibly to ""), so its
-      # value is used as-is — Compose's ${VAR-default} falls back only when
-      # VAR is UNSET, and ${VAR:?msg} only errors when VAR is unset/empty,
-      # neither of which applies once a value was actually found.
-      _eir_replacement="$_eir_resolved"
-    else
-      case "$_eir_op" in
-        ":-" | "-") _eir_replacement="$_eir_fallback" ;;
-        *) _eir_replacement="$_eir_token" ;; # bare ${VAR}/$VAR or ${VAR:?msg}: see policy above
-      esac
-    fi
-
-    if [ "$_eir_replacement" = "$_eir_token" ]; then
-      # Nothing to substitute for this occurrence — keep the literal token
-      # and move on to the REST of the text under the SAME (outer) bound;
-      # unlike the old flat loop this does not abandon later siblings.
-      _eir_result="${_eir_result}${_eir_prefix}${_eir_token}"
-      _eir_remaining="$_eir_after"
-      continue
-    fi
-
-    # Recurse into the substituted value ALONE, bounded to its own
-    # defining line — never into `_eir_after`, which stays scoped to this
-    # call's own `_eir_bound`. Same sentinel-capture rationale as above:
-    # the resolved value may itself end in a real trailing control byte.
-    _eir_sub="$(_env_interp_resolve "$_eir_replacement" "$_eir_file" "$_eir_ref_bound" "$((_eir_depth + 1))" && printf x)" || return 1
-    _eir_sub="${_eir_sub%x}"
-
-    _eir_result="${_eir_result}${_eir_prefix}${_eir_sub}"
-    _eir_remaining="$_eir_after"
   done
 
   printf '%s' "$_eir_result"

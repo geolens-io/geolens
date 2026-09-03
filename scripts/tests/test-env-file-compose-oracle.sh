@@ -125,6 +125,106 @@ _assert_matches_compose() {
   fi
 }
 
+# fix(#1798 review round 14, review 5104197320): `docker compose config
+# --format json` (the mechanism _compose_value/_compose_resolve_json use)
+# was found NOT to resolve a literal `$` faithfully — it appears to
+# defensively RE-ESCAPE any literal, non-interpolated `$` back into `$$`
+# in its OWN serialized output, rather than show the value a real
+# container would actually receive. Verified by hand while writing this
+# round's corpus: `PASS=a$$b` read through `${PASS}` via `--format json`
+# comes back UNCHANGED as `a$$b` (the escape never resolves), while a
+# genuinely bare, single `$5` in a value comes back as `$$5` (a literal
+# dollar sign gets DOUBLED in the output) — both wrong in OPPOSITE
+# directions. `docker compose config --environment` and a REAL running
+# container's own environment agree with each other on every one of these
+# cases (cross-checked via `docker compose run --rm` with `command:
+# ["sh","-c","echo [$$REALTEST]"]` reading a real container's env) and
+# NEITHER matches `--format json`. So any corpus case whose EXPECTED value
+# contains a literal `$` uses this helper (backed by `--environment`)
+# instead of _compose_value/_assert_matches_compose. `--environment`'s own
+# limitation — a bare `KEY=VALUE` text dump cannot represent a value
+# containing a real embedded newline unambiguously — does not apply to any
+# case in this section, so it is not a regression from the JSON approach
+# there.
+_compose_dollar_value() {
+  _cdv_key="$1"
+  _cdv_file="$2"
+  _cdv_yml="$WORK/oracle-dollar-compose.yml"
+  cat > "$_cdv_yml" <<YML
+services:
+  svc:
+    image: busybox
+YML
+  _cdv_out="$(docker compose -f "$_cdv_yml" --env-file "$_cdv_file" config --environment 2>/dev/null && printf x)" || { printf ''; return 1; }
+  _cdv_out="${_cdv_out%x}"
+  # fix(#1798 review round 14, review 5104197320): a `grep`-matched line
+  # carries its OWN trailing newline — capturing that raw into the
+  # sentinel-protected _amcd_theirs above would leave a spurious trailing
+  # `\n` on every value here (none of round 14's $-corpus values are
+  # meant to end in one). Capturing the grep result through ITS OWN
+  # `$(...)` strips exactly that one, incidental newline; parameter
+  # expansion (not sed) removes the "KEY=" prefix so a key name is never
+  # treated as a sed/regex pattern.
+  _cdv_line="$(printf '%s\n' "$_cdv_out" | grep "^${_cdv_key}=")"
+  printf '%s' "${_cdv_line#"${_cdv_key}="}"
+}
+
+# Same shape as _assert_matches_compose, backed by _compose_dollar_value.
+_assert_matches_compose_dollar() {
+  _amcd_key="$1"
+  _amcd_file="$2"
+  _amcd_desc="$3"
+
+  _amcd_ours="$(_our_value "$_amcd_key" "$_amcd_file" && printf x)"
+  _amcd_ours_rc=$?
+  _amcd_ours="${_amcd_ours%x}"
+
+  if [ "$_amcd_ours_rc" -ne 0 ]; then
+    bad "$_amcd_desc (get_env_value itself failed unexpectedly, rc=$_amcd_ours_rc)"
+    return
+  fi
+
+  _amcd_theirs="$(_compose_dollar_value "$_amcd_key" "$_amcd_file" && printf x)" || {
+    bad "$_amcd_desc (docker compose config --environment itself failed to resolve $_amcd_key)"
+    return
+  }
+  _amcd_theirs="${_amcd_theirs%x}"
+
+  if [ "$_amcd_ours" = "$_amcd_theirs" ]; then
+    ok "$_amcd_desc (both resolve to [$_amcd_ours])"
+  else
+    bad "$_amcd_desc (get_env_value=[$_amcd_ours] Compose(--environment)=[$_amcd_theirs])"
+  fi
+}
+
+# For a key/file pair where BOTH get_env_value and real Compose are
+# expected to FAIL (a required-but-missing ${VAR:?msg}/${VAR?msg}, or a
+# genuinely unterminated ${VAR construct with no closing brace anywhere) —
+# asserts get_env_value's own exit code is non-zero, AND separately
+# confirms the compose oracle itself fails to resolve the same key/file
+# (a live `docker compose config` invocation), so the pinned expectation
+# is anchored to the oracle's actual behavior rather than an assumption
+# that it "surely errors".
+_assert_errors_like_compose() {
+  _aelc_key="$1"
+  _aelc_file="$2"
+  _aelc_desc="$3"
+
+  if _our_value "$_aelc_key" "$_aelc_file" >/dev/null 2>&1; then
+    bad "$_aelc_desc (get_env_value succeeded, expected it to fail closed)"
+    return
+  fi
+
+  _aelc_compose_rc=0
+  _compose_resolve_json "$_aelc_key" "$_aelc_file" >/dev/null 2>&1 || _aelc_compose_rc=$?
+  if [ "$_aelc_compose_rc" -eq 0 ]; then
+    bad "$_aelc_desc (get_env_value failed closed, but real Compose did NOT — the pinned expectation may be wrong)"
+    return
+  fi
+
+  ok "$_aelc_desc (both get_env_value and Compose itself fail to resolve it)"
+}
+
 # ============================================================================
 # Corpus — one .env per case family, one key each, mirroring the fixtures
 # already pinned (without a live Compose comparison) in
@@ -272,6 +372,219 @@ unset TARGETVAR
 _assert_matches_compose USES_PLAIN "$PREC_ENV"   "env unset + file key set (fromfile): falls back to the file"
 
 _assert_matches_compose USES_UNSET_COLON_DASH "$PREC_ENV"   "env unset + file key also unset + \${X:-default}: the default applies"
+
+
+# ============================================================================
+# Round 14 (review 5104197320) — closes the WHOLE Compose interpolation
+# grammar (https://docs.docker.com/reference/compose-file/interpolation/)
+# in one push, not just the `${VAR:+alt}`/`${VAR+alt}` forms the round 13b
+# verdict flagged. Codex had paid a round per operator since round 6; every
+# case below was let the oracle decide, never reasoned about from the
+# docs' prose alone — several turned out subtler than the docs describe
+# (see the brace-matching and $$ notes below).
+# ============================================================================
+
+# --- ${VAR:+alt} / ${VAR+alt} — the alternative-value forms round 13b left
+# out. Mirrors the round 13b precedence corpus shape (set-nonempty,
+# set-empty, unset; the colon form treats set-but-empty as unset, the
+# non-colon form does not).
+PLUS_ENV="$WORK/.env.plus"
+cat > "$PLUS_ENV" <<'EOF'
+NONEMPTY=nonempty
+EMPTYVAL=
+USES_COLON_PLUS_SET="${NONEMPTY:+wasSet}"
+USES_COLON_PLUS_EMPTY="${EMPTYVAL:+wasSet}"
+USES_COLON_PLUS_UNSET="${TOTALLY_UNSET_XYZ:+wasSet}"
+USES_PLUS_SET="${NONEMPTY+wasSet}"
+USES_PLUS_EMPTY="${EMPTYVAL+wasSet}"
+USES_PLUS_UNSET="${TOTALLY_UNSET_XYZ+wasSet}"
+EOF
+_assert_matches_compose USES_COLON_PLUS_SET "$PLUS_ENV" \
+  "\${VAR:+alt}, VAR set non-empty: alt is used"
+_assert_matches_compose USES_COLON_PLUS_EMPTY "$PLUS_ENV" \
+  "\${VAR:+alt}, VAR set but EMPTY: the colon form treats empty as unset, alt NOT used"
+_assert_matches_compose USES_COLON_PLUS_UNSET "$PLUS_ENV" \
+  "\${VAR:+alt}, VAR unset: alt NOT used"
+_assert_matches_compose USES_PLUS_SET "$PLUS_ENV" \
+  "\${VAR+alt}, VAR set non-empty: alt is used"
+_assert_matches_compose USES_PLUS_EMPTY "$PLUS_ENV" \
+  "\${VAR+alt}, VAR set but EMPTY: the non-colon form does NOT treat empty as unset, alt IS used"
+_assert_matches_compose USES_PLUS_UNSET "$PLUS_ENV" \
+  "\${VAR+alt}, VAR unset: alt NOT used"
+
+# ${VAR:+alt} interacting with round 13b's env-over-file precedence: the
+# "is VAR set" check for +/​:+ must use the SAME precedence as everything
+# else — process environment first.
+PLUS_PREC_ENV="$WORK/.env.plusprecedence"
+cat > "$PLUS_PREC_ENV" <<'EOF'
+USES_ENV_ONLY="${PRECVAR:+wasSet}"
+EOF
+PLUS_PREC_ENV2="$WORK/.env.plusprecedence2"
+cat > "$PLUS_PREC_ENV2" <<'EOF'
+PRECVAR=fromfile
+USES_FILE_AND_ENV="${PRECVAR:+wasSet}"
+EOF
+export PRECVAR=fromenv
+_assert_matches_compose USES_ENV_ONLY "$PLUS_PREC_ENV" \
+  "\${VAR:+alt}, VAR set ONLY in the process environment (absent from the file): alt is used"
+unset PRECVAR
+export PRECVAR=
+_assert_matches_compose USES_FILE_AND_ENV "$PLUS_PREC_ENV2" \
+  "\${VAR:+alt}, VAR non-empty in the file but EMPTY in the environment: environment wins, alt NOT used"
+unset PRECVAR
+
+# --- ${VAR:?err} / ${VAR?err} — the required-or-error forms. Compose
+# itself hard-fails loading a file shaped like this (verified: "required
+# variable ... is missing a value" from a live `docker compose config`),
+# so get_env_value must fail non-zero to match — this pins the EXIT CODE,
+# not a value, for the failing cases.
+# fix(#1798 review round 14, review 5104197320): unlike get_env_value
+# (which resolves a SINGLE key's own line, lazily), real Compose validates
+# an ENTIRE .env file up front — a required-and-missing ${VAR:?msg} on ANY
+# line fails loading the WHOLE file, so querying a DIFFERENT, perfectly
+# resolvable key through the SAME file also fails on the Compose side (not
+# because that key itself is broken, but because a sibling line is). Each
+# case below therefore gets its own minimal file, so a "should succeed"
+# key is never sharing a file with a line that fails to load for an
+# unrelated reason.
+REQ_COLON_SET_ENV="$WORK/.env.req_colon_set"
+printf 'NONEMPTY=nonempty\nUSES_COLON_Q_SET="${NONEMPTY:?missing message}"\n' > "$REQ_COLON_SET_ENV"
+_assert_matches_compose USES_COLON_Q_SET "$REQ_COLON_SET_ENV" \
+  "\${VAR:?err}, VAR set non-empty: resolves to VAR's value, no error"
+
+REQ_COLON_EMPTY_ENV="$WORK/.env.req_colon_empty"
+printf 'EMPTYVAL=\nUSES_COLON_Q_EMPTY="${EMPTYVAL:?missing message}"\n' > "$REQ_COLON_EMPTY_ENV"
+_assert_errors_like_compose USES_COLON_Q_EMPTY "$REQ_COLON_EMPTY_ENV" \
+  "\${VAR:?err}, VAR set but EMPTY: the colon form treats empty as missing, get_env_value fails"
+
+REQ_COLON_UNSET_ENV="$WORK/.env.req_colon_unset"
+printf 'USES_COLON_Q_UNSET="${TOTALLY_UNSET_XYZ:?missing message}"\n' > "$REQ_COLON_UNSET_ENV"
+_assert_errors_like_compose USES_COLON_Q_UNSET "$REQ_COLON_UNSET_ENV" \
+  "\${VAR:?err}, VAR unset: get_env_value fails"
+
+REQ_SET_ENV="$WORK/.env.req_set"
+printf 'NONEMPTY=nonempty\nUSES_Q_SET="${NONEMPTY?missing message}"\n' > "$REQ_SET_ENV"
+_assert_matches_compose USES_Q_SET "$REQ_SET_ENV" \
+  "\${VAR?err}, VAR set non-empty: resolves to VAR's value, no error"
+
+REQ_EMPTY_ENV="$WORK/.env.req_empty"
+printf 'EMPTYVAL=\nUSES_Q_EMPTY="${EMPTYVAL?missing message}"\n' > "$REQ_EMPTY_ENV"
+_assert_matches_compose USES_Q_EMPTY "$REQ_EMPTY_ENV" \
+  "\${VAR?err}, VAR set but EMPTY: the non-colon form does NOT treat empty as missing, resolves to empty"
+
+REQ_UNSET_ENV="$WORK/.env.req_unset"
+printf 'USES_Q_UNSET="${TOTALLY_UNSET_XYZ?missing message}"\n' > "$REQ_UNSET_ENV"
+_assert_errors_like_compose USES_Q_UNSET "$REQ_UNSET_ENV" \
+  "\${VAR?err}, VAR unset: get_env_value fails"
+
+# --- $$ literal escape — `docker compose config --format json` does NOT
+# resolve this faithfully (see _compose_dollar_value's own doc comment for
+# the full empirical finding: it re-escapes a literal `$` in either
+# direction in its own output); every case here goes through
+# _assert_matches_compose_dollar (`--environment`, cross-checked by hand
+# against a real running container) instead.
+DOLLAR_ENV="$WORK/.env.dollar"
+cat > "$DOLLAR_ENV" <<'EOF'
+PASSVAL=a$$b
+EOF
+_assert_matches_compose_dollar PASSVAL "$DOLLAR_ENV" \
+  "\$\$ collapses to a single literal \$ (PASS=a\$\$b -> a\$b)"
+
+DOLLAR_BRACE_ENV="$WORK/.env.dollarbrace"
+cat > "$DOLLAR_BRACE_ENV" <<'EOF'
+MSGVAL="pre$${SOMEVAR}post"
+EOF
+_assert_matches_compose_dollar MSGVAL "$DOLLAR_BRACE_ENV" \
+  "\$\$ immediately adjacent to a { also collapses, leaving a literal (non-interpolated) \${SOMEVAR}"
+
+DOLLAR_RESCAN_ENV="$WORK/.env.dollarrescan"
+cat > "$DOLLAR_RESCAN_ENV" <<'EOF'
+realvar=REALVALUE
+USESVAL=pre$$realvartail
+EOF
+_assert_matches_compose_dollar USESVAL "$DOLLAR_RESCAN_ENV" \
+  "text left over after un-escaping \$\$ is not re-scanned as a fresh reference, even when it happens to name a real variable"
+
+# --- Nested defaults/alt-values — ${A:-${B:-x}} and ${A:+${B}}.
+NESTED_ENV="$WORK/.env.nested"
+cat > "$NESTED_ENV" <<'EOF'
+BVAL=bval
+AVAL=aval
+USES_BOTH_UNSET="${NESTED_A_XYZ:-${NESTED_B_XYZ:-x}}"
+USES_INNER_SET="${NESTED_A_XYZ:-${BVAL:-x}}"
+USES_OUTER_SET="${AVAL:-${NESTED_B_XYZ:-x}}"
+USES_PLUS_INNER_SET="${AVAL:+${BVAL}}"
+USES_PLUS_OUTER_UNSET="${NESTED_A_XYZ:+${BVAL}}"
+EOF
+_assert_matches_compose USES_BOTH_UNSET "$NESTED_ENV" \
+  "nested \${A:-\${B:-x}}, both A and B unset: resolves to the innermost default"
+_assert_matches_compose USES_INNER_SET "$NESTED_ENV" \
+  "nested \${A:-\${B:-x}}, A unset but B set: resolves to B's value"
+_assert_matches_compose USES_OUTER_SET "$NESTED_ENV" \
+  "nested \${A:-\${B:-x}}, A set: resolves to A's value (inner default never evaluated)"
+_assert_matches_compose USES_PLUS_INNER_SET "$NESTED_ENV" \
+  "nested \${A:+\${B}}, A set non-empty: resolves to B's value"
+_assert_matches_compose USES_PLUS_OUTER_UNSET "$NESTED_ENV" \
+  "nested \${A:+\${B}}, A unset: resolves to empty (alt never evaluated)"
+
+# --- A default's own text containing a literal `}` inside a quoted value.
+# Compose's own brace-matching (verified empirically, NOT the naive
+# "stop at the first }" this repo's OWN earlier interpolation code used)
+# counts every literal `{`/`}` toward a depth starting at 1 for the
+# already-consumed opening `${`, closing at the first point depth returns
+# to 0 — this is what lets a nested `${...}` reference close at the
+# correct outer `}` instead of the inner one's.
+BRACE_ENV="$WORK/.env.bracetext"
+cat > "$BRACE_ENV" <<'EOF'
+USES_BALANCED="${BRACE_UNSET_XYZ:-{foo}bar}"
+USES_TRAILING_LITERAL="${BRACE_UNSET_XYZ:-x}extra}"
+EOF
+_assert_matches_compose USES_BALANCED "$BRACE_ENV" \
+  "a default's own text may contain a balanced { } pair; the default runs to the OUTER (matching) close"
+_assert_matches_compose USES_TRAILING_LITERAL "$BRACE_ENV" \
+  "a } immediately after the default's own close is literal SUFFIX text, not part of the default"
+
+# --- An unterminated ${VAR (no closing brace anywhere) and a bare $
+# followed by a non-name character. "Whatever the oracle does" turned out
+# to be two different answers: a genuinely unterminated ${ construct is a
+# hard parse failure (Compose's own .env-file load errors, "Invalid
+# template"); a bare $ that simply isn't followed by `$`, `{`, or a
+# name-start character is left completely alone as literal text.
+UNTERM_ENV="$WORK/.env.unterminated"
+cat > "$UNTERM_ENV" <<'EOF'
+SETVAR=setval
+USES_UNTERM_SET=pre${SETVAR
+USES_UNTERM_UNSET=pre${UNTERM_UNSET_XYZ
+EOF
+_assert_errors_like_compose USES_UNTERM_SET "$UNTERM_ENV" \
+  "an unterminated \${VAR (no closing brace anywhere), the referenced name IS set: still a hard failure"
+_assert_errors_like_compose USES_UNTERM_UNSET "$UNTERM_ENV" \
+  "an unterminated \${VAR (no closing brace anywhere), the referenced name is unset: still a hard failure"
+
+BAREDOLLAR_ENV="$WORK/.env.baredollar"
+cat > "$BAREDOLLAR_ENV" <<'EOF'
+USES_DIGIT=pre$5post
+USES_SPACE="pre$ post"
+USES_TRAILING=pre$
+EOF
+_assert_matches_compose_dollar USES_DIGIT "$BAREDOLLAR_ENV" \
+  "a bare \$ followed by a digit is left completely unchanged"
+_assert_matches_compose_dollar USES_SPACE "$BAREDOLLAR_ENV" \
+  "a bare \$ followed by a space is left completely unchanged"
+_assert_matches_compose_dollar USES_TRAILING "$BAREDOLLAR_ENV" \
+  "a bare \$ at the very end of a value is left completely unchanged"
+
+# --- Single-quoted values are never interpolated at all, `$$` and
+# `${VAR}` alike (round 14 explicitly re-confirms this against the
+# oracle, using the \$-aware helper since the pinned value itself
+# contains a literal \$).
+SINGLEQ_ENV="$WORK/.env.singlequote"
+cat > "$SINGLEQ_ENV" <<'EOF'
+SETVAR=setval
+USESVAL='${SETVAR}'
+EOF
+_assert_matches_compose_dollar USESVAL "$SINGLEQ_ENV" \
+  "a single-quoted value is never interpolated, even when it looks exactly like a reference to a SET variable"
 
 echo "1..$((PASS + FAIL))"
 echo "# ${PASS} passed, ${FAIL} failed"
