@@ -43,7 +43,11 @@ describe('reuploadDataset timeout', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('passes an extended timeoutMs, not the apiFetch default', async () => {
-    const response = { job_id: 'job-1', status: 'pending' } satisfies ReuploadResponse;
+    const response = {
+      job_id: 'job-1',
+      status: 'pending',
+      message: 'Upload received',
+    } satisfies ReuploadResponse;
     mockApiFetch.mockResolvedValueOnce(response);
 
     const file = new File(['data'], 'dataset.gpkg');
