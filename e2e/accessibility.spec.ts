@@ -26,6 +26,12 @@ test.describe('Accessibility - WCAG 2AA', () => {
   let collectionName: string;
 
   test.beforeAll(async () => {
+    // fix(review #1792 round 3): seedDataset alone can poll for up to 60s
+    // (helpers/catalog.ts's seedFixtureDataset), which is Playwright's
+    // default hook timeout with nothing left over for the collection/map/
+    // layer/share calls this hook also makes. Give this hook real margin.
+    test.setTimeout(120_000);
+
     // Use a separate dataset because this suite publishes it for anonymous
     // checks and must not change the shared catalog fixture.
     const seeded = await seedDataset('A11y Seed Dataset');

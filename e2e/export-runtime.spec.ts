@@ -636,6 +636,13 @@ test.describe('Runtime export integrity', () => {
   let ownedDataset: OwnedDataset | null = null;
 
   test.beforeAll(async ({ request }) => {
+    // fix(review #1792 round 3): seedRuntimeDataset's own ingest-and-poll
+    // loop can run for up to 60s (its `for (let attempt = 0; attempt < 60;
+    // attempt += 1)` below), which is Playwright's default hook timeout
+    // with nothing left over for the login and resolveRuntimeDataset calls
+    // this hook also makes. Give this hook real margin.
+    test.setTimeout(120_000);
+
     const token = await loginAsAdmin(request);
     authHeader = { Authorization: `Bearer ${token}` };
     auditDateFrom = new Date(Date.now() - 5_000).toISOString();

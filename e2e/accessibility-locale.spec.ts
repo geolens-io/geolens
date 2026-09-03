@@ -40,6 +40,12 @@ test.describe('Accessibility locale scan — de (non-gating)', () => {
   let mapId: string;
 
   test.beforeAll(async () => {
+    // fix(review #1792 round 3): seedDataset alone can poll for up to 60s
+    // (helpers/catalog.ts's seedFixtureDataset), which is Playwright's
+    // default hook timeout with nothing left over for the map/layer calls
+    // below. Give this hook real margin.
+    test.setTimeout(120_000);
+
     seed = await seedDataset('A11y Locale Seed Dataset');
     const headers = {
       Authorization: `Bearer ${getAuthToken()}`,

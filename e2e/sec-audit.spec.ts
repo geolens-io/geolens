@@ -192,12 +192,17 @@ test('S01 STAC visibility — anonymous cannot read a private raster STAC item',
 test('S01 STAC visibility — anonymous /stac/search does not return private rasters', async ({ request }) => {
   const recordId = privateRasterId;
   const res = await request.get(`${apiBase}/stac/search?ids=${recordId}`);
-  // Either denied (401/403) or empty features list — never the private item back
+  // fix(review #1792 round 3): this `if` had no `else` -- any non-200 status
+  // (including a 500) fell through with no assertion at all, so a broken
+  // endpoint passed silently. Either denied (401/403/404) or an empty
+  // features list -- never the private item back.
   if (res.status() === 200) {
     const body = await res.json();
     const features = body.features ?? [];
     const hit = features.find((f: { id: string }) => f.id === recordId);
     expect(hit).toBeUndefined();
+  } else {
+    expect([401, 403, 404]).toContain(res.status());
   }
 });
 
@@ -225,6 +230,13 @@ test('S02 IDOR — editor B cannot PATCH another user\'s private dataset', async
 });
 
 test('S02 IDOR — editor B cannot DELETE another user\'s private dataset', async ({ request }) => {
+  // fix(review #1792 round 3): the positive control below calls
+  // seedDataset(), which alone can poll for up to 60s (helpers/catalog.ts's
+  // seedFixtureDataset) -- the same 60s as Playwright's default TEST
+  // timeout, with nothing left over for the denial request, the owner
+  // delete, or cleanup. test.slow() triples it.
+  test.slow();
+
   const datasetId = privateDatasetId;
   const tokenB = editorBToken;
   // fix(review #1792): delete_dataset_endpoint requires a DatasetDeleteRequest
@@ -486,8 +498,22 @@ test('S08 — embed frame-policy endpoint reflects the actual embed-token state'
     // (422), not the service-layer ValueError->400 conversion in
     // create_embed_token_endpoint -- confirmed against the live endpoint.
     expect(restrictedRes.status()).toBe(422);
-    const body = (await restrictedRes.json()) as { detail?: string };
-    expect(body.detail).toContain('Advanced sharing controls');
+    const body = (await restrictedRes.json()) as { detail?: unknown };
+    // fix(review #1792 round 3): a vanilla FastAPI 422 body has `detail` as
+    // an array of {loc, msg, type} objects, and `expect(array).toContain(
+    // 'a substring')` compares array ELEMENTS for equality -- against
+    // objects, that never matches, so the check would always pass or always
+    // fail depending on framework defaults rather than on the actual error
+    // text. Verified directly against this endpoint (probed with curl and
+    // read api/main.py's global RequestValidationError override) that
+    // GeoLens flattens every 422 to a single `detail` STRING via the
+    // problem+json ProblemDetail handler in standards/ogc/errors.py, which
+    // its own docstring says applies to "every other operation" beyond the
+    // OGC/STAC paths it was written for -- so `body.detail` is a string
+    // here today. Stringify defensively anyway so this keeps working
+    // unchanged if that ever becomes an array for this endpoint specifically.
+    const detailText = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+    expect(detailText).toContain('Advanced sharing controls');
   }
 
   // Smoke check only: the viewer shell itself still loads for a plain share
@@ -516,6 +542,105 @@ test('S09 — dataset export -where rejects UNION / subqueries', async ({ reques
     `${apiBase}/datasets/${datasetId}/export?format=csv&where=${encodeURIComponent(malicious)}`,
   );
   expect([400, 422, 403]).toContain(res.status());
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// S13 — /search/facets/ rejects oversized q
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('S13 — /search/facets/ rejects q longer than 1000 chars', async ({ request }) => {
+  const longQ = 'a'.repeat(5000);
+  const res = await request.get(`${apiBase}/search/facets/?q=${encodeURIComponent(longQ)}`);
+  // After fix: 422 (Pydantic validation). Pre-fix: 200 with seq-scan.
+  // fix(review #1792 round 3): dropped 429 tolerance -- it was only ever
+  // defensive against the S11 burst test running before this one and
+  // saturating the rate limiter; S11 now runs last in this file (see its
+  // section below), and /search/facets/ carries no semantic-search
+  // per-route limit of its own (WR-02, search/router.py) to begin with.
+  expect([400, 422]).toContain(res.status());
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hygiene regression — ensure SQL injection sentinels remain blocked
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('hygiene — SQLi sentinel in search q does not crash or return all rows', async ({ request }) => {
+  // fix(review #1792 round 3): accepting [400, 422, 429] alongside 200, with
+  // the actual shape check only inside `if (status === 200)`, meant this
+  // test could pass on a 429 from the S11 burst test above without ever
+  // reading the response body -- so it verified nothing about the sentinel.
+  // S11 now runs last in this file, so a plain search string is always
+  // expected to succeed; require 200 and check the shape unconditionally.
+  const res = await request.get(`${apiBase}/search/datasets/?q=` + encodeURIComponent(`' OR '1'='1`));
+  expect(res.status()).toBe(200);
+  const body = await res.json();
+  const features = body.features ?? [];
+  // Sentinel should match nothing; ensure response is bounded (LIMIT 200 cap)
+  expect(features.length).toBeLessThanOrEqual(200);
+});
+
+test('hygiene — pgvector embedding never appears in search response', async ({ request }) => {
+  // fix(review #1792 round 3): the `if (status === 200)` with no `else` let
+  // this pass on any non-200 (a 429 from the S11 burst test above included)
+  // without ever inspecting a single feature. S11 now runs last in this
+  // file, so a plain search string is always expected to succeed.
+  const res = await request.get(`${apiBase}/search/datasets/?q=test`);
+  expect(res.status()).toBe(200);
+  const body = await res.json();
+  const features = body.features ?? [];
+  expect(Array.isArray(features)).toBe(true);
+  for (const f of features) {
+    expect(f.embedding).toBeUndefined();
+    expect(f.vector).toBeUndefined();
+    expect(f.properties?.embedding).toBeUndefined();
+    expect(f.properties?.vector).toBeUndefined();
+  }
+});
+
+test('hygiene — pg_trgm operator-abuse handled safely (no syntax error, fast response)', async ({ request }) => {
+  // fix(review #1792 round 3): accepting [200, 400, 422, 429] with no body
+  // check even on 200 meant this test never actually confirmed the query
+  // returned a real, well-formed result -- only that *some* status in a
+  // wide list came back fast. S11 now runs last in this file, so this
+  // operator-abuse string is always expected to succeed like any other
+  // benign query; require 200 and check the response is a real feature
+  // list, not just a fast non-crash.
+  const malicious = '! | !';
+  const start = Date.now();
+  const res = await request.get(`${apiBase}/search/datasets/?q=${encodeURIComponent(malicious)}`);
+  const elapsed = Date.now() - start;
+  expect(elapsed).toBeLessThan(3000);
+  expect(res.status()).toBe(200);
+  const body = await res.json();
+  expect(Array.isArray(body.features)).toBe(true);
+});
+
+test('hygiene — malformed bbox is rejected', async ({ request }) => {
+  // fix(review #1792 round 3): dropped 429 tolerance -- only ever defensive
+  // against the S11 burst test running before this one; S11 now runs last.
+  const res = await request.get(`${apiBase}/search/datasets/?bbox=0,0,1`);
+  expect([400, 422]).toContain(res.status());
+});
+
+test('hygiene — CORS does not grant credentials to an untrusted origin', async ({ request }) => {
+  const origin = 'http://attacker.example';
+  const appResponse = await request.get(`${apiBase}/auth/me/`, {
+    headers: { Origin: origin },
+  });
+  expect(appResponse.headers()['access-control-allow-origin']).toBeUndefined();
+  expect(appResponse.headers()['access-control-allow-credentials']).toBeUndefined();
+
+  // Anonymous standards routes may use a wildcard, but never with credentials.
+  const standardsResponse = await request.get(`${apiBase}/`, {
+    headers: { Origin: 'http://attacker.example' },
+  });
+  const standardsOrigin = standardsResponse.headers()['access-control-allow-origin'];
+  expect(standardsOrigin).not.toBe(origin);
+  if (standardsOrigin === '*') {
+    expect(
+      standardsResponse.headers()['access-control-allow-credentials'],
+    ).toBeUndefined();
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -573,81 +698,4 @@ test('S11 — burst of unique semantic queries gets rate-limited', async ({ requ
   );
   const statuses = responses.map((r) => r.status());
   expect(statuses).toContain(429);
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// S13 — /search/facets/ rejects oversized q
-// ─────────────────────────────────────────────────────────────────────────────
-
-test('S13 — /search/facets/ rejects q longer than 1000 chars', async ({ request }) => {
-  const longQ = 'a'.repeat(5000);
-  const res = await request.get(`${apiBase}/search/facets/?q=${encodeURIComponent(longQ)}`);
-  // After fix: 422 (Pydantic validation). Pre-fix: 200 with seq-scan.
-  // 429: the S11 burst test above can leave the per-IP rate limiter saturated
-  // within the same window — a safe rejection still satisfies this hygiene check.
-  expect([400, 422, 429]).toContain(res.status());
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Hygiene regression — ensure SQL injection sentinels remain blocked
-// ─────────────────────────────────────────────────────────────────────────────
-
-test('hygiene — SQLi sentinel in search q does not crash or return all rows', async ({ request }) => {
-  const res = await request.get(`${apiBase}/search/datasets/?q=` + encodeURIComponent(`' OR '1'='1`));
-  expect([200, 400, 422, 429]).toContain(res.status()); // 429: safe rate-limit rejection (S11 burst bleed)
-  if (res.status() === 200) {
-    const body = await res.json();
-    const features = body.features ?? [];
-    // Sentinel should match nothing; ensure response is bounded (LIMIT 200 cap)
-    expect(features.length).toBeLessThanOrEqual(200);
-  }
-});
-
-test('hygiene — pgvector embedding never appears in search response', async ({ request }) => {
-  const res = await request.get(`${apiBase}/search/datasets/?q=test`);
-  if (res.status() === 200) {
-    const body = await res.json();
-    const features = body.features ?? [];
-    for (const f of features) {
-      expect(f.embedding).toBeUndefined();
-      expect(f.vector).toBeUndefined();
-      expect(f.properties?.embedding).toBeUndefined();
-      expect(f.properties?.vector).toBeUndefined();
-    }
-  }
-});
-
-test('hygiene — pg_trgm operator-abuse handled safely (no syntax error, fast response)', async ({ request }) => {
-  const malicious = '! | !';
-  const start = Date.now();
-  const res = await request.get(`${apiBase}/search/datasets/?q=${encodeURIComponent(malicious)}`);
-  const elapsed = Date.now() - start;
-  expect(elapsed).toBeLessThan(3000);
-  expect([200, 400, 422, 429]).toContain(res.status()); // 429: safe rate-limit rejection (S11 burst bleed)
-});
-
-test('hygiene — malformed bbox is rejected', async ({ request }) => {
-  const res = await request.get(`${apiBase}/search/datasets/?bbox=0,0,1`);
-  expect([400, 422, 429]).toContain(res.status()); // 429: safe rate-limit rejection (S11 burst bleed)
-});
-
-test('hygiene — CORS does not grant credentials to an untrusted origin', async ({ request }) => {
-  const origin = 'http://attacker.example';
-  const appResponse = await request.get(`${apiBase}/auth/me/`, {
-    headers: { Origin: origin },
-  });
-  expect(appResponse.headers()['access-control-allow-origin']).toBeUndefined();
-  expect(appResponse.headers()['access-control-allow-credentials']).toBeUndefined();
-
-  // Anonymous standards routes may use a wildcard, but never with credentials.
-  const standardsResponse = await request.get(`${apiBase}/`, {
-    headers: { Origin: 'http://attacker.example' },
-  });
-  const standardsOrigin = standardsResponse.headers()['access-control-allow-origin'];
-  expect(standardsOrigin).not.toBe(origin);
-  if (standardsOrigin === '*') {
-    expect(
-      standardsResponse.headers()['access-control-allow-credentials'],
-    ).toBeUndefined();
-  }
 });
