@@ -90,6 +90,30 @@ class RedisCacheProvider:
             self._record_failure()
             await self._fallback.set(key, value, ttl)
 
+    async def set_authoritative(self, key: str, value: Any, ttl: int = 300) -> None:
+        """fix(#1778 codex r1): write BOTH stores, in either circuit state.
+
+        ``set`` routes to whichever store the circuit says is live, which is
+        right for a value that is only a cached answer and wrong for one that
+        overrides a cached answer. A positive embed-token entry written into the
+        fallback during a Redis outage outlived a revocation that only reached
+        Redis, and the next Redis error served the revoked token again.
+
+        The fallback is written first and unconditionally, so a Redis failure
+        cannot leave the override applied nowhere.
+        """
+        await self._fallback.set(key, value, ttl)
+        if self._is_circuit_open():
+            return
+        try:
+            await self._client.set(key, json.dumps(value, default=str), ex=ttl)
+            self._record_success()
+        except Exception:  # broad: redis circuit breaker — any Redis error falls back to in-memory cache
+            logger.warning(
+                "redis_cache_set_authoritative_failed", key=key, exc_info=True
+            )
+            self._record_failure()
+
     async def set_if_absent(self, key: str, value: Any, ttl: int = 300) -> bool:
         """fix(#1778): SET NX. True when this call is the one that stored it.
 
@@ -98,7 +122,16 @@ class RedisCacheProvider:
         be able to override, and a copy in a process-local dict that no other
         process can override is not that. False means "not published", which is
         a cache miss next time -- the safe direction.
+
+        fix(#1778 codex r1): the fallback is checked first, in BOTH circuit
+        states. ``set_authoritative`` puts a revocation's denial in both stores,
+        and a racing publisher that only consulted Redis would answer True the
+        moment the circuit opened between its read and its write -- writing a
+        positive into the fallback the denial had just cleared. Absent has to
+        mean absent everywhere.
         """
+        if await self._fallback.get(key) is not None:
+            return False
         if self._is_circuit_open():
             return await self._fallback.set_if_absent(key, value, ttl)
         try:

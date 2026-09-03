@@ -93,7 +93,13 @@ async def _deny_revoked_embed_tokens(*token_hashes: str) -> None:
     try:
         cache = get_cache()
         for token_hash in token_hashes:
-            await cache.set(
+            # fix(#1778 codex r1): set_authoritative, not set. `set` routes to
+            # whichever store the circuit breaker says is live, so a positive
+            # entry that landed in the in-memory fallback during a Redis outage
+            # survived a denial written after Redis recovered, and the next
+            # Redis error served the revoked token again. The denial has to
+            # reach every store a later read could consult.
+            await cache.set_authoritative(
                 _embed_token_cache_key(token_hash),
                 {"is_valid": False},
                 ttl=EMBED_TOKEN_REVOCATION_DENIAL_TTL_SECONDS,

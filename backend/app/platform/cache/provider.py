@@ -39,6 +39,28 @@ class CacheProvider(Protocol):
         Must be atomic against a concurrent writer of the same key -- Redis
         ``SET NX``, or a presence check with no await between the read and the
         write.
+
+        fix(#1778 codex r1): "has no entry" means in EVERY store an
+        implementation might later read from, not just the one it would write
+        to now. A layered provider whose fallback still holds a denial must
+        answer False even while its primary store is empty.
+        """
+        ...
+
+    async def set_authoritative(self, key: str, value: Any, ttl: int = 300) -> None:
+        """Store value with TTL in EVERY store, overriding whatever is there.
+
+        fix(#1778 codex r1): the counterpart to ``set_if_absent``. That one
+        yields to an existing decision; this one IS the decision, so it has to
+        land everywhere a later read could look -- including a layered
+        provider's fallback, which an outage may have populated from a snapshot
+        that is now wrong.
+
+        The embed-token revoke path is the caller: a positive entry written
+        into the in-memory fallback during a Redis outage outlived a revocation
+        that only reached Redis, and the next Redis error served the revoked
+        token again. ``set`` is not a substitute, because it writes to one
+        store.
         """
         ...
 

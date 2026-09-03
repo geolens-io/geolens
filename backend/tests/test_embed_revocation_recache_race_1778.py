@@ -168,3 +168,56 @@ class TestSetIfAbsent:
         await cache.set("k", "stale", 0)
         assert await cache.set_if_absent("k", "fresh", 300) is True
         assert await cache.get("k") == "fresh"
+
+
+class TestDenialReachesEveryStore:
+    """fix(#1778 codex r1): the revoke helper's write must be the two-store one.
+
+    A positive entry that landed in the layered provider's in-memory fallback
+    during a Redis outage outlived a denial written after Redis recovered,
+    because ``set`` routes to whichever store the circuit says is live. The next
+    Redis error then served the revoked token again.
+
+    Counterfactual: change ``set_authoritative`` back to ``set`` in
+    ``_deny_revoked_embed_tokens`` and the test below reads the stale positive
+    back out of the fallback.
+    """
+
+    def _layered_provider(self):
+        import fakeredis
+
+        from app.platform.cache.redis import RedisCacheProvider
+
+        provider = RedisCacheProvider.__new__(RedisCacheProvider)
+        provider._client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        provider._max_failures = 3
+        provider._cooldown_seconds = 30
+        provider._failure_count = 0
+        provider._circuit_open_until = 0.0
+        provider._fallback = InMemoryCacheProvider()
+        return provider
+
+    async def test_a_revoke_denies_through_the_next_redis_outage(self, monkeypatch):
+        import time
+
+        from app.modules.embed_tokens import service as embed_service
+
+        provider = self._layered_provider()
+        monkeypatch.setattr(embed_service, "get_cache", lambda: provider)
+
+        token_hash = "a" * 64
+        key = embed_service._embed_token_cache_key(token_hash)
+
+        # 1. Redis was down; the validation result landed in the fallback.
+        await provider._fallback.set(key, {"is_valid": True}, 300)
+
+        # 2. Redis has recovered and the token is revoked.
+        await embed_service._deny_revoked_embed_tokens(token_hash)
+        assert await provider.get(key) == {"is_valid": False}
+
+        # 3. Redis blips again inside the entry's TTL.
+        provider._failure_count = 3
+        provider._circuit_open_until = time.monotonic() + 300
+        assert await provider.get(key) == {"is_valid": False}, (
+            "the revoked token validated again off a stale fallback entry"
+        )

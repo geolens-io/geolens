@@ -21,6 +21,7 @@ still holding admin.
 """
 
 import uuid
+from contextlib import asynccontextmanager
 
 import pytest
 from sqlalchemy import select
@@ -284,3 +285,229 @@ async def test_community_ignores_the_mapping(client, test_db_session):
     )
     await test_db_session.commit()
     assert await _role_names(test_db_session, created.id) == {"admin"}
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778 codex r1): the reconciliation must be the SAME role change every
+# other route makes, not a weaker copy of it.
+#
+# Counterfactuals, each run: assign user.roles directly instead of calling
+# AdminService.set_role_from_identity_provider and the sole-admin and key-epoch
+# tests fail; drop the _reconcile_mapped_role call from the verified-email
+# branch and the cross-provider test fails.
+# ---------------------------------------------------------------------------
+
+
+async def _active_admin_count(db) -> int:
+    rows = await db.execute(
+        select(User.id)
+        .join(UserRole, UserRole.user_id == User.id)
+        .join(Role, UserRole.role_id == Role.id)
+        .where(Role.name == "admin", User.status == "active", User.is_active.is_(True))
+    )
+    return len(set(rows.scalars().all()))
+
+
+@asynccontextmanager
+async def _only_admin_is(db, keep_id):
+    """Strip admin from every other account for the body, then put it back.
+
+    The seeded GEOLENS_ADMIN account is one of the accounts demoted here, and it
+    is cluster-global state every other test in this database depends on, so the
+    restore runs in a finally.
+    """
+    viewer = await db.scalar(select(Role).where(Role.name == "viewer"))
+    admin_role = await db.scalar(select(Role).where(Role.name == "admin"))
+    rows = await db.execute(
+        select(User)
+        .join(UserRole, UserRole.user_id == User.id)
+        .join(Role, UserRole.role_id == Role.id)
+        .where(Role.name == "admin", User.id != keep_id)
+    )
+    demoted = list(rows.scalars().unique().all())
+    for other in demoted:
+        other.roles = [viewer]
+    await db.commit()
+    try:
+        yield
+    finally:
+        for other in demoted:
+            other.roles = [admin_role]
+        await db.commit()
+
+
+async def test_the_sole_admin_is_not_demoted_by_an_empty_groups_claim(
+    client, test_db_session, enterprise
+):
+    """The last-admin invariant belongs to every demotion route, this one
+    included. Assigning the default role directly would remove the deployment's
+    only way back in on the say-so of an IdP assertion."""
+    provider = await _provider(test_db_session)
+    sub = f"soleadmin-{uuid.uuid4().hex[:8]}"
+
+    created = await find_or_create_oauth_user(
+        test_db_session, provider, _userinfo(sub, ["gis-admins"]), {}
+    )
+    await test_db_session.commit()
+    assert await _role_names(test_db_session, created.id) == {"admin"}
+
+    async with _only_admin_is(test_db_session, created.id):
+        assert await _active_admin_count(test_db_session) == 1
+
+        returning = await find_or_create_oauth_user(
+            test_db_session, provider, _userinfo(sub, []), {}
+        )
+        await test_db_session.commit()
+
+        assert returning.id == created.id
+        assert await _role_names(test_db_session, created.id) == {"admin"}, (
+            "an IdP assertion removed the last admin"
+        )
+
+        refusals = (
+            (
+                await test_db_session.execute(
+                    select(AuditLog).where(
+                        AuditLog.action == "oauth.role.change_refused",
+                        AuditLog.user_id == created.id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert refusals, "a refused demotion has to be visible to an operator"
+        details = refusals[0].details or {}
+        assert details["reason"] == "last_admin"
+        assert details["mapped_role"] == "viewer"
+        assert details["current_roles"] == ["admin"]
+
+
+async def test_a_second_admin_present_lets_the_demotion_through(
+    client, test_db_session, enterprise
+):
+    """The invariant refuses only the LAST admin. With another one active the
+    mapped demotion applies as normal.
+
+    The second admin is created here rather than assumed from the seeded
+    GEOLENS_ADMIN account, so this does not turn red because some other module
+    left that account demoted."""
+    provider = await _provider(test_db_session)
+    sub = f"notlast-{uuid.uuid4().hex[:8]}"
+
+    created = await find_or_create_oauth_user(
+        test_db_session, provider, _userinfo(sub, ["gis-admins"]), {}
+    )
+    await test_db_session.commit()
+    assert await _role_names(test_db_session, created.id) == {"admin"}
+
+    admin_role = await test_db_session.scalar(select(Role).where(Role.name == "admin"))
+    spare = User(
+        username=f"spareadmin_{uuid.uuid4().hex[:8]}",
+        password_hash=hash_password("TestPass1234!"),
+        auth_provider="local",
+        is_active=True,
+        status="active",
+        roles=[admin_role],
+    )
+    test_db_session.add(spare)
+    await test_db_session.commit()
+    assert await _active_admin_count(test_db_session) >= 2
+
+    await find_or_create_oauth_user(test_db_session, provider, _userinfo(sub, []), {})
+    await test_db_session.commit()
+    assert await _role_names(test_db_session, created.id) == {"viewer"}
+
+
+async def test_a_mapped_promotion_bumps_the_key_epoch(
+    client, test_db_session, enterprise
+):
+    """fix(#821)'s rule is that a role change invalidates keys minted under the
+    old role. An API key minted while the account was a viewer must not silently
+    become an admin key after the next OAuth login."""
+    provider = await _provider(test_db_session)
+    sub = f"epoch-{uuid.uuid4().hex[:8]}"
+
+    created = await find_or_create_oauth_user(
+        test_db_session, provider, _userinfo(sub, ["everyone"]), {}
+    )
+    await test_db_session.commit()
+    assert await _role_names(test_db_session, created.id) == {"viewer"}
+    epoch_before = await test_db_session.scalar(
+        select(User.key_epoch).where(User.id == created.id)
+    )
+
+    await find_or_create_oauth_user(
+        test_db_session, provider, _userinfo(sub, ["gis-admins"]), {}
+    )
+    await test_db_session.commit()
+
+    epoch_after = await test_db_session.scalar(
+        select(User.key_epoch).where(User.id == created.id)
+    )
+    assert await _role_names(test_db_session, created.id) == {"admin"}
+    assert epoch_after > epoch_before, (
+        "a key minted as viewer still resolves after the account became admin"
+    )
+
+
+async def test_an_unchanged_role_does_not_bump_the_key_epoch(
+    client, test_db_session, enterprise
+):
+    """An assertion that agrees with the current role is not a security event,
+    so it must not revoke the account's API keys on every login."""
+    provider = await _provider(test_db_session)
+    sub = f"idempotent-{uuid.uuid4().hex[:8]}"
+
+    created = await find_or_create_oauth_user(
+        test_db_session, provider, _userinfo(sub, ["gis-admins"]), {}
+    )
+    await test_db_session.commit()
+    epoch_before = await test_db_session.scalar(
+        select(User.key_epoch).where(User.id == created.id)
+    )
+
+    await find_or_create_oauth_user(
+        test_db_session, provider, _userinfo(sub, ["gis-admins"]), {}
+    )
+    await test_db_session.commit()
+
+    epoch_after = await test_db_session.scalar(
+        select(User.key_epoch).where(User.id == created.id)
+    )
+    assert epoch_after == epoch_before
+
+
+async def test_the_first_email_linked_login_applies_the_new_provider_mapping(
+    client, test_db_session, enterprise
+):
+    """The verified-email branch is the OTHER return path that yields an
+    existing account. Without reconciliation there, an OAuth-provisioned account
+    linking to a second provider carries its old role for that whole session."""
+    first = await _provider(test_db_session)
+    second = await _provider(test_db_session, group_role_mapping={"leads": "editor"})
+
+    email = f"crossprovider-{uuid.uuid4().hex[:8]}@example.com"
+    created = await find_or_create_oauth_user(
+        test_db_session,
+        first,
+        _userinfo(f"first-{uuid.uuid4().hex[:8]}", ["gis-admins"], email=email),
+        {},
+    )
+    await test_db_session.commit()
+    assert await _role_names(test_db_session, created.id) == {"admin"}
+
+    # First ever login through the SECOND provider: linked by verified email,
+    # so the subject-link branch is not the one that runs.
+    linked = await find_or_create_oauth_user(
+        test_db_session,
+        second,
+        _userinfo(f"second-{uuid.uuid4().hex[:8]}", ["everyone"], email=email),
+        {},
+    )
+    await test_db_session.commit()
+
+    assert linked.id == created.id
+    assert await _role_names(test_db_session, created.id) == {"viewer"}, (
+        "the second provider's mapping was ignored on the linking login"
+    )

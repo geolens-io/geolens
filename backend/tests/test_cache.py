@@ -454,3 +454,77 @@ async def test_a_failing_redis_delete_still_evicts_the_fallback():
 
     assert await provider._fallback.get("embed_token:abc") is None
     assert provider._failure_count == 1
+
+
+# --- fix(#1778 codex r1): the OVERRIDE has the same two-store requirement ---
+#
+# The eviction fix above was not enough on its own. A revocation writes a denial
+# rather than deleting the key (so a racing publisher cannot re-cache the
+# token), and `set` routes to whichever store the circuit says is live. A
+# positive entry that landed in the fallback during an outage therefore survived
+# a denial written after Redis recovered, and the next Redis error served the
+# revoked token again.
+#
+# Counterfactual: change set_authoritative back to `set` and
+# test_the_denial_overwrites_a_stale_fallback_positive fails with the positive
+# still readable.
+
+
+@pytest.mark.asyncio
+async def test_the_denial_overwrites_a_stale_fallback_positive(cb_redis):
+    """The pin codex asked for: fallback holds a positive, Redis recovers,
+    revoke, Redis errors again, validation is denied."""
+    # 1. Outage: the positive lands in the fallback.
+    await cb_redis._fallback.set("embed_token:abc", {"is_valid": True}, 300)
+
+    # 2. Redis has recovered (circuit closed) and the token is revoked.
+    await cb_redis.set_authoritative("embed_token:abc", {"is_valid": False}, 300)
+
+    # 3. Redis errors again, so reads route to the fallback.
+    cb_redis._failure_count = 3
+    cb_redis._circuit_open_until = time.monotonic() + 300
+    assert await cb_redis.get("embed_token:abc") == {"is_valid": False}
+
+
+@pytest.mark.asyncio
+async def test_set_authoritative_reaches_redis_too(cb_redis):
+    await cb_redis.set_authoritative("k", {"is_valid": False}, 60)
+    assert await cb_redis._client.get("k") == '{"is_valid": false}'
+    assert await cb_redis._fallback.get("k") == {"is_valid": False}
+
+
+@pytest.mark.asyncio
+async def test_set_authoritative_still_lands_when_redis_is_down():
+    provider = RedisCacheProvider.__new__(RedisCacheProvider)
+    mock_client = AsyncMock()
+    mock_client.set.side_effect = ConnectionError("Redis unavailable")
+    provider._client = mock_client
+    provider._max_failures = 5
+    provider._cooldown_seconds = 30
+    provider._failure_count = 0
+    provider._circuit_open_until = 0.0
+    provider._fallback = InMemoryCacheProvider()
+
+    await provider.set_authoritative("k", {"is_valid": False}, 60)
+    assert await provider._fallback.get("k") == {"is_valid": False}
+    assert provider._failure_count == 1
+
+
+@pytest.mark.asyncio
+async def test_set_if_absent_yields_to_a_denial_held_only_in_the_fallback(cb_redis):
+    """Absent has to mean absent in EVERY store. A racing publisher whose
+    circuit opened between its read and its write would otherwise put a positive
+    straight back into the fallback the denial had just cleared."""
+    await cb_redis._fallback.set("embed_token:abc", {"is_valid": False}, 300)
+
+    stored = await cb_redis.set_if_absent("embed_token:abc", {"is_valid": True}, 300)
+
+    assert stored is False
+    assert await cb_redis._client.get("embed_token:abc") is None
+    assert await cb_redis._fallback.get("embed_token:abc") == {"is_valid": False}
+
+
+@pytest.mark.asyncio
+async def test_set_if_absent_still_publishes_into_an_empty_cache(cb_redis):
+    assert await cb_redis.set_if_absent("fresh", {"is_valid": True}, 60) is True
+    assert await cb_redis.get("fresh") == {"is_valid": True}

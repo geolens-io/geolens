@@ -4047,7 +4047,25 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # of the lines are the docstring on that helper stating its four
     # preconditions, each of which is what stops a login from taking away a
     # role the IdP said nothing about. Cap 1031 -> 1188, exact.
-    "backend/app/modules/auth/oauth/service.py": 1188,
+    # fix(#1778 codex r1): +61 for three round-1 P1s in the same function. The
+    # role change now goes through AdminService.set_role_from_identity_provider,
+    # so it inherits the last-admin invariant and the key_epoch bump instead of
+    # assigning user.roles directly; a refused demotion writes its own audit row
+    # and the login continues. The verified-email linking branch gets the same
+    # reconciliation the subject-link branch had, and the function docstring
+    # enumerates all three return paths so the next one added cannot miss it.
+    # Cap 1188 -> 1249, exact.
+    "backend/app/modules/auth/oauth/service.py": 1249,
+    # fix(#1778 codex r1): first entry, crossed _RATCHET_INCLUSION_LOC on the
+    # change that added set_role_from_identity_provider, the public seam the
+    # OAuth group-role reconciliation applies a mapped role through. It exists
+    # so that path is the SAME role change the admin router makes rather than a
+    # second, weaker copy: the admin-lifecycle advisory lock, the last-admin
+    # rule and the key_epoch bump all come from _ensure_not_last_admin and
+    # _update_user_role, which stay private. Most of the lines are the docstring
+    # saying which invariants were missing and why a refusal is not an error for
+    # an IdP-driven caller. 992 -> 1036, exact.
+    "backend/app/modules/admin/service.py": 1036,
     # fix(#1113 review): +15 — register_existing_table linearizes a
     # pre-existing geom_4326 (savepoint + error contract mirroring the
     # add_4326_column branch beside it); see linearize_existing_4326.
@@ -4921,7 +4939,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # helper; the rest records the interleaving, why deleting the key cannot
     # close it from either side, and the fail-closed trade a rolled-back
     # revocation makes. Cap 1056 -> 1100.
-    "backend/app/modules/embed_tokens/service.py": 1100,
+    # fix(#1778 codex r1): +6, all comment. The denial write is
+    # set_authoritative, not set: `set` routes to whichever store the circuit
+    # breaker says is live, so a positive that landed in the in-memory fallback
+    # during an outage survived a denial written after Redis recovered.
+    # Cap 1100 -> 1106, exact.
+    "backend/app/modules/embed_tokens/service.py": 1106,
     # fix(#1778): first entry for this module — it crossed the 1000-line
     # inclusion threshold on the property-filter typing. Property filters used
     # to bind the raw query-string value, so PostgreSQL had no

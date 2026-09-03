@@ -51,6 +51,10 @@ class FakeCache:
         self._store[key] = value
         return True
 
+    async def set_authoritative(self, key: str, value, ttl: int = 300) -> None:
+        """fix(#1778 codex r1): one store here, so this is set."""
+        self._store[key] = value
+
     async def delete(self, key: str) -> None:
         self._store.pop(key, None)
 

@@ -54,6 +54,11 @@ class InMemoryCacheProvider:
             self._store.popitem(last=False)
         return True
 
+    async def set_authoritative(self, key: str, value: Any, ttl: int = 300) -> None:
+        """fix(#1778 codex r1): one store, so this is ``set``. Named separately
+        because the layered provider has to do more."""
+        await self.set(key, value, ttl)
+
     async def delete(self, key: str) -> None:
         self._store.pop(key, None)
 

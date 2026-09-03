@@ -452,6 +452,50 @@ class AdminService:
             update(User).where(User.id == user.id).values(key_epoch=User.key_epoch + 1)
         )
 
+    async def set_role_from_identity_provider(self, user: User, role_name: str) -> bool:
+        """Apply an IdP-mapped role. False when the last-admin rule refused it.
+
+        fix(#1778 codex r1): the OAuth group-role reconciliation
+        (``_reconcile_mapped_role`` in modules/auth/oauth/service.py) must not
+        be a second, weaker copy of this path. Two invariants live here and
+        both were missing from the reconciliation as first written:
+
+        * the last-admin rule. Assigning the default role directly could
+          remove the only active admin, which every other demotion route is
+          stopped from doing.
+        * the ``key_epoch`` bump (#821). Without it an API key minted while
+          the account was a viewer keeps resolving after the account is mapped
+          to admin, so the key silently gains privileges its owner never
+          re-minted it for.
+
+        This is the public seam for that: it calls the same
+        ``_ensure_not_last_admin`` and ``_update_user_role`` the admin router
+        uses, rather than copying the count query. A refusal is not an error
+        for the caller -- an IdP assertion is not an admin action, so the login
+        continues with the role unchanged and the caller records why.
+
+        The advisory lock is taken here, so call this only when a change is
+        actually needed; the caller compares the current role first.
+        """
+        if role_name == "admin":
+            # A promotion cannot threaten the invariant, so no lock is needed
+            # for it; _update_user_role still bumps key_epoch.
+            await self._update_user_role(user, role_name)
+            return True
+
+        await self._lock_admin_lifecycle()
+        await self.db.refresh(user, attribute_names=["roles"])
+        try:
+            await self._ensure_not_last_admin(user, "demote", lock_held=True)
+        except ValueError:
+            # The only ValueError _ensure_not_last_admin raises is the refusal
+            # itself, and it is a refusal here rather than a failure.
+            return False
+        await self._update_user_role(
+            user, role_name, lock_held=True, viability_checked=True
+        )
+        return True
+
     async def convert_saml_user_to_local(
         self, user_id: uuid.UUID, password: str
     ) -> tuple[User, str]:

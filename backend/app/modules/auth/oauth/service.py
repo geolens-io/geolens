@@ -752,8 +752,17 @@ async def _reconcile_mapped_role(
       identity linked to by verified email keeps the roles the GeoLens admin
       gave it.
 
-    Every change is recorded: a structured log line and an ``oauth.role.changed``
-    audit row carrying the provider slug, both role names, and no claim values.
+    fix(#1778 codex r1): the change itself goes through
+    ``AdminService.set_role_from_identity_provider`` rather than assigning
+    ``user.roles`` here, so it inherits the two invariants every other
+    role-change route already has: the admin-lifecycle advisory lock plus the
+    last-admin rule, and the ``key_epoch`` bump (#821) without which an API key
+    minted as a viewer would silently gain admin after the next OAuth login.
+
+    Every outcome is recorded: a structured log line, an ``oauth.role.changed``
+    audit row when the role moves, and an ``oauth.role.change_refused`` row when
+    the last-admin rule keeps the role where it is. Neither carries a claim
+    value.
     """
     if not is_enterprise():
         return
@@ -771,13 +780,14 @@ async def _reconcile_mapped_role(
     if len(current) == 1 and current[0].name == resolved:
         return
 
-    role_result = await db.execute(select(Role).where(Role.name == resolved))
-    role = role_result.scalar_one_or_none()
-    if role is None:
+    known_role = await db.scalar(select(Role.id).where(Role.name == resolved))
+    if known_role is None:
         # The mapping names a role this deployment does not have. Refusing to
         # act is the safe answer: dropping to viewer would be a demotion the
         # operator never asked for, and inventing the role is not this
-        # function's call.
+        # function's call. Checked here rather than letting the role-update
+        # helper's own ValueError surface, so the operator gets a message that
+        # names the mapping.
         logger.warning(
             "OAuth login: mapped role does not exist, leaving roles unchanged",
             provider=provider.slug,
@@ -787,10 +797,44 @@ async def _reconcile_mapped_role(
         return
 
     previous = sorted(r.name for r in current)
-    # Assign through the relationship rather than editing UserRole rows by hand,
-    # so the association rows and the in-session collection stay in step.
-    user.roles = [role]
+
+    # LAZY, per D-17 and to keep the import graph acyclic: admin/service.py
+    # already imports from auth/providers/local.py.
+    from app.modules.admin.service import AdminService  # noqa: PLC0415
+    from app.modules.audit.service import AuditEvent, audit_emit  # noqa: PLC0415
+
+    applied = await AdminService(db).set_role_from_identity_provider(user, resolved)
     await db.flush()
+    await db.refresh(user, attribute_names=["roles"])
+
+    if not applied:
+        # The account is the last active admin. An IdP assertion does not get to
+        # remove the deployment's only way back in, so the role stands and the
+        # login continues; the row is how an operator finds out that the mapping
+        # and the account list disagree.
+        logger.warning(
+            "OAuth login: mapped demotion refused, account is the last admin",
+            provider=provider.slug,
+            user_id=str(user.id),
+            previous_roles=previous,
+            mapped_role=resolved,
+        )
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user.id,
+                action="oauth.role.change_refused",
+                resource_type="user",
+                resource_id=user.id,
+                details={
+                    "provider_slug": provider.slug,
+                    "current_roles": previous,
+                    "mapped_role": resolved,
+                    "reason": "last_admin",
+                },
+            ),
+        )
+        return
 
     logger.info(
         "OAuth login: role re-evaluated from IdP group mapping",
@@ -799,8 +843,6 @@ async def _reconcile_mapped_role(
         previous_roles=previous,
         new_role=resolved,
     )
-
-    from app.modules.audit.service import AuditEvent, audit_emit  # noqa: PLC0415
 
     await audit_emit(
         db,
@@ -896,6 +938,16 @@ async def find_or_create_oauth_user(
     3. New user (OAUTH-05) -> create user with default_role, create OAuthAccount
 
     Group claims are mapped to roles per provider config (OAUTH-07).
+
+    fix(#1778 codex r1): there are exactly three return paths and every one of
+    them has to settle the role, so they are enumerated here rather than left to
+    be rediscovered. Steps 1 and 2 both yield an EXISTING account and both call
+    ``_reconcile_mapped_role``; step 3 creates the account and sets the role
+    from ``_resolve_role`` inline. The reconciliation was originally on step 1
+    alone, which left an OAuth-provisioned account linking to a second provider
+    for the first time carrying its old role for the whole of that session.
+    Adding a fourth path that returns an existing user means adding the
+    reconcile call with it.
     """
     subject = oauth_account_subject(
         provider.provider_type, provider.discovery_url, userinfo
@@ -1066,6 +1118,15 @@ async def find_or_create_oauth_user(
             )
             db.add(link)
             await db.flush()
+            # fix(#1778 codex r1): this is the other return path that yields an
+            # EXISTING account, so it needs the same reconciliation the
+            # subject-link branch got. Without it, an OAuth-provisioned account
+            # linking to a second provider for the first time carries whatever
+            # role the first provider gave it for the whole of that session,
+            # ignoring the mapping the operator configured on this one. The
+            # helper's own preconditions still apply, so a LOCAL account linked
+            # here keeps the roles its GeoLens admin gave it.
+            await _reconcile_mapped_role(db, provider, existing_user, groups)
             logger.info(
                 "OAuth login: linked to existing user by email",
                 provider=provider.slug,
