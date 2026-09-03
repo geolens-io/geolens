@@ -26,6 +26,7 @@ import type { AdapterLayerInput, LayerAdapter } from './layer-adapters/types';
 import { buildLabelLayerSpec, syncLabelLayer } from './label-layer-utils';
 import { clusterCircleLayerId, clusterCountLayerId, getClusterSourceOptions } from './layer-adapters/cluster-adapter';
 import { mixedLinesLayerId, mixedPointsLayerId } from './layer-adapters/mixed-adapter';
+import { resolveSymbolConfig } from './layer-adapters/symbol-adapter';
 import { getClusterSourceStrategy } from './cluster-source';
 import { syncColorReliefLayer } from './color-relief-sync';
 import { buildColormapTileUrl } from './layer-adapters/raster-adapter';
@@ -346,12 +347,138 @@ function basemapStyleLayers(style: StyleSpecification, sourcePrefix: string) {
   ) as StyleSpecification['layers'];
 }
 
-function changedPaintKeys(
-  before: Record<string, unknown> | undefined,
-  after: Record<string, unknown> | undefined,
-) {
-  if (!after) return [];
-  return Object.keys(after).filter((key) => before?.[key] !== after[key]);
+/** fix(#1778): what this module knows about one basemap-owned layer's paint.
+ *
+ *  applyBasemapConfigToMap feeds `map.getStyle()`, the LIVE and already-mutated
+ *  style, into applyBasemapConfigToStyle, and the appearance helpers
+ *  (applyLandWaterTone / applyBackgroundColor / applyReliefContrast) are no-ops
+ *  on their default value. On a revert pass the "next" value was therefore the
+ *  tint the previous pass wrote, compared equal, and nothing was written: the
+ *  map stayed tinted for the rest of the session while React state, the stack
+ *  row and the saved payload all said "default". Diffing against `pristine` is
+ *  what makes "no override" a target state the writer can express. */
+interface BasemapLayerPaintState {
+  /** The layer's paint before this module overrode it. */
+  pristine: Record<string, unknown>;
+  /** The paint this module believes is live: `pristine` with everything it has
+   *  since written on top. A live value that disagrees means somebody else
+   *  wrote the key, and the most important somebody is a new style. */
+  expected: Record<string, unknown>;
+  /** Keys currently carrying an override, so a key the config stops setting can
+   *  be restored without touching keys owned by applySublayerOverrides or by
+   *  the style itself. */
+  stamped: Set<string>;
+}
+
+/** The per-layer states, tagged with the style generation they describe. */
+interface BasemapPaintCache {
+  generation: number;
+  states: Map<string, BasemapLayerPaintState>;
+}
+
+const basemapPaintStates = new WeakMap<MaplibreMap, BasemapPaintCache>();
+const basemapStyleGenerations = new WeakMap<MaplibreMap, { value: number }>();
+const generationListenerAttached = new WeakSet<MaplibreMap>();
+
+/**
+ * Start counting style generations for `map`.
+ *
+ * fix(#1778 codex round 5): per-key equality reconciliation cannot see a swap
+ * whose new native value happens to equal the override the old style was
+ * carrying (style A's water overridden to #d9dde0, style B's native water also
+ * #d9dde0). Nothing has changed from the paint's point of view, so clearing the
+ * override afterwards restored A's colour. A generation counter closes that,
+ * and unlike a style-identity token it does not depend on fields that move for
+ * unrelated reasons (`sprite` is rewritten by the symbol adapter's `addSprite`;
+ * `layers` and `sources` change on every data-layer add).
+ *
+ * MUST be called from the map-creation path (BuilderMap and ViewerMap
+ * `onLoad`), never lazily from an appearance pass. That is what makes this the
+ * earliest-registered `style.load` listener, so it has already bumped the
+ * counter by the time BuilderMap's own persistent handler triggers an
+ * appearance pass on the new style. Registering it lazily would reproduce the
+ * round-2 ordering bug exactly.
+ *
+ * Idempotent: a second call for the same map is a no-op, so a remount that
+ * reuses the instance cannot double-count.
+ */
+export function registerBasemapStyleGeneration(map: MaplibreMap): void {
+  if (generationListenerAttached.has(map)) return;
+  generationListenerAttached.add(map);
+  const counter = basemapStyleGenerations.get(map) ?? { value: 0 };
+  basemapStyleGenerations.set(map, counter);
+  // Partial map mocks in tests lack `on`, hence the optional call.
+  map.on?.('style.load', () => {
+    counter.value += 1;
+  });
+}
+
+/** Zero when no counter is registered, so a surface that has not opted in
+ *  degrades to the equality reconciliation alone rather than misbehaving. */
+function currentBasemapStyleGeneration(map: MaplibreMap): number {
+  return basemapStyleGenerations.get(map)?.value ?? 0;
+}
+
+function basemapPaintStateFor(map: MaplibreMap): Map<string, BasemapLayerPaintState> {
+  const generation = currentBasemapStyleGeneration(map);
+  const cache = basemapPaintStates.get(map);
+  // A generation bump means a different style is loaded; everything cached
+  // describes the previous one, so treat it as empty and re-snapshot.
+  if (cache && cache.generation === generation) return cache.states;
+  const states = new Map<string, BasemapLayerPaintState>();
+  basemapPaintStates.set(map, { generation, states });
+  return states;
+}
+
+/**
+ * fix(#1778 codex round 2 P1): detect a style change SYNCHRONOUSLY, here, per
+ * key, instead of clearing the cache from a `style.load` listener.
+ *
+ * The listener could never be right: BuilderMap registers its own persistent
+ * `style.load` handler when the map mounts, and that handler calls
+ * applyMapBasemapAppearance. Any listener this module attached was therefore
+ * registered later and ran later, so on a swap between two styles that share
+ * layer ids the appearance pass saw the OLD pristine values, wrote the previous
+ * basemap's colours onto the new style, and the contaminated paint then became
+ * the next pristine snapshot.
+ *
+ * fix(#1778 codex round 5): this is now the SECOND line of defence.
+ * registerBasemapStyleGeneration drops the whole cache when the style
+ * generation moves, which covers the one case equality cannot see: a new style
+ * whose native value equals the override the old one was carrying. The
+ * per-key comparison stays because it catches every OTHER writer, needs no
+ * cooperation from the surface hosting the map, and keeps working on a surface
+ * that never registered a counter.
+ *
+ * Per KEY rather than per layer on purpose: applySublayerOverrides runs
+ * immediately after this helper and rewrites the `*-opacity` keys, so a
+ * layer-level check would discard that layer's whole snapshot every pass and
+ * re-baseline the tint as pristine. Those opacity keys are harmless to
+ * re-snapshot because applyMasterOpacity writes them absolutely on every pass
+ * and never consults their pristine value.
+ */
+function reconcileBasemapPaintState(
+  state: BasemapLayerPaintState | undefined,
+  livePaint: Record<string, unknown>,
+): BasemapLayerPaintState {
+  if (!state) {
+    return { pristine: { ...livePaint }, expected: { ...livePaint }, stamped: new Set() };
+  }
+  for (const [key, live] of Object.entries(livePaint)) {
+    if (key in state.expected && state.expected[key] === live) continue;
+    state.pristine[key] = live;
+    state.expected[key] = live;
+    state.stamped.delete(key);
+  }
+  for (const key of Object.keys(state.expected)) {
+    // maplibre omits a paint key whose value was set to undefined, so a key
+    // that has left the serialized paint is one this module no longer knows.
+    if (key in livePaint) continue;
+    delete state.pristine[key];
+    delete state.expected[key];
+    state.stamped.delete(key);
+  }
+  return state;
 }
 
 /** UX-03 (Phase 1051 Plan 06): when `basemap_position === 'top'`, move all
@@ -412,8 +539,22 @@ export function applyBasemapConfigToMap(
     ...style,
     layers: basemapStyleLayers(style, sourcePrefix),
   };
+  // fix(#1778): capture the pristine paint the FIRST time each basemap layer is
+  // seen (before this call writes anything), then build `next` from pristine
+  // rather than from the live style, so reverting an override is expressible.
+  // fix(#1778 codex round 2): reconcile first, so a key the live style no longer
+  // agrees with this module about is re-snapshotted before it is read.
+  const paintStates = basemapPaintStateFor(map);
+  const pristineLayers = basemapOnlyStyle.layers.map((layer) => {
+    const livePaint = ('paint' in layer
+      ? (layer.paint as Record<string, unknown> | undefined)
+      : undefined) ?? {};
+    const state = reconcileBasemapPaintState(paintStates.get(layer.id), livePaint);
+    paintStates.set(layer.id, state);
+    return { ...layer, paint: { ...state.pristine } };
+  }) as StyleSpecification['layers'];
   const nextStyle = applyBasemapConfigToStyle(
-    basemapOnlyStyle,
+    { ...basemapOnlyStyle, layers: pristineLayers },
     basemapConfig,
     showBasemapLabels,
   );
@@ -435,13 +576,35 @@ export function applyBasemapConfigToMap(
 
     const currentPaint = 'paint' in current ? current.paint as Record<string, unknown> | undefined : undefined;
     const nextPaint = 'paint' in next ? next.paint as Record<string, unknown> | undefined : undefined;
-    for (const key of changedPaintKeys(currentPaint, nextPaint)) {
+    const state = paintStates.get(current.id);
+    const pristinePaint = state?.pristine ?? {};
+    // The union is what makes a revert reachable: `next` alone misses a key the
+    // OLD config stamped and this one does not set at all (text-halo-width from
+    // label_mode 'subtle' is the canonical case). Keys are restricted to what
+    // this function itself wrote, so applySublayerOverrides' writes and the
+    // style's own paint are never clobbered.
+    const keysToWrite = new Set<string>([
+      ...Object.keys(nextPaint ?? {}),
+      ...(state?.stamped ?? []),
+    ]);
+    const nowStamped = new Set<string>();
+    for (const key of keysToWrite) {
+      const target = nextPaint && key in nextPaint ? nextPaint[key] : pristinePaint[key];
+      if (target !== pristinePaint[key]) nowStamped.add(key);
+      if (target === currentPaint?.[key]) {
+        if (state) state.expected[key] = target;
+        continue;
+      }
       try {
-        setDynamicPaintProperty(map, current.id, key, nextPaint?.[key]);
+        setDynamicPaintProperty(map, current.id, key, target);
+        // Recorded only on success: a throw leaves the live value untouched, so
+        // the expectation must stay whatever it already was.
+        if (state) state.expected[key] = target;
       } catch (error) {
         if (import.meta.env.DEV) console.warn('[map-sync] basemap paint sync failed', current.id, key, error);
       }
     }
+    if (state) state.stamped = nowStamped;
   }
 }
 
@@ -639,6 +802,9 @@ export interface SourceIdLayer {
  *  - paint expressions of shape `["get", "<colname>"]` — generic catch-all
  *  - `label_config.column` — label text-field is a LAYOUT property the paint
  *    walk cannot see, which is exactly why an explicit read is required here
+ *  - `style_config.symbol.categoryColumn` (#1778): the per-category
+ *    `icon-image` match is the other data-driven LAYOUT expression, so a
+ *    category-styled symbol layer fell back to its default icon below z10
  *  - `filter` expressions (builder-audit #338 P1-03) — a filter that references a
  *    column NOT also used by paint/label would otherwise evaluate against
  *    missing properties at z<10, producing empty/inconsistent rendering.
@@ -667,6 +833,15 @@ export function getDataDrivenColumnsForLayer(
   // property — a LAYOUT expression the paint walk below cannot reach.
   const labelCol = layer.label_config?.column;
   if (typeof labelCol === 'string' && labelCol) cols.add(labelCol);
+  // fix(#1778): the symbol adapter's per-category `icon-image` is the other
+  // data-driven LAYOUT expression the paint walk below cannot reach.
+  // fix(#1778 codex round 2): resolved through the SAME merge the adapter uses,
+  // not `style_config.symbol ?? style_config.builder.symbol`. That picked one
+  // object whole, so a `categoryColumn` stashed under `builder` was dropped as
+  // soon as any top-level symbol object existed, and the icons fell back below
+  // z10 exactly as if the column had never been read.
+  const symbolCol = resolveSymbolConfig(layer.style_config).categoryColumn;
+  if (typeof symbolCol === 'string' && symbolCol) cols.add(symbolCol);
   // Walk MapLibre expressions for `["get", "<name>"]` / `["has", "<name>"]`
   // references — the canonical ways to read a feature property. Used for both
   // paint values AND the filter (P1-03), so filter-only columns survive the
@@ -1241,6 +1416,47 @@ function removeStaleSourcesAndLayers(
   }
 }
 
+/** fix(#1778): remove managed data layers whose logical layer is gone even when
+ *  their SOURCE is still wanted.
+ *
+ *  removeStaleSourcesAndLayers is keyed on the source, so under the SF-04
+ *  dedupe (two layers on one dataset share `source-data-${table}`) deleting one
+ *  of them leaves the source DESIRED and its layer rows are never reclaimed.
+ *  The delete path's own cleanup (removePerLayerCompanions) is best-effort, so
+ *  this walk is the backstop that closes the class rather than one instance.
+ *
+ *  Scoped on three conditions at once, so a basemap layer that happens to be
+ *  named `layer-*` and anything a plugin added are left alone: the id starts
+ *  with the managed `layer-` prefix, the layer sits on a data source (every
+ *  managed layer does, including the label and color-relief companions), and
+ *  the id is absent from the companion-id expansion of the desired set. */
+function removeOrphanManagedLayers(
+  map: MaplibreMap,
+  desiredLayerIds: Iterable<string>,
+  sourcePrefix: string,
+  prefix: string | undefined,
+) {
+  const style = map.getStyle();
+  if (!style?.layers) return;
+  const managedPrefix = `${prefix ?? ''}layer-`;
+  const keep = new Set<string>();
+  for (const id of desiredLayerIds) {
+    const ids = getCompanionLayerIds(id, prefix);
+    for (const companion of [
+      ids.layer, ids.outline, ids.extrusion, ids.arrow, ids.label,
+      ids.colorRelief, ids.cluster, ids.clusterCount, ids.mixedLines, ids.mixedPoints,
+    ]) {
+      keep.add(companion);
+    }
+  }
+  for (const styleLayer of style.layers) {
+    if (!styleLayer.id.startsWith(managedPrefix)) continue;
+    if (isBasemapOwnedLayer(styleLayer, sourcePrefix)) continue;
+    if (keep.has(styleLayer.id)) continue;
+    if (map.getLayer(styleLayer.id)) map.removeLayer(styleLayer.id);
+  }
+}
+
 // ---------------------------------------------------------------------------
 
 /** Imperatively add/sync all data layers to the map. Safe to call repeatedly.
@@ -1348,6 +1564,11 @@ export function syncLayersToMap(
   }
 
   try {
+    // fix(#1778): layer-aware prune first, so an orphan on a still-shared
+    // deduped source is reclaimed. Ordered before the source prune because the
+    // source prune's removeLayersUsingSource depends on the layer set only for
+    // sources it is about to drop.
+    removeOrphanManagedLayers(map, renderableLayers.map((l) => l.id), sourcePrefix, prefix);
     removeStaleSourcesAndLayers(map, currentSources, desiredSources, sourcePrefix, prefix);
     managedSourcesRef.current = desiredSources;
   } catch (err) {

@@ -892,6 +892,8 @@
   "toasts": {
     "mapSaved": "Mapa guardado",
     "mapSavedFullResync": "Mapa guardado, pero requirió una resincronización completa. Verifique el estilo de las capas.",
+    "mapSavedAfterRemoteChange": "Guardado. Algunas capas ya habían cambiado en otra sesión, por lo que esas ediciones se omitieron.",
+    "saveConflictReload": "Este mapa cambió en otra sesión. Vuelva a cargar el mapa para obtener la última versión y guarde de nuevo.",
     "saveFailed": "Error al guardar el mapa",
     "saveFailedWithDetail": "Error al guardar el mapa: {{detail}}",
     "layerRemoved": "Capa eliminada",

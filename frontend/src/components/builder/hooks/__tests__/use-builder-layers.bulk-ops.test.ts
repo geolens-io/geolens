@@ -121,7 +121,7 @@ function renderBuilderLayers(
 
   // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff
   // baseline — a plain no-op ref is sufficient for tests that don't assert on it.
-  const saveBaselineSyncRef = { current: () => {} } as unknown as Parameters<typeof useBuilderLayers>[5];
+  const saveBaselineSyncRef = { current: { add: () => {}, remove: () => {} } } as unknown as Parameters<typeof useBuilderLayers>[5];
 
   const out = renderHook(() =>
     useBuilderLayers(

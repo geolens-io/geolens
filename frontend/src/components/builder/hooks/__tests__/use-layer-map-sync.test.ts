@@ -94,6 +94,9 @@ const makeLayer = (overrides: Partial<MapLayerResponse> = {}): MapLayerResponse 
 function makeMapStub(existingLayerIds: string[] = ALL_COMPANION_IDS) {
   const existing = new Set(existingLayerIds);
   return {
+    // fix(#1778): applyLayerUpdate defers the map write to `idle` when the
+    // style is mid-swap instead of dropping it.
+    once: vi.fn(),
     isStyleLoaded: vi.fn(() => true),
     getLayer: vi.fn((id: string) => (existing.has(id) ? { id } : undefined)),
     getSource: vi.fn(() => undefined),
@@ -1845,5 +1848,192 @@ describe('useLayerMapSync — handleOpacityChange drives fill-layer-opacity (#16
     expect(writes).toContainEqual([`layer-${LAYER_ID}-outline`, 'line-layer-opacity', 0.5]);
     expect(writes).not.toContainEqual([`layer-${LAYER_ID}`, 'fill-opacity', 0.15]);
     expect(writes).not.toContainEqual([`layer-${LAYER_ID}-outline`, 'line-opacity', expect.anything()]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fix(#1778): applyLayerUpdate dropped the map side-effect whenever the style
+// was mid-swap, with no retry. React state was already committed, and generic
+// LAYOUT is the one property class syncLayersToMap never re-applies, so the
+// divergence was permanent for the session: the layer saved a layout the map
+// was not showing. Counterfactual: on main `once` is never called and the
+// post-idle assertions below find no writes.
+// ---------------------------------------------------------------------------
+describe('useLayerMapSync: applyLayerUpdate idle retry (#1778)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('replays a layout write on idle when the style was not loaded', () => {
+    const layer = makeLayer({ layout: { 'line-dasharray': [3, 2] } });
+    const mapStub = makeMapStub();
+    (mapStub.isStyleLoaded as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    const mapRef = { current: mapStub };
+    const setLocalLayers = vi.fn();
+
+    const { result } = renderHook(() =>
+      useLayerMapSync([layer], setLocalLayers, vi.fn(), mapRef),
+    );
+
+    act(() => {
+      result.current.handleLayoutChange(layer.id, { 'line-cap': 'round' });
+    });
+
+    // React state took the edit; the map write is deferred, not lost.
+    expect(setLocalLayers).toHaveBeenCalled();
+    expect(mapStub.setLayoutProperty).not.toHaveBeenCalledWith(
+      `layer-${LAYER_ID}`, 'line-cap', 'round',
+    );
+
+    const idleCall = (mapStub.once as ReturnType<typeof vi.fn>).mock.calls.find((c) => c[0] === 'idle');
+    expect(idleCall).toBeDefined();
+    (mapStub.isStyleLoaded as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    act(() => { (idleCall![1] as () => void)(); });
+
+    expect(mapStub.setLayoutProperty).toHaveBeenCalledWith(
+      `layer-${LAYER_ID}`, 'line-cap', 'round',
+    );
+    // The clear-removed-props loop rides the same retry.
+    expect(mapStub.setPaintProperty).toHaveBeenCalledWith(
+      `layer-${LAYER_ID}`, 'line-dasharray', undefined,
+    );
+  });
+
+  it('replays a visibility write on idle when the style was not loaded', () => {
+    const layer = makeLayer({ visible: true });
+    const mapStub = makeMapStub();
+    (mapStub.isStyleLoaded as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    const mapRef = { current: mapStub };
+
+    const { result } = renderHook(() =>
+      useLayerMapSync([layer], vi.fn(), vi.fn(), mapRef),
+    );
+
+    act(() => {
+      result.current.handleToggleVisibility(layer.id);
+    });
+    expect(mapStub.setLayoutProperty).not.toHaveBeenCalled();
+
+    const idleCall = (mapStub.once as ReturnType<typeof vi.fn>).mock.calls.find((c) => c[0] === 'idle');
+    expect(idleCall).toBeDefined();
+    (mapStub.isStyleLoaded as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    act(() => { (idleCall![1] as () => void)(); });
+
+    expect(mapStub.setLayoutProperty).toHaveBeenCalledWith(
+      `layer-${LAYER_ID}`, 'visibility', 'none',
+    );
+  });
+
+  // fix(#1778 codex round 3 P2): isStyleLoaded() flips true BEFORE `idle` fires,
+  // so a second edit landing in that window wrote immediately and was then
+  // overwritten by the older queued callback. The reviewer's shape: toggle a
+  // layer off during a basemap swap and back on before idle, and the map ends
+  // up hidden while React state says visible.
+  // Counterfactual: restore the single captured `map.once('idle', () =>
+  // writeToMap(map))` and both cases below end on 'none'.
+  it('a newer edit wins when the style loads before idle fires', () => {
+    const layer = makeLayer({ visible: true });
+    const mapStub = makeMapStub();
+    const isStyleLoaded = mapStub.isStyleLoaded as ReturnType<typeof vi.fn>;
+    isStyleLoaded.mockReturnValue(false);
+    const mapRef = { current: mapStub };
+
+    const { result, rerender } = renderHook(
+      ({ layers }: { layers: MapLayerResponse[] }) =>
+        useLayerMapSync(layers, vi.fn(), vi.fn(), mapRef),
+      { initialProps: { layers: [layer] } },
+    );
+
+    // A: hide the layer while the basemap style is still swapping.
+    act(() => { result.current.handleToggleVisibility(layer.id, false); });
+    expect(mapStub.setLayoutProperty).not.toHaveBeenCalled();
+    const idleCall = (mapStub.once as ReturnType<typeof vi.fn>).mock.calls.find((c) => c[0] === 'idle');
+    expect(idleCall).toBeDefined();
+
+    // The style finishes loading, but `idle` has not fired yet.
+    isStyleLoaded.mockReturnValue(true);
+
+    // B: show it again. The queued A must be drained BEFORE B, not after.
+    rerender({ layers: [makeLayer({ visible: false })] });
+    act(() => { result.current.handleToggleVisibility(layer.id, true); });
+
+    // Firing the stale listener afterwards must be a no-op.
+    act(() => { (idleCall![1] as () => void)(); });
+
+    const visibilityWrites = (mapStub.setLayoutProperty as ReturnType<typeof vi.fn>).mock.calls
+      .filter((c) => c[0] === `layer-${LAYER_ID}` && c[1] === 'visibility')
+      .map((c) => c[2]);
+    expect(visibilityWrites.at(-1)).toBe('visible');
+  });
+
+  it('replays two edits queued before idle in the order they were made', () => {
+    const layer = makeLayer({ visible: true });
+    const mapStub = makeMapStub();
+    (mapStub.isStyleLoaded as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    const mapRef = { current: mapStub };
+
+    const { result, rerender } = renderHook(
+      ({ layers }: { layers: MapLayerResponse[] }) =>
+        useLayerMapSync(layers, vi.fn(), vi.fn(), mapRef),
+      { initialProps: { layers: [layer] } },
+    );
+
+    act(() => { result.current.handleToggleVisibility(layer.id, false); });
+    rerender({ layers: [makeLayer({ visible: false })] });
+    act(() => { result.current.handleToggleVisibility(layer.id, true); });
+
+    // One listener for the layer, not two.
+    const idleCalls = (mapStub.once as ReturnType<typeof vi.fn>).mock.calls.filter((c) => c[0] === 'idle');
+    expect(idleCalls).toHaveLength(1);
+
+    (mapStub.isStyleLoaded as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    act(() => { (idleCalls[0][1] as () => void)(); });
+
+    const visibilityWrites = (mapStub.setLayoutProperty as ReturnType<typeof vi.fn>).mock.calls
+      .filter((c) => c[0] === `layer-${LAYER_ID}` && c[1] === 'visibility')
+      .map((c) => c[2]);
+    expect(visibilityWrites).toEqual(['none', 'visible']);
+  });
+
+  it('keeps a queued layout write when a visibility edit for the same layer follows', () => {
+    const layer = makeLayer({ visible: true, layout: {} });
+    const mapStub = makeMapStub();
+    (mapStub.isStyleLoaded as ReturnType<typeof vi.fn>).mockReturnValue(false);
+    const mapRef = { current: mapStub };
+
+    const { result } = renderHook(() =>
+      useLayerMapSync([layer], vi.fn(), vi.fn(), mapRef),
+    );
+
+    act(() => { result.current.handleLayoutChange(layer.id, { 'line-cap': 'round' }); });
+    act(() => { result.current.handleToggleVisibility(layer.id, false); });
+
+    (mapStub.isStyleLoaded as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const idleCall = (mapStub.once as ReturnType<typeof vi.fn>).mock.calls.find((c) => c[0] === 'idle');
+    act(() => { (idleCall![1] as () => void)(); });
+
+    // A cancel-and-replace scheme keyed on the layer alone would have dropped
+    // the layout write; queueing keeps both.
+    expect(mapStub.setLayoutProperty).toHaveBeenCalledWith(`layer-${LAYER_ID}`, 'line-cap', 'round');
+    expect(mapStub.setLayoutProperty).toHaveBeenCalledWith(`layer-${LAYER_ID}`, 'visibility', 'none');
+  });
+
+  it('writes straight through when the style is loaded (no idle listener)', () => {
+    const layer = makeLayer({ visible: true });
+    const mapStub = makeMapStub();
+    const mapRef = { current: mapStub };
+
+    const { result } = renderHook(() =>
+      useLayerMapSync([layer], vi.fn(), vi.fn(), mapRef),
+    );
+
+    act(() => {
+      result.current.handleToggleVisibility(layer.id);
+    });
+
+    expect(mapStub.setLayoutProperty).toHaveBeenCalledWith(
+      `layer-${LAYER_ID}`, 'visibility', 'none',
+    );
+    expect((mapStub.once as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
   });
 });

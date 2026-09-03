@@ -93,7 +93,7 @@ import { useBuilderDialogs } from '@/components/builder/hooks/use-builder-dialog
 import { useBuilderEditorScene, type BuilderEditorScene } from '@/components/builder/hooks/use-builder-editor-scene';
 import { useFilteredFeatureCount } from '@/components/builder/hooks/use-filtered-feature-count';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
-import { useBuilderSave } from '@/components/builder/hooks/use-builder-save';
+import { useBuilderSave, type SaveBaselineSync } from '@/components/builder/hooks/use-builder-save';
 import { TERRAIN_SOURCE_ID, normalizeTerrainExaggeration, isHillshadeTerrainBound } from '@/components/builder/map-sync';
 import { resolveTerrainSourceLayer } from '@/components/builder/map-stack';
 import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
@@ -261,7 +261,7 @@ export function MapBuilderPage() {
   // handleDuplicateRendering invoke it right after a layer-create mutation
   // succeeds, so Save never re-diffs that layer as `added` and PATCHes a
   // duplicate. See use-builder-save.ts for the full rationale.
-  const saveBaselineSyncRef = useRef<(layer: MapLayerResponse) => void>(() => {});
+  const saveBaselineSyncRef = useRef<SaveBaselineSync>({ add: () => {}, remove: () => {} });
   const layers = useBuilderLayers(
     mapData,
     mapInstanceRef,

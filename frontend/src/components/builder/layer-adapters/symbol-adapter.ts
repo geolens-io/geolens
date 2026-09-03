@@ -2,7 +2,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
 import { syncOwnedLayoutProperties, syncOwnedPaintProperties, syncSingleLayerVisibility, syncLayerFilter } from './shared';
 import { MAP_COLORS } from '@/lib/map-colors';
-import type { SymbolStyleConfig } from '@/types/api';
+import type { StyleConfig, SymbolStyleConfig } from '@/types/api';
 import { DEFAULT_POINT_LABEL_OFFSET, LABEL_FONT_STACK } from '../label-layer-utils';
 
 const DEFAULT_ICON = 'marker';
@@ -39,13 +39,30 @@ const SYMBOL_OWNED_PAINT_PROPERTIES = [
   'text-opacity',
 ] as const;
 
-function getSymbolConfig(input: AdapterLayerInput): SymbolStyleConfig {
-  const styleConfig = input.style_config ?? {};
-  const builder = styleConfig.builder ?? {};
+/**
+ * Merge a layer's symbol config from the two places it can live.
+ *
+ * `style_config.builder.symbol` is the legacy stash and `style_config.symbol`
+ * is the current home; a layer can carry BOTH, with the top-level object
+ * winning field by field. fix(#1778 codex round 2): exported because map-sync
+ * resolves `categoryColumn` for the tile column list and a top-level
+ * `?? builder.symbol` picked whichever object existed rather than merging, so a
+ * `categoryColumn` stashed under `builder` was dropped whenever any top-level
+ * symbol object was present.
+ */
+export function resolveSymbolConfig(
+  styleConfig: StyleConfig | null | undefined,
+): SymbolStyleConfig {
+  const config = styleConfig ?? {};
+  const builder = config.builder ?? {};
   return {
     ...(builder.symbol ?? {}),
-    ...(styleConfig.symbol ?? {}),
+    ...(config.symbol ?? {}),
   };
+}
+
+function getSymbolConfig(input: AdapterLayerInput): SymbolStyleConfig {
+  return resolveSymbolConfig(input.style_config);
 }
 
 function spriteIconId(icon: string): string {

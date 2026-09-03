@@ -45,6 +45,7 @@ import {
   ensureRasterDemTerrainSource,
   normalizeTerrainExaggeration,
   refreshVectorSourceTiles,
+  registerBasemapStyleGeneration,
   TERRAIN_SOURCE_ID,
 } from './map-sync';
 import { resolveTerrainSourceLayer } from './map-stack';
@@ -659,6 +660,12 @@ export const BuilderMap = memo(function BuilderMap({
     (e: MapLibreEvent) => {
       const map = e.target;
       mapRef.current = map;
+      // fix(#1778 codex round 5): FIRST thing in the map-creation path, so this
+      // is the earliest-registered `style.load` listener and the basemap paint
+      // cache is already invalidated by the time any appearance pass runs
+      // against a newly loaded style. Registering it lazily from the appearance
+      // helper would put it behind the persistent handler below.
+      registerBasemapStyleGeneration(map);
       // Phase 1051 WR-04: keep state mirror in sync with the ref so consumers
       // (e.g. MapCoordReadout) re-render when the map binds.
       setMapInstance(map);

@@ -892,6 +892,8 @@
   "toasts": {
     "mapSaved": "Carte enregistrée",
     "mapSavedFullResync": "Carte enregistrée, mais une resynchronisation complète a été nécessaire. Vérifiez le style des couches.",
+    "mapSavedAfterRemoteChange": "Enregistré. Certaines couches avaient déjà changé dans une autre session, ces modifications ont donc été ignorées.",
+    "saveConflictReload": "Cette carte a changé dans une autre session. Rechargez la carte pour obtenir la dernière version, puis enregistrez à nouveau.",
     "saveFailed": "Échec de l'enregistrement de la carte",
     "saveFailedWithDetail": "Échec de l'enregistrement de la carte : {{detail}}",
     "layerRemoved": "Couche supprimée",

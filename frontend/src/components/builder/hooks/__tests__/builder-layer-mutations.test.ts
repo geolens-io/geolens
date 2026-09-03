@@ -26,6 +26,8 @@ function makeMap(overrides: {
     isStyleLoaded: overrides.isStyleLoaded ?? vi.fn(() => true),
     getLayer: overrides.getLayer ?? vi.fn((id: string) => ({ id })),
     removeLayer: overrides.removeLayer ?? vi.fn(),
+    // fix(#1778): the helper defers to `idle` when the style is mid-swap.
+    once: vi.fn(),
   };
 }
 
@@ -177,6 +179,46 @@ describe('removePerLayerCompanions — per-render-mode regression (MAP-17)', () 
     removePerLayerCompanions(map as never, ['l1'], renderModeByLayerId);
 
     expect(removeLayer).not.toHaveBeenCalled();
+  });
+
+  // fix(#1778): the bare early return above used to be the whole story, so a
+  // delete during a basemap style swap left the companions on the map for the
+  // rest of the session: no stack row, no legend entry, unclickable, and baked
+  // into any capture taken afterwards. Counterfactual: on main `once` is never
+  // called and the retry assertion below fails.
+  it('Test 7b: style not loaded → retries the sweep on idle', () => {
+    const removeLayer = vi.fn();
+    const isStyleLoaded = vi.fn(() => false);
+    const map = makeMap({ isStyleLoaded, removeLayer });
+    const renderModeByLayerId = new Map([['l1', 'fill']]);
+
+    removePerLayerCompanions(map as never, ['l1'], renderModeByLayerId);
+    expect(removeLayer).not.toHaveBeenCalled();
+
+    const idleCall = map.once.mock.calls.find((c) => c[0] === 'idle');
+    expect(idleCall).toBeDefined();
+    isStyleLoaded.mockReturnValue(true);
+    (idleCall![1] as () => void)();
+
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1-outline');
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1-extrusion');
+  });
+
+  it('Test 7c: replays a single-pass iterable on the idle retry', () => {
+    const removeLayer = vi.fn();
+    const isStyleLoaded = vi.fn(() => false);
+    const map = makeMap({ isStyleLoaded, removeLayer });
+    // A Set's iterator is re-iterable, but a generator's is not, so the retry
+    // must not depend on the caller's iterable surviving a second walk.
+    function* once(): Generator<string> { yield 'l1'; }
+
+    removePerLayerCompanions(map as never, once());
+    const idleCall = map.once.mock.calls.find((c) => c[0] === 'idle');
+    isStyleLoaded.mockReturnValue(true);
+    (idleCall![1] as () => void)();
+
+    expect(removeLayer).toHaveBeenCalledWith('layer-l1');
   });
 
   it('Test 8: multiple layer ids in one call → sweeps each independently', () => {

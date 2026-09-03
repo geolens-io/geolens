@@ -16,6 +16,7 @@ import {
   removePerLayerCompanions,
   shouldClearTerrainOnDelete,
 } from '@/components/builder/hooks/builder-layer-mutations';
+import type { SaveBaselineSync } from '@/components/builder/hooks/use-builder-save';
 import {
   type GroupedLayer,
   clearPersistedFolderGroup,
@@ -96,6 +97,9 @@ interface UseBulkLayerActionsParams {
   localTerrainConfig: MapTerrainConfig | null;
   setLocalTerrainConfig: React.Dispatch<React.SetStateAction<MapTerrainConfig | null>>;
   savedLayerBaselineRef: React.MutableRefObject<MapLayerResponse[]>;
+  /** fix(#1778): the save-diff baseline bridge; its `remove` half is called
+   *  alongside the savedLayerBaselineRef prune below. */
+  saveBaselineSyncRef: React.MutableRefObject<SaveBaselineSync>;
   copiedStyleRef: React.RefObject<CopiedStyle | null>;
   syncStyleConfigToMap: SyncStyleConfigToMap;
   mvtSourceLayerPrefix?: string | null;
@@ -164,6 +168,7 @@ export function useBulkLayerActions({
   localTerrainConfig,
   setLocalTerrainConfig,
   savedLayerBaselineRef,
+  saveBaselineSyncRef,
   copiedStyleRef,
   syncStyleConfigToMap,
   mvtSourceLayerPrefix,
@@ -484,6 +489,11 @@ export function useBulkLayerActions({
         savedLayerBaselineRef.current = pruneEmptyFolderGroups(
           savedLayerBaselineRef.current.filter((l) => !idsToDeleteSet.has(l.id)),
         );
+        // fix(#1778): the save-diff baseline needs the same prune. It only
+        // refreshes while the map is clean, so a bulk delete on an already-dirty
+        // map otherwise left these ids in it and the next save's diff.removed
+        // named rows the server had already dropped.
+        saveBaselineSyncRef.current?.remove(idsToDeleteSet);
         await queryClient.invalidateQueries({ queryKey: ['map', mapId] });
         toast.success(t('bulkActions.deleteSuccess', { count: idsToDelete.length }));
         return true;
@@ -517,6 +527,17 @@ export function useBulkLayerActions({
       // child is returning.
       const deletedIds = new Set(result.deleted);
       const failedIds = new Set(result.failed.map((f) => f.id));
+      // fix(#1778 codex round 1): the confirmed-deleted rows leave local state
+      // here just as they do on the full-success path, so BOTH baselines need
+      // the same prune. Without it the next Save re-emitted them in
+      // diff.removed, tripped the stale-conflict recovery and its warning, and
+      // failed outright whenever the refetch was unavailable. Only groups whose
+      // every child was actually deleted are pruned: a failed child is not in
+      // deletedIds, so its container still has a member and survives.
+      savedLayerBaselineRef.current = pruneEmptyFolderGroups(
+        savedLayerBaselineRef.current.filter((l) => !deletedIds.has(l.id)),
+      );
+      saveBaselineSyncRef.current?.remove(deletedIds);
       setLocalLayers((current) =>
         restoreFailedLayers(
           current.filter((l) => !deletedIds.has(l.id)),
@@ -563,6 +584,7 @@ export function useBulkLayerActions({
     setHasUnsavedChanges,
     mapInstanceRef,
     savedLayerBaselineRef,
+    saveBaselineSyncRef,
     t,
     queryClient,
   ]);

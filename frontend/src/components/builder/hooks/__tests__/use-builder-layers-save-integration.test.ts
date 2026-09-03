@@ -28,13 +28,13 @@ import { act } from '@testing-library/react';
 import { useRef } from 'react';
 import { renderHook } from '@/test/test-utils';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
-import { useBuilderSave, __resetThumbnailDebounceForTests } from '@/components/builder/hooks/use-builder-save';
+import { useBuilderSave, __resetThumbnailDebounceForTests, type SaveBaselineSync } from '@/components/builder/hooks/use-builder-save';
 import {
   makeBuilderLayer,
   makeBuilderMap,
 } from '@/components/builder/__tests__/fixtures/map-builder-fixtures';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
-import type { MapLayerResponse, MapResponse } from '@/types/api';
+import type { MapResponse } from '@/types/api';
 
 type MaplibreMap = import('maplibre-gl').Map;
 
@@ -65,6 +65,14 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }));
 
+const mockBulkDeleteLayers = vi.fn();
+vi.mock('@/api/maps', () => ({
+  bulkDeleteLayersApi: (...args: unknown[]) => mockBulkDeleteLayers(...args),
+  getMap: vi.fn(),
+  uploadThumbnail: vi.fn(() => Promise.resolve()),
+  uploadOgImage: vi.fn(() => Promise.resolve()),
+}));
+
 // useUnsavedGuard's useBlocker requires a Data Router; MemoryRouter (used by
 // the shared renderHook wrapper) doesn't provide one — stub it like
 // use-builder-save.test.ts does.
@@ -86,7 +94,7 @@ function useCombinedBuilder(
   // fix(#392): the SAME callback-ref bridge MapBuilderPage owns between
   // useBuilderLayers and useBuilderSave — see MapBuilderPage.tsx (~line 204+7)
   // and use-builder-save.ts's `saveBaselineSyncRef` effect.
-  const saveBaselineSyncRef = useRef<(layer: MapLayerResponse) => void>(() => {});
+  const saveBaselineSyncRef = useRef<SaveBaselineSync>({ add: () => {}, remove: () => {} });
 
   const layers = useBuilderLayers(
     mapData,
@@ -121,11 +129,12 @@ function useCombinedBuilder(
 
 function renderCombined(mapData: MapResponse, mapId = 'map-1') {
   const mutate = vi.fn();
+  const removeMutate = vi.fn();
   const addLayerMutation = { mutate } as unknown as Parameters<typeof useBuilderLayers>[3];
-  const removeLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
+  const removeLayerMutation = { mutate: removeMutate } as unknown as Parameters<typeof useBuilderLayers>[4];
 
   const out = renderHook(() => useCombinedBuilder(mapData, mapId, addLayerMutation, removeLayerMutation));
-  return { ...out, mutate };
+  return { ...out, mutate, removeMutate };
 }
 
 describe('fix(#392): duplicate-layer-on-save P1 — Save-diff baseline sync', () => {
@@ -217,5 +226,112 @@ describe('fix(#392): duplicate-layer-on-save P1 — Save-diff baseline sync', ()
     expect(createdUpdate).toBeDefined();
     const builder = (createdUpdate?.style_config as { builder?: { folderGroupId?: string } } | undefined)?.builder;
     expect(builder?.folderGroupId).toBe(groupId);
+  });
+});
+
+/**
+ * fix(#1778): "layer deletes prune the clean-state baseline but never the
+ * save-diff baseline, so a delete on an already-dirty map guarantees a stale
+ * diff on the next save" (codebase audit 2026-08-30).
+ *
+ * There are two baselines. `savedLayerBaselineRef` (use-builder-layers) IS
+ * pruned by both delete paths. The save-diff baseline `baselineLayersRef`
+ * (use-builder-save) only refreshes while the map is CLEAN, and the bridge
+ * between them was add-only, so "style something, then delete a layer, then
+ * save" emitted the already-deleted id in diff.removed. The backend rejects
+ * that with 400 "Layer diff references layer ids outside this map".
+ *
+ * Counterfactual: with the `remove` half of the bridge taken out, both tests
+ * below see `diff.removed` carry the deleted id.
+ */
+describe('fix(#1778): delete prunes the Save-diff baseline on an already-dirty map', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetThumbnailDebounceForTests();
+    mockUpdateMapMutateAsync.mockImplementation(async (payload: { id: string }) => ({ id: payload.id, layers: [] }));
+    mockPatchMapLayersMutateAsync.mockResolvedValue({ id: 'map-1', layers: [] });
+  });
+
+  it('single delete after an unrelated edit emits no removed id', async () => {
+    const keep = makeBuilderLayer({ id: 'keep', dataset_id: 'ds-keep', sort_order: 0 });
+    const doomed = makeBuilderLayer({ id: 'doomed', dataset_id: 'ds-doomed', sort_order: 1 });
+    const { result, removeMutate } = renderCombined(makeBuilderMap([keep, doomed]));
+
+    // Dirty the map first. This is the precondition that froze the baseline.
+    act(() => { result.current.handleOpacityChange('keep', 0.4); });
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    act(() => { result.current.handleRemove('doomed'); });
+    expect(removeMutate).toHaveBeenCalledOnce();
+    const [, handlers] = removeMutate.mock.calls[0];
+    act(() => { handlers.onSuccess(); });
+
+    await act(async () => { await result.current.handleSave(); });
+
+    expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledOnce();
+    const [{ diff }] = mockPatchMapLayersMutateAsync.mock.calls[0];
+    expect(diff.removed).toBeUndefined();
+    // The real edit still goes out.
+    expect(diff.updated).toEqual([{ id: 'keep', opacity: 0.4 }]);
+  });
+
+  // fix(#1778 codex round 1 P2): the baseline prune used to run only when the
+  // WHOLE batch succeeded. On a partial success the confirmed-deleted rows left
+  // local state anyway, so they stayed in both baselines, the next Save
+  // re-emitted them in diff.removed, and the stale-conflict recovery fired (or
+  // the save failed outright when the refetch was unavailable).
+  // Counterfactual: drop the prune from the partial branch and diff.removed
+  // carries bulk-a.
+  it('partial bulk delete prunes only the confirmed-deleted ids from the baselines', async () => {
+    const keep = makeBuilderLayer({ id: 'keep', dataset_id: 'ds-keep', sort_order: 0 });
+    const a = makeBuilderLayer({ id: 'bulk-a', dataset_id: 'ds-a', sort_order: 1 });
+    const b = makeBuilderLayer({ id: 'bulk-b', dataset_id: 'ds-b', sort_order: 2 });
+    const { result } = renderCombined(makeBuilderMap([keep, a, b]));
+
+    act(() => { result.current.handleOpacityChange('keep', 0.4); });
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    mockBulkDeleteLayers.mockResolvedValueOnce({
+      deleted: ['bulk-a'],
+      failed: [{ id: 'bulk-b', reason: 'layer in use' }],
+    });
+    await act(async () => { await result.current.handleBulkDelete(new Set(['bulk-a', 'bulk-b'])); });
+
+    // bulk-b's delete failed, so it is back in local state.
+    expect(result.current.localLayers.map((l) => l.id)).toContain('bulk-b');
+    expect(result.current.localLayers.map((l) => l.id)).not.toContain('bulk-a');
+    // Only the confirmed-deleted id leaves the refetch-resync baseline. Checked
+    // before the save, because a clean map lets the apiLayers resync effect
+    // rehydrate this ref from the (static) mock map payload.
+    expect(result.current.savedLayerBaseline.map((l) => l.id)).toContain('bulk-b');
+    expect(result.current.savedLayerBaseline.map((l) => l.id)).not.toContain('bulk-a');
+
+    await act(async () => { await result.current.handleSave(); });
+
+    expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledOnce();
+    const [{ diff }] = mockPatchMapLayersMutateAsync.mock.calls[0];
+    // bulk-a is gone server-side, so naming it would be the stale diff again.
+    // bulk-b is still on the server and still local, so it is not removed either.
+    expect(diff.removed).toBeUndefined();
+  });
+
+  it('bulk delete after an unrelated edit emits no removed ids', async () => {
+    const keep = makeBuilderLayer({ id: 'keep', dataset_id: 'ds-keep', sort_order: 0 });
+    const a = makeBuilderLayer({ id: 'bulk-a', dataset_id: 'ds-a', sort_order: 1 });
+    const b = makeBuilderLayer({ id: 'bulk-b', dataset_id: 'ds-b', sort_order: 2 });
+    const { result } = renderCombined(makeBuilderMap([keep, a, b]));
+
+    act(() => { result.current.handleOpacityChange('keep', 0.4); });
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    mockBulkDeleteLayers.mockResolvedValueOnce({ deleted: ['bulk-a', 'bulk-b'], failed: [] });
+    await act(async () => { await result.current.handleBulkDelete(new Set(['bulk-a', 'bulk-b'])); });
+
+    await act(async () => { await result.current.handleSave(); });
+
+    expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledOnce();
+    const [{ diff }] = mockPatchMapLayersMutateAsync.mock.calls[0];
+    expect(diff.removed).toBeUndefined();
+    expect(diff.updated).toEqual([{ id: 'keep', opacity: 0.4 }]);
   });
 });

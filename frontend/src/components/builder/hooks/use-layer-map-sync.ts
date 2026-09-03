@@ -9,7 +9,7 @@ import {
 } from '@/components/builder/layer-adapters/shared';
 import type { PaintPropertyName } from '@/components/builder/layer-adapters/shared';
 import { mixedFamilyFilter } from '@/components/builder/layer-adapters/mixed-adapter';
-import { coalesceFrame } from '@/lib/builder/raf-coalesce';
+import { coalesceFrame, flushCoalescedFrame } from '@/lib/builder/raf-coalesce';
 // fix(#394) VT-03/VT-04: single source of truth for the MVT source-layer name.
 import { getMvtSourceLayerName } from '@/lib/tile-utils';
 import { reconcileColorClassification } from '@/lib/color-ramps';
@@ -367,6 +367,36 @@ export function clearExcludedPaintOnMap(
   }
 }
 
+/** The rAF coalesce key for a layer's batched paint write. Owned here because
+ *  handlePaintChange queues under it and applyLayerUpdate's replay drain has to
+ *  flush the same entry. fix(#1778 codex round 4). */
+function paintCoalesceKey(layerId: string): string {
+  return `paint:${layerId}`;
+}
+
+/**
+ * Replay a layer's deferred map writes in the order they were made.
+ *
+ * fix(#1778 codex round 4): a paint write does not touch the map itself, it
+ * queues `adapter.syncPaint` on the next animation frame, so replaying it
+ * alongside synchronous writes put it LAST in wall-clock order however early it
+ * was made. `fillAdapter.syncPaint` applies the `input.opacity` it captured, so
+ * a queued paint edit followed by an opacity edit ended with the older frame
+ * overwriting the newer opacity. Flushing the layer's pending frame after each
+ * replayed write restores chronological order and leaves the paint callback's
+ * closure semantics alone.
+ */
+function drainLayerWrites(
+  writes: readonly ((target: MaplibreMap) => void)[],
+  map: MaplibreMap,
+  layerId: string,
+): void {
+  for (const write of writes) {
+    write(map);
+    flushCoalescedFrame(paintCoalesceKey(layerId));
+  }
+}
+
 export function useLayerMapSync(
   localLayers: MapLayerResponse[],
   setLocalLayers: React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
@@ -383,6 +413,12 @@ export function useLayerMapSync(
   useLayoutEffect(() => {
     layersRef.current = localLayers;
   }, [localLayers]);
+
+  // fix(#1778 codex round 3): map writes deferred to `idle` because the style
+  // was mid-swap, keyed by layer id and replayed in order. See applyLayerUpdate.
+  const pendingMapWritesRef = useRef(
+    new Map<string, { writes: ((target: MaplibreMap) => void)[]; listener: () => void }>(),
+  );
 
   // Shared state-mutation + live-map-update pipeline for layer edits.
   // Collapses the dup 30-line boilerplate from paint/opacity/layout/style
@@ -461,16 +497,60 @@ export function useLayerMapSync(
 
       if (!applyFn) return;
       const map = mapInstanceRef.current;
-      if (!map || !map.isStyleLoaded()) return;
+      if (!map) return;
       // For the map side-effect we re-apply updater to the ref snapshot: the
       // map call is idempotent and the stale-ref issue only affects React state
       // composition, not the live-map sync. This keeps the applyFn signature
       // stable (it receives the just-computed updated layer, not a stale one).
       const { layer: normalized, exclusions } = normalize(existing, updater(existing));
-      // A key that merely stopped being present cannot be expressed in a paint object,
-      // so the removal needs an explicit undefined write before the adapter repaint.
-      if (exclusions) clearExcludedPaintOnMap(map, layerId, exclusions);
-      applyFn(map, normalized);
+      const writeToMap = (target: MaplibreMap) => {
+        // A key that merely stopped being present cannot be expressed in a paint object,
+        // so the removal needs an explicit undefined write before the adapter repaint.
+        if (exclusions) clearExcludedPaintOnMap(target, layerId, exclusions);
+        applyFn(target, normalized);
+      };
+      // fix(#1778): React state is already committed above, so dropping the map
+      // write here left the two permanently out of step for anything
+      // syncLayersToMap does not re-apply, and generic LAYOUT is exactly that
+      // class, since only handleLayoutChange ever writes it. Retry on idle,
+      // matching BuilderMap's sync effect and use-render-mode-layers.
+      //
+      // fix(#1778 codex round 3): the deferred writes are QUEUED per layer and
+      // replayed in the order they were made, never as one captured value.
+      // isStyleLoaded() flips true before `idle` fires, so a second edit landing
+      // in that window used to write immediately and then be overwritten by the
+      // older queued callback: toggle a layer off during a basemap swap and back
+      // on before idle, and the map ended up hidden while state said visible.
+      // Each applyFn closes over its own value (nextVisible, newOpacity,
+      // newLayout), so re-reading the latest layer at fire time would not help;
+      // replaying oldest-first does, because the newest write lands last.
+      const pending = pendingMapWritesRef.current;
+      const queued = pending.get(layerId);
+      if (!map.isStyleLoaded()) {
+        if (queued) {
+          // A listener is already armed for this layer; ride it.
+          queued.writes.push(writeToMap);
+          return;
+        }
+        const writes: ((target: MaplibreMap) => void)[] = [writeToMap];
+        const listener = () => {
+          // Ignore a listener that was already flushed or superseded below.
+          if (pending.get(layerId)?.listener !== listener) return;
+          pending.delete(layerId);
+          drainLayerWrites(writes, map, layerId);
+        };
+        pending.set(layerId, { writes, listener });
+        map.once?.('idle', listener);
+        return;
+      }
+      if (queued) {
+        // The style finished loading before `idle`. Drain the backlog first so
+        // this newer write is applied last and wins.
+        pending.delete(layerId);
+        map.off?.('idle', queued.listener);
+        drainLayerWrites(queued.writes, map, layerId);
+      }
+      writeToMap(map);
     },
     [setLocalLayers, setHasUnsavedChanges, mapInstanceRef],
   );
@@ -528,7 +608,7 @@ export function useLayerMapSync(
           // Paint writes coalesce via rAF (PERF-04); visibility/filter/order remain
           // synchronous because they're idempotent and cheap, and synchronous
           // semantics let UI toggles feel instant.
-          coalesceFrame(`paint:${layerId}`, () => adapter.syncPaint(map, input));
+          coalesceFrame(paintCoalesceKey(layerId), () => adapter.syncPaint(map, input));
         },
       );
     },
@@ -673,6 +753,13 @@ export function useLayerMapSync(
     [applyLayerUpdate, mvtSourceLayerPrefix],
   );
 
+  // fix(#1778): this is the SOLE writer of generic layout on a live layer, by
+  // design rather than by accident. syncLayersToMap re-applies paint, filter and
+  // the private _minzoom/_maxzoom keys on every state change, but never a
+  // layer's `layout` block, and only the line/symbol/cluster/mixed adapters
+  // touch layout at all. The clear-removed-props loop below is likewise the only
+  // code anywhere that unsets a layout key. Anything that changes a layer's
+  // layout must therefore route through here, or the map keeps the old value.
   const handleLayoutChange = useCallback(
     (layerId: string, newLayout: Record<string, unknown>) => {
       const prevLayout = (layersRef.current.find((l) => l.id === layerId)?.layout ?? {}) as Record<string, unknown>;

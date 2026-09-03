@@ -25,7 +25,7 @@ function render(mapData: MapResponse) {
       'map-1',
       { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[3],
       { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4],
-      { current: () => {} } as unknown as Parameters<typeof useBuilderLayers>[5],
+      { current: { add: () => {}, remove: () => {} } } as unknown as Parameters<typeof useBuilderLayers>[5],
     ),
   );
 }

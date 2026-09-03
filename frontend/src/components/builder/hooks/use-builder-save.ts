@@ -13,7 +13,7 @@ import { useUpdateMap, useDuplicateMap, usePatchMapLayers } from '@/hooks/use-ma
 import { useEnabledPlugins } from '@/hooks/use-settings';
 import { useEdition } from '@/hooks/use-edition';
 import { getLayerColors, extractStyleHints } from '@/components/map/layer-icons';
-import { uploadThumbnail, uploadOgImage } from '@/api/maps';
+import { getMap, uploadThumbnail, uploadOgImage } from '@/api/maps';
 import { extractPlaceholders, validatePlaceholders } from '@/lib/popup-template';
 import type { MapBasemapConfig, MapLayerDiffRequest, MapLayerInput, MapLayerPatch, MapLayerResponse, MapResponse, MapTerrainConfig, MapUpdateRequest } from '@/types/api';
 import { usePluginStore } from '@/stores/map-plugin-store';
@@ -672,11 +672,134 @@ function hasDiff(diff: MapLayerDiffRequest): boolean {
   );
 }
 
+// fix(#1778): only a status that means "this deployment has no layer-diff
+// endpoint" may escalate to the lossy full PUT. The old predicate matched
+// 400/404/409/422 with a prose regex, which is exactly the shape the backend
+// uses for a STALE diff. See isStaleLayerDiffError below.
+//
+// fix(#1778 codex round 3): 404 is back, because it is the compatibility case
+// the PUT fallback exists for. A backend predating PATCH /maps/{id}/layers
+// answers 404 for the unknown route (FastAPI sends {"detail": "Not Found"}; an
+// edge proxy in front of it may send no JSON at all), and without 404 here
+// every layer-edit save against such a deployment would fail outright. 405 and
+// 501 are the other route-level answers.
+const ROUTE_LEVEL_UNSUPPORTED_STATUSES = new Set([404, 405, 501]);
+
+// The one legitimate 404 the route produces for ITSELF: the map is gone, not
+// the route (router.py's "Map not found", and apply_layer_diff's
+// "Map {id} not found"). A full PUT would only 404 again, so this surfaces as a
+// save failure instead. There is no 404 for a stale LAYER id: apply_layer_diff
+// raises ValueError for those and the router maps them to 400, which is what
+// isStaleLayerDiffError matches on, by detail and not by status alone.
+const MAP_NOT_FOUND_DETAIL = /^Map\b.*\bnot found$/i;
+
+/** The backend detail string, preferring the raw `detail` apiFetch stored on
+ *  the error. `message` has already been through translateApiErrorDetail and
+ *  may be localized, so it is only a fallback for a non-string detail. */
+function apiErrorDetailText(error: ApiError): string {
+  return typeof error.body === 'string' ? error.body : error.message;
+}
+
 function isUnsupportedLayerPatchError(error: unknown): boolean {
   if (!(error instanceof ApiError)) return false;
-  if (![400, 404, 409, 422].includes(error.status)) return false;
-  const detail = typeof error.body === 'string' ? error.body : error.message;
-  return /layer|order|unknown|removed|unsupported|validation/i.test(detail);
+  if (!ROUTE_LEVEL_UNSUPPORTED_STATUSES.has(error.status)) return false;
+  if (error.status !== 404) return true;
+  return !MAP_NOT_FOUND_DETAIL.test(apiErrorDetailText(error));
+}
+
+// fix(#1778): the two details apply_layer_diff raises when the diff names layer
+// ids the map no longer has (backend service_diff.py). That means someone else
+// changed this map's layers since this session loaded it, so overwriting the
+// map with the stale client's snapshot would resurrect what they deleted and
+// delete what they added. Recover by re-diffing against the server instead.
+const STALE_LAYER_DIFF_DETAIL =
+  /Layer diff references layer ids outside this map|Layer order references unknown or removed layers/i;
+
+/** fix(#1778): raised when the stale-diff recovery below cannot complete, so
+ *  the outer catch can say "the map changed elsewhere" instead of the generic
+ *  save-failed message. */
+class StaleLayerDiffError extends Error {
+  constructor() {
+    super('Layer diff could not be reconciled with the current map');
+    this.name = 'StaleLayerDiffError';
+  }
+}
+
+function isStaleLayerDiffError(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return false;
+  if (error.status !== 400) return false;
+  return STALE_LAYER_DIFF_DETAIL.test(apiErrorDetailText(error));
+}
+
+/**
+ * fix(#1778): drop the parts of a rejected diff the server can no longer apply.
+ *
+ * Deliberately NOT a fresh `buildLayerDiff` against the refetched map: a layer
+ * another session ADDED is absent from this session's `localLayers`, so a full
+ * re-diff would emit it as `removed` and delete it. Reconciling the diff we
+ * already built keeps the recovery strictly additive to server state: ids the
+ * server no longer has are simply dropped, and anything this session did not
+ * touch is left alone.
+ *
+ * `serverLayerIds` is the refetched map's layer SEQUENCE in server sort order,
+ * not just a membership set, because the order reconciliation below needs
+ * positions.
+ */
+export function reconcileLayerDiffWithServer(
+  diff: MapLayerDiffRequest,
+  serverLayerIds: readonly string[],
+): MapLayerDiffRequest {
+  const serverIdSet = new Set(serverLayerIds);
+  const next: MapLayerDiffRequest = {};
+  if (diff.added?.length) next.added = diff.added;
+  const updated = diff.updated?.filter((patch) => serverIdSet.has(patch.id));
+  if (updated?.length) next.updated = updated;
+  const removed = diff.removed?.filter((id) => serverIdSet.has(id));
+  if (removed?.length) next.removed = removed;
+  const removedSet = new Set(removed ?? []);
+  if (diff.order) {
+    const order = mergeOrderWithServerSequence(diff.order, serverLayerIds, removedSet);
+    if (order.length > 0) next.order = order;
+  }
+  return next;
+}
+
+/**
+ * fix(#1778 codex round 1): merge this session's relative order into the
+ * server's current sequence instead of sending only the ids this session knows.
+ *
+ * `apply_layer_diff` numbers the ids it is given from 0 and then APPENDS every
+ * surviving layer the order omitted. A bare filter would therefore take server
+ * order [A, X, B] with local order [B, A], send [B, A], and strand the remotely
+ * added X at the end as [B, A, X], moving a layer this session never saw. The
+ * stable merge walks the surviving server sequence and substitutes the next
+ * locally ordered survivor at each position a locally known layer already
+ * occupies, so unseen ids keep their server positions: [B, X, A].
+ *
+ * Ids being removed in the same call are dropped, because the backend rejects
+ * an order that names one, and so are ids the server no longer has.
+ */
+function mergeOrderWithServerSequence(
+  localOrder: readonly string[],
+  serverLayerIds: readonly string[],
+  removedIds: ReadonlySet<string>,
+): string[] {
+  const serverIdSet = new Set(serverLayerIds);
+  const localSurvivors = localOrder.filter(
+    (id) => serverIdSet.has(id) && !removedIds.has(id),
+  );
+  if (localSurvivors.length === 0) return [];
+  const localSurvivorSet = new Set(localSurvivors);
+  const merged: string[] = [];
+  let nextLocal = 0;
+  for (const id of serverLayerIds) {
+    if (removedIds.has(id)) continue;
+    // Every position a locally known survivor occupies is filled from the local
+    // sequence, in order. The counts match because localSurvivors is exactly the
+    // subset of surviving server ids this session ordered.
+    merged.push(localSurvivorSet.has(id) ? localSurvivors[nextLocal++] : id);
+  }
+  return merged;
 }
 
 export interface LayerDiffResult {
@@ -685,6 +808,13 @@ export interface LayerDiffResult {
 }
 
 export type BuilderSaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
+
+/** Bridge between the layer-mutation hooks and useBuilderSave's diff baseline.
+ *  fix(#392) added `add`; fix(#1778) added the symmetric `remove`. */
+export interface SaveBaselineSync {
+  add: (layer: MapLayerResponse) => void;
+  remove: (layerIds: Iterable<string>) => void;
+}
 
 export function buildLayerDiff(
   baselineLayers: MapLayerResponse[],
@@ -801,8 +931,10 @@ interface SaveState {
   /** fix(#392): callback ref populated by useBuilderSave and invoked by
    *  useBuilderLayers' layer-create paths (handleAddDataset / handleDuplicateRendering)
    *  so the server-created layer is registered into the Save-diff baseline
-   *  the moment it is inserted — see the effect below for the full rationale. */
-  saveBaselineSyncRef: React.MutableRefObject<(layer: MapLayerResponse) => void>;
+   *  the moment it is inserted (see the effect below for the full rationale).
+   *  fix(#1778): `remove` is the delete half, called by the single and bulk
+   *  delete paths alongside their savedLayerBaselineRef prune. */
+  saveBaselineSyncRef: React.MutableRefObject<SaveBaselineSync>;
   /** POLISH-01 (Phase 1233-01): set to true when the builder was opened with a
    *  ?add_dataset URL param so the first auto-capture is deferred until the
    *  layer-add effect has synced localLayers. Omit (or set false) for normal
@@ -887,10 +1019,23 @@ export function useBuilderSave(state: SaveState) {
     // baseline unaware of the new server id, so buildLayerDiff reports it as
     // diff.added and the PATCH endpoint creates a duplicate. Register the PURE
     // server layer (no local grouping/reorder) so grouping/order still diff normally.
-    state.saveBaselineSyncRef.current = (layer: MapLayerResponse) => {
-      if (!baselineLayersRef.current.some((l) => l.id === layer.id)) {
-        baselineLayersRef.current = [...baselineLayersRef.current, { ...layer }];
-      }
+    state.saveBaselineSyncRef.current = {
+      add: (layer: MapLayerResponse) => {
+        if (!baselineLayersRef.current.some((l) => l.id === layer.id)) {
+          baselineLayersRef.current = [...baselineLayersRef.current, { ...layer }];
+        }
+      },
+      // fix(#1778): the mirror of `add`. The baseline effect above only
+      // refreshes while the map is CLEAN, so a delete on an already-dirty map
+      // left the deleted ids in this baseline; the next save then emitted them
+      // in diff.removed and the backend rejected the whole diff. The delete
+      // paths prune savedLayerBaselineRef already. This keeps the save-diff
+      // baseline in step with them.
+      remove: (layerIds: Iterable<string>) => {
+        const ids = new Set(layerIds);
+        if (ids.size === 0) return;
+        baselineLayersRef.current = baselineLayersRef.current.filter((l) => !ids.has(l.id));
+      },
     };
   });
 
@@ -985,6 +1130,32 @@ export function useBuilderSave(state: SaveState) {
           try {
             await patchMapLayers.mutateAsync({ id, diff });
           } catch (error) {
+            // fix(#1778): a stale diff is a CONFLICT, not a missing endpoint.
+            // Refetch the map, drop the ids the server no longer has, and retry
+            // the PATCH. A failure here falls through to the outer catch with a
+            // dedicated message; it must never reach the full PUT below.
+            if (isStaleLayerDiffError(error)) {
+              try {
+                const fresh = await getMap(id);
+                // GET /maps/{id} returns layers ordered by sort_order, so this is
+                // the server's current sequence, which the order merge needs.
+                const serverLayerIds = (fresh.layers ?? []).map((l) => l.id);
+                const reconciled = reconcileLayerDiffWithServer(diff, serverLayerIds);
+                if (hasDiff(reconciled)) {
+                  await patchMapLayers.mutateAsync({ id, diff: reconciled });
+                }
+              } catch {
+                throw new StaleLayerDiffError();
+              }
+              await updateMap.mutateAsync({ id, data: metadataPayload });
+              baselineLayersRef.current = stampPersistedFolderGroupExpanded(localLayers, groupMeta);
+              toast.warning(t('toasts.mapSavedAfterRemoteChange'));
+              if (!editedDuringSave(state, sentPluginSet)) {
+                state.setHasUnsavedChanges(false);
+              }
+              if (map && id) captureThumbnail(map, id, queryClient, localLayers);
+              return;
+            }
             if (!isUnsupportedLayerPatchError(error)) throw error;
             // fix(#430 V-01): this fallback converts a rejected partial PATCH into a
             // full PUT replacement (every layer re-serialized via toLayerInput,
@@ -1033,6 +1204,13 @@ export function useBuilderSave(state: SaveState) {
       }
     } catch (err) {
       setLastSaveFailed(true);
+      // fix(#1778): the map's layers changed in another session and the diff
+      // could not be reconciled. Say so, rather than reporting a generic
+      // failure or overwriting the map with this session's stale snapshot.
+      if (err instanceof StaleLayerDiffError) {
+        toast.error(t('toasts.saveConflictReload'));
+        return;
+      }
       // Detect FastAPI 422 popup_config rejection and surface a structured toast.
       // err.body is the raw detail value from the response (may be an array of
       // {loc, msg, type} objects for validation errors). Any unexpected shape
