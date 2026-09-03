@@ -14,10 +14,21 @@ construct clients; httpx exception imports here are explicitly allowed.
 """
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from typing import Any, Callable, Iterator, TypeVar
 
 import typer
+
+# fix(#1778 review round 8): stdlib logging, not structlog. structlog's
+# unconfigured default is a PrintLogger that writes EVERY call straight to
+# stdout regardless of level — this package configures no structlog
+# handler anywhere, so a log.debug() here would corrupt any --json
+# command's stdout the moment a poll retried. logging.getLogger() with no
+# handler configured is silent for anything below WARNING by design
+# (the "handler of last resort"), which is exactly what an internal
+# debug breadcrumb should be until someone deliberately wires up logging.
+log = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -54,6 +65,67 @@ EXTENDED_REQUEST_TIMEOUT_SECONDS: float = 600.0
 
 class DeadlineTimeout(Exception):
     """An SDK request consumed the caller's operation deadline."""
+
+
+class PollDeadlineExceeded(Exception):
+    """A poll_until() loop's own deadline was reached WHILE a per-request
+    timeout was being retried — i.e., no response was ever read during
+    that final stretch. Distinct from a caller's own "the job is still
+    pending after the deadline" case: that one happens after at least
+    one SUCCESSFUL read, so it never reaches poll_until() at all — the
+    caller's own loop just stops calling it.
+
+    Carries no formatted message: the caller already has its own
+    ``timeout``/deadline value in scope (this is raised back into the
+    same call that supplied ``deadline`` to ``poll_until``) and knows
+    its own wording — e.g. "still running after 120s" vs a bare network
+    message — better than a generic one minted here from the bare
+    monotonic() timestamp would.
+    """
+
+
+def poll_until(
+    fetch: Callable[[], Any],
+    *,
+    deadline: float,
+    interval: float,
+    sleep: Callable[[float], None],
+    monotonic: Callable[[], float],
+) -> Any:
+    """Call ``fetch()``, retrying on ``httpx.TimeoutException`` until it
+    succeeds or ``deadline`` (a ``monotonic()`` timestamp) is reached.
+
+    fix(#1778 review round 8): every ``--wait`` poll loop in this
+    package (``publish.resolve_dataset_id``, ``refresh.wait_for_refresh``)
+    now retries a per-request timeout through this ONE helper instead of
+    each open-coding its own try/except — ``wait_for_refresh`` still
+    called plain ``call_sdk()`` (no ``reraise_timeout``), so one slow
+    status GET made ``geolens refresh --wait`` exit ``EXIT_NETWORK``
+    immediately even with the operation's own deadline nowhere near
+    reached. ``fetch`` is expected to be something like
+    ``lambda: call_sdk(fn, reraise_timeout=True, ...)`` — ``poll_until``
+    itself only handles the retry-vs-give-up decision, not the SDK call.
+
+    A per-request timeout is logged at debug and slept past
+    (``interval``) rather than treated as fatal. Raises
+    ``PollDeadlineExceeded`` once ``deadline`` is reached without a
+    successful call; the caller decides what that means (e.g.
+    ``resolve_dataset_id`` exits ``EXIT_NETWORK`` naming the deadline,
+    matching round 7's behavior). A SUCCESSFUL call's result is
+    returned as-is on the first attempt that doesn't raise — the caller
+    decides what's terminal about it; ``poll_until`` doesn't loop past a
+    success.
+    """
+    import httpx  # lazy — only for exception types
+
+    while True:
+        try:
+            return fetch()
+        except httpx.TimeoutException:
+            log.debug("poll_request_timed_out")
+            if monotonic() >= deadline:
+                raise PollDeadlineExceeded from None
+            sleep(interval)
 
 
 @contextmanager

@@ -498,34 +498,79 @@ class TestRefreshWait:
         assert payload["status"] == "timed_out"
         assert "check its status later" in payload["error_message"]
 
-    def test_request_timeout_before_deadline_remains_a_network_error(
+    def test_request_timeout_before_deadline_is_retried_not_fatal(
         self, monkeypatch
     ) -> None:
+        """fix(#1778 review round 8): a per-request timeout well before
+        the operation's own deadline used to exit EXIT_NETWORK
+        immediately (call_sdk's default, un-reraised behavior). It is
+        now retried via poll_until() as long as the deadline hasn't
+        passed — this drives the clock forward on each retry so the
+        deadline IS eventually reached, then a successful read resolves
+        the wait, proving the timeout alone didn't abort it."""
         import httpx
-        import typer
 
-        from geolens_cli._sdk_helpers import EXIT_NETWORK
-        from geolens_cli.refresh import wait_for_refresh
+        from geolens_cli.refresh import RefreshPollResult, wait_for_refresh
 
         client = self._timeout_tracking_client()
+        elapsed = [0.0]
+        calls = {"n": 0}
 
-        def timeout_before_deadline(**_kwargs):
-            raise httpx.ReadTimeout("upstream stalled before the CLI deadline")
+        def flaky(**_kwargs):
+            calls["n"] += 1
+            if calls["n"] <= 2:
+                raise httpx.ReadTimeout("upstream stalled before the CLI deadline")
+            return SimpleNamespace(
+                status_code=HTTPStatus.OK,
+                parsed=SimpleNamespace(status="complete", error_message=None),
+            )
 
         monkeypatch.setattr(
             "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
-            timeout_before_deadline,
+            flaky,
         )
 
-        with pytest.raises(typer.Exit) as exc_info:
-            wait_for_refresh(
-                client,
-                JOB_ID,
-                timeout=10.0,
-                monotonic=lambda: 0.0,
-            )
+        result = wait_for_refresh(
+            client,
+            JOB_ID,
+            timeout=100.0,
+            sleep=lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds),
+            monotonic=lambda: elapsed[0],
+        )
 
-        assert exc_info.value.exit_code == EXIT_NETWORK
+        assert result == RefreshPollResult(status="complete")
+        assert calls["n"] == 3
+
+    def test_request_timeout_that_never_resolves_exits_at_the_deadline(
+        self, monkeypatch
+    ) -> None:
+        """The counterpart to the retry case above: if EVERY request
+        times out, the wait still ends once the operation's own
+        deadline is reached, rather than hanging forever."""
+        import httpx
+
+        from geolens_cli.refresh import wait_for_refresh
+
+        client = self._timeout_tracking_client()
+        elapsed = [0.0]
+
+        def always_slow(**_kwargs):
+            raise httpx.ReadTimeout("upstream never responds")
+
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            always_slow,
+        )
+
+        result = wait_for_refresh(
+            client,
+            JOB_ID,
+            timeout=10.0,
+            sleep=lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds),
+            monotonic=lambda: elapsed[0],
+        )
+
+        assert result.status == "timed_out"
 
     def test_cli_default_wait_passes_no_deadline_to_the_poller(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch

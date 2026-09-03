@@ -17,12 +17,13 @@ from uuid import UUID
 from rich.table import Table
 
 from ._sdk_helpers import (
-    DeadlineTimeout,
     EXIT_AUTH,
     EXIT_GENERIC,
     EXIT_SERVER,
+    PollDeadlineExceeded,
     call_sdk,
     call_sdk_with_reauth,
+    poll_until,
     unwrap,
 )
 
@@ -187,13 +188,30 @@ def wait_for_refresh(
     sleep: Callable[[float], None] = time.sleep,
     monotonic: Callable[[], float] = time.monotonic,
 ) -> RefreshPollResult:
-    """Poll until terminal, or until an explicitly supplied timeout expires."""
+    """Poll until terminal, or until an explicitly supplied timeout expires.
+
+    fix(#1778 review round 8): a per-request httpx.TimeoutException is
+    retried via poll_until() (logged at debug, slept past) instead of
+    being treated as immediately fatal. Previously this called plain
+    call_sdk() with no ``reraise_timeout`` — call_sdk's own
+    deadline_expired/DeadlineTimeout path only distinguishes "the
+    request timed out AND the deadline has already passed" from a hard
+    exit; there was no third option to retry a timeout that happens
+    BEFORE the deadline. That meant one slow status GET exited
+    EXIT_NETWORK immediately even with the deadline nowhere near (or,
+    for the default unbounded ``--wait``, with no deadline at all).
+    """
     from geolens.api.admin import get_job_status_jobs_job_id_get
 
     uuid_arg = job_id if isinstance(job_id, UUID) else UUID(str(job_id))
     deadline = monotonic() + timeout if timeout is not None else None
     transport = client.get_httpx_client() if deadline is not None else None
     original_timeout = transport.timeout if transport is not None else None
+    # poll_until() needs a concrete deadline to retry against; the
+    # unbounded default --wait (deadline=None here) has no operation
+    # deadline to give up at, so a per-request timeout is retried
+    # forever — same "no bound" convention as analysis.POLL_FOREVER.
+    poll_deadline = deadline if deadline is not None else float("inf")
     status = "pending"
     try:
         while True:
@@ -209,15 +227,19 @@ def wait_for_refresh(
                     )
                 transport.timeout = remaining
             try:
-                response = call_sdk(
-                    get_job_status_jobs_job_id_get.sync_detailed,
-                    deadline_expired=lambda: (
-                        deadline is not None and monotonic() >= deadline
+                response = poll_until(
+                    lambda: call_sdk(
+                        get_job_status_jobs_job_id_get.sync_detailed,
+                        job_id=uuid_arg,
+                        client=client,
+                        reraise_timeout=True,
                     ),
-                    job_id=uuid_arg,
-                    client=client,
+                    deadline=poll_deadline,
+                    interval=interval,
+                    sleep=sleep,
+                    monotonic=monotonic,
                 )
-            except DeadlineTimeout:
+            except PollDeadlineExceeded:
                 return RefreshPollResult(
                     status="timed_out",
                     error_message=(

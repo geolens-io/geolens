@@ -40,18 +40,17 @@ from typing import Any, Optional
 from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID
 
-import structlog
 import typer
 
 from ._sdk_helpers import (
     EXIT_GENERIC,
     EXIT_NETWORK,
     EXIT_SERVER,
+    PollDeadlineExceeded,
     call_sdk,
     long_request_timeout,
+    poll_until,
 )
-
-log = structlog.get_logger()
 
 # ---------------------------------------------------------------------------
 # Status-code constants — verified by Plan 04 Task 0 Q4 spike.
@@ -348,8 +347,6 @@ def resolve_dataset_id(
     ``sleep`` and ``monotonic`` are injectable so tests can run with zero
     real-time delay.
     """
-    import httpx  # lazy — only for exception types (matches _sdk_helpers.call_sdk)
-
     from geolens.api.admin import get_job_status_jobs_job_id_get
     from geolens.models.problem_detail import ProblemDetail
 
@@ -387,35 +384,36 @@ def resolve_dataset_id(
             # post-commit polling maps to EXIT_NETWORK (4) per D-32 rather than a
             # raw httpx traceback + exit 1.
             #
-            # fix(#1778 review round 7): a per-request timeout (the 5s
-            # snapshot bound above) is routine under load — a busy DB
-            # pool can make one GET /jobs/{job_id} slow without the
-            # overall operation being unhealthy. reraise_timeout=True
-            # stops call_sdk from treating that as immediately fatal;
-            # caught below it becomes a retryable poll failure (log,
-            # sleep, try again) as long as THIS loop's own deadline
+            # fix(#1778 review round 7, shared via round 8's poll_until):
+            # a per-request timeout (the 5s snapshot bound above) is
+            # routine under load — a busy DB pool can make one
+            # GET /jobs/{job_id} slow without the overall operation
+            # being unhealthy. poll_until() retries it (logged at
+            # debug, slept past) as long as THIS loop's own deadline
             # (not call_sdk's) hasn't passed yet. A genuine network
             # failure (connection refused/reset) still exits
             # immediately via call_sdk, unchanged from before.
             try:
-                resp = call_sdk(
-                    get_job_status_jobs_job_id_get.sync_detailed,
-                    job_id=uuid_arg,
-                    client=client,
-                    reraise_timeout=True,
+                resp = poll_until(
+                    lambda: call_sdk(
+                        get_job_status_jobs_job_id_get.sync_detailed,
+                        job_id=uuid_arg,
+                        client=client,
+                        reraise_timeout=True,
+                    ),
+                    deadline=deadline,
+                    interval=interval,
+                    sleep=sleep,
+                    monotonic=monotonic,
                 )
-            except httpx.TimeoutException:
-                log.debug("poll_request_timed_out", job_id=str(uuid_arg))
-                if monotonic() >= deadline:
-                    typer.secho(
-                        f"Request timed out repeatedly; giving up after the "
-                        f"{timeout:.0f}s deadline.",
-                        fg="red",
-                        err=True,
-                    )
-                    raise typer.Exit(EXIT_NETWORK) from None
-                sleep(interval)
-                continue
+            except PollDeadlineExceeded:
+                typer.secho(
+                    f"Request timed out repeatedly; giving up after the "
+                    f"{timeout:.0f}s deadline.",
+                    fg="red",
+                    err=True,
+                )
+                raise typer.Exit(EXIT_NETWORK) from None
             code = int(resp.status_code)
             if code in (401, 403):
                 return PollOutcome(status=last_status, stopped_because="token_expired")

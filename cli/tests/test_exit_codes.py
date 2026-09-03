@@ -477,6 +477,51 @@ class TestDeleteStaleCredentialsSurfacesGenuineFailures:
         _auth._delete_stale_credentials(instance, keep="bearer", keep_backend="keyring")
 
 
+class TestUnreadableKeyringDuringCleanup:
+    """fix(#1778 review round 8): an unreadable keyring during the
+    existence check (locked, backend down, ...) is not "no such
+    entry". Round 7 treated it as such, which left a stale credential
+    untouched in a keyring that store_bearer_token/store_api_key had
+    themselves just fallen back away from (they also catch
+    KeyringError and write to credentials.toml instead) — once the
+    keyring became readable again, the untouched stale value won under
+    AppState.sdk()'s bearer-first precedence."""
+
+    def test_a_keyring_that_cannot_be_read_restores_the_snapshot_and_exits_nonzero(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from keyring.errors import KeyringError
+
+        from geolens_cli import auth as _auth
+        from geolens_cli import config as _config
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com"
+        canonical = _config.normalize_instance_url(instance)
+
+        # Old bearer token lives in a currently-working keyring.
+        _auth.store_bearer_token(canonical, "old-bearer-token")
+
+        # Now the keyring locks up entirely -- both reads and writes fail,
+        # same as a locked keychain or an unreachable backend.
+        def locked(*args, **kwargs):
+            raise KeyringError("keychain is locked")
+
+        monkeypatch.setattr("keyring.set_password", locked)
+        monkeypatch.setattr("keyring.get_password", locked)
+
+        result = runner.invoke(app, ["login", instance, "--api-key", "new-key"])
+
+        assert result.exit_code != 0, result.output
+        assert "keyring" in result.output.lower()
+        # Snapshot restored: the api_key that store_api_key() fell back to
+        # writing into credentials.toml (keyring having refused the
+        # write) must not be left live once the cleanup step that
+        # followed it failed.
+        file_section = _auth._read_credentials_file().get(canonical, {})
+        assert file_section.get("api_key") is None
+
+
 class TestManifestCommandExitCodes:
     """Offline manifest commands use usage errors for local input problems."""
 

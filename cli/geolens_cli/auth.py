@@ -305,6 +305,23 @@ def _delete_stale_credentials(instance: str, *, keep: str, keep_backend: str) ->
     to raise for the same reason: ``replace_credentials`` is the one
     that needs to know, so it can restore the pre-swap snapshot instead
     of leaving either backend in a half-cleaned state.
+
+    fix(#1778 review round 8): an UNREADABLE keyring (locked, backend
+    down, ...) during the existence check is NOT "no such entry" —
+    round 7's fix skipped it as if it were, but that meant a stale
+    credential we genuinely could not see was left untouched. That
+    matters specifically because ``store_bearer_token``/
+    ``store_api_key`` themselves fall back to the credentials.toml file
+    on a ``KeyringError`` — so a keyring that is locked at STORE time
+    (the new credential lands in the file) can still hold an untouched
+    OLD credential from an earlier, working login. Once the keyring
+    becomes readable again, ``load_bearer_token``'s keyring-as-last-
+    resort lookup returns that stale value, and it outranks the
+    freshly-stored (file-backed) one under ``AppState.sdk()``'s
+    bearer-first precedence. An unreadable backend during cleanup is
+    therefore treated as a failed swap: it propagates, so
+    ``replace_credentials`` restores its snapshot and ``login`` reports
+    the failure instead of the false success.
     """
     for name, account_fn in _ACCOUNT_FN_BY_KIND.items():
         if name == keep and keep_backend == "keyring":
@@ -312,11 +329,11 @@ def _delete_stale_credentials(instance: str, *, keep: str, keep_backend: str) ->
         account = account_fn(instance)
         try:
             exists = keyring.get_password(SERVICE, account) is not None
-        except KeyringError:
-            # Can't even read this backend right now — nothing we can
-            # actively delete, and this isn't the delete-refusal case
-            # the check-first split exists to surface.
-            continue
+        except KeyringError as exc:
+            raise KeyringError(
+                f"could not read the keyring while cleaning up stored "
+                f"credentials for {instance}: {exc}"
+            ) from exc
         if exists:
             keyring.delete_password(SERVICE, account)
 
