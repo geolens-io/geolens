@@ -36,6 +36,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import asyncio
+from collections import OrderedDict
+
 import pytest
 
 from app.modules.embed_tokens.service import (
@@ -104,12 +107,33 @@ async def _validate_with(cache, raw, dataset_id, map_id) -> bool:
             "app.modules.embed_tokens.service._request_origin_is_allowed",
             AsyncMock(return_value=True),
         ),
+        # fix(#1778 codex r2): neutralise the usage bump by replacing the
+        # COROUTINE it runs, not asyncio.create_task. Patching create_task
+        # substitutes an attribute on the shared asyncio module and hands the
+        # service a MagicMock, which it then files in the module-level
+        # _usage_bump_tasks set; MagicMock.add_done_callback does nothing, so
+        # the mock never leaves the set and the next suite in the same worker
+        # to drain it (test_embed_tokens.py) dies on
+        # "An asyncio.Future, a coroutine or an awaitable is required". Patching
+        # the coroutine keeps a real Task, so the done-callback still discards
+        # it.
         patch(
-            "app.modules.embed_tokens.service.asyncio.create_task",
-            MagicMock(),
+            "app.modules.embed_tokens.service._bump_embed_token_usage_detached",
+            AsyncMock(return_value=None),
         ),
     ):
-        return await validate_embed_token_access(raw, dataset_id, db)
+        result = await validate_embed_token_access(raw, dataset_id, db)
+    await _drain_usage_bump_tasks()
+    return result
+
+
+async def _drain_usage_bump_tasks() -> None:
+    """Let the detached bumps finish before the test's event loop goes away."""
+    from app.modules.embed_tokens.service import _usage_bump_tasks
+
+    pending = [task for task in _usage_bump_tasks if not task.done()]
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
 
 
 async def test_a_racing_validation_cannot_overwrite_the_denial():
@@ -195,6 +219,10 @@ class TestDenialReachesEveryStore:
         provider._failure_count = 0
         provider._circuit_open_until = 0.0
         provider._fallback = InMemoryCacheProvider()
+        # fix(#1778 codex r2): these build the provider through __new__, so the
+        # replay state __init__ sets up has to be seeded here too.
+        provider._pending_authoritative = OrderedDict()
+        provider._replay_lock = asyncio.Lock()
         return provider
 
     async def test_a_revoke_denies_through_the_next_redis_outage(self, monkeypatch):

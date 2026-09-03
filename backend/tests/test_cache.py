@@ -1,6 +1,8 @@
 """Tests for cache providers and tile invalidation."""
 
+import asyncio
 import time
+from collections import OrderedDict
 from unittest.mock import AsyncMock, patch
 
 import fakeredis.aioredis
@@ -93,6 +95,10 @@ def redis_cache():
     provider._failure_count = 0
     provider._circuit_open_until = 0.0
     provider._fallback = InMemoryCacheProvider()
+    # fix(#1778 codex r2): these build the provider through __new__, so the
+    # replay state __init__ sets up has to be seeded here too.
+    provider._pending_authoritative = OrderedDict()
+    provider._replay_lock = asyncio.Lock()
     return provider
 
 
@@ -138,6 +144,10 @@ async def test_redis_graceful_get_on_failure():
     provider._failure_count = 0
     provider._circuit_open_until = 0.0
     provider._fallback = InMemoryCacheProvider()
+    # fix(#1778 codex r2): these build the provider through __new__, so the
+    # replay state __init__ sets up has to be seeded here too.
+    provider._pending_authoritative = OrderedDict()
+    provider._replay_lock = asyncio.Lock()
     result = await provider.get("any_key")
     assert result is None
 
@@ -154,6 +164,10 @@ async def test_redis_graceful_set_on_failure():
     provider._failure_count = 0
     provider._circuit_open_until = 0.0
     provider._fallback = InMemoryCacheProvider()
+    # fix(#1778 codex r2): these build the provider through __new__, so the
+    # replay state __init__ sets up has to be seeded here too.
+    provider._pending_authoritative = OrderedDict()
+    provider._replay_lock = asyncio.Lock()
     # Should not raise
     await provider.set("any_key", "any_value", ttl=60)
 
@@ -194,6 +208,10 @@ def cb_redis():
     provider._failure_count = 0
     provider._circuit_open_until = 0.0
     provider._fallback = InMemoryCacheProvider()
+    # fix(#1778 codex r2): these build the provider through __new__, so the
+    # replay state __init__ sets up has to be seeded here too.
+    provider._pending_authoritative = OrderedDict()
+    provider._replay_lock = asyncio.Lock()
     return provider
 
 
@@ -448,6 +466,10 @@ async def test_a_failing_redis_delete_still_evicts_the_fallback():
     provider._failure_count = 0
     provider._circuit_open_until = 0.0
     provider._fallback = InMemoryCacheProvider()
+    # fix(#1778 codex r2): these build the provider through __new__, so the
+    # replay state __init__ sets up has to be seeded here too.
+    provider._pending_authoritative = OrderedDict()
+    provider._replay_lock = asyncio.Lock()
 
     await provider._fallback.set("embed_token:abc", {"is_valid": True}, 300)
     await provider.delete("embed_token:abc")
@@ -504,6 +526,10 @@ async def test_set_authoritative_still_lands_when_redis_is_down():
     provider._failure_count = 0
     provider._circuit_open_until = 0.0
     provider._fallback = InMemoryCacheProvider()
+    # fix(#1778 codex r2): these build the provider through __new__, so the
+    # replay state __init__ sets up has to be seeded here too.
+    provider._pending_authoritative = OrderedDict()
+    provider._replay_lock = asyncio.Lock()
 
     await provider.set_authoritative("k", {"is_valid": False}, 60)
     assert await provider._fallback.get("k") == {"is_valid": False}
@@ -528,3 +554,201 @@ async def test_set_if_absent_yields_to_a_denial_held_only_in_the_fallback(cb_red
 async def test_set_if_absent_still_publishes_into_an_empty_cache(cb_redis):
     assert await cb_redis.set_if_absent("fresh", {"is_valid": True}, 60) is True
     assert await cb_redis.get("fresh") == {"is_valid": True}
+
+
+# --- fix(#1778 codex r2): an authoritative write has to survive the outage ---
+#
+# The r1 fix wrote the denial to both stores, but only when it could reach both.
+# With the circuit OPEN it wrote the fallback and returned, and Redis kept the
+# pre-revocation positive; once the cooldown lapsed, get() consulted Redis first
+# and served that positive for the rest of its TTL. That is the r1 race running
+# backwards, and it needs both halves below to close: the queue-and-replay, so
+# Redis eventually agrees, and the queue-first read, so the window before the
+# replay is not a hole of its own.
+#
+# Counterfactuals, each run: drop _queue_authoritative_replay from the
+# circuit-open branch and test_a_denial_written_during_an_outage_survives_recovery
+# fails after the cooldown; drop the pending-first check in get() and the same
+# test fails BEFORE the replay.
+
+
+def _open_circuit(provider) -> None:
+    provider._failure_count = provider._max_failures
+    provider._circuit_open_until = time.monotonic() + 300
+
+
+def _close_circuit(provider) -> None:
+    """Let the cooldown lapse without calling anything on the provider.
+
+    This is the real transition: nothing invokes a state machine, a timestamp
+    just goes stale. Whichever call next asks _circuit_open() is the one that
+    has to drain.
+    """
+    provider._circuit_open_until = time.monotonic() - 1
+
+
+@pytest.mark.asyncio
+async def test_a_denial_written_during_an_outage_survives_recovery(cb_redis):
+    """The pin: positive in Redis, circuit open, revoke, circuit closes,
+    denied both before and after the replay."""
+    await cb_redis.set("embed_token:abc", {"is_valid": True}, ttl=300)
+    assert await cb_redis._client.get("embed_token:abc") is not None
+
+    _open_circuit(cb_redis)
+    await cb_redis.set_authoritative("embed_token:abc", {"is_valid": False}, 300)
+    assert await cb_redis.get("embed_token:abc") == {"is_valid": False}
+
+    _close_circuit(cb_redis)
+
+    # Before the replay has landed anywhere: the queue answers.
+    assert cb_redis._pending_authoritative, "the override was dropped, not queued"
+    assert await cb_redis.get("embed_token:abc") == {"is_valid": False}, (
+        "the pre-outage Redis positive was served after recovery"
+    )
+
+    # The read above is what drained it, so Redis now agrees on its own.
+    assert not cb_redis._pending_authoritative
+    assert await cb_redis._client.get("embed_token:abc") == '{"is_valid": false}'
+    assert await cb_redis.get("embed_token:abc") == {"is_valid": False}
+
+
+@pytest.mark.asyncio
+async def test_a_plain_set_during_an_outage_does_not_replay(cb_redis):
+    """set() publishes a cached answer, not a decision. Replaying it would put a
+    pre-outage snapshot back over whatever is true now."""
+    _open_circuit(cb_redis)
+    await cb_redis.set("catalog:datasets", {"total": 1}, ttl=300)
+    assert not cb_redis._pending_authoritative
+
+    _close_circuit(cb_redis)
+    assert await cb_redis._client.get("catalog:datasets") is None
+
+
+@pytest.mark.asyncio
+async def test_a_failed_authoritative_write_is_queued_too(cb_redis):
+    """The circuit does not have to be open for Redis to refuse the write."""
+    mock_client = AsyncMock()
+    mock_client.set.side_effect = ConnectionError("Redis unavailable")
+    cb_redis._client = mock_client
+
+    await cb_redis.set_authoritative("embed_token:abc", {"is_valid": False}, 300)
+    assert "embed_token:abc" in cb_redis._pending_authoritative
+    assert await cb_redis.get("embed_token:abc") == {"is_valid": False}
+
+
+class _WriteRefusingRedis:
+    """fakeredis that reads normally but refuses every write.
+
+    This is the shape that isolates the queue-first read. A mock client cannot:
+    its `get` returns a MagicMock, `json.loads` raises on it, and the read falls
+    into the Redis-error branch and answers from the fallback anyway, which
+    passes whether or not the queue is consulted.
+    """
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    async def set(self, *_args, **_kwargs):
+        raise ConnectionError("Redis is refusing writes")
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+@pytest.mark.asyncio
+async def test_the_queue_outranks_a_readable_redis_positive(cb_redis):
+    """The window the queue-first read exists for.
+
+    Redis is readable and still holds the pre-revocation positive, but will not
+    take the denial, and the failure count has not reached the threshold, so the
+    circuit stays CLOSED. Every drain attempt fails. Without the queue-first
+    check in get(), the read goes straight to a healthy-looking Redis and serves
+    the positive for the rest of its TTL.
+    """
+    await cb_redis.set("embed_token:abc", {"is_valid": True}, ttl=300)
+    cb_redis._client = _WriteRefusingRedis(cb_redis._client)
+
+    await cb_redis.set_authoritative("embed_token:abc", {"is_valid": False}, 300)
+
+    assert not cb_redis._is_circuit_open(), (
+        "this test is only meaningful while the circuit is closed"
+    )
+    assert await cb_redis._client.get("embed_token:abc") == '{"is_valid": true}', (
+        "Redis still holds the positive, which is the whole point"
+    )
+    assert await cb_redis.get("embed_token:abc") == {"is_valid": False}, (
+        "a readable Redis positive outranked the revocation's denial"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_failed_replay_leaves_the_queue_intact(cb_redis):
+    """Redis looking reachable is not Redis being reachable. A drain that raises
+    must not lose the override it was trying to persist."""
+    _open_circuit(cb_redis)
+    await cb_redis.set_authoritative("embed_token:abc", {"is_valid": False}, 300)
+
+    mock_client = AsyncMock()
+    mock_client.set.side_effect = ConnectionError("Redis unavailable")
+    mock_client.get.side_effect = ConnectionError("Redis unavailable")
+    cb_redis._client = mock_client
+    _close_circuit(cb_redis)
+
+    assert await cb_redis.get("embed_token:abc") == {"is_valid": False}
+    assert "embed_token:abc" in cb_redis._pending_authoritative
+
+
+@pytest.mark.asyncio
+async def test_the_replay_queue_is_bounded_and_drops_the_oldest(cb_redis):
+    from app.platform.cache import redis as redis_module
+
+    limit = redis_module._MAX_PENDING_AUTHORITATIVE
+    _open_circuit(cb_redis)
+    for i in range(limit + 5):
+        await cb_redis.set_authoritative(f"embed_token:{i}", {"is_valid": False}, 300)
+
+    assert len(cb_redis._pending_authoritative) == limit
+    assert "embed_token:0" not in cb_redis._pending_authoritative
+    assert f"embed_token:{limit + 4}" in cb_redis._pending_authoritative
+
+
+@pytest.mark.asyncio
+async def test_a_delete_discards_a_queued_override(cb_redis):
+    """Replaying an override after the caller said the entry should not exist
+    would put it back."""
+    _open_circuit(cb_redis)
+    await cb_redis.set_authoritative("embed_token:abc", {"is_valid": False}, 300)
+    await cb_redis.delete("embed_token:abc")
+
+    assert not cb_redis._pending_authoritative
+    _close_circuit(cb_redis)
+    assert await cb_redis.get("embed_token:abc") is None
+
+
+@pytest.mark.asyncio
+async def test_set_if_absent_yields_to_a_queued_override(cb_redis):
+    """A racing publisher must lose to an override that is still waiting for
+    Redis, the same way it loses to one already in a store."""
+    _open_circuit(cb_redis)
+    await cb_redis.set_authoritative("embed_token:abc", {"is_valid": False}, 300)
+    _close_circuit(cb_redis)
+
+    # Re-queue: the close above has not been observed by any call yet, so the
+    # override is still pending when the publisher arrives.
+    assert cb_redis._pending_authoritative
+    stored = await cb_redis.set_if_absent("embed_token:abc", {"is_valid": True}, 300)
+    assert stored is False
+
+
+@pytest.mark.asyncio
+async def test_an_expired_override_is_not_replayed(cb_redis):
+    """The queue restores a decision, it does not extend one."""
+    _open_circuit(cb_redis)
+    await cb_redis.set_authoritative("embed_token:abc", {"is_valid": False}, 300)
+    key, (value, ttl, _expires_at) = next(iter(cb_redis._pending_authoritative.items()))
+    cb_redis._pending_authoritative[key] = (value, ttl, time.monotonic() - 1)
+
+    _close_circuit(cb_redis)
+    assert await cb_redis.get("embed_token:abc") is None
+    assert not cb_redis._pending_authoritative
+    assert await cb_redis._client.get("embed_token:abc") is None
