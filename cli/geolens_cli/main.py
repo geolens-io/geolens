@@ -501,7 +501,7 @@ def whoami(ctx: typer.Context) -> None:
 
     from geolens.api.auth import me_auth_me_get
 
-    # D-13: refresh-retries once on 401/403 via the shared helper — see
+    # D-13: refresh-retries once on 401 via the shared helper — see
     # _sdk_helpers.call_sdk_with_reauth (fix(#1778): this used to be
     # open-coded here only, so every other command hard-failed instead of
     # spending a stored refresh token).
@@ -509,7 +509,6 @@ def whoami(ctx: typer.Context) -> None:
     resp = call_sdk_with_reauth(
         me_auth_me_get.sync_detailed,
         instance=instance,
-        rebuild_client=state.sdk,
         client=sdk.client,
     )
     user = unwrap(resp, expected=200)
@@ -548,14 +547,13 @@ def status(
         ) from exc
 
     sdk = state.sdk()
-    # fix(#1778): refresh-retry once on 401/403 (D-13) rather than hard-
+    # fix(#1778): refresh-retry once on 401 (D-13) rather than hard-
     # failing a scripted `status` check on an access token that expired
     # since login.
     dataset = _refresh.fetch_dataset_status(
         sdk.client,
         dataset_uuid,
         instance=state.active_instance(),
-        rebuild_client=state.sdk,
     )
     payload = _refresh.dataset_status_payload(dataset)
     if state.json_mode:

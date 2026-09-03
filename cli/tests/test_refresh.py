@@ -762,3 +762,135 @@ class TestDatasetStatusRefreshRetry:
         result = runner.invoke(app, ["status", str(DATASET_ID)])
 
         assert result.exit_code == EXIT_AUTH, result.output
+
+
+class TestReauthReviewRoundOne:
+    """fix(#1778 review round 1, PR #1802): three follow-ups on
+    call_sdk_with_reauth found on the initial review."""
+
+    def test_403_never_triggers_a_refresh(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """A 403 is a real permission denial, not an expired token. Treating
+        it like a 401 let a legacy profile holding both an API key and a
+        stale refresh token silently retry as a different (renewed-bearer)
+        identity instead of surfacing the denial."""
+        from geolens_cli import config as _config
+        from geolens_cli._sdk_helpers import EXIT_AUTH
+        from geolens_cli.main import app
+
+        mock_keyring[("geolens", INSTANCE)] = "current-api-key-holder-token"
+        mock_keyring[("geolens", f"{INSTANCE}:refresh")] = "some-refresh-token"
+        _config.write_default_instance(INSTANCE, username="alice")
+
+        monkeypatch.setattr(
+            "geolens.api.datasets."
+            "get_single_dataset_datasets_dataset_id_get.sync_detailed",
+            lambda **kwargs: SimpleNamespace(
+                status_code=HTTPStatus.FORBIDDEN, parsed=None
+            ),
+        )
+
+        refresh_calls = {"count": 0}
+
+        def refresh_endpoint(**kwargs):
+            refresh_calls["count"] += 1
+            return SimpleNamespace(
+                status_code=HTTPStatus.OK,
+                parsed=SimpleNamespace(
+                    access_token="should-never-be-issued", refresh_token=None
+                ),
+            )
+
+        monkeypatch.setattr(
+            "geolens.api.auth.refresh_auth_refresh_post.sync_detailed",
+            refresh_endpoint,
+        )
+
+        result = runner.invoke(app, ["status", str(DATASET_ID)])
+
+        assert result.exit_code == EXIT_AUTH, result.output
+        assert refresh_calls["count"] == 0, "try_refresh must not run on a 403"
+
+    def test_refresh_request_is_bounded(
+        self, tmp_xdg_home, mock_keyring
+    ) -> None:
+        """try_refresh() used to build its client with the SDK's default
+        timeout=None (unbounded), so a stalled refresh endpoint hung the
+        calling command forever. The request must carry a finite bound —
+        simulated here by a refresh endpoint that raises TimeoutException,
+        which try_refresh must absorb into a clean None rather than
+        propagating or hanging."""
+        import httpx
+
+        from geolens_cli import auth as _auth
+        from geolens_cli._sdk_helpers import DEFAULT_HTTP_TIMEOUT_SECONDS
+
+        _auth.store_refresh_token(INSTANCE, "some-refresh-token")
+
+        seen_timeout = None
+
+        def stalled_refresh(**kwargs):
+            nonlocal seen_timeout
+            seen_timeout = kwargs["client"].get_httpx_client().timeout
+            raise httpx.TimeoutException("refresh endpoint never responded")
+
+        import unittest.mock
+
+        with unittest.mock.patch(
+            "geolens.api.auth.refresh_auth_refresh_post.sync_detailed",
+            stalled_refresh,
+        ):
+            result = _auth.try_refresh(INSTANCE)
+
+        assert result is None
+        assert seen_timeout is not None
+        assert seen_timeout == httpx.Timeout(DEFAULT_HTTP_TIMEOUT_SECONDS)
+
+    def test_retry_uses_the_rotated_token_not_a_re_resolved_credential(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """rebuild_client() re-resolved credentials from scratch, and a
+        higher-precedence GEOLENS_TOKEN env var outranks a stored
+        credential (D-35) — so with an expired env token and a valid
+        stored refresh token, the retry kept resending the SAME expired
+        env token and burned the rotated refresh token for nothing. The
+        retry must carry the token try_refresh() just returned."""
+        from geolens_cli import config as _config
+        from geolens_cli.main import app
+
+        monkeypatch.setenv("GEOLENS_TOKEN", "expired-env-token")
+        mock_keyring[("geolens", f"{INSTANCE}:refresh")] = "valid-refresh-token"
+        _config.write_default_instance(INSTANCE, username="alice")
+
+        seen_tokens: list[str] = []
+
+        def status_endpoint(**kwargs):
+            seen_tokens.append(kwargs["client"].token)
+            if len(seen_tokens) == 1:
+                return SimpleNamespace(status_code=HTTPStatus.UNAUTHORIZED, parsed=None)
+            return SimpleNamespace(
+                status_code=HTTPStatus.OK,
+                parsed=TestDatasetStatus._dataset(),
+            )
+
+        monkeypatch.setattr(
+            "geolens.api.datasets."
+            "get_single_dataset_datasets_dataset_id_get.sync_detailed",
+            status_endpoint,
+        )
+        monkeypatch.setattr(
+            "geolens.api.auth.refresh_auth_refresh_post.sync_detailed",
+            lambda **kwargs: SimpleNamespace(
+                status_code=HTTPStatus.OK,
+                parsed=SimpleNamespace(
+                    access_token="rotated-access-token",
+                    refresh_token=None,
+                ),
+            ),
+        )
+
+        result = runner.invoke(app, ["status", str(DATASET_ID)])
+
+        assert result.exit_code == 0, result.output
+        assert seen_tokens == ["expired-env-token", "rotated-access-token"]

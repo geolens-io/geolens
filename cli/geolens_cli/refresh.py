@@ -298,22 +298,20 @@ def fetch_dataset_status(
     dataset_id: UUID,
     *,
     instance: str | None = None,
-    rebuild_client: Callable[[], Any] | None = None,
 ) -> Any:
     """Read the generated dataset detail model used by ``geolens status``.
 
-    fix(#1778): ``instance``/``rebuild_client`` are optional so existing
-    callers are unaffected — pass both to refresh-retry once on 401/403
-    instead of hard-failing on an access token that expired since login
-    (D-13; previously only ``whoami`` spent the stored refresh token).
+    fix(#1778): ``instance`` is optional so existing callers are
+    unaffected — pass it to refresh-retry once on 401 instead of
+    hard-failing on an access token that expired since login (D-13;
+    previously only ``whoami`` spent the stored refresh token).
     """
     from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get
 
-    if instance is not None and rebuild_client is not None:
+    if instance is not None:
         response = call_sdk_with_reauth(
             get_single_dataset_datasets_dataset_id_get.sync_detailed,
             instance=instance,
-            rebuild_client=rebuild_client,
             dataset_id=dataset_id,
             client=client,
         )

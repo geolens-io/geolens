@@ -104,29 +104,43 @@ def call_sdk_with_reauth(
     fn: Callable[..., Any],
     *,
     instance: str,
-    rebuild_client: Callable[[], Any],
     client_kwarg: str = "client",
     deadline_expired: Callable[[], bool] | None = None,
     **kwargs: Any,
 ) -> Any:
-    """Like ``call_sdk``, but refresh-retries once on 401/403 (D-13).
+    """Like ``call_sdk``, but refresh-retries once on 401 (D-13).
 
     fix(#1778): a stored refresh token was only ever spent by ``whoami`` —
     every other command hard-failed on an expired access token even though
     login stores a refresh token whenever the server returns one. This
     generalizes ``whoami``'s inline retry so other commands can opt in
-    without duplicating it: on 401/403, attempt one
-    ``auth.try_refresh(instance)``; if it yields a new access token,
-    ``rebuild_client()`` is called to obtain a client carrying the rotated
-    token and the request is retried once with it under ``client_kwarg``.
+    without duplicating it: on 401, attempt one
+    ``auth.try_refresh(instance)``; if it yields a new access token, the
+    request is retried once with a client built directly from that token.
+
+    fix(#1778 review round 1):
+
+    - 401 only, not 403. A 403 is a real permission denial, not an
+      expired token — refreshing on it let a legacy profile holding both
+      an API key and a stale refresh token silently retry as a different
+      (renewed-bearer) identity instead of surfacing the denial.
+    - The retry client is built from ``new_access`` directly
+      (``GeolensClient(base_url=instance, bearer_token=new_access)``)
+      rather than by re-resolving credentials (the previous
+      ``rebuild_client()`` parameter). Re-resolving picks GEOLENS_TOKEN
+      over a stored credential (D-35), so with an expired env token and a
+      valid stored refresh token, the retry kept resending the same
+      expired env token and burned the rotated refresh token for nothing.
     """
     from . import auth as _auth  # lazy: avoid an import cycle with main.py
+    from geolens import GeolensClient  # lazy: keep `geolens --help` snappy
 
     resp = call_sdk(fn, deadline_expired=deadline_expired, **kwargs)
-    if int(resp.status_code) in (401, 403):
+    if int(resp.status_code) == 401:
         new_access = _auth.try_refresh(instance)
         if new_access:
-            sdk = rebuild_client()
-            kwargs[client_kwarg] = sdk.client
+            retry_sdk = GeolensClient(base_url=instance, bearer_token=new_access)
+            retry_sdk.client.get_httpx_client().timeout = DEFAULT_HTTP_TIMEOUT_SECONDS
+            kwargs[client_kwarg] = retry_sdk.client
             resp = call_sdk(fn, deadline_expired=deadline_expired, **kwargs)
     return resp
