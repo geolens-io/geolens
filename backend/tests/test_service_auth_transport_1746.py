@@ -6264,3 +6264,253 @@ class TestAChainThatEndsBeforeTheServiceSaidItWould:
         assert secret not in str(raised.value)
         assert secret not in raised.value.policy
         assert secret not in raised.value.reason
+
+
+class TestAPageThatContradictsItsOwnCount:
+    """fix(#1746 B2b review r31): `numberReturned` checks the page against itself.
+
+    A page saying it returned a hundred while carrying ten is a truncated
+    response, and nothing else in the walk notices: the features array is well
+    formed, the links are well formed, and a full walk that ends there accepts
+    the ten as the whole collection. It is the per-page twin of the r30 check.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    @staticmethod
+    def _serving(page: dict):
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            body = dict(page)
+            body.setdefault("type", "FeatureCollection")
+            body.setdefault("links", [])
+            return httpx.Response(200, json=body)
+
+        return handle
+
+    @pytest.mark.parametrize(
+        "returned",
+        [
+            pytest.param(100, id="claims_more_than_it_carries"),
+            pytest.param(1, id="claims_fewer_than_it_carries"),
+            pytest.param(0, id="claims_none_while_carrying_some"),
+        ],
+    )
+    async def test_a_number_returned_that_is_not_the_page_is_refused(
+        self, monkeypatch, tmp_path, returned
+    ) -> None:
+        page = {
+            "numberReturned": returned,
+            "features": [_point(f"f{n}") for n in range(10)],
+        }
+        self._transport(monkeypatch, self._serving(page))
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.parametrize(
+        "returned",
+        [
+            pytest.param("10", id="a_string"),
+            pytest.param(10.0, id="a_float"),
+            pytest.param(True, id="a_bool"),
+            pytest.param(-1, id="negative"),
+            pytest.param(None, id="null"),
+        ],
+    )
+    async def test_a_number_returned_that_is_not_a_count_is_refused(
+        self, monkeypatch, tmp_path, returned
+    ) -> None:
+        """`True` matters here: `bool` is an `int`, so it would pass as 1."""
+        page = {"numberReturned": returned, "features": [_point("a")]}
+        self._transport(monkeypatch, self._serving(page))
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+    async def test_a_matching_number_returned_passes(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        page = {
+            "numberReturned": 3,
+            "numberMatched": 3,
+            "features": [_point(f"f{n}") for n in range(3)],
+        }
+        self._transport(monkeypatch, self._serving(page))
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 3
+        assert extract.total == 3
+
+    async def test_an_absent_number_returned_passes(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """It is optional, and its absence is not evidence of anything."""
+        page = {"features": [_point(f"f{n}") for n in range(3)]}
+        self._transport(monkeypatch, self._serving(page))
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 3
+
+    async def test_zero_returned_on_an_empty_page_passes(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The boundary, where the count and the page agree at nothing."""
+        page = {"numberReturned": 0, "numberMatched": 0, "features": []}
+        self._transport(monkeypatch, self._serving(page))
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 0
+        assert extract.total == 0
+
+
+class TestASampleCanBeShorterButNeverLonger:
+    """fix(#1746 B2b review r31): the half of the r30 check that always holds.
+
+    r30 gated the whole comparison on a full walk, which let a sampled read of
+    five features past a `numberMatched` of two: the extract had five rows and
+    reported a total of two, and re-upload turned that into a schema delta
+    against a real dataset. Stopping early can produce fewer rows than the
+    total; nothing can produce more.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    def _chain(self, monkeypatch, matched: int, per_page: int, pages: int):
+        base = f"{_SVC_OAPIF}/collections/c1/items"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            index = int(request.url.params.get("page", 0))
+            return _streamed(
+                {
+                    "type": "FeatureCollection",
+                    "numberMatched": matched,
+                    "features": [_point(f"f{index}-{n}") for n in range(per_page)],
+                    "links": (
+                        [{"rel": "next", "href": f"{base}?page={index + 1}"}]
+                        if index + 1 < pages
+                        else [{"rel": "self", "href": base}]
+                    ),
+                }
+            )
+
+        return self._transport(monkeypatch, handle)
+
+    async def test_a_sample_longer_than_the_reported_total_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Five rows against a reported two. The reported case."""
+        self._chain(monkeypatch, matched=2, per_page=5, pages=1)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path, feature_limit=5)
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_sample_shorter_than_the_reported_total_completes(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The ordinary preview: a handful of rows out of a hundred."""
+        self._chain(monkeypatch, matched=100, per_page=10, pages=10)
+
+        extract = await self._materialise(tmp_path, feature_limit=5)
+
+        assert extract.features == 5
+        assert extract.total == 100
+
+    async def test_a_full_walk_longer_than_reported_is_still_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The r30 mirror, unchanged by the rule moving out of its guard."""
+        self._chain(monkeypatch, matched=3, per_page=10, pages=1)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+    async def test_a_full_walk_shorter_than_reported_is_still_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """And the r30 case itself, which only a full walk can judge."""
+        self._chain(monkeypatch, matched=100, per_page=10, pages=1)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+    async def test_a_full_walk_matching_the_report_completes(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        self._chain(monkeypatch, matched=30, per_page=10, pages=3)
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 30
+        assert extract.total == 30
+
+    async def test_a_sample_exactly_the_reported_total_completes(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The boundary: equal is not greater, so it must not be refused."""
+        self._chain(monkeypatch, matched=5, per_page=5, pages=1)
+
+        extract = await self._materialise(tmp_path, feature_limit=5)
+
+        assert extract.features == 5
+        assert extract.total == 5

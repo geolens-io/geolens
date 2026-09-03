@@ -246,6 +246,10 @@ def _require_feature_page(document: object, *, first_page: bool) -> list:
       truncation risk on its own, but it is the number a preview reports as the
       collection's size and re-upload turns into a row-count delta, so a
       service that cannot spell it is not one to take counts from.
+    * ``numberReturned`` present and not equal to the length of ``features``
+      (r31). The page carries the means to check itself, and a page claiming a
+      hundred while carrying ten is a truncated response that everything else
+      here reads as well formed.
     * ``features`` not a list, from r21.
 
     A legitimately empty page is `{"type": "FeatureCollection", "features": []}`
@@ -258,7 +262,7 @@ def _require_feature_page(document: object, *, first_page: bool) -> list:
     if not isinstance(features, list):
         raise ItemFetchFailedError("malformed items page")
     _require_links(page, first_page=first_page)
-    _require_number_matched(page)
+    _require_counts(page, features)
     return features
 
 
@@ -284,13 +288,38 @@ def _require_links(page: dict, *, first_page: bool) -> None:
             raise ItemFetchFailedError("malformed items page")
 
 
-def _require_number_matched(page: dict) -> None:
-    """Refuse a ``numberMatched`` that is present and not a count."""
-    if "numberMatched" not in page:
-        return
-    candidate = page["numberMatched"]
+def _optional_count(page: dict, member: str) -> int | None:
+    """One of the OGC count members, or None when absent. Refuses a non-count.
+
+    ``bool`` is excluded explicitly: it is a subclass of ``int``, so ``True``
+    would otherwise pass as the count 1.
+    """
+    if member not in page:
+        return None
+    candidate = page[member]
     if not isinstance(candidate, int) or isinstance(candidate, bool) or candidate < 0:
         raise ItemFetchFailedError("malformed items page")
+    return candidate
+
+
+def _require_counts(page: dict, features: list) -> None:
+    """Refuse the count members a page can contradict itself with.
+
+    fix(#1746 B2b review r31): ``numberReturned`` is the count of features IN
+    THIS RESPONSE, so the page carries the means to check itself. A page saying
+    it returned a hundred while carrying ten is a truncated response, and
+    nothing else in the walk would notice: the features array is well formed,
+    the links are well formed, and a full walk that ends there accepts the ten
+    as the whole collection. It is the per-page twin of the r30 check.
+
+    ``numberMatched`` is validated as a count here; the cross-page and
+    whole-walk comparisons live in `_walk_pages`, which is the only place that
+    can see more than one page.
+    """
+    _optional_count(page, "numberMatched")
+    returned = _optional_count(page, "numberReturned")
+    if returned is not None and returned != len(features):
+        raise ItemFetchFailedError("page contradicts its own count")
 
 
 # What a collection document advertises for the features themselves. Preferred
@@ -479,6 +508,29 @@ async def _walk_pages(
     from a collection that small), and whether the walk stopped SHORT
     (fix(#1746 B2b review r28): a collection holding exactly the sample size is
     complete, and counting features could not say so).
+
+    The count-shaped invariants, complete
+    -------------------------------------
+
+    fix(#1746 B2b review r31). The OGC items schema has exactly two integer
+    members, ``numberMatched`` and ``numberReturned``; the only other member
+    this walk reads is ``timeStamp``, which it does not, and ``links`` and
+    ``features``, which r29 and r21 cover. So this list is closed rather than
+    the current state of a search:
+
+    1. ``numberReturned == len(features)``, per page. The page's claim about
+       itself, checked in `_require_counts`.
+    2. ``numberMatched`` identical on every page that states it. It describes
+       the whole query, so two answers describe two queries and neither can be
+       checked against anything.
+    3. ``written <= numberMatched``, on EVERY walk. Stopping early can produce
+       fewer rows than the total; nothing can produce more.
+    4. ``written == numberMatched``, on FULL walks only. A sampled read is
+       short by construction, so falling below says nothing there.
+
+    Each is a refusal, never a quiet correction, for the reason r29 records:
+    the walk cannot tell a service that has finished from one that has been
+    cut off, so anything it cannot verify it declines.
     """
     written = 0
     pages = 0
@@ -580,31 +632,30 @@ async def _walk_pages(
         # could detect. A preview that reached its sample size has already set
         # `page_url` to None, so this only fires on a genuinely short read.
         raise ItemFetchFailedError("collection exceeds the page cap")
-    if (
-        feature_limit is None
-        and number_matched is not None
-        and written != number_matched
-    ):
-        # fix(#1746 B2b review r30): the chain ran out, and the service's own
-        # count says it should not have. A `next` link that is missing when
-        # there are more features to come is exactly the truncation r18 and
-        # r29 refuse in their own ways, and this is the form of it the response
-        # itself proves: nothing about the document is malformed, the walk just
-        # ended early. Accepting it handed a re-upload ten features to replace
-        # a hundred with.
+    if number_matched is not None:
+        # fix(#1746 B2b review r31): SAMPLING CAN PRODUCE FEWER ROWS THAN THE
+        # TOTAL, NEVER MORE. r30 gated the whole comparison on a full walk,
+        # which let a sampled read of five features past a `numberMatched` of
+        # two: the extract had five rows and reported a total of two, and
+        # re-upload turned that into a schema delta against a real dataset.
+        # This half holds on every walk, because no way of stopping early can
+        # produce more than there are.
+        if written > number_matched:
+            raise ItemFetchFailedError("more features than the service reported")
+        # fix(#1746 B2b review r30): and the chain ran out where the service's
+        # own count says it should not have. A `next` link missing when there
+        # are more features to come is the truncation r18 and r29 refuse in
+        # their own ways, in the form the response itself proves: nothing about
+        # the document is malformed, the walk just ended early. Accepting it
+        # handed a re-upload ten features to replace a hundred with.
         #
-        # Both directions. More than reported is not a happier outcome, it is a
-        # service whose count cannot be trusted, and that count is what a
-        # preview reports and re-upload turns into a row-count delta.
-        #
-        # FULL walks only, which is the path where getting this wrong destroys
-        # data: the worker imports the extract over an existing dataset. A
-        # sampled read is expected to be short by construction, so the count
-        # says nothing about whether the chain ended early, and `truncated`
-        # from r28 is what carries that judgement there. `feature_limit is
-        # None` also implies `not truncated`, since only the sample limit
-        # breaks out of the loop.
-        raise ItemFetchFailedError("collection is shorter than reported")
+        # Equality is a FULL-walk claim only. A sampled read stops deliberately
+        # and is expected to be short, so falling below the count says nothing
+        # there; `truncated` from r28 carries that judgement instead.
+        # `feature_limit is None` also implies `not truncated`, since only the
+        # sample limit breaks out of the loop.
+        if feature_limit is None and written != number_matched:
+            raise ItemFetchFailedError("collection is shorter than reported")
     out.write(b"]}")
     return pages, written, number_matched, truncated
 
