@@ -564,3 +564,69 @@ class TestStripGeometryColumns:
         )
         assert cols == ["id"]
         assert rows == [[md5_hex]]
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778): non-finite floats and all-EMPTY geometries
+# (codebase audit 2026-08-30)
+# ---------------------------------------------------------------------------
+
+# POLYGON EMPTY as WKB hex. ST_Buffer(<point>, 0) yields one of these for every
+# row, and a dataset may legitimately store them, so this needs no attacker.
+EMPTY_POLYGON_WKB_HEX = "010300000000000000"
+
+
+class TestNonFiniteValues:
+    """NaN and +/-Infinity must never reach the JSON encoder.
+
+    ``json.dumps`` writes them as the bare tokens ``NaN``/``Infinity``, which
+    ``JSON.parse`` rejects: the streaming path lost the whole actions frame
+    silently (parseSSEBody swallows the parse error) and the non-streaming
+    path returned 500, because Starlette renders with ``allow_nan=False``.
+    """
+
+    def test_safe_value_nulls_nan(self):
+        assert _safe_value(float("nan")) is None
+
+    def test_safe_value_nulls_infinities(self):
+        assert _safe_value(float("inf")) is None
+        assert _safe_value(float("-inf")) is None
+
+    def test_safe_value_keeps_ordinary_floats(self):
+        assert _safe_value(1.5) == 1.5
+        assert _safe_value(0.0) == 0.0
+        assert _safe_value(-2.25) == -2.25
+
+    def test_non_finite_property_is_json_serializable(self):
+        cols = ["id", "score", "geom"]
+        rows = [[1, float("nan"), POINT_WKB_HEX]]
+        result = _extract_geojson(cols, rows)
+        assert result is not None
+        fc, bbox = result
+        assert fc["features"][0]["properties"]["score"] is None
+        # The whole frame must survive a strict encode.
+        assert json.dumps({"geojson": fc, "bbox": bbox}, allow_nan=False)
+
+    def test_all_empty_geometries_yield_no_bbox(self):
+        cols = ["id", "geom"]
+        rows = [[1, EMPTY_POLYGON_WKB_HEX], [2, EMPTY_POLYGON_WKB_HEX]]
+        result = _extract_geojson(cols, rows)
+        assert result is not None
+        fc, bbox = result
+        # An EMPTY geometry parses, so the features are still produced.
+        assert len(fc["features"]) == 2
+        assert bbox is None
+        assert json.dumps({"geojson": fc, "bbox": bbox}, allow_nan=False)
+
+    def test_empty_geometry_does_not_poison_a_real_bbox(self):
+        cols = ["id", "geom"]
+        rows = [
+            [1, POINT_WKB_HEX],  # Point(1, 2)
+            [2, EMPTY_POLYGON_WKB_HEX],
+            [3, POINT2_WKB_HEX],  # Point(3, 4)
+        ]
+        result = _extract_geojson(cols, rows)
+        assert result is not None
+        fc, bbox = result
+        assert len(fc["features"]) == 3
+        assert bbox == [1.0, 2.0, 3.0, 4.0]

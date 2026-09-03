@@ -14,6 +14,7 @@ service.py, and tests:
         _is_geom_value,
         _detect_geom_column,
         _safe_value,
+        safe_rows,
         _extract_geojson,
         ERROR_MESSAGES,
         lang_name,
@@ -50,6 +51,7 @@ from app.processing.ai.chat_actions import (
 )
 from app.processing.ai.chat_constants import (
     _EDIT_TOOLS,
+    TOOL_RESULT_PROTOCOL,
     _MAX_COLUMNS_PER_LAYER,
     _MAX_SAMPLE_COLS,
     _MAX_SYSTEM_PROMPT_LAYERS,
@@ -58,7 +60,9 @@ from app.processing.ai.chat_constants import (
     RAMP_COLORS,
     _get_ramp_colors,
     _sanitize_layer_name,
+    fence_untrusted_content,
     lang_name,
+    sanitize_dataset_value,
 )
 from app.processing.ai.chat_dataset import (
     build_dataset_chat_system_prompt,
@@ -68,6 +72,7 @@ from app.processing.ai.chat_geojson import (
     _extract_geojson,
     _is_geom_value,
     _safe_value,
+    safe_rows,
     ensure_geometry_selected,
     strip_geometry_columns,
 )
@@ -93,7 +98,10 @@ from app.processing.ai.schemas import (
 from app.processing.ai.sql_generator import (
     generate_sql,
 )  # re-exported (test patch target)
-from app.processing.ai.token_usage import record_token_usage
+from app.processing.ai.token_usage import (
+    record_token_usage,
+    usage_accounting,
+)
 from app.processing.ai.tools import select_chat_tools
 
 if TYPE_CHECKING:
@@ -123,6 +131,7 @@ __all__ = [
     "_is_geom_value",
     "_detect_geom_column",
     "_safe_value",
+    "safe_rows",
     "_extract_geojson",
     "ensure_geometry_selected",
     "strip_geometry_columns",
@@ -167,8 +176,13 @@ def build_chat_system_prompt(
         # Limit column info to first N columns to avoid token bloat
         cols_raw = layer.column_info or []
         cols_limited = cols_raw[:_MAX_COLUMNS_PER_LAYER]
+        # fix(#1778): column names reach here from the client for a map layer
+        # and from an upstream service schema for an ArcGIS/STAC ingest, so
+        # they carry the same injection risk as the layer name sanitized below.
         cols_str = ", ".join(
-            f"{c.get('name', '?')} ({c.get('type', '?')})" for c in cols_limited
+            f"{sanitize_dataset_value(c.get('name', '?'))} "
+            f"({sanitize_dataset_value(c.get('type', '?'))})"
+            for c in cols_limited
         )
         if len(cols_raw) > _MAX_COLUMNS_PER_LAYER:
             cols_str += f" ... and {len(cols_raw) - _MAX_COLUMNS_PER_LAYER} more"
@@ -201,7 +215,11 @@ def build_chat_system_prompt(
                 :_MAX_SAMPLE_COLS
             ]:
                 vals = values[:5] if isinstance(values, list) else [values]
-                sample_parts.append(f"{col_name}: {vals}")
+                # fix(#1778): raw row content — the one field on this layer
+                # that an attacker controls end to end via a public dataset.
+                safe_col = sanitize_dataset_value(col_name)
+                safe_vals = [sanitize_dataset_value(v) for v in vals]
+                sample_parts.append(f"{safe_col}: {safe_vals}")
             if sample_parts:
                 sample_str = "\n  Sample values: " + "; ".join(sample_parts)
 
@@ -271,11 +289,20 @@ def build_chat_system_prompt(
         else ""
     )
 
+    # fix(#1778 round 1): the fence is assembled by one helper that also strips
+    # any forged marker out of the block. Interpolating the tags here would
+    # have left the id, the serialized filter and the paint dict able to close
+    # the region early, since none of those pass through a sanitizer.
+    fenced_layers = fence_untrusted_content(
+        f"{chr(10).join(layers_desc)}{truncation_note}"
+    )
+
     return f"""\
 You are a map editing assistant. The user has a map with these layers:
 
-{chr(10).join(layers_desc)}{truncation_note}{readonly_note}
+{fenced_layers}{readonly_note}
 
+{TOOL_RESULT_PROTOCOL}
 ## Instructions
 - Modify the map based on the user's instructions using the available tools.
 - Always reference layers by their id (UUID).
@@ -438,17 +465,24 @@ async def chat_edit_map(
             return None
         return _collect_chat_action(tool_name, tool_input, tool_result)
 
-    result = await provider_ext.complete(
-        model=model,
-        system_prompt=system_prompt,
-        user_message=message,
-        tools=selected_tools,
-        tool_executor=tool_executor,
-        action_collector=collect_allowed_action,
-        history=history_dicts,
-        base_url=runtime_config.get("base_url"),
-        temperature=0.3,
-    )
+    # fix(#1778 round 2): one accounting shape at every provider call site.
+    # The tokens are spent the moment the provider answers, so any way out of
+    # the loop must still bill the daily cap: an exhaustion, a later request
+    # failure, a tool executor that raises, or a client that disconnects.
+    async with usage_accounting(
+        session, user_id=user.id, subsystem="chat", model=model
+    ):
+        result = await provider_ext.complete(
+            model=model,
+            system_prompt=system_prompt,
+            user_message=message,
+            tools=selected_tools,
+            tool_executor=tool_executor,
+            action_collector=collect_allowed_action,
+            history=history_dicts,
+            base_url=runtime_config.get("base_url"),
+            temperature=0.3,
+        )
 
     logger.info(
         "Chat edit complete",

@@ -142,6 +142,32 @@ _BLOCKED_FUNCTIONS: frozenset[str] = frozenset(
 )
 
 # ---------------------------------------------------------------------------
+# fix(#1778): PostgreSQL's identity/introspection niladic functions have a
+# parenless keyword spelling, and sqlglot only gives SOME of them a Func
+# subclass. Measured on sqlglot 30.17.0 with `SELECT <kw> FROM data.cities`:
+# current_user/session_user/current_catalog/current_schema parse as Func nodes
+# and hit _BLOCKED_FUNCTIONS via the allowlist walk, but `user`,
+# `current_role` and `system_user` parse as exp.Column and never reach it.
+# The allowlist's completeness must not depend on that parse shape, so these
+# names are also rejected as unqualified, unquoted column references.
+#
+# PostgreSQL resolves the bare keyword to the SQLValueFunction even when a
+# table in scope has a column of the same name, so rejecting the bare spelling
+# never blocks a legitimate column read: `t.user` and `"user"` still parse as
+# ordinary columns and are left alone, exactly as PostgreSQL reads them.
+_BLOCKED_NILADIC_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "user",
+        "current_user",
+        "current_role",
+        "session_user",
+        "system_user",
+        "current_catalog",
+        "current_schema",
+    }
+)
+
+# ---------------------------------------------------------------------------
 # Fail-closed allowlist (SEC-025)
 #
 # Every function name that validate_sql may encounter as a sqlglot sql_name()
@@ -981,6 +1007,33 @@ def _reject_oid_alias_casts(stmt: exp.Expression, sql: str) -> None:
             raise SandboxError("invalid_query", "Query uses a disallowed type cast")
 
 
+def _check_niladic_keywords(stmt: exp.Expression, sql: str) -> None:
+    """Reject PostgreSQL's parenless identity keywords (fix(#1778)).
+
+    ``SELECT user``/``current_role``/``system_user`` parse as ``exp.Column``,
+    so the Func walk in :func:`_check_function_allowlist` never sees them, yet
+    PostgreSQL evaluates them as SQLValueFunctions and returns the effective
+    role, the login name and the authentication method. On the AI-chat path
+    that is a reliable readout of whether ``SET LOCAL ROLE geolens_reader``
+    took effect, which is exactly the oracle the sandbox should not hand out.
+
+    Only the unqualified, unquoted spelling is rejected: ``t.user`` and
+    ``"user"`` are real column references in PostgreSQL and stay allowed.
+    """
+    for column in stmt.find_all(exp.Column):
+        if column.table:
+            continue
+        identifier = column.this
+        if not isinstance(identifier, exp.Identifier) or identifier.quoted:
+            continue
+        if identifier.name.lower() not in _BLOCKED_NILADIC_KEYWORDS:
+            continue
+        logger.info(
+            "sandbox.blocked_niladic_keyword", sql=sql, keyword=identifier.name.lower()
+        )
+        raise SandboxError("invalid_query", "Query uses a disallowed function")
+
+
 def _check_function_allowlist(
     stmt: exp.Expression,
     sql: str,
@@ -1000,7 +1053,11 @@ def _check_function_allowlist(
       4. Other name → require _ALLOWED_FUNCTIONS
       5. Allowed spatial functions → reject unbounded aggregate/complexity forms
       6. Otherwise → reject (fail-closed)
+
+    A second pass rejects the parenless niladic keywords sqlglot parses as
+    columns rather than functions (see _BLOCKED_NILADIC_KEYWORDS).
     """
+    _check_niladic_keywords(stmt, sql)
     buffer_scaffold = _canonical_buffer_exempt_ids(stmt)
     for func in stmt.find_all(exp.Func):
         # fix(#538): sqlglot models AND/OR (exp.Connector) as Func subclasses,
@@ -1074,7 +1131,13 @@ def validate_sql(
     # Parse with postgres dialect
     try:
         statements = sqlglot.parse(sql, dialect="postgres")
-    except sqlglot.errors.ParseError as exc:
+    except sqlglot.errors.SqlglotError as exc:
+        # fix(#1778): an unterminated literal, identifier, comment or
+        # dollar-quote raises TokenError, which is a SIBLING of ParseError
+        # under SqlglotError, not a subclass. Catching ParseError alone let the
+        # commonest SQL typo escape the security boundary's own parse step and
+        # surface as HTTP 500 "Query failed" instead of 422 "Invalid SQL
+        # syntax". executor.py makes the same catch for the same reason.
         logger.info("sandbox.parse_error", sql=sql, error=str(exc))
         raise SandboxError("invalid_query", "Invalid SQL syntax")
 

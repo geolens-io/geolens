@@ -136,7 +136,108 @@ async def noop_tool_executor(name: str, args: dict) -> dict:
 
 
 class ToolLoopExhaustedError(Exception):
-    """Raised when the tool-calling loop exceeds the maximum number of rounds."""
+    """Raised when the tool-calling loop exceeds the maximum number of rounds.
+
+    fix(#1778): carries the tokens the loop had already spent. The blocking
+    loop accumulated per-round counts and threw them away on every failure
+    exit, so its most expensive requests -- the ones that ran all eight rounds,
+    blew MAX_REQUEST_TOKEN_BUDGET, or hit the wall clock -- were billed by the
+    provider and contributed nothing to ``catalog.ai_token_usage``.
+    MAX_AI_TOKENS_PER_USER_PER_DAY is enforced by SUMming that table, so a
+    caller who could reliably drive the loop to exhaustion kept a recorded
+    balance of zero while spending real money. fix(#402) closed the same class
+    for the streaming path by recording each round as it completed; the
+    blocking loop took #448's budget guards and never the accounting.
+
+    The counts ride here rather than on a new ``complete()`` parameter because
+    that signature is an extension Protocol: adding a keyword to it forces an
+    EXTENSION_API_VERSION bump on every overlay, which is a far larger change
+    than the accounting it would carry.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+    ) -> None:
+        super().__init__(message)
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+
+
+class UserFacingAIError(ValueError):
+    """A message deliberately written for the end user.
+
+    fix(#1778 round 1): the SSE generators used to pass every ``ValueError``
+    through to the browser on the reasoning that this pipeline raises one for
+    its own user-facing refusals. That is an open set, not a closed one:
+    ``OpenAICredentialDestinationError`` is a ``ValueError`` too, and it names
+    the configured provider endpoint. Only a message raised as THIS type
+    reaches a viewer; every other ``ValueError`` gets the generic text and
+    keeps its detail in the log.
+
+    Subclassing ``ValueError`` keeps every existing ``except ValueError``
+    handler on these paths working unchanged.
+    """
+
+
+def safe_stream_error_message(exc: BaseException) -> str:
+    """The text an SSE ``error`` frame may carry for ``exc`` (fix(#1778))."""
+    if isinstance(exc, UserFacingAIError):
+        return str(exc)
+    return "An unexpected error occurred. Please try again."
+
+
+def attach_token_usage(
+    exc: BaseException, input_tokens: int, output_tokens: int
+) -> None:
+    """Stamp the tokens a tool loop had already spent onto the error it raised.
+
+    fix(#1778 round 1): attaching them only to ``ToolLoopExhaustedError`` left
+    every other exit from the loop unaccounted. A provider that answers one
+    round and then fails, or a tool executor that raises after a successful
+    round, has already been billed for that round; without a stamp the caller's
+    recorder no-ops and repeated induced failures spend real money while the
+    daily quota stays where it was. This is the one place that decides, and
+    every exit from both provider loops routes through it.
+
+    Cancellation is stamped too. ``asyncio.wait_for`` raises ``TimeoutError``
+    ``from`` the ``CancelledError`` it delivered to the coroutine, so the
+    counts survive on ``__cause__`` (verified on the pinned CPython) and
+    :func:`token_usage_from_error` walks that chain.
+
+    Best-effort by design: an exception type with ``__slots__`` cannot take the
+    attributes, and losing the accounting must never replace the real error.
+    """
+    try:
+        exc.input_tokens = input_tokens  # type: ignore[attr-defined]
+        exc.output_tokens = output_tokens  # type: ignore[attr-defined]
+    except Exception:  # broad: accounting must never mask the original failure
+        pass
+
+
+# Depth bound on the __cause__/__context__ walk below. Three hops covers
+# wait_for's TimeoutError -> CancelledError and one layer of re-raise; the
+# bound exists so a self-referential or very deep chain cannot spin.
+_TOKEN_USAGE_CHAIN_DEPTH = 5
+
+
+def token_usage_from_error(exc: BaseException) -> tuple[int, int]:
+    """Read the stamped counts off ``exc`` or the exception that caused it."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    for _ in range(_TOKEN_USAGE_CHAIN_DEPTH):
+        if current is None or id(current) in seen:
+            break
+        seen.add(id(current))
+        input_tokens = int(getattr(current, "input_tokens", 0) or 0)
+        output_tokens = int(getattr(current, "output_tokens", 0) or 0)
+        if input_tokens or output_tokens:
+            return input_tokens, output_tokens
+        current = current.__cause__ or current.__context__
+    return 0, 0
 
 
 def add_tool_cache_control(tools: list[dict]) -> list[dict]:

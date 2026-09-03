@@ -7,7 +7,44 @@ owns ``DefaultAnthropicProvider``. Import it via the
 
 from __future__ import annotations
 
-from app.platform.ai_tool_payloads import model_safe_tool_result
+from app.platform.ai_tool_payloads import tool_result_content
+
+
+async def _run_tool_use_blocks(
+    content,  # type: ignore[no-untyped-def]
+    *,
+    tool_executor,
+    action_collector,
+    collected_actions: list[dict],
+    log,
+) -> list[dict]:
+    """Execute one round's tool_use blocks and build the tool_result payload.
+
+    Split out of ``complete`` in fix(#1778 round 1): wrapping the loop so every
+    exit stamps its token usage pushed that function over the complexity gate,
+    and this block is self-contained. ``collected_actions`` is appended in
+    place, matching what the caller did inline.
+    """
+    tool_results: list[dict] = []
+    for block in content:
+        if block.type != "tool_use":
+            continue
+        log.info("Tool call", tool=block.name, input=block.input)
+        result = await tool_executor(block.name, block.input)
+        if action_collector:
+            action = action_collector(block.name, block.input, result)
+            if action:
+                collected_actions.append(action)
+        tool_results.append(
+            {
+                "type": "tool_result",
+                "tool_use_id": block.id,
+                # fix(#1778 round 2): fenced, not bare JSON. See
+                # tool_result_content for why every result and not a subset.
+                "content": tool_result_content(result),
+            }
+        )
+    return tool_results
 
 
 class DefaultAnthropicProvider:
@@ -49,7 +86,6 @@ class DefaultAnthropicProvider:
     ):
         del temperature  # rejected by Claude 4.6+; kept in signature for callers
         # Deferred imports (Phase 214 discipline)
-        import json
         import time
 
         import structlog
@@ -63,6 +99,7 @@ class DefaultAnthropicProvider:
         )
         from app.processing.ai.llm_loop import (
             ToolLoopExhaustedError,
+            attach_token_usage,
             ToolLoopResult,
             _LLM_TIMEOUT,
             add_tool_cache_control,
@@ -108,44 +145,79 @@ class DefaultAnthropicProvider:
         # tool loop could burn budget until max_rounds.
         deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
 
-        for round_num in range(max_rounds):
-            if time.monotonic() > deadline:
-                raise ToolLoopExhaustedError("LLM tool loop exceeded wall-clock budget")
-            if total_input + total_output > MAX_REQUEST_TOKEN_BUDGET:
-                raise ToolLoopExhaustedError(
-                    "LLM tool loop exceeded request token budget"
+        # fix(#1778 round 1): EVERY exit from this loop carries the tokens it
+        # has already spent, not just the exhaustion raises. After round one
+        # the provider has been billed, so a later request failure, a tool
+        # executor that raises, or a cancellation must still reach the daily
+        # quota. One helper decides; nothing here enumerates exception types.
+        try:
+            for round_num in range(max_rounds):
+                if time.monotonic() > deadline:
+                    raise ToolLoopExhaustedError(
+                        "LLM tool loop exceeded wall-clock budget",
+                        input_tokens=total_input,
+                        output_tokens=total_output,
+                    )
+                if total_input + total_output > MAX_REQUEST_TOKEN_BUDGET:
+                    raise ToolLoopExhaustedError(
+                        "LLM tool loop exceeded request token budget",
+                        input_tokens=total_input,
+                        output_tokens=total_output,
+                    )
+                # Anthropic API rejects `tools=[]` with 400 BadRequestError
+                # ("tools: must have at least 1 item"). Omit the kwarg entirely
+                # for no-tools paths (sql_generator.generate_sql,
+                # _retry_parse_map_spec). REVIEW.md CR-01.
+                # Claude 4.6+ models reject a non-default `temperature` with a
+                # 400; omit it on the Anthropic path (steering is prompt-based).
+                create_kwargs: dict[str, object] = {
+                    "model": model,
+                    "max_tokens": max_tokens,
+                    "system": cached_system,
+                    "messages": messages,
+                }
+                if cached_tools:
+                    create_kwargs["tools"] = cached_tools
+                response = await client.messages.create(**create_kwargs)
+
+                # Track token usage
+                if hasattr(response, "usage") and response.usage:
+                    total_input += response.usage.input_tokens
+                    total_output += response.usage.output_tokens
+
+                log.info(
+                    "LLM round",
+                    provider="anthropic",
+                    round=round_num + 1,
+                    stop_reason=response.stop_reason,
+                    input_tokens=response.usage.input_tokens if response.usage else 0,
+                    output_tokens=response.usage.output_tokens if response.usage else 0,
                 )
-            # Anthropic API rejects `tools=[]` with 400 BadRequestError
-            # ("tools: must have at least 1 item"). Omit the kwarg entirely
-            # for no-tools paths (sql_generator.generate_sql,
-            # _retry_parse_map_spec). REVIEW.md CR-01.
-            # Claude 4.6+ models reject a non-default `temperature` with a
-            # 400; omit it on the Anthropic path (steering is prompt-based).
-            create_kwargs: dict[str, object] = {
-                "model": model,
-                "max_tokens": max_tokens,
-                "system": cached_system,
-                "messages": messages,
-            }
-            if cached_tools:
-                create_kwargs["tools"] = cached_tools
-            response = await client.messages.create(**create_kwargs)
 
-            # Track token usage
-            if hasattr(response, "usage") and response.usage:
-                total_input += response.usage.input_tokens
-                total_output += response.usage.output_tokens
+                if response.stop_reason == "end_turn":
+                    text = "".join(
+                        block.text for block in response.content if block.type == "text"
+                    )
+                    return ToolLoopResult(
+                        text=text,
+                        actions=collected_actions,
+                        input_tokens=total_input,
+                        output_tokens=total_output,
+                    )
 
-            log.info(
-                "LLM round",
-                provider="anthropic",
-                round=round_num + 1,
-                stop_reason=response.stop_reason,
-                input_tokens=response.usage.input_tokens if response.usage else 0,
-                output_tokens=response.usage.output_tokens if response.usage else 0,
-            )
+                if response.stop_reason == "tool_use":
+                    tool_results = await _run_tool_use_blocks(
+                        response.content,
+                        tool_executor=tool_executor,
+                        action_collector=action_collector,
+                        collected_actions=collected_actions,
+                        log=log,
+                    )
+                    messages.append({"role": "assistant", "content": response.content})
+                    messages.append({"role": "user", "content": tool_results})
+                    continue
 
-            if response.stop_reason == "end_turn":
+                # Unexpected stop reason — return whatever text we have
                 text = "".join(
                     block.text for block in response.content if block.type == "text"
                 )
@@ -156,47 +228,18 @@ class DefaultAnthropicProvider:
                     output_tokens=total_output,
                 )
 
-            if response.stop_reason == "tool_use":
-                tool_results = []
-                for block in response.content:
-                    if block.type == "tool_use":
-                        log.info("Tool call", tool=block.name, input=block.input)
-
-                        result = await tool_executor(block.name, block.input)
-
-                        if action_collector:
-                            action = action_collector(block.name, block.input, result)
-                            if action:
-                                collected_actions.append(action)
-
-                        tool_results.append(
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": block.id,
-                                # default=str: query_data rows can carry Decimal /
-                                # datetime values straight from PostGIS.
-                                "content": json.dumps(
-                                    model_safe_tool_result(result), default=str
-                                ),
-                            }
-                        )
-
-                messages.append({"role": "assistant", "content": response.content})
-                messages.append({"role": "user", "content": tool_results})
-                continue
-
-            # Unexpected stop reason — return whatever text we have
-            text = "".join(
-                block.text for block in response.content if block.type == "text"
-            )
-            return ToolLoopResult(
-                text=text,
-                actions=collected_actions,
+            raise ToolLoopExhaustedError(
+                "Max tool rounds exceeded without final response",
                 input_tokens=total_input,
                 output_tokens=total_output,
             )
-
-        raise ToolLoopExhaustedError("Max tool rounds exceeded without final response")
+        except BaseException as exc:
+            # BaseException, not Exception: asyncio.CancelledError is the shape
+            # a client disconnect and the caller's wait_for timeout both take,
+            # and wait_for re-raises TimeoutError *from* it, so the stamp
+            # survives on __cause__ for token_usage_from_error to find.
+            attach_token_usage(exc, total_input, total_output)
+            raise
 
     # fix(#1590): explicit keyword-only signature instead of a bare
     # **kwargs shim, matching AIProviderExtension.stream exactly.

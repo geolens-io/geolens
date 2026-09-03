@@ -196,6 +196,26 @@ class TestValidateParseError:
             validate_sql("")
         assert exc_info.value.category == "invalid_query"
 
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT a FROM data.cities WHERE a = 'unterminated",
+            'SELECT a FROM data.cities WHERE a = "unterminated',
+            "SELECT a FROM data.cities /* unterminated",
+            "SELECT a FROM data.cities WHERE a = $$unterminated",
+        ],
+    )
+    def test_unterminated_literal_is_invalid_query(self, sql):
+        """fix(#1778): sqlglot raises TokenError, a SIBLING of ParseError.
+
+        Before the fix these four escaped validate_sql entirely, landed in the
+        sandbox boundary's broad catch as category ``query_failed`` and came
+        back from POST /api/query/ as HTTP 500 instead of 422.
+        """
+        with pytest.raises(SandboxError) as exc_info:
+            validate_sql(sql)
+        assert exc_info.value.category == "invalid_query"
+
 
 class TestTableExtraction:
     """Tables should be extracted from simple and complex queries."""
@@ -419,6 +439,23 @@ class TestReadOnlyTransaction:
         assert result.columns == ["n"]
         assert result.rows == [[1]]
         assert result.row_count == 1
+        assert result.truncated is False
+
+    async def test_trailing_line_comment_does_not_break_the_limit_wrapper(
+        self, client, test_db_session
+    ):
+        """fix(#1778): a query ending in ``--`` used to comment out the wrapper.
+
+        ``execute_safe`` splices validated SQL into
+        ``SELECT * FROM (<sql>) AS _q LIMIT n``. With the tail on the same
+        line, ``--`` swallowed ``) AS _q LIMIT 1001`` and PostgreSQL answered
+        "syntax error at end of input", which the executor mapped to a bare
+        HTTP 500 "Query failed" for a fully authorized query.
+        """
+        session = test_db_session
+        result = await execute_safe(session, "SELECT 1 AS a --x")
+        assert result.columns == ["a"]
+        assert result.rows == [[1]]
         assert result.truncated is False
 
 

@@ -158,7 +158,10 @@ async def execute_safe(
         sql = _rewrite_logical_data_schema(sql, tenant_data_schema(tenant_id))
 
     fetch_limit = row_limit + 1
-    limited_sql = f"SELECT * FROM ({sql}) AS _q LIMIT {fetch_limit}"
+    # fix(#1778): the closing paren and LIMIT go on their own line. `--` runs to
+    # end of line, so a validated query ending in a trailing line comment used
+    # to comment out the wrapper's own tail and fail with a bare syntax error.
+    limited_sql = f"SELECT * FROM (\n{sql}\n) AS _q LIMIT {fetch_limit}"
 
     # Use the engine from the database module (patched in tests)
     import app.core.db as db_module

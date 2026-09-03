@@ -3,6 +3,7 @@
 Phase 276 CODE-02 — extracted from chat_service.py.
 """
 
+import math
 from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -179,8 +180,6 @@ async def _build_graduated_style(
         class_count=class_count,
         allowed_tables=allowed_tables,
     )
-    colors = _get_ramp_colors(ramp, class_count)
-
     min_val = stats["min"]
     max_val = stats["max"]
 
@@ -200,8 +199,31 @@ async def _build_graduated_style(
         # quantile: use the dynamically-computed quantiles from stats
         breaks = stats.get("quantiles", [])
 
+    # fix(#1778): MapLibre rejects a step expression whose stops are not
+    # strictly ascending, and percentile_cont does not deduplicate, so any
+    # clustered column (70% of rows sharing one value, say) yields adjacent
+    # equal quantiles. Both frontend siblings guard this for the styles they
+    # build - classification.ts and DataDrivenStyleEditor.tsx each do
+    # `[...new Set(breaks)]` - but neither can see inside an expression the
+    # server assembled, and ChatPanel's validateChatPaint only filters paint
+    # KEYS by geometry type. A non-finite break is dropped for the same reason:
+    # it cannot be a valid stop, and it would make the actions frame
+    # unparseable in the browser. The colour slice is re-taken so the surviving
+    # breaks still span the whole ramp.
+    breaks = sorted(
+        {
+            float(b)
+            for b in breaks
+            if isinstance(b, (int, float))
+            and not isinstance(b, bool)
+            and math.isfinite(b)
+        }
+    )
+
     if not breaks:
         return {"error": f"Cannot compute class breaks for column '{column}'"}
+
+    colors = _get_ramp_colors(ramp, len(breaks) + 1)
 
     # Build MapLibre step expression: ["step", ["get", column], color0, break1, color1, ...]
     step_expr: list = ["step", ["get", column], colors[0]]

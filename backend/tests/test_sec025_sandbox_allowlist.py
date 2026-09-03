@@ -209,6 +209,56 @@ class TestIntrospectionFunctionsRejected:
         _assert_rejects("SELECT inet_client_addr()")
 
 
+class TestNiladicKeywordFunctionsRejected:
+    """PostgreSQL's parenless identity keywords must be rejected too.
+
+    fix(#1778): the SEC-025 allowlist is driven by one
+    ``stmt.find_all(exp.Func)`` walk, and sqlglot 30.17.0 gives only some of
+    PostgreSQL's SQLValueFunction keywords a Func subclass. Measured before the
+    fix, ``user``, ``current_role`` and ``system_user`` parsed as ``exp.Column``
+    and passed validation on both the AI-chat and POST /query/ kwarg sets,
+    handing back the effective role name. All seven spellings are pinned here
+    so the allowlist's completeness stops depending on a parse shape a sqlglot
+    bump could change either way.
+    """
+
+    @pytest.mark.parametrize(
+        "keyword",
+        [
+            "user",
+            "current_user",
+            "current_role",
+            "session_user",
+            "system_user",
+            "current_catalog",
+            "current_schema",
+        ],
+    )
+    def test_rejects_bare_keyword(self, keyword):
+        _assert_rejects(f"SELECT {keyword} AS c FROM data.cities")
+
+    @pytest.mark.parametrize(
+        "keyword",
+        ["user", "current_role", "system_user"],
+    )
+    def test_rejects_bare_keyword_in_where_clause(self, keyword):
+        _assert_rejects(f"SELECT name FROM data.cities WHERE name = {keyword}")
+
+    def test_rejects_uppercase_spelling(self):
+        _assert_rejects("SELECT USER AS c FROM data.cities")
+
+    def test_rejects_bare_keyword_inside_subquery(self):
+        _assert_rejects("SELECT * FROM (SELECT user AS u FROM data.cities) AS sub")
+
+    def test_allows_quoted_identifier(self):
+        """``"user"`` is a column reference in PostgreSQL, not the keyword."""
+        _assert_allows('SELECT "user" FROM data.cities')
+
+    def test_allows_table_qualified_column(self):
+        """``t.user`` is a column reference in PostgreSQL, not the keyword."""
+        _assert_allows("SELECT t.user FROM data.cities AS t")
+
+
 # ---------------------------------------------------------------------------
 # SEC-025-ALLOW: legitimate AI-generated queries must still pass
 # ---------------------------------------------------------------------------

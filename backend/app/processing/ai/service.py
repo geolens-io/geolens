@@ -13,10 +13,18 @@ from sqlalchemy.orm import joinedload
 
 from collections.abc import AsyncGenerator, Awaitable, Callable
 
+from app.processing.ai.chat_constants import (
+    TOOL_RESULT_PROTOCOL,
+    sanitize_column_info,
+    sanitize_dataset_value,
+    sanitize_sample_values,
+)
 from app.processing.ai.constants import tool_label
 from app.platform.extensions import get_ai_provider
 from app.processing.ai.llm_loop import (
     ToolLoopExhaustedError,
+    UserFacingAIError,
+    safe_stream_error_message,
     noop_tool_executor,
     resolve_provider,
 )
@@ -31,7 +39,10 @@ from typing import TYPE_CHECKING
 
 from app.core.geo import extent_to_bbox, merge_bboxes, wrap_longitude
 from app.core.identity import Identity
-from app.processing.ai.token_usage import record_token_usage
+from app.processing.ai.token_usage import (
+    record_token_usage,
+    usage_accounting,
+)
 
 if TYPE_CHECKING:
     from app.core.processing_port import ProcessingPort
@@ -211,6 +222,10 @@ def _build_map_system_prompt(
     basemap_instruction = _build_basemap_instruction(basemap_ids)
     prompt = SYSTEM_PROMPT.format(basemap_instruction=basemap_instruction)
 
+    # This path has no layer block, so a catalog tool result is the only
+    # untrusted text it ever sees. fix(#1778 round 2).
+    prompt += "\n" + TOOL_RESULT_PROTOCOL
+
     lang = lang_name(language)
     prompt += f"""
 ## Language
@@ -274,19 +289,28 @@ async def _execute_search_tool(
                 sample[k] = v[:5] if isinstance(v, list) else v
             sample = sample or None
 
+        # fix(#1778): search is visibility-filtered but includes other users'
+        # PUBLIC datasets, so this is the cross-user path — text an attacker
+        # publishes lands in a victim's model context, where the model holds
+        # query_data over the victim's own allowlist and every editing tool.
+        # Titles and summaries go through the same scrubbing as the content.
         results.append(
             {
                 "id": str(ds.id),
-                "title": ds.record.title,
-                "summary": ds.record.summary,
+                "title": sanitize_dataset_value(ds.record.title),
+                "summary": sanitize_dataset_value(ds.record.summary),
                 "geometry_type": ds.geometry_type,
-                "keywords": [kw.keyword for kw in ds.record.keywords]
+                "keywords": [
+                    sanitize_dataset_value(kw.keyword) for kw in ds.record.keywords
+                ]
                 if ds.record.keywords
                 else None,
                 "extent_bbox": port.extract_bbox(ds),
                 "feature_count": ds.feature_count,
-                "column_info": ds.column_info[:20] if ds.column_info else None,
-                "sample_values": sample,
+                "column_info": sanitize_column_info(
+                    ds.column_info[:20] if ds.column_info else None
+                ),
+                "sample_values": sanitize_sample_values(sample),
             }
         )
 
@@ -340,13 +364,15 @@ async def _execute_get_dataset_details(
             sample[k] = v[:5] if isinstance(v, list) else v
         sample = sample or None
 
+    # fix(#1778): same trust boundary as _execute_search_tool above — this tool
+    # reads any dataset the caller can see, including other users' public ones.
     return {
         "id": str(ds.id),
-        "title": ds.record.title,
+        "title": sanitize_dataset_value(ds.record.title),
         "geometry_type": ds.geometry_type,
         "feature_count": ds.feature_count,
-        "column_info": column_info,
-        "sample_values": sample,
+        "column_info": sanitize_column_info(column_info),
+        "sample_values": sanitize_sample_values(sample),
     }
 
 
@@ -382,17 +408,23 @@ async def _retry_parse_map_spec(
     # covers the no-tools single-round retry case naturally.
     provider_ext = get_ai_provider(provider)
 
-    result = await provider_ext.complete(
-        model=model,
-        system_prompt="",
-        user_message=extraction_prompt,
-        tools=[],
-        # max_rounds=1 exits before any tool call; executor never runs.
-        tool_executor=noop_tool_executor,
-        max_rounds=1,
-        max_tokens=1024,
-        base_url=runtime_config.get("base_url"),
-    )
+    # fix(#1778 round 2): a single-round call still spends a round. Same
+    # accounting shape as the tool loops, so the structural gate does not
+    # have to carve out an exception it would then have to justify.
+    async with usage_accounting(
+        session, user_id=user_id, subsystem="map_generation", model=model
+    ):
+        result = await provider_ext.complete(
+            model=model,
+            system_prompt="",
+            user_message=extraction_prompt,
+            tools=[],
+            # max_rounds=1 exits before any tool call; executor never runs.
+            tool_executor=noop_tool_executor,
+            max_rounds=1,
+            max_tokens=1024,
+            base_url=runtime_config.get("base_url"),
+        )
     # codex P2 on #646/#648: retry/repair rounds spend real provider tokens —
     # record them or they bypass the daily AI budget.
     await record_token_usage(
@@ -440,17 +472,23 @@ async def _repair_map_spec(
     )
     provider_ext = get_ai_provider(provider)
 
-    result = await provider_ext.complete(
-        model=model,
-        system_prompt="",
-        user_message=repair_prompt,
-        tools=[],
-        # max_rounds=1 exits before any tool call; executor never runs.
-        tool_executor=noop_tool_executor,
-        max_rounds=1,
-        max_tokens=1024,
-        base_url=runtime_config.get("base_url"),
-    )
+    # fix(#1778 round 2): a single-round call still spends a round. Same
+    # accounting shape as the tool loops, so the structural gate does not
+    # have to carve out an exception it would then have to justify.
+    async with usage_accounting(
+        session, user_id=user_id, subsystem="map_generation", model=model
+    ):
+        result = await provider_ext.complete(
+            model=model,
+            system_prompt="",
+            user_message=repair_prompt,
+            tools=[],
+            # max_rounds=1 exits before any tool call; executor never runs.
+            tool_executor=noop_tool_executor,
+            max_rounds=1,
+            max_tokens=1024,
+            base_url=runtime_config.get("base_url"),
+        )
     # codex P2 on #648: repair-round tokens must count toward the daily cap.
     await record_token_usage(
         session,
@@ -463,7 +501,7 @@ async def _repair_map_spec(
     try:
         return LLMMapSpec(**_parse_map_spec(result.text))
     except (ValueError, ValidationError) as e:
-        raise ValueError(
+        raise UserFacingAIError(
             "The AI couldn't produce a valid map for this prompt — try rephrasing it."
         ) from e
 
@@ -568,7 +606,9 @@ async def _validate_and_persist_map(
     requested_ids = [layer.dataset_id for layer in spec.layers]
     missing = [did for did in requested_ids if did not in ds_info]
     if missing:
-        raise ValueError(f"Datasets not found or not accessible: {', '.join(missing)}")
+        raise UserFacingAIError(
+            f"Datasets not found or not accessible: {', '.join(missing)}"
+        )
 
     # Validate viewport coords against union of dataset bboxes
     # If the LLM-generated center is far outside the data extent, snap to centroid
@@ -733,21 +773,26 @@ async def generate_map_from_prompt(
     tool_executor = _build_tool_executor(session, user, user_roles, send_samples, port)
 
     try:
-        result = await provider_ext.complete(
-            model=model,
-            system_prompt=system_prompt,
-            user_message=prompt,
-            tools=ANTHROPIC_TOOLS,
-            tool_executor=tool_executor,
-            base_url=runtime_config.get("base_url"),
-            temperature=0.3,
-            max_tokens=1024,
-            max_rounds=8,
-        )
-    except ToolLoopExhaustedError:
-        raise ValueError(
+        async with usage_accounting(
+            session, user_id=user.id, subsystem="map_generation", model=model
+        ):
+            result = await provider_ext.complete(
+                model=model,
+                system_prompt=system_prompt,
+                user_message=prompt,
+                tools=ANTHROPIC_TOOLS,
+                tool_executor=tool_executor,
+                base_url=runtime_config.get("base_url"),
+                temperature=0.3,
+                max_tokens=1024,
+                max_rounds=8,
+            )
+    except ToolLoopExhaustedError as exc:
+        # Accounting already happened inside the context manager; this only
+        # translates the failure for the caller.
+        raise UserFacingAIError(
             "Map generation required too many steps. Try a simpler prompt."
-        )
+        ) from exc
 
     logger.info(
         "Map generation complete",
@@ -780,7 +825,7 @@ async def generate_map_from_prompt(
 
     # Check for error response
     if "error" in spec_dict:
-        raise ValueError(spec_dict["error"])
+        raise UserFacingAIError(spec_dict["error"])
 
     # Validate with pydantic, with one LLM repair round (fix #642)
     try:
@@ -797,7 +842,7 @@ async def generate_map_from_prompt(
         )
 
     if not spec.layers:
-        raise ValueError("LLM produced a map with no layers")
+        raise UserFacingAIError("LLM produced a map with no layers")
 
     return await _validate_and_persist_map(
         session, user, user_roles, spec, basemap_ids=basemap_ids, port=port
@@ -852,20 +897,31 @@ async def stream_generate_map(
             )
             return result
 
-        result = await asyncio.wait_for(
-            provider_ext.complete(
-                model=model,
-                system_prompt=system_prompt,
-                user_message=prompt,
-                tools=ANTHROPIC_TOOLS,
-                tool_executor=tracking_executor,
-                base_url=runtime_config.get("base_url"),
-                temperature=0.3,
-                max_tokens=1024,
-                max_rounds=8,
-            ),
-            timeout=300.0,  # 5-minute hard cap on LLM tool loop
-        )
+        # fix(#1778 round 2): this generator's own handlers below turn an
+        # exhaustion or a timeout into an SSE error event and return, and a
+        # browser that goes away cancels the whole task, so without the
+        # context manager the provider had already billed the round and
+        # nothing reached catalog.ai_token_usage. It covers all three: the
+        # wait_for timeout arrives with its counts on __cause__, and the
+        # disconnect arrives as a CancelledError that an `except Exception`
+        # would have missed entirely.
+        async with usage_accounting(
+            session, user_id=user.id, subsystem="map_generation", model=model
+        ):
+            result = await asyncio.wait_for(
+                provider_ext.complete(
+                    model=model,
+                    system_prompt=system_prompt,
+                    user_message=prompt,
+                    tools=ANTHROPIC_TOOLS,
+                    tool_executor=tracking_executor,
+                    base_url=runtime_config.get("base_url"),
+                    temperature=0.3,
+                    max_tokens=1024,
+                    max_rounds=8,
+                ),
+                timeout=300.0,  # 5-minute hard cap on LLM tool loop
+            )
 
         logger.info(
             "Map generation complete (streaming)",
@@ -947,5 +1003,17 @@ async def stream_generate_map(
             "message": "Map generation timed out. Try a simpler prompt.",
         }
     except Exception as e:  # broad: SSE generator must yield error event for any unhandled SDK/runtime exception
+        # fix(#1778): `str(e)` used to go straight to the browser. A SQLAlchemy
+        # ProgrammingError carries the statement and its bound parameters, an
+        # anthropic/openai APIStatusError carries the provider response body and
+        # request URL, and OpenAICredentialDestinationError names the configured
+        # endpoint. This generator catches before the router's own sanitized
+        # event, so all of that reached any holder of use_ai_chat.
+        #
+        # fix(#1778 round 1): the passthrough is a positive allowlist of ONE
+        # explicitly constructed type, not "any ValueError". That set is open,
+        # and OpenAICredentialDestinationError is in it: a ValueError that names
+        # the configured provider endpoint, so the round-0 shape emitted
+        # verbatim the deployment detail it meant to hide.
         logger.exception("Streaming map generation failed")
-        yield {"type": "error", "message": str(e)}
+        yield {"type": "error", "message": safe_stream_error_message(e)}

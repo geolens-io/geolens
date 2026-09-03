@@ -41,7 +41,6 @@ this POST route — it is a read semantically — via the exact-route carve-out 
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Awaitable, Callable
 
 import structlog
@@ -53,13 +52,19 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.dependencies import get_db
 from app.core.identity import Identity
 from app.modules.audit.service import AuditEvent, audit_emit_durable
 from app.modules.auth.dependencies import require_permission
 from app.platform.ratelimit import limiter
 from app.platform.sandbox import SandboxError, SandboxResult, validate_and_execute
+from app.processing.ai.sandbox_bounds import (
+    MAX_OUTPUT_COLUMNS,
+    MAX_TABLE_REPEATS,
+    MAX_VALUES_ROWS,
+    capacity_bound,
+    query_slots,
+)
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH, RATE_LIMIT_RESPONSE
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -123,12 +128,14 @@ _QUERY_TIMEOUT_MS = 5_000
 _QUERY_DEFAULT_ROW_LIMIT = 100
 _QUERY_MAX_ROW_LIMIT = 1000
 
-# Self-join fan-out cap: the largest number of times any one base table is
-# multiplied into a statement's worst-case cardinality (through CTEs, subquery
-# correlation, LATERAL, and parenthesized groups). Two keeps ordinary pairwise
-# self-joins working while refusing `a, a, a` and its launderings. Applied only
-# on this endpoint — AI chat passes no cap, so its behavior is unchanged.
-_QUERY_MAX_TABLE_REPEATS = 2
+# fix(#1778): the self-join fan-out cap moved to sandbox_bounds.py and now
+# applies to AI chat's query_data tool as well. It bounds worst-case
+# cardinality, which is a property of the shared planner and pool rather than
+# of this endpoint, and both surfaces are gated by the same `use_ai_chat`
+# permission — so "applied only on this endpoint" made it opt-out by asking
+# the chatbot instead. Kept under the local name so the call site below and
+# the #565 regression tests read unchanged.
+_QUERY_MAX_TABLE_REPEATS = MAX_TABLE_REPEATS
 
 # Output-amplifying functions dropped on this raw surface (#565 codex P1
 # r17/r18). Each turns a small input into an arbitrarily large single cell via
@@ -167,43 +174,16 @@ _QUERY_BLOCKED_FUNCTIONS: frozenset[str] = frozenset(
     }
 )
 
-# Cap on inline VALUES rows: a large constant relation cross-joined a few times
-# is a row explosion the base-table fan-out cap cannot see (#565 codex P1 r17).
-# Generous enough for real lookup lists; the fan-out cap bounds the cross-join.
-_QUERY_MAX_VALUES_ROWS = 256
-
-# fix(#565 codex P1 r20): repeated plain projections need no function to amplify
-# — SELECT payload, payload, ... (1600x) FROM foo LIMIT 1 fits under the SQL cap
-# and materializes a gigabyte-wide row. Cap output columns, and cap the total
-# serialized response so a wide DATA cell (no function involved) is bounded too.
-_QUERY_MAX_OUTPUT_COLUMNS = 100
+# fix(#1778): the VALUES-row, output-column and concurrency bounds moved to
+# sandbox_bounds.py so AI chat's query_data applies the same objects. The
+# response-byte cap stays here: it bounds THIS endpoint's serialized HTTP
+# response, which the chat tool result does not produce.
+_QUERY_MAX_VALUES_ROWS = MAX_VALUES_ROWS
+_QUERY_MAX_OUTPUT_COLUMNS = MAX_OUTPUT_COLUMNS
 _QUERY_MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 
-
-def _capacity_bound() -> int:
-    """Max concurrent sandbox queries this endpoint admits (#565 codex P1 r11).
-
-    A pool-derived, fail-fast global bound on top of the per-user advisory lock
-    — the lock stops ONE user stacking queries but not N distinct users each
-    holding a connection, and the 10+3 pool exhausts at seven. The endpoint
-    releases the request session before execute_safe (release_session=True), so
-    each in-flight query costs one slot; sizing at a third of the pool keeps
-    unrelated endpoints from ever waiting on the pool timeout. Mirrors the
-    analysis-preview bound (service_analysis.py) but cannot import it —
-    processing/ may not import modules.catalog — so the small calc is repeated.
-    """
-    if settings.db_use_external_pooler:
-        # NullPool: the real budget belongs to PgBouncer/RDS Proxy, invisible
-        # here. Keep a throttle at the default-pool value rather than sizing
-        # from settings that no longer apply.
-        return 4
-    overflow = max(0, settings.db_max_overflow)
-    return max(1, (settings.db_pool_size + overflow) // 3)
-
-
-# Per-worker (an asyncio.Semaphore cannot span processes); each worker has its
-# own pool, so the ratio this protects holds per pool — the thing that runs out.
-_query_slots = asyncio.Semaphore(_capacity_bound())
+_capacity_bound = capacity_bound
+_query_slots = query_slots
 
 # Module-level so tests can lower them; slowapi evaluates callables per
 # request (same pattern as auth.router's persistent-config-driven limits).

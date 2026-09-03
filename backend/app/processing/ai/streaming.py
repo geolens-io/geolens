@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.persistent_config import MAX_AI_TOKENS_PER_USER_PER_DAY
-from app.platform.ai_tool_payloads import model_safe_tool_result
+from app.platform.ai_tool_payloads import tool_result_content
 
 from app.processing.ai.chat_service import (
     _build_chat_actions,
@@ -30,6 +30,7 @@ from app.processing.ai.llm_loop import (
     add_tool_cache_control,
     build_history_messages,
     resolve_provider,
+    safe_stream_error_message,
 )
 from app.processing.ai.schemas import ChatHistoryMessage, history_to_dicts
 from app.processing.ai.token_usage import AITokenUsage, record_token_usage
@@ -349,13 +350,9 @@ async def _stream_anthropic_chat(
                         {
                             "type": "tool_result",
                             "tool_use_id": block.id,
-                            # default=str: query_data rows can carry Decimal /
-                            # datetime values straight from PostGIS.
-                            "content": json.dumps(
-                                model_safe_tool_result(
-                                    raw_results[0] if raw_results else {}
-                                ),
-                                default=str,
+                            # fix(#1778 round 2): fenced, not bare JSON.
+                            "content": tool_result_content(
+                                raw_results[0] if raw_results else {}
                             ),
                         }
                     )
@@ -662,10 +659,8 @@ async def _stream_openai_chat(
                     {
                         "role": "tool",
                         "tool_call_id": call_id,
-                        # default=str: see the Anthropic tool_result path above.
-                        "content": json.dumps(
-                            model_safe_tool_result(result), default=str
-                        ),
+                        # fix(#1778 round 2): fenced, not bare JSON.
+                        "content": tool_result_content(result),
                     }
                 )
             continue
@@ -793,11 +788,14 @@ async def stream_chat_edit(
         ):
             yield event
     except Exception as e:  # broad: SSE stream generator — any unhandled SDK/runtime error must yield a graceful error event
-        error_msg = "An unexpected error occurred. Please try again."
-        if isinstance(e, (ValueError, KeyError)):
-            error_msg = str(e)
+        # fix(#1778 round 1): the same positive allowlist the map-generation
+        # generator now uses. This branch passed every ValueError and KeyError
+        # through, and nothing on this path raises either deliberately, so all
+        # it ever forwarded was incidental detail: a KeyError names an internal
+        # dict key, and OpenAICredentialDestinationError is a ValueError that
+        # names the configured provider endpoint.
         logger.exception("Chat streaming error")
-        yield {"type": "error", "message": error_msg}
+        yield {"type": "error", "message": safe_stream_error_message(e)}
     finally:
         # Guarantee cleanup even if the consumer cancels mid-stream. The
         # caller owns the db session (we don't close it), but we flush any

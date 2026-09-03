@@ -1514,7 +1514,19 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # set_filter after a query_data result that reads as a simple row
         # predicate) plus the doc/comment explaining why it is gated and why
         # it lives here rather than in tools.py. Cap raised 456 -> 485, exact.
-        "backend/app/processing/ai/chat_service.py": 485,
+        # fix(#1778): +28 - the provider call is wrapped so a tool loop that
+        # exhausts still records what it spent, and the layer block in the
+        # system prompt now scrubs column names and sample values and is fenced
+        # in an explicit trust boundary the model is told to read as data.
+        # Cap 485 -> 513, exact.
+        # fix(#1778 round 1): +3 - the layer block is fenced by the shared
+        # helper instead of interpolating the marker tags here, so a layer id
+        # or a serialized filter cannot forge a closing tag either.
+        # Cap 513 -> 516, exact.
+        # fix(#1778 round 3): +3 - safe_rows re-exported through the facade
+        # alongside _safe_value, per the module's import contract.
+        # Cap 516 -> 519, exact.
+        "backend/app/processing/ai/chat_service.py": 519,
         # fix(#836): defaults.py is the facade over the extensions-defaults
         # split (defaults_*.py sub-modules discovered below). Pure re-exports —
         # a new Default* class costs a few lines here.
@@ -1862,14 +1874,36 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # was split into the new chat_analysis.py sibling (auto-discovered by the
         # chat_*.py glob below, ~142 lines under the 350 default) rather than
         # grown here. Cap 530 → 550 (~14 headroom).
-        "backend/app/processing/ai/chat_actions.py": 550,
+        # fix(#1778): +31 - the _SANDBOX_BOUNDS table and the comment
+        # enumerating what query_data now passes to the sandbox and, for the
+        # statement timeout and the output-amplification denylist, why it
+        # deliberately does not. Both surfaces sit behind the same
+        # use_ai_chat permission, so the omissions were opt-out by asking the
+        # chatbot. Cap 550 -> 581, exact.
+        # fix(#1778 round 3): +6 - safe_rows on the tabular half of the
+        # query_data payload, at the one point it is handed to a frame, plus
+        # the note saying why it runs after geometry detection and not before.
+        # Cap 581 -> 587, exact.
+        "backend/app/processing/ai/chat_actions.py": 587,
         # feat(#1241): +18 over the 350 default — _safe_value now emits
         # integers outside JavaScript's safe range as strings (constant, the
         # int branch, and the docstring explaining why), so a bigint id
         # survives the browser's JSON.parse intact instead of arriving rounded
         # and being written that way into a saved chat-preview snapshot.
         # Cap 350 → 370 (~17 headroom).
-        "backend/app/processing/ai/chat_geojson.py": 370,
+        # fix(#1778): +50 — non-finite floats now become null and an all-EMPTY
+        # result returns no bbox instead of [inf, inf, -inf, -inf], either of
+        # which used to make the actions frame unparseable (the browser dropped
+        # it silently; the non-streaming endpoint returned 500). Two helpers
+        # were split out to keep _extract_geojson under the complexity gate:
+        # _parse_row_geometry (the per-row parse) and _row_properties (the
+        # property build plus its non-finite count, which feeds one warning per
+        # result rather than one per cell). Cap 370 -> 420, exact.
+        # fix(#1778 round 3): +17 - safe_rows, the tabular sibling of
+        # _safe_value. Round 0 normalized only the GeoJSON property copy, so a
+        # NaN in an ordinary column still reached the SSE frame as a bare token
+        # and the browser dropped the whole frame. Cap 420 -> 437, exact.
+        "backend/app/processing/ai/chat_geojson.py": 437,
         # fix(#836): extensions-defaults sub-modules over the 350 default at
         # split time. Caps exact (zero headroom): each class moved verbatim
         # from the 1815-LOC defaults.py, and regrowth toward another god
@@ -1879,7 +1913,21 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # bare **kwargs shim, so a missing keyword surfaces at the port
         # boundary rather than inside _stream_openai_chat. Cap 444 -> 492,
         # exact.
-        "backend/app/platform/extensions/defaults_ai_openai.py": 492,
+        # fix(#1778): +10 - each of the three ToolLoopExhaustedError raise
+        # sites now carries the running token totals, so the caller can bill an
+        # exhausted loop to the daily cap instead of losing it. Cap 492 -> 502,
+        # exact.
+        # fix(#1778 round 1): +18 - the loop is wrapped so EVERY exit stamps
+        # its running token totals, not only the three exhaustion raises. After
+        # round one the provider has been billed, so a later request failure, a
+        # tool executor that raises, or a cancellation must still reach the
+        # daily quota. Cap 502 -> 520, exact.
+        "backend/app/platform/extensions/defaults_ai_openai.py": 520,
+        # fix(#1778 round 1): first explicit cap, over the 350 default. The
+        # loop is wrapped so every exit stamps its running token totals, and
+        # _run_tool_use_blocks was split out of complete() because that wrapper
+        # pushed it over the complexity gate. Cap 350 -> 372, exact.
+        "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
         # fix(#1207): +15 — three delegations for the shared presigned-completion
         # helpers (lock/assemble-check/finalize) the reupload door reaches through
         # the port. Three lines each, matching the existing entries.
@@ -4554,7 +4602,29 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # identifiers (DATA.ROADS → data.roads) before the access check so a
     # PostgreSQL-valid reference is not false-404'd. Most of the added lines are
     # that rationale. Cap at the exact size.
-    "backend/app/platform/sandbox/validator.py": 1871,
+    # fix(#1778): +63 — _BLOCKED_NILADIC_KEYWORDS and _check_niladic_keywords,
+    # which reject PostgreSQL's parenless identity keywords. sqlglot gives only
+    # some of them a Func subclass, so `user`, `current_role` and `system_user`
+    # parsed as columns and slipped the allowlist walk entirely; the comments
+    # record that parse-shape dependency so a sqlglot bump does not quietly
+    # reopen it. The rest is the TokenError note at the parse site. Cap
+    # 1871 -> 1934, exact.
+    "backend/app/platform/sandbox/validator.py": 1934,
+    # fix(#1778): crossed the 1000-line inclusion threshold, so it joins
+    # the ratchet at its exact size. The growth is the token accounting on
+    # the two map-generation failure exits (an exhausted or timed-out loop
+    # is billed by the provider and used to record nothing), the fixed
+    # error message replacing raw exception text in the SSE stream, and the
+    # scrubbing of dataset content in the two catalog tool results.
+    # fix(#1778 round 1): +3 - the SSE error branch passes only an explicitly
+    # constructed UserFacingAIError through, so the five deliberate refusals
+    # say so by type instead of every ValueError being trusted (
+    # OpenAICredentialDestinationError is one, and its message IS the endpoint).
+    # fix(#1778 round 2): +11 - every provider call site moved to the shared
+    # usage_accounting context manager, including the two single-round repair
+    # calls that had no failure accounting at all, and the map prompt gained
+    # the tool-result protocol that says what the fence markers mean.
+    "backend/app/processing/ai/service.py": 1019,
     # fix(#1463): crossed the inclusion threshold. The growth is the vector-tile
     # protocol constants and the stale-label repair in generate_distributions,
     # plus the comment recording why the repair has to exist at all: migration
