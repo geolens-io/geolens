@@ -10635,7 +10635,7 @@
                   "additionalProperties": true,
                   "type": "object"
                 },
-                "maxItems": 200,
+                "maxItems": 1000,
                 "type": "array"
               },
               {

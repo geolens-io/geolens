@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.modules.catalog.maps.schemas import (
+    _MAX_LAYERS_PER_MAP,
     MapLayerInput,
     MapStyleImportSummary,
     MapStyleImportWarning,
@@ -40,6 +41,17 @@ FOLDED_OPACITY_KEYS: dict[str, str] = {"fill": "fill-opacity", "line": "line-opa
 # default of 1, so the export fold has to start from the same number or the
 # exported document renders brighter than the app. Keep the two in step.
 BUILDER_FEATURE_OPACITY_DEFAULTS: dict[str, float] = {"fill": 0.3, "line": 1.0}
+
+
+class MapStyleImportLayerLimitError(ValueError):
+    """A style document that resolves to more layers than one map may hold.
+
+    fix(#1778 round 1): a ValueError subclass so the existing broad
+    ``except ValueError`` in the import route keeps working, and a distinct type
+    so that route can answer 422 for it, matching the status the sibling
+    layer-carrying schemas produce for the same limit, rather than the generic
+    400 it gives a malformed document.
+    """
 
 
 @dataclass
@@ -505,6 +517,19 @@ def parse_maplibre_style_import(  # noqa: C901 - coordinates independent parsers
             )
         )
         summary.layers_imported += 1
+
+    # fix(#1778 round 1): the per-map layer limit belongs here, on the layers
+    # that will become rows, and not on the raw `layers` array. A GeoLens export
+    # emits companions beside every primary (outline, extrusion, label), so the
+    # document carries several style layers per logical one and the raw array
+    # crosses 200 at around 50 polygons. This count is the one apply_layer_diff
+    # will later compare against, so the import door and the save path refuse at
+    # exactly the same number rather than at two different ones.
+    if len(imported_layers) > _MAX_LAYERS_PER_MAP:
+        raise MapStyleImportLayerLimitError(
+            f"Style imports at most {_MAX_LAYERS_PER_MAP} layers per map; "
+            f"this document resolves to {len(imported_layers)}"
+        )
 
     terrain_config: dict[str, Any] | None = None
     raw_terrain = style.get("terrain")

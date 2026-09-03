@@ -2208,7 +2208,11 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # 0/22 no-ops must not be written back as explicit keys, and why a
     # malformed popup config is dropped rather than raised on (MapLayerInput
     # would 400 the whole document over one layer). Cap 506 -> 555.
-    "backend/app/modules/catalog/maps/style_import.py": 555,
+    # fix(#1778 round 1): +25 — MapStyleImportLayerLimitError and the per-map
+    # limit applied to the layers that will become rows, which is the count
+    # apply_layer_diff later compares against, so the import door and the save
+    # path refuse at the same number. Cap 555 -> 580, exact.
+    "backend/app/modules/catalog/maps/style_import.py": 580,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
     # fix(getgeolens.com#86 review): +6 — the icon-asset and sprite-index GETs
     # gained per-route `responses={403: FORBIDDEN_RESPONSE}` overrides; they
@@ -2685,7 +2689,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the truncation counter, because one warning per unmatched source over an
     # unbounded `sources` object put the whole list in the 201 response.
     # Cap 1424 -> 1451, exact.
-    "backend/app/modules/catalog/maps/schemas.py": 1451,
+    # fix(#1778 round 1): +14 — _MAX_STYLE_DOCUMENT_LAYERS replaces the per-map
+    # cap on the raw `layers` array, which counted the companions an export
+    # emits and so refused valid GeoLens documents from about 50 polygons up.
+    # The lines are the derivation: four style layers per logical layer, worst
+    # case, measured, times the per-map cap, plus headroom for the layers an
+    # import skips. Cap 1451 -> 1465, exact.
+    "backend/app/modules/catalog/maps/schemas.py": 1465,
     # fix(#1042): decomposed. The file reached 2151 lines with five carve-outs
     # on this cap, each one a correctness fix that had to argue for its lines:
     # #888 (+117, shift a 0..360 source instead of clipping it, plus the clip
@@ -4729,7 +4739,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # snapshotted before the write commits (after it, every attribute on
     # map_obj is expired and a lazy refresh would raise) and why the extension
     # flip strands a key at all. Cap 1469 -> 1488, exact.
-    "backend/app/modules/catalog/maps/router.py": 1488,
+    # fix(#1778 round 1): +9 — the import route answers 422 for the per-map
+    # layer limit, above the generic ValueError arm it subclasses, with the
+    # comment saying why that order is load-bearing. Cap 1488 -> 1497, exact.
+    "backend/app/modules/catalog/maps/router.py": 1497,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.

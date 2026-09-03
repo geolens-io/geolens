@@ -56,6 +56,7 @@ from app.modules.catalog.maps.schemas import (
 )
 from app.modules.catalog.maps.router_assets import router as assets_router
 from app.modules.catalog.maps.router_sharing import router as sharing_router
+from app.modules.catalog.maps.style_import import MapStyleImportLayerLimitError
 from app.modules.catalog.maps.style_json import parse_maplibre_style_import
 from app.modules.catalog.maps.service import (
     bulk_check_dataset_access,
@@ -257,6 +258,14 @@ async def import_map_style_endpoint(
     style = body.model_dump(exclude_none=True)
     try:
         imported = parse_maplibre_style_import(style)
+    # fix(#1778 round 1): the per-map layer limit answers 422, the status the
+    # sibling layer-carrying schemas already produce for it, so the two doors
+    # report the same limit the same way. Must precede the ValueError arm below,
+    # which it subclasses.
+    except MapStyleImportLayerLimitError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 

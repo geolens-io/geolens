@@ -158,6 +158,20 @@ _MAX_LAYERS_PER_MAP = 200
 # How many style-import warnings the summary reports individually before it
 # starts counting instead (fix(#1778)).
 _MAX_IMPORT_WARNINGS = 100
+# The raw `layers` array of an imported style document is NOT the logical layer
+# count, and the two must not share a bound (fix(#1778 round 1)). A GeoLens
+# export emits companions beside every primary: a polygon emits an outline
+# always, a 3D polygon adds an extrusion, and any layer with a label column adds
+# a label symbol, which is four style layers for one logical layer (measured on
+# build_maplibre_style, and it is the worst case: the line arrow and the DEM
+# color relief are alternatives to those branches, not additions to them). So
+# 200 logical layers can legitimately arrive as 800 style layers, and a 101
+# polygon export was 303. This bound is 4 * _MAX_LAYERS_PER_MAP plus 200 of
+# headroom for the layers an import skips entirely, since a document pasted from
+# another tool carries that tool's basemap layers along with the GeoLens ones.
+# It is a resource bound on the document, not the per-map layer limit: that one
+# is enforced on the logical list after companion classification.
+_MAX_STYLE_DOCUMENT_LAYERS = 4 * _MAX_LAYERS_PER_MAP + 200
 
 
 def _reject_oversize_json(value: object | None, label: str) -> None:
@@ -1170,14 +1184,14 @@ class MapStyleImportRequest(BaseModel):
         default=None,
         description="MapLibre terrain config (source + exaggeration)",
     )
-    # fix(#1778): the same per-map layer cap the three sibling layer-carrying
-    # schemas already write. Without it this door created maps the builder's own
-    # save path then refused to edit, because apply_layer_diff raises once the
-    # resulting count passes _MAX_LAYERS_PER_MAP, so every ordinary edit of an
-    # over-cap imported map answered 400 until the owner bulk-deleted the excess.
+    # fix(#1778): a bound on the raw document, so a body of unbounded length is
+    # refused before anything walks it. The per-map layer limit this door was
+    # missing is enforced separately, on the logical layers that survive
+    # companion classification, because _MAX_LAYERS_PER_MAP here would have
+    # refused any GeoLens export of more than ~50 polygons (fix(#1778 round 1)).
     layers: list[dict] | None = Field(
         default=None,
-        max_length=_MAX_LAYERS_PER_MAP,
+        max_length=_MAX_STYLE_DOCUMENT_LAYERS,
         description="MapLibre layer specifications",
     )
 
