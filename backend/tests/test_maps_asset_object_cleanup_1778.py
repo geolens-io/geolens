@@ -54,6 +54,26 @@ def _storage():
     return get_storage()
 
 
+async def _objects(prefix: str, map_id: str) -> set[str]:
+    """Every stored object under ``prefix`` belonging to this map.
+
+    fix(#1778 round 3): keys carry a random component per write now, so the
+    tests read what is stored instead of reconstructing a name. That is also the
+    property under test in several of them: exactly one object survives a
+    replacement, and it is not the one that was there before.
+    """
+    # The trailing slash matters: LocalStorageProvider reads a prefix without
+    # one as a file-name prefix and globs the parent directory instead.
+    listed = await _storage().list(prefix.rstrip("/") + "/")
+    return {key for key in listed if map_id in key}
+
+
+async def _the_object(prefix: str, map_id: str) -> str:
+    keys = await _objects(prefix, map_id)
+    assert len(keys) == 1, keys
+    return next(iter(keys))
+
+
 class TestDeletedMapAssets:
     async def test_delete_removes_both_stored_objects(
         self, client: AsyncClient, admin_auth_header: dict
@@ -74,10 +94,8 @@ class TestDeletedMapAssets:
             )
         ).status_code == 204
 
-        thumbnail_key = f"maps/thumbnails/{map_id}.jpg"
-        og_key = f"maps/og-images/{map_id}.jpg"
-        assert await _storage().exists(thumbnail_key)
-        assert await _storage().exists(og_key)
+        thumbnail_key = await _the_object("maps/thumbnails", map_id)
+        og_key = await _the_object("maps/og-images", map_id)
 
         resp = await client.delete(f"/maps/{map_id}", headers=admin_auth_header)
         assert resp.status_code == 204, resp.text
@@ -116,17 +134,28 @@ class TestDeletedMapAssets:
         assert gone.status_code == 404
 
 
-class TestReuploadInAnotherEncoding:
+class TestReupload:
+    """A replacement leaves exactly one object behind, whatever the encoding.
+
+    The original finding was the extension flip: the key ended in `.jpg` or
+    `.png` after the payload, so a PNG re-upload after a JPEG repointed the
+    column and stranded the old object. Keys carry a random component per write
+    now (fix(#1778 round 3)), which makes every re-upload a replacement, so the
+    same-encoding case is the same case rather than a separate one.
+    """
+
     @pytest.mark.parametrize(
         ("route", "prefix"),
         [("thumbnail", "maps/thumbnails"), ("og-image", "maps/og-images")],
     )
-    async def test_the_stranded_key_is_discarded(
+    @pytest.mark.parametrize("second_encoding", ["jpeg", "png"])
+    async def test_the_previous_object_is_discarded(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         route: str,
         prefix: str,
+        second_encoding: str,
     ) -> None:
         map_id = await _create_map(client, admin_auth_header)
         await client.put(
@@ -134,32 +163,40 @@ class TestReuploadInAnotherEncoding:
             json={"data_uri": _jpeg_data_uri()},
             headers=admin_auth_header,
         )
-        assert await _storage().exists(f"{prefix}/{map_id}.jpg")
+        first_key = await _the_object(prefix, map_id)
 
         resp = await client.put(
             f"/maps/{map_id}/{route}/",
-            json={"data_uri": _png_data_uri()},
+            json={
+                "data_uri": _jpeg_data_uri()
+                if second_encoding == "jpeg"
+                else _png_data_uri()
+            },
             headers=admin_auth_header,
         )
 
         assert resp.status_code == 204, resp.text
-        assert await _storage().exists(f"{prefix}/{map_id}.png")
-        assert not await _storage().exists(f"{prefix}/{map_id}.jpg")
+        second_key = await _the_object(prefix, map_id)
+        assert second_key != first_key
+        assert not await _storage().exists(first_key)
 
-    async def test_re_uploading_the_same_encoding_keeps_the_object(
+    async def test_the_served_image_survives_a_replacement(
         self, client: AsyncClient, admin_auth_header: dict
     ) -> None:
-        """The new bytes land on the same key, so nothing may be deleted after."""
         map_id = await _create_map(client, admin_auth_header)
-        for _ in range(2):
+        for data_uri in (_jpeg_data_uri(), _png_data_uri(), _jpeg_data_uri()):
             resp = await client.put(
                 f"/maps/{map_id}/thumbnail/",
-                json={"data_uri": _jpeg_data_uri()},
+                json={"data_uri": data_uri},
                 headers=admin_auth_header,
             )
             assert resp.status_code == 204, resp.text
+            get_resp = await client.get(
+                f"/maps/{map_id}/thumbnail/", headers=admin_auth_header
+            )
+            assert get_resp.status_code == 200, get_resp.text
 
-        assert await _storage().exists(f"maps/thumbnails/{map_id}.jpg")
+        assert len(await _objects("maps/thumbnails", map_id)) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -241,8 +278,7 @@ class TestOverlappingReplacements:
         )
         assert get_resp.status_code == 200, get_resp.text
 
-        assert await storage.exists(f"maps/thumbnails/{map_id}.png")
-        assert not await storage.exists(f"maps/thumbnails/{map_id}.jpg")
+        assert len(await _objects("maps/thumbnails", map_id)) == 1
 
     async def test_the_og_image_handler_is_serialized_the_same_way(
         self, client: AsyncClient, admin_auth_header: dict, monkeypatch
@@ -297,8 +333,7 @@ class TestOverlappingReplacements:
             f"/maps/{map_id}/og-image/", headers=admin_auth_header
         )
         assert get_resp.status_code == 200, get_resp.text
-        assert await storage.exists(f"maps/og-images/{map_id}.png")
-        assert not await storage.exists(f"maps/og-images/{map_id}.jpg")
+        assert len(await _objects("maps/og-images", map_id)) == 1
 
 
 class TestCleanupRefusesALiveKey:
@@ -320,8 +355,7 @@ class TestCleanupRefusesALiveKey:
             json={"data_uri": _jpeg_data_uri()},
             headers=admin_auth_header,
         )
-        live_key = f"maps/thumbnails/{map_id}.jpg"
-        assert await _storage().exists(live_key)
+        live_key = await _the_object("maps/thumbnails", map_id)
 
         await discard_map_asset_objects(test_db_session, uuid.UUID(map_id), [live_key])
 
@@ -342,13 +376,14 @@ class TestCleanupRefusesALiveKey:
             json={"data_uri": _jpeg_data_uri()},
             headers=admin_auth_header,
         )
-        stale_key = f"maps/thumbnails/{map_id}.png"
+        live_key = await _the_object("maps/thumbnails", map_id)
+        stale_key = f"maps/thumbnails/{map_id}-stale.png"
         await _storage().put(stale_key, b"stale")
 
         await discard_map_asset_objects(test_db_session, uuid.UUID(map_id), [stale_key])
 
         assert not await _storage().exists(stale_key)
-        assert await _storage().exists(f"maps/thumbnails/{map_id}.jpg")
+        assert await _storage().exists(live_key)
 
     async def test_every_key_of_a_deleted_map_is_deletable(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
@@ -362,7 +397,7 @@ class TestCleanupRefusesALiveKey:
             json={"data_uri": _jpeg_data_uri()},
             headers=admin_auth_header,
         )
-        key = f"maps/thumbnails/{map_id}.jpg"
+        key = await _the_object("maps/thumbnails", map_id)
         await client.delete(f"/maps/{map_id}", headers=admin_auth_header)
         await _storage().put(key, b"recreated by hand")
 
@@ -406,3 +441,193 @@ def test_every_cleanup_caller_takes_the_row_lock_1778() -> None:
         if "lock_map_for_asset_write" not in names
     ]
     assert unlocked == [], unlocked
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778 round 3): the window between the survivor re-read and the delete
+# ---------------------------------------------------------------------------
+
+
+class TestCleanupRaceAfterTheLockIsReleased:
+    """The row lock ends at the commit, so the cleanup runs unprotected.
+
+    The surviving interleave after round 2: A commits its URI and re-reads the
+    row, deciding its old key is dead; A is descheduled before the delete; B
+    takes the lock, writes and commits; A's delete lands. While the two keys per
+    map were reused, B could only ever write one of the same two names, so A's
+    delete could remove the object B had just published and the served image
+    answered 404. Keys carry a random component per write now, so a candidate
+    can never become live again and the interleave is harmless.
+    """
+
+    @pytest.mark.parametrize(
+        ("route", "prefix"),
+        [("thumbnail", "maps/thumbnails"), ("og-image", "maps/og-images")],
+    )
+    async def test_a_delete_decided_before_a_concurrent_commit_is_harmless(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        monkeypatch,
+        route: str,
+        prefix: str,
+    ) -> None:
+        map_id = await _create_map(client, admin_auth_header)
+        # Seed a PNG so the first request's replacement is the other encoding,
+        # which is what made the two names collide under the old key shape.
+        await client.put(
+            f"/maps/{map_id}/{route}/",
+            json={"data_uri": _png_data_uri()},
+            headers=admin_auth_header,
+        )
+
+        storage = _storage()
+        original_delete = storage.delete
+        delete_decided = asyncio.Event()
+        release_delete = asyncio.Event()
+
+        async def _hooked_delete(key: str):
+            # The first delete is the one the first request decided on after
+            # re-reading the row. Hold it there, which is exactly the window
+            # the re-read cannot cover.
+            if not delete_decided.is_set():
+                delete_decided.set()
+                await release_delete.wait()
+            return await original_delete(key)
+
+        monkeypatch.setattr(storage, "delete", _hooked_delete)
+
+        first = asyncio.create_task(
+            client.put(
+                f"/maps/{map_id}/{route}/",
+                json={"data_uri": _jpeg_data_uri()},
+                headers=admin_auth_header,
+            )
+        )
+        await asyncio.wait_for(delete_decided.wait(), timeout=10)
+
+        # The first request has committed and released the lock, so the second
+        # runs to completion here rather than blocking.
+        second = await client.put(
+            f"/maps/{map_id}/{route}/",
+            json={"data_uri": _png_data_uri()},
+            headers=admin_auth_header,
+        )
+        assert second.status_code == 204, second.text
+
+        release_delete.set()
+        first_resp = await asyncio.wait_for(first, timeout=30)
+        assert first_resp.status_code == 204, first_resp.text
+
+        get_resp = await client.get(
+            f"/maps/{map_id}/{route}/", headers=admin_auth_header
+        )
+        assert get_resp.status_code == 200, get_resp.text
+        assert len(await _objects(prefix, map_id)) == 1
+
+
+class TestAssetKeysAreNeverReused:
+    async def test_two_uploads_of_one_encoding_produce_two_keys(
+        self, client: AsyncClient, admin_auth_header: dict
+    ) -> None:
+        map_id = await _create_map(client, admin_auth_header)
+        seen = set()
+        for _ in range(3):
+            await client.put(
+                f"/maps/{map_id}/thumbnail/",
+                json={"data_uri": _jpeg_data_uri()},
+                headers=admin_auth_header,
+            )
+            seen.add(await _the_object("maps/thumbnails", map_id))
+
+        assert len(seen) == 3
+
+    def test_the_key_keeps_the_extension_last_1778(self) -> None:
+        """get_thumbnail picks its media type with endswith('.jpg')."""
+        from app.modules.catalog.maps.service import new_map_asset_key
+
+        map_id = uuid.uuid4()
+        key = new_map_asset_key("maps/thumbnails", map_id, "jpg")
+
+        assert key.startswith(f"maps/thumbnails/{map_id}-")
+        assert key.endswith(".jpg")
+        assert key != new_map_asset_key("maps/thumbnails", map_id, "jpg")
+
+    async def test_a_key_stored_in_the_old_unversioned_shape_still_serves(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """Rows written before this change hold the key verbatim; nothing was
+        migrated, so the read path and the first replacement must both work."""
+        from sqlalchemy import update
+
+        from app.modules.catalog.maps.models import Map
+
+        map_id = await _create_map(client, admin_auth_header)
+        legacy_key = f"maps/thumbnails/{map_id}.jpg"
+        await _storage().put(legacy_key, b"legacy bytes")
+        await test_db_session.execute(
+            update(Map)
+            .where(Map.id == uuid.UUID(map_id))
+            .values(thumbnail_uri=legacy_key)
+        )
+        await test_db_session.commit()
+
+        get_resp = await client.get(
+            f"/maps/{map_id}/thumbnail/", headers=admin_auth_header
+        )
+        assert get_resp.status_code == 200, get_resp.text
+
+        replace = await client.put(
+            f"/maps/{map_id}/thumbnail/",
+            json={"data_uri": _jpeg_data_uri()},
+            headers=admin_auth_header,
+        )
+
+        assert replace.status_code == 204, replace.text
+        assert not await _storage().exists(legacy_key)
+        assert len(await _objects("maps/thumbnails", map_id)) == 1
+        served = await client.get(
+            f"/maps/{map_id}/thumbnail/", headers=admin_auth_header
+        )
+        assert served.status_code == 200, served.text
+
+
+class TestTheLockedReadIsNotStale:
+    async def test_it_sees_what_committed_while_this_request_waited(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """The point of taking the lock is to read what the winner committed.
+
+        Every caller has already loaded the map through ``get_map`` for its 404
+        and ownership check, so a ``select(Map)`` here would come back from the
+        session's identity map carrying the attributes it was loaded with, and
+        the previous key would be the one from before the wait. Found by the
+        overlapping-upload test above once keys stopped being reused: the second
+        request deleted the seed object and left the first request's behind.
+        """
+        from app.modules.catalog.maps.service import get_map, lock_map_for_asset_write
+
+        map_id = await _create_map(client, admin_auth_header)
+        await client.put(
+            f"/maps/{map_id}/thumbnail/",
+            json={"data_uri": _jpeg_data_uri()},
+            headers=admin_auth_header,
+        )
+        # Load it into this session's identity map, the way every caller does.
+        loaded = await get_map(test_db_session, uuid.UUID(map_id))
+        assert loaded is not None
+        stale_key = loaded.thumbnail_uri
+
+        # Another request replaces the image and commits.
+        await client.put(
+            f"/maps/{map_id}/thumbnail/",
+            json={"data_uri": _png_data_uri()},
+            headers=admin_auth_header,
+        )
+        fresh_key = await _the_object("maps/thumbnails", map_id)
+        assert fresh_key != stale_key
+
+        locked = await lock_map_for_asset_write(test_db_session, uuid.UUID(map_id))
+
+        assert locked.thumbnail_uri == fresh_key
+        await test_db_session.rollback()

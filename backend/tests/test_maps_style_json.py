@@ -2919,3 +2919,81 @@ def test_a_malformed_popup_config_is_dropped_not_raised_1778():
 
     assert imported.layers[0].popup_config is None
     assert imported.summary.layers_imported == 1
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778 round 3): a restored minimum must leave a visible band
+# ---------------------------------------------------------------------------
+
+# The builder's substituted range, spelled out rather than imported so this
+# module still collects against a build that names neither constant.
+BUILDER_MAX_ZOOM = 22
+
+
+def test_the_spelled_out_builder_max_zoom_matches_the_module_1778():
+    from app.modules.catalog.maps import style_import
+
+    assert style_import.BUILDER_MAX_ZOOM == BUILDER_MAX_ZOOM
+    assert style_import.BUILDER_MIN_ZOOM == 0
+
+
+def _imported_with_spec_zoom(minzoom=None, maxzoom=None):
+    style = build_maplibre_style(_map(), [_layer(layout={})])
+    primary = _primary(style, "circle")
+    if minzoom is not None:
+        primary["minzoom"] = minzoom
+    if maxzoom is not None:
+        primary["maxzoom"] = maxzoom
+    return parse_maplibre_style_import(style)
+
+
+def test_a_minzoom_above_the_builder_maximum_is_clamped_with_a_warning_1778():
+    """MapLibre hides a layer at zoom >= maxzoom, and the builder substitutes 22
+    for an absent maximum, so minzoom 23 imported as a layer that never drew."""
+    imported = _imported_with_spec_zoom(minzoom=23)
+
+    layout = imported.layers[0].layout
+    assert layout["_minzoom"] == BUILDER_MAX_ZOOM - 1
+    assert "_maxzoom" not in layout
+    assert [w.code for w in imported.summary.warnings] == ["clamped_zoom_range"]
+    assert "23" in imported.summary.warnings[0].message
+
+
+def test_a_minzoom_equal_to_the_builder_maximum_is_clamped_too_1778():
+    """[22, 22) is empty, not narrow: maxzoom is exclusive."""
+    imported = _imported_with_spec_zoom(minzoom=BUILDER_MAX_ZOOM)
+
+    assert imported.layers[0].layout["_minzoom"] == BUILDER_MAX_ZOOM - 1
+    assert [w.code for w in imported.summary.warnings] == ["clamped_zoom_range"]
+
+
+def test_an_explicitly_inverted_pair_is_clamped_the_same_way_1778():
+    imported = _imported_with_spec_zoom(minzoom=8, maxzoom=5)
+
+    layout = imported.layers[0].layout
+    assert layout == {"_minzoom": 4, "_maxzoom": 5}
+    assert [w.code for w in imported.summary.warnings] == ["clamped_zoom_range"]
+
+
+def test_a_minimum_that_cannot_be_lowered_is_dropped_1778():
+    """With a maximum of 1 the only visible band starts at 0, which is unset."""
+    imported = _imported_with_spec_zoom(minzoom=4, maxzoom=1)
+
+    layout = imported.layers[0].layout
+    assert "_minzoom" not in layout
+    assert layout["_maxzoom"] == 1
+    assert [w.code for w in imported.summary.warnings] == ["clamped_zoom_range"]
+
+
+def test_a_valid_range_is_restored_untouched_and_warns_nothing_1778():
+    imported = _imported_with_spec_zoom(minzoom=8, maxzoom=12)
+
+    assert imported.layers[0].layout == {"_minzoom": 8, "_maxzoom": 12}
+    assert imported.summary.warnings == []
+
+
+def test_a_minzoom_just_below_the_builder_maximum_is_kept_1778():
+    imported = _imported_with_spec_zoom(minzoom=BUILDER_MAX_ZOOM - 1)
+
+    assert imported.layers[0].layout == {"_minzoom": BUILDER_MAX_ZOOM - 1}
+    assert imported.summary.warnings == []

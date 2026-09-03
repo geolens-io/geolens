@@ -1619,7 +1619,16 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # otherwise simplify away: a row lock cannot outlive the commit that
         # releases it, so the lock and the re-read are two halves of one fix and
         # neither is redundant. Cap 550 -> 606, exact.
-        "backend/app/modules/catalog/maps/service_crud.py": 606,
+        # fix(#1778 round 3): +44. new_map_asset_key, whose docstring is the
+        # argument for it: the row lock ends at the commit, so the cleanup that
+        # follows re-reads the row and can still be descheduled between that
+        # read and the delete. A key that is never reused closes that window by
+        # construction rather than by timing. The locked read also moved from
+        # the Map entity to its two columns, and the reason is recorded because
+        # it is easy to undo: every caller has already loaded the map, so an
+        # entity select returns the identity-mapped instance and reads back the
+        # keys from before the wait on the lock. Cap 606 -> 650, exact.
+        "backend/app/modules/catalog/maps/service_crud.py": 650,
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the
         # carve-out exact so further growth requires another review.
@@ -2200,7 +2209,10 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # fix(#1778): +7 — `_layer_metadata` emits popup_config, which had no export
     # at all, so a map's popup configuration was dropped by any export/import
     # cycle and the import side had nothing to read. Cap 1703 -> 1710.
-    "backend/app/modules/catalog/maps/style_json.py": 1710,
+    # fix(#1778 round 3): +9 — the export's zoom no-op conditions read the
+    # shared BUILDER_MIN_ZOOM / BUILDER_MAX_ZOOM instead of repeating 0 and 22,
+    # so the two directions of the round trip cannot drift. Cap 1710 -> 1719.
+    "backend/app/modules/catalog/maps/style_json.py": 1719,
     # fix(#1626): +50 — `_restore_master_opacity` undoes the export fold from
     # `metadata.geolens.feature_opacity` and maps a v6 `-layer-opacity` key onto
     # `layer.opacity` (number) or drops it with a warning (expression); plus
@@ -2222,7 +2234,14 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # limit applied to the layers that will become rows, which is the count
     # apply_layer_diff later compares against, so the import door and the save
     # path refuse at the same number. Cap 555 -> 580, exact.
-    "backend/app/modules/catalog/maps/style_import.py": 580,
+    # fix(#1778 round 3): +57 — BUILDER_MIN_ZOOM / BUILDER_MAX_ZOOM mirrored
+    # from map-sync.ts and shared with the export, plus the clamp that keeps a
+    # restored minimum below the maximum the builder can render. Most of it is
+    # the docstring: MapLibre hides a layer at zoom >= maxzoom, so a minimum at
+    # or above the substituted 22 imported cleanly into a layer that could never
+    # be drawn, and clamping is the only repair the builder can honour.
+    # Cap 580 -> 637, exact.
+    "backend/app/modules/catalog/maps/style_import.py": 637,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
     # fix(getgeolens.com#86 review): +6 — the icon-asset and sprite-index GETs
     # gained per-route `responses={403: FORBIDDEN_RESPONSE}` overrides; they
@@ -4763,7 +4782,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # this entry is for. The seam if it grows again is the asset surface: the
     # thumbnail and OG-image routes move to router_assets.py, which already
     # exists and holds 142 lines. Cap 1497 -> 1509, exact.
-    "backend/app/modules/catalog/maps/router.py": 1509,
+    # fix(#1778 round 3): +1 — the two image keys come from new_map_asset_key,
+    # which never returns a name twice. Cap 1509 -> 1510, exact.
+    "backend/app/modules/catalog/maps/router.py": 1510,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.

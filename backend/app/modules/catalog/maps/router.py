@@ -74,6 +74,7 @@ from app.modules.catalog.maps.service import (
     list_map_history,
     list_maps,
     lock_map_for_asset_write,
+    new_map_asset_key,
     record_map_history_event,
     remove_layer,
     revoke_share_token_by_map,
@@ -1046,11 +1047,11 @@ async def upload_thumbnail(
 
     # Determine extension from MIME type
     ext = "jpg" if "jpeg" in header else "png"
-    storage_key = f"maps/thumbnails/{map_id}.{ext}"
-    # fix(#1778): the extension follows the payload's encoding, so re-uploading
-    # the same map's thumbnail as PNG after a JPEG repoints the column and
-    # strands the old object. Snapshot the stored key now: after the capture
-    # commits, map_obj's attributes are expired.
+    # fix(#1778 round 3): a fresh key per write, never one of two names per map.
+    storage_key = new_map_asset_key("maps/thumbnails", map_id, ext)
+    # fix(#1778): the previous object is stranded once the column moves off it.
+    # Snapshot the stored key now: after the capture commits, map_obj's
+    # attributes are expired.
     # fix(#1778 round 2): read it under the row lock, held to the commit below,
     # so two overlapping uploads of one map cannot each delete the object the
     # other is about to point the row at. Taken here rather than at the top of
@@ -1195,8 +1196,8 @@ async def upload_og_image(
         )
 
     ext = "jpg" if "jpeg" in header else "png"
-    storage_key = f"maps/og-images/{map_id}.{ext}"
-    # fix(#1778): same extension flip as the thumbnail PUT above, and
+    storage_key = new_map_asset_key("maps/og-images", map_id, ext)
+    # fix(#1778): same stranded previous object as the thumbnail PUT above, and
     # fix(#1778 round 2) the same row lock for the same reason.
     locked = await lock_map_for_asset_write(db, map_id)
     previous_key = locked.og_image_uri

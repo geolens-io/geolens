@@ -7,7 +7,7 @@ from typing import cast
 
 import structlog
 from fastapi import HTTPException, status
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Row, Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -31,7 +31,32 @@ _COPY_SUFFIX_RE = re.compile(r"\s*\(copy(?:\s+(\d+))?\)\s*$")
 _UNSET = object()
 
 
-async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> Map:
+def new_map_asset_key(prefix: str, map_id: uuid.UUID, ext: str) -> str:
+    """A storage key for one map image that no later upload can reuse.
+
+    fix(#1778 round 3): the keys used to be ``{prefix}/{map_id}.{ext}``, one of
+    two names per map, chosen by the payload's encoding. Reusing them left a
+    window the row lock cannot close, because the lock is released by the commit
+    that records the URI and the cleanup runs after that: request A re-reads the
+    committed row, decides its old key is dead, and is then descheduled;
+    request B takes the lock, writes that same name again and commits the row
+    back onto it; A's delete lands on the object B just published. The row then
+    names a key with nothing behind it and the image endpoint answers 404.
+
+    A fresh random component per write removes it by construction rather than by
+    timing. A key is written once and named by the row once, so once the row
+    moves off a key nothing can move it back, and a delete decided against a
+    stale read can only ever remove an object nothing points at.
+
+    The extension stays last: ``get_thumbnail`` and ``get_og_image`` pick the
+    response media type with ``endswith(".jpg")``. Keys already stored in the
+    unversioned shape keep working, since the row holds the key verbatim and the
+    first replacement deletes the old one, so nothing has to be migrated.
+    """
+    return f"{prefix}/{map_id}-{uuid.uuid4().hex}.{ext}"
+
+
+async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> Row:
     """Take the row lock that serializes one map's asset replacements.
 
     fix(#1778 round 2): the thumbnail and OG-image keys end in ``.jpg`` or
@@ -57,17 +82,28 @@ async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> 
     committed while this request waited here. The raise lives in this helper
     rather than at each of the three call sites so the three cannot drift, the
     way ``check_map_ownership`` above owns the 403 for the same reason.
+
+    Selects the two columns rather than the ``Map`` entity, and that is
+    load-bearing rather than a matter of taste. Every caller has already loaded
+    the map through ``get_map`` for its 404 and ownership check, so the entity
+    is in the session's identity map; a ``select(Map)`` returns that same
+    instance with the attributes it was loaded with, and the keys read back
+    would be the ones from BEFORE the wait on the lock. Whatever the other
+    request committed while this one waited is exactly what this read exists to
+    see. A column select never consults the identity map, so it cannot go stale.
     """
     result = await session.execute(
-        select(Map).where(Map.id == map_id).with_for_update()
+        select(Map.thumbnail_uri, Map.og_image_uri)
+        .where(Map.id == map_id)
+        .with_for_update()
     )
-    map_obj = result.scalar_one_or_none()
-    if map_obj is None:
+    row = result.one_or_none()
+    if row is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Map not found",
         )
-    return map_obj
+    return row
 
 
 async def _live_map_asset_keys(
@@ -113,6 +149,14 @@ async def discard_map_asset_objects(
     arrive here holding a key that is live again. Re-reading the row is what
     makes the outcome consistent with whatever committed last, rather than with
     what this request saw on the way in.
+
+    fix(#1778 round 3): that re-read is not atomic with the delete below, and
+    making it atomic would mean holding a second row lock across a storage call.
+    ``new_map_asset_key`` closes the window at the other end instead: keys are
+    never reused, so a candidate here can never become live again between the
+    re-read and the delete. The re-read stays as the cheap invariant that says
+    what this function will not do, and it is what makes a key still named by an
+    older row shape safe during the changeover.
 
     Always best effort. The object is a cached picture; a storage backend that
     is refusing calls must not be able to stop an owner deleting their map, and
