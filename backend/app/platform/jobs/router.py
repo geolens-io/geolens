@@ -63,7 +63,7 @@ from app.platform.jobs.sweep import (
     stale_pending_cutoff_seconds,
     stale_pending_unbound_values,
     sweep_stale_vrt_assets,  # noqa: F401 -- re-exported, see __all__
-    unadopted_analysis_table_from_metadata,  # noqa: F401 -- re-exported, see __all__
+    unadopted_analysis_tables_from_metadata,  # noqa: F401 -- re-exported, see __all__
     unpublished_storage_keys_from_metadata,  # noqa: F401 -- re-exported, see __all__
     _reap_unadopted_analysis_outputs,  # noqa: F401 -- re-exported, see __all__
     reap_unpublished_storage_keys,  # noqa: F401 -- re-exported, see __all__
@@ -1264,6 +1264,6 @@ __all__ = [
     # façade.
     "_reap_unadopted_analysis_outputs",
     "reap_unpublished_storage_keys",
-    "unadopted_analysis_table_from_metadata",
+    "unadopted_analysis_tables_from_metadata",
     "unpublished_storage_keys_from_metadata",
 ]

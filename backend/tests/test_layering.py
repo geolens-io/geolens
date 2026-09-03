@@ -3493,7 +3493,22 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # field only once nothing is owed on it, which is a correlated statement
     # rather than an operator, and the comment says why the binds are cast and
     # why it uses jsonb_exists_any over `?|`. Cap 2302 -> 2328, exact.
-    "backend/app/platform/jobs/sweep.py": 2328,
+    # fix(#1778 codex r10): +46. The analysis output record now accumulates
+    # across attempts too (same shape `unpublished_storage_keys` took in r9),
+    # keyed and cleared by TABLE NAME rather than by job id, because a job
+    # can now name more than one table. `unadopted_analysis_table_from_metadata`
+    # became `unadopted_analysis_tables_from_metadata`, delegating to the
+    # writer's own normaliser so the two cannot disagree about the shape. The
+    # two artifact collections that used to run inside `fail_stale_jobs`
+    # (running-row transitions, and the retention purge's exempted-rows
+    # SELECT) are replaced by one unconditional SELECT after the retention
+    # block, because both could miss a row that owed a reap -- a job that
+    # failed on an earlier pass, or one whose dead attempt's keys were carried
+    # over onto a row that is now its dataset's latest complete job and so
+    # exempt from the purge. `_CLEAR_SETTLED_LIST_SQL` also gained an arm for
+    # the field's pre-PR plain-string shape, which the array-only WHERE clause
+    # had silently excluded from ever clearing. Cap 2328 -> 2374, exact.
+    "backend/app/platform/jobs/sweep.py": 2374,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and
@@ -4530,7 +4545,20 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # keyword with no default: the in-worker handlers pass their own id either
     # way, so an optional one would have bought nothing but a way to forget it.
     # Cap 1495 -> 1580, exact.
-    "backend/app/processing/analysis/tasks.py": 1580,
+    # fix(#1778 codex r10): +122. The scope grows an attempt half — job scoping
+    # alone left a retry able to derive the same name as its predecessor, since
+    # `/jobs/{id}/retry` keeps `IngestJob.id` and only mints a new attempt
+    # token. `analysis_output_table_name` takes both now, and the record
+    # accumulates across attempts (`recorded_analysis_output_tables`,
+    # `append_analysis_output_record`) rather than overwriting, the shape
+    # `unpublished_storage_keys` took in r9 and for the same reason: overwriting
+    # a retry's own field dropped the previous attempt's pointer. The other
+    # half of the growth is `resolve_analysis_output_table`, which
+    # collision-checks the SCOPED candidate against pg_class directly —
+    # `generate_table_name`'s own `_N` walk only ever probed the unscoped base,
+    # so it could hand back a name that scoped straight onto an orphan a
+    # previous attempt of the same job left behind. Cap 1580 -> 1702, exact.
+    "backend/app/processing/analysis/tasks.py": 1702,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

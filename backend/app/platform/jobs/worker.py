@@ -217,7 +217,7 @@ async def _recover_stale_jobs_for_current_scope() -> None:
             _reap_unadopted_analysis_outputs,
             reap_unpublished_storage_keys,
             sweep_stale_vrt_assets,
-            unadopted_analysis_table_from_metadata,
+            unadopted_analysis_tables_from_metadata,
             unpublished_storage_keys_from_metadata,
         )
 
@@ -251,14 +251,14 @@ async def _recover_stale_jobs_for_current_scope() -> None:
             )
         )
         # fix(#1778): and the analysis peer, same pass, same ordering.
-        # fix(#1778 codex r7): (job, table) pairs, so the drop can refuse a
-        # table the job it is reaping did not create.
+        # fix(#1778 codex r7/r10): (job, table) pairs, so the drop can refuse a
+        # table the job it is reaping did not create, and ALL of the names a
+        # row records, because the record accumulates across attempts.
         await _reap_unadopted_analysis_outputs(
             tuple(
                 (job.id, name)
                 for job in stale_jobs
-                if (name := unadopted_analysis_table_from_metadata(job.user_metadata))
-                is not None
+                for name in unadopted_analysis_tables_from_metadata(job.user_metadata)
             )
         )
         total = len(stale_jobs) + len(orphaned_jobs)

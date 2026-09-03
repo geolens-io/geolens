@@ -794,20 +794,23 @@ def unpublished_storage_keys_from_metadata(
     )
 
 
-def unadopted_analysis_table_from_metadata(user_metadata: object) -> str | None:
-    """Read the output table an analysis job named on its own job row.
+def unadopted_analysis_tables_from_metadata(user_metadata: object) -> tuple[str, ...]:
+    """Read EVERY output table an analysis job named on its own job row.
 
     fix(#1778). The name is generated inside the worker and every DROP of it
     lives in a handler a SIGKILL never runs, so the table used to survive with
     no catalog row and nothing able to name it. ``drop_unadopted_analysis_output``
     re-validates the identifier before it reaches DDL; this only reads it.
-    """
-    from app.processing.analysis.tasks import ANALYSIS_OUTPUT_TABLE_FIELD
 
-    if not isinstance(user_metadata, dict):
-        return None
-    name = user_metadata.get(ANALYSIS_OUTPUT_TABLE_FIELD)
-    return name if isinstance(name, str) and name else None
+    fix(#1778 codex r10): all of them, not one. The record accumulates across
+    attempts now, because a retry keeps the row and its old name would
+    otherwise be overwritten. Delegated to the writer's own normaliser so the
+    two cannot disagree about the shape, including about the string an existing
+    row still holds.
+    """
+    from app.processing.analysis.tasks import recorded_analysis_output_tables
+
+    return recorded_analysis_output_tables(user_metadata)
 
 
 async def _live_referenced_storage_keys(keys: tuple[str, ...]) -> set[str]:
@@ -876,33 +879,62 @@ STORAGE_KEY_FINAL_OUTCOMES = frozenset({"deleted", "refused"})
 # for a driver or a future dialect to misread. Every bind is cast explicitly,
 # because `jsonb - $1` is ambiguous between the text, integer and text[] forms
 # until the parameter has a type.
-_CLEAR_SETTLED_STORAGE_KEYS_SQL = """
+# fix(#1778 codex r10): how many artifact-owing rows one pass collects. The set
+# shrinks only as reaps succeed, so a backlog can outlive several passes, and a
+# pass that took all of one would hold its reaping session open across every
+# delete in it. What this leaves behind, the next pass picks up.
+_ARTIFACT_REAP_BATCH = 500
+
+
+# fix(#1778 codex r10): `analysis_out_table` has a real pre-PR production
+# shape this SQL has to keep clearing — a plain JSONB string, from a row an
+# earlier build wrote before the field became a list. `unpublished_storage_keys`
+# never had that shape (it was born a list in r9), so the STRING arm below is
+# dead code for that field and exercised only by the analysis one. Read it as
+# a one-element list would: a string that IS the settled value clears the
+# field outright, the same as an array that empties out. Without this arm the
+# WHERE clause's `jsonb_typeof(...) = 'array'` guard silently excluded every
+# legacy row from ever matching, so a reap that dropped the table correctly
+# left the pointer on the row forever and the retention purge could never
+# take it — the exact "row the retention purge refuses to delete" state this
+# whole mechanism exists to make temporary, turned permanent.
+_CLEAR_SETTLED_LIST_SQL = """
 UPDATE catalog.ingest_jobs SET user_metadata =
-  CASE WHEN (
-         SELECT coalesce(jsonb_agg(k), '[]'::jsonb)
-         FROM jsonb_array_elements_text(user_metadata -> (:field)::text) AS k
-         WHERE NOT (k = ANY((:settled)::text[]))
-       ) = '[]'::jsonb
-       THEN user_metadata - (:field)::text
-       ELSE jsonb_set(
-              user_metadata,
-              ARRAY[(:field)::text],
-              (
-                SELECT coalesce(jsonb_agg(k), '[]'::jsonb)
-                FROM jsonb_array_elements_text(user_metadata -> (:field)::text) AS k
-                WHERE NOT (k = ANY((:settled)::text[]))
-              )
-            )
+  CASE
+    WHEN jsonb_typeof(user_metadata -> (:field)::text) = 'array' THEN
+      CASE WHEN (
+             SELECT coalesce(jsonb_agg(k), '[]'::jsonb)
+             FROM jsonb_array_elements_text(user_metadata -> (:field)::text) AS k
+             WHERE NOT (k = ANY((:settled)::text[]))
+           ) = '[]'::jsonb
+           THEN user_metadata - (:field)::text
+           ELSE jsonb_set(
+                  user_metadata,
+                  ARRAY[(:field)::text],
+                  (
+                    SELECT coalesce(jsonb_agg(k), '[]'::jsonb)
+                    FROM jsonb_array_elements_text(user_metadata -> (:field)::text) AS k
+                    WHERE NOT (k = ANY((:settled)::text[]))
+                  )
+                )
+      END
+    ELSE user_metadata - (:field)::text
   END
-WHERE jsonb_typeof(user_metadata -> (:field)::text) = 'array'
-  AND jsonb_exists_any(user_metadata -> (:field)::text, (:settled)::text[])
+WHERE (
+        jsonb_typeof(user_metadata -> (:field)::text) = 'array'
+        AND jsonb_exists_any(user_metadata -> (:field)::text, (:settled)::text[])
+      )
+   OR (
+        jsonb_typeof(user_metadata -> (:field)::text) = 'string'
+        AND (user_metadata ->> (:field)::text) = ANY((:settled)::text[])
+      )
 """
 
 
 async def _clear_settled_artifact_records(
     *,
     storage_keys: set[str] = frozenset(),  # type: ignore[assignment]
-    analysis_job_ids: set[uuid.UUID] = frozenset(),  # type: ignore[assignment]
+    analysis_tables: set[str] = frozenset(),  # type: ignore[assignment]
 ) -> None:
     """Drop the job-row record of artifacts that are now accounted for.
 
@@ -927,17 +959,16 @@ async def _clear_settled_artifact_records(
     row it may delete, and failing to do it costs one more sweep, not
     correctness.
     """
-    from sqlalchemy import Text, bindparam, cast, literal
+    from sqlalchemy import Text, bindparam
     from sqlalchemy.dialects.postgresql import ARRAY
 
     from app.core.db import async_session
-    from app.platform.jobs.models import IngestJob
     from app.processing.analysis.tasks import ANALYSIS_OUTPUT_TABLE_FIELD
     from app.processing.ingest.tasks_raster_common import (
         UNPUBLISHED_STORAGE_KEYS_FIELD,
     )
 
-    if not storage_keys and not analysis_job_ids:
+    if not storage_keys and not analysis_tables:
         return
     try:
         async with async_session() as session:
@@ -950,31 +981,26 @@ async def _clear_settled_artifact_records(
                 # field itself goes only once nothing is left owed on it,
                 # which is what lets the retention purge finally take the row.
                 await session.execute(
-                    text(_CLEAR_SETTLED_STORAGE_KEYS_SQL).bindparams(
+                    text(_CLEAR_SETTLED_LIST_SQL).bindparams(
                         bindparam("field", value=UNPUBLISHED_STORAGE_KEYS_FIELD),
                         bindparam(
                             "settled", value=sorted(storage_keys), type_=ARRAY(Text)
                         ),
                     )
                 )
-            if analysis_job_ids:
-                # fix(#1778 codex r7): addressed by row id, not by name. A name
-                # was never a safe key for this: two jobs could hold one, so
-                # settling the old job's table stripped the new job's recovery
-                # pointer with it. Names are job-scoped now and the id is the
-                # direct expression of what was settled either way.
+            if analysis_tables:
+                # fix(#1778 codex r10): by VALUE, through the same statement the
+                # storage keys use. r7 keyed this on the row id, which was safe
+                # only while a row named one table; the record accumulates
+                # across attempts now, so clearing "the field for this job"
+                # would forget a name this pass never answered for. A name is a
+                # safe key again because it carries the attempt that made it.
                 await session.execute(
-                    update(IngestJob)
-                    .where(
-                        IngestJob.id.in_(sorted(analysis_job_ids)),
-                        IngestJob.user_metadata[
-                            ANALYSIS_OUTPUT_TABLE_FIELD
-                        ].astext.is_not(None),
-                    )
-                    .values(
-                        user_metadata=IngestJob.user_metadata.op("-")(
-                            cast(literal(ANALYSIS_OUTPUT_TABLE_FIELD), Text)
-                        )
+                    text(_CLEAR_SETTLED_LIST_SQL).bindparams(
+                        bindparam("field", value=ANALYSIS_OUTPUT_TABLE_FIELD),
+                        bindparam(
+                            "settled", value=sorted(analysis_tables), type_=ARRAY(Text)
+                        ),
                     )
                 )
             await session.commit()
@@ -982,7 +1008,7 @@ async def _clear_settled_artifact_records(
         log.warning(
             "Failed to clear settled artifact records",
             key_count=len(storage_keys),
-            job_count=len(analysis_job_ids),
+            table_count=len(analysis_tables),
         )
 
 
@@ -1108,11 +1134,13 @@ async def _reap_unadopted_analysis_outputs(
     # permanently. Only a final outcome settles; "failed" is retryable and
     # keeps the record. The try/except stays for a failure the callee does not
     # catch at all, and it deliberately does not settle either.
-    # fix(#1778 codex r7): keyed on the JOB, not on the name. The reap passes
-    # the owning job so the drop can refuse a table that job did not create,
-    # and the record clearing addresses rows by id so it cannot strip a
-    # different job's pointer that happens to share a name.
-    settled: set[uuid.UUID] = set()
+    # fix(#1778 codex r10): names, and settled by name. r7 carried (job, table)
+    # pairs so the drop could check ownership against the job, and r10 moved
+    # that proof into the name itself: it carries the job AND the attempt that
+    # made it, so no two attempts of one job can name one table and the name is
+    # a safe key for the clear again. The drop still re-derives the check from
+    # the scope, which is what refuses a name from a foreign row.
+    settled: set[str] = set()
     async with async_session() as session:
         for job_uuid, out_table in set(out_tables):
             try:
@@ -1127,13 +1155,13 @@ async def _reap_unadopted_analysis_outputs(
                 log.warning("Failed to reap unadopted analysis output")
                 continue
             if outcome in ANALYSIS_OUTPUT_FINAL_OUTCOMES:
-                settled.add(job_uuid)
+                settled.add(out_table)
             else:
                 log.warning(
                     "Analysis output reap did not settle, retrying next sweep",
                     outcome=outcome,
                 )
-    await _clear_settled_artifact_records(analysis_job_ids=settled)
+    await _clear_settled_artifact_records(analysis_tables=settled)
 
 
 def _stale_generation_storage_keys(
@@ -1816,6 +1844,25 @@ async def fail_stale_jobs(
     pending_rows += bound_pending_rows
     pending_job_ids += [row[0] for row in bound_pending_rows]
 
+    # fix(#1778 codex r4/r10): "this row still names an artifact nothing has
+    # reaped". The retention purge refuses to delete such a row, so the record
+    # survives for a later pass to retry, and the artifact collection below
+    # starts from the same predicate so the two can never disagree about which
+    # rows still owe something.
+    #
+    # A string test on the JSONB blob, never a cast: the same rule the `s3_key`
+    # clause states, because a malformed value must not be able to throw and
+    # fail the whole bulk pass.
+    from app.processing.analysis.tasks import ANALYSIS_OUTPUT_TABLE_FIELD
+    from app.processing.ingest.tasks_raster_common import (
+        UNPUBLISHED_STORAGE_KEYS_FIELD,
+    )
+
+    carries_unreaped_artifacts = or_(
+        IngestJob.user_metadata[UNPUBLISHED_STORAGE_KEYS_FIELD].is_not(None),
+        IngestJob.user_metadata[ANALYSIS_OUTPUT_TABLE_FIELD].is_not(None),
+    )
+
     running_cutoff = now - timedelta(seconds=JOB_TIMEOUT_SECONDS)
     running_result = await db.execute(
         update(IngestJob)
@@ -1835,21 +1882,6 @@ async def fail_stale_jobs(
     )
     running_rows = list(running_result.all())
     running_job_ids = [row[0] for row in running_rows]
-    # fix(#1778): resolved here, deleted only after this pass's commit lands,
-    # the rule every other external artifact in this function follows. Lists
-    # rather than tuples because the retention purge below appends to them:
-    # fix(#1778 codex r4) made the purge the LAST owner of these two fields,
-    # for the rows that reached a terminal status on their own.
-    unpublished_storage_keys = [
-        key
-        for _job_id, user_metadata_, _created_by in running_rows
-        for key in unpublished_storage_keys_from_metadata(user_metadata_)
-    ]
-    unadopted_analysis_tables = [
-        (job_id_, name)
-        for job_id_, user_metadata_, _created_by in running_rows
-        if (name := unadopted_analysis_table_from_metadata(user_metadata_)) is not None
-    ]
 
     # fix(#1550 review): the row and its audit trail are settled by the same
     # actor, in the same transaction. After a hard kill this sweep is the only
@@ -2107,35 +2139,6 @@ async def fail_stale_jobs(
         # row normally. A reap that fails leaves the fields in place and the
         # next sweep tries again.
         #
-        # A string test on the JSONB blob, never a cast: the same rule the
-        # `s3_key` clause above states, because a malformed value must not be
-        # able to throw and fail the whole bulk pass.
-        from app.processing.analysis.tasks import ANALYSIS_OUTPUT_TABLE_FIELD
-        from app.processing.ingest.tasks_raster_common import (
-            UNPUBLISHED_STORAGE_KEYS_FIELD,
-        )
-
-        carries_unreaped_artifacts = or_(
-            IngestJob.user_metadata[UNPUBLISHED_STORAGE_KEYS_FIELD].is_not(None),
-            IngestJob.user_metadata[ANALYSIS_OUTPUT_TABLE_FIELD].astext.is_not(None),
-        )
-        # fix(#1778 codex r7): the id comes back with the metadata, because the
-        # analysis reap is keyed on the owning job now rather than on a name
-        # two jobs could hold.
-        retained_for_reap = await db.execute(
-            select(IngestJob.id, IngestJob.user_metadata).where(
-                *purge_clauses, carries_unreaped_artifacts
-            )
-        )
-        for retained_id, retained_metadata in retained_for_reap.all():
-            unpublished_storage_keys.extend(
-                unpublished_storage_keys_from_metadata(retained_metadata)
-            )
-            if (
-                name := unadopted_analysis_table_from_metadata(retained_metadata)
-            ) is not None:
-                unadopted_analysis_tables.append((retained_id, name))
-
         # Single DELETE .. RETURNING re-applies every predicate atomically at
         # delete time — a SELECT-then-DELETE-by-id pair let /jobs/{id}/retry
         # flip a candidate back to pending between the two statements and
@@ -2185,6 +2188,49 @@ async def fail_stale_jobs(
             deleted_paths -= set(survivors.scalars())
         staged_paths_considered = len(deleted_paths)
 
+    # fix(#1778 codex r10): ONE collection, and it answers only "does this row
+    # still owe a reap". It replaces the two that came before it, and both of
+    # them could miss rows that owed one.
+    #
+    # The running-row collection saw only rows THIS pass moved off `running`,
+    # so a job that failed on an earlier pass, or that later SUCCEEDED with a
+    # dead attempt's keys carried over on its row, was never looked at again.
+    # The retention collection sat inside the purge block behind the purge's
+    # own clauses, so it skipped anything the retention cutoff had not reached
+    # and anything the latest-complete exemption held back -- and a job can be
+    # its dataset's latest complete job and still owe a reap for the attempt
+    # that failed before it.
+    #
+    # So: terminal status, still carrying a record, whatever its age and
+    # whatever else exempts it from deletion. It runs outside the retention
+    # block because a deployment with retention disabled still owes these
+    # reaps. It sits after every status write above so a row this pass just
+    # settled is already terminal to it. Bounded, because the set is only as
+    # small as the reaps that have succeeded, and a pass that tried to take all
+    # of a large backlog would hold its session open across every delete; what
+    # it does not reach, the next pass does.
+    artifact_rows = await db.execute(
+        select(IngestJob.id, IngestJob.user_metadata)
+        .where(
+            IngestJob.status.not_in(("pending", "running")),
+            carries_unreaped_artifacts,
+        )
+        .limit(_ARTIFACT_REAP_BATCH)
+    )
+    unpublished_storage_keys: list[str] = []
+    # The row id rides along so the drop can still refuse a name that is not
+    # this job's. Ownership is proved by the name's scope; carrying the id is
+    # what lets the drop check it without a second read.
+    unadopted_analysis_tables: list[tuple[uuid.UUID, str]] = []
+    for artifact_id, artifact_metadata in artifact_rows.all():
+        unpublished_storage_keys.extend(
+            unpublished_storage_keys_from_metadata(artifact_metadata)
+        )
+        unadopted_analysis_tables.extend(
+            (artifact_id, name)
+            for name in unadopted_analysis_tables_from_metadata(artifact_metadata)
+        )
+
     outcome = StaleCleanupOutcome(
         pending_failed=len(pending_job_ids) - pending_cancelled,
         pending_cancelled=pending_cancelled,
@@ -2201,8 +2247,8 @@ async def fail_stale_jobs(
         _staged_presigned_keys=tuple(sorted(deleted_presigned_keys)),
         _refresh_runs_reconciled=cancelled_runs,
         _stale_generation_storage_keys=stale_generation_storage_keys,
-        _unpublished_storage_keys=tuple(unpublished_storage_keys),
-        _unadopted_analysis_tables=tuple(unadopted_analysis_tables),
+        _unpublished_storage_keys=tuple(sorted(set(unpublished_storage_keys))),
+        _unadopted_analysis_tables=tuple(sorted(set(unadopted_analysis_tables))),
     )
     if commit:
         # Never remove an external artifact for a DELETE that may still roll

@@ -152,14 +152,28 @@ class TestUnpublishedStorageKeys:
 
     @pytest.mark.asyncio
     async def test_fail_stale_jobs_carries_them_out_of_a_running_row(self) -> None:
-        """The keys reach the outcome, and only after the settling commit."""
+        """The keys reach the outcome, and only after the settling commit.
+
+        fix(#1778 codex r10): the running-row transition no longer collects
+        keys directly -- that collection moved into the unconditional
+        artifact-carrying SELECT that runs after the retention block, so a
+        row this pass just failed is seen through that query instead. Against
+        real Postgres the SELECT runs inside the same uncommitted
+        transaction as the UPDATE above it and sees the new status, so the
+        two-query split changes nothing about same-pass reaping; the double
+        has to route the fixture through the query that actually answers it
+        now, which is why this passes the row as ``purged_rows`` rather than
+        ``running_rows``.
+        """
         from app.platform.jobs.sweep import fail_stale_jobs
 
+        job_uuid = uuid.uuid4()
         keys = ["rasters/d/abc/source.cog.tif", "rasters/d/abc/quicklook_256.png"]
         mock_db = _mock_db_for_fail_stale(
-            running_rows=[
-                (uuid.uuid4(), {"unpublished_storage_keys": keys}, None),
-            ]
+            running_rows=[(job_uuid, None, None)],
+            purged_rows=[
+                (job_uuid, None, {"unpublished_storage_keys": keys}),
+            ],
         )
         storage = MagicMock()
         storage.delete = AsyncMock()
@@ -172,7 +186,7 @@ class TestUnpublishedStorageKeys:
         ):
             outcome = await fail_stale_jobs(mock_db, detailed=True)
 
-        assert outcome._unpublished_storage_keys == tuple(keys)
+        assert outcome._unpublished_storage_keys == tuple(sorted(keys))
         assert {call.args[0] for call in storage.delete.await_args_list} == set(keys)
 
     @pytest.mark.asyncio
@@ -1359,17 +1373,6 @@ def _mock_db_for_fail_stale(
         result.scalars.return_value = []
         results.append(result)
 
-    # fix(#1778 codex r5): the exempted-row SELECT the purge issues first.
-    # These fixtures drive the reaps through it rather than through the DELETE,
-    # because a row that still names an artifact is deliberately NOT deleted.
-    retained = MagicMock()
-    # fix(#1778 codex r7): (id, user_metadata), because the analysis reap is
-    # keyed on the owning job now rather than on a name two jobs could hold.
-    retained.all.return_value = [
-        (job_row_id, um) for (job_row_id, _fp, um) in (purged_rows or [])
-    ]
-    results.append(retained)
-
     purge = MagicMock()
     purge.all.return_value = []
     results.append(purge)
@@ -1378,6 +1381,19 @@ def _mock_db_for_fail_stale(
     assert not any(row[1] for row in (purged_rows or [])), (
         "a purged row with a file_path adds one SELECT this double does not model"
     )
+
+    # fix(#1778 codex r10): the artifact-carrying SELECT, unconditional and
+    # run AFTER the retention block (it used to be the exempted-row SELECT
+    # the purge issued first, inside the block). These fixtures drive the
+    # reaps through it rather than through the DELETE, because a row that
+    # still names an artifact is deliberately NOT purged.
+    artifact_rows = MagicMock()
+    # fix(#1778 codex r7): (id, user_metadata), because the analysis reap is
+    # keyed on the owning job now rather than on a name two jobs could hold.
+    artifact_rows.all.return_value = [
+        (job_row_id, um) for (job_row_id, _fp, um) in (purged_rows or [])
+    ]
+    results.append(artifact_rows)
 
     post_expiry = MagicMock()
     post_expiry.all.return_value = []

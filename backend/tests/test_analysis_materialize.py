@@ -1434,18 +1434,27 @@ class TestMaterializeWorker:
         skip cleanup entirely — a sweep that failed the row before the
         cancel bookkeeping ran left the committed output table leaking
         forever. It now runs the same adoption probe as _mark_job_failed and
-        drops the table when no dataset row adopted it."""
+        drops the table when no dataset row adopted it.
+
+        fix(#1778 codex r10): the table has to carry THIS job and attempt's
+        scope, or `drop_unadopted_analysis_output`'s ownership check refuses
+        it on purpose — a name that is not this job's can never become this
+        job's. An unscoped name tested a case production code never produces;
+        the realistic one is a cancelled attempt's own committed table."""
+        from app.processing.analysis.tasks import analysis_output_table_name
+
         admin_id = await get_user_id(test_db_session, "admin")
-        table_name = f"orphan_{uuid.uuid4().hex[:12]}"
+        job = await _create_job(test_db_session, admin_id)
+        assert job.attempt_id is not None
+        base = f"orphan_{uuid.uuid4().hex[:6]}"
+        table_name = analysis_output_table_name(base, job.id, job.attempt_id)
         await test_db_session.execute(
             text(f"CREATE TABLE data.{table_name} (gid SERIAL PRIMARY KEY)")
         )
         await test_db_session.commit()
-        job = await _create_job(test_db_session, admin_id)
         job.status = "failed"
         job.error_message = "Stale: heartbeat lease expired"
         await test_db_session.commit()
-        assert job.attempt_id is not None
 
         async with core_db.async_session() as working_session:
             await _fail_cancelled_job(
@@ -1973,7 +1982,18 @@ class TestMaterializeWorker:
 
         fix(#1778 codex r7): the occupied table is created at the name this
         JOB will derive, because the output name is scoped by the job now. The
-        race is the same one; only where the name comes from has changed."""
+        race is the same one; only where the name comes from has changed.
+
+        fix(#1778 codex r10): the collision-check now runs against the SCOPED
+        candidate (`resolve_analysis_output_table`), which reads pg_class
+        before CREATE and would self-heal to a `_2` suffix if it saw the
+        occupied name sitting there when it probed. So pinning only
+        `generate_table_name` is no longer enough to reproduce a lost race --
+        the probe would just avoid the collision this test means to force.
+        `resolve_analysis_output_table` is pinned too, to the occupied name,
+        which is what a probe that ran a moment before the other job's CREATE
+        would have returned: "free", followed immediately by a CREATE that
+        loses."""
         from app.processing.analysis.tasks import analysis_output_table_name
 
         admin_id = await get_user_id(test_db_session, "admin")
@@ -1981,15 +2001,21 @@ class TestMaterializeWorker:
         job = await _create_job(test_db_session, admin_id)
         title = f"Collide {uuid.uuid4().hex[:6]}"
         base = f"collide_{uuid.uuid4().hex[:6]}"
-        expected = analysis_output_table_name(base, job.id)
+        expected = analysis_output_table_name(base, job.id, job.attempt_id)
         await test_db_session.execute(
             text(f'CREATE TABLE data."{expected}" (marker integer)')
         )
         await test_db_session.commit()
 
-        with patch(
-            "app.processing.ingest.service.generate_table_name",
-            AsyncMock(return_value=(base, None)),
+        with (
+            patch(
+                "app.processing.ingest.service.generate_table_name",
+                AsyncMock(return_value=(base, None)),
+            ),
+            patch(
+                "app.processing.analysis.tasks.resolve_analysis_output_table",
+                AsyncMock(return_value=expected),
+            ),
         ):
             await _materialize(
                 job_id=str(job.id),
@@ -2064,7 +2090,9 @@ class TestMaterializeWorker:
         from app.modules.catalog.datasets.domain.models import Dataset
 
         new_ds = await test_db_session.get(Dataset, job.dataset_id)
-        assert new_ds.table_name == analysis_output_table_name(f"{orphan}_2", job.id)
+        assert new_ds.table_name == analysis_output_table_name(
+            f"{orphan}_2", job.id, job.attempt_id
+        )
         cols = (
             (
                 await test_db_session.execute(

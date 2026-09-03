@@ -30,20 +30,21 @@ class TestUnadoptedAnalysisOutput:
         is exactly a job row whose table exists.
         """
         source = _source("processing/analysis/tasks.py")
-        assert "ANALYSIS_OUTPUT_TABLE_FIELD: out_table," in source
+        assert "job.user_metadata = append_analysis_output_record(" in source
         lines = source.splitlines()
-        # fix(#1778 codex r7): the name is scoped by the job after
-        # `generate_table_name` chooses its readable half, so the assignment
-        # this ordering hangs off is the scoping call.
+        # fix(#1778 codex r7/r10): the name is resolved (scoped by job AND
+        # attempt, collision-checked as scoped) after `generate_table_name`
+        # chooses its readable half, so the assignment this ordering hangs
+        # off is the resolving call.
         generated = next(
             i
             for i, line in enumerate(lines)
-            if "out_table = analysis_output_table_name(" in line
+            if "out_table = await resolve_analysis_output_table(" in line
         )
         persisted = next(
             i
             for i, line in enumerate(lines)
-            if "ANALYSIS_OUTPUT_TABLE_FIELD: out_table," in line
+            if "job.user_metadata = append_analysis_output_record(" in line
         )
         commit = next(
             i
@@ -55,17 +56,27 @@ class TestUnadoptedAnalysisOutput:
     @pytest.mark.parametrize(
         "metadata,expected",
         [
-            (None, None),
-            ({}, None),
-            ({"analysis_out_table": ""}, None),
-            ({"analysis_out_table": 7}, None),
-            ({"analysis_out_table": "parcels_buffered"}, "parcels_buffered"),
+            (None, ()),
+            ({}, ()),
+            ({"analysis_out_table": ""}, ()),
+            ({"analysis_out_table": 7}, ()),
+            # fix(#1778 codex r10): a plain string is what a row written
+            # before this commit still holds, and is read as a one-element
+            # list so its pointer survives.
+            ({"analysis_out_table": "parcels_buffered"}, ("parcels_buffered",)),
+            (
+                {"analysis_out_table": ["parcels_buffered", "parcels_buffered_2"]},
+                ("parcels_buffered", "parcels_buffered_2"),
+            ),
+            # A non-string entry in the list is dropped, not raised on --
+            # this reads a schemaless JSONB blob.
+            ({"analysis_out_table": ["a", 7, "", "b"]}, ("a", "b")),
         ],
     )
-    def test_the_name_is_read_back_off_the_job_row(self, metadata, expected) -> None:
-        from app.platform.jobs.sweep import unadopted_analysis_table_from_metadata
+    def test_the_names_are_read_back_off_the_job_row(self, metadata, expected) -> None:
+        from app.platform.jobs.sweep import unadopted_analysis_tables_from_metadata
 
-        assert unadopted_analysis_table_from_metadata(metadata) == expected
+        assert unadopted_analysis_tables_from_metadata(metadata) == expected
 
     @pytest.mark.asyncio
     async def test_an_unadopted_table_is_dropped(self) -> None:
@@ -132,13 +143,23 @@ class TestUnadoptedAnalysisOutput:
 
     @pytest.mark.asyncio
     async def test_fail_stale_jobs_carries_the_table_out_of_a_running_row(self) -> None:
+        """fix(#1778 codex r10): the running-row transition no longer collects
+        the name directly -- that moved into the unconditional
+        artifact-carrying SELECT that runs after the retention block (see
+        that query's own docstring in sweep.py). Against real Postgres it
+        runs inside the same uncommitted transaction as the UPDATE above it
+        and sees the row's new status, so the split changes nothing about
+        same-pass reaping; the double routes the fixture through the query
+        that answers it now.
+        """
         from app.platform.jobs.sweep import fail_stale_jobs
 
         job_uuid = uuid.uuid4()
         mock_db = _mock_db_for_fail_stale(
-            running_rows=[
-                (job_uuid, {"analysis_out_table": "parcels_buffered"}, None),
-            ]
+            running_rows=[(job_uuid, None, None)],
+            artifact_rows=[
+                (job_uuid, {"analysis_out_table": "parcels_buffered"}),
+            ],
         )
         reap = AsyncMock()
         with patch("app.platform.jobs.sweep._reap_unadopted_analysis_outputs", reap):
@@ -262,8 +283,11 @@ class TestOnlyASettledArtifactLosesItsRecord:
         ):
             await _reap_unadopted_analysis_outputs(((job_uuid, self.TABLE),))
 
+        # fix(#1778 codex r10): settled by VALUE, not by owning job id -- the
+        # record accumulates across attempts now, so clearing "the field for
+        # this job" would forget a name this pass never answered for.
         clear.assert_awaited_once_with(
-            analysis_job_ids={job_uuid} if settles else set()
+            analysis_tables={self.TABLE} if settles else set()
         )
 
     @pytest.mark.asyncio
@@ -281,7 +305,7 @@ class TestOnlyASettledArtifactLosesItsRecord:
         ):
             await _reap_unadopted_analysis_outputs(((uuid.uuid4(), self.TABLE),))
 
-        clear.assert_awaited_once_with(analysis_job_ids=set())
+        clear.assert_awaited_once_with(analysis_tables=set())
 
     @pytest.mark.anyio
     async def test_a_failed_drop_leaves_the_job_row_naming_the_table(
@@ -322,6 +346,49 @@ class TestOnlyASettledArtifactLosesItsRecord:
         ).scalar_one()
         assert row.user_metadata.get("analysis_out_table") == self.TABLE, (
             "a failed drop must leave the table's last durable name on the row"
+        )
+
+    @pytest.mark.anyio
+    async def test_a_legacy_string_shaped_record_clears_on_settle(
+        self, test_db_session
+    ) -> None:
+        """fix(#1778 codex r10): a pre-PR row still holds a plain JSONB
+        string, not a list. `unadopted_analysis_tables_from_metadata` already
+        reads it as a one-element list, so the table gets dropped either way
+        -- but the clearing SQL originally kept its `jsonb_typeof(...) =
+        'array'` guard, which never matched a string, so a legacy row's
+        pointer survived a successful reap forever and the retention purge
+        could never take the row. The clearing SQL now has a matching arm for
+        the string shape."""
+        from sqlalchemy import select
+
+        from app.platform.jobs.models import IngestJob
+        from app.platform.jobs.sweep import _reap_unadopted_analysis_outputs
+
+        job = IngestJob(
+            status="failed",
+            file_path="",
+            user_metadata={"analysis_out_table": self.TABLE},
+        )
+        test_db_session.add(job)
+        await test_db_session.flush()
+        job_id = job.id
+        await test_db_session.commit()
+
+        with patch(
+            "app.processing.analysis.tasks.drop_unadopted_analysis_output",
+            AsyncMock(return_value="dropped"),
+        ):
+            await _reap_unadopted_analysis_outputs(((job_id, self.TABLE),))
+
+        test_db_session.expire_all()
+        row = (
+            await test_db_session.execute(
+                select(IngestJob).where(IngestJob.id == job_id)
+            )
+        ).scalar_one()
+        assert "analysis_out_table" not in (row.user_metadata or {}), (
+            "a settled legacy string-shaped record must clear so the row can be purged"
         )
 
     @pytest.mark.asyncio
@@ -396,16 +463,18 @@ class TestOnlyASettledArtifactLosesItsRecord:
             )
 
 
-def analysis_output_table_name_for_test(base: str, job_uuid) -> str:
+def analysis_output_table_name_for_test(base: str, job_uuid, attempt_uuid=None) -> str:
     from app.processing.analysis.tasks import analysis_output_table_name
 
-    return analysis_output_table_name(base, job_uuid)
+    return analysis_output_table_name(base, job_uuid, attempt_uuid or uuid.uuid4())
 
 
-def _output_name_for(job_uuid) -> str:
+def _output_name_for(job_uuid, attempt_uuid=None) -> str:
     from app.processing.analysis.tasks import analysis_output_table_name
 
-    return analysis_output_table_name("parcels_buffered", job_uuid)
+    return analysis_output_table_name(
+        "parcels_buffered", job_uuid, attempt_uuid or uuid.uuid4()
+    )
 
 
 class TestAnalysisOutputNamesAreJobScoped:
@@ -418,25 +487,47 @@ class TestAnalysisOutputNamesAreJobScoped:
     commit its CTAS between the sweep's adoption probe and its DROP and the
     sweep destroyed the NEW job's table, and the name-keyed record clearing
     then erased the new job's recovery pointer along with the old one's.
+
+    fix(#1778 codex r10): job scoping alone left one gap open -- `/jobs/{id}/
+    retry` keeps `IngestJob.id` and mints a new attempt token, so every retry
+    of one job derived the SAME name. A stale sweep could capture attempt 1's
+    name, settle the job `failed`, and then probe and drop while attempt 2
+    was creating that same name, and the ownership check passed because the
+    name really was this job's. The scope now carries the attempt too.
     """
 
     def test_two_jobs_never_derive_the_same_name(self) -> None:
         from app.processing.analysis.tasks import analysis_output_table_name
 
-        first = analysis_output_table_name("parcels_buffered", uuid.uuid4())
-        second = analysis_output_table_name("parcels_buffered", uuid.uuid4())
+        first = analysis_output_table_name(
+            "parcels_buffered", uuid.uuid4(), uuid.uuid4()
+        )
+        second = analysis_output_table_name(
+            "parcels_buffered", uuid.uuid4(), uuid.uuid4()
+        )
         assert first != second
         assert first.startswith("parcels_buffered_")
         assert second.startswith("parcels_buffered_")
 
-    def test_one_job_derives_a_stable_name(self) -> None:
-        """A retry reuses the job row, and therefore the single field on it."""
+    def test_two_attempts_of_one_job_never_derive_the_same_name(self) -> None:
+        """fix(#1778 codex r10): the gap job scoping alone left open."""
         from app.processing.analysis.tasks import analysis_output_table_name
 
         job_uuid = uuid.uuid4()
-        assert analysis_output_table_name("x", job_uuid) == analysis_output_table_name(
-            "x", job_uuid
-        )
+        first = analysis_output_table_name("parcels_buffered", job_uuid, uuid.uuid4())
+        second = analysis_output_table_name("parcels_buffered", job_uuid, uuid.uuid4())
+        assert first != second
+
+    def test_one_attempt_derives_a_stable_name(self) -> None:
+        """The same (job, attempt) pair is idempotent -- what a retry of a
+        retry that reuses the same attempt token would need."""
+        from app.processing.analysis.tasks import analysis_output_table_name
+
+        job_uuid = uuid.uuid4()
+        attempt_uuid = uuid.uuid4()
+        assert analysis_output_table_name(
+            "x", job_uuid, attempt_uuid
+        ) == analysis_output_table_name("x", job_uuid, attempt_uuid)
 
     def test_the_name_stays_inside_the_identifier_limit(self) -> None:
         from app.processing.analysis.tasks import (
@@ -444,17 +535,16 @@ class TestAnalysisOutputNamesAreJobScoped:
             analysis_output_table_name,
         )
 
-        name = analysis_output_table_name("a" * 60, uuid.uuid4())
+        name = analysis_output_table_name("a" * 60, uuid.uuid4(), uuid.uuid4())
         assert len(name) <= 63
         assert _ANALYSIS_TABLE_NAME_RE.match(name)
 
     def test_the_materialize_path_scopes_the_generated_name(self) -> None:
-        """`generate_table_name` still chooses the readable half."""
+        """`generate_table_name` still chooses the readable half; the scoped
+        collision walk happens separately, in `resolve_analysis_output_table`
+        (fix(#1778 codex r10))."""
         source = _source("processing/analysis/tasks.py")
-        assert (
-            "out_table = analysis_output_table_name(_base_table, uuid.UUID(job_id))"
-            in source
-        )
+        assert "out_table = await resolve_analysis_output_table(" in source
         assert "out_table, collision_warning = await generate_table_name" not in source
 
     @pytest.mark.asyncio
@@ -523,11 +613,12 @@ class TestAnalysisOutputNamesAreJobScoped:
         test_db_session.add_all([old_job, new_job])
         await test_db_session.flush()
         old_id, new_id = old_job.id, new_job.id
-        old_table = analysis_output_table_name(base, old_id)
-        new_table = analysis_output_table_name(base, new_id)
+        old_table = analysis_output_table_name(base, old_id, old_job.attempt_id)
+        new_table = analysis_output_table_name(base, new_id, new_job.attempt_id)
         assert old_table != new_table, "the whole point of the scope"
-        old_job.user_metadata = {"analysis_out_table": old_table}
-        new_job.user_metadata = {"analysis_out_table": new_table}
+        # List-shaped, the current writer's shape (fix(#1778 codex r10)).
+        old_job.user_metadata = {"analysis_out_table": [old_table]}
+        new_job.user_metadata = {"analysis_out_table": [new_table]}
         # Only the NEW job's table exists: the old one's was already dropped,
         # which is what freed the name in the first place.
         await test_db_session.execute(
@@ -558,7 +649,7 @@ class TestAnalysisOutputNamesAreJobScoped:
                     )
                 ).scalars()
             }
-            assert rows[new_id].get("analysis_out_table") == new_table, (
+            assert rows[new_id].get("analysis_out_table") == [new_table], (
                 "the sweep erased the new job's recovery pointer"
             )
             assert "analysis_out_table" not in rows[old_id], (
@@ -571,7 +662,185 @@ class TestAnalysisOutputNamesAreJobScoped:
             await test_db_session.commit()
 
 
-def _mock_db_for_fail_stale(*, running_rows: list) -> AsyncMock:
+class TestAttemptScopingPins:
+    """fix(#1778 codex r10): the three scenarios named in the round-10
+    review, each pinned against real Postgres.
+    """
+
+    @pytest.mark.anyio
+    async def test_a_stale_sweep_drops_only_the_dead_attempts_table(
+        self, test_db_session
+    ) -> None:
+        """(a) attempt 1's table survives a crash and a stale sweep captures
+        its name; by the time the sweep's drop runs, attempt 2 (the retry --
+        same job row, a NEW attempt token) has already created its own table
+        and appended its name to the same field. The sweep must drop only
+        attempt 1's table and leave attempt 2's recovery pointer alone."""
+        from sqlalchemy import select, text
+
+        from app.platform.jobs.models import IngestJob
+        from app.platform.jobs.sweep import _reap_unadopted_analysis_outputs
+        from app.processing.analysis.tasks import (
+            analysis_output_table_name,
+            append_analysis_output_record,
+        )
+
+        job = IngestJob(status="failed", file_path="")
+        test_db_session.add(job)
+        await test_db_session.flush()
+        attempt_1 = job.attempt_id
+        base = f"parcels_{uuid.uuid4().hex[:6]}"
+        table_1 = analysis_output_table_name(base, job.id, attempt_1)
+        await test_db_session.execute(
+            text(f'CREATE TABLE data."{table_1}" (marker integer)')
+        )
+
+        # The retry: same job row, a new attempt, its own table, appended --
+        # never overwriting -- onto the same field (fix(#1778 codex r10)).
+        attempt_2 = uuid.uuid4()
+        job.attempt_id = attempt_2
+        table_2 = analysis_output_table_name(base, job.id, attempt_2)
+        await test_db_session.execute(
+            text(f'CREATE TABLE data."{table_2}" (marker integer)')
+        )
+        job.user_metadata = append_analysis_output_record(None, table_1)
+        job.user_metadata = append_analysis_output_record(job.user_metadata, table_2)
+        await test_db_session.commit()
+        job_id = job.id
+
+        try:
+            # The stale sweep captured attempt 1's name before the retry
+            # committed; it reaps only the (job, table) pair it was handed.
+            await _reap_unadopted_analysis_outputs(((job_id, table_1),))
+
+            table_1_gone = (
+                await test_db_session.execute(
+                    text("SELECT to_regclass(:ref)").bindparams(ref=f"data.{table_1}")
+                )
+            ).scalar_one()
+            assert table_1_gone is None, "attempt 1's dead table must be dropped"
+
+            table_2_survives = (
+                await test_db_session.execute(
+                    text("SELECT to_regclass(:ref)").bindparams(ref=f"data.{table_2}")
+                )
+            ).scalar_one()
+            assert table_2_survives is not None, (
+                "the sweep dropped the RETRY's live table"
+            )
+
+            test_db_session.expire_all()
+            row = (
+                await test_db_session.execute(
+                    select(IngestJob).where(IngestJob.id == job_id)
+                )
+            ).scalar_one()
+            assert row.user_metadata.get("analysis_out_table") == [table_2], (
+                "attempt 2's recovery pointer must survive the reap of attempt 1's"
+            )
+        finally:
+            await test_db_session.execute(
+                text(f'DROP TABLE IF EXISTS data."{table_2}"')
+            )
+            await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_carried_over_keys_reap_on_the_datasets_latest_complete_job(
+        self, test_db_session
+    ) -> None:
+        """(b) the OLD collection ran only inside the retention purge block,
+        gated by the same `purge_clauses` that exempt a dataset's
+        latest-complete job -- so a successful retry that carries a dead
+        attempt's storage key forward on its OWN row (record_unpublished_
+        storage_keys preserves it; nothing settles it just because the retry
+        succeeded) was never looked at, because that row is by definition the
+        one the exemption protects. The artifact-carrying SELECT now runs
+        unconditionally, with no purge_clauses at all, so it sees the row
+        regardless of whether it is the dataset's latest complete job."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.platform.jobs.models import IngestJob
+        from app.platform.jobs.router import fail_stale_jobs
+        from tests.factories import create_dataset, get_user_id
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+
+        carried_key = f"rasters/{ds.id}/attempts/dead/abc/source.cog.tif"
+        job = IngestJob(
+            dataset_id=ds.id,
+            status="complete",
+            file_path="",
+            user_metadata={"unpublished_storage_keys": [carried_key]},
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+
+        storage = MagicMock()
+        storage.delete = AsyncMock()
+        with patch("app.platform.storage.get_storage", return_value=storage):
+            outcome = await fail_stale_jobs(test_db_session, detailed=True)
+
+        assert carried_key in outcome._unpublished_storage_keys, (
+            "the dataset's own latest-complete job must still be checked "
+            "for a carried-over key from a dead attempt"
+        )
+        storage.delete.assert_awaited_once_with(carried_key)
+
+    @pytest.mark.anyio
+    async def test_the_same_attempt_delivered_twice_self_heals_to_a_suffix(
+        self, test_db_session
+    ) -> None:
+        """(c) resolve_analysis_output_table's own docstring: attempt scoping
+        makes a retry colliding with itself rare but not unreachable -- the
+        SAME attempt can be delivered twice (redelivery after an ack the
+        first delivery never got to send). `generate_table_name`'s own `_N`
+        walk only ever probes the UNSCOPED base, so both deliveries are
+        handed the same base and scope onto the same occupied name.
+        `resolve_analysis_output_table` collision-checks the SCOPED candidate
+        directly and self-heals to a suffix instead of failing at CREATE
+        TABLE."""
+        from sqlalchemy import text
+
+        from app.processing.analysis.tasks import (
+            analysis_output_table_name,
+            resolve_analysis_output_table,
+        )
+
+        job_id = uuid.uuid4()
+        attempt_id = uuid.uuid4()
+        base = f"parcels_{uuid.uuid4().hex[:6]}"
+
+        # The first delivery's table, already committed.
+        first_delivery_table = analysis_output_table_name(base, job_id, attempt_id)
+        await test_db_session.execute(
+            text(f'CREATE TABLE data."{first_delivery_table}" (marker integer)')
+        )
+        await test_db_session.commit()
+
+        try:
+            resolved = await resolve_analysis_output_table(
+                test_db_session,
+                base=base,
+                job_uuid=job_id,
+                attempt_uuid=attempt_id,
+                schema="data",
+            )
+
+            assert resolved != first_delivery_table
+            assert resolved == analysis_output_table_name(
+                f"{base}_2", job_id, attempt_id
+            )
+        finally:
+            await test_db_session.execute(
+                text(f'DROP TABLE IF EXISTS data."{first_delivery_table}"')
+            )
+            await test_db_session.commit()
+
+
+def _mock_db_for_fail_stale(
+    *, running_rows: list, artifact_rows: list | None = None
+) -> AsyncMock:
     """A session double for ``fail_stale_jobs`` with real running-row metadata.
 
     The peer helper in ``test_vrt_stale_sweep_gap002`` hands every job row a
@@ -579,8 +848,10 @@ def _mock_db_for_fail_stale(*, running_rows: list) -> AsyncMock:
     this states the same execute() ordering with the rows filled in. Ordering,
     top to bottom: unbound pending UPDATE, bound pending UPDATE, running
     UPDATE, childless fan-out UPDATE, VRT generation UPDATE, two RasterAsset
-    UPDATEs, two refresh-run UPDATEs, the retention purge DELETE, and the
-    post-expiry presigned SELECT.
+    UPDATEs, two refresh-run UPDATEs, the retention purge DELETE, the
+    artifact-carrying SELECT (fix(#1778 codex r10): unconditional, outside the
+    retention block -- see that query's own docstring), and the post-expiry
+    presigned SELECT.
     """
     results = []
 
@@ -609,17 +880,15 @@ def _mock_db_for_fail_stale(*, running_rows: list) -> AsyncMock:
         result.scalars.return_value = []
         results.append(result)
 
-    # fix(#1778 codex r5): the purge reads its exempted rows first - terminal
-    # rows that still name an unreaped artifact, which it refuses to delete so
-    # the record survives for the next sweep to retry. None here.
-    retained = MagicMock()
-    # fix(#1778 codex r7): (id, user_metadata) pairs; none in these fixtures.
-    retained.all.return_value = []
-    results.append(retained)
-
     purge = MagicMock()
     purge.all.return_value = []
     results.append(purge)
+
+    # fix(#1778 codex r10): the artifact-carrying SELECT, unconditional and
+    # run after the retention block. (id, user_metadata) pairs.
+    artifact = MagicMock()
+    artifact.all.return_value = list(artifact_rows or [])
+    results.append(artifact)
 
     post_expiry = MagicMock()
     post_expiry.all.return_value = []
