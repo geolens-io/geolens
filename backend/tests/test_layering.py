@@ -4747,7 +4747,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # metadata path reads the extent. The lines are the two NamedTuples, the
     # prior-bounds SQL helpers, and the comments recording which race each
     # closes. Cap 1384 -> 1491, exact.
-    "backend/app/modules/catalog/features/service.py": 1491,
+    #
+    # fix(#1778 review r2): +16 for the range checks. A caller value can be a
+    # good Python number and still be wrong for the column, and how that failed
+    # depended on which cast the compiler emitted: the property-filter path
+    # answered 200 with zero features, the CQL2 path overflowed a real cast
+    # with SQLSTATE 22003, and a pagination int outside int8 could not be
+    # encoded at all. The lines are the two check calls, the int8 bound on
+    # limit/offset/after_gid, and the comments recording which of those three
+    # shapes each one closes; the tables and the messages live in
+    # core/db/pg_ranges.py, which standards/ogc/filtering.py reads too.
+    # Cap 1491 -> 1507, exact.
+    "backend/app/modules/catalog/features/service.py": 1507,
 }
 
 

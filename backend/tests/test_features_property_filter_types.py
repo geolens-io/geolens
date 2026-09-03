@@ -218,3 +218,162 @@ async def test_cql2_filter_fault_message_is_unchanged(
 
     assert resp.status_code == 400
     assert "CQL2 filter" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778 review r2): a value the driver cannot encode for the bound type.
+# ---------------------------------------------------------------------------
+
+OUT_OF_RANGE = [
+    ("ratio", "1e100", "3.40282e+38"),
+    ("construction_year", "2147483648", "2147483647"),
+]
+OUT_OF_RANGE_IDS = ["real-overflows-float4", "integer-overflows-int4"]
+
+
+@pytest.mark.parametrize(
+    ("param", "value", "expected_in_detail"), OUT_OF_RANGE, ids=OUT_OF_RANGE_IDS
+)
+async def test_ogc_out_of_range_property_value_is_a_400(
+    client: AsyncClient, typed_dataset: Dataset, param, value, expected_in_detail
+):
+    """Out of range for the COLUMN, not merely for Python."""
+    resp = await client.get(_items_url(typed_dataset), params={param: value})
+
+    assert resp.status_code == 400, resp.text
+    detail = resp.json()["detail"]
+    assert param in detail
+    assert expected_in_detail in detail
+
+
+@pytest.mark.parametrize(
+    ("param", "value", "expected_in_detail"), OUT_OF_RANGE, ids=OUT_OF_RANGE_IDS
+)
+async def test_native_out_of_range_property_value_is_a_400(
+    client: AsyncClient,
+    typed_dataset: Dataset,
+    admin_auth_header,
+    param,
+    value,
+    expected_in_detail,
+):
+    resp = await client.get(
+        f"/datasets/{typed_dataset.id}/features/",
+        params={param: value},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 400, resp.text
+    detail = resp.json()["detail"]
+    assert param in detail
+    assert expected_in_detail in detail
+
+
+@pytest.mark.parametrize(
+    ("param", "value"),
+    [("ratio", "0.5"), ("construction_year", "1931"), ("price", "19.99")],
+)
+async def test_in_range_values_still_match(
+    client: AsyncClient, typed_dataset: Dataset, param, value
+):
+    """The vacuity guard: the range checks must not reject ordinary values."""
+    resp = await client.get(_items_url(typed_dataset), params={param: value})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["numberMatched"] == 2
+
+
+# ---------------------------------------------------------------------------
+# The rest of the enumeration: every typed bind built from a caller value.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("param", ["offset", "after_gid"])
+async def test_ogc_pagination_integer_outside_int8_is_a_400(
+    client: AsyncClient, typed_dataset: Dataset, param
+):
+    """asyncpg cannot encode it, and used to raise past both routers as a 500.
+
+    FastAPI's `int` has no upper bound, so these arrive as ordinary Python
+    integers and fail inside the driver's encode path with a bare
+    sqlalchemy.exc.DBAPIError carrying SQLSTATE 22000 -- not a DataError, which
+    is why catching that alone did not help.
+    """
+    resp = await client.get(
+        _items_url(typed_dataset), params={param: "100000000000000000000000"}
+    )
+
+    assert resp.status_code == 400, resp.text
+    assert param in resp.json()["detail"]
+
+
+async def test_native_offset_outside_int8_is_a_400(
+    client: AsyncClient, typed_dataset: Dataset, admin_auth_header
+):
+    resp = await client.get(
+        f"/datasets/{typed_dataset.id}/features/",
+        params={"offset": "100000000000000000000000"},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 400, resp.text
+    assert "offset" in resp.json()["detail"]
+
+
+async def test_a_large_but_encodable_offset_still_answers(
+    client: AsyncClient, typed_dataset: Dataset, admin_auth_header
+):
+    """The vacuity guard: the bound is int8, not something smaller."""
+    resp = await client.get(
+        f"/datasets/{typed_dataset.id}/features/",
+        params={"offset": str(2**63 - 1)},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["numberReturned"] == 0
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected_in_detail"),
+    [
+        ("construction_year = 2147483648", "2147483647"),
+        ("ratio = 1e100", "3.40282e+38"),
+    ],
+    ids=["integer-overflows-int4", "real-overflows-float4"],
+)
+async def test_cql2_out_of_range_literal_is_a_400(
+    client: AsyncClient, typed_dataset: Dataset, expression, expected_in_detail
+):
+    """The CQL2 comparison path reads the same range table."""
+    resp = await client.get(_items_url(typed_dataset), params={"filter": expression})
+
+    assert resp.status_code == 400, resp.text
+    assert expected_in_detail in resp.json()["detail"]
+
+
+async def test_cql2_in_range_literal_still_matches(
+    client: AsyncClient, typed_dataset: Dataset
+):
+    resp = await client.get(
+        _items_url(typed_dataset), params={"filter": "construction_year = 1931"}
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["numberMatched"] == 2
+
+
+async def test_a_bbox_of_finite_but_huge_floats_is_not_a_500(
+    client: AsyncClient, typed_dataset: Dataset
+):
+    """bbox binds float8, which has no narrowing step to overflow.
+
+    Included because it is part of the same enumeration: the bbox floats are
+    caller values that reach the driver, and parse_bbox already refuses the
+    non-finite ones, so there is nothing further to bound here.
+    """
+    resp = await client.get(
+        _items_url(typed_dataset), params={"bbox": "-1e30,-89,1e30,89"}
+    )
+
+    assert resp.status_code == 200, resp.text

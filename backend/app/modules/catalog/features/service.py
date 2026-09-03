@@ -19,6 +19,7 @@ from sqlalchemy import bindparam, func, select, text
 from sqlalchemy import types as sa_types
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db.pg_ranges import check_int8_range, check_pg_value_range
 from app.core.geo import seam_extent_wkt_for_table
 from app.platform.extensions import get_catalog_port
 
@@ -28,16 +29,11 @@ if TYPE_CHECKING:
 # Column name validation for SQL identifier safety
 _COLUMN_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 
-# Widest signed integer PostgreSQL will compare against a bigint bind.
-_INT8_MIN = -(2**63)
-_INT8_MAX = 2**63
-
 
 def _parse_int(raw: str) -> int:
-    value = int(raw)
-    if not _INT8_MIN <= value < _INT8_MAX:
-        raise ValueError("out of range for an integer column")
-    return value
+    # The per-type bound is applied by check_pg_value_range, which knows
+    # whether the column is int2, int4 or int8 (fix(#1778 review r2)).
+    return int(raw)
 
 
 def _parse_float(raw: str) -> float:
@@ -137,6 +133,12 @@ def _property_filter_bind(param_name: str, column: str, pg_type: str | None, raw
     parse, sa_type = mapping
     try:
         value = parse(raw)
+        # fix(#1778 review r2): in range for the COLUMN, not merely parseable
+        # as a Python value. 1e100 against a real column and 2147483648 against
+        # an integer column are both legal comparisons that no stored value can
+        # satisfy, so they used to answer 200 with zero features -- a silently
+        # wrong answer to a question the caller did not ask.
+        check_pg_value_range(pg_type or "", value)
     except (ValueError, TypeError) as exc:
         raise ValueError(
             f"Invalid value for property {column!r} (type {pg_type}): {exc}"
@@ -595,8 +597,22 @@ async def get_features(
     Raises
     ------
     ValueError
-        If a property-filter value cannot be parsed for its column's type.
+        If a property-filter value cannot be parsed for its column's type or
+        falls outside that type's range, or if a pagination integer falls
+        outside int8 (fix(#1778 review r2)). Routers report all of these as
+        400s naming the property or parameter and the bound it broke.
     """
+    # fix(#1778 review r2): the pagination integers are caller values that reach
+    # the driver untyped, and FastAPI's `int` has no upper bound. A value
+    # outside int8 cannot be encoded at all: asyncpg raises a bare
+    # sqlalchemy.exc.DBAPIError with SQLSTATE 22000 from inside its encode
+    # path, which neither router caught, so `?offset=10**23` was a 500. Refuse
+    # it here, where the message can name the parameter.
+    check_int8_range("limit", limit)
+    check_int8_range("offset", offset)
+    if after_gid is not None:
+        check_int8_range("after_gid", after_gid)
+
     # Build SELECT columns over the projected row (see live_property_columns
     # for why geom must never reach to_jsonb).
     if has_geometry and include_geometry:

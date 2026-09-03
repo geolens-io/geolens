@@ -19,7 +19,13 @@ from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
-from app.core.db.sqlstate import BAD_QUERY_INPUT, TABLE_ABSENT, is_operational, sqlstate
+from app.core.db.sqlstate import (
+    BAD_QUERY_INPUT,
+    TABLE_ABSENT,
+    is_caller_type_fault,
+    is_operational,
+    sqlstate,
+)
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.auth.dependencies import (
@@ -369,12 +375,21 @@ async def list_features(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
-    except (ProgrammingError, OperationalError) as exc:
+    except DBAPIError as exc:
         # fix(#1778): a type-shaped sqlstate with a property filter active is
         # the filter value, not an outage. Reporting it as a retryable 503 sent
         # clients into a pointless retry loop and polluted availability
         # monitoring with what is a query-shape bug.
-        if property_filters and sqlstate(exc) in BAD_QUERY_INPUT:
+        #
+        # fix(#1778 review r2): catch DBAPIError, not just its ProgrammingError
+        # and OperationalError subclasses, and classify with the same helper the
+        # OGC items handler uses. asyncpg reports a value it cannot encode as a
+        # bare DBAPIError with SQLSTATE 22000, which was neither, so it escaped
+        # as a 500 here while the sibling endpoint answered 400 for the same
+        # request. The 503 and 500 branches below keep their existing shape: an
+        # unrecognized state stays an honest 500 rather than being reported as
+        # an outage.
+        if property_filters and is_caller_type_fault(exc):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
@@ -382,10 +397,12 @@ async def list_features(
                     "column types"
                 ),
             )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Dataset table is unavailable",
-        )
+        if isinstance(exc, (ProgrammingError, OperationalError)):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Dataset table is unavailable",
+            )
+        raise
 
     # Build GeoJSON features
     features = [

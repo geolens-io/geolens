@@ -5,12 +5,13 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
-from sqlalchemy.exc import DataError, OperationalError, ProgrammingError
+from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.core.db.tenant_session import current_tenant_var
+from app.core.db.sqlstate import is_caller_type_fault
 from app.core.dependencies import get_db
 from app.core.geo import extent_to_bbox
 from app.core.identity import Identity
@@ -82,15 +83,6 @@ COLD_WARMING_RESPONSE: dict = {
 # table": undefined operator/function, datatype mismatch, cannot coerce,
 # indeterminate datatype. Deliberately NOT the whole 42 class — 42P01 is the
 # missing-table 503 and e.g. 42501 (privilege) is an operator problem.
-_TYPE_FAULT_SQLSTATES = {"42883", "42804", "42846", "42P18"}
-
-
-def _pg_sqlstate(exc: Exception) -> str | None:
-    """SQLSTATE from a SQLAlchemy-wrapped asyncpg error, if present."""
-    orig = getattr(exc, "orig", None)
-    return getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
-
-
 async def _emit_ogc_usage_event(table_name: str) -> None:
     """Emit an OGC-serve usage event through the billing-import-free seam (METER-03).
 
@@ -839,7 +831,7 @@ async def get_collection_items(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         )
-    except (ProgrammingError, OperationalError, DataError) as exc:
+    except DBAPIError as exc:
         # feat(#1614): with a filter active, a type-shaped database error is
         # the filter itself — e.g. a property-property comparison between
         # incomparable types that pre-validation lets through. Report those
@@ -853,14 +845,14 @@ async def get_collection_items(
         # predicate too. Gating this branch on `cql2_where is not None` alone
         # reported every type-shaped property-filter failure as a retryable
         # 503, so clients retried forever against what is a query-shape bug.
-        sqlstate = _pg_sqlstate(exc) or ""
+        #
+        # fix(#1778 review r2): the classification moved to
+        # `is_caller_type_fault`, which the native features list now reads too;
+        # the two had drifted. The catch widened to DBAPIError for the same
+        # reason it did there: asyncpg reports a value it cannot encode as a
+        # bare DBAPIError with SQLSTATE 22000, which no subclass here matched.
         caller_predicate = cql2_where is not None or bool(property_filters)
-        filter_fault = caller_predicate and (
-            sqlstate.startswith("22")
-            or sqlstate in _TYPE_FAULT_SQLSTATES
-            or (isinstance(exc, DataError) and not sqlstate)
-        )
-        if filter_fault:
+        if caller_predicate and is_caller_type_fault(exc):
             source = "CQL2 filter" if cql2_where is not None else "Property filter"
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -869,12 +861,12 @@ async def get_collection_items(
                     "property types"
                 ),
             )
-        if isinstance(exc, DataError):
-            raise
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Dataset table is temporarily unavailable",
-        )
+        if isinstance(exc, (ProgrammingError, OperationalError)):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Dataset table is temporarily unavailable",
+            )
+        raise
 
     # Convert rows to GeoJSON features
     features = []
