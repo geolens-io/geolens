@@ -523,16 +523,32 @@ async def _walk_pages(
     2. ``numberMatched`` identical on every page that states it. It describes
        the whole query, so two answers describe two queries and neither can be
        checked against anything.
-    3. ``written <= numberMatched``, on EVERY walk. Stopping early can produce
-       fewer rows than the total; nothing can produce more.
-    4. ``written == numberMatched``, on FULL walks only. A sampled read is
+    3. ``observed <= numberMatched``, on EVERY walk. Stopping early can
+       produce fewer rows than the total; nothing can produce more.
+    4. ``observed == numberMatched``, on FULL walks only. A sampled read is
        short by construction, so falling below says nothing there.
+
+    ``observed`` is the sum of ``len(features)`` across every page this walk
+    read, counted before a sample limit truncates what gets written (fix
+    (#1746 B2b round 34)). ``written`` is bounded by ``feature_limit`` and can
+    fall short of ``observed`` on a sampled read, so ``written <= observed``
+    always; checking the invariants above against ``written`` let a page far
+    larger than the collection the service claims to have pass a preview
+    unnoticed, because the sample cut ``written`` down to size before the
+    comparison ever saw the page's real length.
 
     Each is a refusal, never a quiet correction, for the reason r29 records:
     the walk cannot tell a service that has finished from one that has been
     cut off, so anything it cannot verify it declines.
     """
     written = 0
+    # fix(#1746 B2b round 34): the cumulative length of every page this walk
+    # read, counted whole and before `feature_limit` truncates what actually
+    # gets written. `written` alone under-reports a page's real size once a
+    # sample cuts it short, and the two `numberMatched` checks below need the
+    # real size to catch a service whose page is bigger than its own claimed
+    # total.
+    observed = 0
     pages = 0
     on_disk = 0
     number_matched: int | None = None
@@ -567,6 +583,11 @@ async def _walk_pages(
         # site, so a malformed page cannot mean different things depending on
         # where in the chain it arrived.
         features = _require_feature_page(document, first_page=pages == 1)
+        # The whole page, before the sample loop below may stop partway
+        # through it. `numberReturned == len(features)` is already enforced
+        # per page by `_require_counts`, so this is the page's own claim about
+        # its size, not a re-derivation.
+        observed += len(features)
         if "numberMatched" in document:
             # OGC API Features part 1: the number of features the whole query
             # matches, as opposed to the number this page returned. Optional,
@@ -640,7 +661,15 @@ async def _walk_pages(
         # re-upload turned that into a schema delta against a real dataset.
         # This half holds on every walk, because no way of stopping early can
         # produce more than there are.
-        if written > number_matched:
+        #
+        # fix(#1746 B2b round 34): `observed`, not `written`. A hundred-feature
+        # page under a `numberMatched` of ten and a five-row preview left
+        # `written == 5`, which is `<= 10` and passed: the sample masked the
+        # page's real size from the one check that exists to catch it.
+        # `observed` is that page counted whole, so this now compares the size
+        # the service actually sent against the size it claims the collection
+        # is, regardless of how much of it a sample kept.
+        if observed > number_matched:
             raise ItemFetchFailedError("more features than the service reported")
         # fix(#1746 B2b review r30): and the chain ran out where the service's
         # own count says it should not have. A `next` link missing when there
@@ -653,8 +682,11 @@ async def _walk_pages(
         # and is expected to be short, so falling below the count says nothing
         # there; `truncated` from r28 carries that judgement instead.
         # `feature_limit is None` also implies `not truncated`, since only the
-        # sample limit breaks out of the loop.
-        if feature_limit is None and written != number_matched:
+        # sample limit breaks out of the loop. `observed`, for the same reason
+        # as the check above; on a full walk nothing ever breaks a page early,
+        # so `observed == written` there and this is the same comparison
+        # stated in the term the invariant is actually about.
+        if feature_limit is None and observed != number_matched:
             raise ItemFetchFailedError("collection is shorter than reported")
     out.write(b"]}")
     return pages, written, number_matched, truncated

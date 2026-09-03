@@ -562,9 +562,12 @@ async def fetch_document(
     the door can resolve to a private address by the time the worker asks, and
     same-origin says nothing about that (AGENTS.md Rule 2).
 
-    ``on_first_request`` is fired before the request. Wrap it in `fire_once` if
-    it should fire for the first read only, which is what a caller dating
-    origin contacts wants.
+    ``on_first_request`` is fired once SSRF validation has succeeded, right
+    before the request goes out. Wrap it in `fire_once` if it should fire for
+    the first read only, which is what a caller dating origin contacts wants.
+    fix(#1746 B2b round 34): it used to fire before `validate_url_for_ssrf`,
+    so a rejection (a host that resolved publicly at the door and privately by
+    the time the worker asked) still dated a contact that never happened.
 
     ``accept`` has no default, so every read states which representation it
     wants: `OGC_JSON_ACCEPT` for an OGC API document, `WFS_XML_ACCEPT` for
@@ -579,13 +582,11 @@ async def fetch_document(
     # Copied rather than mutated: the caller's dict is reused across the pages
     # of a walk, and the negotiation belongs to this read.
     headers = {**headers, "Accept": accept}
-    if on_first_request is not None:
-        # Outside the guard below: a callback failure is this process's bug,
-        # not the service's, and must not be reported as an unreadable
-        # document.
-        on_first_request()
     try:
         await validate_url_for_ssrf(url)
+        if on_first_request is not None:
+            # fix(#1746 B2b round 34): only once validation has succeeded.
+            on_first_request()
         # The client comes from `make_safe_client`, whose transport re-resolves
         # and pins the validated IP at connect time and revalidates every
         # redirect hop, and which refuses a cross-origin hop carrying this

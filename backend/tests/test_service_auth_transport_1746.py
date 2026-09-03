@@ -4771,6 +4771,89 @@ class TestAWfsPreflightDatesTheOriginContact:
         assert contacted == [1]
 
 
+class TestOnFirstRequestFiresOnlyAfterValidation:
+    """fix(#1746 B2b round 34, `service_endpoints.py:586`).
+
+    `fetch_document` used to fire `on_first_request` as its first statement,
+    before `validate_url_for_ssrf`. A host that resolved publicly at the door
+    and privately by the time the worker asked (AGENTS.md Rule 2) is rejected
+    by that revalidation, but the callback had already fired, so a caller
+    dating origin contacts (the source's `origin_contact_attempted` and
+    `last_checked_at`) recorded a contact that never happened: no request ever
+    left the process for that read.
+    """
+
+    async def test_an_ssrf_rejection_never_fires_the_callback(
+        self, monkeypatch
+    ) -> None:
+        from app.platform.service_endpoints import OGC_JSON_ACCEPT, fetch_document
+
+        async def _reject(url: str) -> None:
+            raise SSRFError("blocked")
+
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", _reject
+        )
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            raise AssertionError("no request should reach the transport")
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+
+        fired: list[int] = []
+
+        async with make_safe_client(credential_header="X-Api-Key") as client:
+            with pytest.raises(EndpointCheckFailedError):
+                await fetch_document(
+                    client,
+                    "https://services.example.test/oapif",
+                    {},
+                    accept=OGC_JSON_ACCEPT,
+                    on_first_request=lambda: fired.append(1),
+                )
+
+        assert fired == []
+
+    async def test_a_successful_validation_fires_exactly_once_before_the_stream(
+        self, monkeypatch
+    ) -> None:
+        from app.platform.service_endpoints import OGC_JSON_ACCEPT, fetch_document
+
+        order: list[str] = []
+
+        async def _validate(url: str) -> None:
+            order.append("validated")
+
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", _validate
+        )
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            order.append("requested")
+            return _as_stream(httpx.Response(200, json={}))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+
+        def _on_first_request() -> None:
+            order.append("fired")
+
+        async with make_safe_client(credential_header="X-Api-Key") as client:
+            await fetch_document(
+                client,
+                "https://services.example.test/oapif",
+                {},
+                accept=OGC_JSON_ACCEPT,
+                on_first_request=_on_first_request,
+            )
+
+        assert order == ["validated", "fired", "requested"]
+        assert order.count("fired") == 1
+
+
 class TestEveryCallerNamesItsClock:
     """fix(#1746 B2b review r24): `/probe` had omitted the deadline.
 
@@ -6404,6 +6487,13 @@ class TestASampleCanBeShorterButNeverLonger:
     reported a total of two, and re-upload turned that into a schema delta
     against a real dataset. Stopping early can produce fewer rows than the
     total; nothing can produce more.
+
+    fix(#1746 B2b round 34): "produce" was checked against `written`, which a
+    sample truncates. A page of a hundred features under a `numberMatched` of
+    ten and a five-row preview left `written == 5`, which is `<= 10` and
+    passed, even though the page the service actually sent was ten times the
+    size it claims the whole collection is. The comparison now uses
+    `observed`, the page counted whole before the sample cuts it down.
     """
 
     def _transport(self, monkeypatch, handler):
@@ -6460,6 +6550,22 @@ class TestASampleCanBeShorterButNeverLonger:
     ) -> None:
         """Five rows against a reported two. The reported case."""
         self._chain(monkeypatch, matched=2, per_page=5, pages=1)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path, feature_limit=5)
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_an_oversized_page_is_refused_even_under_a_sample(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The page that only `observed` catches: bigger than its own claim.
+
+        A hundred features on one page under a `numberMatched` of ten, sampled
+        down to five. `written` (5) is `<= numberMatched` (10) and would have
+        passed; the page the service actually sent (100) is not.
+        """
+        self._chain(monkeypatch, matched=10, per_page=100, pages=1)
 
         with pytest.raises(ItemFetchFailedError):
             await self._materialise(tmp_path, feature_limit=5)
