@@ -121,33 +121,64 @@ ENDPOINT_CHECK_FAILED_POLICY = (
     "again."
 )
 
-# The OGC API link relations that name something a client FETCHES. Deliberately
-# not every rel: `license`, `describedby` and `alternate` legitimately point at
-# other origins on ordinary services, and refusing those would refuse the web.
+# The OGC API link relations that name something a client FETCHES, PER
+# DOCUMENT TYPE. Deliberately not every rel: `license`, `describedby` and
+# `alternate` legitimately point at other origins on ordinary services, and
+# refusing those would refuse the web. Deliberately not one set shared by
+# every document either, which is what fix(#1770 round 46 P2) closes.
 #
 # fix(#1770 round 37 P2, `service_endpoints.py:126`): the rule is "only rels
-# the probe or materializer dereference" -- do not re-add a rel just because
-# it looks operation-shaped. `self` and `data` were both wrong by that rule
-# and are the reason this note exists: neither is ever GET'd anywhere in this
+# the probe or materializer dereference FROM THIS DOCUMENT" -- do not re-add
+# a rel just because it looks operation-shaped, and do not apply a rel to a
+# document type that never advertises the one it is actually read from.
+# `self` and `data` were both wrong by the first half of that rule and are
+# the reason this note exists: neither is ever GET'd anywhere in this
 # codebase. `self` names the document itself and nothing here reads it;
 # `data` is checked for PRESENCE only (`has_data_link` in
 # `adapters/ogcapi.py`, a classification signal), never for its href, since
 # `probe_ogcapi` builds `/collections` from the submitted URL directly rather
-# than following the `data` link there. Traced against the actual GET call
-# sites, not assumed:
+# than following the `data` link there.
 #
-#   - `conformance`: `_resolve_conformance` in `adapters/ogcapi.py` GETs it,
-#     WITH the credential when the fetch is same-origin (it degrades to "no
-#     conformance" rather than sending the credential cross-origin, which is
-#     a second, independent guard -- this set exists to refuse the import
-#     before that fetch is even attempted, with one consistent error).
-#   - `items`: `_advertised_items_href` / `_resolve_items_url` in
-#     `service_items.py` (`_ITEMS_REL`) GETs it to find where a collection
-#     keeps its features.
+# fix(#1770 round 46 P2, `service_endpoints.py:986`): round 37 got the REL
+# right and the SCOPE wrong -- one set applied uniformly to every document
+# `_check_ogcapi` reads, when only two rel+document pairs are ever
+# dereferenced. A collections LISTING entry carrying a cross-origin
+# `rel=conformance` (an ordinary provider-docs link, never read from
+# anywhere but the landing page) refused the whole import even though
+# nothing here was ever going to GET it. Traced against the actual GET call
+# sites, not assumed, and now split into the document type each site reads:
 #
-# `next` is deliberately NOT in this set, and that is a second thing worth
-# not re-adding by analogy. `_check_ogcapi` below never reads an items page
-# at all -- pagination there is entirely `service_items.py`'s, which already
+#   - `_LANDING_RELS = {"conformance"}`, applied only to the LANDING page
+#     (`_check_ogcapi`'s own initial fetch). `_resolve_conformance` in
+#     `adapters/ogcapi.py` GETs `conformance` from the LANDING page's own
+#     `links`, WITH the credential when the fetch is same-origin (it
+#     degrades to "no conformance" rather than sending the credential
+#     cross-origin, which is a second, independent guard -- this set exists
+#     to refuse the import before that fetch is even attempted, with one
+#     consistent error). Nothing ever reads a `conformance` link off a
+#     collections listing, a listing entry, or a collection document, so
+#     none of those carry this rel.
+#   - `_COLLECTION_RELS = {"items"}`, applied only to the COLLECTION
+#     document `_check_ogcapi` fetches directly
+#     (`/collections/{collection}`, the `collection is not None` branch).
+#     `_advertised_items_href` / `_resolve_items_url` in `service_items.py`
+#     (`_ITEMS_REL`) GETs `items` from THAT document -- always fetched
+#     fresh and directly, never from an inlined copy in a listing page (see
+#     `_resolve_items_url`'s own docstring: "the collection document is
+#     read first"). A collections LISTING ENTRY's own inlined `items` href
+#     is consequently never read by anything -- traced through
+#     `service_items.py` end to end -- so entries carry no rels at all,
+#     the same as the listing page itself.
+#   - The collections LISTING PAGE itself, and each ENTRY in its
+#     `collections` array, dereference neither rel: nothing here or in
+#     `service_items.py` GETs a `conformance` or an `items` link off either
+#     document type. Both pass `frozenset()` explicitly at their call sites
+#     below, naming the "dereferences nothing" answer rather than leaving
+#     it to be inferred from an absent call.
+#
+# `next` is deliberately in NEITHER set, and that is a third thing worth not
+# re-adding by analogy. `_check_ogcapi` below never reads an items page at
+# all -- pagination there is entirely `service_items.py`'s, which already
 # refuses a cross-origin `next` on its own
 # (`test_a_cross_origin_next_is_refused_before_it_is_fetched`,
 # `TestAPagedCollectionCannotWalkOffTheOrigin`). The one place THIS module
@@ -156,14 +187,16 @@ ENDPOINT_CHECK_FAILED_POLICY = (
 # `_MAX_COLLECTION_PAGES`, and r16 deliberately made a cross-origin or
 # unparseable `next` there STOP the walk rather than refuse the whole probe
 # (`test_a_listing_next_that_will_not_parse_stops_the_walk` pins it). Routing
-# that page's `next` through this set as well would turn `_next_page`'s soft
-# stop into a hard `CrossOriginEndpointError` and directly contradict that
-# test -- confirmed by trying it in round 37 before writing this note.
+# that page's `next` through either set as well would turn `_next_page`'s
+# soft stop into a hard `CrossOriginEndpointError` and directly contradict
+# that test -- confirmed by trying it in round 37 before writing this note,
+# and unchanged by round 46's re-scoping.
 #
 # `test_service_auth_transport_1746.py` greps the rel literals at the two
-# GET call sites above and asserts they equal this set, so the two cannot
-# drift apart again.
-_OGCAPI_OPERATION_RELS = frozenset({"conformance", "items"})
+# GET call sites named above and asserts each equals its own set, and that
+# no other rel appears in either, so the two cannot drift apart again.
+_LANDING_RELS = frozenset({"conformance"})
+_COLLECTION_RELS = frozenset({"items"})
 
 # How far the PROBE follows a paginated collections listing. The probe has no
 # collection to check, so it walks the listing; the bound is what keeps a
@@ -429,15 +462,22 @@ def _wfs_operation_hrefs(xml_bytes: bytes) -> list[str]:
     return hrefs
 
 
-def _ogcapi_link_hrefs(document: object) -> list[str]:
-    """The operation endpoints one OGC API document advertises."""
+def _ogcapi_link_hrefs(document: object, rels: frozenset[str]) -> list[str]:
+    """The operation endpoints one OGC API document advertises, among *rels*.
+
+    fix(#1770 round 46 P2): *rels* is the caller's to choose, not a single
+    tree-wide set -- see `_LANDING_RELS`/`_COLLECTION_RELS`'s own comment
+    for which document type gets which rels, and why a rel this codebase
+    never dereferences FROM a given document type must not be checked
+    against it.
+    """
     if not isinstance(document, dict):
         return []
     hrefs: list[str] = []
     for link in document.get("links", []) or []:
         if not isinstance(link, dict):
             continue
-        if link.get("rel") in _OGCAPI_OPERATION_RELS and link.get("href"):
+        if link.get("rel") in rels and link.get("href"):
             hrefs.append(str(link["href"]))
     return hrefs
 
@@ -953,7 +993,11 @@ async def _check_ogcapi(
     on_first_request: "Callable[[], None] | None" = None,
 ) -> None:
     body, from_url = await _fetch(client, url, headers, on_first_request)
-    _assert_same_origin(url, _ogcapi_link_hrefs(_parsed_json(body)), from_url)
+    # fix(#1770 round 46 P2): `_LANDING_RELS` -- this is the landing page,
+    # the only document type `conformance` is ever read from.
+    _assert_same_origin(
+        url, _ogcapi_link_hrefs(_parsed_json(body), _LANDING_RELS), from_url
+    )
 
     if collection is not None:
         # fix(#1746 B2b review r14): the collection this import will actually
@@ -967,7 +1011,12 @@ async def _check_ogcapi(
             headers,
         )
         document = _parsed_json(body)
-        _assert_same_origin(url, _ogcapi_link_hrefs(document), from_url)
+        # fix(#1770 round 46 P2): `_COLLECTION_RELS` -- this is the
+        # collection document, the only document type `items` is ever read
+        # from.
+        _assert_same_origin(
+            url, _ogcapi_link_hrefs(document, _COLLECTION_RELS), from_url
+        )
         return
 
     # The probe has no collection yet, so it walks the listing. Bounded, and
@@ -980,10 +1029,22 @@ async def _check_ogcapi(
             return
         body, from_url = await _fetch(client, page_url, headers)
         listing = _parsed_json(body)
-        _assert_same_origin(url, _ogcapi_link_hrefs(listing), from_url)
+        # fix(#1770 round 46 P2): the listing page dereferences neither rel
+        # -- `frozenset()` names that explicitly rather than skipping the
+        # call. `next` is still handled separately below, by `_next_page`,
+        # unchanged by this round.
+        _assert_same_origin(url, _ogcapi_link_hrefs(listing, frozenset()), from_url)
         collections = listing.get("collections") if isinstance(listing, dict) else None
         for entry in collections or []:
-            _assert_same_origin(url, _ogcapi_link_hrefs(entry), from_url)
+            # fix(#1770 round 46 P2): a listing ENTRY's inlined `items` href
+            # is never read either -- `_resolve_items_url` always re-fetches
+            # the collection document directly and reads ITS `items` link
+            # (see `_COLLECTION_RELS`'s comment). Entries therefore
+            # dereference nothing, the same as the listing page itself, and
+            # a cross-origin `conformance` link on an entry -- an ordinary
+            # provider-docs link nothing here ever follows -- no longer
+            # refuses the whole import.
+            _assert_same_origin(url, _ogcapi_link_hrefs(entry, frozenset()), from_url)
         # Resolved against the document's own URL as well, for the same reason.
         page_url = _next_page(listing, from_url)
     if page_url is not None:

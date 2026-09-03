@@ -2545,7 +2545,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `RecursionError` (a JSON depth bomb raises that, not `ValueError`, and
     # was escaping every except chain that named only the latter). Cap
     # 1042 -> 1055, exact.
-    "backend/app/platform/service_endpoints.py": 1055,
+    # fix(#1770 round 46 P2): +61. `_OGCAPI_OPERATION_RELS` split into
+    # `_LANDING_RELS`/`_COLLECTION_RELS`, `_ogcapi_link_hrefs` gained a
+    # `rels` parameter, and the four `_check_ogcapi` call sites gained a
+    # `# fix` comment each explaining which document type they scope to.
+    # Most of the added lines are the docstring tracing which document type
+    # dereferences which rel, and why a collections listing page/entry
+    # dereference neither. Cap 1055 -> 1116, exact.
+    "backend/app/platform/service_endpoints.py": 1116,
     # fix(#1770 round 42): first entry, crossed _RATCHET_INCLUSION_LOC on the
     # completeness-predicate unification. `_page_proves_complete` is the one
     # function round 41's full-walk-only proof and round 42's sampled-preview

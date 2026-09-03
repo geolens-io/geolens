@@ -2206,30 +2206,52 @@ class TestAWfsCheckOnlyValidatesTheOperationsTheReadPathUses:
 
 
 class TestAnOgcApiCheckOnlyValidatesRelsSomethingDereferences:
-    """fix(#1770 round 37 P2, `service_endpoints.py:126`).
+    """fix(#1770 round 37 P2, `service_endpoints.py:126`) and
+    fix(#1770 round 46 P2, `service_endpoints.py:986`).
 
-    `_OGCAPI_OPERATION_RELS` used to include `self` and `data`. Neither is
-    ever GET'd: `self` names the document itself and nothing here reads it,
-    and `data` is a presence-only classification signal
+    Round 37: `_OGCAPI_OPERATION_RELS` used to include `self` and `data`.
+    Neither is ever GET'd: `self` names the document itself and nothing here
+    reads it, and `data` is a presence-only classification signal
     (`has_data_link` in `adapters/ogcapi.py`) -- `probe_ogcapi` builds
     `/collections` from the submitted URL directly rather than following the
     `data` link there. A service reached through an alias that advertises a
     canonical cross-origin `self` link (ordinary for a service behind a CDN
     or a reverse proxy that rewrites the advertised host) failed `/probe` for
-    an endpoint nothing in this codebase ever contacts.
+    an endpoint nothing in this codebase ever contacts. Corrected to
+    `{"conformance", "items"}`.
 
-    Corrected to `{"conformance", "items"}`. `next` deliberately stays out:
-    trying to add it (round 37, before this note existed) turned
-    `_next_page`'s deliberate r16 soft-degrade on the probe's own
-    `/collections` listing walk into a hard `CrossOriginEndpointError`,
-    breaking `test_a_listing_next_that_will_not_parse_stops_the_walk` below
-    -- and the OTHER place `next` is followed, `service_items.py`'s real page
-    walk, is a document `_check_ogcapi` never reads at all, already
-    independently refused by
+    Round 46: round 37 got the REL right and the SCOPE wrong. That corrected
+    set was still applied UNIFORMLY to every document `_check_ogcapi` reads
+    -- the landing page, a collections listing page, each entry in that
+    listing, and the collection document itself -- when only two rel+document
+    pairs are ever dereferenced: `conformance` from the LANDING page
+    (`_resolve_conformance` in `adapters/ogcapi.py`) and `items` from the
+    COLLECTION document (`_advertised_items_href`/`_resolve_items_url` in
+    `service_items.py`). A collections listing entry carrying an ordinary
+    cross-origin `rel=conformance` provider-docs link -- never read from
+    anywhere but the landing page -- refused the whole import even though
+    nothing was ever going to GET it. Split into `_LANDING_RELS =
+    {"conformance"}` (the landing-page fetch only) and `_COLLECTION_RELS =
+    {"items"}` (the direct per-collection fetch only); the listing page and
+    each of its entries now pass `frozenset()` explicitly, since neither
+    document type dereferences either rel -- traced through
+    `service_items.py`'s `_resolve_items_url`, which always re-fetches the
+    collection document directly rather than reading an entry's inlined
+    `items` href.
+
+    `next` deliberately stays out of BOTH sets, in both rounds. Trying to add
+    it (round 37, before this note existed) turned `_next_page`'s deliberate
+    r16 soft-degrade on the probe's own `/collections` listing walk into a
+    hard `CrossOriginEndpointError`, breaking
+    `test_a_listing_next_that_will_not_parse_stops_the_walk` below -- and the
+    OTHER place `next` is followed, `service_items.py`'s real page walk, is a
+    document `_check_ogcapi` never reads at all, already independently
+    refused by
     `TestAPagedCollectionCannotWalkOffTheOrigin::test_a_cross_origin_next_is_refused_before_it_is_fetched`.
     "Followed somewhere in this codebase" is necessary but not sufficient for
-    membership in this set; it has to be followed by code THIS check's
-    pre-flight is actually standing in front of.
+    membership in either set; it has to be followed by code THIS check's
+    pre-flight is actually standing in front of, from the SPECIFIC document
+    type that check reads.
     """
 
     def _transport(self, monkeypatch, handler):
@@ -2423,9 +2445,10 @@ class TestAnOgcApiCheckOnlyValidatesRelsSomethingDereferences:
         exploration bounded by `_MAX_COLLECTION_PAGES`; a cross-origin one
         there stops the walk rather than raising, the same as
         `test_a_listing_next_that_will_not_parse_stops_the_walk` pins for the
-        unparseable case. Adding `next` to `_OGCAPI_OPERATION_RELS` (tried in
-        round 37 before this test existed) would have turned this into a
-        `CrossOriginEndpointError` and broken that sibling test.
+        unparseable case. Adding `next` to either `_LANDING_RELS` or
+        `_COLLECTION_RELS` (tried in round 37 before this test existed)
+        would have turned this into a `CrossOriginEndpointError` and broken
+        that sibling test.
         """
 
         def handle(request: httpx.Request) -> httpx.Response:
@@ -2473,7 +2496,7 @@ class TestAnOgcApiCheckOnlyValidatesRelsSomethingDereferences:
         import inspect
 
         from app.modules.catalog.sources.adapters import ogcapi as ogcapi_adapter
-        from app.platform import service_endpoints, service_items
+        from app.platform import service_items
 
         adapter_source = inspect.getsource(ogcapi_adapter)
         items_source = inspect.getsource(service_items)
@@ -2508,7 +2531,164 @@ class TestAnOgcApiCheckOnlyValidatesRelsSomethingDereferences:
             adapter_source,
         )
 
-        assert service_endpoints._OGCAPI_OPERATION_RELS == {"conformance", "items"}
+    def test_each_document_type_is_scoped_to_only_the_rel_it_reads(self) -> None:
+        """fix(#1770 round 46 P2): the per-document scoping itself.
+
+        Round 37 got the member rels right (pinned above) and applied them
+        uniformly to every document `_check_ogcapi` reads. This asserts the
+        two named sets hold EXACTLY their one rel each, and that
+        `_check_ogcapi`'s own source calls each of its four
+        `_ogcapi_link_hrefs` sites with the rel set the class docstring
+        says it should: `_LANDING_RELS` for the landing-page fetch,
+        `_COLLECTION_RELS` for the direct per-collection fetch, and
+        `frozenset()` -- explicitly, not by omission -- for both the
+        listing page and each of its entries.
+        """
+        import inspect
+
+        from app.platform import service_endpoints
+
+        assert service_endpoints._LANDING_RELS == {"conformance"}
+        assert service_endpoints._COLLECTION_RELS == {"items"}
+        # No rel is a member of both -- if it were, a document type scoped
+        # to one set could still smuggle a dereference meant for the other.
+        assert not (
+            service_endpoints._LANDING_RELS & service_endpoints._COLLECTION_RELS
+        )
+
+        check_source = inspect.getsource(service_endpoints._check_ogcapi)
+        assert (
+            check_source.count("_ogcapi_link_hrefs(_parsed_json(body), _LANDING_RELS)")
+            == 1
+        )
+        assert check_source.count("_ogcapi_link_hrefs(document, _COLLECTION_RELS)") == 1
+        assert check_source.count("_ogcapi_link_hrefs(listing, frozenset())") == 1
+        assert check_source.count("_ogcapi_link_hrefs(entry, frozenset())") == 1
+        # Positive control: every `_ogcapi_link_hrefs(` call in the function
+        # is accounted for by exactly one of the four assertions above --
+        # a fifth call site, or one of the four re-scoped to something
+        # else, changes this count and fails here rather than being missed.
+        assert check_source.count("_ogcapi_link_hrefs(") == 4
+
+    # fix(#1770 round 46 P2): document type x rel, at CROSS origin. Only two
+    # cells refuse -- the two `_check_ogcapi` actually dereferences from that
+    # document type -- and every other cell of this 4x6 grid allows, which is
+    # the property this round exists to establish: a rel dereferenced from
+    # ONE document type must not refuse a DIFFERENT document type for
+    # carrying it, even cross-origin, because nothing is ever going to GET it
+    # from there.
+    _MATRIX_REFUSES = {("landing", "conformance"), ("collection_doc", "items")}
+    _MATRIX_DOCUMENT_TYPES = (
+        "landing",
+        "listing_page",
+        "listing_entry",
+        "collection_doc",
+    )
+    _MATRIX_RELS = ("conformance", "items", "self", "data", "license", "next")
+
+    def _matrix_handler(self, document_type: str, rel: str, href: str):
+        """A handler carrying ONE link (*rel* -> *href*) on the document
+        type under test, with every other document this check reads
+        answering an empty, harmless body."""
+        link = {"rel": rel, "href": href}
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if path.endswith("/collections/c1"):
+                body = (
+                    {"id": "c1", "links": [link]}
+                    if document_type == "collection_doc"
+                    else {"id": "c1", "links": []}
+                )
+                return httpx.Response(200, json=body)
+            if path.endswith("/collections"):
+                if document_type == "listing_page":
+                    return httpx.Response(
+                        200, json={"collections": [], "links": [link]}
+                    )
+                if document_type == "listing_entry":
+                    return httpx.Response(
+                        200,
+                        json={
+                            "collections": [{"id": "c1", "links": [link]}],
+                            "links": [],
+                        },
+                    )
+                return httpx.Response(200, json={"collections": [], "links": []})
+            # The landing page.
+            body = {"links": [link]} if document_type == "landing" else {"links": []}
+            return httpx.Response(200, json=body)
+
+        return handle
+
+    @pytest.mark.parametrize("document_type", _MATRIX_DOCUMENT_TYPES)
+    @pytest.mark.parametrize("rel", _MATRIX_RELS)
+    async def test_cross_origin_matrix_only_refuses_the_two_real_pairs(
+        self, monkeypatch, document_type, rel
+    ) -> None:
+        from app.platform.service_endpoints import CrossOriginEndpointError
+
+        handle = self._matrix_handler(document_type, rel, f"{_FOREIGN}/x")
+        # `collection_doc` needs a collection id so `_check_ogcapi` takes
+        # the direct per-collection branch; every other document type is
+        # reached via the probe's listing walk (`collection=None`).
+        collection = "c1" if document_type == "collection_doc" else None
+
+        if (document_type, rel) in self._MATRIX_REFUSES:
+            with pytest.raises(CrossOriginEndpointError):
+                await self._check(handle, monkeypatch, collection=collection)
+        else:
+            await self._check(handle, monkeypatch, collection=collection)
+
+    async def test_the_exact_codex_case_a_listing_entry_mixes_both_rels(
+        self, monkeypatch
+    ) -> None:
+        """The specific case round 46 was opened for: an authenticated
+        listing entry carries a cross-origin `conformance` (an ordinary
+        provider-docs link, never dereferenced from an entry) alongside a
+        SAME-origin `items` -- the import proceeds, because nothing here
+        was ever going to follow the entry's `conformance` link regardless
+        of its origin."""
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/collections"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "collections": [
+                            {
+                                "id": "c1",
+                                "links": [
+                                    {
+                                        "rel": "conformance",
+                                        "href": f"{_FOREIGN}/conformance",
+                                    },
+                                    {
+                                        "rel": "items",
+                                        "href": f"{_SVC_OAPIF}/collections/c1/items",
+                                    },
+                                ],
+                            }
+                        ],
+                        "links": [],
+                    },
+                )
+            return httpx.Response(200, json={"links": []})
+
+        # No `collection`: the probe walks the listing and reads the entry.
+        await self._check(handle, monkeypatch, collection=None)
+
+    async def test_same_origin_always_allows_regardless_of_rel_or_document(
+        self, monkeypatch
+    ) -> None:
+        """The other axis of the matrix: origin, not rel or document type,
+        is what a same-origin href is judged on. A representative sample --
+        the two cells that DO refuse cross-origin -- confirm same-origin
+        never trips either."""
+        for document_type, rel in sorted(self._MATRIX_REFUSES):
+            handle = self._matrix_handler(document_type, rel, f"{_SVC_OAPIF}/x")
+            collection = "c1" if document_type == "collection_doc" else None
+            await self._check(handle, monkeypatch, collection=collection)
 
 
 class TestAServiceCannotPointTheCredentialSomewhereElse:
@@ -2777,10 +2957,25 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
 
         assert resp.status_code == 200, resp.text
 
-    async def test_a_late_collection_is_refused_at_the_probe(
+    async def test_a_late_collections_items_link_is_allowed_at_the_probe(
         self, client, admin_auth_header: dict, monkeypatch
     ) -> None:
-        """Within the page bound, the probe still sees a later collection."""
+        """fix(#1770 round 46 P2): corrected expectation, not a regression.
+
+        This pinned the OPPOSITE outcome before round 46: a listing entry
+        (page 9 of `_oapif_handler`'s one-collection-per-page walk) carrying
+        a cross-origin `items` link used to refuse the whole probe. Nothing
+        the probe does ever reads an entry's `items` href -- `probe_ogcapi`
+        never mentions `items` at all, and the only place that rel is ever
+        dereferenced is `_check_ogcapi`'s direct per-collection fetch
+        (`_COLLECTION_RELS`, exercised by
+        `test_the_preview_refuses_a_cross_origin_items_link` and
+        `test_the_worker_refuses_a_cross_origin_items_link` below) and
+        `service_items.py`'s own independent guard at actual import time,
+        neither of which this probe reaches. The probe still never
+        contacts the foreign host -- it was never going to fetch that href
+        either way -- so this is Allowed, not merely "didn't crash".
+        """
         value = _value()
         resp, recorded = await self._probe(
             client,
@@ -2793,8 +2988,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
             monkeypatch,
         )
 
-        assert resp.status_code == 422, resp.text
-        assert resp.json()["detail"]["code"] == "cross_origin_endpoint"
+        assert resp.status_code == 200, resp.text
         assert "collector.example" not in _hosts(recorded)
 
     # -- the preview door ---------------------------------------------------
