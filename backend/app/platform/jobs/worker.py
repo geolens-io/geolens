@@ -525,6 +525,75 @@ async def count_completed_job(call_next, context, worker):
     return result
 
 
+# fix(#1778): how often to age out terminal queue rows. Six hours is a long way
+# under the shortest sensible INGEST_JOBS_RETENTION_DAYS and keeps the delete's
+# cost off the hot path; the window itself is the retention setting, not this.
+TERMINAL_JOB_PURGE_INTERVAL_SECONDS = 6 * 3600
+
+
+async def purge_expired_terminal_jobs() -> None:
+    """Age out failed, cancelled and aborted queue rows and their events.
+
+    fix(#1778): nothing in the repository ever deleted these. Procrastinate's
+    ``delete_old_jobs`` is never called, there is no pg_cron, no CronJob, no
+    scheduled workflow and no periodic Procrastinate task, and
+    ``POST /jobs/cleanup/stale/`` sweeps only the ``ingest_jobs`` MIRROR. So a
+    successful job left nothing behind (``delete_jobs="successful"`` plus the
+    ON DELETE CASCADE on the events fkey) while every failure, cancellation and
+    abort left one job row plus three event rows forever. Meanwhile
+    ``INGEST_JOBS_RETENTION_DAYS`` deleted the mirror row after 30 days, so
+    what remained was also unattributable.
+
+    The clearest sign it was an oversight rather than a decision is inside
+    ``fail_stalled_queue_jobs``: it writes a permanent FAILED row and then,
+    eight lines later, prunes ``procrastinate_workers`` so the heartbeat table
+    "doesn't grow one tombstone per killed worker".
+
+    Keyed to the same ``INGEST_JOBS_RETENTION_DAYS`` the mirror uses, so the
+    queue row and the row that explains it age out together. 0 disables it,
+    matching the mirror sweep.
+
+    One unfiltered call rather than one per queue: the vendored query builds
+    ``SELECT DISTINCT ON (job.id) job.*, event.at FROM procrastinate_jobs job
+    JOIN procrastinate_events event ...`` as an inline view BEFORE applying the
+    status and age predicate, so the join and sort happen whatever the queue
+    filter is -- N per-queue calls would pay for it N times.
+
+    Caller must hold an open connector (``task_app.open_async()``).
+    """
+    from app.processing.ingest.tasks import task_app
+
+    days = settings.ingest_jobs_retention_days
+    if days <= 0:
+        return
+    await task_app.job_manager.delete_old_jobs(
+        nb_hours=days * 24,
+        include_failed=True,
+        include_cancelled=True,
+        include_aborted=True,
+    )
+    log.info("Purged expired terminal queue jobs", retention_days=days)
+
+
+async def _purge_terminal_jobs_safely() -> None:
+    """Run one purge; never let a failure kill the loop or block startup."""
+    try:
+        await purge_expired_terminal_jobs()
+    except Exception:  # broad: best-effort housekeeping, never fatal to the worker
+        log.warning("Terminal queue job purge failed", exc_info=True)
+
+
+async def run_terminal_job_purges() -> None:
+    """Purge terminal queue rows on an interval for the life of the worker.
+
+    Sleeps first, like ``run_stalled_queue_sweeps``: the caller runs the
+    startup pass itself.
+    """
+    while True:
+        await asyncio.sleep(TERMINAL_JOB_PURGE_INTERVAL_SECONDS)
+        await _purge_terminal_jobs_safely()
+
+
 async def run_health_server() -> None:
     """Run the worker health server on port 8001."""
     config = uvicorn.Config(
@@ -650,7 +719,11 @@ async def main() -> None:
             # before this process existed; the loop below owns the ones that go
             # stale while it runs.
             await _sweep_stalled_queue_safely()
+            # fix(#1778): early, before the jobs-by-events join this query
+            # builds has a large table to sort.
+            await _purge_terminal_jobs_safely()
             sweep_task = asyncio.create_task(run_stalled_queue_sweeps())
+            purge_task = asyncio.create_task(run_terminal_job_purges())
             try:
                 await task_app.run_worker_async(
                     queues=queues,
@@ -681,7 +754,8 @@ async def main() -> None:
                 # Cancel inside the connector context — a sweep mid-query when
                 # the pool closes would raise on the way out.
                 sweep_task.cancel()
-                await asyncio.gather(sweep_task, return_exceptions=True)
+                purge_task.cancel()
+                await asyncio.gather(sweep_task, purge_task, return_exceptions=True)
     finally:
         # 7. Clean up background tasks after worker exits
         metrics_task.cancel()
