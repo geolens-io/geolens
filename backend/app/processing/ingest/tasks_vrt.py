@@ -4,7 +4,7 @@ Storage portability (STOR-03/04, Phase 1210):
   VRTs are stored with provider-agnostic SourceFilename nodes (logical keys +
   relativeToVRT="1"). The rewrite pass (rewrite_vrt_sources) runs AFTER metadata
   extraction and quicklook generation at each store site — the in-flight tmp .vrt
-  used by read_vrt_metadata / render_vrt_quicklook must hold concrete,
+  used by extract_raster_metadata / generate_quicklook must hold concrete,
   resolvable paths; only the stored copy is normalised to logical keys.
 
   At open-time, resolve_open_path (app.platform.storage.titiler_url) reconstructs
@@ -30,11 +30,11 @@ from app.platform.jobs.heartbeat import (
 )
 from app.core.db import tenant_task
 from app.processing.embeddings.helpers import defer_embedding
-from app.processing.raster.cog import sha256_file
+from app.processing.raster.cog import extract_raster_metadata, sha256_file
+from app.processing.raster.quicklook import generate_quicklook
 from app.processing.raster.vrt import (
     build_vrt,
-    read_vrt_metadata,
-    render_vrt_quicklook,
+    gdal_safe_open_env,
     resolve_vrt_source_path,
 )
 from app.processing.raster.vrt_rewrite import rewrite_vrt_sources
@@ -49,6 +49,40 @@ from app.processing.ingest.tasks_raster_common import (
     absorb_cancellation,
     publish_commit_landed,
 )
+
+
+def read_vrt_metadata(vrt_path: str) -> dict:
+    """``extract_raster_metadata`` on a built VRT, under the safe open env.
+
+    fix(#1778). Steps 6 and 8 below open every ``/vsis3`` source the assembled
+    VRT names, in-process rather than through a subprocess, so they are the one
+    place in this task that ``GDAL_SUBPROCESS_TIMEOUT_SECONDS`` does not reach.
+    ``_VRT_SAFE_ENV`` carries the ``GDAL_HTTP_*`` clamps that bound them, and a
+    rasterio ``Env`` sets thread-local GDAL config, so the env has to be entered
+    INSIDE the ``asyncio.to_thread`` call rather than around it. That is the
+    whole reason this is a function and not a ``with`` block at the call site.
+
+    fix(#1778 codex r3): it lives in THIS module, and calls
+    ``extract_raster_metadata`` through the module global rather than a local
+    import, because that name is a patch target
+    (``test_regenerate_vrt_integration``'s ``quicklook_stub`` patches its peer
+    the same way). An earlier revision put both wrappers in ``raster/vrt.py``
+    with function-level imports, which removed the attribute the fixture
+    patches and made the patch a no-op in the same stroke.
+    """
+    with gdal_safe_open_env():
+        return extract_raster_metadata(vrt_path)
+
+
+def render_vrt_quicklook(vrt_path: str, size: int) -> bytes:
+    """``generate_quicklook`` on a built VRT, under the safe open env.
+
+    fix(#1778): the peer of :func:`read_vrt_metadata` and the heavier of the
+    two, since it reads pixels from every source rather than headers. Same
+    module-global call for the same reason.
+    """
+    with gdal_safe_open_env():
+        return generate_quicklook(vrt_path, size)
 
 
 async def _reap_superseded_generation_objects(

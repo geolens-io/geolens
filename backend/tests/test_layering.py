@@ -3934,9 +3934,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # rather than after (a cancelled put can have completed), the two in-thread
     # source reads go through the safe-open-env wrappers in `raster/vrt.py`, and
     # `create_vrt_dataset` accepts a caller-chosen dataset id so the manifest
-    # tail can name its object keys before phase 2 opens. Cap 1480 -> 1496,
+    # tail can name its object keys before phase 2 opens. Cap 1480 -> 1496.
+    # fix(#1778 codex r3): +34. The two safe-env wrappers moved here from
+    # `raster/vrt.py` and call `extract_raster_metadata` / `generate_quicklook`
+    # through this module's globals. Those two names are patch targets for the
+    # VRT integration and source-management suites, and putting the wrappers in
+    # `raster/vrt.py` with function-level imports removed the attributes AND
+    # would have made the patches no-ops once restored. The docstrings say so,
+    # because the next reader will want to move them back. Cap 1496 -> 1530,
     # exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1496,
+    "backend/app/processing/ingest/tasks_vrt.py": 1530,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.

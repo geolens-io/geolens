@@ -132,7 +132,7 @@ class TestVrtSourceReadTimeouts:
     def test_the_wrappers_enter_the_env_inside_the_worker_thread(self) -> None:
         """A rasterio Env is thread-local, so the ``with`` must be in the
         function ``to_thread`` runs, not around the await."""
-        tree = ast.parse(_source("processing/raster/vrt.py"))
+        tree = ast.parse(_source("processing/ingest/tasks_vrt.py"))
         for name in ("read_vrt_metadata", "render_vrt_quicklook"):
             fn = next(
                 node
@@ -146,3 +146,36 @@ class TestVrtSourceReadTimeouts:
                 for w in withs
                 for item in w.items
             ), f"{name} does not enter gdal_safe_open_env"
+
+    @pytest.mark.parametrize(
+        "wrapper,patched",
+        [
+            ("read_vrt_metadata", "extract_raster_metadata"),
+            ("render_vrt_quicklook", "generate_quicklook"),
+        ],
+    )
+    def test_the_wrapper_calls_through_the_patchable_module_attribute(
+        self, monkeypatch, wrapper: str, patched: str
+    ) -> None:
+        """fix(#1778 codex r3): the names the integration fixtures patch.
+
+        `test_regenerate_vrt_integration`'s `quicklook_stub` does
+        `monkeypatch.setattr("app.processing.ingest.tasks_vrt.generate_quicklook",
+        ...)`, so the wrapper has to both keep that attribute on the module and
+        resolve it at call time. A local import inside the wrapper satisfies
+        neither: it removes the attribute (AttributeError at fixture setup) and,
+        once restored by hand, would silently ignore the stub and run the real
+        renderer against a VRT built from remote sources.
+        """
+        from app.processing.ingest import tasks_vrt
+
+        seen: list[tuple] = []
+
+        def _stub(*args):
+            seen.append(args)
+            return "stubbed"
+
+        monkeypatch.setattr(tasks_vrt, patched, _stub)
+        args = ("some.vrt",) if wrapper == "read_vrt_metadata" else ("some.vrt", 256)
+        assert getattr(tasks_vrt, wrapper)(*args) == "stubbed"
+        assert seen == [args]

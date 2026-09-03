@@ -118,34 +118,6 @@ def gdal_safe_open_env():
     return rasterio.Env(**_VRT_SAFE_ENV)
 
 
-def read_vrt_metadata(vrt_path: str) -> dict:
-    """``extract_raster_metadata`` on a built VRT, under the safe open env.
-
-    fix(#1778). The VRT names remote sources, so this read is the one place a
-    raster task touches object storage in-process rather than through a
-    subprocess. Rasterio's ``Env`` sets thread-local GDAL config, so entering it
-    has to happen inside the ``asyncio.to_thread`` call and not around it --
-    which is the whole reason this wrapper exists rather than a ``with`` block
-    at the call site.
-    """
-    from app.processing.raster.cog import extract_raster_metadata
-
-    with gdal_safe_open_env():
-        return extract_raster_metadata(vrt_path)
-
-
-def render_vrt_quicklook(vrt_path: str, size: int) -> bytes:
-    """``generate_quicklook`` on a built VRT, under the safe open env.
-
-    fix(#1778): the peer of :func:`read_vrt_metadata`, and the heavier of the
-    two -- it reads pixels from every source rather than headers.
-    """
-    from app.processing.raster.quicklook import generate_quicklook
-
-    with gdal_safe_open_env():
-        return generate_quicklook(vrt_path, size)
-
-
 # fix(#430 BA-29): raster GDAL CLIs run synchronously inside asyncio.to_thread, and
 # Python threads aren't killable — a hung child (malformed TIFF, stalled /vsi
 # read) would pin a ThreadPoolExecutor thread forever and eventually starve every
@@ -630,9 +602,9 @@ def shift_vrt_longitude_frame(vrt_path: str) -> None:
     task open every ``/vsis3`` source in-thread, at a larger scale than the
     probe did (metadata extraction, then two quicklook renders). What bounds
     those is the ``GDAL_HTTP_*`` clamps in ``_VRT_SAFE_ENV``, applied through
-    ``read_vrt_metadata`` and ``render_vrt_quicklook`` below, which enter
-    ``gdal_safe_open_env`` INSIDE the worker thread because a rasterio ``Env``
-    is thread-local.
+    ``tasks_vrt.read_vrt_metadata`` and ``tasks_vrt.render_vrt_quicklook``,
+    which enter :func:`gdal_safe_open_env` INSIDE the worker thread because a
+    rasterio ``Env`` is thread-local.
 
     ``gdalbuildvrt`` has already opened every source, under that timeout, and
     written what this needs: per-source ``DstRect`` geometry, the hull
