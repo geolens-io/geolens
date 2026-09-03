@@ -119,8 +119,18 @@ within each.
      test_a_refresh_token_write_failure_restores_the_whole_prior_session.
    - backend co-location with the access token, both forced-file and
      keyring, plus the try_refresh() rotation composing correctly with
-     it (round 14) — TestRefreshTokenSharesAccessTokenBackend (all three
-     tests).
+     it (round 14) — TestRefreshTokenSharesAccessTokenBackend.
+   - backend co-location when the DIVERGENCE is at STORE time, not
+     snapshot time: snapshot reads succeed for the target account (so
+     store_no_keyring/target_is_unknown stay False — distinct from the
+     round-14 forced-file cell above), but keyring.set_password then
+     fails for the access account only, so store_bearer_token/
+     store_api_key fall back to backend == "file" while the refresh
+     account's OWN set_password would have succeeded if asked (round
+     15 — this is what `backend != "keyring"` fixes, replacing the
+     round-14 store_no_keyring check) — TestRefreshTokenSharesAccess
+     TokenBackend::
+     test_a_store_time_keyring_failure_also_keeps_both_tokens_together.
 
 6. ROLLBACK / RESTORE ITSELF (_restore_credentials()'s own writes fail).
    Proven UNREACHABLE as a distinct login-visible failure mode:
@@ -1114,7 +1124,25 @@ class TestRefreshTokenSharesAccessTokenBackend:
     the (now stale, unrotated) file-backed bearer under its
     file-over-keyring precedence: every subsequent 401 tries to refresh
     again and never converges. Both tokens must always land in the SAME
-    backend."""
+    backend.
+
+    fix(#1778 review round 15): round 14's fix keyed the refresh
+    token's backend off ``store_no_keyring`` — the PRE-store intent
+    computed from snapshot readability alone. That diverges from
+    ``backend``, the store call's ACTUAL outcome, whenever
+    ``keyring.get_password`` succeeds at snapshot time (so
+    ``store_no_keyring`` stays False) but ``keyring.set_password`` then
+    fails at STORE time — a locked keychain needing a write unlock,
+    contention, a quota. ``store_bearer_token``/``store_api_key``
+    already catch that and fall back to the file, returning
+    ``backend == "file"``, while ``store_no_keyring`` stays False; the
+    refresh write then tried the keyring first, and if THAT account's
+    ``set_password`` happened to succeed, the two tokens split again —
+    the exact bug this round exists to close, reopened through a
+    store-time failure this class's original tests never exercised
+    (they only fail ``get_password``). The refresh write now keys off
+    ``backend != "keyring"`` — the real outcome, not the pre-store
+    intent."""
 
     def test_a_forced_file_login_puts_both_tokens_in_the_file(
         self, tmp_xdg_home, mock_keyring, monkeypatch
@@ -1231,6 +1259,61 @@ class TestRefreshTokenSharesAccessTokenBackend:
         assert file_section.get("refresh_token") == "rotated-refresh"
         assert keyring.get_password("geolens", bearer_account) is None
         assert keyring.get_password("geolens", f"{canonical}:refresh") is None
+
+    def test_a_store_time_keyring_failure_also_keeps_both_tokens_together(
+        self, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """fix(#1778 review round 15): the round-14 fix keyed the
+        refresh-token backend off store_no_keyring -- the PRE-store
+        INTENT computed from snapshot readability alone -- not off
+        `backend`, the store call's ACTUAL outcome. Reproduces the
+        divergence the round-15 audit found: keyring.get_password
+        SUCCEEDS at snapshot time (so store_no_keyring stays False --
+        this is NOT the target_is_unknown/forced-file case above), but
+        keyring.set_password then fails for the bearer account only at
+        STORE time (a locked keychain needing a write unlock,
+        contention, a quota) -- store_bearer_token already catches
+        that and falls back to the file, returning backend == "file".
+        The refresh account's OWN set_password is left free to
+        succeed, so with the pre-round-15 code the refresh token would
+        land in the keyring while the access token sat in the file."""
+        import keyring
+        from keyring.errors import KeyringError
+
+        from geolens_cli import auth as _auth
+        from geolens_cli import config as _config
+
+        instance = "https://x.example.com"
+        canonical = _config.normalize_instance_url(instance)
+        bearer_account = canonical
+        refresh_account = f"{canonical}:refresh"
+
+        original_set = keyring.set_password  # mock_keyring's dict-backed one
+
+        def failing_set(service, username, password):
+            if username == bearer_account:
+                raise KeyringError("locked keychain needs a write unlock")
+            return original_set(service, username, password)
+
+        monkeypatch.setattr("keyring.set_password", failing_set)
+
+        # Snapshot reads are NOT mocked to fail -- both accounts are
+        # confirmed-absent (None), not _UNKNOWN, so target_is_unknown
+        # stays False and store_no_keyring stays False too. This is
+        # what distinguishes the round-15 cell from round 14's
+        # forced-file test above.
+        backend = _auth.replace_credentials(
+            canonical, "bearer", "new-access", refresh_token="new-refresh"
+        )
+
+        assert backend == "file"
+        file_section = _auth._read_credentials_file().get(canonical, {})
+        assert file_section.get("bearer_token") == "new-access"
+        assert file_section.get("refresh_token") == "new-refresh"
+        # The refresh account's set_password was never even asked --
+        # it would have succeeded if it had been.
+        assert keyring.get_password("geolens", refresh_account) is None
+        assert keyring.get_password("geolens", bearer_account) is None
 
 
 class TestUnreadableKeyringDuringCleanup:

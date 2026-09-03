@@ -635,10 +635,10 @@ def replace_credentials(
             instance, keep=kind, keep_backend=backend, snapshot=snapshot
         )
         if refresh_token:
-            # fix(#1778 review round 14): must use store_no_keyring (the
-            # backend actually chosen for the access token above), not
-            # the caller's original no_keyring. When the target keyring
-            # read was unknown, round 13 forces the access token into
+            # fix(#1778 review round 14): must match the backend the
+            # access token actually landed in, not the caller's
+            # original no_keyring. When the target keyring read was
+            # unknown, round 13 forces the access token into
             # credentials.toml but the keyring itself may still be
             # perfectly willing to accept the refresh token -- if it
             # were stored there with the original no_keyring=False, the
@@ -650,7 +650,30 @@ def replace_credentials(
             # preferring the (now stale, unrotated) file-backed bearer
             # under its file-over-keyring precedence -- every subsequent
             # 401 refreshes again, never converging.
-            store_refresh_token(instance, refresh_token, no_keyring=store_no_keyring)
+            #
+            # fix(#1778 review round 15): round 14 keyed this off
+            # store_no_keyring -- the PRE-store INTENT computed from
+            # snapshot readability alone -- not off `backend`, the
+            # store call's ACTUAL outcome. The two diverge whenever
+            # keyring.get_password succeeded at snapshot time (so
+            # store_no_keyring is False) but keyring.set_password then
+            # fails at store time (a locked keychain needing a write
+            # unlock, contention, a quota) -- store_bearer_token/
+            # store_api_key already catch that KeyringError and fall
+            # back to the file, returning backend == "file", while
+            # store_no_keyring stays False. With store_no_keyring the
+            # refresh write would still try the keyring first; if THAT
+            # account's set_password happens to succeed, the two
+            # tokens split again -- the exact bug this round closes,
+            # reopened through a store-time failure instead of a
+            # snapshot-read failure. `backend != "keyring"` reflects
+            # what actually happened, not what was intended going in;
+            # --no-keyring and an unknown target snapshot still force
+            # backend == "file" either way, so those cases are
+            # unchanged.
+            store_refresh_token(
+                instance, refresh_token, no_keyring=(backend != "keyring")
+            )
     except Exception:
         _restore_credentials(instance, snapshot)
         raise
