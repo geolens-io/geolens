@@ -84,6 +84,7 @@ def _fingerprint_bearer(bearer_token: str) -> str:
     rotate, not just that both happen to be present in storage. sha256
     truncated to 16 hex chars is plenty for this -- it only ever needs
     to be compared against itself, never guessed."""
+    # codeql[py/weak-sensitive-data-hashing] fix(#1778 round 32): comparison tag over a high-entropy bearer, not password storage; the digest is truncated, never reversible to the token, and never used to authenticate
     return hashlib.sha256(bearer_token.encode()).hexdigest()[:16]
 
 
