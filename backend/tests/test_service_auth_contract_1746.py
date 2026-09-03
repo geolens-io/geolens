@@ -34,6 +34,7 @@ from __future__ import annotations
 import uuid
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -46,6 +47,7 @@ from app.modules.catalog.sources.schemas import (
     SERVICE_AUTH_HEADER_POLICY,
     ProbeResponse,
 )
+from app.platform import security
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh import credentials as creds
 from app.platform.service_auth import (
@@ -222,23 +224,103 @@ class TestProbeDoor:
         probe.assert_not_awaited()
 
     @pytest.mark.parametrize("builder", [_basic_auth, _header_auth])
-    async def test_a_method_with_no_transport_is_refused(
+    async def test_a_method_with_no_transport_reaches_detection(
         self, client: AsyncClient, admin_auth_header: dict, builder
     ) -> None:
-        """An ArcGIS-shaped URL, which is the transport that cannot carry one.
+        """fix(#1746 B2b review r27): the refusal moved AFTER detection.
 
-        The probe has no service type yet — finding it out is the point — so
-        the URL shape is the only selector it has, and it is the same one
-        `detect_service_type` dispatches on.
+        This asserted the opposite: that an ArcGIS-SHAPED URL was refused
+        before the network. That was the finding. `_looks_like_arcgis` matches
+        `FeatureServer` or `MapServer` anywhere in a URL, so a WFS served from
+        `/FeatureServer/wfs` was refused a credential it supports, before
+        anything had asked the service what it is — and asking is the whole
+        point of a probe.
+
+        The credential's SHAPE is still judged at the door, because that is
+        answerable without asking anyone. Whether the service found can carry
+        the method is answered by `service_carries_method` once there is a
+        service to ask about, which is what the sibling test below pins.
         """
         auth, secrets = builder()
         resp, probe = await self._post(
             client, admin_auth_header, {"auth": auth}, url=_ARCGIS_URL
         )
+
+        assert resp.status_code == 200, resp.text
+        # The whole credential reached detection, which is now what decides.
+        assert probe.await_args.kwargs["credential"].method == auth["method"]
+        for secret in secrets:
+            assert secret not in resp.text
+
+    @pytest.mark.parametrize("builder", [_basic_auth, _header_auth])
+    async def test_a_wfs_behind_an_arcgis_shaped_path_is_probed(
+        self, client: AsyncClient, admin_auth_header: dict, builder
+    ) -> None:
+        """The case the URL-text refusal broke, stated directly.
+
+        `/FeatureServer/wfs` is a WFS. It supports basic and a named API key,
+        and the door has no business deciding otherwise from the path.
+        """
+        auth, secrets = builder()
+        resp, probe = await self._post(
+            client,
+            admin_auth_header,
+            {"auth": auth},
+            url="https://service.example/geoserver/FeatureServer/wfs",
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert probe.await_args.kwargs["credential"].method == auth["method"]
+        for secret in secrets:
+            assert secret not in resp.text
+
+    @pytest.mark.parametrize("builder", [_basic_auth, _header_auth])
+    async def test_an_arcgis_service_still_refuses_the_method(
+        self, client: AsyncClient, admin_auth_header: dict, builder
+    ) -> None:
+        """Same code as before, decided by what was found rather than the URL.
+
+        Driven through the real `detect_service_type`, since the refusal now
+        lives there: a mocked detector would prove only that the door stopped
+        refusing.
+        """
+        auth, secrets = builder()
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            # An ArcGIS FeatureServer answering as one.
+            return httpx.Response(
+                200,
+                json={
+                    "currentVersion": 11.1,
+                    "layers": [{"id": 0, "name": "Parcels", "type": "Feature Layer"}],
+                },
+            )
+
+        with (
+            patch(
+                "app.modules.catalog.sources.router.validate_url_for_ssrf",
+                new_callable=AsyncMock,
+            ),
+            patch.object(
+                security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+            ),
+            patch.object(security, "validate_url_for_ssrf", new_callable=AsyncMock),
+        ):
+            resp = await client.post(
+                "/services/probe",
+                json={"url": _ARCGIS_URL, "auth": auth},
+                headers=admin_auth_header,
+            )
+
         _assert_unsupported_without_the_values(resp, secrets)
-        # Refused before the network, so an unsupported method never reaches
-        # the origin as an anonymous request.
-        probe.assert_not_awaited()
+        # It reached the service to find out what it was, and the credential
+        # was never presented in the query, since it does not fit one.
+        assert recorded
+        for request in recorded:
+            for secret in secrets:
+                assert secret not in str(request.url)
 
     @pytest.mark.parametrize("builder", [_basic_auth, _header_auth])
     async def test_a_header_auth_service_takes_every_method(

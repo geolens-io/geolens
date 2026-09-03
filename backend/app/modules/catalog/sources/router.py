@@ -34,7 +34,6 @@ from app.core.service_tokens import (
 from app.modules.catalog.sources.adapters.arcgis import (
     ARCGIS_SERVICE_FORMAT,
     ArcGISTokenError,
-    _looks_like_arcgis,
     fetch_arcgis_layer_preview,
     normalize_arcgis_url,
 )
@@ -753,12 +752,22 @@ async def probe_service_url(
     sends_a_header = (
         credential is not None and credential.method != CredentialMethod.BEARER
     )
+    # fix(#1746 B2b review r27): bound by the METHOD alone. This used to read
+    # `_looks_like_arcgis(request.url)`, which matches `FeatureServer` or
+    # `MapServer` anywhere in the URL, so a WFS at `/FeatureServer/wfs` had its
+    # basic or named-key credential refused before `detect_service_type` was
+    # given the chance to say what the service actually is -- the exact case
+    # its fast-path-then-fallback design exists to handle.
+    #
+    # A header-only method is bound to the header transport so its SHAPE is
+    # validated here, at the door, where the caller can act on the answer. The
+    # question of whether the service found can carry that method at all is a
+    # different one, and it is answered after detection by
+    # `service_carries_method`, which is where every other caller answers it.
     service_credential = credential_or_422(
         credential,
         service_format=(
-            WFS_SERVICE_FORMAT
-            if sends_a_header and not _looks_like_arcgis(request.url)
-            else ARCGIS_SERVICE_FORMAT
+            WFS_SERVICE_FORMAT if sends_a_header else ARCGIS_SERVICE_FORMAT
         ),
     )
     safe_url = redact_url_credentials(request.url)

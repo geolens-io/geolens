@@ -2596,7 +2596,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the endpoint check. It had omitted one, so the check ran unbounded and a
     # description delivered slowly but steadily across up to twenty listing
     # pages held an API request open for as long as the service liked.
-    "backend/app/modules/catalog/sources/router.py": 1570,
+    # fix(#1746 B2b review r27): +9. The door no longer decides from the URL
+    # text whether a credential's method can be carried; it binds by method
+    # alone and `service_carries_method` answers the transport question after
+    # detection. The lines are the comment recording why reading the URL there
+    # was wrong, since `/FeatureServer/wfs` is a WFS and the door had refused
+    # it a credential it supports.
+    "backend/app/modules/catalog/sources/router.py": 1579,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against

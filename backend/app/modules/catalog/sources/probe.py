@@ -25,15 +25,17 @@ from urllib.parse import urlparse
 import httpx
 import structlog
 
-from app.core.service_tokens import CredentialMethod, ServiceCredential
+from app.core.service_tokens import ServiceCredential
 from app.platform.service_auth import (
     INVALID_SERVICE_TOKEN_CODE,
     UNSUPPORTED_AUTH_METHOD_CODE,
     UNSUPPORTED_AUTH_METHOD_POLICY,
+    service_carries_method,
     url_query_token,
 )
 from app.core.url_redaction import redact_url_credentials
 from app.modules.catalog.sources.adapters.arcgis import (
+    ARCGIS_SERVICE_FORMAT,
     ArcGISTokenError,
     _looks_like_arcgis,
     enrich_arcgis_feature_counts,
@@ -149,6 +151,41 @@ def _build_arcgis_response(
     )
 
 
+def _arcgis_carries(credential: ServiceCredential | None) -> None:
+    """Refuse a method ArcGIS cannot present, once ArcGIS is what we found.
+
+    fix(#1746 B2b review r9): `url_query_token` answers None for basic and for
+    a named API key, because neither fits in a query parameter. On the fallback
+    path that silently became an ANONYMOUS ArcGIS probe: a vanity endpoint
+    identified only by its `f=json` response answered 200 and the caller was
+    told their credential worked, and then preview refused the same credential
+    with `unsupported_auth_method`. The probe has to give the answer preview
+    will give.
+
+    fix(#1746 B2b review r27): this is now the ONLY place the question is
+    answered for a probe, and it is answered after detection. The door used to
+    answer it too, from the URL text, which refused a WFS at
+    `/FeatureServer/wfs` a credential it supports. All three ArcGIS outcomes
+    reach here: the keyword-detected fast path, the fallback that identifies a
+    vanity endpoint by its response, and the token challenge.
+
+    Module-level rather than nested in `detect_service_type` so that function
+    stays inside its complexity budget, and so the rule can be read without
+    reading the detector.
+    """
+    if credential is None:
+        return
+    # Asked of the shared mapping rather than re-listed here. The door asks the
+    # same question of the same function about the method alone, and this asks
+    # it again about the service that was actually found, so the two cannot
+    # drift apart.
+    if service_carries_method(ARCGIS_SERVICE_FORMAT, credential.method):
+        return
+    raise ServiceCredentialUnusable(
+        UNSUPPORTED_AUTH_METHOD_POLICY, code=UNSUPPORTED_AUTH_METHOD_CODE
+    )
+
+
 async def detect_service_type(
     url: str,
     client: httpx.AsyncClient,
@@ -216,30 +253,6 @@ async def detect_service_type(
         except ArcGISTokenError:
             _arcgis_carries(credential)
             raise
-
-    def _arcgis_carries(credential_: ServiceCredential | None) -> None:
-        """Refuse a method ArcGIS cannot present, once ArcGIS is what we found.
-
-        fix(#1746 B2b review r9): `url_query_token` answers None for basic and
-        for a named API key, because neither fits in a query parameter. On the
-        fallback path that silently became an ANONYMOUS ArcGIS probe: a vanity
-        endpoint identified only by its `f=json` response answered 200 and the
-        caller was told their credential worked, and then preview refused the
-        same credential with `unsupported_auth_method`. The probe has to give
-        the answer preview will give.
-
-        Only reachable from the fallback in practice. The keyword-detected
-        branch is refused at the door, which knows the format from the URL,
-        and this says the same thing for the branch that learns it later.
-        """
-        if credential_ is None or credential_.method in (
-            CredentialMethod.NONE,
-            CredentialMethod.BEARER,
-        ):
-            return
-        raise ServiceCredentialUnusable(
-            UNSUPPORTED_AUTH_METHOD_POLICY, code=UNSUPPORTED_AUTH_METHOD_CODE
-        )
 
     # Fast path: ArcGIS URL pattern
     if looks_arcgis:

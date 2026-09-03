@@ -167,6 +167,31 @@ def credential_input_rejection(credential: ServiceCredential) -> str | None:
     return CREDENTIAL_METHOD_POLICY
 
 
+def service_carries_method(
+    service_format: str | None, method: CredentialMethod
+) -> bool:
+    """Whether a service of this KIND can present a credential of this METHOD.
+
+    fix(#1746 B2b review r27): the one mapping, so the probe door and the
+    probe itself cannot disagree about it. It had been expressed twice and
+    differently: the door inferred the service kind from the URL text and
+    refused there, while `detect_service_type` refused the same methods after
+    detection. A WFS served from a path containing `FeatureServer` was
+    therefore refused a credential it supports, before anything had asked the
+    service what it is.
+
+    Bearer travels either way: it fits a URL query and it fits a header line.
+    Basic and a named API key exist only as a header, so they need a service
+    kind whose credential travels as one. Anything else is a method this build
+    does not know how to send anywhere.
+    """
+    if method in (CredentialMethod.NONE, CredentialMethod.BEARER):
+        return True
+    if method in (CredentialMethod.BASIC, CredentialMethod.HEADER_KEY):
+        return requires_header_token_policy(service_format)
+    return False
+
+
 def credential_or_422(
     credential: ServiceCredential | None, *, service_format: str | None
 ) -> ServiceCredential | None:
