@@ -88,6 +88,7 @@ test.describe('Vector tile pipeline', () => {
   test('MVT tiles are requested and served for a vector dataset', async ({ page }) => {
     const mvt: { url: string; status: number }[] = [];
     const thirdPartyPbf: string[] = [];
+    let inFlightDatasetTiles = 0;
 
     page.on('response', (r) => {
       const url = r.url();
@@ -95,12 +96,67 @@ test.describe('Vector tile pipeline', () => {
       else if (url.includes('.pbf')) thirdPartyPbf.push(url);
     });
 
+    // fix(#1624): track in-flight dataset tile requests directly, rather than
+    // `networkidle`. Load states are sticky per document: once the page had
+    // already reached networkidle during the pre-dataset gap, a later
+    // `waitForLoadState('networkidle')` resolved immediately without opening a
+    // new quiet window, so sibling tiles in the same batch could still be in
+    // flight and a later 4xx/5xx was missed. These listeners are registered
+    // before navigation for the same reason as the response wait below: a
+    // request that starts during `goto` or before the canvas check must still
+    // be counted.
+    page.on('request', (r) => {
+      if (isDatasetTile(r.url())) inFlightDatasetTiles++;
+    });
+    page.on('requestfinished', (r) => {
+      if (isDatasetTile(r.url())) inFlightDatasetTiles--;
+    });
+    page.on('requestfailed', (r) => {
+      if (isDatasetTile(r.url())) inFlightDatasetTiles--;
+    });
+
+    // fix(#1624): register this wait before navigation. The `page.on('response')`
+    // collector above sees every tile regardless of timing, but a
+    // `waitForResponse` registered after `goto` cannot match a response that
+    // already arrived during navigation or before the canvas check completes —
+    // a healthy fast run would then burn the full timeout for nothing.
+    const firstDatasetTile = page.waitForResponse((r) => isDatasetTile(r.url()), {
+      timeout: 20_000,
+    });
+
     await page.goto(`/datasets/${datasetId}`);
     await page.waitForURL(new RegExp(`/datasets/${datasetId}$`));
     // The map fits to the dataset's bounds on load, so tiles for the data's own
     // extent are requested without needing an explicit zoom-to-layer.
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 20_000 });
-    await page.waitForLoadState('networkidle');
+
+    // fix(#1624): wait for the dataset's own first tile instead of `networkidle`.
+    // A trace on the dev stack showed basemap tiles finish, then a ~580ms
+    // client-side gap (map load event, transformRequest install, dataset source
+    // add) before the six signed dataset tile requests fire — well inside
+    // networkidle's 500ms quiet window under host load. That let the assertion
+    // below run before the dataset source was even added, reporting "no tiles
+    // requested" with a perfectly healthy pipeline. A timeout here falls
+    // through to the length assertion, which still reports the real #8186
+    // signature.
+    await firstDatasetTile.catch(() => undefined);
+
+    // fix(#1624): fold the zero-in-flight check into the same predicate as the
+    // debounce, rechecked on every poll tick. Sampling them separately (wait
+    // for zero, then only watch `mvt.length`) left a gap: if a second batch
+    // starts after in-flight was observed at zero and a response takes longer
+    // than the 500ms poll interval, `mvt.length` would look unchanged while a
+    // request was still outstanding, and a later 4xx/5xx from it would be
+    // missed. `settled()` requires both zero in-flight AND an unchanged
+    // `mvt.length` on the same tick, so any new in-flight request resets the
+    // stability streak regardless of whether it has produced a response yet.
+    let previousMvtLength: number | null = null;
+    const settled = (): boolean => {
+      const isStable = inFlightDatasetTiles === 0 && mvt.length === previousMvtLength;
+      previousMvtLength = mvt.length;
+      return isStable;
+    };
+    await expect.poll(settled, { timeout: 20_000, intervals: [500] }).toBe(true);
 
     // THE assertion. Zero here is the #8186 silent-worker signature. Scoped to
     // this dataset's own route, so third-party basemap/glyph .pbf traffic
