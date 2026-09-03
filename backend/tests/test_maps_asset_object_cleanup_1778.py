@@ -211,6 +211,20 @@ class TestOverlappingReplacements:
     reads `.jpg` as the previous key, commits its URI at `.png` and deletes
     `.jpg`, then A commits its URI at `.jpg`, pointing the row at the object B
     just deleted. Both answer 204 and the thumbnail endpoint answers 404.
+
+    fix(round 9): the block point moved from inside ``storage.put`` to inside
+    ``lock_map_for_asset_write``. Before round 9 the row lock was taken before
+    the PUT, so blocking a request after its bytes landed but before it
+    returned from ``put`` was also blocking it before it could reach the lock,
+    which is what made ``second`` wait on ``SELECT ... FOR UPDATE`` in that
+    window. Round 9 moved the lock to AFTER the PUT specifically so a stalled
+    write no longer holds it, so that same block point no longer represents
+    "holding the lock". Hooking the lock call itself, calling through to the
+    real function so the row lock is genuinely acquired in Postgres and then
+    holding the coroutine there, reproduces the same window under the new
+    ordering: ``first`` demonstrably holds the lock, not yet committed, while
+    ``second``'s own (real, unmocked) ``SELECT ... FOR UPDATE`` genuinely
+    blocks against it in the database.
     """
 
     async def test_the_second_upload_waits_and_both_end_consistent(
@@ -223,22 +237,22 @@ class TestOverlappingReplacements:
             json={"data_uri": _jpeg_data_uri()},
             headers=admin_auth_header,
         )
+        seed_key = await _the_object("maps/thumbnails", map_id)
 
-        storage = _storage()
-        original_put = storage.put
-        first_write_done = asyncio.Event()
-        release_first = asyncio.Event()
+        import app.modules.catalog.maps.router as router_module
 
-        async def _hooked_put(key: str, data):
-            result = await original_put(key, data)
-            # Block AFTER the bytes land, which is where the reported race
-            # opens: the object exists, the URI is not committed yet.
-            if key.endswith(".jpg") and not first_write_done.is_set():
-                first_write_done.set()
-                await release_first.wait()
+        original_lock = router_module.lock_map_for_asset_write
+        lock_acquired = asyncio.Event()
+        release_lock = asyncio.Event()
+
+        async def _hooked_lock(db, map_id_arg):
+            result = await original_lock(db, map_id_arg)
+            if not lock_acquired.is_set():
+                lock_acquired.set()
+                await release_lock.wait()
             return result
 
-        monkeypatch.setattr(storage, "put", _hooked_put)
+        monkeypatch.setattr(router_module, "lock_map_for_asset_write", _hooked_lock)
 
         first = asyncio.create_task(
             client.put(
@@ -247,7 +261,7 @@ class TestOverlappingReplacements:
                 headers=admin_auth_header,
             )
         )
-        await asyncio.wait_for(first_write_done.wait(), timeout=10)
+        await asyncio.wait_for(lock_acquired.wait(), timeout=10)
 
         second = asyncio.create_task(
             client.put(
@@ -256,16 +270,16 @@ class TestOverlappingReplacements:
                 headers=admin_auth_header,
             )
         )
-        # The second request reaches SELECT ... FOR UPDATE and stops there. The
-        # window is generous in the direction that matters: without the lock the
-        # second request runs an in-process put, update, commit and delete, all
-        # local, so a slow machine does not turn this into a false failure.
+        # first holds the row lock, uncommitted; second's own SELECT ... FOR
+        # UPDATE genuinely blocks on it in Postgres. The window is generous in
+        # the direction that matters: well under the 2s lock_timeout, so a
+        # slow machine does not turn this into a false 409 instead of a wait.
         await asyncio.sleep(0.5)
         assert not second.done(), (
             "the second upload was not serialized behind the first"
         )
 
-        release_first.set()
+        release_lock.set()
         first_resp, second_resp = await asyncio.wait_for(
             asyncio.gather(first, second), timeout=30
         )
@@ -278,7 +292,15 @@ class TestOverlappingReplacements:
         )
         assert get_resp.status_code == 200, get_resp.text
 
-        assert len(await _objects("maps/thumbnails", map_id)) == 1
+        # first acquired the lock first (we waited for it before starting
+        # second), so first's write becomes second's previous key, which
+        # second re-reads under the lock and reaps. _the_object asserts
+        # exactly one object survives: the seed key first reaped and whatever
+        # intermediate key second reaped in turn are both gone, neither
+        # leaked nor double-deleted, and the row still names something that
+        # exists (the GET above already proved that).
+        live_key = await _the_object("maps/thumbnails", map_id)
+        assert live_key != seed_key
 
     async def test_the_og_image_handler_is_serialized_the_same_way(
         self, client: AsyncClient, admin_auth_header: dict, monkeypatch
@@ -290,19 +312,20 @@ class TestOverlappingReplacements:
             headers=admin_auth_header,
         )
 
-        storage = _storage()
-        original_put = storage.put
-        first_write_done = asyncio.Event()
-        release_first = asyncio.Event()
+        import app.modules.catalog.maps.router as router_module
 
-        async def _hooked_put(key: str, data):
-            result = await original_put(key, data)
-            if key.endswith(".jpg") and not first_write_done.is_set():
-                first_write_done.set()
-                await release_first.wait()
+        original_lock = router_module.lock_map_for_asset_write
+        lock_acquired = asyncio.Event()
+        release_lock = asyncio.Event()
+
+        async def _hooked_lock(db, map_id_arg):
+            result = await original_lock(db, map_id_arg)
+            if not lock_acquired.is_set():
+                lock_acquired.set()
+                await release_lock.wait()
             return result
 
-        monkeypatch.setattr(storage, "put", _hooked_put)
+        monkeypatch.setattr(router_module, "lock_map_for_asset_write", _hooked_lock)
 
         first = asyncio.create_task(
             client.put(
@@ -311,7 +334,7 @@ class TestOverlappingReplacements:
                 headers=admin_auth_header,
             )
         )
-        await asyncio.wait_for(first_write_done.wait(), timeout=10)
+        await asyncio.wait_for(lock_acquired.wait(), timeout=10)
 
         second = asyncio.create_task(
             client.put(
@@ -323,7 +346,7 @@ class TestOverlappingReplacements:
         await asyncio.sleep(0.5)
         assert not second.done(), "the second OG upload was not serialized"
 
-        release_first.set()
+        release_lock.set()
         first_resp, second_resp = await asyncio.wait_for(
             asyncio.gather(first, second), timeout=30
         )
@@ -334,6 +357,123 @@ class TestOverlappingReplacements:
         )
         assert get_resp.status_code == 200, get_resp.text
         assert len(await _objects("maps/og-images", map_id)) == 1
+
+
+# ---------------------------------------------------------------------------
+# fix(round 9): a stalled storage write must not hold the map row locked
+# ---------------------------------------------------------------------------
+
+
+class TestAStalledUploadDoesNotBlockOtherWriters:
+    """The row lock is taken after the storage write, not before it.
+
+    Review finding: ``lock_map_for_asset_write`` used to run before
+    ``storage.put``, held through the commit. A stalled PUT against a
+    degraded object-storage backend therefore held the map row locked for as
+    long as the PUT took, and every other writer to the same map queued
+    behind it with no bound of its own: ``update_map_endpoint`` takes no
+    ``lock_timeout``, so its plain UPDATE would wait on Postgres's default
+    statement timeout (300s), not the 2s ``lock_map_for_asset_write`` only
+    ever bounded for the uploading request's OWN wait for the lock.
+    """
+
+    async def test_a_stalled_thumbnail_put_does_not_block_a_concurrent_rename(
+        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        import time
+
+        map_id = await _create_map(client, admin_auth_header)
+
+        storage = _storage()
+        original_put = storage.put
+        put_entered = asyncio.Event()
+        release_put = asyncio.Event()
+
+        async def _stalled_put(key: str, data):
+            if key.startswith("maps/thumbnails/") and not put_entered.is_set():
+                put_entered.set()
+                await release_put.wait()
+            return await original_put(key, data)
+
+        monkeypatch.setattr(storage, "put", _stalled_put)
+
+        upload = asyncio.create_task(
+            client.put(
+                f"/maps/{map_id}/thumbnail/",
+                json={"data_uri": _jpeg_data_uri()},
+                headers=admin_auth_header,
+            )
+        )
+        await asyncio.wait_for(put_entered.wait(), timeout=10)
+
+        # The upload is stuck inside the PUT, which round 9 moved outside the
+        # row lock. A plain rename, which takes no lock_timeout of its own and
+        # would previously have queued behind the held row lock for as long
+        # as the PUT took, must complete right away instead of waiting on it.
+        started = time.monotonic()
+        rename_resp = await client.put(
+            f"/maps/{map_id}",
+            json={"name": "renamed-while-upload-stalled"},
+            headers=admin_auth_header,
+        )
+        elapsed = time.monotonic() - started
+
+        assert rename_resp.status_code == 200, rename_resp.text
+        assert rename_resp.json()["name"] == "renamed-while-upload-stalled"
+        assert elapsed < 2, elapsed
+
+        release_put.set()
+        upload_resp = await asyncio.wait_for(upload, timeout=30)
+        assert upload_resp.status_code == 204, upload_resp.text
+
+    async def test_a_stalled_og_image_put_does_not_block_a_concurrent_delete(
+        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        """Same shape, the other image handler, against delete_map_endpoint.
+
+        ``delete_map_endpoint`` takes ``lock_map_for_asset_write`` itself, so
+        this also proves two DIFFERENT requests' calls into the same helper
+        do not deadlock or serialize on an unrelated stalled write.
+        """
+        import time
+
+        map_id = await _create_map(client, admin_auth_header)
+
+        storage = _storage()
+        original_put = storage.put
+        put_entered = asyncio.Event()
+        release_put = asyncio.Event()
+
+        async def _stalled_put(key: str, data):
+            if key.startswith("maps/og-images/") and not put_entered.is_set():
+                put_entered.set()
+                await release_put.wait()
+            return await original_put(key, data)
+
+        monkeypatch.setattr(storage, "put", _stalled_put)
+
+        upload = asyncio.create_task(
+            client.put(
+                f"/maps/{map_id}/og-image/",
+                json={"data_uri": _jpeg_data_uri()},
+                headers=admin_auth_header,
+            )
+        )
+        await asyncio.wait_for(put_entered.wait(), timeout=10)
+
+        started = time.monotonic()
+        delete_resp = await client.delete(f"/maps/{map_id}", headers=admin_auth_header)
+        elapsed = time.monotonic() - started
+
+        assert delete_resp.status_code == 204, delete_resp.text
+        assert elapsed < 2, elapsed
+
+        release_put.set()
+        # The map is gone by the time the stalled PUT's lock acquisition
+        # runs, so the upload surfaces that as 404 rather than hanging or
+        # succeeding against a row that no longer exists.
+        upload_resp = await asyncio.wait_for(upload, timeout=30)
+        assert upload_resp.status_code == 404, upload_resp.text
 
 
 class TestCleanupRefusesALiveKey:

@@ -1053,15 +1053,6 @@ async def upload_thumbnail(
     ext = "jpg" if "jpeg" in header else "png"
     # fix(#1778 round 3): a fresh key per write, never one of two names per map.
     storage_key = new_map_asset_key("maps/thumbnails", map_id, ext)
-    # fix(#1778): the previous object is stranded once the column moves off it.
-    # Snapshot the stored key now: after the capture commits, map_obj's
-    # attributes are expired.
-    # fix(#1778 round 2): read it under the row lock, held to the commit below,
-    # so two overlapping uploads of one map cannot each delete the object the
-    # other is about to point the row at. Taken here rather than at the top of
-    # the handler so no base64 decode or PIL verify runs under it.
-    locked = await lock_map_for_asset_write(db, map_id)
-    previous_key = locked.thumbnail_uri
 
     storage = get_storage()
     # fix(#1778 round 4): the object and the row that names it are published
@@ -1076,7 +1067,9 @@ async def upload_thumbnail(
         # whether the bytes landed. Recording first is free: the key is freshly
         # generated and never reused, so the rollback's delete either removes an
         # object this request wrote or is a no-op on a key that was never
-        # written, which every provider treats as success.
+        # written, which every provider treats as success. This does not need
+        # the row lock below: the key is physical and freshly generated, so
+        # nothing else can race to record or reap it before the row exists.
         publication.record(physical_key)
         try:
             await storage.put(physical_key, image_bytes)
@@ -1086,6 +1079,28 @@ async def upload_thumbnail(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Thumbnail storage unavailable",
             )
+
+        # fix(#1778 round 2): serialize the read of the previous key and the
+        # write of the new one under the row lock, so two overlapping uploads
+        # of one map cannot each delete the object the other is about to point
+        # the row at.
+        # fix(round 9): taken AFTER the storage write, not before it. The lock
+        # used to be held from before the PUT through the commit, which made it
+        # span an object-storage write with no bound of its own; a stalled PUT
+        # against a degraded backend held the row lock for as long as the PUT
+        # took, and every other writer to the same map (a rename, a delete, the
+        # other image upload) queued behind it. The 2s lock_timeout inside
+        # lock_map_for_asset_write only bounds THIS request's own wait for the
+        # lock, not another request's wait for a lock this request is holding,
+        # so the fix has to be shortening what the lock spans, not just timing
+        # out faster once it is held. Reading previous_key here, after the
+        # lock, rather than before the PUT, matters for the same reason the
+        # round-2 comment above does: two concurrent uploads must not each read
+        # the same stale previous key and either both try to reap it or leave
+        # it unreaped, and only a read taken under the lock, after whichever
+        # upload gets there first has already committed, is current.
+        locked = await lock_map_for_asset_write(db, map_id)
+        previous_key = locked.thumbnail_uri
 
         await _record_image_capture(db, map_id, thumbnail_uri=storage_key)
         # fix(#1778 round 5): the commit is the boundary, not the end of this
@@ -1224,17 +1239,14 @@ async def upload_og_image(
 
     ext = "jpg" if "jpeg" in header else "png"
     storage_key = new_map_asset_key("maps/og-images", map_id, ext)
-    # fix(#1778): same stranded previous object as the thumbnail PUT above, and
-    # fix(#1778 round 2) the same row lock for the same reason.
-    locked = await lock_map_for_asset_write(db, map_id)
-    previous_key = locked.og_image_uri
 
     storage = get_storage()
     # fix(#1778 round 4): same publication guard as the thumbnail PUT above.
     async with map_asset_publication() as publication:
         physical_key = _map_asset_storage_key(storage_key)
         # fix(#1778 round 7): recorded before the write, same as the thumbnail
-        # PUT above and for the same reason.
+        # PUT above and for the same reason. Does not need the row lock below,
+        # same as the thumbnail PUT above.
         publication.record(physical_key)
         try:
             await storage.put(physical_key, image_bytes)
@@ -1246,6 +1258,12 @@ async def upload_og_image(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="OG image storage unavailable",
             )
+
+        # fix(#1778 round 2) / fix(round 9): same row lock, taken after the
+        # storage write and with the previous key re-read under it, for the
+        # same reason as the thumbnail PUT above.
+        locked = await lock_map_for_asset_write(db, map_id)
+        previous_key = locked.og_image_uri
 
         await _record_image_capture(db, map_id, og_image_uri=storage_key)
         # fix(#1778 round 5): the commit is the boundary, not the end of this

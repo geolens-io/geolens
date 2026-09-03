@@ -4847,7 +4847,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # with the comment saying why that is free: object storage can durably
     # accept a PUT and still fail the client, and the key is never reused, so a
     # rollback delete either cleans up or no-ops. Cap 1545 -> 1554, exact.
-    "backend/app/modules/catalog/maps/router.py": 1554,
+    # fix(round 9): +18 — lock_map_for_asset_write moved to after storage.put
+    # in both image handlers, so a stalled write no longer holds the map row
+    # locked; previous_key is now read under the lock, after the write, so two
+    # concurrent uploads reap each other's key correctly instead of racing on
+    # a stale read. Most of the growth is the docstring explaining why the
+    # lock has to move rather than just gaining a shorter timeout of its own.
+    # Cap 1554 -> 1572, exact.
+    "backend/app/modules/catalog/maps/router.py": 1572,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.
