@@ -892,16 +892,30 @@ class TestReauthReviewRoundOne:
         assert seen_timeout is not None
         assert seen_timeout == httpx.Timeout(DEFAULT_HTTP_TIMEOUT_SECONDS)
 
-    def test_retry_uses_the_rotated_token_not_a_re_resolved_credential(
+    def test_env_token_401_is_never_refreshed_from_a_stored_session(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """rebuild_client() re-resolved credentials from scratch, and a
-        higher-precedence GEOLENS_TOKEN env var outranks a stored
-        credential (D-35) — so with an expired env token and a valid
-        stored refresh token, the retry kept resending the SAME expired
-        env token and burned the rotated refresh token for nothing. The
-        retry must carry the token try_refresh() just returned."""
+        """fix(#1778 review round 26): this test used to pin the OPPOSITE
+        of what it now asserts -- rebuild_client() re-resolved
+        credentials from scratch, and a higher-precedence GEOLENS_TOKEN
+        env var outranked a stored credential (D-35), so with an expired
+        env token and a valid stored refresh token, the retry kept
+        resending the SAME expired env token and burned the rotated
+        refresh token for nothing. Round 1 "fixed" this by making the
+        retry carry the token try_refresh() just returned instead of
+        re-resolving -- but that meant an expired GEOLENS_TOKEN silently
+        spent a stored login's refresh token and continued the command
+        as THAT stored principal, never telling the operator their env
+        override was rejected. Round 26: credential_provenance narrows
+        the refresh attempt to a STORED bearer session only. An env
+        token's 401 is now reported directly, naming GEOLENS_TOKEN, and
+        the stored refresh token underneath it is never touched.
+
+        Pin (P2 round 26): env token + 401 + a stored refresh token
+        present -> no refresh call, error names GEOLENS_TOKEN, keyring
+        (the refresh token entry) untouched."""
         from geolens_cli import config as _config
+        from geolens_cli._sdk_helpers import EXIT_AUTH
         from geolens_cli.main import app
 
         monkeypatch.setenv("GEOLENS_TOKEN", "expired-env-token")
@@ -909,14 +923,20 @@ class TestReauthReviewRoundOne:
         _config.write_default_instance(INSTANCE, username="alice")
 
         seen_tokens: list[str] = []
+        refresh_calls = {"count": 0}
 
         def status_endpoint(**kwargs):
             seen_tokens.append(kwargs["client"].token)
-            if len(seen_tokens) == 1:
-                return SimpleNamespace(status_code=HTTPStatus.UNAUTHORIZED, parsed=None)
+            return SimpleNamespace(status_code=HTTPStatus.UNAUTHORIZED, parsed=None)
+
+        def refresh_endpoint(**kwargs):
+            refresh_calls["count"] += 1
             return SimpleNamespace(
                 status_code=HTTPStatus.OK,
-                parsed=TestDatasetStatus._dataset(),
+                parsed=SimpleNamespace(
+                    access_token="rotated-access-token",
+                    refresh_token=None,
+                ),
             )
 
         monkeypatch.setattr(
@@ -926,19 +946,72 @@ class TestReauthReviewRoundOne:
         )
         monkeypatch.setattr(
             "geolens.api.auth.refresh_auth_refresh_post.sync_detailed",
-            lambda **kwargs: SimpleNamespace(
-                status_code=HTTPStatus.OK,
-                parsed=SimpleNamespace(
-                    access_token="rotated-access-token",
-                    refresh_token=None,
-                ),
-            ),
+            refresh_endpoint,
         )
 
         result = runner.invoke(app, ["status", str(DATASET_ID)])
 
-        assert result.exit_code == 0, result.output
-        assert seen_tokens == ["expired-env-token", "rotated-access-token"]
+        assert result.exit_code == EXIT_AUTH, result.output
+        assert "GEOLENS_TOKEN" in result.output
+        # Exactly one request -- with the original expired env token --
+        # was ever sent; no retry, so no second (rotated) token to see.
+        assert seen_tokens == ["expired-env-token"]
+        assert refresh_calls["count"] == 0, "the refresh endpoint must never be called"
+        assert mock_keyring[("geolens", f"{INSTANCE}:refresh")] == "valid-refresh-token", (
+            "the stored refresh token must be untouched"
+        )
+
+
+class TestWhoamiEnvTokenNeverRefreshes:
+    """fix(#1778 review round 26): whoami shares call_sdk_with_reauth
+    with status -- the same env-token-must-never-refresh rule applies
+    there too, exercised through the actual whoami command rather than
+    a direct call_sdk_with_reauth unit test."""
+
+    def test_whoami_reports_the_env_token_rejection_without_refreshing(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Pin: env token + 401 + a stored refresh token present ->
+        whoami refuses naming GEOLENS_TOKEN, no refresh call, the
+        stored refresh token is untouched."""
+        from unittest.mock import MagicMock
+
+        import geolens
+        import geolens.api.auth.me_auth_me_get as _me_mod
+        from geolens_cli._sdk_helpers import EXIT_AUTH
+        from geolens_cli.main import app
+
+        monkeypatch.setenv("GEOLENS_TOKEN", "expired-env-token")
+        mock_keyring[("geolens", f"{INSTANCE}:refresh")] = "valid-refresh-token"
+
+        monkeypatch.setattr(geolens, "GeolensClient", MagicMock())
+        monkeypatch.setattr(
+            _me_mod,
+            "sync_detailed",
+            MagicMock(return_value=SimpleNamespace(status_code=401, parsed=None)),
+        )
+        refresh_calls = {"count": 0}
+
+        def refresh_endpoint(**kwargs):
+            refresh_calls["count"] += 1
+            return SimpleNamespace(
+                status_code=HTTPStatus.OK,
+                parsed=SimpleNamespace(
+                    access_token="rotated-access-token", refresh_token=None
+                ),
+            )
+
+        monkeypatch.setattr(
+            "geolens.api.auth.refresh_auth_refresh_post.sync_detailed",
+            refresh_endpoint,
+        )
+
+        result = runner.invoke(app, ["--instance", INSTANCE, "whoami"])
+
+        assert result.exit_code == EXIT_AUTH, result.output
+        assert "GEOLENS_TOKEN" in result.output
+        assert refresh_calls["count"] == 0, "the refresh endpoint must never be called"
+        assert mock_keyring[("geolens", f"{INSTANCE}:refresh")] == "valid-refresh-token"
 
 
 class TestReauthReviewRoundThree:

@@ -321,6 +321,7 @@ def fetch_dataset_status(
     *,
     instance: str | None = None,
     credential_kind: str | None = None,
+    credential_provenance: str | None = None,
 ) -> Any:
     """Read the generated dataset detail model used by ``geolens status``.
 
@@ -334,6 +335,11 @@ def fetch_dataset_status(
     is required alongside ``instance`` to enable the retry — it gates
     the refresh attempt to a bearer-token client. See
     ``_sdk_helpers.call_sdk_with_reauth``.
+
+    fix(#1778 review round 26): ``credential_provenance`` is forwarded
+    the same way — see ``call_sdk_with_reauth``'s own docstring for why
+    "bearer" alone is not enough to justify spending a stored refresh
+    token.
     """
     from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get
 
@@ -342,6 +348,7 @@ def fetch_dataset_status(
             get_single_dataset_datasets_dataset_id_get.sync_detailed,
             instance=instance,
             credential_kind=credential_kind,
+            credential_provenance=credential_provenance,
             dataset_id=dataset_id,
             client=client,
         )

@@ -100,7 +100,11 @@ class AppState:
         # below.
         env_token = _config.get_token_from_env()
         if env_token:
-            return make_client(instance, bearer_token=env_token)
+            # fix(#1778 review round 26): tagged "env" (not just
+            # "bearer") so call_sdk_with_reauth never spends a stored
+            # refresh token to rescue a rejected env override -- see
+            # make_client()'s own docstring.
+            return make_client(instance, bearer_token=env_token, provenance="env")
 
         bearer = _auth.load_bearer_token(instance)
         api_key = _auth.load_api_key(instance)
@@ -124,13 +128,13 @@ class AppState:
         # is missing.
         active_kind = _auth.load_active_credential_kind(instance)
         if active_kind == "api_key" and api_key:
-            return make_client(instance, api_key=api_key.value)
+            return make_client(instance, api_key=api_key.value, provenance="stored-api-key")
         if active_kind == "bearer" and bearer:
-            return make_client(instance, bearer_token=bearer.value)
+            return make_client(instance, bearer_token=bearer.value, provenance="stored-bearer")
         if bearer:
-            return make_client(instance, bearer_token=bearer.value)
+            return make_client(instance, bearer_token=bearer.value, provenance="stored-bearer")
         if api_key:
-            return make_client(instance, api_key=api_key.value)
+            return make_client(instance, api_key=api_key.value, provenance="stored-api-key")
         # fix(#1778 review round 22, corrected round 23): neither the
         # file nor the keyring produced a usable credential. Round 22
         # added an UNCONDITIONAL preflight in whoami/status specifically
@@ -724,6 +728,7 @@ def whoami(ctx: typer.Context) -> None:
         me_auth_me_get.sync_detailed,
         instance=instance,
         credential_kind=sdk.credential_kind,
+        credential_provenance=sdk.credential_provenance,
         client=sdk.client,
     )
     user = unwrap(resp, expected=200)
@@ -770,6 +775,7 @@ def status(
         dataset_uuid,
         instance=state.active_instance(),
         credential_kind=sdk.credential_kind,
+        credential_provenance=sdk.credential_provenance,
     )
     payload = _refresh.dataset_status_payload(dataset)
     if state.json_mode:

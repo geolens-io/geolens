@@ -348,6 +348,7 @@ def make_client(
     *,
     bearer_token: str | None = None,
     api_key: str | None = None,
+    provenance: str | None = None,
 ) -> Any:
     """Construct a GeolensClient bound to DEFAULT_HTTP_TIMEOUT_SECONDS.
 
@@ -374,6 +375,25 @@ def make_client(
     do ``state.sdk().client`` — changing the return shape here would
     ripple through all of them for a fix that only two call sites
     (whoami, status) need.
+
+    fix(#1778 review round 26): ``.credential_kind`` alone conflates a
+    bearer token GEOLENS_TOKEN supplied with one loaded from a STORED
+    login -- both pass ``bearer_token=`` here and both got tagged plain
+    "bearer". ``call_sdk_with_reauth`` used only ``credential_kind`` to
+    decide whether a 401 was worth refresh-retrying, so it happily spent
+    a STORED refresh token to rescue a request authenticated by an env
+    var override, silently continuing the command as whatever principal
+    that stored session belonged to -- not the one the operator actually
+    asked for via GEOLENS_TOKEN. ``provenance`` records WHERE the value
+    passed as ``bearer_token``/``api_key`` came from -- ``AppState.sdk()``
+    is the only caller that sets it meaningfully ("env", "stored-bearer",
+    "stored-api-key"); every other call site (the refresh-retry client
+    below, ``try_refresh()``'s own internal client, the interactive
+    login flow's client) either doesn't reach a 401-gated call at all or
+    is itself already the result of a refresh, so it defaults to
+    ``credential_kind`` when omitted -- a neutral value that never
+    equals "env" and so can never accidentally suppress or misdirect
+    the round-26 checks below.
     """
     from geolens import GeolensClient  # lazy: keep `geolens --help` snappy
 
@@ -385,6 +405,7 @@ def make_client(
         client.credential_kind = "api_key"
     else:
         client.credential_kind = "anonymous"
+    client.credential_provenance = provenance or client.credential_kind
     return client
 
 
@@ -495,6 +516,7 @@ def call_sdk_with_reauth(
     *,
     instance: str,
     credential_kind: str,
+    credential_provenance: str | None = None,
     client_kwarg: str = "client",
     deadline_expired: Callable[[], bool] | None = None,
     **kwargs: Any,
@@ -539,14 +561,45 @@ def call_sdk_with_reauth(
     with it would silently switch the retry to a different identity
     instead of reporting the invalid key. Anonymous clients are skipped
     for the same reason — there is no session to refresh.
+
+    fix(#1778 review round 26): ``credential_kind == "bearer"`` alone
+    does not mean this request was authenticated by a STORED session —
+    GEOLENS_TOKEN (D-35's top-precedence override) also produces a
+    "bearer" client. Refreshing on ITS 401 spent a stored refresh token
+    that may belong to a completely different login, and a successful
+    refresh then silently continued the command as THAT stored
+    principal instead of reporting that the env override was rejected —
+    the opposite of what an explicit, session-scoped override is for.
+    ``credential_provenance`` narrows the refresh attempt to exactly
+    ``"stored-bearer"``: a GEOLENS_TOKEN 401 is reported directly, here,
+    as its own failure (naming the env var, never touching the keyring
+    or file) rather than falling through to the caller's generic
+    ``unwrap()`` 401 message, which would read as an ordinary "not
+    logged in" — misleading when a perfectly good stored login might
+    exist underneath the rejected override.
     """
     from . import auth as _auth  # lazy: avoid an import cycle with main.py
 
     resp = call_sdk(fn, deadline_expired=deadline_expired, **kwargs)
     if int(resp.status_code) == 401 and credential_kind == "bearer":
-        new_access = _auth.try_refresh(instance)
-        if new_access:
-            retry_sdk = make_client(instance, bearer_token=new_access)
-            kwargs[client_kwarg] = retry_sdk.client
-            resp = call_sdk(fn, deadline_expired=deadline_expired, **kwargs)
+        if credential_provenance == "stored-bearer":
+            new_access = _auth.try_refresh(instance)
+            if new_access:
+                retry_sdk = make_client(
+                    instance, bearer_token=new_access, provenance="stored-bearer"
+                )
+                kwargs[client_kwarg] = retry_sdk.client
+                resp = call_sdk(fn, deadline_expired=deadline_expired, **kwargs)
+        elif credential_provenance == "env":
+            typer.secho(
+                "GEOLENS_TOKEN was rejected by the server (expired or "
+                "invalid). A stored login's refresh token is never spent "
+                "to rescue an env-var override -- that could silently "
+                "continue the command as a different, stored identity. "
+                "Update or unset GEOLENS_TOKEN to use a stored login "
+                "instead.",
+                fg="red",
+                err=True,
+            )
+            raise typer.Exit(EXIT_AUTH)
     return resp
