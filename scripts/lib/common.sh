@@ -245,6 +245,7 @@ _env_unescape_double_quoted() {
   printf '%s' "$_content" \
     | sed "s/\\\\\\\\/${_s_bs}/g" \
     | sed 's/\\"/"/g' \
+    | sed 's/\\\$/\$\$/g' \
     | sed "s/\\\\n/${_s_nl}/g" \
     | sed "s/\\\\r/${_s_cr}/g" \
     | sed "s/\\\\t/$(printf '\t')/g" \
@@ -308,14 +309,27 @@ _env_unescape_double_quoted() {
 #     `DB_NAME=`) never cross-matches — key extraction stops at the
 #     first non-identifier character, so `DB_NAME` is never mistaken for
 #     `DB` followed by literal text.
-# fix(#1798 review round 16, P2, review 5104847831): scans $1 for the
-# first UNESCAPED occurrence of quote character $2. For `"`, escape-aware
-# (a `\"` pair does not close it, matching the existing double-quoted
-# escape grammar elsewhere in this file — any OTHER character after a
-# backslash is consumed as part of the SAME pair without being
-# individually inspected, same as the `([^"\\]|\\.)*` regex this replaces
-# used to). For `'`, Compose's own single-quoted values have no escaping
-# at all, so ANY `'` closes it immediately.
+# fix(#1798 review round 16, P2, review 5104847831; escape-widened round
+# 18, P2, review 5105652413): scans $1 for the first UNESCAPED occurrence
+# of quote character $2. Escape-aware for BOTH quote types now — ANY
+# backslash unconditionally pairs with whatever character follows it,
+# consumed together, so a paired quote character never closes the string
+# early — verified against the oracle that this DISAGREES with the docs
+# summary this round started from (which claimed single-quoted `\'` does
+# not escape): a real `docker compose config` on `'geo\'lens'` returns
+# `geo'lens` — the backslash is CONSUMED and the apostrophe becomes
+# literal content, the string does NOT close at that point. Matching the
+# oracle, not the docs summary, per this round's own instruction. Also
+# verified: `\\` (backslash-backslash) in a single-quoted value stays as
+# TWO literal backslashes — single-quoted escaping recognizes ONLY `\'`
+# as special; a backslash before anything else (including another
+# backslash) is entirely literal, both characters kept. Decoding a
+# recognized single-quoted `\'` pair to a bare `'` happens RIGHT HERE,
+# during the scan — unlike double-quoted values (whose escape pairs are
+# consumed here VERBATIM, undecoded, and unescaped afterward by
+# _env_unescape_double_quoted), single-quoted values have no separate
+# unescape step, so this is the only place that can do it without
+# re-deriving where the escape pairs were a second time.
 #
 # Character-scanning (the same technique _env_brace_match already uses)
 # rather than a `grep -qE`/`sed -E` regex, because $1 here can be a
@@ -330,9 +344,10 @@ _env_unescape_double_quoted() {
 #
 # Sets three globals: _eqs_found (1 if a close was located, 0 if $1 ran
 # out first), _eqs_before (the quoted CONTENT, exclusive of both quote
-# characters), and _eqs_after (everything in $1 following the close — a
-# caller validates this is empty/whitespace/a comment before trusting
-# _eqs_before, the same policy the regex this replaces already enforced).
+# characters, single-quoted `\'` pairs already decoded to `'`), and
+# _eqs_after (everything in $1 following the close — a caller validates
+# this is empty/whitespace/a comment before trusting _eqs_before, the
+# same policy the regex this replaces already enforced).
 _env_quote_scan() {
   _eqs_text="$1"
   _eqs_quote="$2"
@@ -343,10 +358,14 @@ _env_quote_scan() {
   while [ -n "$_eqs_scan" ]; do
     _eqs_c="${_eqs_scan%"${_eqs_scan#?}"}"
     _eqs_scan="${_eqs_scan#?}"
-    if [ "$_eqs_quote" = '"' ] && [ "$_eqs_c" = "\\" ]; then
+    if [ "$_eqs_c" = "\\" ] && [ -n "$_eqs_scan" ]; then
       _eqs_nc="${_eqs_scan%"${_eqs_scan#?}"}"
       _eqs_scan="${_eqs_scan#?}"
-      _eqs_before="${_eqs_before}${_eqs_c}${_eqs_nc}"
+      if [ "$_eqs_quote" = "'" ] && [ "$_eqs_nc" = "'" ]; then
+        _eqs_before="${_eqs_before}${_eqs_nc}"
+      else
+        _eqs_before="${_eqs_before}${_eqs_c}${_eqs_nc}"
+      fi
       continue
     fi
     if [ "$_eqs_c" = "$_eqs_quote" ]; then
@@ -777,7 +796,7 @@ _env_split_on_token() {
 # somewhere up the call stack (seeded with the top-level key itself — see
 # _env_interpolate). If NAME is already in CHAIN, this is a cycle
 # (`A=${A}`, or `A=${B}` / `B=${A}`) — reported as _ern_have_value=0
-# WITHOUT even attempting the env/file lookup, exactly as if NAME did not
+# WITHOUT even attempting the FILE lookup, exactly as if NAME did not
 # exist anywhere. Verified against real `docker compose config`: a cycle
 # is NOT a hard failure there — Compose warns ("the X variable is not
 # set") and resolves it exactly like any other genuinely unset variable,
@@ -787,6 +806,20 @@ _env_split_on_token() {
 # _env_interp_resolve below — cycle detection only needs to make THIS
 # function stop early; every operator already knows what to do with
 # have_value=0.
+#
+# fix(#1798 review round 18, P2, review 5105652413): the process
+# environment check MUST run before the cycle check, not after — round
+# 13b's own precedence rule ("process environment first, no exception")
+# applies to EVERY name, including one that is CURRENTLY being expanded.
+# `POSTGRES_DB="${POSTGRES_DB:-geolens}"` with `POSTGRES_DB=production`
+# exported is not actually a cycle Compose ever has to break: the shell
+# environment already answers the question before Compose's own
+# resolver would ever need to look at the .env file's own text for
+# POSTGRES_DB at all. Checking CHAIN first (the old order) treated this
+# as a self-cycle and produced the `:-` fallback ("geolens") instead of
+# the exported override ("production") — verified against the oracle,
+# including a two-node cycle where only ONE of the two names is exported:
+# it still resolves to that exported value, from either query direction.
 _env_resolve_name() {
   _ern_name="$1"
   _ern_file="$2"
@@ -795,17 +828,30 @@ _env_resolve_name() {
   _ern_have_value=0
   _ern_resolved=""
   _ern_ref_bound=0
-
-  case " ${_ern_chain} " in
-    *" ${_ern_name} "*) return 0 ;;
-  esac
+  _ern_from_env=0
 
   if eval "[ \"\${${_ern_name}+set}\" = set ]" 2>/dev/null; then
     eval "_ern_resolved=\"\${${_ern_name}}\""
     _ern_have_value=1
     _ern_ref_bound=0
+    # fix(#1798 review round 18, P2, review 5105652413): a value sourced
+    # from the PROCESS ENVIRONMENT is used VERBATIM, never recursively
+    # re-interpolated — verified against the oracle: an exported
+    # OUTER='${INNER}' referenced as ${OUTER}, with INNER ALSO exported to
+    # "leafval", resolves to the literal "${INNER}", not "leafval". Real
+    # Compose only recursively interpolates ${...} references that sit in
+    # the .env FILE's own text as it parses it; a process environment
+    # variable's value is opaque, already-resolved data as far as Compose
+    # is concerned, not something it re-parses as further .env syntax.
+    # _ern_from_env tells the caller (_env_interp_resolve) not to recurse
+    # into this value — see its own use below.
+    _ern_from_env=1
     return 0
   fi
+
+  case " ${_ern_chain} " in
+    *" ${_ern_name} "*) return 0 ;;
+  esac
 
   # fix(#1798 review round 17, P2s, review 5105248083): calls
   # _env_tokenize/_env_select_record directly (rather than going through
@@ -842,6 +888,7 @@ _env_resolve_name() {
     # happens to contain " #" or trailing whitespace.
     _ern_have_value=1
     _ern_ref_bound=0
+    _ern_from_env=1
     return 0
   fi
 
@@ -863,6 +910,7 @@ _env_resolve_name() {
   _ern_resolved="${_ern_resolved%x}"
   _ern_have_value=1
   _ern_ref_bound="$_esr_start"
+  _ern_from_env=0
   return 0
 }
 
@@ -1096,6 +1144,7 @@ _env_interp_resolve() {
             if [ "$_ern_have_value" -eq 1 ]; then
               _eir_replacement="$_ern_resolved"
               _eir_rep_bound="$_ern_ref_bound"
+              _eir_rep_from_env="$_ern_from_env"
             else
               _eir_result="${_eir_result}\${${_eir_iname}}"
               continue
@@ -1105,18 +1154,22 @@ _env_interp_resolve() {
             if [ "$_ern_have_value" -eq 1 ] && [ -n "$_ern_resolved" ]; then
               _eir_replacement="$_ern_resolved"
               _eir_rep_bound="$_ern_ref_bound"
+              _eir_rep_from_env="$_ern_from_env"
             else
               _eir_replacement="$_eir_arg"
               _eir_rep_bound="$_eir_bound"
+              _eir_rep_from_env=0
             fi
             ;;
           "-")
             if [ "$_ern_have_value" -eq 1 ]; then
               _eir_replacement="$_ern_resolved"
               _eir_rep_bound="$_ern_ref_bound"
+              _eir_rep_from_env="$_ern_from_env"
             else
               _eir_replacement="$_eir_arg"
               _eir_rep_bound="$_eir_bound"
+              _eir_rep_from_env=0
             fi
             ;;
           ":+")
@@ -1126,6 +1179,7 @@ _env_interp_resolve() {
               _eir_replacement=""
             fi
             _eir_rep_bound="$_eir_bound"
+            _eir_rep_from_env=0
             ;;
           "+")
             if [ "$_ern_have_value" -eq 1 ]; then
@@ -1134,11 +1188,13 @@ _env_interp_resolve() {
               _eir_replacement=""
             fi
             _eir_rep_bound="$_eir_bound"
+            _eir_rep_from_env=0
             ;;
           ":?")
             if [ "$_ern_have_value" -eq 1 ] && [ -n "$_ern_resolved" ]; then
               _eir_replacement="$_ern_resolved"
               _eir_rep_bound="$_ern_ref_bound"
+              _eir_rep_from_env="$_ern_from_env"
             else
               # required-and-missing/empty — Compose itself hard-fails
               # loading a file shaped like this ("required variable ... is
@@ -1151,6 +1207,7 @@ _env_interp_resolve() {
             if [ "$_ern_have_value" -eq 1 ]; then
               _eir_replacement="$_ern_resolved"
               _eir_rep_bound="$_ern_ref_bound"
+              _eir_rep_from_env="$_ern_from_env"
             else
               return 1
             fi
@@ -1163,10 +1220,27 @@ _env_interp_resolve() {
         # every remaining SIBLING token in this same `while` loop (the
         # same "never mutate the shared parameter outward" rule `bound`
         # already follows — see the round 13 doc comment above).
-        _eir_sub_chain="${_eir_chain} ${_eir_iname}"
-        _eir_sub="$(_env_interp_resolve "$_eir_replacement" "$_eir_file" "$_eir_rep_bound" "$_eir_sub_chain" && printf x)" || return 1
-        _eir_sub="${_eir_sub%x}"
-        _eir_result="${_eir_result}${_eir_sub}"
+        #
+        # fix(#1798 review round 18, P2, review 5105652413): a
+        # process-environment-sourced replacement (_eir_rep_from_env=1) is
+        # used VERBATIM, never fed back through _env_interp_resolve — see
+        # _env_resolve_name's own doc comment for why (Compose itself does
+        # not recursively re-interpolate a shell env var's value). This is
+        # what makes the round 18 P2 #1 fix (checking the environment
+        # BEFORE the cycle chain) safe: an env-sourced value can never
+        # trigger further recursion, so a genuine multi-hop cycle sourced
+        # entirely from EXPORTED variables (each one found via the env
+        # check, never the file) still terminates after exactly one
+        # substitution per name, instead of looping on the same
+        # env-resolved text forever.
+        if [ "$_eir_rep_from_env" -eq 1 ]; then
+          _eir_result="${_eir_result}${_eir_replacement}"
+        else
+          _eir_sub_chain="${_eir_chain} ${_eir_iname}"
+          _eir_sub="$(_env_interp_resolve "$_eir_replacement" "$_eir_file" "$_eir_rep_bound" "$_eir_sub_chain" && printf x)" || return 1
+          _eir_sub="${_eir_sub%x}"
+          _eir_result="${_eir_result}${_eir_sub}"
+        fi
         continue
         ;;
       [A-Za-z_])
@@ -1183,10 +1257,14 @@ _env_interp_resolve() {
 
         _env_resolve_name "$_eir_name" "$_eir_file" "$_eir_bound" "$_eir_chain" || return 1
         if [ "$_ern_have_value" -eq 1 ]; then
-          _eir_sub_chain="${_eir_chain} ${_eir_name}"
-          _eir_sub="$(_env_interp_resolve "$_ern_resolved" "$_eir_file" "$_ern_ref_bound" "$_eir_sub_chain" && printf x)" || return 1
-          _eir_sub="${_eir_sub%x}"
-          _eir_result="${_eir_result}${_eir_sub}"
+          if [ "$_ern_from_env" -eq 1 ]; then
+            _eir_result="${_eir_result}${_ern_resolved}"
+          else
+            _eir_sub_chain="${_eir_chain} ${_eir_name}"
+            _eir_sub="$(_env_interp_resolve "$_ern_resolved" "$_eir_file" "$_ern_ref_bound" "$_eir_sub_chain" && printf x)" || return 1
+            _eir_sub="${_eir_sub%x}"
+            _eir_result="${_eir_result}${_eir_sub}"
+          fi
         else
           _eir_result="${_eir_result}\$${_eir_name}"
         fi

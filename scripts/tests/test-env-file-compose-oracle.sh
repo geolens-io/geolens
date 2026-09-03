@@ -760,20 +760,38 @@ fi
 # sourced entirely from the PROCESS ENVIRONMENT, which has no file line
 # number to bound recursion against at all. Two exported variables whose
 # literal text values reference each other never terminated on bound
-# alone before this round's real cycle detection.
+# alone before round 15's real cycle detection.
+#
+# fix(#1798 review round 18, P2, review 5105652413): the exact expected
+# VALUE here was wrong in round 15 — that round only checked this against
+# THIS parser's own (then-buggy) implementation, never the real oracle,
+# because testing an exported-variable scenario through the oracle needs
+# the SAME variables exported in the CURRENT shell before invoking
+# `docker compose` as a subprocess, which round 15 didn't set up. Doing
+# that now surfaces a real, previously-undiscovered fact: Compose does
+# NOT recursively re-interpolate a process-environment-sourced value at
+# all — verified directly (an exported `OUTER='${INNER}'` referenced via
+# `${OUTER}`, with `INNER` ALSO exported to a real value, resolves to the
+# literal `${INNER}`, not INNER's value). A shell env var's value is
+# opaque, already-resolved data to Compose, never re-parsed as further
+# `.env` syntax the way a FILE line's own value is. That is what actually
+# terminates this cycle (each name resolves in exactly one hop, from the
+# environment, with nothing left to recurse into) — cycle detection
+# (chain tracking) is what protects the case where TWO OR MORE identical
+# names would otherwise be resolved from the FILE forever; an
+# environment-sourced hop was never actually going to recurse once this
+# round's other fix landed, whether or not it happened to repeat a name.
+# Uses _assert_matches_compose_dollar (not _assert_matches_compose):
+# the expected value here is the literal text "${ENVCYCLE_B_XYZ}" — a
+# literal `$`, exactly the content _compose_value/--format json is known
+# (round 14) to misrepresent.
 ENVCYCLE_ENV="$WORK/.env.envcycle"
 printf 'USES="${ENVCYCLE_A_XYZ}"\n' > "$ENVCYCLE_ENV"
 export ENVCYCLE_A_XYZ='${ENVCYCLE_B_XYZ}'
 export ENVCYCLE_B_XYZ='${ENVCYCLE_A_XYZ}'
-ENVCYCLE_VAL="$(_our_value USES "$ENVCYCLE_ENV" && printf x)"
-ENVCYCLE_RC=$?
-ENVCYCLE_VAL="${ENVCYCLE_VAL%x}"
+_assert_matches_compose_dollar USES "$ENVCYCLE_ENV" \
+  "a two-node cycle sourced entirely from the process environment terminates (one substitution per name, never recursed into further)"
 unset ENVCYCLE_A_XYZ ENVCYCLE_B_XYZ
-if [ "$ENVCYCLE_RC" -eq 0 ] && [ "$ENVCYCLE_VAL" = '${ENVCYCLE_A_XYZ}' ]; then
-  ok "a two-node cycle sourced entirely from the process environment terminates instead of recursing forever"
-else
-  bad "a process-environment-sourced cycle regressed (rc=$ENVCYCLE_RC val=[$ENVCYCLE_VAL])"
-fi
 
 
 # ============================================================================
@@ -985,6 +1003,81 @@ _assert_matches_compose DB "$GRAM_PREFIX_ENV" \
   "a key name that is a literal prefix of another key resolves to its own value"
 _assert_matches_compose DB_NAME "$GRAM_PREFIX_ENV" \
   "the longer key is not swallowed by the shorter one it starts with"
+
+
+# ============================================================================
+# Round 18 (review 5105652413) -- two P2s, both in the interpolation core.
+# ============================================================================
+
+# P2 #1 -- the process environment must be consulted BEFORE the cycle
+# check for every name, not after. POSTGRES_DB="${POSTGRES_DB:-geolens}"
+# with POSTGRES_DB exported is not a cycle Compose ever has to break: the
+# shell environment already answers the question before the .env file's
+# own text is even considered.
+SELFENV_SET_ENV="$WORK/.env.selfenv_set"
+printf 'POSTGRES_DB=${POSTGRES_DB:-geolens}\n' > "$SELFENV_SET_ENV"
+export POSTGRES_DB=production
+_assert_matches_compose POSTGRES_DB "$SELFENV_SET_ENV" \
+  "a self-reference with the SAME name exported resolves to the exported value, not the default (env checked before the cycle check)"
+unset POSTGRES_DB
+
+SELFENV_UNSET_ENV="$WORK/.env.selfenv_unset"
+printf 'POSTGRES_DB=${POSTGRES_DB:-geolens}\n' > "$SELFENV_UNSET_ENV"
+_assert_matches_compose POSTGRES_DB "$SELFENV_UNSET_ENV" \
+  "a self-reference with the same name NOT exported still falls through to the default (a genuine cycle, unaffected by this fix)"
+
+TWOCYCLE_ENVEXP_ENV="$WORK/.env.twocycle_envexported"
+cat > "$TWOCYCLE_ENVEXP_ENV" <<'EOF'
+A=${B}
+B=${A}
+EOF
+export B=fromenv
+_assert_matches_compose A "$TWOCYCLE_ENVEXP_ENV" \
+  "a two-node file cycle where ONE node is also exported resolves via the environment (query A)"
+_assert_matches_compose B "$TWOCYCLE_ENVEXP_ENV" \
+  "a two-node file cycle where ONE node is also exported resolves via the environment (query B)"
+unset B
+
+# P2 #2 -- the escape grammar, single- and double-quoted. Read
+# compose-go/dotenv (the godotenv fork) for the escape tables, then let
+# the oracle decide every value -- one summary of that source (used only
+# to steer which cases to test) claimed single-quoted `\'` does NOT
+# escape and the quote still closes; the oracle disagrees and this corpus
+# matches the ORACLE, not the doc summary (see the reply on this
+# review's P2 #2 thread for the full note).
+ESCAPE_SQ_APOS_ENV="$WORK/.env.escape_sq_apostrophe"
+printf "USES='geo\\\\'lens'\n" > "$ESCAPE_SQ_APOS_ENV"
+_assert_matches_compose USES "$ESCAPE_SQ_APOS_ENV" \
+  "single-quoted \\' is an escaped apostrophe (backslash dropped, quote does NOT close there)"
+
+ESCAPE_SQ_BS_ENV="$WORK/.env.escape_sq_backslash"
+printf "USES='a\\\\\\\\b'\n" > "$ESCAPE_SQ_BS_ENV"
+_assert_matches_compose USES "$ESCAPE_SQ_BS_ENV" \
+  "single-quoted \\\\ (backslash-backslash) stays as two literal backslashes -- only \\' is a recognized escape"
+
+ESCAPE_DQ_DOLLAR_ENV="$WORK/.env.escape_dq_dollar"
+printf 'USES="pre\\$RANDOM_XYZ_UNSET"\n' > "$ESCAPE_DQ_DOLLAR_ENV"
+# _assert_matches_compose_dollar (not _assert_matches_compose): the
+# expected value contains a literal $, exactly the content
+# _compose_value/--format json is known (round 14) to misrepresent (it
+# doubles a literal, non-interpolated $ in its own output).
+_assert_matches_compose_dollar USES "$ESCAPE_DQ_DOLLAR_ENV" \
+  "double-quoted \\\$ decodes to a literal \$ AND suppresses interpolation of what follows"
+
+ESCAPE_DQ_UNKNOWN_ENV="$WORK/.env.escape_dq_unknown"
+printf 'USES="a\\qb"\n' > "$ESCAPE_DQ_UNKNOWN_ENV"
+_assert_matches_compose USES "$ESCAPE_DQ_UNKNOWN_ENV" \
+  "an unrecognized double-quoted escape (\\q) keeps its backslash, unlike the documented ones"
+
+ESCAPE_DQ_TRAILING_BS_ENV="$WORK/.env.escape_dq_trailing_bs"
+printf 'USES="ab\\"\n' > "$ESCAPE_DQ_TRAILING_BS_ENV"
+_assert_errors_like_compose USES "$ESCAPE_DQ_TRAILING_BS_ENV" \
+  "a trailing lone backslash right before what would be the closing double quote escapes THAT quote too, leaving the value unterminated"
+
+ESCAPE_UNQUOTED_BS_ENV="$WORK/.env.escape_unquoted_bs"
+printf 'USES=a\\\\b\n' > "$ESCAPE_UNQUOTED_BS_ENV"
+_assert_matches_compose USES "$ESCAPE_UNQUOTED_BS_ENV" \
+  "an unquoted value gets no backslash processing at all"
 
 echo "1..$((PASS + FAIL))"
 echo "# ${PASS} passed, ${FAIL} failed"
