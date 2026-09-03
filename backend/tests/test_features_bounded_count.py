@@ -31,7 +31,9 @@ pytestmark = pytest.mark.anyio
 ROW_COUNT = 30
 
 
-async def _create_dataset(session, *, created_by: uuid.UUID) -> Dataset:
+async def _create_dataset(
+    session, *, created_by: uuid.UUID, rows: int = ROW_COUNT
+) -> Dataset:
     table_name = f"test_bc_{uuid.uuid4().hex[:8]}"
     await session.execute(
         text(
@@ -43,7 +45,7 @@ async def _create_dataset(session, *, created_by: uuid.UUID) -> Dataset:
         )
     )
     await session.execute(text(f"GRANT SELECT ON data.{table_name} TO geolens_reader"))
-    for i in range(ROW_COUNT):
+    for i in range(rows):
         await session.execute(
             text(
                 f"INSERT INTO data.{table_name} (geom, geom_4326, era) VALUES ("
@@ -69,7 +71,7 @@ async def _create_dataset(session, *, created_by: uuid.UUID) -> Dataset:
         table_name=table_name,
         srid=4326,
         geometry_type="POINT",
-        feature_count=ROW_COUNT,
+        feature_count=rows,
         column_info=[{"name": "era", "type": "text"}],
         source_format="created",
     )
@@ -363,3 +365,136 @@ async def test_the_ogc_items_page_links_on_at_the_cap_boundary(
     assert data["numberReturned"] == 200
     assert [li for li in data["links"] if li["rel"] == "next"]
     assert data["numberMatched"] >= 20_200
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778 review r3): the floor may only count rows that exist.
+# ---------------------------------------------------------------------------
+
+SMALL_ROW_COUNT = 5
+
+
+@pytest.fixture
+async def small_dataset(client: AsyncClient, test_db_session):
+    """Five matching rows, so an offset of 100 lands well past the end."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _create_dataset(
+        test_db_session, created_by=admin_id, rows=SMALL_ROW_COUNT
+    )
+    yield dataset
+    await test_db_session.execute(
+        text(f"DROP TABLE IF EXISTS data.{dataset.table_name}")
+    )
+    await test_db_session.commit()
+
+
+async def test_native_offset_past_the_end_reports_the_true_total(
+    client: AsyncClient, small_dataset: Dataset, admin_auth_header
+):
+    """An empty page proves nothing, so it must not raise the count."""
+    resp = await client.get(
+        f"/datasets/{small_dataset.id}/features/",
+        params={"era": "Art Deco", "offset": 100, "limit": 10},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["numberReturned"] == 0
+    assert data["numberMatched"] == SMALL_ROW_COUNT
+    assert not [li for li in data["links"] if li["rel"] == "next"]
+
+
+async def test_ogc_offset_past_the_end_reports_the_true_total(
+    client: AsyncClient, small_dataset: Dataset
+):
+    resp = await client.get(
+        f"/collections/{small_dataset.id}/items",
+        params={"era": "Art Deco", "offset": 100, "limit": 10},
+    )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["numberReturned"] == 0
+    assert data["numberMatched"] == SMALL_ROW_COUNT
+    assert not [li for li in data["links"] if li["rel"] == "next"]
+
+
+async def test_a_keyset_page_reports_the_true_total_and_ignores_offset(
+    client: AsyncClient, counted_dataset: Dataset, test_db_session
+):
+    """The query ignores `offset` under after_gid, so the floor must too."""
+    first_gid = (
+        await test_db_session.execute(
+            text(f"SELECT MIN(gid) FROM data.{counted_dataset.table_name}")
+        )
+    ).scalar_one()
+
+    resp = await client.get(
+        f"/collections/{counted_dataset.id}/items",
+        params={
+            "era": "Art Deco",
+            "after_gid": first_gid,
+            "offset": 100,
+            "limit": 10,
+        },
+    )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["numberReturned"] == 10
+    assert data["numberMatched"] == ROW_COUNT
+
+
+async def test_an_exact_count_is_never_raised(small_dataset: Dataset, test_db_session):
+    """A full page of an exact count stays at the count, not count + 1."""
+    page = await features_service.get_features(
+        test_db_session,
+        small_dataset.table_name,
+        limit=2,
+        property_filters={"era": "Art Deco"},
+        allowed_columns={"era"},
+        cached_feature_count=SMALL_ROW_COUNT,
+    )
+
+    assert len(page.rows) == 2
+    assert page.has_more is True
+    assert page.total_is_estimate is False
+    assert page.total == SMALL_ROW_COUNT
+
+
+async def test_an_estimated_full_page_still_floors_to_offset_plus_rows(
+    deep_dataset: Dataset, test_db_session, estimate_forced_low
+):
+    """The r1 property the r3 narrowing must not have thrown away."""
+    page = await features_service.get_features(
+        test_db_session,
+        deep_dataset.table_name,
+        limit=200,
+        offset=20_000,
+        property_filters={"era": "Art Deco"},
+        allowed_columns={"era"},
+        cached_feature_count=DEEP_ROW_COUNT,
+    )
+
+    assert page.total_is_estimate is True
+    assert page.has_more is True
+    assert page.total == 20_000 + 200 + 1
+
+
+async def test_an_estimated_empty_page_is_not_floored(
+    deep_dataset: Dataset, test_db_session, estimate_forced_low
+):
+    """Past the end, even an estimate has no rows to prove anything with."""
+    page = await features_service.get_features(
+        test_db_session,
+        deep_dataset.table_name,
+        limit=200,
+        offset=DEEP_ROW_COUNT + 1_000,
+        property_filters={"era": "Art Deco"},
+        allowed_columns={"era"},
+        cached_feature_count=DEEP_ROW_COUNT,
+    )
+
+    assert page.rows == []
+    assert page.total < DEEP_ROW_COUNT + 1_000

@@ -4758,7 +4758,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # shapes each one closes; the tables and the messages live in
     # core/db/pg_ranges.py, which standards/ogc/filtering.py reads too.
     # Cap 1491 -> 1507, exact.
-    "backend/app/modules/catalog/features/service.py": 1507,
+    #
+    # fix(#1778 review r3): +34 for _floor_estimated_total. The r1 floor read
+    # `offset + len(rows)` unconditionally, which invented matches out of the
+    # offset: five features asked for at offset 100 answered an empty page and
+    # reported numberMatched 100, and a keyset page borrowed an offset its own
+    # query had ignored. Extracted rather than narrowed in place, because
+    # get_features was back at ruff's C901 ceiling and because each of the
+    # three conditions is a claim about what a page can PROVE -- an exact count
+    # is never raised, an empty page proves nothing, and a keyset page can
+    # prove only the rows in hand. That reasoning is most of the added lines.
+    # Cap 1507 -> 1541, exact.
+    "backend/app/modules/catalog/features/service.py": 1541,
 }
 
 

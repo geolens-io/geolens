@@ -549,6 +549,39 @@ async def _bounded_total(
     return max(counted, estimate), True
 
 
+def _floor_estimated_total(
+    total: int,
+    *,
+    total_is_estimate: bool,
+    served: int,
+    offset: int,
+    has_more: bool,
+) -> int:
+    """Raise an estimated total to the rows the page can prove exist.
+
+    fix(#1778 review r1): an estimate below the rows a page is about to show
+    makes numberMatched contradict the features beside it in the same response.
+
+    fix(#1778 review r3): it may only count rows that exist, and only when the
+    total is an estimate to begin with.
+
+      - An EXACT count is never raised. It already counted the whole match set,
+        so anything above it is fiction.
+      - An empty page proves nothing. The r1 form floored by `offset +
+        len(rows)` unconditionally, which invented matches out of the offset:
+        five features asked for at offset 100 returned an empty page and
+        reported numberMatched 100.
+      - A keyset page passes `offset=0`, because the query ignores `offset`
+        when `after_gid` is set. The rows in hand are all such a page can
+        prove, and borrowing an offset the query never applied would invent
+        matches the same way.
+    """
+    if not total_is_estimate or served == 0:
+        return total
+    floor = offset + served + (1 if has_more else 0)
+    return max(total, floor)
+
+
 async def get_features(
     db: AsyncSession,
     table_name: str,
@@ -730,12 +763,13 @@ async def get_features(
             db, table_name, count_where_sql, count_bind, _with_extra_binds
         )
 
-    # fix(#1778 review r1): the total never claims fewer rows than this page has
-    # already shown, plus the one more we know is there. An estimate below the
-    # cap, or a stale cached feature_count, would otherwise make numberMatched
-    # contradict the features beside it in the same response.
-    served = offset + len(rows)
-    total = max(total, served + 1 if has_more else served)
+    total = _floor_estimated_total(
+        total,
+        total_is_estimate=total_is_estimate,
+        served=len(rows),
+        offset=0 if use_keyset else offset,
+        has_more=has_more,
+    )
     return FeaturePage(rows, total, total_is_estimate, has_more)
 
 
