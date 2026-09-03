@@ -197,6 +197,8 @@
     "pointOpacity": "Point opacity",
     "layerOpacity": "Layer opacity",
     "color": "Color",
+    "hexValueFor": "{{label}} hex value",
+    "hexColorValue": "Hex color value",
     "width": "Width",
     "gapWidth": "Gap",
     "blur": "Blur",

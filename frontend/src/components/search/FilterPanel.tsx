@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Calendar, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -280,19 +281,21 @@ export function FilterPanel({
         </PopoverTrigger>
         <PopoverContent align="start" className="w-64">
           <div className="grid gap-2">
-            <label className="text-xs font-medium text-muted-foreground">
+            <Label htmlFor="filter-date-from" className="text-xs font-medium text-muted-foreground">
               {t('filters.dateFrom')}
-            </label>
+            </Label>
             <Input
+              id="filter-date-from"
               type="date"
               value={localDateFrom}
               onChange={(e) => setLocalDateFrom(e.target.value)}
               className="h-8 text-sm"
             />
-            <label className="text-xs font-medium text-muted-foreground">
+            <Label htmlFor="filter-date-to" className="text-xs font-medium text-muted-foreground">
               {t('filters.dateTo')}
-            </label>
+            </Label>
             <Input
+              id="filter-date-to"
               type="date"
               value={localDateTo}
               onChange={(e) => setLocalDateTo(e.target.value)}
@@ -408,19 +411,21 @@ export function FilterPanel({
           </PopoverTrigger>
         <PopoverContent align="start" className="w-64">
           <div className="grid gap-2">
-            <label className="text-xs font-medium text-muted-foreground">
+            <Label htmlFor="filter-temporal-start" className="text-xs font-medium text-muted-foreground">
               {t('filters.dateFrom')}
-            </label>
+            </Label>
             <Input
+              id="filter-temporal-start"
               type="date"
               defaultValue={temporalStart}
               onChange={(e) => handleTemporalChange(e.target.value, temporalEnd)}
               className="h-8 text-sm"
             />
-            <label className="text-xs font-medium text-muted-foreground">
+            <Label htmlFor="filter-temporal-end" className="text-xs font-medium text-muted-foreground">
               {t('filters.dateTo')}
-            </label>
+            </Label>
             <Input
+              id="filter-temporal-end"
               type="date"
               defaultValue={temporalEnd}
               onChange={(e) => handleTemporalChange(temporalStart, e.target.value)}

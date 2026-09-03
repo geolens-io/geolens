@@ -115,7 +115,8 @@
     },
     "tableReadout": "Table PostGIS",
     "catalogStatus": "Catalogue : {{status}}",
-    "accessStatus": "Accès : {{visibility}}"
+    "accessStatus": "Accès : {{visibility}}",
+    "titleFieldLabel": "Titre du jeu de données"
   },
   "breadcrumbs": {
     "datasets": "Jeux de données"

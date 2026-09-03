@@ -443,6 +443,21 @@ describe('LayerFilterEditor - EDIT-03 raw-apply empty-array clear', () => {
     expect(onFilterChange).toHaveBeenCalledWith(['==', ['get', 'name'], 'foo']);
     expect(screen.queryByText('Invalid JSON')).not.toBeInTheDocument();
   });
+
+  // fix(#1778): the raw-mode <Textarea> had no accessible-name mechanism at
+  // all -- it only renders once rawMode is toggled on, so the gating axe
+  // suite structurally cannot reach it.
+  it('#1778 — the raw JSON textarea has an accessible name', () => {
+    render(createElement(LayerFilterEditor, {
+      columnInfo: columns,
+      filter: null,
+      onFilterChange: vi.fn(),
+    }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'JSON' }));
+
+    expect(screen.getByRole('textbox')).toHaveAccessibleName();
+  });
 });
 
 describe('LayerFilterEditor - EASY-18 empty-state hint', () => {

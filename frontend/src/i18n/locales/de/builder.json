@@ -197,6 +197,8 @@
     "pointOpacity": "Deckkraft des Punkts",
     "layerOpacity": "Deckkraft des Layers",
     "color": "Farbe",
+    "hexValueFor": "Hexadezimalwert für {{label}}",
+    "hexColorValue": "Hexadezimaler Farbwert",
     "width": "Breite",
     "gapWidth": "Lückenbreite",
     "blur": "Unschärfe",

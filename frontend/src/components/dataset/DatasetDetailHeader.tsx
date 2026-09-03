@@ -124,6 +124,7 @@ export function DatasetDetailHeader({
                 as="span"
                 canEdit
                 className="inline"
+                placeholder={t('header.titleFieldLabel')}
               />
             ) : (
               title

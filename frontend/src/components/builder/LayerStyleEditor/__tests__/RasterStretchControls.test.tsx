@@ -120,6 +120,17 @@ describe('RasterStretchControls — percentile bounds', () => {
     }
     expect(onPaintProp.mock.calls.filter(([k, v]) => k === '_pmin' && (v === 99 || v === -5))).toHaveLength(0);
   });
+
+  // fix(#1778): the pmin/pmax Label had no htmlFor and the sibling <input>
+  // had no id, so both percentile bounds announced as unnamed spin buttons.
+  // This surface never appears in the gating axe suite: it only renders for
+  // raster layers, and the suite's seeded layer is vector.
+  it('names the low and high percentile bound inputs from their visible labels (#1778)', () => {
+    renderControls(1, { _stretch: 'percentile' });
+
+    expect(screen.getByLabelText('Low %')).toBeInTheDocument();
+    expect(screen.getByLabelText('High %')).toBeInTheDocument();
+  });
 });
 
 describe('RasterStretchControls — sigma', () => {
