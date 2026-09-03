@@ -173,6 +173,8 @@ DOUBLE_ESCAPED_WITH_COMMENT="a \"quoted\" value" # trailing comment too
 SINGLE_HASH='value#hash'
 UNQUOTED_HAS_EQUALS=a=b
 SINGLE_HAS_EQUALS='a=b'
+DOUBLE_UNKNOWN_ESCAPE="a\db"
+PURE_BACKSLASH="a\\\\b"
 EOF
 rm -f "$PWNED_MARKER"
 
@@ -186,7 +188,7 @@ for key in DOUBLE_QUOTED SINGLE_QUOTED UNQUOTED DOUBLE_WITH_ESCAPES \\
            EMPTY_SINGLE DOLLAR_PAREN COMPOSE_FILE HASH_INSIDE_DOUBLE \\
            SINGLE_WITH_TRAILING_COMMENT SINGLE_TRAILING_COMMENT_HAS_QUOTE \\
            DOUBLE_ESCAPED_WITH_COMMENT SINGLE_HASH UNQUOTED_HAS_EQUALS \\
-           SINGLE_HAS_EQUALS; do
+           SINGLE_HAS_EQUALS DOUBLE_UNKNOWN_ESCAPE PURE_BACKSLASH; do
   printf '%s=[%s]\n' "\$key" "\$(get_env_value "\$key" "$QUOTE_ENV")"
 done
 DRIVER
@@ -245,6 +247,17 @@ _assert_quote_line 'UNQUOTED_HAS_EQUALS=[a=b]' \
 _assert_quote_line 'SINGLE_HAS_EQUALS=[a=b]' \
   "a single-quoted value containing '=' is not truncated at it"
 
+# fix(#1798 review round 10, P2): Compose's env-file syntax
+# (https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/#env-file-syntax)
+# documents \\, \", \n, \r, \t as the escape sequences a double-quoted
+# value decodes. Everything else (\d here) is left completely unchanged —
+# the prior blanket `\X -> X` unescape did not distinguish the two, so an
+# undocumented escape silently lost its backslash too.
+_assert_quote_line 'DOUBLE_UNKNOWN_ESCAPE=[a\db]' \
+  "an undocumented double-quoted escape (not \\\\, \\\", \\n, \\r, \\t) is left completely unchanged"
+_assert_quote_line 'PURE_BACKSLASH=[a\b]' \
+  "a double-quoted \\\\ decodes to a single literal backslash"
+
 if printf '%s\n' "$QUOTE_OUT" | grep -qxF 'DOLLAR_PAREN=[$(touch '"$PWNED_MARKER"')]'; then
   ok "a \$(...) value is returned as literal text by get_env_value"
 else
@@ -255,6 +268,51 @@ if [ ! -e "$PWNED_MARKER" ]; then
 else
   bad "get_env_value executed a \$(...) payload while parsing"
   rm -f "$PWNED_MARKER"
+fi
+
+# ============================================================================
+# CASE 3b — fix(#1798 review round 10, P2): Compose's env-file syntax
+# (https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/#env-file-syntax)
+# documents \n, \r, \t (and \\, \") as the escape sequences a
+# double-quoted value decodes — POSTGRES_DB="geo\tlens" is a literal tab
+# between "geo" and "lens", per Compose. The prior blanket `\X -> X`
+# unescape ignored that distinction and returned "geotlens", a different
+# database than the one the app containers actually connect to. Verified
+# via hex digests, not _assert_quote_line's exact-line text match — a
+# decoded \n embeds a real newline byte into the captured value, which
+# would otherwise split it across two lines and break that comparison.
+# ============================================================================
+TABNL_ENV="$WORK/.env.tabnl"
+cat > "$TABNL_ENV" <<EOF
+TAB_ESCAPE="geo\tlens"
+NEWLINE_ESCAPE="line1\nline2"
+EOF
+
+TABNL_DRIVER="$WORK/tabnl_driver.sh"
+cat > "$TABNL_DRIVER" <<DRIVER
+#!/bin/sh
+set -eu
+. "$FAKE/scripts/lib/common.sh"
+get_env_value TAB_ESCAPE "$TABNL_ENV" | od -An -tx1 | tr -d ' \\n'
+echo
+get_env_value NEWLINE_ESCAPE "$TABNL_ENV" | od -An -tx1 | tr -d ' \\n'
+echo
+DRIVER
+TABNL_OUT="$(sh "$TABNL_DRIVER" 2>&1)"
+TAB_ACTUAL="$(printf '%s\n' "$TABNL_OUT" | sed -n '1p')"
+NL_ACTUAL="$(printf '%s\n' "$TABNL_OUT" | sed -n '2p')"
+TAB_EXPECTED="$(printf 'geo\tlens' | od -An -tx1 | tr -d ' \n')"
+NL_EXPECTED="$(printf 'line1\nline2' | od -An -tx1 | tr -d ' \n')"
+
+if [ "$TAB_ACTUAL" = "$TAB_EXPECTED" ]; then
+  ok "a double-quoted value's documented \\t escape decodes to an actual tab byte, not the literal letter t"
+else
+  bad "\\t decode mismatch: got $TAB_ACTUAL want $TAB_EXPECTED"
+fi
+if [ "$NL_ACTUAL" = "$NL_EXPECTED" ]; then
+  ok "a double-quoted value's documented \\n escape decodes to an actual newline byte, not the literal letter n"
+else
+  bad "\\n decode mismatch: got $NL_ACTUAL want $NL_EXPECTED"
 fi
 
 # ============================================================================

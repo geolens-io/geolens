@@ -80,6 +80,51 @@ _env_sed_escape_replacement() {
   printf '%s' "$1" | sed -e 's/[&\/\\]/\\&/g'
 }
 
+# fix(#1798 review round 10, P2): decodes the escape sequences Compose's
+# own env-file reference documents for a double-quoted value —
+# https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/#env-file-syntax
+# ("`.env` file syntax": "Common shell escape sequences including `\n`,
+# `\r`, `\t`, and `\\` are supported in double-quoted values" — quotes
+# are escaped the same way, `\"`). The previous blanket
+# `sed -E 's/\\(.)/\1/g'` unescaped ANY `\X` to its bare `X`, so
+# `POSTGRES_DB="geo\tlens"` (a literal tab, per Compose) came back as
+# "geotlens" — a different database than the one the app containers
+# actually connect to. Every other `\X` Compose does NOT document (e.g.
+# `\d`) is left completely unchanged here too, matching Compose's own
+# behavior of only special-casing the sequences it lists.
+#
+# A naive SEQUENTIAL decode (replace `\\`, then `\"`, then `\n`, ...) is
+# unsafe on its own: decoding `\\` FIRST can hand a LATER pass a
+# backslash it never earned. Content `\\t` (an escaped backslash, `\\`,
+# followed by a literal `t`) must decode to "backslash + t" (2 chars),
+# NOT a tab — but a later `\t -> TAB` pass, run against text that still
+# has the original `\\` intact, sees the SAME 2-byte `\t` substring
+# straddling the pair boundary and wrongly decodes it. The regex that
+# validates a well-formed double-quoted value before this function ever
+# runs (`([^"\\]|\\.)*`) guarantees every backslash in the content
+# starts EXACTLY one 2-char escape pair, so `\\` is protected first
+# behind an inert sentinel byte, the other escapes are decoded (none of
+# their REPLACEMENTS contain a backslash, so no new ambiguity is
+# created), and only then is the sentinel turned back into a literal
+# single backslash. `\n`/`\r` go through their own sentinel bytes and a
+# final `tr`, not a direct sed replacement — POSIX/BSD sed's `s///` does
+# not portably accept a literal newline in the replacement text within a
+# single-line script the way GNU sed does.
+_env_unescape_double_quoted() {
+  _content="$1"
+  _s_bs="$(printf '\001')"
+  _s_nl="$(printf '\002')"
+  _s_cr="$(printf '\003')"
+  printf '%s' "$_content" \
+    | sed "s/\\\\\\\\/${_s_bs}/g" \
+    | sed 's/\\"/"/g' \
+    | sed "s/\\\\n/${_s_nl}/g" \
+    | sed "s/\\\\r/${_s_cr}/g" \
+    | sed "s/\\\\t/$(printf '\t')/g" \
+    | sed "s/${_s_bs}/\\\\/g" \
+    | tr "${_s_nl}${_s_cr}" '\n\r'
+}
+
 # The 1-based line number of key's LAST `key=` definition in file, or 0 if
 # absent. A repeated key follows "last write wins", the same assumption
 # get_env_value's own single-match awk scan already makes implicitly for the
@@ -132,9 +177,8 @@ _env_dequote() {
   case "$raw" in
     \"*)
       if printf '%s' "$raw" | grep -qE '^"([^"\\]|\\.)*"[[:space:]]*(#.*)?$'; then
-        printf '%s' "$raw" \
-          | sed -E 's/^"(([^"\\]|\\.)*)".*$/\1/' \
-          | sed -E 's/\\(.)/\1/g'
+        _env_quoted_content="$(printf '%s' "$raw" | sed -E 's/^"(([^"\\]|\\.)*)".*$/\1/')"
+        _env_unescape_double_quoted "$_env_quoted_content"
       else
         printf '%s' "$raw"
       fi
@@ -331,11 +375,8 @@ get_env_value() {
       # nothing, whitespace, or a `#comment`; anything else (including a
       # second, unrelated quoted chunk) is left alone as malformed.
       if printf '%s' "$raw" | grep -qE '^"([^"\\]|\\.)*"[[:space:]]*(#.*)?$'; then
-        _env_value="$(
-          printf '%s' "$raw" \
-            | sed -E 's/^"(([^"\\]|\\.)*)".*$/\1/' \
-            | sed -E 's/\\(.)/\1/g'
-        )"
+        _env_quoted_content="$(printf '%s' "$raw" | sed -E 's/^"(([^"\\]|\\.)*)".*$/\1/')"
+        _env_value="$(_env_unescape_double_quoted "$_env_quoted_content")"
         # fix(#1778 review round 3, P2): double-quoted values interpolate
         # ${VAR}/$VAR references, matching Compose (only single-quoted
         # values are literal there).
