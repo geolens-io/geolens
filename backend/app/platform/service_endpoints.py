@@ -79,6 +79,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import xml.parsers.expat
 from collections.abc import Callable
 from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse, urlunparse
 
@@ -218,6 +219,30 @@ MAX_DOCUMENT_TOKENS = 1_000_000
 # A WFS capabilities document listing five thousand feature types costs on the
 # order of 40,000 elements, so this is more than ten times anything real.
 MAX_DOCUMENT_ELEMENTS = 500_000
+
+# fix(#1770 round 43 P1): `structural_elements`'s worst-measured-cost table
+# above priced ONE attribute per element (`<a b="1"/>` at 339 bytes). It
+# still cannot undercount `<`, so it still bounds a document whose cost is
+# spread across many elements -- but a single start tag carrying hundreds of
+# thousands of uniquely named attributes counts as ONE `<` while
+# ElementTree/expat still allocates one dict entry per attribute for that
+# tag, so the per-ELEMENT budget above never sees it. Bounding the raw
+# attribute total directly, at the same order of magnitude, closes that gap
+# without asking the element count to answer a question it structurally
+# cannot: how many attributes a single tag carries.
+MAX_DOCUMENT_ATTRIBUTES = 500_000
+
+# fix(#1770 round 43 P1): a WFS capabilities document nests a handful of
+# levels deep (OperationsMetadata > Operation > DCP > HTTP > Get is five). A
+# document built to nest one nominal element inside another, over and over,
+# stays cheap on every other budget above -- one element and no attributes
+# per level -- while still costing one Python object and one parser
+# callback per level of depth. 1,000 levels is well over two orders of
+# magnitude past anything a real capabilities document nests, and well
+# under the interpreter's own default recursion ceiling, so a pathologically
+# deep document is refused by this budget before it can cost anything
+# downstream that walks the tree recursively.
+MAX_DOCUMENT_DEPTH = 1_000
 
 # How long an endpoint check may take when the caller has a clock. `None`
 # means no caller deadline, which is the direct-call and offline case.
@@ -499,12 +524,121 @@ def _wants_xml(accept: str) -> bool:
     return "xml" in accept.lower()
 
 
+class _XmlPreflightBudgetExceeded(Exception):
+    """Internal signal only: a streaming XML preflight budget tripped.
+
+    Raised inside an ``xml.parsers.expat`` handler and caught immediately by
+    ``_xml_preflight`` itself, one frame up -- it never crosses that
+    function's own boundary, so it is not part of `require_decodable`'s
+    public contract (`EndpointCheckFailedError` is).
+    """
+
+
+def _xml_preflight(
+    body: bytes,
+    *,
+    element_budget: int,
+    attribute_budget: int,
+    depth_budget: int,
+    text_byte_budget: int,
+) -> None:
+    """Count elements, attributes, text bytes and nesting depth via a
+    streaming parser, aborting the instant any ONE budget trips -- before a
+    single `ElementTree` node is ever built.
+
+    fix(#1770 round 43 P1). `structural_elements`'s ``body.count(b"<")``
+    bounds the case its own worst-measured-cost table was calibrated
+    against -- cost spread across many elements, roughly one attribute
+    each. It cannot see a DIFFERENT shape of the same class: a single start
+    tag carrying hundreds of thousands of uniquely named attributes counts
+    as one ``<``, comfortably under `MAX_DOCUMENT_ELEMENTS`, while
+    ElementTree/expat still allocates one dict entry per attribute for that
+    tag -- an "attribute bomb" the per-element proxy structurally cannot
+    price. Nor can it price a document built to nest one element inside
+    another thousands of times over (a "deep-nesting bomb": cheap on every
+    byte-scan proxy, one parser callback and one Python object per level of
+    depth), or a document that concentrates its entire byte budget into one
+    enormous run of character data outside any element/attribute count at
+    all (a "text bomb").
+
+    `xml.parsers.expat` calls back per element, per attribute, and per
+    chunk of character data as it lexes -- without ever building a tree --
+    so each of the four costs is counted directly, against its own budget,
+    and refused the moment ANY ONE is crossed, rather than inferred from a
+    proxy a concentrated shape can defeat. This does not replace the cheap
+    `structural_elements` byte-scan in `require_decodable` below -- that
+    scan still short-circuits the common egregious case (millions of tiny
+    elements) without engaging a parser at all -- it closes the gap that
+    scan leaves.
+
+    Malformed XML is not this preflight's problem to diagnose: a body that
+    cannot be lexed at all raises `xml.parsers.expat.ExpatError`, which is
+    swallowed here and left for `ET.fromstring` (the real parse, which runs
+    next on a body that passed every budget) to raise its own, more
+    specific error for.
+    """
+    elements = 0
+    attributes = 0
+    text_bytes = 0
+    depth = 0
+
+    def start(_name: str, attrs: dict) -> None:
+        nonlocal elements, attributes, depth
+        elements += 1
+        attributes += len(attrs)
+        depth += 1
+        if (
+            elements > element_budget
+            or attributes > attribute_budget
+            or depth > depth_budget
+        ):
+            raise _XmlPreflightBudgetExceeded()
+
+    def end(_name: str) -> None:
+        nonlocal depth
+        depth -= 1
+
+    def chardata(data: str) -> None:
+        nonlocal text_bytes
+        text_bytes += len(data)
+        if text_bytes > text_byte_budget:
+            raise _XmlPreflightBudgetExceeded()
+
+    def refuse_entity(*_args: object) -> None:
+        # `xml.parsers.expat` on its own -- unlike `defusedxml`, which wraps
+        # it -- expands internal entities during parsing with no bound at
+        # all: the classic "billion laughs" shape. This preflight uses raw
+        # expat for the callbacks `defusedxml.ElementTree` does not expose,
+        # so it has to refuse the same class itself rather than inherit the
+        # protection from a wrapper it is not going through. Refusing at
+        # entity DECLARATION time means the substitution this handler exists
+        # to prevent never runs at all -- there is no bounded amount of
+        # expansion to allow, since a real capabilities document has no use
+        # for a custom entity in the first place.
+        raise _XmlPreflightBudgetExceeded()
+
+    parser = xml.parsers.expat.ParserCreate()
+    parser.StartElementHandler = start
+    parser.EndElementHandler = end
+    parser.CharacterDataHandler = chardata
+    parser.EntityDeclHandler = refuse_entity
+    parser.ExternalEntityRefHandler = lambda *_args: 0
+    try:
+        parser.Parse(body, True)
+    except _XmlPreflightBudgetExceeded:
+        raise
+    except xml.parsers.expat.ExpatError:
+        return
+
+
 def require_decodable(
     body: bytes,
     *,
     accept: str,
     token_budget: int,
     element_budget: int,
+    attribute_budget: int = MAX_DOCUMENT_ATTRIBUTES,
+    depth_budget: int = MAX_DOCUMENT_DEPTH,
     error: type[EndpointCheckFailedError] = EndpointCheckFailedError,
 ) -> None:
     """Refuse a document that would cost too much to build. fix(#1746 r22/r23/r26).
@@ -516,10 +650,31 @@ def require_decodable(
 
     Called from `fetch_document` below, which is the only place either module
     makes a request, so it covers every document either one reads.
+
+    fix(#1770 round 43 P1): the XML branch now runs TWO passes. The cheap
+    `structural_elements` byte-scan still short-circuits the common
+    egregious case first, with no parser engaged at all. `_xml_preflight`
+    then runs a real streaming parse to catch the shapes that scan cannot
+    see -- an attribute bomb, a deep-nesting bomb, a text bomb -- reusing
+    `token_budget`'s number as the text-byte ceiling (the "same order of
+    decoded content" bound `MAX_DOCUMENT_TOKENS` already represents, on a
+    different unit of measure: JSON punctuation there, raw text bytes
+    here), and `element_budget` again for the exact count expat gives
+    directly rather than the byte-scan's approximation.
     """
     if _wants_xml(accept):
         if structural_elements(body) > element_budget:
             raise error("document is too complex to parse")
+        try:
+            _xml_preflight(
+                body,
+                element_budget=element_budget,
+                attribute_budget=attribute_budget,
+                depth_budget=depth_budget,
+                text_byte_budget=token_budget,
+            )
+        except _XmlPreflightBudgetExceeded:
+            raise error("document is too complex to parse") from None
         return
     if structural_tokens(body) > token_budget:
         raise error("document is too complex to decode")

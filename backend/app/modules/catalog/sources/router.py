@@ -2,11 +2,12 @@
 
 import asyncio
 import hashlib
+import json
 import time
 import uuid
 from dataclasses import replace
 from typing import NoReturn
-from urllib.parse import urljoin
+from urllib.parse import urlencode, urljoin
 
 import httpx
 import structlog
@@ -83,8 +84,10 @@ from app.platform.service_auth import (
     custom_credential_header_name,
     url_query_token,
 )
+from app.platform.probe_bounds import bounded_probe_read
 from app.platform.service_endpoints import (
     DEFAULT_CHECK_TIMEOUT,
+    OGC_JSON_ACCEPT,
     CrossOriginEndpointError,
     EndpointCheckFailedError,
     assert_endpoints_stay_on_origin,
@@ -554,31 +557,56 @@ async def _fetch_ogcapi_collection_srid(
     probe adapters carry and so composes it the same way, through the shared
     builder, and declares a service-chosen header name to the client so a
     cross-origin redirect cannot forward it.
+
+    fix(#1770 round 43): this used a plain ``client.get`` -- the same
+    unbounded-buffering shape round 41 closed for the four service-type
+    probes, missed here because round 41's sweep was scoped to
+    ``adapters/`` and ``platform/service_*.py``, and this is neither. With
+    a Basic or header-key credential attached, a hostile or compromised
+    authenticated endpoint could exhaust the process during THIS read, the
+    same as it could have during a probe's own. Reads through
+    ``bounded_probe_read`` now, and the whole function runs under
+    ``DEFAULT_CHECK_TIMEOUT`` -- the same clock the probe adapters and
+    ``assert_endpoints_stay_on_origin`` already run their own reads under --
+    since this fetch has no deadline of its own to inherit: it runs AFTER
+    ``run_service_preview`` has already returned, with only the client's own
+    per-inactivity timeout bounding it before this round.
     """
     collection_url = urljoin(
         base_url if base_url.endswith("/") else base_url + "/",
         f"collections/{layer_name}",
     )
-    headers: dict[str, str] = {"Accept": "application/json"}
+    # `bounded_probe_read` takes no `params=`; folded into the URL the same
+    # way the adapters compose their own query strings.
+    collection_url = f"{collection_url}?{urlencode({'f': 'json'})}"
+    headers: dict[str, str] = {}
     try:
-        pair = build_credential_header(credential)
-        if pair is not None:
-            headers[pair[0]] = pair[1]
-        async with make_safe_client(
-            timeout=PROBE_TIMEOUT,
-            credential_header=custom_credential_header_name(credential),
-        ) as client:
-            response = await client.get(
-                collection_url, headers=headers, params={"f": "json"}
-            )
-            response.raise_for_status()
-            data = response.json()
-    except (httpx.HTTPError, ValueError, SSRFError) as exc:
-        # SSRFError joins the two on the same reasoning as the rest of this
+        async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
+            pair = build_credential_header(credential)
+            if pair is not None:
+                headers[pair[0]] = pair[1]
+            async with make_safe_client(
+                timeout=PROBE_TIMEOUT,
+                credential_header=custom_credential_header_name(credential),
+            ) as client:
+                body, _ = await bounded_probe_read(
+                    client, collection_url, headers=headers, accept=OGC_JSON_ACCEPT
+                )
+                data = json.loads(body)
+    except (
+        httpx.HTTPError,
+        ValueError,
+        SSRFError,
+        EndpointCheckFailedError,
+        TimeoutError,
+    ) as exc:
+        # SSRFError joins the others on the same reasoning as the rest of this
         # helper: the CRS fallback is best effort and its failure costs the
         # user the CRS Override field, not the preview. A refused redirect hop
         # — blocked address, or a cross-origin one that would have forwarded a
-        # service-chosen credential header — is one more way not to answer.
+        # service-chosen credential header — is one more way not to answer,
+        # same as a body over the byte/decoded-size cap (EndpointCheckFailedError)
+        # or a deadline that ran out (TimeoutError, from asyncio.timeout above).
         logger.debug(
             "OGC API collection CRS fallback fetch failed",
             url=collection_url,

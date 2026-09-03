@@ -2529,6 +2529,19 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     generated). Leaving them was the worse option — a reader who trusts a
 #     stale precondition unwinds the wrong defence.
 _MODULE_LOC_CAPS: dict[str, int] = {
+    # fix(#1770 round 43 P1): crossed _RATCHET_INCLUSION_LOC on the XML
+    # streaming preflight (`_xml_preflight`, `MAX_DOCUMENT_ATTRIBUTES`,
+    # `MAX_DOCUMENT_DEPTH`) that closes the attribute-bomb/deep-nesting-bomb/
+    # text-bomb class `structural_elements`'s per-element byte-scan could not
+    # see -- a single tag carrying an enormous number of attributes, or a
+    # document nested one element inside another thousands of times over,
+    # both stayed under the element budget while costing real memory or
+    # real recursion. Most of the added lines are the docstring explaining
+    # why the byte-scan stays as a cheap first pass rather than being
+    # replaced outright, and why the preflight has to refuse an entity
+    # declaration itself (it runs on raw `expat`, before `defusedxml`'s own
+    # `forbid_dtd` ever gets a turn).
+    "backend/app/platform/service_endpoints.py": 1042,
     # fix(#1770 round 42): first entry, crossed _RATCHET_INCLUSION_LOC on the
     # completeness-predicate unification. `_page_proves_complete` is the one
     # function round 41's full-walk-only proof and round 42's sampled-preview
@@ -2615,7 +2628,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1770 round 40 P2): +4. The credentialed CRS fallback fetch's
     # `error=str(exc)` becomes `error=redact_exception_text(exc)`, plus the
     # new import. Cap 1579 -> 1583, exact.
-    "backend/app/modules/catalog/sources/router.py": 1583,
+    # fix(#1770 round 43 P1): +28. `_fetch_ogcapi_collection_srid` now reads
+    # through `bounded_probe_read` under `DEFAULT_CHECK_TIMEOUT` instead of a
+    # bare `client.get`, the same shape round 41 already gave the four probe
+    # adapters -- new imports (`json`, `urlencode`, `bounded_probe_read`,
+    # `OGC_JSON_ACCEPT`), the query folded into the URL since the helper
+    # takes no `params=`, the `asyncio.timeout` wrapper, and a widened except
+    # clause plus its comment. Cap 1583 -> 1611, exact.
+    "backend/app/modules/catalog/sources/router.py": 1611,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against
@@ -3335,7 +3355,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the docstring stating why `NO KEY UPDATE` over plain `UPDATE`, and
     # pointing at the sweep-side fixes that now have to contend with this
     # lock instead of racing past it. Cap 2470 -> 2495, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2495,
+    # fix(#1770 round 43 P2): +8. `_bind_task_log_context` now also resets
+    # the credential-secret registry (`core/service_tokens.register_
+    # credential_secret`) at the same boundary it already clears structlog's
+    # own contextvars, so a re-used worker cannot scrub a later job's log
+    # lines with an earlier job's secret. Cap 2495 -> 2503, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2503,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed

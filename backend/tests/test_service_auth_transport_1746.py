@@ -59,7 +59,7 @@ from app.processing.ingest import tasks_vector
 from app.processing.ingest import ogr as ogr_mod
 from app.platform import service_endpoints as service_endpoints_mod
 from app.platform import service_items as service_items_mod
-from app.platform.service_endpoints import EndpointCheckFailedError
+from app.platform.service_endpoints import WFS_XML_ACCEPT, EndpointCheckFailedError
 from app.platform.service_items import (
     ItemFetchFailedError,
     MaterialisedCollection,
@@ -6074,6 +6074,94 @@ class TestAnXmlDocumentIsBoundedByItsElements:
             await self._check(service_format="ogcapi_features")
 
 
+class TestAnXmlStreamingPreflightCatchesWhatTheByteScanCannot:
+    """fix(#1770 round 43 P1, `platform/service_endpoints.py:495`
+    "attribute bomb").
+
+    `structural_elements`'s `body.count(b"<")` bounds cost spread across
+    many elements, roughly one attribute each -- the shape its own
+    worst-measured-cost table was calibrated against. A single start tag
+    carrying hundreds of thousands of uniquely named attributes counts as
+    ONE `<`, comfortably under `MAX_DOCUMENT_ELEMENTS`, while
+    `require_decodable` for XML used to `return` right after that one
+    check -- `token_budget` was never consulted for XML at all -- so
+    nothing bounded the attribute dict ElementTree still allocates for that
+    one tag. `_xml_preflight` (a streaming `xml.parsers.expat` pass) closes
+    that and two siblings in the same resource class: a deep-nesting bomb
+    (one nominal element inside another, thousands of levels deep, cheap on
+    every other budget) and a text bomb (all of the byte budget spent on
+    one run of character data, outside any element/attribute count).
+    """
+
+    def _refuse(self, body: bytes, *, accept: str = WFS_XML_ACCEPT) -> None:
+        from app.platform.service_endpoints import (
+            EndpointCheckFailedError,
+            require_decodable,
+        )
+
+        with pytest.raises(EndpointCheckFailedError):
+            require_decodable(
+                body,
+                accept=accept,
+                token_budget=1000,
+                element_budget=1000,
+            )
+
+    def test_an_attribute_bomb_is_refused_before_a_full_parse(self) -> None:
+        """One tag, one element, a quarter million attributes."""
+        from app.platform.service_endpoints import (
+            EndpointCheckFailedError,
+            MAX_DOCUMENT_ATTRIBUTES,
+            require_decodable,
+        )
+
+        attrs = b" ".join(b'a%d="1"' % n for n in range(MAX_DOCUMENT_ATTRIBUTES + 1))
+        raw = b"<r " + attrs + b"/>"
+        # The premise: this is ONE element, nowhere near the element budget.
+        assert raw.count(b"<") == 1
+
+        with pytest.raises(EndpointCheckFailedError):
+            require_decodable(
+                raw, accept=WFS_XML_ACCEPT, token_budget=1000, element_budget=1000
+            )
+
+    def test_a_deep_nesting_bomb_is_refused_before_a_full_parse(self) -> None:
+        """One element nested inside another, far past any real document."""
+        from app.platform.service_endpoints import MAX_DOCUMENT_DEPTH
+
+        depth = MAX_DOCUMENT_DEPTH + 1
+        raw = b"<a>" * depth + b"</a>" * depth
+        self._refuse(raw)
+
+    def test_a_text_bomb_is_refused_before_a_full_parse(self) -> None:
+        """One element, no attributes, and a text run past the byte budget."""
+        raw = b"<r>" + b"a" * 5000 + b"</r>"
+        self._refuse(raw)
+
+    def test_an_ordinary_document_passes_every_budget(self) -> None:
+        """Positive control: none of the three pins above is vacuous.
+
+        A handful of elements, a handful of attributes each, shallow
+        nesting, and a short text run -- comfortably under every budget --
+        must NOT be refused.
+        """
+        from app.platform.service_endpoints import require_decodable
+
+        raw = b'<r a="1" b="2"><c><d e="1">hello</d></c></r>'
+        require_decodable(
+            raw, accept=WFS_XML_ACCEPT, token_budget=1000, element_budget=1000
+        )
+
+    def test_an_entity_declaration_is_refused_by_the_preflight_too(self) -> None:
+        """The preflight uses raw `expat`, not `defusedxml` -- it has to
+        refuse an entity declaration itself rather than inherit the
+        refusal `ET.fromstring(..., forbid_dtd=True)` gives the real parse
+        downstream, since this parser runs BEFORE that one and would
+        otherwise expand it first."""
+        raw = b'<?xml version="1.0"?><!DOCTYPE r [<!ENTITY x "expanded">]><r>&x;</r>'
+        self._refuse(raw)
+
+
 class TestEachDocumentKindGetsItsOwnBound:
     """fix(#1746 B2b review r26): the bound is keyed on the negotiated kind."""
 
@@ -7998,34 +8086,83 @@ class TestAdapterProbeReadsAreBounded:
     is or is not attached -- but it is a different, wider-scoped change than
     this finding's four named entry points, so it is named here rather than
     silently left for a future sweep to rediscover.
+
+    fix(#1770 round 43 P1): `modules/catalog/sources/router.py`'s
+    `_fetch_ogcapi_collection_srid` -- the CRS fallback for the localized
+    preview -- carried the SAME `ServiceCredential` shape the four probes
+    above carry (Basic or a header-key, via `build_credential_header`) and
+    the SAME plain `client.get` shape this class already closed for them,
+    but stayed open, because round 41's sweep was scoped to `adapters/` and
+    `platform/service_*.py`, and `router.py` is neither. That is a scope gap
+    in the class, not a new class, so this round widens the enumeration
+    below to ALL of `backend/app` rather than patching the one instance, and
+    routes the CRS fetch through `bounded_probe_read` under
+    `DEFAULT_CHECK_TIMEOUT`, matching the four probes exactly. The
+    tree-wide sweep this round turned up, and each is documented in the
+    `expected` set below rather than here, so the two lists cannot drift
+    apart:
+
+    - `auth/oauth/service.py`'s `_resolve_github_identity`: the GitHub
+      OAuth access token, not a `ServiceCredential` -- already allowlisted
+      by name in `test_credential_producer_structural.py`'s
+      `CREDENTIAL_HEADER_ALLOWLIST` as "not a service credential and not
+      B2b's to move". A different credential type with a different
+      producer; out of THIS class's scope for the same reason that gate
+      already gave it.
+    - `catalog/sources/arcgis_signin.py`'s `_fetch_json`: already
+      independently bounded by its own `client.stream()` implementation
+      from #1758 (byte cap and deadline both native to that module, not
+      borrowed from `probe_bounds.py`).
+    - `catalog/sources/cog_info.py`'s `fetch_cog_info` (3 sites): all three
+      talk to GeoLens's OWN internal, trusted Titiler service
+      (`build_titiler_cog_url`), carrying no external credential at all --
+      see that function's own Gate 1/Gate 2 docstring.
+    - `catalog/sources/origin_probe.py`'s `probe_remote_uri`/
+      `fetch_json_document`: neither attaches a credential header; both
+      already run under their own doubled hard deadline and (for the JSON
+      fetch) accumulate into a `bytearray` the caller bounds separately.
+    - `platform/config_ops/service.py`'s `check_oidc_endpoint`: no
+      credential header -- it validates an admin-configured OIDC issuer
+      URL, not a customer's external service source.
+    - `platform/notifications/webhook_channel.py`'s `post_webhook`: carries
+      a webhook SIGNING secret (an HMAC computed over the outgoing body),
+      not a `ServiceCredential` read FROM an external service -- the
+      opposite direction and a different threat model.
+    - `processing/ingest/manifest_service.py`'s `_download_http_source`:
+      takes no credential parameter at all.
+    - `processing/ingest/url_fetch.py`'s `fetch_url_to_path`: no credential
+      header (`headers={"Accept-Encoding": "identity"}` only); already
+      bounded by its own outer `asyncio.timeout`, identity-only streaming,
+      and its own `codeql[py/full-ssrf]` marker (fix(#1708)).
+    - `platform/probe_bounds.py`'s `bounded_probe_read` and
+      `platform/service_endpoints.py`'s `fetch_document`: the two bounded
+      implementations themselves.
     """
 
     def test_every_network_call_in_scope_is_bounded_or_documented(self) -> None:
-        """Source-enumeration, closed set.
+        """Source-enumeration, closed set, tree-wide.
 
-        Walks `modules/catalog/sources/adapters/*.py` and
-        `platform/service_*.py` for every `client.<verb>(` call not inside
-        `bounded_probe_read`/`fetch_document` themselves, and asserts the
-        found set matches exactly the Known-limits list in the class
-        docstring, plus `fetch_document`'s own (already-bounded) call. Any
-        new addition -- a fixed site regressing, or a genuinely new call
-        site -- changes this set and fails here rather than in a future
-        review round.
+        fix(#1770 round 43 P1): widened from `modules/catalog/sources/
+        adapters/*.py` + `platform/service_*.py` to every `*.py` under
+        `backend/app`, because the round-41 scope gap (see class docstring)
+        was exactly a file this walk did not visit. Finds every
+        `client.<verb>(` call anywhere in the tree and asserts the found set
+        matches exactly the `expected` closed set, each entry justified in
+        the class docstring above. Any new addition -- a fixed site
+        regressing, or a genuinely new call site anywhere in `backend/app`
+        -- changes this set and fails here rather than in a future review
+        round.
         """
         import ast
-        import inspect
+        import pathlib
 
-        from app.modules.catalog.sources.adapters import arcgis as arcgis_adapter
-        from app.modules.catalog.sources.adapters import ogcapi as ogcapi_adapter
-        from app.modules.catalog.sources.adapters import stac as stac_adapter
-        from app.modules.catalog.sources.adapters import wfs as wfs_adapter
-        from app.platform import service_endpoints as service_endpoints_mod
-        from app.platform import service_items as service_items_mod
+        import app as app_package
 
+        app_root = pathlib.Path(app_package.__file__).parent
         verbs = {"get", "post", "put", "patch", "delete", "request", "stream", "send"}
 
-        def _find(module) -> set[tuple[str, str]]:
-            tree = ast.parse(inspect.getsource(module))
+        def _find(source: str) -> set[tuple[str, str]]:
+            tree = ast.parse(source)
             found: set[tuple[str, str]] = set()
             func_stack: list[str] = []
 
@@ -8057,16 +8194,10 @@ class TestAdapterProbeReadsAreBounded:
             return found
 
         found: set[tuple[str, str, str]] = set()
-        for module in (
-            ogcapi_adapter,
-            arcgis_adapter,
-            stac_adapter,
-            wfs_adapter,
-            service_endpoints_mod,
-            service_items_mod,
-        ):
-            for fname, verb in _find(module):
-                found.add((module.__name__, fname, verb))
+        for path in sorted(app_root.rglob("*.py")):
+            dotted = "app." + ".".join(path.relative_to(app_root).with_suffix("").parts)
+            for fname, verb in _find(path.read_text(encoding="utf-8")):
+                found.add((dotted, fname, verb))
 
         expected = {
             # Known limits, documented in the class docstring above.
@@ -8092,10 +8223,81 @@ class TestAdapterProbeReadsAreBounded:
                 "get",
             ),
             ("app.modules.catalog.sources.adapters.stac", "search_stac_items", "post"),
-            # The one already-bounded site, unrelated to this round.
+            # The two already-bounded implementations themselves.
             ("app.platform.service_endpoints", "fetch_document", "stream"),
+            ("app.platform.probe_bounds", "bounded_probe_read", "stream"),
+            # fix(#1770 round 43 P1): the tree-wide widening. See class
+            # docstring for why each of these is out of scope.
+            ("app.modules.auth.oauth.service", "_resolve_github_identity", "get"),
+            ("app.modules.catalog.sources.arcgis_signin", "_fetch_json", "stream"),
+            ("app.modules.catalog.sources.cog_info", "fetch_cog_info", "get"),
+            ("app.modules.catalog.sources.origin_probe", "probe_remote_uri", "stream"),
+            (
+                "app.modules.catalog.sources.origin_probe",
+                "fetch_json_document",
+                "stream",
+            ),
+            ("app.platform.config_ops.service", "check_oidc_endpoint", "get"),
+            (
+                "app.platform.notifications.webhook_channel",
+                "post_webhook",
+                "post",
+            ),
+            (
+                "app.processing.ingest.manifest_service",
+                "_download_http_source",
+                "stream",
+            ),
+            ("app.processing.ingest.url_fetch", "fetch_url_to_path", "stream"),
         }
-        assert found == expected, found
+        assert found == expected, found - expected or expected - found
+
+    async def test_the_crs_fallback_also_stops_at_the_byte_cap(
+        self, monkeypatch
+    ) -> None:
+        """Pin for fix(#1770 round 43 P1): `_fetch_ogcapi_collection_srid`
+        now reads through `bounded_probe_read` exactly like the four probes
+        above, so an authenticated collection endpoint that tries to stream
+        an oversized body past it is stopped at `MAX_DOCUMENT_BYTES`, not
+        buffered in full by a bare `client.get().json()`.
+
+        Counterfactual: reverting the fix (a plain `client.get` with no
+        cap) lets `_chunks` run to completion and either raises inside
+        `.json()` on the truncated-by-nothing giant payload or, worse,
+        actually decodes it -- either way `chunks_yielded` is NOT bounded
+        near the cap the way it is here.
+        """
+        from app.modules.catalog.sources.router import _fetch_ogcapi_collection_srid
+        from app.platform.service_endpoints import MAX_DOCUMENT_BYTES
+
+        chunk_size = 1024 * 1024
+        chunks_yielded = 0
+
+        async def _chunks():
+            nonlocal chunks_yielded
+            total = (MAX_DOCUMENT_BYTES // chunk_size) + 50
+            for _ in range(total):
+                chunks_yielded += 1
+                yield b"a" * chunk_size
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=_chunks())
+
+        monkeypatch.setattr(
+            security,
+            "make_safe_transport",
+            lambda: httpx.MockTransport(handle),
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+
+        srid = await _fetch_ogcapi_collection_srid(
+            "https://services.example.test/oapif",
+            "parcels",
+            None,
+        )
+
+        assert srid is None
+        assert chunks_yielded <= (MAX_DOCUMENT_BYTES // chunk_size) + 2, chunks_yielded
 
     async def test_a_body_over_the_byte_cap_is_refused_before_full_buffering(
         self,
@@ -8224,6 +8426,173 @@ class TestAdapterProbeReadsAreBounded:
         assert result is not None
         assert result["service_type"] == "OGC API Features"
         assert [layer["name"] for layer in result["layers"]] == ["c1"]
+
+
+class TestARegisteredCredentialIsScrubbedByExactValue:
+    """fix(#1770 round 43 P2, `sources/router.py:587`).
+
+    `redact_exception_text`/the structlog `_scrub_text` processor only ever
+    redacted a credential by PATTERN: a query parameter whose NAME is in
+    `SENSITIVE_QUERY_PARAMS`, or userinfo. A same-origin redirect can reflect
+    the Basic blob, a password, or an API key into the URL PATH, or into an
+    arbitrary query key neither pattern recognises (`?echo=<value>`), and
+    either shape reached a log line untouched -- each one its own review
+    round rather than a closed class.
+
+    `register_credential_secret` (`core/service_tokens.py`), called at the
+    one place a credential header is composed (`build_credential_header`),
+    closes it: `redact_exception_text` and `_scrub_text` both exact-scrub
+    every registered secret after their pattern-based passes, so no caller
+    has to notice a new reflection shape for it to be caught.
+    """
+
+    async def test_a_credential_reflected_into_an_arbitrary_query_key_is_scrubbed(
+        self, monkeypatch
+    ) -> None:
+        """`?echo=<value>` -- not in `SENSITIVE_QUERY_PARAMS` at all."""
+        import structlog
+
+        from app.modules.catalog.sources.router import _fetch_ogcapi_collection_srid
+
+        credential, value = _header_key()
+        recorded: list[httpx.Request] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            if len(recorded) == 1:
+                return httpx.Response(
+                    302,
+                    headers={
+                        "Location": (
+                            "https://services.example.test/oapif/"
+                            f"collections-moved?echo={value}"
+                        )
+                    },
+                )
+            return httpx.Response(404, json={"error": "not found"})
+
+        monkeypatch.setattr(
+            security,
+            "make_safe_transport",
+            lambda: httpx.MockTransport(lambda r: _as_stream(handle(r))),
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+
+        with structlog.testing.capture_logs() as captured:
+            srid = await _fetch_ogcapi_collection_srid(
+                "https://services.example.test/oapif",
+                "parcels",
+                ServiceCredential(
+                    method=credential.method,
+                    service_format="ogcapi_features",
+                    header_name=credential.header_name,
+                    header_value=credential.header_value,
+                ),
+            )
+
+        assert srid is None
+        assert len(recorded) == 2
+        rendered = str(captured)
+        assert value not in rendered
+        assert "CRS fallback fetch failed" in rendered
+
+    async def test_a_credential_reflected_into_the_url_path_is_scrubbed(
+        self, monkeypatch
+    ) -> None:
+        """The other reflection shape: no query string involved at all."""
+        import structlog
+
+        from app.modules.catalog.sources.router import _fetch_ogcapi_collection_srid
+
+        credential, value = _header_key()
+        recorded: list[httpx.Request] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            if len(recorded) == 1:
+                return httpx.Response(
+                    302,
+                    headers={
+                        "Location": (
+                            f"https://services.example.test/oapif/{value}/moved"
+                        )
+                    },
+                )
+            return httpx.Response(404, json={"error": "not found"})
+
+        monkeypatch.setattr(
+            security,
+            "make_safe_transport",
+            lambda: httpx.MockTransport(lambda r: _as_stream(handle(r))),
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+
+        with structlog.testing.capture_logs() as captured:
+            srid = await _fetch_ogcapi_collection_srid(
+                "https://services.example.test/oapif",
+                "parcels",
+                ServiceCredential(
+                    method=credential.method,
+                    service_format="ogcapi_features",
+                    header_name=credential.header_name,
+                    header_value=credential.header_value,
+                ),
+            )
+
+        assert srid is None
+        assert len(recorded) == 2
+        rendered = str(captured)
+        assert value not in rendered
+        assert "CRS fallback fetch failed" in rendered
+
+    def test_the_structlog_processor_also_scrubs_a_registered_secret(self) -> None:
+        """`_scrub_text` (`core/logging_config.py`) is the OTHER caller this
+        closes for -- any log line, not only ones that route through
+        `redact_exception_text`."""
+        from app.core.logging_config import _scrub_text
+        from app.core.service_tokens import (
+            build_credential_header,
+            reset_registered_credential_secrets,
+        )
+
+        reset_registered_credential_secrets()
+        try:
+            pair = build_credential_header(
+                ServiceCredential(
+                    method=CredentialMethod.HEADER_KEY,
+                    service_format="ogcapi_features",
+                    header_name="X-Api-Key",
+                    header_value="s3cret-value",
+                )
+            )
+            assert pair is not None
+
+            rendered = _scrub_text(
+                "GET /collections?echo=s3cret-value moved to /oapif/s3cret-value"
+            )
+        finally:
+            reset_registered_credential_secrets()
+
+        assert "s3cret-value" not in rendered
+
+    def test_a_producer_that_forgets_to_register_is_not_scrubbed(self) -> None:
+        """Positive control: the mechanism is not vacuously passing.
+
+        A secret never registered is not found -- this is what the pin above
+        is actually testing FOR, and it is also the shape the structural
+        counterfactual in `test_credential_producer_structural.py` exercises
+        by reverting the real registration call.
+        """
+        from app.core.logging_config import _scrub_text
+        from app.core.service_tokens import reset_registered_credential_secrets
+
+        reset_registered_credential_secrets()
+        try:
+            rendered = _scrub_text("moved to /oapif/never-registered-secret")
+        finally:
+            reset_registered_credential_secrets()
+
+        assert "never-registered-secret" in rendered
 
 
 class TestASecretDoesNotSurviveInTheChain:

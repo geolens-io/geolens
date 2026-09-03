@@ -84,6 +84,7 @@ from app.core.url_redaction import (
     URL_LIKE_RE,
     query_has_credentials,
     redact_url_credentials,
+    scrub_registered_credentials,
 )
 
 # SEC-03: case-insensitive denylist of field names that contain sensitive
@@ -255,10 +256,23 @@ def _scrub_text(value: str) -> str:
     query tail is acceptable in a log line; a bare `?` with no credential
     after it, or one already redacted by the pass above, is left alone
     either way.
+
+    fix(#1770 round 43 P2): `scrub_registered_credentials` runs LAST, over
+    the output of every pattern-based pass above. Every one of those passes
+    still only recognises a credential by SHAPE -- a known query-parameter
+    name, or userinfo -- so a same-origin redirect that reflects one into
+    the URL path, or into a query key none of them knows to look for, still
+    reached this far untouched. `register_credential_secret`
+    (`core/service_tokens.py`) is called at the one place a credential
+    header is ever composed, so by the time any log line reaches this
+    processor every secret in play for the request or job is already
+    registered, and this closes it by EXACT VALUE rather than by guessing
+    one more shape.
     """
     value = URL_LIKE_RE.sub(_redact_url_match, value)
     value = _QUERY_TAIL_RE.sub(_redact_query_tail_match, value)
-    return _redact_token_value_repr(value)
+    value = _redact_token_value_repr(value)
+    return scrub_registered_credentials(value)
 
 
 def _redact_sensitive_fields(

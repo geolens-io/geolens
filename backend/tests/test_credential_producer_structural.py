@@ -1713,3 +1713,146 @@ def test_guard_a_self_reference_terminates() -> None:
         '    os.write(fd, f"{line}\\n".encode("ascii"))\n'
     )
     assert sum(scan.unguarded_writes.values()) == 1
+
+
+class TestBuildCredentialHeaderRegistersEverythingItProduces:
+    """fix(#1770 round 43 P2).
+
+    `redact_exception_text`/the structlog `_scrub_text` processor used to
+    redact a credential only by PATTERN -- a known query-parameter name, or
+    userinfo -- so a reflection into the URL path, or into a query key
+    neither recognises, reached a log line untouched. `register_credential_
+    secret` (`core/service_tokens.py`) closes that by having the single
+    producer of a credential header, `build_credential_header`, register the
+    exact line it composes, so an exact-value scrub finds it regardless of
+    where it gets reflected.
+
+    That guarantee only holds while EVERY branch that returns a real pair
+    also registers it. This is the structural half of that: it does not read
+    the synthetic fixtures the guard tests above use (those exercise the
+    OUTBOUND-header-mapping question, a different rule from this file's
+    docstring), it reads `build_credential_header`'s own real source and
+    counts the two shapes against each other. A regression that adds a
+    fourth branch, or that adds a `return` without the matching
+    registration, changes one count without the other and fails here rather
+    than waiting for a review round to notice the new reflection surface.
+    """
+
+    @staticmethod
+    def _build_credential_header_function() -> ast.FunctionDef:
+        source = (APP_ROOT / "core" / "service_tokens.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.FunctionDef)
+                and node.name == "build_credential_header"
+            ):
+                return node
+        raise AssertionError(
+            "build_credential_header not found -- positive control failed"
+        )
+
+    @staticmethod
+    def _pair_assignments(func: ast.FunctionDef) -> list[ast.Assign]:
+        """Every ``<name> = (<header-name>, <header-value>)`` assignment.
+
+        Each producing branch assigns the composed pair to a name (`pair =
+        (...)`) rather than returning a tuple literal directly, so this is
+        the shape that actually identifies "a branch that composed a
+        header" -- not the `Return` node, which just holds the name.
+        """
+        return [
+            node
+            for node in ast.walk(func)
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Tuple)
+        ]
+
+    def test_every_pair_producing_branch_registers_its_own_secret(self) -> None:
+        func = self._build_credential_header_function()
+
+        pair_assignments = self._pair_assignments(func)
+        registration_calls = [
+            node
+            for node in ast.walk(func)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "register_credential_secret"
+        ]
+
+        # Positive control: neither list is vacuous. `build_credential_header`
+        # has three methods that compose a real pair (bearer, basic, header
+        # key) -- a change to that shape is real news, not a broken walk.
+        assert len(pair_assignments) >= 3, pair_assignments
+        assert registration_calls, (
+            "no register_credential_secret call found -- positive control failed"
+        )
+        assert len(registration_calls) == len(pair_assignments), (
+            "build_credential_header composes a header pair on "
+            f"{len(pair_assignments)} branch(es) but registers a secret on "
+            f"{len(registration_calls)} -- every branch that composes a "
+            "header must also register it (see this class's docstring)."
+        )
+
+    def test_each_composed_pair_is_registered_immediately_after_it_is_assigned(
+        self,
+    ) -> None:
+        """Not just equal counts: paired one-for-one, in source order.
+
+        Catches the shape where a stray extra registration call and a stray
+        unregistered pair both exist and cancel out in the count above --
+        e.g. a copy-pasted branch that registers a DIFFERENT pair than the
+        one it just assigned.
+        """
+        func = self._build_credential_header_function()
+        checked = 0
+        for assign in self._pair_assignments(func):
+            assert len(assign.targets) == 1 and isinstance(assign.targets[0], ast.Name)
+            pair_name = assign.targets[0].id
+
+            body = _enclosing_body(func, assign)
+            index = body.index(assign)
+            assert index + 1 < len(body), "a pair assignment has nothing after it"
+            registration = body[index + 1]
+            assert (
+                isinstance(registration, ast.Expr)
+                and isinstance(registration.value, ast.Call)
+                and isinstance(registration.value.func, ast.Name)
+                and registration.value.func.id == "register_credential_secret"
+            ), (
+                "the statement immediately after a pair assignment is not a "
+                "register_credential_secret(...) call"
+            )
+            # And it has to register THIS pair, via `credential_header_line`,
+            # not some other name left over from a copy-pasted branch.
+            (arg,) = registration.value.args
+            assert (
+                isinstance(arg, ast.Call)
+                and isinstance(arg.func, ast.Name)
+                and arg.func.id == "credential_header_line"
+                and len(arg.args) == 1
+                and isinstance(arg.args[0], ast.Name)
+                and arg.args[0].id == pair_name
+            ), (
+                f"register_credential_secret after `{pair_name} = (...)` does "
+                f"not register `credential_header_line({pair_name})`"
+            )
+
+            assert index + 2 < len(body), "a registered pair has no return after it"
+            returned = body[index + 2]
+            assert (
+                isinstance(returned, ast.Return)
+                and isinstance(returned.value, ast.Name)
+                and returned.value.id == pair_name
+            ), f"the statement after registering `{pair_name}` does not return it"
+            checked += 1
+        assert checked >= 3, checked
+
+
+def _enclosing_body(func: ast.FunctionDef, target: ast.AST) -> list[ast.stmt]:
+    """The flat statement list directly containing *target* within *func*."""
+    for node in ast.walk(func):
+        body = getattr(node, "body", None)
+        if isinstance(body, list) and any(isinstance(item, ast.stmt) for item in body):
+            if target in body:
+                return body
+    raise AssertionError("target statement not found in any enclosing body")

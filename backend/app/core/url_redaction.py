@@ -24,7 +24,11 @@ from urllib.parse import (
     urlunsplit,
 )
 
-from app.core.service_tokens import BASIC_SCHEME, HEADER_LINE_SEPARATOR
+from app.core.service_tokens import (
+    BASIC_SCHEME,
+    HEADER_LINE_SEPARATOR,
+    registered_credential_secrets,
+)
 
 REDACTED_QUERY_VALUE = "<redacted>"
 REDACTED_USERINFO = "redacted"
@@ -322,6 +326,33 @@ def redact_url_credentials(url: str) -> str:
     )
 
 
+def scrub_registered_credentials(text: str) -> str:
+    """Exact-scrub every credential secret registered so far in this
+    request/job's context.
+
+    fix(#1770 round 43 P2). The pattern-based helpers in this module
+    (``redact_url_credentials`` and, in ``core/logging_config.py``,
+    ``_scrub_text``) only ever redact a KNOWN shape: a query parameter whose
+    NAME is in ``SENSITIVE_QUERY_PARAMS``, or userinfo. A same-origin
+    redirect that reflects the credential into the URL PATH, or into an
+    arbitrary query key not on that list (``?echo=<value>``, say), carries
+    the secret straight through either pattern untouched, and each new
+    reflection SHAPE used to cost its own review round rather than closing
+    as a class.
+
+    ``app.core.service_tokens.register_credential_secret`` is called at the
+    one place a credential header is ever composed
+    (``build_credential_header``), so by the time anything downstream calls
+    this, every secret in play for this request/job is already registered --
+    exact-value redaction (``scrub_secret_value``, which also expands to the
+    Basic cleartext and every URL-encoded form) then finds it wherever it
+    was reflected, independent of shape.
+    """
+    for secret in registered_credential_secrets():
+        text = scrub_secret_value(text, secret)
+    return text
+
+
 def redact_exception_text(exc: BaseException) -> str:
     """``str(exc)``, with any URL-shaped substring redacted.
 
@@ -343,8 +374,12 @@ def redact_exception_text(exc: BaseException) -> str:
     ``httpx.RequestError`` and its connection-level subclasses generally
     don't, the address lives on ``exc.request.url`` instead and is never read
     here -- passes through unchanged.
+
+    fix(#1770 round 43 P2): ``scrub_registered_credentials`` runs second, so a
+    reflection the pattern-based pass above cannot see by shape (an arbitrary
+    query key, or the URL path) is still caught by exact value.
     """
-    return redact_url_credentials(str(exc))
+    return scrub_registered_credentials(redact_url_credentials(str(exc)))
 
 
 def _basic_cleartext(blob: str) -> set[str]:
