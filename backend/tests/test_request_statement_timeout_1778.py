@@ -12,6 +12,14 @@ fix(#1778 codex r2): the deadline is on the ENGINE, not on ``get_db``. Handlers
 open request-scoped sessions directly through ``async_session()`` in more than
 twenty modules -- ``GET /stac/collections`` runs three aggregates that way --
 so a per-dependency binding covered none of them.
+
+fix(#1778 codex r3): and it is issued as ``SET LOCAL`` at the start of every
+transaction, not as asyncpg ``server_settings``. ``server_settings`` travels in
+the startup packet, which standard PgBouncer rejects, so under the documented
+``DB_USE_EXTERNAL_POOLER=true`` topology every API connection and API startup
+would have failed -- and the usual remedy, adding the parameter to
+``ignore_startup_parameters``, drops the deadline in silence. One shape for
+both topologies, so the direct and pooled paths cannot drift.
 """
 
 from __future__ import annotations
@@ -22,7 +30,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -34,11 +42,24 @@ from app.core.statement_timeout import (
 _SHOW_TIMEOUT = text("SELECT setting FROM pg_settings WHERE name = 'statement_timeout'")
 
 
-def _fresh_engine():
+def _fresh_engine(**kwargs):
     """An engine of our own, so the shared test engine keeps its own state."""
     from app.core.config import settings
 
-    return create_async_engine(settings.test_database_url, poolclass=NullPool)
+    return create_async_engine(settings.test_database_url, poolclass=NullPool, **kwargs)
+
+
+def _captured_connect_params(engine) -> dict:
+    """The kwargs the dialect will hand asyncpg, captured at connect time."""
+    captured: dict = {}
+
+    @event.listens_for(engine.sync_engine, "do_connect")
+    def _capture(_dialect, _conn_rec, _cargs, cparams):
+        captured.clear()
+        captured.update(cparams)
+        return None
+
+    return captured
 
 
 def test_the_deadline_is_on_by_default_and_fits_inside_the_edge_timeout():
@@ -87,26 +108,72 @@ def test_the_shared_engine_module_carries_no_session_default():
     assert "server_settings" not in settings.database_connect_args
 
 
+def test_the_installer_sets_no_startup_parameter():
+    """fix(#1778 codex r3): the source must not reach for server_settings.
+
+    Standard PgBouncer rejects an unknown startup parameter, so a
+    `server_settings` entry fails every connection under the documented
+    external-pooler topology, and `ignore_startup_parameters` "fixes" it by
+    dropping the deadline in silence.
+    """
+    from app.core.statement_timeout import install_api_statement_timeout as installer
+
+    code = inspect.getsource(installer)
+    assert "server_settings" not in code, (
+        "the installer must not put anything in the startup packet"
+    )
+    # And the mechanism it uses instead: SET LOCAL, with a bound value.
+    assert "set_config" in code
+    assert "true" in code, "set_config's is_local argument must be true"
+
+
 @pytest.mark.anyio
-async def test_a_session_from_async_session_runs_under_the_deadline(test_db_session):
+@pytest.mark.parametrize("external_pooler", [False, True])
+async def test_a_session_from_async_session_runs_under_the_deadline(
+    test_db_session, monkeypatch, external_pooler
+):
     """The pin: not get_db, a bare `async_session()` the way handlers open one.
 
-    ``test_db_session`` is requested only so this module's DB gating applies.
+    fix(#1778 codex r3): run under both topologies, because they must behave
+    the same. ``test_db_session`` is requested only so this module's DB gating
+    applies.
     """
-    engine = _fresh_engine()
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "db_use_external_pooler", external_pooler)
+
+    engine = _fresh_engine(connect_args=settings.database_connect_args)
     install_api_statement_timeout(engine)
+    # Registered LAST so it observes what every earlier `do_connect` listener
+    # has already put in `cparams` -- registering it first would snapshot the
+    # parameters before the installer could have added anything, and the
+    # assertion below would pass vacuously.
+    connect_params = _captured_connect_params(engine)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with session_factory() as session:
             result = await session.execute(_SHOW_TIMEOUT)
             assert result.scalar_one() == str(statement_timeout_ms())
 
-            # It survives a commit, unlike SET LOCAL: a handler that writes,
-            # commits, and reads again stays bounded.
+            # The startup packet is what PgBouncer inspects, and it must carry
+            # nothing of ours -- under either topology, since there is one
+            # shape rather than a branch.
+            assert connect_params, "no connection was opened"
+            assert "server_settings" not in connect_params, (
+                "a startup parameter here fails every connection through "
+                "standard PgBouncer"
+            )
+
+            # SET LOCAL ends with its transaction, so the next one must get it
+            # again: a handler that writes, commits and reads again stays
+            # bounded.
             await session.commit()
             result = await session.execute(_SHOW_TIMEOUT)
             assert result.scalar_one() == str(statement_timeout_ms())
+
             await session.rollback()
+            result = await session.execute(_SHOW_TIMEOUT)
+            assert result.scalar_one() == str(statement_timeout_ms())
     finally:
         await engine.dispose()
 

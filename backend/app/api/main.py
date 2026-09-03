@@ -381,9 +381,9 @@ def install_api_query_deadline() -> None:
     way -- so binding it inside ``get_db`` left every one of those pinning a
     pool slot with no deadline.
 
-    Called at import of this module, not from the lifespan, because
-    ``do_connect`` only fires for connections opened after it is registered and
-    the pool must not have connected first. Called AGAIN from the lifespan so a
+    Called at import of this module, and not only from the lifespan, because
+    the listener fires for transactions begun after it is registered and the
+    lifespan's own boot probe opens one. Called AGAIN from the lifespan so a
     test fixture that has rebound ``app.core.db.engine`` to the test engine
     gets it too; the installer is idempotent.
 

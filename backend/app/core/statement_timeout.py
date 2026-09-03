@@ -41,12 +41,41 @@ The two processes have separate engine INSTANCES, so a per-process
 registration separates them exactly. ``app/api/main.py`` installs this; the
 worker entrypoint never imports that module, so its engine is untouched.
 
-``do_connect`` rather than executing SQL on ``connect``: asyncpg's
-``server_settings`` is sent in the startup packet, so the deadline is in force
-before the first statement and costs no extra round trip. It is the same knob
-``processing/tiles/pool.py`` passes to its own pool. A ``SET LOCAL`` inside a
-transaction still overrides it, which is how the handful of API routes that
-need longer keep working.
+One shape, both topologies
+--------------------------
+fix(#1778 codex r3): the deadline is issued as ``SET LOCAL`` at the start of
+every transaction, and NOT as asyncpg ``server_settings``.
+
+``server_settings`` travels in the startup packet, and standard PgBouncer
+rejects a startup parameter it does not track. ``DB_USE_EXTERNAL_POOLER=true``
+is a documented, supported topology (``.env.example``, and
+``database_connect_args`` already turns off the prepared-statement cache for
+it), so a startup-packet deadline would have failed every connection and taken
+API boot with it. Telling operators to add ``statement_timeout`` to PgBouncer's
+``ignore_startup_parameters`` is worse than useless: the parameter is then
+dropped in silence and the deadline is simply gone.
+
+A connection-scoped ``SET`` is not the answer either. Under transaction-mode
+pooling a server connection is handed to a different client between
+transactions, so a session-level ``SET`` would either be reset away or leak
+onto someone else's transaction.
+
+``SET LOCAL`` at transaction start is correct under both topologies, which is
+why it is used under both rather than branching on the flag -- a branch is two
+behaviours that drift, and only one of them gets exercised in CI. It costs one
+extra round trip per transaction, on a local socket, which is the price of the
+deadline applying at all when a pooler is in front.
+
+A later ``SET LOCAL`` in the same transaction still wins, which is how the
+handful of API routes that need longer keep working.
+
+It rides the engine's ``begin`` event rather than the ORM ``Session``'s
+``after_begin``, for two reasons: the listener is then scoped to ONE engine
+instance instead of to every Session in the process, and it fires for a raw
+``engine.connect()`` transaction as well as an ORM one.
+``install_tenant_session_hook`` uses the same event for the same reasons, and
+``set_config(..., is_local => true)`` is ``SET LOCAL`` with a bound parameter
+rather than an interpolated one.
 
 Not set here: ``idle_in_transaction_session_timeout``. ``processing/ingest``'s
 job route opens a transaction and then waits out a 300-second ``ogrinfo``
@@ -58,7 +87,7 @@ holding a transaction across a subprocess first.
 from __future__ import annotations
 
 import structlog
-from sqlalchemy import event
+from sqlalchemy import event, text
 
 logger = structlog.get_logger(__name__)
 
@@ -73,7 +102,7 @@ def statement_timeout_ms() -> int:
 
 
 def install_api_statement_timeout(engine) -> None:
-    """Give every connection *engine* opens the API's statement deadline.
+    """Give every transaction *engine* opens the API's statement deadline.
 
     Idempotent via a sentinel on the sync engine, mirroring
     ``install_tenant_session_hook``, so repeated calls (a test re-registering,
@@ -87,20 +116,23 @@ def install_api_statement_timeout(engine) -> None:
         return
 
     sync_engine = engine.sync_engine
-    if getattr(sync_engine, _INSTALLED_ATTR, False):
+    # `is True`, not truthiness: the sentinel is one this function sets, and an
+    # object that answers every attribute would otherwise report itself already
+    # installed and silently leave the engine unbounded.
+    if getattr(sync_engine, _INSTALLED_ATTR, False) is True:
         return
 
-    @event.listens_for(sync_engine, "do_connect")
-    def _apply_statement_timeout(_dialect, _conn_rec, _cargs, cparams):
-        # Merge rather than assign: the SSL branch and the external-pooler
-        # branch of database_connect_args may already have put keys here, and
-        # a future one must not be dropped by this hook.
-        server_settings = dict(cparams.get("server_settings") or {})
-        server_settings.setdefault("statement_timeout", str(timeout_ms))
-        cparams["server_settings"] = server_settings
-        # None means "carry on and connect normally" -- this hook only edits
-        # the parameters it was handed.
-        return None
+    # `set_config(..., is_local => true)` IS `SET LOCAL`, and unlike the `SET
+    # LOCAL` statement it accepts a bound parameter, so the value is never
+    # interpolated into SQL. The tenant GUC hook issues the tenant id the same
+    # way. Postgres reads a bare number for statement_timeout as milliseconds.
+    statement = text("SELECT set_config('statement_timeout', :ms, true)").bindparams(
+        ms=str(timeout_ms)
+    )
+
+    @event.listens_for(sync_engine, "begin")
+    def _apply_statement_timeout(conn) -> None:
+        conn.execute(statement)
 
     setattr(sync_engine, _INSTALLED_ATTR, True)
     logger.debug("api_statement_timeout_installed", timeout_ms=timeout_ms)
