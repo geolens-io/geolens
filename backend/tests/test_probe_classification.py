@@ -7,12 +7,37 @@ Covers:
     (PROBE-05 fix, per D-04 / D-05).
 """
 
+import json
 import time
 
 import httpx
 import pytest
 
 from app.modules.catalog.sources.classify import classify_layer_kind
+
+
+def _streaming_response(
+    *,
+    json_body: dict | None = None,
+    text: str | None = None,
+    headers: dict | None = None,
+) -> httpx.Response:
+    """A response whose body supports the streaming read the probe adapters
+    now use (fix(#1770 round 41 P1)).
+
+    `httpx.Response(200, json=...)`/`text=...` materialise the body at
+    construction, so `client.stream(...)`'s `aiter_raw()` over one raises
+    `StreamConsumed` -- a real transport never hands back a pre-read
+    response, so a double that does cannot exercise the bounded streaming
+    read the production code performs. A content-yielding async generator
+    is what a real transport's response looks like from the client's side.
+    """
+    raw = text.encode() if text is not None else json.dumps(json_body).encode()
+
+    async def _chunks():
+        yield raw
+
+    return httpx.Response(200, content=_chunks(), headers=headers)
 
 
 class TestClassifyLayerKind:
@@ -212,19 +237,20 @@ class TestProbeOrchestratorNoEnrichment:
             ]
         }
 
-        # Patch httpx AsyncClient.get to return our stubs
-        async def mock_get(url: str, **kwargs):
-            if "collections" in url:
-                return self._make_response(collections_data, url)
-            return self._make_response(landing_page, url)
+        # fix(#1770 round 41 P1): a real transport, not a mocked `.get` --
+        # the probe adapters read via `client.stream` now.
+        def handle(request: httpx.Request) -> httpx.Response:
+            if "collections" in str(request.url):
+                return _streaming_response(json_body=collections_data)
+            return _streaming_response(json_body=landing_page)
 
         with patch(
             "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
             new_callable=AsyncMock,
         ):
-            async with httpx.AsyncClient() as client:
-                client.get = AsyncMock(side_effect=mock_get)
-
+            async with httpx.AsyncClient(
+                transport=httpx.MockTransport(handle)
+            ) as client:
                 from app.modules.catalog.sources.probe import detect_service_type
 
                 start = time.perf_counter()
@@ -258,18 +284,18 @@ class TestProbeOrchestratorNoEnrichment:
             ]
         }
 
-        async def mock_get(url: str, **kwargs):
-            if "collections" in url:
-                return self._make_response(collections_data, url)
-            return self._make_response(landing_page, url)
+        def handle(request: httpx.Request) -> httpx.Response:
+            if "collections" in str(request.url):
+                return _streaming_response(json_body=collections_data)
+            return _streaming_response(json_body=landing_page)
 
         with patch(
             "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
             new_callable=AsyncMock,
         ):
-            async with httpx.AsyncClient() as client:
-                client.get = AsyncMock(side_effect=mock_get)
-
+            async with httpx.AsyncClient(
+                transport=httpx.MockTransport(handle)
+            ) as client:
                 from app.modules.catalog.sources.probe import detect_service_type
 
                 result = await detect_service_type(
@@ -289,7 +315,6 @@ class TestProbeOrchestratorNoEnrichment:
     async def test_wfs_probe_layers_have_null_geometry_and_count_with_vector_kind(self):
         """PROBE-05 + CLASS-07: WFS probe layers have geometry_type=None, feature_count=None, kind='vector'."""
         import httpx
-        from unittest.mock import AsyncMock
 
         capabilities_xml = """<?xml version="1.0" encoding="UTF-8"?>
 <WFS_Capabilities version="2.0.0" xmlns="http://www.opengis.net/wfs/2.0">
@@ -307,13 +332,12 @@ class TestProbeOrchestratorNoEnrichment:
   </FeatureTypeList>
 </WFS_Capabilities>"""
 
-        async with httpx.AsyncClient() as client:
-            client.get = AsyncMock(
-                return_value=self._make_xml_response(
-                    capabilities_xml, "http://fake-wfs.example.com/wfs"
-                )
+        def handle(request: httpx.Request) -> httpx.Response:
+            return _streaming_response(
+                text=capabilities_xml, headers={"content-type": "text/xml"}
             )
 
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
             from app.modules.catalog.sources.probe import detect_service_type
 
             # Use a WFS-looking URL so the fast path is taken
@@ -357,12 +381,10 @@ class TestProbeOrchestratorNoEnrichment:
             "layers": [{"id": 0, "name": "Wildfire Points", "type": "Feature Layer"}],
         }
 
-        async def mock_get(url: str, **kwargs):
-            return self._make_response(arcgis_service_json, url)
+        def handle(request: httpx.Request) -> httpx.Response:
+            return _streaming_response(json_body=arcgis_service_json)
 
-        async with httpx.AsyncClient() as client:
-            client.get = AsyncMock(side_effect=mock_get)
-
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
             with patch(
                 "app.modules.catalog.sources.probe.enrich_arcgis_feature_counts",
                 new_callable=AsyncMock,

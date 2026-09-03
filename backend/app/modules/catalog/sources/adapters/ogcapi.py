@@ -28,6 +28,8 @@ Implements the probe adapter contract shared with wfs.py and arcgis.py:
 # malicious landing page from redirecting to internal addresses.
 """
 
+import asyncio
+import json
 from dataclasses import replace
 from urllib.parse import urljoin
 
@@ -38,6 +40,12 @@ from app.core.service_tokens import ServiceCredential, build_credential_header
 from app.core.url_redaction import redact_exception_text, redact_url_credentials
 from app.modules.catalog.sources.classify import classify_layer_kind
 from app.platform.security import SSRFError, same_origin, validate_url_for_ssrf
+from app.platform.probe_bounds import bounded_probe_read
+from app.platform.service_endpoints import (
+    DEFAULT_CHECK_TIMEOUT,
+    OGC_JSON_ACCEPT,
+    EndpointCheckFailedError,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -149,16 +157,23 @@ async def _resolve_conformance(
         # explanatory comment inserted between the two silently disarms it.
         # Prose goes above.
         # codeql[py/full-ssrf] fix(#1746): Rule 2 posture — validate_url_for_ssrf gates the resolved href immediately above, and this client comes from make_safe_client, whose transport re-resolves, validates and pins the IP at connect time and revalidates every redirect hop
-        conf_resp = await client.get(abs_href, headers=headers)
-        conf_resp.raise_for_status()
-        conf_data = conf_resp.json()
+        conf_body, _ = await bounded_probe_read(
+            client, abs_href, headers=headers, accept=OGC_JSON_ACCEPT
+        )
+        conf_data = json.loads(conf_body)
         conforms_to = conf_data.get("conformsTo", [])
     except SSRFError:
         logger.warning(
             "OGC API probe: conformance link blocked by SSRF check",
             href=redact_url_credentials(abs_href),
         )
-    except Exception as exc:  # broad: conformance fetch — httpx/JSON parse can throw varied errors; degrade gracefully
+    # fix(#1770 round 41 P1): EndpointCheckFailedError joins the broad catch
+    # below -- it is what `bounded_probe_read` raises for a body over the
+    # byte cap, over the decoded-size cap, or carrying a Content-Encoding
+    # other than identity, and this fetch degrades all three exactly like an
+    # httpx/JSON failure: conformance stays unestablished, the `data` link
+    # decides.
+    except Exception as exc:  # broad: conformance fetch — httpx/JSON/bound failures can throw varied errors; degrade gracefully
         logger.debug(
             "OGC API probe: conformance fetch failed",
             href=redact_url_credentials(abs_href),
@@ -187,7 +202,29 @@ async def probe_ogcapi(
     inputs, so a ValueError from the builder is unreachable over HTTP and is
     caught for the in-process caller that skipped the door; the message is a
     policy constant and carries no part of the credential.
+
+    fix(#1770 round 41 P1): the whole function runs under
+    ``DEFAULT_CHECK_TIMEOUT`` -- the same clock ``assert_endpoints_stay_on_
+    origin`` runs its own reads under, reused rather than a new number
+    invented here. That check only runs AFTER this one returns, so without
+    its own bound a protected service a caller already holds a credential for
+    could otherwise trickle a response for as long as the client's own
+    per-inactivity timeout tolerated, once per probe.
     """
+    try:
+        async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
+            return await _probe_ogcapi_within_deadline(url, client, credential)
+    except TimeoutError:
+        logger.debug("OGC API probe: deadline exceeded", url=url)
+        return None
+
+
+async def _probe_ogcapi_within_deadline(
+    url: str,
+    client: httpx.AsyncClient,
+    credential: ServiceCredential | None,
+) -> dict | None:
+    """``probe_ogcapi``'s body, split out so the deadline wraps all of it."""
     headers: dict[str, str] = {"Accept": "application/json"}
     # Bound before the branch, because the conformance fetch below has to know
     # whether this request carries a credential and under what name.
@@ -204,9 +241,14 @@ async def probe_ogcapi(
 
     # Step 1: Fetch landing page
     try:
-        response = await client.get(url, headers=headers)
-        response.raise_for_status()
-    except (httpx.HTTPStatusError, httpx.TransportError) as exc:
+        body, _ = await bounded_probe_read(
+            client, url, headers=headers, accept=OGC_JSON_ACCEPT
+        )
+    except (
+        httpx.HTTPStatusError,
+        httpx.TransportError,
+        EndpointCheckFailedError,
+    ) as exc:
         logger.debug(
             "OGC API probe: landing page request failed",
             url=url,
@@ -215,8 +257,10 @@ async def probe_ogcapi(
         return None
 
     try:
-        data = response.json()
-    except Exception as exc:  # broad: httpx response.json() can throw varied parser/decoder errors; degrade to None
+        data = json.loads(body)
+    except (
+        Exception
+    ) as exc:  # broad: json.loads can throw varied decoder errors; degrade to None
         logger.debug(
             "OGC API probe: landing page JSON parse failed",
             url=url,
@@ -249,15 +293,16 @@ async def probe_ogcapi(
     collections_url = url.rstrip("/") + "/collections"
     try:
         await validate_url_for_ssrf(collections_url)
-        col_resp = await client.get(collections_url, headers=headers)
-        col_resp.raise_for_status()
-        col_data = col_resp.json()
+        col_body, _ = await bounded_probe_read(
+            client, collections_url, headers=headers, accept=OGC_JSON_ACCEPT
+        )
+        col_data = json.loads(col_body)
     except SSRFError:
         logger.warning(
             "OGC API probe: collections URL blocked by SSRF check", url=collections_url
         )
         return None
-    except Exception as exc:  # broad: collections fetch — httpx/JSON parse can throw varied errors; degrade to None
+    except Exception as exc:  # broad: collections fetch — httpx/JSON/bound failures can throw varied errors; degrade to None
         logger.debug(
             "OGC API probe: collections fetch failed",
             collections_url=collections_url,

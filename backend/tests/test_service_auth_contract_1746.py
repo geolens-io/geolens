@@ -62,6 +62,7 @@ from tests.test_import_token_lease_1676 import (  # noqa: F401
     _reupload_harness,
     no_credential_store,
 )
+from tests.test_service_auth_transport_1746 import _as_stream
 from tests.test_service_refresh_1220 import (  # noqa: F401
     _dispatch_harness,
     _service_dataset,
@@ -287,15 +288,23 @@ class TestProbeDoor:
         auth, secrets = builder()
         recorded: list[httpx.Request] = []
 
+        # fix(#1770 round 41 P1): `_as_stream` (see its own docstring in
+        # test_service_auth_transport_1746.py) -- `probe_arcgis_service` now
+        # reads via `client.stream`, which a plain `httpx.Response(json=...)`
+        # double cannot support (`aiter_raw` over one raises `StreamConsumed`).
         def _handle(request: httpx.Request) -> httpx.Response:
             recorded.append(request)
             # An ArcGIS FeatureServer answering as one.
-            return httpx.Response(
-                200,
-                json={
-                    "currentVersion": 11.1,
-                    "layers": [{"id": 0, "name": "Parcels", "type": "Feature Layer"}],
-                },
+            return _as_stream(
+                httpx.Response(
+                    200,
+                    json={
+                        "currentVersion": 11.1,
+                        "layers": [
+                            {"id": 0, "name": "Parcels", "type": "Feature Layer"}
+                        ],
+                    },
+                )
             )
 
         with (

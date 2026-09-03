@@ -25,6 +25,7 @@
 # feature service by OGC spec — raster sources use STAC instead).
 """
 
+import asyncio
 from dataclasses import replace
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
@@ -34,6 +35,12 @@ import structlog
 
 from app.core.service_tokens import ServiceCredential, build_credential_header
 from app.core.url_redaction import redact_exception_text
+from app.platform.probe_bounds import bounded_probe_read
+from app.platform.service_endpoints import (
+    DEFAULT_CHECK_TIMEOUT,
+    WFS_XML_ACCEPT,
+    EndpointCheckFailedError,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -43,7 +50,7 @@ logger = structlog.stdlib.get_logger(__name__)
 WFS_SERVICE_FORMAT = "wfs"
 
 
-def parse_wfs_capabilities(xml_text: str) -> tuple[str, list[dict]]:
+def parse_wfs_capabilities(xml_text: str | bytes) -> tuple[str, list[dict]]:
     """Parse WFS GetCapabilities XML.
 
     Uses defusedxml for safe parsing (blocks XXE, billion laughs, etc.).
@@ -51,6 +58,11 @@ def parse_wfs_capabilities(xml_text: str) -> tuple[str, list[dict]]:
 
     Returns (version_string, layers_list) where each layer dict has
     keys: name, title, crs.
+
+    fix(#1770 round 41 P1): accepts `bytes` too, since `probe_wfs` now hands
+    the bounded read's raw bytes straight through -- `ET.fromstring` honours
+    an embedded `<?xml encoding="..."?>` declaration on bytes and would
+    otherwise see it fight a decode this function already did.
     """
     root = ET.fromstring(xml_text)
 
@@ -126,7 +138,24 @@ async def probe_wfs(
     inputs, so a ValueError from the builder is unreachable over HTTP and is
     caught for the in-process caller that skipped the door; the message is a
     policy constant and carries no part of the credential.
+
+    fix(#1770 round 41 P1): the whole function runs under
+    ``DEFAULT_CHECK_TIMEOUT``, same reasoning as ``probe_ogcapi``.
     """
+    try:
+        async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
+            return await _probe_wfs_within_deadline(url, client, credential)
+    except TimeoutError:
+        logger.debug("WFS probe: deadline exceeded for %s", url)
+        return None
+
+
+async def _probe_wfs_within_deadline(
+    url: str,
+    client: httpx.AsyncClient,
+    credential: ServiceCredential | None,
+) -> dict | None:
+    """``probe_wfs``'s body, split out so the deadline wraps all of it."""
     capabilities_url = build_capabilities_url(url)
     request_headers = {}
     if credential is not None:
@@ -144,9 +173,19 @@ async def probe_wfs(
             request_headers[pair[0]] = pair[1]
 
     try:
-        response = await client.get(capabilities_url, headers=request_headers)
-        response.raise_for_status()
-    except (httpx.HTTPStatusError, httpx.TransportError) as exc:
+        # fix(#1770 round 41 P1): bounded read, not a plain `client.get` --
+        # see `bounded_probe_read`'s docstring. `EndpointCheckFailedError`
+        # joins the two httpx types this already caught, for the same reason
+        # round 39's redaction fix applies to all three: whatever the cause,
+        # this degrades to "not a WFS service" the same way.
+        body, response_headers = await bounded_probe_read(
+            client, capabilities_url, headers=request_headers, accept=WFS_XML_ACCEPT
+        )
+    except (
+        httpx.HTTPStatusError,
+        httpx.TransportError,
+        EndpointCheckFailedError,
+    ) as exc:
         # fix(#1770 round 39): this request can carry a credential header (see
         # build_credential_header above); an HTTPStatusError's message quotes
         # the whole request URL, so a reflected credential-shaped query
@@ -155,13 +194,12 @@ async def probe_wfs(
         return None
 
     # Check Content-Type is XML (not HTML error page)
-    content_type = response.headers.get("content-type", "")
+    content_type = response_headers.get("content-type", "")
     if "text/html" in content_type and "xml" not in content_type:
         return None
 
-    xml_text = response.text
     try:
-        version, layers = parse_wfs_capabilities(xml_text)
+        version, layers = parse_wfs_capabilities(body)
     except ET.ParseError:
         logger.debug("WFS XML parse failed for %s", url)
         return None

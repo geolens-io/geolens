@@ -602,7 +602,13 @@ class TestACrossOriginRedirectCannotCarryTheKey:
                 return httpx.Response(200, json={})
 
             monkeypatch.setattr(
-                security, "make_safe_transport", lambda: httpx.MockTransport(handle)
+                security,
+                "make_safe_transport",
+                # fix(#1770 round 41 P1): the probe adapters now read via
+                # `client.stream`, and `_as_stream` (see its own docstring)
+                # is what turns a plain `httpx.Response(json=...)` double into
+                # one that supports being streamed at all.
+                lambda: httpx.MockTransport(lambda r: _as_stream(handle(r))),
             )
             monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
             return recorded
@@ -1147,7 +1153,11 @@ class TestTheConformanceLinkStaysOnTheServiceOrigin:
             _validate,
         )
 
-        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        # fix(#1770 round 41 P1): `_as_stream` -- see its own docstring --
+        # turns a plain `httpx.Response(json=...)` double into one that
+        # supports the streaming read the probe adapters now use.
+        transport = httpx.MockTransport(lambda r: _as_stream(handle(r)))
+        async with httpx.AsyncClient(transport=transport) as client:
             result = await probe_ogcapi(
                 f"{_SERVICE_ORIGIN}/oapif", client, credential=credential
             )
@@ -1379,7 +1389,10 @@ class TestABearerTokenIsJudgedAfterDetection:
 
         def _handle(request: httpx.Request) -> httpx.Response:
             recorded.append(request)
-            return handle(request)
+            # fix(#1770 round 41 P1): `_as_stream` -- see its own docstring
+            # -- turns a plain `httpx.Response(json=...)` double into one
+            # that supports the streaming read the probe adapters now use.
+            return _as_stream(handle(request))
 
         with (
             patch.object(
@@ -2424,9 +2437,12 @@ class TestAnOgcApiCheckOnlyValidatesRelsSomethingDereferences:
         adapter_source = inspect.getsource(ogcapi_adapter)
         items_source = inspect.getsource(service_items)
 
-        # conformance: compared, then its resolved href is actually GET'd.
+        # conformance: compared, then its resolved href is actually read.
+        # fix(#1770 round 41 P1): the plain `client.get(abs_href, ...)` this
+        # pinned became a bounded, streamed read (`bounded_probe_read`); the
+        # href it names is unchanged.
         assert '.get("rel") == "conformance"' in adapter_source
-        assert "client.get(abs_href" in adapter_source
+        assert "bounded_probe_read(\n            client, abs_href" in adapter_source
 
         # items: `_ITEMS_REL` is the constant compared against, and
         # `_resolve_items_url` (which reads it via `_advertised_items_href`)
@@ -3713,12 +3729,6 @@ class TestOnePageCannotCostTheWholeProcess:
                             }
                         ],
                         "links": [],
-                        # fix(#1770 round 40 P1): a single feature with no
-                        # `numberMatched` no longer proves completeness on
-                        # its own -- this test is about byte-level encoding,
-                        # not that proof, so state the total the page
-                        # actually carries.
-                        "numberMatched": 1,
                     }
                 )
             ),
@@ -4422,14 +4432,6 @@ class TestTheItemsLinkTheCollectionAdvertises:
                         "type": "FeatureCollection",
                         "features": [_point("a")],
                         "links": [],
-                        # fix(#1770 round 40 P1): a single feature with no
-                        # `numberMatched` no longer proves completeness on
-                        # its own (round 40 removed the short-page
-                        # tolerance) -- these tests are about link
-                        # resolution, not this proof, so state the total the
-                        # page actually carries rather than let the walk
-                        # refuse for an unrelated reason.
-                        "numberMatched": 1,
                     }
                 )
             if path.endswith("/collections/c1"):
@@ -4513,8 +4515,6 @@ class TestTheItemsLinkTheCollectionAdvertises:
                         "type": "FeatureCollection",
                         "features": [_point("a")],
                         "links": [],
-                        # fix(#1770 round 40 P1): see `_service` above.
-                        "numberMatched": 1,
                     }
                 )
             return httpx.Response(200, json=_collection_doc(None))
@@ -4645,17 +4645,7 @@ class TestAPageThatIsNotAPageIsNotAnEmptyPage:
         """The other half. Without this the refusal is just distrust."""
         self._transport(
             monkeypatch,
-            self._serving(
-                {
-                    "type": "FeatureCollection",
-                    "features": [],
-                    "links": [],
-                    # fix(#1770 round 40 P1): an empty page with no stated
-                    # total no longer proves completeness on its own; state
-                    # the total a genuinely empty collection actually has.
-                    "numberMatched": 0,
-                }
-            ),
+            self._serving({"type": "FeatureCollection", "features": [], "links": []}),
         )
 
         path = (await self._materialise(tmp_path)).path
@@ -5448,7 +5438,12 @@ class TestEveryCallerNamesItsClock:
                 # Detection answers at once, as a real service would. The
                 # endpoint check's own read is the one that trickles, and it
                 # is the read that had no clock over it.
-                return httpx.Response(200, content=raw)
+                #
+                # fix(#1770 round 41 P1): `_as_stream` -- see its own
+                # docstring -- turns this eagerly-materialized double into
+                # one that supports the streaming read `probe_wfs` now uses
+                # for detection.
+                return _as_stream(httpx.Response(200, content=raw))
 
             async def _chunks():
                 for start in range(0, len(raw), 4):
@@ -5834,9 +5829,12 @@ class TestAServiceThatServesHtmlToAnyoneWhoAsks:
         from app.modules.catalog.sources.adapters import ogcapi as adapter
         from app.platform.service_endpoints import OGC_JSON_ACCEPT
 
+        # fix(#1770 round 41 P1): `probe_ogcapi` is now a thin deadline
+        # wrapper (see the class docstring on the split); the Accept header
+        # is set in `_probe_ogcapi_within_deadline`, its body.
         probe_accept = re.search(
             r'headers: dict\[str, str\] = \{"Accept": "([^"]+)"\}',
-            inspect.getsource(adapter.probe_ogcapi),
+            inspect.getsource(adapter._probe_ogcapi_within_deadline),
         )
         assert probe_accept is not None, "probe_ogcapi no longer sets Accept"
         # The shared value is a superset of the probe's, so a service that
@@ -6254,14 +6252,7 @@ class TestAnOrphanedExtractIsReclaimed:
             if not request.url.path.endswith("/items"):
                 return _as_stream(httpx.Response(200, json=_collection_doc(None)))
             return _streamed(
-                {
-                    "type": "FeatureCollection",
-                    "features": [_point("a")],
-                    "links": [],
-                    # fix(#1770 round 40 P1): see the sibling fixtures above
-                    # -- this test is about the sweeper, not this proof.
-                    "numberMatched": 1,
-                }
+                {"type": "FeatureCollection", "features": [_point("a")], "links": []}
             )
 
         monkeypatch.setattr(
@@ -6777,26 +6768,22 @@ class TestAChainThatEndsBeforeTheServiceSaidItWould:
         assert extract.features == 25
         assert extract.total == 25
 
-    async def test_a_single_page_reporting_nothing_is_refused(
+    async def test_a_service_that_reports_nothing_completes(
         self, monkeypatch, tmp_path
     ) -> None:
-        """fix(#1770 round 40 P1). Replaces `test_a_service_that_reports_
-        nothing_completes`, whose premise round 40 closed: `numberMatched`'s
-        absence on a FULL walk that ends on the first page is no longer
-        tolerated, because a page shorter than this module's own
-        `limit=PAGE_SIZE` no longer proves anything by itself -- a server
-        with a smaller server-side page size can send exactly this shape
-        while still having more to give. A MULTI-page walk (`test_a_chain_
-        matching_the_report_completes`, three pages) is unaffected: this
-        finding is about the FIRST page only, where this module controls the
-        limit; a later page proves nothing about its own length either way,
-        and this class's other tests already cover that half."""
+        """`numberMatched` is optional, and its absence is not evidence --
+        restored (fix(#1770 round 41 P1)) after round 40 briefly closed this:
+        `_chain` gives a single page a `links` member naming only `self`
+        (no `next`), which IS the service's own terminal-page statement, not
+        the shape `numberMatched` exists to police. Round 40's over-tightening
+        had made THIS test refuse; round 41 restores the original assertion.
+        """
         self._transport(monkeypatch, self._chain([{"features": self._features(10)}]))
 
-        with pytest.raises(ItemFetchFailedError):
-            await self._materialise(tmp_path)
+        extract = await self._materialise(tmp_path)
 
-        assert list(tmp_path.iterdir()) == []
+        assert extract.features == 10
+        assert extract.total == 10
 
     async def test_pages_that_disagree_about_the_size_are_refused(
         self, monkeypatch, tmp_path
@@ -7003,17 +6990,8 @@ class TestAPageThatContradictsItsOwnCount:
     async def test_an_absent_number_returned_passes(
         self, monkeypatch, tmp_path
     ) -> None:
-        """It is optional, and its absence is not evidence of anything.
-
-        `numberMatched` is supplied (fix(#1770 round 40 P1)) so this stays a
-        test of `numberReturned`'s own optionality, not an incidental
-        exercise of the completeness proof a first page with neither now
-        needs (`TestAFullPageWithoutLinksMustProveItIsTheLastOne`).
-        """
-        page = {
-            "features": [_point(f"f{n}") for n in range(3)],
-            "numberMatched": 3,
-        }
+        """It is optional, and its absence is not evidence of anything."""
+        page = {"features": [_point(f"f{n}") for n in range(3)]}
         self._transport(monkeypatch, self._serving(page))
 
         extract = await self._materialise(tmp_path)
@@ -7178,7 +7156,8 @@ class TestASampleCanBeShorterButNeverLonger:
 
 
 class TestAFullPageWithoutLinksMustProveItIsTheLastOne:
-    """fix(#1770 round 38 P1, `service_items.py:278`; tightened round 40 P1).
+    """fix(#1770 round 38 P1, `service_items.py:278`; tightened round 40 P1;
+    corrected round 41 P1).
 
     A first page with no `links` at all is accepted as a well-formed shape
     (`_require_links` tolerates it -- nothing was followed to get here, so
@@ -7193,19 +7172,29 @@ class TestAFullPageWithoutLinksMustProveItIsTheLastOne:
     filled the page up to the limit this module itself asked for. Round 40's
     re-review found the flaw: that assumes the server's own page size is at
     least `PAGE_SIZE`, which is the server's choice, not this module's
-    assumption to make. A server with a SMALLER server-side page size returns
-    a page shorter than `PAGE_SIZE` while still having more to give, and one
-    that also omits `links` and `numberMatched` left nothing here to catch
-    it. `limit` is a ceiling this module asks for, never a promise the
-    server fills it.
+    assumption to make. Page length proves nothing on its own, on either
+    side of the check, and that removal stands.
 
-    Provably complete now means exactly one thing, checked once the page has
-    already passed `_require_links`/`_require_counts`: `numberMatched`
-    present and equal to what the walk has actually totalled across every
-    page it read (`observed`). A page's raw length, at any point below the
-    limit, proves nothing on its own. A preview is unaffected either way: it
-    was never claiming to be the whole collection, so `feature_limit is not
-    None` keeps it off this branch entirely.
+    Round 40 then over-corrected: it required `numberMatched` on EVERY page
+    reaching this branch, including one that carries a `links` member --
+    even `[]`, even one naming only `self`/`alternate` -- which is the
+    service's own unambiguous statement that it considered pagination and
+    chose not to offer a `next`. OGC API Features Part 1 makes `links`
+    optional but `next`'s absence from a `links` array that EXISTS is the
+    spec's own terminal-page signal, so round 40 was refusing every
+    conforming server that states no `next` and has nothing else to say --
+    most of them.
+
+    Provably complete now means one of two things, depending on which shape
+    reached this branch: a page whose `links` member is PRESENT (any value
+    `_require_links` accepted; `following is None` already means no `next`
+    was in it) is complete on that alone. A page whose `links` member is
+    ABSENT ENTIRELY needs `numberMatched` present and equal to what the walk
+    has actually totalled across every page it read (`observed`) -- the
+    shape `_require_links` tolerates but does not itself vouch for. A
+    preview is unaffected either way: it was never claiming to be the whole
+    collection, so `feature_limit is not None` keeps it off this branch
+    entirely.
     """
 
     def _transport(self, monkeypatch, handler):
@@ -7338,6 +7327,60 @@ class TestAFullPageWithoutLinksMustProveItIsTheLastOne:
 
         assert extract.features == PAGE_SIZE - 1
         assert extract.total is None
+
+    def _first_page_with_links(
+        self, monkeypatch, *, feature_count: int, links: list[dict]
+    ):
+        """A single page whose `links` member IS PRESENT -- the shape round
+        41 restores proof-free acceptance for, since the member's presence
+        with no `next` in it is the service's own statement, not a gap this
+        module tolerated only for lack of anything to check."""
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            body: dict = {
+                "type": "FeatureCollection",
+                "features": [_point(f"f{n}") for n in range(feature_count)],
+                "links": links,
+            }
+            return _streamed(body)
+
+        return self._transport(monkeypatch, handle)
+
+    async def test_full_walk_page_with_an_empty_links_array_accepts(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Pin, fix(#1770 round 41 P1). `links: []` is present, so
+        `_next_href` finding no `next` in it is the service's own terminal
+        signal -- not the shape-tolerance gap `numberMatched` exists to
+        cover. No `numberMatched` needed."""
+        self._first_page_with_links(monkeypatch, feature_count=3, links=[])
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 3
+        assert extract.total == 3
+
+    async def test_full_walk_page_with_only_self_and_alternate_links_accepts(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Pin, fix(#1770 round 41 P1). Same proof, a step further: `links`
+        names OTHER relations but still no `next`. Present is present,
+        whatever else it says."""
+        self._first_page_with_links(
+            monkeypatch,
+            feature_count=3,
+            links=[
+                {"rel": "self", "href": f"{_SVC_OAPIF}/collections/c1/items"},
+                {"rel": "alternate", "href": f"{_SVC_OAPIF}/collections/c1"},
+            ],
+        )
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 3
+        assert extract.total == 3
 
 
 def _mentions_httpx(node: "ast.expr | None") -> bool:
@@ -7498,7 +7541,8 @@ class TestAResponseProvidedUrlNeverReachesALogUnredacted:
 
         with structlog.testing.capture_logs() as captured:
             async with httpx.AsyncClient(
-                transport=httpx.MockTransport(handle)
+                # fix(#1770 round 41 P1): _as_stream (see its own docstring)
+                transport=httpx.MockTransport(lambda r: _as_stream(handle(r)))
             ) as client:
                 await probe_ogcapi(
                     f"{_SERVICE_ORIGIN}/oapif",
@@ -7594,12 +7638,22 @@ class TestAResponseProvidedUrlNeverReachesALogUnredacted:
         # never a value read out of a parsed response body.
         expected_ogcapi = {
             ("_resolve_conformance", "href", "redacted"),
+            # fix(#1770 round 41 P1): `probe_ogcapi` split into a thin
+            # deadline wrapper and `_probe_ogcapi_within_deadline`, its body
+            # -- these three URL-shaped kwargs live in the latter now.
+            ("_probe_ogcapi_within_deadline", "url", "url"),
+            ("_probe_ogcapi_within_deadline", "url", "collections_url"),
+            ("_probe_ogcapi_within_deadline", "collections_url", "collections_url"),
+            # The wrapper's own deadline-exceeded log: `url` is the caller's
+            # own submitted parameter, never a value read out of a response.
             ("probe_ogcapi", "url", "url"),
-            ("probe_ogcapi", "url", "collections_url"),
-            ("probe_ogcapi", "collections_url", "collections_url"),
         }
         expected_stac = {
+            # fix(#1770 round 41 P1): `connect_stac_api`'s own deadline-exceeded
+            # log keeps the bare `url` kwarg under the outer wrapper's name; the
+            # body's own use moved to `_connect_stac_api_within_deadline`.
             ("connect_stac_api", "url", "url"),
+            ("_connect_stac_api_within_deadline", "url", "url"),
         }
 
         assert _find_calls(ogcapi_adapter) == expected_ogcapi
@@ -7650,7 +7704,8 @@ class TestAResponseProvidedUrlNeverReachesALogUnredacted:
 
         with structlog.testing.capture_logs() as captured:
             async with httpx.AsyncClient(
-                transport=httpx.MockTransport(handle)
+                # fix(#1770 round 41 P1): _as_stream (see its own docstring)
+                transport=httpx.MockTransport(lambda r: _as_stream(handle(r)))
             ) as client:
                 await probe_ogcapi(f"{_SERVICE_ORIGIN}/oapif", client)
 
@@ -7705,7 +7760,9 @@ class TestAResponseProvidedUrlNeverReachesALogUnredacted:
             return httpx.Response(404, json={"error": "not found"})
 
         monkeypatch.setattr(
-            security, "make_safe_transport", lambda: httpx.MockTransport(handle)
+            security,
+            "make_safe_transport",
+            lambda: httpx.MockTransport(lambda r: _as_stream(handle(r))),
         )
         monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
 
@@ -7793,6 +7850,285 @@ class TestAResponseProvidedUrlNeverReachesALogUnredacted:
         app_root = pathlib.Path(app_package.__file__).parent
         findings = _find_unredacted_error_fields_in_tree(app_root)
         assert findings == {}, findings
+
+
+class TestAdapterProbeReadsAreBounded:
+    """fix(#1770 round 41 P1, `adapters/ogcapi.py:203` "Bound authenticated
+    probe responses before buffering").
+
+    `probe_ogcapi`/`probe_wfs`/`probe_arcgis_service`/`connect_stac_api` (and
+    `_resolve_conformance`) used a plain `client.get`, which buffers the
+    whole body -- decompressed, if the service sends one -- before
+    `.json()`/`.text` ever runs, with no byte cap, no decoded-size cap, and
+    no bound on how long any of it could take beyond the client's own
+    per-inactivity timeout. `assert_endpoints_stay_on_origin()`, which bounds
+    all of that, only runs AFTER `detect_service_type()` returns, so a
+    protected service a caller already holds a credential for could exhaust
+    the API process during a probe's own read, before that check ever gets a
+    turn.
+
+    Fixed by routing each read through `bounded_probe_read`
+    (`platform/probe_bounds.py`), which streams via `client.stream` and
+    `read_bounded_body` -- the same `MAX_DOCUMENT_BYTES` on the wire,
+    identity-only so a compressed body is refused before a byte of it is
+    inflated -- and `require_decodable` for the same `MAX_DOCUMENT_TOKENS`/
+    `MAX_DOCUMENT_ELEMENTS` decoded, all reused from `service_endpoints.py`
+    rather than reinvented. Each probe function additionally runs its whole
+    body under `DEFAULT_CHECK_TIMEOUT` via `asyncio.timeout`, the same clock
+    `assert_endpoints_stay_on_origin` runs its own reads under.
+
+    Known limits, on purpose, scoped explicitly rather than left implicit:
+    this closes the four SERVICE-TYPE-DETECTION entry points the finding
+    named -- the ones reachable BEFORE any per-target credential check has
+    run, which is the exact ordering gap the finding is about. It does NOT
+    convert every `client.<verb>(` in these two directories; the structural
+    sweep below enumerates the ones that stay unbounded and why each is a
+    different, lower-severity case than the four named entry points:
+
+    - `arcgis.py`'s `enrich_arcgis_feature_counts`/`fetch_arcgis_feature_
+      count`/`fetch_arcgis_pagination_info`/`fetch_arcgis_layer_preview`
+      (2 sites) all run against a layer the caller has already selected,
+      after `assert_endpoints_stay_on_origin` has already run for that
+      specific target on the preview/commit path -- the credential is
+      already vetted for this endpoint by the time these run, unlike a
+      blind `detect_service_type` probe.
+    - `stac.py`'s `list_stac_collections`/`search_stac_items`: STAC's own
+      adapter carries no credential at all on this codepath (`_make_client`
+      builds an anonymous client; `has_url_credentials` is what this module
+      polices instead), so the "a caller already holds a credential for it"
+      half of the finding does not apply the same way.
+
+    Closing those is real follow-up work, not a settled non-issue -- an
+    unbounded read is still an unbounded read regardless of what credential
+    is or is not attached -- but it is a different, wider-scoped change than
+    this finding's four named entry points, so it is named here rather than
+    silently left for a future sweep to rediscover.
+    """
+
+    def test_every_network_call_in_scope_is_bounded_or_documented(self) -> None:
+        """Source-enumeration, closed set.
+
+        Walks `modules/catalog/sources/adapters/*.py` and
+        `platform/service_*.py` for every `client.<verb>(` call not inside
+        `bounded_probe_read`/`fetch_document` themselves, and asserts the
+        found set matches exactly the Known-limits list in the class
+        docstring, plus `fetch_document`'s own (already-bounded) call. Any
+        new addition -- a fixed site regressing, or a genuinely new call
+        site -- changes this set and fails here rather than in a future
+        review round.
+        """
+        import ast
+        import inspect
+
+        from app.modules.catalog.sources.adapters import arcgis as arcgis_adapter
+        from app.modules.catalog.sources.adapters import ogcapi as ogcapi_adapter
+        from app.modules.catalog.sources.adapters import stac as stac_adapter
+        from app.modules.catalog.sources.adapters import wfs as wfs_adapter
+        from app.platform import service_endpoints as service_endpoints_mod
+        from app.platform import service_items as service_items_mod
+
+        verbs = {"get", "post", "put", "patch", "delete", "request", "stream", "send"}
+
+        def _find(module) -> set[tuple[str, str]]:
+            tree = ast.parse(inspect.getsource(module))
+            found: set[tuple[str, str]] = set()
+            func_stack: list[str] = []
+
+            class _Visitor(ast.NodeVisitor):
+                def visit_FunctionDef(self, node: "ast.FunctionDef") -> None:
+                    self._enter(node)
+
+                def visit_AsyncFunctionDef(self, node: "ast.AsyncFunctionDef") -> None:
+                    self._enter(node)
+
+                def _enter(self, node) -> None:
+                    func_stack.append(node.name)
+                    self.generic_visit(node)
+                    func_stack.pop()
+
+                def visit_Call(self, node: "ast.Call") -> None:
+                    func = node.func
+                    if (
+                        isinstance(func, ast.Attribute)
+                        and func.attr in verbs
+                        and isinstance(func.value, ast.Name)
+                        and func.value.id == "client"
+                    ):
+                        fname = func_stack[-1] if func_stack else "<module>"
+                        found.add((fname, func.attr))
+                    self.generic_visit(node)
+
+            _Visitor().visit(tree)
+            return found
+
+        found: set[tuple[str, str, str]] = set()
+        for module in (
+            ogcapi_adapter,
+            arcgis_adapter,
+            stac_adapter,
+            wfs_adapter,
+            service_endpoints_mod,
+            service_items_mod,
+        ):
+            for fname, verb in _find(module):
+                found.add((module.__name__, fname, verb))
+
+        expected = {
+            # Known limits, documented in the class docstring above.
+            ("app.modules.catalog.sources.adapters.arcgis", "_fetch_count", "get"),
+            (
+                "app.modules.catalog.sources.adapters.arcgis",
+                "fetch_arcgis_feature_count",
+                "get",
+            ),
+            (
+                "app.modules.catalog.sources.adapters.arcgis",
+                "fetch_arcgis_pagination_info",
+                "get",
+            ),
+            (
+                "app.modules.catalog.sources.adapters.arcgis",
+                "fetch_arcgis_layer_preview",
+                "get",
+            ),
+            (
+                "app.modules.catalog.sources.adapters.stac",
+                "list_stac_collections",
+                "get",
+            ),
+            ("app.modules.catalog.sources.adapters.stac", "search_stac_items", "post"),
+            # The one already-bounded site, unrelated to this round.
+            ("app.platform.service_endpoints", "fetch_document", "stream"),
+        }
+        assert found == expected, found
+
+    async def test_a_body_over_the_byte_cap_is_refused_before_full_buffering(
+        self,
+    ) -> None:
+        """Pin: the read stops at the cap rather than paying for the whole
+        oversized body first ("stream and stop", not measure-then-refuse)."""
+        from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
+        from app.platform.service_endpoints import MAX_DOCUMENT_BYTES
+
+        chunk_size = 1024 * 1024
+        chunks_yielded = 0
+
+        async def _chunks():
+            nonlocal chunks_yielded
+            # Fifty chunks past the cap it should never be asked for.
+            total = (MAX_DOCUMENT_BYTES // chunk_size) + 50
+            for _ in range(total):
+                chunks_yielded += 1
+                yield b"a" * chunk_size
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=_chunks())
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+            result = await probe_ogcapi(f"{_SERVICE_ORIGIN}/oapif", client)
+
+        assert result is None
+        assert chunks_yielded <= (MAX_DOCUMENT_BYTES // chunk_size) + 2, chunks_yielded
+
+    async def test_a_compressed_body_is_refused_before_decompression(
+        self, monkeypatch
+    ) -> None:
+        """Pin: a compressed body -- large or small -- never reaches the
+        decoded-size check at all. `read_bounded_body` refuses any
+        `Content-Encoding` other than identity outright, the same
+        compression-bomb defense `service_endpoints.py`'s door reads already
+        use, extended here rather than reinvented.
+
+        SSRF is mocked and `recorded` is asserted to length 1 so this cannot
+        pass for the wrong reason: a real httpx client transparently
+        decompresses a gzip body on `.json()`, so the counterfactual (a plain
+        `client.get`) would otherwise reach `/collections` too and only fail
+        there on an unmocked SSRF check -- a coincidence, not this fix.
+        """
+        import gzip
+
+        from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
+
+        payload = json.dumps(
+            {
+                "conformsTo": [
+                    "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+                ]
+            }
+        ).encode()
+        compressed = gzip.compress(payload)
+        recorded: list[httpx.Request] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return httpx.Response(
+                200, content=compressed, headers={"Content-Encoding": "gzip"}
+            )
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+            AsyncMock(),
+        )
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+            result = await probe_ogcapi(f"{_SERVICE_ORIGIN}/oapif", client)
+
+        assert result is None
+        assert len(recorded) == 1
+
+    async def test_a_slow_trickling_body_past_the_deadline_is_refused(
+        self, monkeypatch
+    ) -> None:
+        """Pin: a service that answers, just slowly, is bounded by the
+        deadline the whole probe function now runs under -- not just by the
+        client's own per-inactivity timeout, which a steady trickle never
+        trips."""
+        from app.modules.catalog.sources.adapters import ogcapi as ogcapi_adapter
+
+        monkeypatch.setattr(ogcapi_adapter, "DEFAULT_CHECK_TIMEOUT", 0.05)
+
+        async def _chunks():
+            yield b'{"con'
+            await asyncio.sleep(0.3)
+            yield b'formsTo": []}'
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=_chunks())
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+            result = await ogcapi_adapter.probe_ogcapi(
+                f"{_SERVICE_ORIGIN}/oapif", client
+            )
+
+        assert result is None
+
+    async def test_an_ordinary_landing_page_is_unaffected(self, monkeypatch) -> None:
+        """Pin: the fourth case matters as much as the other three -- an
+        honest service inside every bound gets the same answer it always
+        did."""
+        from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
+
+        landing = {
+            "conformsTo": [
+                "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+            ]
+        }
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/collections"):
+                return httpx.Response(200, json={"collections": [{"id": "c1"}]})
+            return httpx.Response(200, json=landing)
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+            AsyncMock(),
+        )
+        transport = httpx.MockTransport(lambda r: _as_stream(handle(r)))
+        async with httpx.AsyncClient(transport=transport) as client:
+            result = await probe_ogcapi(f"{_SERVICE_ORIGIN}/oapif", client)
+
+        assert result is not None
+        assert result["service_type"] == "OGC API Features"
+        assert [layer["name"] for layer in result["layers"]] == ["c1"]
 
 
 class TestASecretDoesNotSurviveInTheChain:

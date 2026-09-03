@@ -178,6 +178,14 @@ WRITE_CALL_NAMES = frozenset({"write", "writelines", "write_text", "write_bytes"
 # Calls that SEND a request. A header mapping handed to one of these leaves
 # the process; one handed to Response/StreamingResponse/HTTPException does
 # not, and cannot carry a credential to a third party.
+#
+# fix(#1770 round 41 P1): `bounded_probe_read` (`platform/probe_bounds.py`)
+# joins the list. It is the probe adapters' own thin wrapper around
+# `client.stream` -- the walk is scope-local and does not trace into a
+# callee's body, so without this entry a header mapping handed to it (as
+# `wfs.py`/`ogcapi.py` now do) reads as though it never left the scope that
+# built it, and every credential-header site in those two files silently
+# dropped out of the count this rule exists to keep honest.
 OUTBOUND_REQUEST_CALLS = frozenset(
     {
         "get",
@@ -191,6 +199,7 @@ OUTBOUND_REQUEST_CALLS = frozenset(
         "stream",
         "send",
         "build_request",
+        "bounded_probe_read",
     }
 )
 

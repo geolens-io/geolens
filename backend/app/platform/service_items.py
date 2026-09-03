@@ -532,22 +532,37 @@ async def _walk_pages(
        produce fewer rows than the total; nothing can produce more.
     4. ``observed == numberMatched``, on FULL walks only. A sampled read is
        short by construction, so falling below says nothing there.
-    5. fix(#1770 round 38 P1, tightened round 40 P1). A FULL walk ending on
-       the FIRST page with no `next` must be able to PROVE it, the same way
-       (3) and (4) must be able to prove ``numberMatched``: `numberMatched`
-       equal to `observed`, and nothing else. A server that returns exactly
-       `PAGE_SIZE` features on page one, states no `numberMatched`, and omits
-       `links` entirely is indistinguishable from one with more to give that
-       merely forgot pagination -- and the former reads as a complete
-       collection under every check above it, because none of them are ABOUT
-       whether the walk ended honestly. Round 38 also accepted a page
-       SHORTER than `limit=PAGE_SIZE` as proof, reasoning a server with more
-       to give would have filled it; round 40 removed that half, because it
-       assumes the server's own page size is at least `PAGE_SIZE`, which is
-       the server's choice, not a floor this module gets to assume. A later
-       page follows whatever limit the service's own `next` href encoded,
-       and an ordinary multi-page walk of short pages ending in an empty
-       `links` list is not this finding either way.
+    5. fix(#1770 round 38 P1, tightened round 40 P1, corrected round 41 P1).
+       A FULL walk ending on the FIRST page with no `next` must be able to
+       PROVE it. Two shapes reach this branch, and they prove it two
+       different ways:
+
+       - `links` PRESENT (even `[]`, even one carrying only `self`/
+         `alternate`): the service's own unambiguous statement that it
+         considered pagination and chose not to offer a `next`. OGC API
+         Features Part 1 makes `links` optional but `next`'s absence from a
+         `links` array that exists IS the spec's terminal-page signal, so
+         this proves completeness on its own -- no `numberMatched` required.
+       - `links` ABSENT ENTIRELY: `_require_links` tolerates the shape on the
+         first page (nothing was followed to get here, so nothing was
+         decided from a link), but that tolerance is not itself a
+         completeness claim -- nothing was said about pagination at all, so
+         `numberMatched` equal to `observed` is the only proof, same as (3)
+         and (4).
+
+       Round 38 read the two shapes as one and additionally accepted a page
+       SHORTER than `limit=PAGE_SIZE` as proof by itself, reasoning a server
+       with more to give would have filled it -- wrong, since that assumes
+       the server's own page size is at least `PAGE_SIZE`, which is the
+       server's choice, not a floor this module gets to assume. Round 40
+       removed the length-based proof but then required `numberMatched` on
+       the PRESENT-`links` shape too, refusing every conforming server that
+       states no `next` and has nothing else to say -- most of them. Page
+       length proves nothing on its own, on either side of this check,
+       across all three rounds. A later page follows whatever limit the
+       service's own `next` href encoded, and an ordinary multi-page walk of
+       short pages ending in an empty `links` list is not this finding
+       either way.
 
     ``observed`` is the sum of ``len(features)`` across every page this walk
     read, counted before a sample limit truncates what gets written (fix
@@ -687,21 +702,30 @@ async def _walk_pages(
                 # having more to give, and one that also omits `links` and
                 # `numberMatched` left nothing here to catch it. `limit` is a
                 # ceiling this module asked for, never a promise the server
-                # fills it. The only floor this module actually owns is the
-                # `numberMatched` it can compare against what it has read
-                # itself; a page's raw length proves nothing about what is
-                # left on the server's side of a cursor it does not control.
+                # fills it. Page length proves nothing on its own, on EITHER
+                # side of the check below -- that half of round 38 stays gone.
                 #
-                # `numberMatched` equal to what the walk has read is therefore
-                # the ONLY accepted proof on this branch now, regardless of
-                # page length -- an ordinary short final page with no proof at
-                # all now refuses with the same materialization error a
-                # missing `next` on a longer page already gets
-                # (`test_a_same_origin_chain_is_followed_to_the_end`'s short
-                # pages all carry an empty `links` list, which is a REAL
-                # signal this module already follows to its end, not the "no
-                # `links` at all" shape this branch is about).
-                provably_complete = (
+                # fix(#1770 round 41 P1): round 40 over-corrected the OTHER
+                # way. A `links` member that IS PRESENT -- even `[]`, even one
+                # carrying only `self`/`alternate` -- is the service's own,
+                # unambiguous statement that it considered pagination and
+                # chose not to offer a `next`: `_next_href` already found none
+                # in it (`following is None` is why we are here at all), so
+                # there is nothing further this branch can learn by also
+                # demanding `numberMatched`. OGC API Features Part 1 makes
+                # `links` optional but `next`'s ABSENCE from a `links` array
+                # that exists is the spec's own terminal-page signal, and
+                # round 40 was refusing every server that follows it and
+                # simply has nothing else to say (no `numberMatched`) --
+                # which most conforming ones do. The proof this branch still
+                # owns is for the shape `_require_links` tolerates but does
+                # NOT itself vouch for: `links` ABSENT ENTIRELY, which reads
+                # as "no next" only because nothing was decided from a link
+                # that was never there to read. That is the one case where
+                # `numberMatched == observed` is still required, and where
+                # its absence still refuses.
+                has_links_member = "links" in document
+                provably_complete = has_links_member or (
                     number_matched is not None and number_matched == observed
                 )
                 if not provably_complete:

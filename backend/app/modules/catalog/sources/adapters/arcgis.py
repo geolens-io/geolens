@@ -1,6 +1,7 @@
 """ArcGIS REST API probing, URL normalization, and service type detection."""
 
 import asyncio
+import json
 import re
 from urllib.parse import quote, urlencode, urlparse
 
@@ -8,6 +9,12 @@ import httpx
 import structlog
 
 from app.core.url_redaction import redact_exception_text
+from app.platform.probe_bounds import bounded_probe_read
+from app.platform.service_endpoints import (
+    DEFAULT_CHECK_TIMEOUT,
+    OGC_JSON_ACCEPT,
+    EndpointCheckFailedError,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -139,6 +146,25 @@ async def probe_arcgis_service(
 
     Returns a dict with service_type, version, and layers on success,
     or None if not an ArcGIS service.
+
+    fix(#1770 round 41 P1): the whole function runs under
+    ``DEFAULT_CHECK_TIMEOUT``, same reasoning as ``probe_ogcapi``.
+    """
+    try:
+        async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
+            return await _probe_arcgis_service_within_deadline(base_url, client, token)
+    except TimeoutError:
+        logger.debug("ArcGIS probe: deadline exceeded for %s", base_url)
+        return None
+
+
+async def _probe_arcgis_service_within_deadline(
+    base_url: str, client: httpx.AsyncClient, token: str | None
+) -> dict | None:
+    """``probe_arcgis_service``'s body, split out so the deadline wraps all
+    of it. ``ArcGISTokenError`` still propagates through the deadline
+    unchanged: it is not a `TimeoutError`, so the wrapper's `except
+    TimeoutError` does not intercept it.
     """
     try:
         # fix(#1746 codex r7): percent-encode the token before concatenating it
@@ -148,9 +174,18 @@ async def probe_arcgis_service(
         query = f"{base_url}?f=json" + (
             f"&token={quote(token, safe='')}" if token else ""
         )
-        response = await client.get(query)
-        response.raise_for_status()
-    except (httpx.HTTPStatusError, httpx.TransportError) as exc:
+        # fix(#1770 round 41 P1): bounded read, not a plain `client.get` --
+        # see `bounded_probe_read`'s docstring. `EndpointCheckFailedError`
+        # joins the two httpx types this already caught: whatever the cause,
+        # this degrades to "not an ArcGIS service" the same way.
+        body, _ = await bounded_probe_read(
+            client, query, headers={}, accept=OGC_JSON_ACCEPT
+        )
+    except (
+        httpx.HTTPStatusError,
+        httpx.TransportError,
+        EndpointCheckFailedError,
+    ) as exc:
         # fix(#1770 round 39): this request embeds OUR OWN token in the URL
         # (see the fix(#1746 codex r7) comment above) -- an HTTPStatusError's
         # message quotes that whole URL back, so the caught exception's text
@@ -161,7 +196,7 @@ async def probe_arcgis_service(
         return None
 
     try:
-        data = response.json()
+        data = json.loads(body)
     except (ValueError, TypeError):
         return None
 

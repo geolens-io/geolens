@@ -11,6 +11,8 @@ external STAC APIs using httpx for HTTP interaction.
 
 from __future__ import annotations
 
+import asyncio
+import json
 from typing import Any, TypedDict
 from urllib.parse import urljoin
 
@@ -20,6 +22,12 @@ from pydantic import HttpUrl
 
 from app.core.url_redaction import has_url_credentials, redact_exception_text
 from app.platform.security import make_safe_client
+from app.platform.probe_bounds import bounded_probe_read
+from app.platform.service_endpoints import (
+    DEFAULT_CHECK_TIMEOUT,
+    OGC_JSON_ACCEPT,
+    EndpointCheckFailedError,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -220,21 +228,45 @@ async def connect_stac_api(url: str) -> dict | None:
 
     Returns a dict with id, title, description, stac_version, conformsTo,
     or None if the URL is not a valid STAC API.
+
+    fix(#1770 round 41 P1): the whole function runs under
+    ``DEFAULT_CHECK_TIMEOUT``, same reasoning as ``probe_ogcapi``.
     """
+    try:
+        async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
+            return await _connect_stac_api_within_deadline(url)
+    except TimeoutError:
+        logger.debug("STAC connect: deadline exceeded", url=url)
+        return None
+
+
+async def _connect_stac_api_within_deadline(url: str) -> dict | None:
+    """``connect_stac_api``'s body, split out so the deadline wraps all of it."""
     async with _make_client() as client:
         headers = {"Accept": "application/json"}
         try:
-            resp = await client.get(url, headers=headers)
-            resp.raise_for_status()
-        except (httpx.HTTPStatusError, httpx.TransportError) as exc:
+            # fix(#1770 round 41 P1): bounded read, not a plain `client.get`
+            # -- see `bounded_probe_read`'s docstring. `EndpointCheckFailedError`
+            # joins the two httpx types this already caught: whatever the
+            # cause, this degrades to "not a STAC API" the same way.
+            body, _ = await bounded_probe_read(
+                client, url, headers=headers, accept=OGC_JSON_ACCEPT
+            )
+        except (
+            httpx.HTTPStatusError,
+            httpx.TransportError,
+            EndpointCheckFailedError,
+        ) as exc:
             logger.debug(
                 "STAC connect failed", url=url, error=redact_exception_text(exc)
             )
             return None
 
         try:
-            data = resp.json()
-        except Exception:  # broad: httpx response.json() can throw varied parser/decoder errors; treat as non-STAC
+            data = json.loads(body)
+        except (
+            Exception
+        ):  # broad: json.loads can throw varied decoder errors; treat as non-STAC
             logger.debug("STAC connect: non-JSON response", url=url)
             return None
 

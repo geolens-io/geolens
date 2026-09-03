@@ -24,30 +24,56 @@ def _make_mock_response(json_data: dict, status_code: int = 200) -> MagicMock:
     return resp
 
 
+def _streaming_json_response(data: dict) -> httpx.Response:
+    """A response whose body supports the streaming read `probe_arcgis_
+    service` now uses (fix(#1770 round 41 P1)).
+
+    `httpx.Response(200, json=...)` materialises the body at construction, so
+    `client.stream(...)`'s `aiter_raw()` over one raises `StreamConsumed` --
+    a real transport never hands back a pre-read response. A content-yielding
+    async generator is what a real transport's response looks like from the
+    client's side.
+    """
+    import json as _json
+
+    raw = _json.dumps(data).encode()
+
+    async def _chunks():
+        yield raw
+
+    return httpx.Response(200, content=_chunks())
+
+
+def _mock_transport_client(handle) -> httpx.AsyncClient:
+    """A real client over a MockTransport, for the functions that now read
+    via `client.stream` rather than `client.get` -- `AsyncMock(spec=...)`
+    cannot fake the async-context-manager protocol `.stream()` returns.
+    """
+    return httpx.AsyncClient(transport=httpx.MockTransport(handle))
+
+
 @pytest.mark.asyncio
 async def test_arcgis_probe_no_bearer_header():
     """Verify the ArcGIS probe sends token only as query param, not as Authorization header."""
-    mock_client = AsyncMock(spec=httpx.AsyncClient)
-    mock_response = _make_mock_response(
-        {
-            "layers": [{"id": 0, "name": "test", "geometryType": "esriGeometryPoint"}],
-        }
-    )
-    mock_client.get.return_value = mock_response
+    recorded: list[httpx.Request] = []
 
-    await probe_arcgis_service(
-        "https://services.arcgis.com/svc/FeatureServer", mock_client, token="mytoken"
-    )
+    def handle(request: httpx.Request) -> httpx.Response:
+        recorded.append(request)
+        return _streaming_json_response(
+            {"layers": [{"id": 0, "name": "test", "geometryType": "esriGeometryPoint"}]}
+        )
+
+    async with _mock_transport_client(handle) as client:
+        await probe_arcgis_service(
+            "https://services.arcgis.com/svc/FeatureServer", client, token="mytoken"
+        )
 
     # The URL should include the token as a query parameter
-    call_args = mock_client.get.call_args
-    url_called = call_args[0][0]
-    assert "token=mytoken" in url_called
+    assert len(recorded) == 1
+    assert "token=mytoken" in str(recorded[0].url)
 
-    # No Authorization header should have been passed to client.get
-    kwargs = call_args[1] if call_args[1] else {}
-    headers = kwargs.get("headers", {})
-    assert "Authorization" not in headers
+    # No Authorization header should have been sent
+    assert "Authorization" not in recorded[0].headers
 
 
 @pytest.mark.asyncio
@@ -63,17 +89,20 @@ async def test_arcgis_probe_encodes_url_reserved_characters_in_token():
     parameter, either of which leaks the tail of the token into the actual
     request AND lets it escape the log redactor's URL match.
     """
-    mock_client = AsyncMock(spec=httpx.AsyncClient)
-    mock_response = _make_mock_response({"layers": []})
-    mock_client.get.return_value = mock_response
+    recorded: list[httpx.Request] = []
 
-    await probe_arcgis_service(
-        "https://services.arcgis.com/svc/FeatureServer",
-        mock_client,
-        token="AA'#&ULTRASECRET",
-    )
+    def handle(request: httpx.Request) -> httpx.Response:
+        recorded.append(request)
+        return _streaming_json_response({"layers": []})
 
-    url_called = mock_client.get.call_args[0][0]
+    async with _mock_transport_client(handle) as client:
+        await probe_arcgis_service(
+            "https://services.arcgis.com/svc/FeatureServer",
+            client,
+            token="AA'#&ULTRASECRET",
+        )
+
+    url_called = str(recorded[0].url)
     assert "token=AA%27%23%26ULTRASECRET" in url_called
     assert "'" not in url_called
     assert "#" not in url_called
@@ -108,68 +137,66 @@ async def test_enrich_arcgis_feature_counts_encodes_url_reserved_characters_in_t
 @pytest.mark.asyncio
 async def test_arcgis_error_498_raises():
     """ArcGIS JSON error with code 498 (invalid token) should raise ArcGISTokenError."""
-    mock_client = AsyncMock(spec=httpx.AsyncClient)
-    mock_response = _make_mock_response(
-        {
-            "error": {"code": 498, "message": "Invalid token."},
-        }
-    )
-    mock_client.get.return_value = mock_response
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return _streaming_json_response(
+            {"error": {"code": 498, "message": "Invalid token."}}
+        )
 
     with pytest.raises(ArcGISTokenError, match="498"):
-        await probe_arcgis_service(
-            "https://services.arcgis.com/svc/FeatureServer",
-            mock_client,
-            token="badtoken",
-        )
+        async with _mock_transport_client(handle) as client:
+            await probe_arcgis_service(
+                "https://services.arcgis.com/svc/FeatureServer",
+                client,
+                token="badtoken",
+            )
 
 
 @pytest.mark.asyncio
 async def test_arcgis_error_499_raises():
     """ArcGIS JSON error with code 499 (token required) should raise ArcGISTokenError."""
-    mock_client = AsyncMock(spec=httpx.AsyncClient)
-    mock_response = _make_mock_response(
-        {
-            "error": {"code": 499, "message": "Token required."},
-        }
-    )
-    mock_client.get.return_value = mock_response
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return _streaming_json_response(
+            {"error": {"code": 499, "message": "Token required."}}
+        )
 
     with pytest.raises(ArcGISTokenError, match="499"):
-        await probe_arcgis_service(
-            "https://services.arcgis.com/svc/FeatureServer", mock_client
-        )
+        async with _mock_transport_client(handle) as client:
+            await probe_arcgis_service(
+                "https://services.arcgis.com/svc/FeatureServer", client
+            )
 
 
 @pytest.mark.asyncio
 async def test_arcgis_object_id_field_extraction():
     """objectIdField should be read from layer metadata, falling back to service level then OBJECTID."""
-    mock_client = AsyncMock(spec=httpx.AsyncClient)
 
-    # Layer-level objectIdField takes priority
-    mock_response = _make_mock_response(
-        {
-            "objectIdField": "SERVICE_OID",
-            "layers": [
-                {
-                    "id": 0,
-                    "name": "layer_with_oid",
-                    "geometryType": "esriGeometryPoint",
-                    "objectIdField": "FID",
-                },
-                {
-                    "id": 1,
-                    "name": "layer_without_oid",
-                    "geometryType": "esriGeometryPolygon",
-                },
-            ],
-        }
-    )
-    mock_client.get.return_value = mock_response
+    def handle(request: httpx.Request) -> httpx.Response:
+        # Layer-level objectIdField takes priority
+        return _streaming_json_response(
+            {
+                "objectIdField": "SERVICE_OID",
+                "layers": [
+                    {
+                        "id": 0,
+                        "name": "layer_with_oid",
+                        "geometryType": "esriGeometryPoint",
+                        "objectIdField": "FID",
+                    },
+                    {
+                        "id": 1,
+                        "name": "layer_without_oid",
+                        "geometryType": "esriGeometryPolygon",
+                    },
+                ],
+            }
+        )
 
-    result = await probe_arcgis_service(
-        "https://services.arcgis.com/svc/FeatureServer", mock_client
-    )
+    async with _mock_transport_client(handle) as client:
+        result = await probe_arcgis_service(
+            "https://services.arcgis.com/svc/FeatureServer", client
+        )
     assert result is not None
     layers = result["layers"]
 
@@ -182,19 +209,20 @@ async def test_arcgis_object_id_field_extraction():
 @pytest.mark.asyncio
 async def test_arcgis_object_id_field_default():
     """When no objectIdField in metadata, default to OBJECTID."""
-    mock_client = AsyncMock(spec=httpx.AsyncClient)
-    mock_response = _make_mock_response(
-        {
-            "layers": [
-                {"id": 0, "name": "no_oid", "geometryType": "esriGeometryPoint"},
-            ],
-        }
-    )
-    mock_client.get.return_value = mock_response
 
-    result = await probe_arcgis_service(
-        "https://services.arcgis.com/svc/FeatureServer", mock_client
-    )
+    def handle(request: httpx.Request) -> httpx.Response:
+        return _streaming_json_response(
+            {
+                "layers": [
+                    {"id": 0, "name": "no_oid", "geometryType": "esriGeometryPoint"}
+                ]
+            }
+        )
+
+    async with _mock_transport_client(handle) as client:
+        result = await probe_arcgis_service(
+            "https://services.arcgis.com/svc/FeatureServer", client
+        )
     assert result is not None
     assert result["layers"][0]["object_id_field"] == "OBJECTID"
 
