@@ -5556,3 +5556,266 @@ class TestEachDocumentKindGetsItsOwnBound:
 
         items_source = _inspect.getsource(service_items._fetch_page)
         assert "accept=OGC_JSON_ACCEPT" in items_source
+
+
+class TestAnOrphanedExtractIsReclaimed:
+    """fix(#1746 B2b review r28): a SIGKILL skips every cleanup this has.
+
+    `materialise_oapif_items` removes the extract in a `finally` and on every
+    exception, and none of that runs when the process is killed. Up to
+    `MAX_BYTES` of it then sits in the shared staging directory forever: the
+    atomic-write sweep only recognised `<name>.<32 hex>.tmp`, and the export
+    sweep only scans `exports/`.
+    """
+
+    @staticmethod
+    def _plant(root, name: str, *, age_seconds: float) -> pathlib.Path:
+        path = root / name
+        path.write_bytes(b'{"type": "FeatureCollection", "features": []}')
+        stamp = time.time() - age_seconds
+        os.utime(path, (stamp, stamp))
+        return path
+
+    def test_only_the_aged_orphan_is_removed(self, tmp_path) -> None:
+        from app.core.runtime.staging import (
+            EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
+            sweep_orphaned_write_scratch,
+        )
+
+        old = EXPORTS_PERIODIC_SWEEP_AGE_SECONDS * 2
+        aged = self._plant(tmp_path, "oapif_items_aged.geojson", age_seconds=old)
+        fresh = self._plant(tmp_path, "oapif_items_fresh.geojson", age_seconds=1)
+
+        removed = sweep_orphaned_write_scratch(tmp_path)
+
+        assert removed == 1
+        assert not aged.exists()
+        # A walk still in progress must not be swept out from under itself.
+        assert fresh.exists()
+
+    def test_it_reaches_a_nested_directory(self, tmp_path) -> None:
+        """The sweep walks the staging tree, and the extract may be anywhere."""
+        from app.core.runtime.staging import (
+            EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
+            sweep_orphaned_write_scratch,
+        )
+
+        nested = tmp_path / "a" / "b"
+        nested.mkdir(parents=True)
+        aged = self._plant(
+            nested,
+            "oapif_items_deep.geojson",
+            age_seconds=EXPORTS_PERIODIC_SWEEP_AGE_SECONDS * 2,
+        )
+
+        assert sweep_orphaned_write_scratch(tmp_path) == 1
+        assert not aged.exists()
+
+    def test_it_leaves_everything_else_alone(self, tmp_path) -> None:
+        """A sweep that eats real data is worse than one that leaks."""
+        from app.core.runtime.staging import (
+            EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
+            sweep_orphaned_write_scratch,
+        )
+
+        old = EXPORTS_PERIODIC_SWEEP_AGE_SECONDS * 2
+        keep = [
+            self._plant(tmp_path, "parcels.geojson", age_seconds=old),
+            self._plant(tmp_path, "oapif_items_no_suffix", age_seconds=old),
+            self._plant(tmp_path, "not_oapif_items_x.geojson", age_seconds=old),
+        ]
+
+        assert sweep_orphaned_write_scratch(tmp_path) == 0
+        assert all(path.exists() for path in keep)
+
+    async def test_the_writer_and_the_sweep_describe_the_same_file(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The name is imported from the sweeper, so the two cannot drift.
+
+        Asserted end to end rather than by comparing constants: a real extract
+        is written, aged, and the sweep is asked to recognise it.
+        """
+        from app.core.runtime.staging import (
+            EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
+            sweep_orphaned_write_scratch,
+        )
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        kept: list[str] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return _as_stream(httpx.Response(200, json=_collection_doc(None)))
+            return _streamed(
+                {"type": "FeatureCollection", "features": [_point("a")], "links": []}
+            )
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        # Left behind the way a SIGKILL leaves it: written, never cleaned up.
+        monkeypatch.setattr(
+            "app.platform.service_items._discard", lambda path: kept.append(path)
+        )
+
+        extract = await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+        )
+
+        orphan = pathlib.Path(extract.path)
+        assert orphan.exists()
+        stamp = time.time() - EXPORTS_PERIODIC_SWEEP_AGE_SECONDS * 2
+        os.utime(orphan, (stamp, stamp))
+
+        assert sweep_orphaned_write_scratch(tmp_path) == 1
+        assert not orphan.exists()
+
+
+class TestASampleThatExactlyFillsACollection:
+    """fix(#1746 B2b review r28): complete is not the same as truncated.
+
+    r24 reported the total as unknown whenever `written >= feature_limit`,
+    which is also true of a collection holding exactly the sample size and
+    ending there. That is a complete read, and its total is known.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    @staticmethod
+    def _serving(count: int, *, offer_next: bool):
+        base = f"{_SVC_OAPIF}/collections/c1/items"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            page = int(request.url.params.get("page", 0))
+            return _streamed(
+                {
+                    "type": "FeatureCollection",
+                    "features": [_point(f"f{page}-{n}") for n in range(count)],
+                    "links": (
+                        [{"rel": "next", "href": f"{base}?page={page + 1}"}]
+                        if offer_next
+                        else []
+                    ),
+                }
+            )
+
+        return handle
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    async def test_exactly_the_sample_with_no_next_is_a_known_total(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Five features, a sample of five, and nothing after them."""
+        self._transport(monkeypatch, self._serving(5, offer_next=False))
+
+        extract = await self._materialise(tmp_path, feature_limit=5)
+
+        assert extract.features == 5
+        assert extract.total == 5
+
+    async def test_exactly_the_sample_with_a_next_is_unknown(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The same five, with the service offering more."""
+        self._transport(monkeypatch, self._serving(5, offer_next=True))
+
+        extract = await self._materialise(tmp_path, feature_limit=5)
+
+        assert extract.features == 5
+        assert extract.total is None
+
+    async def test_the_limit_landing_mid_page_is_unknown(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Features left on this page is short even with no next link."""
+        self._transport(monkeypatch, self._serving(9, offer_next=False))
+
+        extract = await self._materialise(tmp_path, feature_limit=5)
+
+        assert extract.features == 5
+        assert extract.total is None
+
+    async def test_an_unparseable_next_does_not_fail_a_complete_sample(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The walk is stopping, so it must not resolve or judge the link.
+
+        Resolving it would refuse the preview; judging its origin would refuse
+        it too. Its presence only decides whether the total is known.
+        """
+        self._transport(
+            monkeypatch,
+            lambda request: (
+                httpx.Response(200, json=_collection_doc(None))
+                if not request.url.path.endswith("/items")
+                else _streamed(
+                    {
+                        "type": "FeatureCollection",
+                        "features": [_point(f"f{n}") for n in range(5)],
+                        "links": [{"rel": "next", "href": "http://["}],
+                    }
+                )
+            ),
+        )
+
+        extract = await self._materialise(tmp_path, feature_limit=5)
+
+        assert extract.features == 5
+        # A link was offered, so the read is short; it was never followed.
+        assert extract.total is None
+
+    async def test_number_matched_still_wins(self, monkeypatch, tmp_path) -> None:
+        """What the service says beats what the walk inferred, either way."""
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            return _streamed(
+                {
+                    "type": "FeatureCollection",
+                    "numberMatched": 4321,
+                    "features": [_point(f"f{n}") for n in range(5)],
+                    "links": [],
+                }
+            )
+
+        self._transport(monkeypatch, handle)
+
+        extract = await self._materialise(tmp_path, feature_limit=5)
+
+        assert extract.total == 4321

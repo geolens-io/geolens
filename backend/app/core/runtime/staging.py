@@ -48,13 +48,48 @@ EXPORTS_PERIODIC_SWEEP_AGE_SECONDS = 4 * EXPORTS_SWEEP_AGE_SECONDS  # 4 hours
 # and repeated crashes ate the shared staging volume.
 _LOCAL_TMP_RE = re.compile(r"\.[0-9a-f]{32}\.tmp$")
 
+# fix(#1746 B2b review r28): the local extract of a protected OGC API
+# collection. `materialise_oapif_items` removes it in a `finally` and on every
+# exception, but a SIGKILL or an OOM skips both and leaves up to `MAX_BYTES`
+# (2 GiB) of it in the shared staging directory forever. It carries no
+# credential -- the header never becomes a file on that path -- but it is data
+# read with one, and it is the largest thing this codebase writes there.
+#
+# The writer imports these rather than spelling the prefix again, so the sweep
+# and the `mkstemp` call cannot describe different files; `test_layering`'s
+# sibling suite pins that.
+OAPIF_ITEMS_SCRATCH_PREFIX = "oapif_items_"
+OAPIF_ITEMS_SCRATCH_SUFFIX = ".geojson"
+_OAPIF_ITEMS_RE = re.compile(
+    rf"^{re.escape(OAPIF_ITEMS_SCRATCH_PREFIX)}.*{re.escape(OAPIF_ITEMS_SCRATCH_SUFFIX)}$"
+)
+
+# Every scratch name this codebase creates under the staging root. A new one
+# belongs HERE, in the same commit that starts writing it, rather than being
+# found later as a leak: that is the sibling-site class r28 asked to close, and
+# the reason this is a list rather than a second sweeper.
+#
+# NOT included, deliberately: `gdal_auth_*.hdr`. Those live on the container
+# tmpfs under `GDAL_HEADER_DIR`, never under the staging root, and
+# `sweep_stale_gdal_header_files` reclaims them on a one-hour horizon because
+# they hold a credential and this one waits four.
+_STAGING_SCRATCH_RES = (_LOCAL_TMP_RE, _OAPIF_ITEMS_RE)
+
+
+def _is_staging_scratch(name: str) -> bool:
+    return any(pattern.search(name) for pattern in _STAGING_SCRATCH_RES)
+
 
 def sweep_orphaned_write_scratch(
     root: Path,
     *,
     age_threshold_seconds: int = EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
 ) -> int:
-    """Reclaim atomic-write scratch files anywhere under ``root``. Returns how many.
+    """Reclaim orphaned scratch files anywhere under ``root``. Returns how many.
+
+    Covers every name in ``_STAGING_SCRATCH_RES``: the atomic-write pattern
+    ``LocalStorageProvider.put`` leaves behind, and the OGC API extract
+    `service_items` writes for a protected collection.
 
     Aged by MTIME, which is the right signal here and not everywhere: these
     files never move, so nothing resets it, and unlike the export cache's keys
@@ -71,7 +106,7 @@ def sweep_orphaned_write_scratch(
     cutoff = time.time() - age_threshold_seconds
     removed = 0
     for entry in root.rglob("*"):
-        if not _LOCAL_TMP_RE.search(entry.name):
+        if not _is_staging_scratch(entry.name):
             continue
         try:
             if entry.is_file() and entry.stat().st_mtime < cutoff:

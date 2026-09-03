@@ -63,6 +63,10 @@ from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsp
 import httpx
 import structlog
 
+from app.core.runtime.staging import (
+    OAPIF_ITEMS_SCRATCH_PREFIX,
+    OAPIF_ITEMS_SCRATCH_SUFFIX,
+)
 from app.platform.security import (
     PROBE_TIMEOUT,
     make_safe_client,
@@ -279,6 +283,23 @@ def _with_page_size(href: str) -> str:
     return urlunsplit(parts._replace(query=urlencode(query)))
 
 
+def _has_next(document: object) -> bool:
+    """Whether the page offers another one, without resolving where.
+
+    fix(#1746 B2b review r28): asked when the walk is stopping at the sample
+    limit and is not going to follow the link, so it must not resolve it, must
+    not judge its origin, and must not refuse an unparseable one -- all three
+    would turn "your preview is complete" into a failure. It answers only the
+    question that decides whether the extract is the whole collection.
+    """
+    if not isinstance(document, dict):
+        return False
+    return any(
+        isinstance(link, dict) and link.get("rel") == "next" and link.get("href")
+        for link in document.get("links", []) or []
+    )
+
+
 def _next_href(document: object, base: str) -> str | None:
     if not isinstance(document, dict):
         return None
@@ -386,18 +407,26 @@ async def _walk_pages(
     headers: dict,
     feature_limit: int | None,
     on_first_request: Callable[[], None] | None,
-) -> tuple[int, int, int | None]:
+) -> tuple[int, int, int | None, bool]:
     """Follow the chain, writing features.
 
-    Returns pages read, features written, and what the service said the whole
+    Returns pages read, features written, what the service said the whole
     collection holds (fix(#1746 B2b review r24): a preview writes
     ``feature_limit`` features and nothing downstream could tell that apart
-    from a collection that small).
+    from a collection that small), and whether the walk stopped SHORT
+    (fix(#1746 B2b review r28): a collection holding exactly the sample size is
+    complete, and counting features could not say so).
     """
     written = 0
     pages = 0
     on_disk = 0
     number_matched: int | None = None
+    # fix(#1746 B2b review r28): whether the walk STOPPED SHORT, as opposed to
+    # having written as many features as there are. `written >= feature_limit`
+    # cannot tell those apart: a collection holding exactly the sample size
+    # satisfies it while being complete, and r24 then reported its total as
+    # unknown. Only the site that breaks out of the loop knows which happened.
+    truncated = False
     # fix(#1746 B2b review r17, moved r20, made once-ness r23): the origin is
     # contacted HERE, not by the subprocess, so this is the moment a caller
     # that dates origin contacts has to hear about. `fire_once` means the
@@ -431,7 +460,7 @@ async def _walk_pages(
             candidate = document.get("numberMatched")
             if isinstance(candidate, int) and not isinstance(candidate, bool):
                 number_matched = candidate if candidate >= 0 else None
-        for feature in features:
+        for index, feature in enumerate(features):
             # fix(#1746 B2b review r19): `ensure_ascii=False`, and the file
             # opened in binary. The default escapes every non-ASCII character
             # to `\uXXXX`, so a collection of non-Latin text wrote roughly
@@ -458,6 +487,11 @@ async def _walk_pages(
             on_disk += len(chunk)
             written += 1
             if feature_limit is not None and written >= feature_limit:
+                # Short only if something was left: more features on this page,
+                # or another page on offer. Landing exactly on the last feature
+                # of the last page is a complete read that happens to be the
+                # size of the sample.
+                truncated = index + 1 < len(features) or _has_next(document)
                 page_url = None
                 break
         else:
@@ -477,7 +511,7 @@ async def _walk_pages(
         # `page_url` to None, so this only fires on a genuinely short read.
         raise ItemFetchFailedError("collection exceeds the page cap")
     out.write(b"]}")
-    return pages, written, number_matched
+    return pages, written, number_matched, truncated
 
 
 async def materialise_oapif_items(
@@ -520,8 +554,12 @@ async def materialise_oapif_items(
     one over an existing dataset.
     """
     headers = credential_headers(credential_line)
+    # fix(#1746 B2b review r28): the prefix and suffix come from the module
+    # that sweeps them, so a file this writes is a file that sweep recognises.
     handle, path = tempfile.mkstemp(
-        prefix="oapif_items_", suffix=".geojson", dir=str(staging_dir)
+        prefix=OAPIF_ITEMS_SCRATCH_PREFIX,
+        suffix=OAPIF_ITEMS_SCRATCH_SUFFIX,
+        dir=str(staging_dir),
     )
     os.close(handle)
     os.chmod(path, 0o600)
@@ -546,7 +584,7 @@ async def materialise_oapif_items(
                 # Binary: the features are encoded once, and the count that
                 # bounds the file is then the count that is written.
                 with open(path, "wb") as out:
-                    pages, written, number_matched = await _walk_pages(
+                    pages, written, number_matched, truncated = await _walk_pages(
                         client,
                         out,
                         url=url,
@@ -569,13 +607,17 @@ async def materialise_oapif_items(
         pages=pages,
         features=written,
     )
-    sample_limited = feature_limit is not None and written >= feature_limit
-    if number_matched is None and sample_limited:
-        # fix(#1746 B2b review r24): the walk stopped at the sample size and
-        # the service did not say how many features there are, so the only
-        # honest answer is that the total is unknown. `written` would be the
-        # sample size, which a preview then showed as the collection's row
-        # count and re-upload turned into a delta against the real dataset.
+    if number_matched is None and truncated:
+        # fix(#1746 B2b review r24): the walk stopped short and the service did
+        # not say how many features there are, so the only honest answer is
+        # that the total is unknown. `written` would be the sample size, which
+        # a preview then showed as the collection's row count and re-upload
+        # turned into a delta against the real dataset.
+        #
+        # fix(#1746 B2b review r28): `truncated` rather than
+        # `written >= feature_limit`. The latter is also true of a collection
+        # that holds exactly the sample size and ended, which is a complete
+        # read: its total is known, and it is `written`.
         total: int | None = None
     else:
         total = number_matched if number_matched is not None else written
