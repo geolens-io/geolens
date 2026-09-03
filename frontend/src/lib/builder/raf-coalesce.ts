@@ -73,6 +73,42 @@ export function coalesceFrame(key: string, fn: () => void): void {
   }
 }
 
+/**
+ * Run the frame queued under `key` RIGHT NOW, if there is one, and leave every
+ * other key queued for the frame that was already scheduled.
+ *
+ * fix(#1778 codex round 3/4): useLayerMapSync queues map writes per layer while
+ * the basemap style is swapping and replays them in order once it settles. Most
+ * replayed writes are synchronous, but a paint write only re-queues
+ * `adapter.syncPaint` here, so it landed a frame LATER than the writes replayed
+ * after it. `fillAdapter.syncPaint` applies `input.opacity` (see
+ * applyMasterOpacity), so a queued paint edit followed by an opacity edit
+ * finished with the older frame overwriting the newer opacity. Flushing the
+ * layer's pending frame between replayed writes keeps the drain in
+ * chronological order without changing what any paint callback closes over.
+ *
+ * Not a general-purpose escape hatch: outside that replay this module's
+ * last-write-wins-per-frame contract is the point.
+ */
+export function flushCoalescedFrame(key: string): void {
+  const fn = pending.get(key);
+  if (!fn) return;
+  pending.delete(key);
+  // Cancel BEFORE invoking, so a coalesceFrame call made inside `fn` schedules
+  // a fresh frame rather than joining one that is about to fire empty.
+  if (pending.size === 0 && rafHandle !== null) {
+    cancelAnimationFrame(rafHandle);
+    rafHandle = null;
+  }
+  try {
+    fn();
+  } catch (e) {
+    if (import.meta.env.DEV) {
+      console.debug('[raf-coalesce] Error in flushed fn:', e);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Test-only introspection helpers (harmless in production — tree-shakeable)
 // ---------------------------------------------------------------------------

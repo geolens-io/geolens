@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useLayerMapSync } from '../use-layer-map-sync';
 import { __resetForTest } from '@/lib/builder/raf-coalesce';
+import { applyMasterOpacity } from '@/components/builder/map-sync';
 import type { MapLayerResponse } from '@/types/api';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 
@@ -31,6 +32,9 @@ vi.mock('@/components/builder/map-sync', () => ({
   getLayerType: vi.fn(() => 'fill'),
   resolveAdapterType: vi.fn(() => 'fill'),
   applyMasterOpacity: vi.fn(),
+  // fix(#1778 codex round 4): applyLayerOpacityToMap consults this before it
+  // writes, so the drain-order test below needs it present.
+  isDemTerrainVisualSuppressed: vi.fn(() => false),
   // Phase 1050 SF-04: use-layer-map-sync now routes through this helper.
   // The PERF-04 test only asserts call counts (does not validate sourceId
   // values), so a simple per-layer string is sufficient here.
@@ -243,5 +247,105 @@ describe('useLayerMapSync — rAF paint coalescing (PERF-04)', () => {
     const syncPaintCallsBeforeFlush = mockSyncPaint.mock.calls.length;
     raf.flush();
     expect(mockSyncPaint.mock.calls.length).toBe(syncPaintCallsBeforeFlush);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fix(#1778 codex round 4 P2): the deferred-write replay drain has to be
+// deterministic. A paint write does not touch the map itself, it queues
+// adapter.syncPaint on the next animation frame, so replaying it alongside
+// synchronous writes put it LAST in wall-clock order however early it was made.
+// fillAdapter.syncPaint applies the input.opacity it captured (via
+// applyMasterOpacity), so a queued paint edit followed by an opacity edit ended
+// with the older frame overwriting the newer opacity.
+// Counterfactual: remove the flushCoalescedFrame call from drainLayerWrites and
+// the order assertion below inverts.
+// ---------------------------------------------------------------------------
+describe('useLayerMapSync: deferred replay drains paint work synchronously (#1778)', () => {
+  let raf: ReturnType<typeof mockRaf>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    raf = mockRaf();
+    vi.stubGlobal('requestAnimationFrame', raf.requestAnimationFrame);
+    vi.stubGlobal('cancelAnimationFrame', raf.cancelAnimationFrame);
+  });
+
+  afterEach(() => {
+    __resetForTest();
+    raf.flush();
+    vi.unstubAllGlobals();
+  });
+
+  it('a paint edit queued during a style swap lands BEFORE a later opacity edit', () => {
+    const layer = makeLayer();
+    const mapStub = makeMapStub();
+    const isStyleLoaded = mapStub.isStyleLoaded as unknown as ReturnType<typeof vi.fn>;
+    // The basemap style is mid-swap, so the paint write is deferred.
+    isStyleLoaded.mockReturnValue(false);
+    const mapRef = { current: mapStub };
+
+    const { result, rerender } = renderHook(
+      ({ layers }: { layers: MapLayerResponse[] }) =>
+        useLayerMapSync(layers, vi.fn(), vi.fn(), mapRef),
+      { initialProps: { layers: [layer] } },
+    );
+
+    // A: paint edit, queued behind `idle`.
+    act(() => { result.current.handlePaintChange(layer.id, { 'fill-color': '#00ff00' }); });
+    expect(mockSyncPaint).not.toHaveBeenCalled();
+
+    // The style finishes loading before `idle` fires.
+    isStyleLoaded.mockReturnValue(true);
+    rerender({ layers: [{ ...layer, paint: { ...layer.paint, 'fill-color': '#00ff00' } }] });
+
+    // B: opacity edit. The queued paint must be drained and FLUSHED first.
+    act(() => { result.current.handleOpacityChange(layer.id, 0.25); });
+
+    const opacityMock = vi.mocked(applyMasterOpacity);
+    expect(mockSyncPaint).toHaveBeenCalledTimes(1);
+    expect(opacityMock).toHaveBeenCalledTimes(1);
+    // Chronological order is the whole point: paint A, then opacity B.
+    expect(mockSyncPaint.mock.invocationCallOrder[0])
+      .toBeLessThan(opacityMock.mock.invocationCallOrder[0]);
+    expect(opacityMock.mock.calls[0][4]).toBe(0.25);
+
+    // Advancing a frame must not replay the older paint on top of the opacity.
+    act(() => { raf.flush(); });
+    expect(mockSyncPaint).toHaveBeenCalledTimes(1);
+    expect(opacityMock.mock.invocationCallOrder.at(-1))
+      .toBeGreaterThan(mockSyncPaint.mock.invocationCallOrder.at(-1)!);
+  });
+
+  it('replays a paint edit and a later opacity edit in order from the idle listener', () => {
+    const layer = makeLayer();
+    const mapStub = makeMapStub();
+    const isStyleLoaded = mapStub.isStyleLoaded as unknown as ReturnType<typeof vi.fn>;
+    isStyleLoaded.mockReturnValue(false);
+    const onceCalls: [string, () => void][] = [];
+    (mapStub as unknown as { once: unknown }).once = vi.fn((event: string, cb: () => void) => {
+      onceCalls.push([event, cb]);
+    });
+    const mapRef = { current: mapStub };
+
+    const { result } = renderHook(() =>
+      useLayerMapSync([layer], vi.fn(), vi.fn(), mapRef),
+    );
+
+    act(() => { result.current.handlePaintChange(layer.id, { 'fill-color': '#00ff00' }); });
+    act(() => { result.current.handleOpacityChange(layer.id, 0.25); });
+    expect(mockSyncPaint).not.toHaveBeenCalled();
+
+    isStyleLoaded.mockReturnValue(true);
+    const idle = onceCalls.find(([event]) => event === 'idle');
+    expect(idle).toBeDefined();
+    act(() => { idle![1](); });
+
+    const opacityMock = vi.mocked(applyMasterOpacity);
+    expect(mockSyncPaint.mock.invocationCallOrder[0])
+      .toBeLessThan(opacityMock.mock.invocationCallOrder[0]);
+
+    act(() => { raf.flush(); });
+    expect(mockSyncPaint).toHaveBeenCalledTimes(1);
   });
 });

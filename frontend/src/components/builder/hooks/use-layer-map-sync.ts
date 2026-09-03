@@ -9,7 +9,7 @@ import {
 } from '@/components/builder/layer-adapters/shared';
 import type { PaintPropertyName } from '@/components/builder/layer-adapters/shared';
 import { mixedFamilyFilter } from '@/components/builder/layer-adapters/mixed-adapter';
-import { coalesceFrame } from '@/lib/builder/raf-coalesce';
+import { coalesceFrame, flushCoalescedFrame } from '@/lib/builder/raf-coalesce';
 // fix(#394) VT-03/VT-04: single source of truth for the MVT source-layer name.
 import { getMvtSourceLayerName } from '@/lib/tile-utils';
 import { reconcileColorClassification } from '@/lib/color-ramps';
@@ -367,6 +367,36 @@ export function clearExcludedPaintOnMap(
   }
 }
 
+/** The rAF coalesce key for a layer's batched paint write. Owned here because
+ *  handlePaintChange queues under it and applyLayerUpdate's replay drain has to
+ *  flush the same entry. fix(#1778 codex round 4). */
+function paintCoalesceKey(layerId: string): string {
+  return `paint:${layerId}`;
+}
+
+/**
+ * Replay a layer's deferred map writes in the order they were made.
+ *
+ * fix(#1778 codex round 4): a paint write does not touch the map itself, it
+ * queues `adapter.syncPaint` on the next animation frame, so replaying it
+ * alongside synchronous writes put it LAST in wall-clock order however early it
+ * was made. `fillAdapter.syncPaint` applies the `input.opacity` it captured, so
+ * a queued paint edit followed by an opacity edit ended with the older frame
+ * overwriting the newer opacity. Flushing the layer's pending frame after each
+ * replayed write restores chronological order and leaves the paint callback's
+ * closure semantics alone.
+ */
+function drainLayerWrites(
+  writes: readonly ((target: MaplibreMap) => void)[],
+  map: MaplibreMap,
+  layerId: string,
+): void {
+  for (const write of writes) {
+    write(map);
+    flushCoalescedFrame(paintCoalesceKey(layerId));
+  }
+}
+
 export function useLayerMapSync(
   localLayers: MapLayerResponse[],
   setLocalLayers: React.Dispatch<React.SetStateAction<MapLayerResponse[]>>,
@@ -507,7 +537,7 @@ export function useLayerMapSync(
           // Ignore a listener that was already flushed or superseded below.
           if (pending.get(layerId)?.listener !== listener) return;
           pending.delete(layerId);
-          for (const write of writes) write(map);
+          drainLayerWrites(writes, map, layerId);
         };
         pending.set(layerId, { writes, listener });
         map.once?.('idle', listener);
@@ -518,7 +548,7 @@ export function useLayerMapSync(
         // this newer write is applied last and wins.
         pending.delete(layerId);
         map.off?.('idle', queued.listener);
-        for (const write of queued.writes) write(map);
+        drainLayerWrites(queued.writes, map, layerId);
       }
       writeToMap(map);
     },
@@ -578,7 +608,7 @@ export function useLayerMapSync(
           // Paint writes coalesce via rAF (PERF-04); visibility/filter/order remain
           // synchronous because they're idempotent and cheap, and synchronous
           // semantics let UI toggles feel instant.
-          coalesceFrame(`paint:${layerId}`, () => adapter.syncPaint(map, input));
+          coalesceFrame(paintCoalesceKey(layerId), () => adapter.syncPaint(map, input));
         },
       );
     },
