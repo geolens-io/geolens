@@ -222,4 +222,49 @@ describe('JobProgress error branch', () => {
     expect(screen.queryByText('Job not found')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'View Dataset' })).toBeInTheDocument();
   });
+
+  // fix(review #1800 P2 round 4): a transient error (network blip, 5xx)
+  // that strikes before the FIRST fetch ever succeeds also fell into the
+  // `!job` case, but offering Start Over there drops the only tracked job
+  // id (and, in BulkTrackingList, resets the whole batch) while the server
+  // may still be processing it. Only a DEFINITIVE error (401/403/404)
+  // means there is nothing left to track.
+  it('offers Retry (not Start Over) for a non-definitive error on the first fetch', async () => {
+    const mockRefetch = vi.fn().mockResolvedValue({});
+    mockUseJobStatus.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      isFetching: false,
+      error: new ApiError('Server error', 503),
+      refetch: mockRefetch,
+    });
+    const user = userEvent.setup();
+
+    render(<JobProgress jobId="job-1" onReset={vi.fn()} />);
+
+    expect(screen.getByText('Server error')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Start Over' })).not.toBeInTheDocument();
+    const retryButton = screen.getByRole('button', { name: 'Retry' });
+    await user.click(retryButton);
+
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  // Pin: a definitive error still renders Start Over, not Retry.
+  it('offers Start Over (not Retry) for a definitive 404 on the first fetch', () => {
+    mockUseJobStatus.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      isFetching: false,
+      error: new ApiError('Job not found', 404),
+      refetch: vi.fn(),
+    });
+
+    render(<JobProgress jobId="job-1" onReset={vi.fn()} />);
+
+    expect(screen.getByRole('button', { name: 'Start Over' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+  });
 });

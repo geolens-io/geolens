@@ -426,6 +426,7 @@
     "viewDataset": "View Dataset",
     "retry": "Retry",
     "retrying": "Retrying...",
+    "retryStatus": "Retry",
     "startOver": "Start Over",
     "retrySuccess": "Job re-queued",
     "retryFailed": "Retry failed: {{message}}",

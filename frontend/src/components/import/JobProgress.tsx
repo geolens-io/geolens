@@ -95,7 +95,7 @@ function StatusBadge({ status }: { status: string }) {
 
 export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgressProps) {
   const { t } = useTranslation('import');
-  const { data: job, isLoading, isError, error } = useJobStatus(jobId);
+  const { data: job, isLoading, isError, error, refetch, isFetching } = useJobStatus(jobId);
   const retryMutation = useRetryJob();
   const cancelMutation = useCancelJob();
   const warningShownRef = useRef(false);
@@ -146,6 +146,33 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
   // render wrong, so its own block below still owns that case.
   if (isError && (!job || (isDefinitiveJobError(error) && !isTerminalJobStatus(job.status)))) {
     const msg = error instanceof ApiError ? error.message : t('jobProgress.statusError');
+
+    // fix(review #1800 P2 round 4): `!job` covers BOTH a definitive error
+    // (401/403/404 — the job is genuinely gone or no longer ours) AND a
+    // transient one (network blip, 5xx, retries exhausted) that happened
+    // to strike before the FIRST fetch ever succeeded. Only the former
+    // means there is nothing left to track — offering Start Over there was
+    // right. The latter does not: the server may still be processing the
+    // job, and Start Over there drops the only tracked job id (and, in
+    // BulkTrackingList, resets the whole batch) out from under it for no
+    // reason better than "the status read glitched once." Every consumer
+    // of this component (JobProgress itself, BulkTrackingList's per-row
+    // render, ServiceUrlForm, VrtCreatorForm) routes through this one
+    // branch, so splitting it here is enough — none of them has its own
+    // parallel error-driven reset path.
+    if (!isDefinitiveJobError(error)) {
+      return (
+        <Card>
+          <CardContent className="space-y-3 py-6">
+            <p className="text-sm text-destructive">{msg}</p>
+            <Button variant="outline" onClick={() => void refetch()} disabled={isFetching}>
+              {isFetching ? t('jobProgress.retrying') : t('jobProgress.retryStatus')}
+            </Button>
+          </CardContent>
+        </Card>
+      );
+    }
+
     return (
       <Card>
         <CardContent className="space-y-3 py-6">

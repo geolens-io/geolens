@@ -378,6 +378,7 @@
     "viewDataset": "Datensatz anzeigen",
     "retry": "Wiederholen",
     "retrying": "Wird wiederholt...",
+    "retryStatus": "Erneut versuchen",
     "startOver": "Neu beginnen",
     "retrySuccess": "Auftrag erneut eingereiht",
     "retryFailed": "Wiederholung fehlgeschlagen: {{message}}",

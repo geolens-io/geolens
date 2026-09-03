@@ -378,6 +378,7 @@
     "viewDataset": "Ver conjunto de datos",
     "retry": "Reintentar",
     "retrying": "Reintentando...",
+    "retryStatus": "Reintentar",
     "startOver": "Empezar de nuevo",
     "retrySuccess": "Trabajo reencolado",
     "retryFailed": "Reintento fallido: {{message}}",

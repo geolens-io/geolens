@@ -378,6 +378,7 @@
     "viewDataset": "Voir le jeu de données",
     "retry": "Réessayer",
     "retrying": "Nouvelle tentative...",
+    "retryStatus": "Réessayer",
     "startOver": "Recommencer",
     "retrySuccess": "Tâche remise en file d'attente",
     "retryFailed": "Échec de la nouvelle tentative : {{message}}",
