@@ -141,22 +141,22 @@ test.describe('Vector tile pipeline', () => {
     // signature.
     await firstDatasetTile.catch(() => undefined);
 
-    // Wait for the current batch of dataset tile requests to finish, then
-    // debounce: MapLibre can issue a second batch after the fit-to-bounds
-    // settles, so only stop once `mvt.length` holds steady across two
-    // consecutive 500ms samples.
-    await expect.poll(() => inFlightDatasetTiles, { timeout: 20_000 }).toBe(0);
+    // fix(#1624): fold the zero-in-flight check into the same predicate as the
+    // debounce, rechecked on every poll tick. Sampling them separately (wait
+    // for zero, then only watch `mvt.length`) left a gap: if a second batch
+    // starts after in-flight was observed at zero and a response takes longer
+    // than the 500ms poll interval, `mvt.length` would look unchanged while a
+    // request was still outstanding, and a later 4xx/5xx from it would be
+    // missed. `settled()` requires both zero in-flight AND an unchanged
+    // `mvt.length` on the same tick, so any new in-flight request resets the
+    // stability streak regardless of whether it has produced a response yet.
     let previousMvtLength: number | null = null;
-    await expect
-      .poll(
-        () => {
-          const isStable = mvt.length === previousMvtLength;
-          previousMvtLength = mvt.length;
-          return isStable;
-        },
-        { timeout: 20_000, intervals: [500] },
-      )
-      .toBe(true);
+    const settled = (): boolean => {
+      const isStable = inFlightDatasetTiles === 0 && mvt.length === previousMvtLength;
+      previousMvtLength = mvt.length;
+      return isStable;
+    };
+    await expect.poll(settled, { timeout: 20_000, intervals: [500] }).toBe(true);
 
     // THE assertion. Zero here is the #8186 silent-worker signature. Scoped to
     // this dataset's own route, so third-party basemap/glyph .pbf traffic
