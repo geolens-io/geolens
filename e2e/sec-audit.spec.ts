@@ -653,12 +653,23 @@ test('S11 — burst of unique semantic queries gets rate-limited', async ({ requ
   // shipped (search/router.py's search_datasets_endpoint carries
   // @limiter.limit(_semantic_search_rate_limit)) -- gate on it.
   //
-  // fix(review #1792): a hardcoded 80-request burst assumed the 30/minute
-  // default, but semantic_search_rate_limit is a runtime admin setting
-  // (persistent_config.py) an operator can raise up to 1000. Read the
-  // actual configured value through /settings/all/ (admin-only) using the
-  // same shared admin session every other fixture in this file uses, and
-  // send exactly one more request than that.
+  // fix(review #1792 round 4, final shape): this test has now cost four
+  // rounds -- read the configured limit instead of hardcoding it (round 1),
+  // stop mutating the shared setting (round 1), and now: no hard ceiling on
+  // how high an operator can configure it, paced so the global limiter
+  // cannot fire from our own burst, and a positive assertion that the 429
+  // actually came from the PER-ROUTE limiter rather than the global one.
+  //
+  // Two independent SlowAPI limits apply to every request here:
+  // _global_rate_limit (platform/ratelimit.py, default_limits, no
+  // override_defaults on the route decorator so both stack) and
+  // _semantic_search_rate_limit (the per-route decorator under test). A
+  // Promise.all burst sends everything in one instant, which can trip the
+  // per-SECOND global limiter well before the per-MINUTE route limiter --
+  // and slowapi's 429 body (str(limits.RateLimitItem), e.g. "30 per 1
+  // minute" vs "60 per 1 second") is the only way to tell which one fired.
+  test.slow();
+
   const settingsRes = await request.get(`${apiBase}/settings/all/`, {
     headers: { Authorization: `Bearer ${getAuthToken()}` },
   });
@@ -666,9 +677,9 @@ test('S11 — burst of unique semantic queries gets rate-limited', async ({ requ
   const settingsBody = (await settingsRes.json()) as {
     tabs: Record<string, Array<{ key: string; value: unknown }>>;
   };
-  const rateLimitItem = Object.values(settingsBody.tabs)
-    .flat()
-    .find((item) => item.key === 'semantic_search_rate_limit');
+  const settingsItems = Object.values(settingsBody.tabs).flat();
+
+  const rateLimitItem = settingsItems.find((item) => item.key === 'semantic_search_rate_limit');
   expect(
     rateLimitItem,
     'semantic_search_rate_limit setting not found in /settings/all/',
@@ -676,26 +687,97 @@ test('S11 — burst of unique semantic queries gets rate-limited', async ({ requ
   const configuredLimit = Number(rateLimitItem?.value);
   expect(Number.isFinite(configuredLimit) && configuredLimit > 0).toBe(true);
 
-  // The e2e suite shares one admin session across parallel specs, so this
-  // deliberately does NOT set/restore the limit -- mutating a global setting
-  // here would race whatever else is reading it concurrently. A configured
-  // ceiling above 200 would make this test send hundreds of load-generating
-  // requests just to find the boundary; fail loudly with the observed value
-  // instead of doing that silently.
-  const REQUEST_CEILING = 200;
+  const globalLimitItem = settingsItems.find((item) => item.key === 'global_rate_limit');
+  expect(globalLimitItem, 'global_rate_limit setting not found in /settings/all/').toBeTruthy();
+  const globalLimit = Number(globalLimitItem?.value);
+  expect(Number.isFinite(globalLimit) && globalLimit > 0).toBe(true);
+
+  // The global limiter is per-second; over any 60s window it admits
+  // `globalLimit * 60` requests at most. If the per-route limit is at or
+  // above that, the global bucket empties no later than the route bucket
+  // does, so a 429 late in the burst cannot be attributed to one limiter
+  // over the other by construction -- no pacing or body-text check fixes
+  // that. Fail loudly (not test.skip) naming both values: a skip here would
+  // hide exactly the kind of "passes for the wrong reason" gap this test
+  // has been rebuilt four times to close.
   expect(
     configuredLimit,
-    `semantic_search_rate_limit is ${configuredLimit}, above this test's ` +
-      `${REQUEST_CEILING}-request ceiling -- raise the ceiling deliberately ` +
-      'or lower the configured limit for this environment',
-  ).toBeLessThanOrEqual(REQUEST_CEILING);
+    `semantic_search_rate_limit is ${configuredLimit}/minute, not below the ` +
+      `global_rate_limit's ${globalLimit}/second (${globalLimit * 60}/minute ` +
+      'equivalent) -- this test cannot tell which limiter answered a 429 ' +
+      'when the global bucket cannot outlast the route bucket. Raise ' +
+      'global_rate_limit or lower semantic_search_rate_limit for this ' +
+      'environment.',
+  ).toBeLessThan(globalLimit * 60);
 
+  // The e2e suite shares one admin session across parallel specs, so this
+  // deliberately does NOT set/restore either setting -- mutating a global
+  // setting here would race whatever else is reading it concurrently.
   const requestCount = configuredLimit + 1;
-  const responses = await Promise.all(
-    Array.from({ length: requestCount }, (_, i) =>
-      request.get(`${apiBase}/search/datasets/?q=sec-audit-S11-unique-token-${i}`)
-    ),
-  );
-  const statuses = responses.map((r) => r.status());
-  expect(statuses).toContain(429);
+
+  // Pace the burst at 40 requests/second, comfortably under
+  // _DEFAULT_GLOBAL_RATE_LIMIT (60/second, platform/ratelimit.py) so this
+  // test's own traffic cannot trip the global limiter. That is a fixed
+  // pacing choice, not adaptive: an environment with global_rate_limit
+  // deliberately lowered below 40 would fire the global limiter here too,
+  // but that is a separate, unrelated deployment choice this test does not
+  // attempt to detect -- the discriminability guard above only covers
+  // whether the per-route limit can outlast the global one, not whether
+  // this pacing outruns a nonstandard global setting.
+  const BATCH_SIZE = 40;
+  const rateLimitBodies: Array<{ detail?: string }> = [];
+  let sawOtherStatus = false;
+
+  // A batch of up to BATCH_SIZE concurrent requests can transiently exceed
+  // the dev DB pool (SQLAlchemy's default is 10 + 3 overflow = 13
+  // connections) before the rate limiter has rejected the requests over
+  // configuredLimit -- verified directly against this stack's own logs:
+  // `sqlalchemy.exc.TimeoutError: QueuePool limit of size 10 overflow 3
+  // reached`, surfacing as a 500. That is pool contention, not the search
+  // endpoint or the rate limiter behaving incorrectly, so retry a 5xx (never
+  // a 429, which is a real answer) a couple of times before treating it as
+  // a genuine failure.
+  async function getWithRetry(url: string) {
+    let res = await request.get(url);
+    for (let attempt = 0; attempt < 2 && res.status() >= 500; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+      res = await request.get(url);
+    }
+    return res;
+  }
+
+  for (let sent = 0; sent < requestCount; sent += BATCH_SIZE) {
+    const batchSize = Math.min(BATCH_SIZE, requestCount - sent);
+    const batch = await Promise.all(
+      Array.from({ length: batchSize }, (_, i) => {
+        const index = sent + i;
+        return getWithRetry(`${apiBase}/search/datasets/?q=sec-audit-S11-unique-token-${index}`);
+      }),
+    );
+    for (const res of batch) {
+      if (res.status() === 429) {
+        rateLimitBodies.push((await res.json()) as { detail?: string });
+      } else if (res.status() !== 200) {
+        sawOtherStatus = true;
+      }
+    }
+    if (sent + BATCH_SIZE < requestCount) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+
+  expect(sawOtherStatus, 'every non-429 response should be a plain 200').toBe(false);
+  expect(rateLimitBodies.length, 'burst should trigger at least one 429').toBeGreaterThan(0);
+
+  // Distinguish which limiter answered: slowapi's RateLimitExceeded detail
+  // is str(limits.RateLimitItem) -- "<N> per 1 minute" for the per-route
+  // limit under test, "<N> per 1 second" for the global one. Paced under
+  // BATCH_SIZE/second, only the route limiter should ever fire, but assert
+  // that directly rather than assuming the pacing alone proves it.
+  const routeLimitText = `${configuredLimit} per 1 minute`;
+  const matchedRouteLimit = rateLimitBodies.some((body) => body.detail === routeLimitText);
+  expect(
+    matchedRouteLimit,
+    `expected a 429 naming "${routeLimitText}"; got: ${JSON.stringify(rateLimitBodies)}`,
+  ).toBe(true);
 });

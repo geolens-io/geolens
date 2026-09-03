@@ -16,6 +16,23 @@ function formatViolations(violations: any[]): string {
     .join('\n\n');
 }
 
+// fix(review #1792 round 4): `waitForLoadState('networkidle')` covers the
+// document/asset load, not a subsequent React Query fetch -- a scan that
+// runs right after it can land mid-loading-state (a skeleton or spinner)
+// instead of the populated page, and axe never sees the real content. Every
+// loading indicator in this app renders through one of two shared
+// primitives: components/ui/skeleton.tsx's `<Skeleton>` (stamped
+// `data-slot="skeleton"`, e.g. DataTableSkeleton on the admin list pages,
+// DatasetCardSkeleton on search) or a lucide `Loader2` spinner (rendered
+// with the `animate-spin` class, e.g. AttributeTable's data-tab loading
+// state) -- so waiting for both to clear is a generic, page-agnostic proxy
+// for "the query settled", without needing a bespoke selector per route.
+async function waitForLoadingIndicatorsToClear(page: import('@playwright/test').Page) {
+  await expect(page.locator('[data-slot="skeleton"], .animate-spin')).toHaveCount(0, {
+    timeout: 15_000,
+  });
+}
+
 test.describe('Accessibility - WCAG 2AA', () => {
   let builderMapId: string;
   let builderMapName: string;
@@ -173,6 +190,10 @@ test.describe('Accessibility - WCAG 2AA', () => {
         test('public search page has no accessibility violations', async ({ page }) => {
           await page.goto('/');
           await page.waitForLoadState('networkidle');
+          // fix(review #1792 round 4): SearchPage renders a DatasetCardSkeleton
+          // grid while `isLoading && !data`, before this scan waited for it
+          // to clear -- see waitForLoadingIndicatorsToClear's comment.
+          await waitForLoadingIndicatorsToClear(page);
 
           const results = await new AxeBuilder({ page })
             .withTags(wcagTags)
@@ -395,6 +416,13 @@ test.describe('Accessibility - WCAG 2AA', () => {
         test(`${name} page has no accessibility violations`, async ({ page }) => {
           await page.goto(path);
           await page.waitForLoadState('networkidle');
+          // fix(review #1792 round 4): several of these routes (the admin
+          // list pages especially) fetch their own data after mount and
+          // render a skeleton/spinner until it resolves -- see
+          // waitForLoadingIndicatorsToClear's comment. Applied to the whole
+          // loop rather than only the admin routes since it is a no-op
+          // wait (passes immediately) on any route with nothing to clear.
+          await waitForLoadingIndicatorsToClear(page);
 
           const results = await new AxeBuilder({ page })
             .withTags(wcagTags)
@@ -418,6 +446,11 @@ test.describe('Accessibility - WCAG 2AA', () => {
             page.getByRole('heading', { name: datasetTitle, exact: true }),
           ).toBeVisible();
           await page.waitForLoadState('networkidle');
+          // fix(review #1792 round 4): the data tab's AttributeTable fetches
+          // rows independently of the dataset payload the heading above
+          // proves loaded, and shows its own Loader2 spinner until that
+          // settles -- see waitForLoadingIndicatorsToClear's comment.
+          await waitForLoadingIndicatorsToClear(page);
 
           const scan = new AxeBuilder({ page })
             .withTags(wcagTags)
@@ -452,6 +485,19 @@ test.describe('Accessibility - WCAG 2AA', () => {
 
         const dialog = page.getByRole('dialog', { name: 'Share' });
         await expect(dialog).toBeVisible();
+
+        // fix(review #1792 round 4): SharePanel's useMapShareToken query is
+        // still loading the instant the dialog mounts, so `hasShareToken`
+        // reads false and the dialog renders the "Get share link" button --
+        // scanning immediately raced that query and covered the wrong
+        // branch. builderMapId's share token was created directly via the
+        // API in beforeAll, not through this session's own UI, so
+        // SharePanel never held the raw token locally and always resolves
+        // into the "Regenerate link" branch (rawShareToken absent,
+        // hasShareToken true) once the query settles. Wait for that button.
+        await expect(dialog.getByRole('button', { name: 'Regenerate link' })).toBeVisible({
+          timeout: 15_000,
+        });
 
         const results = await new AxeBuilder({ page })
           .withTags(wcagTags)
