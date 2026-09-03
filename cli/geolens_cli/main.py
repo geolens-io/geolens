@@ -426,12 +426,21 @@ def login(
         api_key = _read_secret_from_stdin()
 
     if api_key:
+        # fix(#1778): AppState.sdk() prefers a stored bearer token over an
+        # API key (main.py's own D-35 precedence), so a stale JWT (or a
+        # leftover GEOLENS_TOKEN env var) left over from an earlier login
+        # silently outranked the API key this call just stored — every
+        # command then used the old credential with no error. Evict the
+        # other credential types for this instance first so the one just
+        # stored is the only one that can be resolved.
+        _auth.delete_credentials(instance)
         backend = _auth.store_api_key(instance, api_key, no_keyring=no_keyring)
         _config.write_default_instance(instance, username=None)
         state.output.success(f"Stored API key for {instance} ({backend})")
         return
 
     if token:
+        _auth.delete_credentials(instance)
         backend = _auth.store_bearer_token(instance, token, no_keyring=no_keyring)
         _config.write_default_instance(instance, username=None)
         state.output.success(f"Stored bearer token for {instance} ({backend})")
@@ -449,6 +458,7 @@ def login(
     resp = call_sdk(login_auth_login_post.sync_detailed, client=sdk.client, body=body)
     token_response = unwrap(resp, expected=200)
     access_token = token_response.access_token
+    _auth.delete_credentials(instance)
     backend = _auth.store_bearer_token(instance, access_token, no_keyring=no_keyring)
     refresh_token = getattr(token_response, "refresh_token", None)
     if refresh_token:

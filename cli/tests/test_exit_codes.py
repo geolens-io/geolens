@@ -156,6 +156,64 @@ class TestLoginStdinSecret:
         assert result.exit_code == 0, result.output
 
 
+class TestLoginEvictsOtherCredentialType:
+    """fix(#1778): AppState.sdk() prefers a stored bearer token over an API
+    key. `login --api-key` used to store the key WITHOUT clearing a stale
+    bearer/refresh token left over from an earlier interactive login, so
+    every command kept using the stale JWT (and failed once it expired)
+    with no indication the fresh API key was ever ignored. `logout` was
+    the only way to clear the loser. login must evict the other stored
+    credential type before storing the new one."""
+
+    def test_api_key_login_evicts_a_stale_bearer_token(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli import auth as _auth
+        from geolens_cli import config as _config
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com"
+        canonical = _config.normalize_instance_url(instance)
+
+        login_result = runner.invoke(
+            app, ["login", instance, "--token", "stale.bearer.jwt"]
+        )
+        assert login_result.exit_code == 0, login_result.output
+        assert _auth.load_bearer_token(canonical) is not None
+
+        api_key_result = runner.invoke(
+            app, ["login", instance, "--api-key", "fresh-api-key"]
+        )
+        assert api_key_result.exit_code == 0, api_key_result.output
+
+        # The stale bearer token must no longer be resolvable — otherwise
+        # AppState.sdk()'s bearer-before-api-key precedence keeps using it.
+        assert _auth.load_bearer_token(canonical) is None
+        loaded_key = _auth.load_api_key(canonical)
+        assert loaded_key is not None
+        assert loaded_key.value == "fresh-api-key"
+
+    def test_token_login_evicts_a_stale_api_key(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli import auth as _auth
+        from geolens_cli import config as _config
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com"
+        canonical = _config.normalize_instance_url(instance)
+
+        runner.invoke(app, ["login", instance, "--api-key", "stale-api-key"])
+        assert _auth.load_api_key(canonical) is not None
+
+        runner.invoke(app, ["login", instance, "--token", "fresh.bearer.jwt"])
+
+        assert _auth.load_api_key(canonical) is None
+        loaded = _auth.load_bearer_token(canonical)
+        assert loaded is not None
+        assert loaded.value == "fresh.bearer.jwt"
+
+
 class TestManifestCommandExitCodes:
     """Offline manifest commands use usage errors for local input problems."""
 
