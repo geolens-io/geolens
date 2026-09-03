@@ -415,6 +415,10 @@ async def fail_stalled_queue_jobs() -> int:
         await manager.finish_job_by_id_async(
             job_id=job.id, status=Status.FAILED, delete_job=False
         )
+        # fix(#1778 codex r1): the second site that writes a terminal failed
+        # row. The metrics poll used to see it on its next pass; a transition
+        # count has to be told.
+        count_failed_job(job.queue)
         failed += 1
         log.warning(
             "Failed stalled queue job — its worker stopped heartbeating",
@@ -492,8 +496,39 @@ async def recover_stale_jobs() -> None:
             )
 
 
-async def count_completed_job(call_next, context, worker):
-    """Procrastinate worker middleware: count a job that ran to completion.
+def _writes_a_failed_row(exc: BaseException, context, worker) -> bool:
+    """Would Procrastinate record this exception as a terminal ``failed``?
+
+    fix(#1778 codex r1): mirrors ``Worker._process_job``'s own two decisions,
+    and only those.
+
+    * A ``JobAborted`` or a ``CancelledError`` becomes ``aborted``, never
+      ``failed`` -- the row-count branch this replaces did not count those
+      either, and ``GeoLensJobFailures`` should not fire on a graceful
+      shutdown.
+    * Anything else is ``failed`` ONLY when the task's retry strategy declines
+      to retry. A retried attempt goes back to ``todo`` and writes no failed
+      row, so counting it would turn one eventual failure into one per
+      attempt.
+
+    ``get_retry_exception`` is the same call ``_process_job`` makes. Asking it
+    twice is safe because the decision is a function of the exception and the
+    job's attempt count, both fixed by the time the middleware unwinds; only
+    the ``retry_at`` inside a positive decision could differ under a jittering
+    strategy, and nothing here reads it.
+    """
+    from procrastinate import exceptions as procrastinate_exceptions
+
+    if isinstance(exc, (procrastinate_exceptions.JobAborted, asyncio.CancelledError)):
+        return False
+    task = worker.app.tasks.get(context.job.task_name)
+    if task is None:
+        return True
+    return task.get_retry_exception(exception=exc, job=context.job) is None
+
+
+async def count_job_outcome(call_next, context, worker):
+    """Procrastinate worker middleware: count a job at its terminal transition.
 
     fix(#1778): ``geolens_jobs_completed_total`` used to be derived from a
     ``SELECT status, COUNT(*) ... GROUP BY status`` over
@@ -507,15 +542,28 @@ async def count_completed_job(call_next, context, worker):
     ``call_next`` returning normally is exactly Procrastinate's own success
     condition -- ``_process_job`` treats any exception, including a retry or an
     abort, as a non-success -- so a retried job counts once, on the attempt
-    that finally works. A failure still reaches the counter through the
-    ``failed`` row count in observability/metrics/jobs.py, which works because
-    failed rows are not deleted.
+    that finally works.
 
-    Never let a metrics failure fail the job: the increment is after the task
-    result is in hand and is wrapped, so a Prometheus registry problem costs a
-    log line rather than a re-run of a completed ingest.
+    fix(#1778 codex r1): failures are counted here too, and the poll's
+    ``failed`` delta is gone. The delta was snapshot arithmetic over a row
+    count, and ``purge_expired_terminal_jobs`` makes a queue's failed group
+    shrink: ``_prev_counts`` kept the pre-purge figure, so the next burst
+    produced a non-positive delta and ``geolens_jobs_failed_total`` missed it
+    outright, taking ``GeoLensJobFailures`` with it. A count of transitions has
+    no snapshot to go stale. The other site that writes a failed row --
+    ``fail_stalled_queue_jobs``, which fails a job whose worker stopped
+    heartbeating -- increments the same counter for the same reason.
+
+    Never let a metrics failure change a job's outcome: both increments are
+    wrapped, so a Prometheus registry problem costs a log line rather than a
+    re-run of a completed ingest or a swallowed task exception.
     """
-    result = await call_next()
+    try:
+        result = await call_next()
+    except BaseException as exc:
+        if _writes_a_failed_row(exc, context, worker):
+            count_failed_job(context.job.queue)
+        raise
     try:
         from app.observability.metrics.jobs import jobs_completed_total
 
@@ -523,6 +571,20 @@ async def count_completed_job(call_next, context, worker):
     except Exception:  # broad: a metrics failure must never fail a finished job
         log.warning("Failed to count a completed job", exc_info=True)
     return result
+
+
+def count_failed_job(queue: str | None) -> None:
+    """Record one terminal failure on *queue*.
+
+    fix(#1778 codex r1): the single place the failed counter moves, so the
+    middleware and the stalled-job sweep cannot drift apart.
+    """
+    try:
+        from app.observability.metrics.jobs import jobs_failed_total
+
+        jobs_failed_total.labels(queue=queue or "default").inc()
+    except Exception:  # broad: a metrics failure must never change an outcome
+        log.warning("Failed to count a failed job", exc_info=True)
 
 
 # fix(#1778): how often to age out terminal queue rows. Six hours is a long way
@@ -731,11 +793,12 @@ async def main() -> None:
                     listen_notify=not settings.db_use_external_pooler,
                     install_signal_handlers=True,
                     delete_jobs="successful",
-                    # fix(#1778): the only place a completed job is observable
-                    # -- delete_jobs="successful" removes the row (and its
-                    # events, by cascade) before any poll can see it. See
-                    # count_completed_job.
-                    worker_middleware=[count_completed_job],
+                    # fix(#1778): the only place a job outcome is observable
+                    # -- delete_jobs="successful" removes a succeeded row (and
+                    # its events, by cascade) before any poll can see it, and
+                    # fix(#1778 codex r1) the failed count is a transition too
+                    # now that terminal rows are purged. See count_job_outcome.
+                    worker_middleware=[count_job_outcome],
                     shutdown_graceful_timeout=shutdown_timeout,
                     # fix(#624 codex P1): MUST match the sweep's own window.
                     # Procrastinate's Worker.run() prunes workers silent for

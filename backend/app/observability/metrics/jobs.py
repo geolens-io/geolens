@@ -54,11 +54,10 @@ staging_orphans_deleted_total = Counter(
     "Staging objects deleted for having no ingest-job row tracking them",
 )
 
-# Track previous snapshot for counter delta computation.
-# NOTE(#655): on the first cycle after boot this is empty, so the counters seed
-# with the full historical procrastinate_jobs row counts — raw counter values
-# include pre-boot history. increase()/rate() queries are unaffected.
-_prev_counts: dict[tuple[str, str], int] = {}
+# fix(#1778 codex r1): the delta snapshot this module used to keep is gone with
+# the last counter branch that read it. NOTE(#655) recorded that the first cycle
+# after boot seeded the counters with historical row counts; nothing seeds them
+# now, because neither counter is derived from a row count any more.
 
 # Queues whose gauge children have been set at least once — zeroed (not
 # removed) when their todo/doing rows disappear from a cycle. fix(#655)
@@ -68,8 +67,9 @@ _known_queues: set[str] = set()
 async def _refresh_job_metrics() -> None:
     """Run one metrics collection cycle (no loop, no sleep).
 
-    Queries procrastinate_jobs for status counts grouped by queue,
-    updates gauges directly and increments counters by delta.
+    Queries procrastinate_jobs for status counts grouped by queue and updates
+    the two gauges. fix(#1778 codex r1): gauges only. Both counters are
+    incremented at the terminal transition, in platform/jobs/worker.py.
     """
     from app.core.db import engine
 
@@ -105,18 +105,19 @@ async def _refresh_job_metrics() -> None:
             # could never observe it. geolens_jobs_completed_total read a flat
             # zero from the day it was added, and the RUNBOOK entry and the
             # "Job throughput" Grafana panel read zero with it -- a healthy
-            # ingest burst looked identical to a dead worker. The counter is
-            # now incremented at the terminal transition instead, by the
-            # worker middleware in platform/jobs/worker.py. The `failed`
-            # branch below stays a row count because failed rows are NOT
-            # deleted, which is what the GeoLensJobFailures alert depends on.
-            elif status == "failed":
-                key = (q, "failed")
-                prev = _prev_counts.get(key, 0)
-                delta = count - prev
-                if delta > 0:
-                    jobs_failed_total.labels(queue=q).inc(delta)
-                _prev_counts[key] = count
+            # ingest burst looked identical to a dead worker.
+            #
+            # fix(#1778 codex r1): and no `failed` branch either. That one was
+            # a delta against a snapshot of a row count, which stops working
+            # the moment rows can disappear. purge_expired_terminal_jobs ages
+            # terminal rows out, so a queue's failed group shrinks while
+            # _prev_counts held the pre-purge figure, and the next burst
+            # produced a non-positive delta the counter never saw --
+            # GeoLensJobFailures with it.
+            #
+            # Both counters are incremented at the terminal transition now, by
+            # the worker middleware and the stalled-job sweep in
+            # platform/jobs/worker.py, where there is no snapshot to go stale.
 
         # fix(#655): zero gauges for previously seen queues with no todo/doing
         # rows this cycle — they used to freeze at their last non-zero value
