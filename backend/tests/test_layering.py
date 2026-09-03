@@ -2217,6 +2217,16 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     empty-tile Cache-Control (#430 V-03). NOTE: `_check_cold_rehydrate` is pinned to
 #     this module by the overlay's 1214-05 static AST proof, so the tile_seams.py split
 #     must update the overlay in lockstep.
+#   api/main.py 1846 -> 1883. fix(#1778 codex r2): +37 for
+#     `install_api_query_deadline` and the note under it. The query deadline
+#     moved off the `get_db` dependency onto the engine this process owns,
+#     because handlers open request-scoped sessions directly through
+#     `async_session()` in more than twenty modules -- `GET /stac/collections`
+#     runs three aggregates that way -- and a per-dependency binding covered
+#     none of them. Most of the addition is why it runs at import rather than
+#     in the lifespan (`do_connect` only fires for connections opened after
+#     registration), why the engine is late-bound (fix(#909)), and why the
+#     worker, which never imports this module, must stay excluded.
 #   api/main.py 1796 -> 1846. fix(#1778): +50 across two audit findings. The
 #     /health/live route (liveness, no dependency probes) and the paragraph
 #     saying why the container healthcheck and the frontend's depends_on had to
@@ -2532,7 +2542,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # reach a backup, while /tmp is a per-container 512m tmpfs. Re-baselined on
     # the rebase across #1753, which raised the same cap for the token purge.
     # Cap 1789 -> 1796, exact.
-    "backend/app/api/main.py": 1846,
+    "backend/app/api/main.py": 1883,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -3480,12 +3490,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # literal `pass%20word` while the API path (SQLAlchemy, which decodes)
     # authenticated fine — fixed with unquote() on user/password.
     # Cap 1423 -> 1501, exact.
-    # fix(#1778): 1501 -> 1509. +8 for DB_STATEMENT_TIMEOUT_SECONDS and the note
-    # saying why the deadline is applied per request by get_db rather than as a
-    # session default in database_connect_args: the worker imports the same
-    # engine and runs single statements for minutes while indexing or
-    # reprojecting a freshly ingested table.
-    "backend/app/core/config.py": 1509,
+    # fix(#1778): 1501 -> 1509 -> 1511. +10 for DB_STATEMENT_TIMEOUT_SECONDS and
+    # the note saying why the deadline is applied to the API process's engine
+    # rather than as a session default in database_connect_args: the worker
+    # imports the same engine module and runs single statements for minutes
+    # while indexing or reprojecting a freshly ingested table. The last 2 are
+    # the codex r2 round, which moved it off the get_db dependency because
+    # handlers open request-scoped sessions directly in more than twenty
+    # modules and none of those were covered.
+    "backend/app/core/config.py": 1511,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of

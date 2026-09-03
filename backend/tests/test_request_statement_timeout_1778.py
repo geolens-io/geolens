@@ -1,25 +1,44 @@
-"""fix(#1778): every ordinary DB-touching request needs a query deadline.
+"""fix(#1778): every session the API opens needs a query deadline.
 
-Nothing bounded statement execution on the engine each request uses.
+Nothing bounded statement execution on the engine the API uses.
 ``database_connect_args`` carries only the SSL branch and, behind an external
 pooler, ``statement_cache_size``; ``core/db/session.py`` adds pool sizing, and
 ``pool_timeout`` bounds checkout rather than execution. ``db/postgresql.conf``
 sets no ``statement_timeout`` either. Combined with uvicorn not cancelling a
 handler when its client disconnects, one pathological plan pinned a pool slot
 with no ceiling.
+
+fix(#1778 codex r2): the deadline is on the ENGINE, not on ``get_db``. Handlers
+open request-scoped sessions directly through ``async_session()`` in more than
+twenty modules -- ``GET /stac/collections`` runs three aggregates that way --
+so a per-dependency binding covered none of them.
 """
 
 from __future__ import annotations
 
 import inspect
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.core.statement_timeout import (
-    bind_request_statement_timeout,
+    install_api_statement_timeout,
     statement_timeout_ms,
 )
+
+_SHOW_TIMEOUT = text("SELECT setting FROM pg_settings WHERE name = 'statement_timeout'")
+
+
+def _fresh_engine():
+    """An engine of our own, so the shared test engine keeps its own state."""
+    from app.core.config import settings
+
+    return create_async_engine(settings.test_database_url, poolclass=NullPool)
 
 
 def test_the_deadline_is_on_by_default_and_fits_inside_the_edge_timeout():
@@ -33,70 +52,117 @@ def test_the_deadline_is_on_by_default_and_fits_inside_the_edge_timeout():
     assert statement_timeout_ms() == settings.db_statement_timeout_seconds * 1000
 
 
-def test_get_db_binds_it_and_nothing_else_does():
-    """Scoped to HTTP requests. The worker shares the engine and must not get it."""
+def test_the_api_entrypoint_installs_it_on_the_engine():
+    """Import time, so no connection predates the listener; again at lifespan."""
+    from app.api import main as api_main
+
+    src = inspect.getsource(api_main.install_api_query_deadline)
+    assert "install_api_statement_timeout(engine)" in src
+    assert "from app.core.db import engine" in src, (
+        "fix(#909): the engine must be late-bound or the fixture's patch is lost"
+    )
+
+    module_src = inspect.getsource(api_main)
+    assert "\ninstall_api_query_deadline()\n" in module_src, (
+        "the install has to run at import, before the pool opens a connection"
+    )
+    assert "install_api_query_deadline()" in inspect.getsource(api_main.lifespan)
+
+
+def test_get_db_no_longer_binds_it_per_session():
+    """The per-dependency binding was the bug, not the fix."""
     from app.core.dependencies import get_db
 
-    assert "bind_request_statement_timeout(session)" in inspect.getsource(get_db)
+    assert "statement_timeout" not in inspect.getsource(get_db)
 
+
+def test_the_shared_engine_module_carries_no_session_default():
+    """A session default there would reach the worker, which shares the module."""
     from app.core.db import session as session_module
 
-    src = inspect.getsource(session_module)
-    assert "statement_timeout" not in src, (
-        "a session default on the shared engine would kill worker ingest queries"
+    assert "statement_timeout" not in inspect.getsource(session_module)
+
+    from app.core.config import settings
+
+    assert "server_settings" not in settings.database_connect_args
+
+
+@pytest.mark.anyio
+async def test_a_session_from_async_session_runs_under_the_deadline(test_db_session):
+    """The pin: not get_db, a bare `async_session()` the way handlers open one.
+
+    ``test_db_session`` is requested only so this module's DB gating applies.
+    """
+    engine = _fresh_engine()
+    install_api_statement_timeout(engine)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with session_factory() as session:
+            result = await session.execute(_SHOW_TIMEOUT)
+            assert result.scalar_one() == str(statement_timeout_ms())
+
+            # It survives a commit, unlike SET LOCAL: a handler that writes,
+            # commits, and reads again stays bounded.
+            await session.commit()
+            result = await session.execute(_SHOW_TIMEOUT)
+            assert result.scalar_one() == str(statement_timeout_ms())
+            await session.rollback()
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.anyio
+async def test_a_worker_engine_gets_no_deadline(test_db_session):
+    """The worker is a separate process with its own engine and must stay free.
+
+    It runs single statements for minutes while building a spatial index over a
+    freshly ingested table. Its entrypoint never imports app.api.main, so
+    nothing installs the listener there.
+    """
+    engine = _fresh_engine()  # deliberately NOT installed on
+    try:
+        async with engine.connect() as conn:
+            result = await conn.execute(_SHOW_TIMEOUT)
+            assert result.scalar_one() == "0"
+    finally:
+        await engine.dispose()
+
+    # And the real property behind that: importing the worker entrypoint does
+    # not pull in the module that installs the listener. Checked in a fresh
+    # interpreter because this one has already imported app.api.main.
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import app.platform.jobs.worker, sys; "
+            "print('app.api.main' in sys.modules)",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[1],
+    )
+    assert probe.returncode == 0, probe.stderr[-2000:]
+    assert probe.stdout.strip() == "False", (
+        "the worker entrypoint now imports app.api.main, so its engine would "
+        "inherit the API's statement deadline and long ingest statements would "
+        "be cancelled"
     )
 
 
 @pytest.mark.anyio
-async def test_get_db_yields_a_session_that_carries_the_deadline(test_db_session):
-    """Drive the dependency itself, transaction boundaries included.
-
-    ``test_db_session`` is requested only so the module's DB gating applies;
-    the assertions run on the session ``get_db`` builds.
-    """
-    from app.core.dependencies import get_db
-
-    assert statement_timeout_ms() > 0
-    # pg_settings reports the raw milliseconds; SHOW renders "5min".
-    expected = str(statement_timeout_ms())
-
-    agen = get_db()
-    session = await agen.__anext__()
+async def test_set_local_still_overrides_it(test_db_session):
+    """The escape hatch the long-running API routes already use."""
+    engine = _fresh_engine()
+    install_api_statement_timeout(engine)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
-
-        async def current_timeout() -> str:
-            result = await session.execute(
-                text("SELECT setting FROM pg_settings WHERE name = 'statement_timeout'")
-            )
-            return result.scalar_one()
-
-        first = await current_timeout()
-        assert first == expected, "no deadline on the first transaction"
-
-        # A handler that writes, commits, and reads again must not run the
-        # rest of the request unbounded: SET LOCAL ends with its transaction.
-        await session.commit()
-        assert await current_timeout() == expected
-
-        await session.rollback()
-        assert await current_timeout() == expected
+        async with session_factory() as session:
+            await session.execute(text("SET LOCAL statement_timeout = '1800000'"))
+            result = await session.execute(_SHOW_TIMEOUT)
+            assert result.scalar_one() == "1800000"
+            await session.rollback()
     finally:
-        await session.rollback()
-        with pytest.raises(StopAsyncIteration):
-            await agen.__anext__()
-
-
-@pytest.mark.anyio
-async def test_a_worker_session_is_not_given_the_deadline(test_db_session):
-    """The worker shares this engine and runs minutes-long ingest statements."""
-    from app.core.db import async_session
-
-    async with async_session() as session:
-        result = await session.execute(
-            text("SELECT setting FROM pg_settings WHERE name = 'statement_timeout'")
-        )
-        assert result.scalar_one() == "0"
-        await session.rollback()
+        await engine.dispose()
 
 
 @pytest.mark.anyio
@@ -111,16 +177,18 @@ async def test_a_query_past_the_deadline_is_cancelled(test_db_session):
 
 
 @pytest.mark.anyio
-async def test_a_zero_setting_binds_nothing(test_db_session, monkeypatch):
+async def test_a_zero_setting_installs_nothing(test_db_session, monkeypatch):
     """0 is the documented off switch, and off means no listener at all."""
     from app.core.config import settings
 
     monkeypatch.setattr(settings, "db_statement_timeout_seconds", 0)
     assert statement_timeout_ms() == 0
 
-    bind_request_statement_timeout(test_db_session)
-    result = await test_db_session.execute(
-        text("SELECT setting FROM pg_settings WHERE name = 'statement_timeout'")
-    )
-    assert result.scalar_one() == "0"
-    await test_db_session.rollback()
+    engine = _fresh_engine()
+    install_api_statement_timeout(engine)
+    try:
+        async with engine.connect() as conn:
+            result = await conn.execute(_SHOW_TIMEOUT)
+            assert result.scalar_one() == "0"
+    finally:
+        await engine.dispose()

@@ -372,9 +372,46 @@ async def _sweep_orphaned_exports_and_log(exports_dir: Path, log) -> None:
         log.info("Swept orphaned exports", deleted=deleted)
 
 
+def install_api_query_deadline() -> None:
+    """Put the API's statement deadline on the engine this process uses.
+
+    fix(#1778 codex r2): on the engine rather than on one dependency. Handlers
+    open request-scoped sessions directly through ``async_session()`` in more
+    than twenty modules -- ``GET /stac/collections`` runs three aggregates that
+    way -- so binding it inside ``get_db`` left every one of those pinning a
+    pool slot with no deadline.
+
+    Called at import of this module, not from the lifespan, because
+    ``do_connect`` only fires for connections opened after it is registered and
+    the pool must not have connected first. Called AGAIN from the lifespan so a
+    test fixture that has rebound ``app.core.db.engine`` to the test engine
+    gets it too; the installer is idempotent.
+
+    The engine is late-bound per fix(#909) -- the client fixture reassigns
+    ``db_module.engine``, and a module-scope binding here would snapshot the
+    dev engine past that patch.
+
+    The worker entrypoint never imports this module, so its engine keeps no
+    deadline. That is the point: it runs single statements for minutes while
+    building a spatial index over a freshly ingested table.
+    """
+    from app.core.db import engine
+    from app.core.statement_timeout import install_api_statement_timeout
+
+    install_api_statement_timeout(engine)
+
+
+install_api_query_deadline()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.core.db import engine  # fix(#909): late-bind for tests
+
+    # fix(#1778 codex r2): again, against whatever `app.core.db.engine` is NOW.
+    # Import time covers the real process; this covers a test fixture that has
+    # rebound the attribute to the test engine since. Idempotent.
+    install_api_query_deadline()
 
     for attempt in range(1, 4):
         try:
