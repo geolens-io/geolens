@@ -64,7 +64,11 @@ From your install directory:
 
 1. **Syncs and pulls** — checks the release files out at the target tag and
    pulls the prebuilt images (`docker compose pull --ignore-buildable`). The app
-   keeps serving throughout, so the download costs no downtime.
+   keeps serving throughout, so the download costs no downtime. `db` is the one
+   locally-built image (`--ignore-buildable` skips it by definition); when the
+   release's `db/Dockerfile` changed and yours is unmodified, it is synced too
+   and the image is rebuilt before the migrate step below. A `db/Dockerfile`
+   you edited yourself is left alone, the same as a tuned `db/postgresql.conf`.
 2. **Stops `api` and `worker`**, then takes the **pre-upgrade backup** —
    `pg_dump -Fc` to
    `backups/pre-upgrade/<db>_pre_<old>_to_<new>_<timestamp>.dump`, verified by

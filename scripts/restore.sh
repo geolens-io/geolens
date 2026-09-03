@@ -4,16 +4,52 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Source .env early so COMPOSE_FILE (and POSTGRES_* below) reflect the operator's
-# install. The prebuilt-prod installer pins COMPOSE_FILE=docker-compose.prod.yml;
-# source builds use the default docker-compose.yml.
+# shellcheck source=scripts/lib/common.sh
+. "$SCRIPT_DIR/lib/common.sh"
+
+# fix(#1778): read only the four values this script needs from .env with
+# get_env_value's awk parser, not by shell-sourcing the file. Compose's own
+# `.env` parser and `sh` disagree about the same file: install.sh writes
+# values verbatim (an operator-typed admin password can legally contain a
+# space), and `.` executes the rest of such a line as a command. Under
+# `set -e` that is a 127 exit before this disaster-recovery entry point has
+# validated anything; a value containing backticks or $(...) is executed
+# with the operator's privileges. Sourcing also pulled in every OTHER secret
+# in the file as a side effect, when only these four are ever read below.
+#
+# fix(#1778 review round 6, P2): assign to each target ONLY when
+# get_env_value reports the key is actually present in .env (exit 0) — a
+# setting Compose supports supplying purely through the process environment
+# (`POSTGRES_DB=production scripts/restore.sh ...`, deliberately omitted
+# from .env) used to be overwritten with an empty string the instant the
+# key was simply absent, since get_env_value's old "" exit-0 result for
+# "missing" was indistinguishable from "present but empty". The `if` guard
+# is exempt from `set -e`, and assigning the real target only inside it
+# (never on the failure path) is what actually preserves the inherited
+# value.
+#
+# fix(#1798 review round 15, P2, review 5104520795): assigns straight into
+# each target via env_value_into instead of `_v="$(get_env_value ...)"` —
+# plain command substitution strips a trailing newline regardless of
+# anything get_env_value itself preserves (a decoded POSTGRES_DB with a
+# trailing \n escape would lose that trailing byte at THIS assignment,
+# one layer outside get_env_value's own control, even though
+# get_env_value's own return value is correct since round 13).
 if [ -f "$PROJECT_ROOT/.env" ]; then
-    set -a
-    # shellcheck source=/dev/null
-    . "$PROJECT_ROOT/.env"
-    set +a
+    env_value_into COMPOSE_FILE COMPOSE_FILE "$PROJECT_ROOT/.env" || true
+    env_value_into POSTGRES_USER POSTGRES_USER "$PROJECT_ROOT/.env" || true
+    env_value_into POSTGRES_DB POSTGRES_DB "$PROJECT_ROOT/.env" || true
+    env_value_into GEOLENS_RUNTIME_DB_ROLE GEOLENS_RUNTIME_DB_ROLE "$PROJECT_ROOT/.env" || true
 fi
-COMPOSE=(docker compose -f "$PROJECT_ROOT/${COMPOSE_FILE:-docker-compose.yml}")
+
+# fix(#1798 review round 16, P2, review 5104847831): calls the shared
+# compose() wrapper (scripts/lib/common.sh) instead of this script's own
+# local COMPOSE=(...) array -- that array already built an absolute -f
+# path, but nothing told Compose the project directory explicitly for its
+# OWN .env-driven controls (COMPOSE_PROJECT_NAME, COMPOSE_PROFILES); see
+# common.sh's own doc comment on compose() for the full reasoning and what
+# was verified against the oracle. PROJECT_ROOT (set above, before
+# common.sh was sourced) is what the wrapper uses.
 
 # Argument validation
 if [ $# -ne 1 ]; then
@@ -42,7 +78,7 @@ fi
 # stream of the dump into the container (~0.1s per 20 MB of archive), which is
 # cheap next to what it prevents.
 echo "Validating backup integrity..."
-if ! "${COMPOSE[@]}" exec -T db \
+if ! compose exec -T db \
     pg_restore -f /dev/null < "$BACKUP_FILE" > /dev/null 2>&1; then
     echo "ERROR: Backup file is corrupt, truncated, or invalid: $BACKUP_FILE" >&2
     echo "pg_restore could not read the archive end-to-end. Aborting restore" >&2
@@ -66,7 +102,27 @@ _dump_base="$(basename "$BACKUP_FILE")"
 # matched inside $POSTGRES_DB whenever the database name carried its own
 # 8-digit_6-digit run, silently sending every sibling lookup down the
 # unpaired-fallback path.
-_ts="$(printf '%s' "$_dump_base" | sed -nE 's/^.*_([0-9]{8}_[0-9]{6})(\..*)?$/\1/p' || true)"
+#
+# fix(#1778 round 19, P2 class): was `printf '%s' "$_dump_base" | sed -nE
+# '...p'`. `_dump_base` is `basename "$BACKUP_FILE"`, and the dump side of
+# that name is `${POSTGRES_DB}_<timestamp>.dump` — a POSTGRES_DB carrying an
+# embedded newline puts one inside `_dump_base` intact (basename does not
+# reject or strip it, and `$(...)` only strips a TRAILING newline, never an
+# internal one). sed then reads `_dump_base` as multiple lines and, with
+# `-n '...p'`, can print more than one match, so `$_ts` stops being a single
+# timestamp. The paired-artifact lookups just below (`${_dump_dir}/globals-
+# ${_ts}.sql`, and further down `${_dump_dir}/staging-${_ts}.tar.gz`) then
+# look for a path that does not exist and silently fall back to "unpaired"
+# — the same failure mode this comment already describes for the
+# grep-inside-POSTGRES_DB case, reached a different way. `[[ str =~ regex ]]`
+# matches the whole string in one shot, so an embedded newline can only make
+# the anchored pattern fail to match at all (same as any other name this
+# script cannot parse), never yield a second match.
+if [[ "$_dump_base" =~ ^.*_([0-9]{8}_[0-9]{6})(\..*)?$ ]]; then
+    _ts="${BASH_REMATCH[1]}"
+else
+    _ts=""
+fi
 
 # fix(#995): roles are cluster objects and travel in globals-<ts>.sql, never in
 # the dump. Report BEFORE the destructive --clean rather than after: replaying
@@ -85,7 +141,7 @@ if [ -n "$_globals_dump" ]; then
     _globals_roles="$(grep -oE '^CREATE ROLE [A-Za-z0-9_]+' "$_globals_dump" | awk '{print $3}' | sort -u || true)"
     if [ -n "$_globals_roles" ]; then
         _role_array="$(printf '%s\n' "$_globals_roles" | sed "s/.*/'&'/" | paste -sd, -)"
-        _missing_roles="$("${COMPOSE[@]}" exec -T db \
+        _missing_roles="$(compose exec -T db \
             psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
             "SELECT r FROM unnest(ARRAY[${_role_array}]::text[]) r
              WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r);" \
@@ -111,7 +167,7 @@ echo "Running pre-restore setup..."
 # ON_ERROR_STOP: this DDL is the last gate before --clean drops the live
 # database — a silently failed CREATE EXTENSION/SCHEMA here must abort the
 # restore, not surface later as a half-restored DB (init-db.sh sets it too).
-"${COMPOSE[@]}" exec -T db \
+compose exec -T db \
     psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<EOSQL
 -- Extensions
 CREATE EXTENSION IF NOT EXISTS postgis;
@@ -126,7 +182,7 @@ CREATE SCHEMA IF NOT EXISTS data;
 EOSQL
 
 echo "Stopping API to prevent write conflicts during restore..."
-"${COMPOSE[@]}" stop api worker 2>/dev/null || true
+compose stop api worker 2>/dev/null || true
 
 # BUG-022 (Phase 1184): ensure api/worker are always restarted, even on failure.
 # pg_restore --clean --if-exists exits nonzero on EXPECTED warnings (e.g. "object
@@ -145,12 +201,41 @@ echo "Stopping API to prevent write conflicts during restore..."
 #      - nonzero with real ERROR lines in stderr → hard failure, abort
 #
 # The trap fires before the EXIT signal is delivered to the shell, so
-# api/worker are restarted regardless of whether the script exits normally,
-# via `exit 1` (hard pg_restore error), or via another `set -e` abort.
+# api/worker are restarted regardless of whether the script exits normally
+# or via another `set -e` abort.
+#
+# fix(#1778): that restart is only correct once the restore AND the mandatory
+# grant reconciliation below have both succeeded — RESTORE_SUCCEEDED gates it.
+# BUG-022's own trap comment said the restart runs "including on failure",
+# but it was never meant to cover the HARD pg_restore error path: there the
+# database has already been --clean-dropped and only partly repopulated, no
+# ACLs have been re-granted, and starting api/worker on top of it runs their
+# boot-time `alembic upgrade heads` against the wreckage — potentially
+# stamping revisions onto a half-restored schema. RUNBOOK.md says this
+# reconciliation step is mandatory and "start runtime services only after
+# that command succeeds"; the same reasoning applies if the reconciliation
+# itself fails or its grant is not verified. RESTORE_SUCCEEDED flips to 1
+# only after every one of those checks has passed.
+RESTORE_SUCCEEDED=0
 _cleanup() {
+    # fix(#1778 round 20, P1 class): `trap` holds only ONE handler per
+    # signal — this trap (set below) REPLACES common.sh's own EXIT trap
+    # (which would otherwise clean up its env-snapshot directory, see
+    # scripts/lib/common.sh's own comment near the top of that file), so
+    # this cleanup takes over that job too rather than leaking the
+    # directory for the rest of this process's run.
+    _env_snapshot_cleanup 2>/dev/null || true
     echo ""
-    echo "Restarting services..."
-    "${COMPOSE[@]}" start api worker 2>/dev/null || true
+    if [ "$RESTORE_SUCCEEDED" = "1" ]; then
+        echo "Restarting services..."
+        compose start api worker 2>/dev/null || true
+    else
+        echo "Leaving api/worker STOPPED: the database is in a partially-restored"
+        echo "state (pg_restore failed, or the mandatory grant reconciliation below"
+        echo "did not complete and verify). Starting the app now would run its"
+        echo "boot-time migrations against that wreckage."
+        echo "Re-run the restore, or restore a different dump."
+    fi
 }
 trap _cleanup EXIT
 
@@ -160,7 +245,7 @@ echo "Restoring from: $BACKUP_FILE"
 RESTORE_STDERR="$(mktemp)"
 RESTORE_RC=0
 set +e
-"${COMPOSE[@]}" exec -T db \
+compose exec -T db \
     pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner \
     < "$BACKUP_FILE" 2>"$RESTORE_STDERR"
 RESTORE_RC=$?
@@ -175,7 +260,9 @@ if [ "$RESTORE_RC" -ne 0 ]; then
         echo "ERROR: pg_restore failed (exit code ${RESTORE_RC}). Stderr:" >&2
         cat "$RESTORE_STDERR" >&2
         rm -f "$RESTORE_STDERR"
-        # _cleanup trap will restart api/worker before exit
+        # fix(#1778): RESTORE_SUCCEEDED is still 0 — the _cleanup trap leaves
+        # api/worker stopped rather than restarting them onto a half-restored
+        # database with no ACLs re-applied.
         exit 1
     else
         echo "pg_restore exited with code ${RESTORE_RC} (warnings only — --clean --if-exists on fresh DB is expected)."
@@ -193,13 +280,13 @@ rm -f "$RESTORE_STDERR"
 # migrator; the app receives DML/sequence/function rights there.
 echo ""
 echo "Re-applying database runtime grants..."
-"${COMPOSE[@]}" exec -T db \
+compose exec -T db \
     /usr/local/bin/configure-runtime-db-role
 
 # Assert the grant actually took — a restore that leaves the reader role
 # without schema access breaks every read-only consumer until someone
 # notices, so fail loudly here instead.
-READER_USAGE="$("${COMPOSE[@]}" exec -T db \
+READER_USAGE="$(compose exec -T db \
     psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
     "SELECT has_schema_privilege('geolens_reader', 'data', 'USAGE');" | tr -d '[:space:]')"
 if [ "$READER_USAGE" != "t" ]; then
@@ -211,7 +298,7 @@ fi
 echo "geolens_reader grants verified."
 
 if [ -n "${GEOLENS_RUNTIME_DB_ROLE:-}" ]; then
-    RUNTIME_ROLE_SAFE="$("${COMPOSE[@]}" exec -T db \
+    RUNTIME_ROLE_SAFE="$(compose exec -T db \
         psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
         "SELECT NOT rolsuper AND NOT rolbypassrls AND NOT rolcreaterole
                 AND NOT rolcreatedb AND NOT rolreplication
@@ -224,10 +311,15 @@ if [ -n "${GEOLENS_RUNTIME_DB_ROLE:-}" ]; then
     echo "${GEOLENS_RUNTIME_DB_ROLE} least-privilege attributes verified."
 fi
 
+# fix(#1778): the mandatory reconciliation step (RUNBOOK.md: "start runtime
+# services only after that command succeeds") has now run and every grant it
+# makes has been verified — restarting api/worker on exit is safe from here.
+RESTORE_SUCCEEDED=1
+
 # Post-restore validation
 echo ""
 echo "Verifying restore..."
-"${COMPOSE[@]}" exec -T db \
+compose exec -T db \
     psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
     "SELECT 'records' AS tbl, COUNT(*) FROM catalog.records UNION ALL SELECT 'datasets', COUNT(*) FROM catalog.datasets;" \
     2>/dev/null || echo "WARNING: Post-restore validation query failed (non-fatal)"

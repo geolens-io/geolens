@@ -225,6 +225,10 @@ jobs:
               - 'scripts/backup-entrypoint.sh'
               - 'scripts/init-db.sh'
               - 'scripts/lib/configure-runtime-db-role.sh'
+              # fix(#1798 review round 11 audit, P1): read by literal path in
+              # test_audit_1798_runbook_shell_sourcing.py, which asserts this
+              # wrapper exists, is executable, and calls get_env_value.
+              - 'scripts/env-value.sh'
               # fix(#1517): test_alert_rules.py reads both of these by literal
               # path — it checks the alert rules' handler selectors against the
               # app's real route table, and that every rule has a promtool case.
@@ -262,6 +266,18 @@ jobs:
               # CodeQL policy.
               - '.github/workflows/codeql.yml'
               - '.github/codeql/**'
+              # fix(#1778 review): test_ci_alembic_filter_paths.py's currency
+              # scan flagged these two — both are docstring cross-references
+              # (test_backup_entrypoint_atomic_writes.py names this script as
+              # the real end-to-end coverage its own structural checks stand
+              # in for; test_audit_1778_docs.py's EGRESS/CONTRIBUTING test
+              # names package.json while asserting Prettier isn't a frontend
+              # dependency), not files under test, but the scan cannot tell
+              # the two apart from a literal path string, deliberately — see
+              # its docstring, and the "last four entries" comment above for
+              # the same shape.
+              - 'scripts/tests/test-backup-restore-roundtrip.sh'
+              - 'frontend/package.json'
             frontend:
               - 'frontend/**'
               - 'backend/openapi.json'
@@ -357,6 +373,8 @@ jobs:
             installer:
               - 'scripts/install.sh'
               - 'scripts/upgrade.sh'
+              - 'scripts/restore.sh'
+              - 'scripts/check-env.sh'
               - 'scripts/lib/common.sh'
               - 'scripts/backup-entrypoint.sh'
               - 'scripts/tests/test-install-tag-resolution.sh'
@@ -365,6 +383,9 @@ jobs:
               - 'scripts/tests/test-upgrade-order.sh'
               - 'scripts/tests/test-upgrading-doc-consistency.sh'
               - 'scripts/tests/test-backup-s3-signature.sh'
+              - 'scripts/tests/test-restore-trap-safety.sh'
+              - 'scripts/tests/test-restore-env-sourcing-safety.sh'
+              - 'scripts/tests/test-env-file-compose-oracle.sh'
               - 'scripts/check_env_doc_drift.py'
               # check_env_doc_drift.py parses the Settings class out of this
               # file — a new Settings field must re-run the drift gate.
@@ -537,6 +558,20 @@ jobs:
 
       - name: Backup S3 signature regression test
         run: sh scripts/tests/test-backup-s3-signature.sh
+
+      - name: restore.sh EXIT trap safety regression test
+        run: sh scripts/tests/test-restore-trap-safety.sh
+
+      - name: restore.sh/check-env.sh .env sourcing safety regression test
+        run: sh scripts/tests/test-restore-env-sourcing-safety.sh
+
+      # fix(#1798 review round 13, P2, review 5103870781): get_env_value's
+      # .env interpolation/decoding checked against REAL `docker compose`
+      # (not just our own understanding of its grammar) for the full corpus
+      # of rounds 6-12 findings. `docker compose config` needs no daemon,
+      # image pull, or network — ubuntu-latest ships docker compose.
+      - name: get_env_value vs real Docker Compose oracle test
+        run: sh scripts/tests/test-env-file-compose-oracle.sh
 
       - name: Environment contract drift gate
         run: python3 scripts/check_env_doc_drift.py

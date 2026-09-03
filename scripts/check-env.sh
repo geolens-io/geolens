@@ -4,12 +4,37 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Source .env if present
+# shellcheck source=scripts/lib/common.sh
+. "$SCRIPT_DIR/lib/common.sh"
+
+# fix(#1778): read only the values this check needs from .env with
+# get_env_value's awk parser, not by shell-sourcing the file — see
+# restore.sh for why: Compose's `.env` parser accepts values (a space, a
+# backtick, `$(...)`) that `sh` does not, and shell-sourcing them under
+# `set -e` either aborts on an operator-typed value or executes it.
+#
+# fix(#1778 review round 6, P2): same guard restore.sh uses — assign only
+# when get_env_value reports the key is actually present in .env, so a
+# value supplied purely through the process environment (Compose supports
+# `POSTGRES_DB=production scripts/check-env.sh`) is not overwritten with an
+# empty string just because .env omits that key. See restore.sh's comment
+# on the same pattern for the full reasoning.
+#
+# fix(#1798 review round 15, P2, review 5104520795): assigns straight into
+# each target via env_value_into — see restore.sh's own round 15 comment
+# on the same pattern for why a plain `_v="$(get_env_value ...)"` capture
+# is not enough on its own (it strips a trailing decoded newline
+# regardless of what get_env_value itself preserves).
 if [ -f "$PROJECT_ROOT/.env" ]; then
-    set -a
-    # shellcheck source=/dev/null
-    . "$PROJECT_ROOT/.env"
-    set +a
+    env_value_into POSTGRES_USER POSTGRES_USER "$PROJECT_ROOT/.env" || true
+    # shellcheck disable=SC2034  # read via `${!var}` in the Section 1 loop below
+    env_value_into POSTGRES_PASSWORD POSTGRES_PASSWORD "$PROJECT_ROOT/.env" || true
+    env_value_into POSTGRES_DB POSTGRES_DB "$PROJECT_ROOT/.env" || true
+    # fix(#1798 review round 16, P2, review 5104847831): also honor an
+    # operator's COMPOSE_FILE (e.g. docker-compose.prod.yml) instead of
+    # always hardcoding the source-build file below -- this script used to
+    # be the one caller that never read it at all.
+    env_value_into COMPOSE_FILE COMPOSE_FILE "$PROJECT_ROOT/.env" || true
 fi
 
 ERRORS=0
@@ -35,7 +60,12 @@ done
 
 # Section 2: Database Connectivity
 echo "=== Database Connectivity ==="
-if docker compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T db \
+# fix(#1798 review round 16, P2, review 5104847831): calls the shared
+# compose() wrapper (scripts/lib/common.sh) instead of a raw `docker
+# compose -f ...` invocation, so COMPOSE_PROJECT_NAME/COMPOSE_PROFILES from
+# $PROJECT_ROOT/.env are honored the same way restore.sh/upgrade.sh honor
+# them, regardless of this script's own cwd.
+if compose exec -T db \
     pg_isready -U "${POSTGRES_USER:-geolens}" -d "${POSTGRES_DB:-geolens}" > /dev/null 2>&1; then
     pass "Database is accepting connections"
 else
@@ -44,7 +74,7 @@ fi
 
 # Section 3: GDAL Availability
 echo "=== GDAL Availability ==="
-if docker compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T api ogrinfo --version > /dev/null 2>&1; then
+if compose exec -T api ogrinfo --version > /dev/null 2>&1; then
     pass "GDAL (ogrinfo) is available in api container"
 else
     fail "GDAL (ogrinfo) is not available in api container"

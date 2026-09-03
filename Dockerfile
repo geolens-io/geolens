@@ -238,7 +238,18 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
 # Bake the backup and restore scripts so the image is self-contained and
 # runnable without a host bind-mount. The compose bind-mount
 # (./scripts:/scripts:ro) may override at runtime for local development.
+#
+# fix(#1798 review round 7, P2): restore.sh sources lib/common.sh
+# (`. "$SCRIPT_DIR/lib/common.sh"`, SCRIPT_DIR=/scripts in this baked
+# layout) for get_env_value — the COPY below used to bring in only the two
+# top-level scripts, so the PUBLISHED geolens-backup image's baked
+# restore.sh (no dev bind-mount to mask it there) hit "No such file or
+# directory" on that `.` and exited immediately. A second COPY preserves
+# the same lib/ subdirectory restore.sh's own SCRIPT_DIR-relative path
+# expects; backup-entrypoint.sh sources nothing (grepped for `.`/`source`),
+# so no further script needs to move.
 COPY scripts/backup-entrypoint.sh scripts/restore.sh /scripts/
+COPY scripts/lib/common.sh /scripts/lib/common.sh
 RUN chmod +x /scripts/backup-entrypoint.sh /scripts/restore.sh
 
 ENTRYPOINT ["/scripts/backup-entrypoint.sh"]

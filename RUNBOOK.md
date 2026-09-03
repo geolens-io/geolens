@@ -35,8 +35,10 @@ documentation.
 > tooling: logical dumps cannot participate in WAL replay, so point-in-time
 > recovery requires physical backup plus WAL archiving, which the bundled stack
 > does **not** configure (see [§ 3](#optional-point-in-time-recovery-pitr-with-wal-archiving)).
-> Shorten the exposure with a more frequent `BACKUP_SCHEDULE`, or use a managed
-> database, where the provider's native PITR applies.
+> `BACKUP_SCHEDULE` only accepts a single fixed daily time (`M H * * *`), so
+> this 24-hour floor cannot be shortened by changing it. For a tighter RPO,
+> configure [PITR](#optional-point-in-time-recovery-pitr-with-wal-archiving)
+> or use a managed database, where the provider's native PITR applies.
 
 ### Automated backups are on by default
 
@@ -127,6 +129,14 @@ with Cloudflare R2, modern AWS S3, and MinIO. A failed upload is logged as
 local retention pruning has run — the local dump is kept and pruned normally even
 when the offsite copy fails, so the failure is visible in container logs without
 sacrificing the local backup.
+
+The offsite copies get the **same retention** as the local ones —
+`BACKUP_RETENTION_DAILY` / `BACKUP_RETENTION_WEEKLY` daily and weekly sets,
+applied to the `backups/daily/` and `backups/weekly/` prefixes with the same
+pairing rule (a companion is pruned when the dump it belongs with ages out).
+There is no separate knob for offsite retention. A failure to list or delete
+objects for pruning is logged as an `ERROR` and fails the cycle the same way
+an upload failure does.
 
 ### Scope caveat
 
@@ -386,10 +396,51 @@ will not treat adoption as a collision override. Legacy `v1` markers are
 unscoped and therefore require the same one-time safe adoption as an unmarked
 dedicated login.
 
-Load `.env` into the verification shell and query through the runtime login:
+Load the needed values into the verification shell and query through the
+runtime login. `scripts/env-value.sh` reads `.env` through the same
+get_env_value parser `restore.sh`/`check-env.sh` use, never by sourcing it —
+an operator-typed value can legally contain characters `.` would execute.
+`scripts/env-value.sh` is a subprocess a copy-pasted snippet like this one
+invokes and captures via `$(...)`, so it stays stdout-based — the
+`env_value_into` interface `restore.sh`/`check-env.sh`/`upgrade.sh` use
+internally only works within the SAME shell process that sourced
+`scripts/lib/common.sh`, which a subprocess call from a snippet like this
+one is not. Command substitution here strips a trailing newline from the
+captured value the same way it always does; that only matters if one of
+these specific values were ever deliberately set to end in one (unlikely
+for a password, role name, or database name, but worth knowing if a value
+here ever looks truncated by exactly one trailing character).
+
+`scripts/env-value.sh` exits 1 with no output when the key has no line in
+`.env` at all — including the ordinary case of a value supplied purely
+through the process environment and deliberately left out of `.env`
+(`GEOLENS_RUNTIME_DB_ROLE=managed_reader` exported in this shell, say). An
+unconditional `VAR="$(scripts/env-value.sh KEY)"` does not distinguish that
+from a real failure: the assignment still runs, on a helper exit of 1, to an
+EMPTY string — blanking whatever this shell already had for `VAR` — and
+under `set -e` (common in a copy-pasted troubleshooting session) it aborts
+the snippet outright instead. Guard the assignment on the helper's own exit
+status, the same way `restore.sh`/`check-env.sh`/`upgrade.sh` guard
+`env_value_into` internally (see the comment above `env_value_into`'s
+definition in `scripts/lib/common.sh`): assign the real variable only
+inside the `if`, never on the failure branch, so a key absent from `.env`
+leaves this shell's existing value — inherited or default — untouched.
+
+Each line below is its own subprocess (`scripts/env-value.sh` is invoked
+fresh each time, never sourced), so running them in sequence in this
+interactive shell cannot reproduce the ordering bug fixed in
+`scripts/lib/common.sh` (fix(#1778) round 20): that bug needed one script
+process to assign a value into its OWN shell via `env_value_into` and
+have a LATER resolution in that SAME process misread it as an inherited
+override. A plain `VAR="$_v"` assignment here, with no `export`, never
+reaches a later subprocess's environment at all — if a future snippet
+here ever needs `export VAR=...` between two of these calls, re-check it
+against that fix before relying on the values lining up:
 
 ```bash
-set -a; . ./.env; set +a
+if _v="$(scripts/env-value.sh GEOLENS_RUNTIME_DB_PASSWORD)"; then GEOLENS_RUNTIME_DB_PASSWORD="$_v"; fi
+if _v="$(scripts/env-value.sh GEOLENS_RUNTIME_DB_ROLE)"; then GEOLENS_RUNTIME_DB_ROLE="$_v"; fi
+if _v="$(scripts/env-value.sh POSTGRES_DB)"; then POSTGRES_DB="$_v"; fi
 docker compose exec -T db env PGPASSWORD="$GEOLENS_RUNTIME_DB_PASSWORD" \
   psql -h 127.0.0.1 -U "$GEOLENS_RUNTIME_DB_ROLE" -d "$POSTGRES_DB" -c \
   "SELECT current_user, rolsuper, rolbypassrls, rolcreaterole,
@@ -515,8 +566,14 @@ first (step 0 of [full restore](#step-by-step-full-restore-db--object-storage)
 extracts all three artifacts together), then replay it **before** `pg_restore`:
 
 ```bash
-# Load .env so $POSTGRES_USER / $POSTGRES_DB are set in this shell.
-set -a; . ./.env; set +a
+# Load $POSTGRES_USER / $POSTGRES_DB via get_env_value (not shell-sourcing
+# .env — see the runtime-role verification note above for why, including
+# the trailing-newline caveat on command substitution here, and why the
+# assignment is guarded on the helper's own exit status rather than
+# unconditional — a key supplied only via the process environment and
+# absent from .env must not be blanked).
+if _v="$(scripts/env-value.sh POSTGRES_USER)"; then POSTGRES_USER="$_v"; fi
+if _v="$(scripts/env-value.sh POSTGRES_DB)"; then POSTGRES_DB="$_v"; fi
 
 # On the new cluster, BEFORE pg_restore. Substitute the timestamp of the dump
 # you are restoring; ./restore is where step 0 put the extracted artifacts.
@@ -584,8 +641,9 @@ may serve traffic until 2b has finished. Managed/external Postgres: drop the
 `docker compose exec -T db` prefix and pass the provider's `-h`, `-p`, and `-U`
 instead.
 
-Keep `.env` loaded in this shell (`set -a; . ./.env; set +a`, as in step 1) —
-`$POSTGRES_USER` and `$POSTGRES_DB` expand on the host, not in the container.
+Keep `$POSTGRES_USER`/`$POSTGRES_DB` set in this shell (via
+`scripts/env-value.sh`, as in step 1) — they expand on the host, not in the
+container.
 The dump path is a host path; copy the dump out of the `backup_data` volume
 first, exactly as in "Step-by-step: full restore" below.
 
@@ -1698,9 +1756,9 @@ cycle later, and `docker compose ps` shows it — no monitoring stack required.
 
 Tuning and edge behavior:
 
-- **Non-daily schedule?** Set `BACKUP_MAX_AGE_MINUTES` in `.env` to ~1.5× your
-  `BACKUP_SCHEDULE` interval (e.g. every 12 h → `1080`), then re-create the
-  service: `docker compose up -d backup`.
+- **Changed only the time of day?** `BACKUP_SCHEDULE` accepts a single fixed
+  daily time only (`M H * * *`); every valid schedule runs once a day, so the
+  default `BACKUP_MAX_AGE_MINUTES` already covers it and needs no adjustment.
 - **First install / new volume:** no marker exists yet, so the service reports
   `starting` until the initial on-startup backup succeeds — seconds on a fresh
   database. If no backup succeeds within the 10-minute `start_period`, it turns

@@ -76,14 +76,20 @@ make_stubs() {
 LOG="${DOCKER_LOG:?}"
 MIGRATE_MODE="${DOCKER_MIGRATE_MODE:-ok}"
 STOP_MODE="${DOCKER_STOP_MODE:-ok}"
+DB_RECREATE_MODE="${DOCKER_DB_RECREATE_MODE:-ok}"
 if [ "$1" = "compose" ]; then
   shift
   # strip "-f <file>"
-  if [ "$1" = "-f" ]; then shift; shift; fi
+  # fix(#1798 review round 16, P2, review 5104847831): compose() now also
+  # emits `--project-directory VALUE` (see scripts/lib/common.sh) -- skip
+  # any number of "-f VALUE" / "--project-directory VALUE" pairs, in
+  # whichever order compose() sends them, before checking the subcommand.
+  while [ "$1" = "-f" ] || [ "$1" = "--project-directory" ]; do shift 2; done
   case "$1" in
     version) exit 0 ;;
     stop)    echo "stop_app" >> "$LOG"; [ "$STOP_MODE" = "fail" ] && exit 1; exit 0 ;;
     pull)    echo "pull" >> "$LOG"; exit 0 ;;
+    build)   echo "db_build" >> "$LOG"; exit 0 ;;
     exec)
       # Four distinct in-container calls share `compose exec -T db`:
       #   psql       -> the PG-major probe (Step 2.5); answer server_version_num.
@@ -134,7 +140,10 @@ if [ "$1" = "compose" ]; then
       # through to app_up here, and the "no app_up on the failure path"
       # assertions below catch it.
       case "$*" in
-        *--no-deps*\ db|*--no-deps*\ db\ *) echo "db_recreate" >> "$LOG"; exit 0 ;;
+        *--no-deps*\ db|*--no-deps*\ db\ *)
+          echo "db_recreate" >> "$LOG"
+          [ "$DB_RECREATE_MODE" = "fail" ] && exit 1
+          exit 0 ;;
         *--no-deps*api\ worker*)            echo "restore_app" >> "$LOG"; exit 0 ;;
       esac
       echo "app_up" >> "$LOG"; exit 0 ;;
@@ -144,7 +153,17 @@ if [ "$1" = "compose" ]; then
       # the gate passes immediately. `ps -q <service>` -> a per-service cid
       # for wait_for_healthy's start_period lookup (test(#826)).
       for a in "$@"; do
-        if [ "$a" = "migrate" ]; then echo "mig-cid"; exit 0; fi
+        if [ "$a" = "migrate" ]; then
+          # fix(#1798 review round 11 audit, low-confidence item):
+          # DOCKER_MIGRATE_CID_MISSING models `compose ps -aq migrate`
+          # finding nothing right after `compose up -d --no-deps migrate`
+          # just reported success starting it — a Docker-level race the
+          # upgrade script must now fail loudly on instead of silently
+          # treating as "migrations applied."
+          [ "${DOCKER_MIGRATE_CID_MISSING:-0}" = "1" ] && exit 0
+          echo "mig-cid"
+          exit 0
+        fi
       done
       case "$*" in
         *--format*)
@@ -152,11 +171,30 @@ if [ "$1" = "compose" ]; then
           exit 0 ;;
         *" -q "*)
           for a in "$@"; do svc="$a"; done
+          # fix(#1798 review round 7, P2): DOCKER_DB_PS_FAIL models `compose
+          # ps -q db` itself failing (the db container vanished between the
+          # earlier `compose ps` and this one) — only for svc=db, only when
+          # explicitly requested, so the 93 other cid-<svc> lookups in this
+          # file are unaffected.
+          if [ "$svc" = "db" ] && [ "${DOCKER_DB_PS_FAIL:-0}" = "1" ]; then
+            exit 1
+          fi
           echo "cid-$svc"
           exit 0 ;;
       esac
       exit 0 ;;
     logs) exit 0 ;;
+    config)
+      # fix(#1798 review round 7, P2): `compose config --images db` -> the
+      # DB_IMAGE_TAG probe in the staleness check. Empty by default (the
+      # existing no-op every other test in this file relies on); only
+      # DOCKER_DB_IMAGE_TAG opts a test into driving it.
+      case "$*" in
+        *--images*db*)
+          [ -n "${DOCKER_DB_IMAGE_TAG:-}" ] && printf '%s\n' "${DOCKER_DB_IMAGE_TAG}"
+          ;;
+      esac
+      exit 0 ;;
     *) exit 0 ;;
   esac
 fi
@@ -201,7 +239,31 @@ if [ "$1" = "inspect" ]; then
       esac
       exit 0 ;;
     *State.ExitCode*) [ "$MIGRATE_MODE" = "fail" ] && echo 3 || echo 0 ; exit 0 ;;
+    *.Image*)
+      # fix(#1798 review round 7, P2): `docker inspect --format '{{.Image}}'
+      # <cid>` -> the RUNNING container's image id in the db-staleness
+      # check. Only answers for cid-db, and only when
+      # DOCKER_DB_RUNNING_IMAGE_ID is set — every other cid is unaffected
+      # (empty output, matching the pre-existing default).
+      for a in "$@"; do cid="$a"; done
+      case "$cid" in
+        cid-db) [ -n "${DOCKER_DB_RUNNING_IMAGE_ID:-}" ] && printf '%s\n' "${DOCKER_DB_RUNNING_IMAGE_ID}" ;;
+      esac
+      exit 0 ;;
   esac
+  exit 0
+fi
+if [ "$1" = "image" ] && [ "$2" = "inspect" ]; then
+  # fix(#1798 review round 7, P2): `docker image inspect --format '{{.Id}}'
+  # <tag>` -> the LOCAL built-image lookup in the db-staleness check.
+  # DOCKER_DB_BUILT_IMAGE_MISSING=1 models the tag being pruned locally
+  # (nonzero exit, matching the real CLI's "No such image" failure);
+  # otherwise answers DOCKER_DB_BUILT_IMAGE_ID (empty by default, the
+  # existing no-op for every other test).
+  if [ "${DOCKER_DB_BUILT_IMAGE_MISSING:-0}" = "1" ]; then
+    exit 1
+  fi
+  [ -n "${DOCKER_DB_BUILT_IMAGE_ID:-}" ] && printf '%s\n' "${DOCKER_DB_BUILT_IMAGE_ID}"
   exit 0
 fi
 exit 0
@@ -234,6 +296,21 @@ DB_CONF_INSTALLED='temp_file_limit = 0
 '
 DB_CONF_TARGET='temp_file_limit = 4GB
 '
+# fix(#1778): GIT_DOCKERFILE_SYNC_TEST switches `show <tag>:db/Dockerfile` to
+# per-tag content (DOCKERFILE_INSTALLED/DOCKERFILE_TARGET below), the same
+# shape as db/postgresql.conf's pair, so the new sync-and-rebuild path can be
+# exercised for real. Unset (the default), it keeps the ORIGINAL behavior
+# every other test in this file relies on: a single GIT_TARGET_PG-driven
+# string regardless of tag, which is all the Step 2.5 PG-major guard needs
+# (it only ever asks for the TARGET tag). The two blobs deliberately share the
+# SAME PostGIS major (17) and differ only in the extension minor (3.5 -> 3.6)
+# — the finding's own example of a Dockerfile bump that does not cross a
+# major — so this exercises Step 4's content sync without also tripping the
+# unrelated Step 2.5 PG-major guard (GIT_TARGET_PG defaults to 17 too).
+DOCKERFILE_INSTALLED='FROM --platform=linux/amd64 postgis/postgis:17-3.5
+'
+DOCKERFILE_TARGET='FROM --platform=linux/amd64 postgis/postgis:17-3.6
+'
 case "$1" in
   ls-remote) printf 'deadbeef\trefs/tags/v1.2.4\n' ;;
   fetch)     echo "fetch" >> "$GLOG" ;;
@@ -243,9 +320,13 @@ case "$1" in
       if [ "$a" = "db/postgresql.conf" ]; then
         printf '%s' "$DB_CONF_TARGET" > db/postgresql.conf
       fi
+      if [ "$a" = "db/Dockerfile" ]; then
+        printf '%s' "$DOCKERFILE_TARGET" > db/Dockerfile
+      fi
     done ;;
   # `git show <tag>:db/Dockerfile` -> the target release's bundled db base
-  # image, which the Step 2.5 PG-major guard parses.
+  # image, which the Step 2.5 PG-major guard parses AND (fix(#1778)) the
+  # Step 4 sync-and-rebuild content comparison reads.
   show)
     case "$2" in
       *:db/postgresql.conf)
@@ -253,6 +334,15 @@ case "$1" in
           v1.2.4:*) printf '%s' "$DB_CONF_TARGET" ;;
           *)        printf '%s' "$DB_CONF_INSTALLED" ;;
         esac ;;
+      *:db/Dockerfile)
+        if [ -n "${GIT_DOCKERFILE_SYNC_TEST:-}" ]; then
+          case "$2" in
+            v1.2.4:*) printf '%s' "$DOCKERFILE_TARGET" ;;
+            *)        printf '%s' "$DOCKERFILE_INSTALLED" ;;
+          esac
+        else
+          printf 'FROM --platform=linux/amd64 postgis/postgis:%s-3.6\n' "${GIT_TARGET_PG:-17}"
+        fi ;;
       *) printf 'FROM --platform=linux/amd64 postgis/postgis:%s-3.6\n' "${GIT_TARGET_PG:-17}" ;;
     esac ;;
   *)         exit 0 ;;
@@ -280,6 +370,24 @@ ENV
   printf '%s\n' "${1:-temp_file_limit = 0}" > "$FAKE/db/postgresql.conf"
 }
 
+# fix(#1778): seed db/Dockerfile matching the git stub's DOCKERFILE_INSTALLED
+# blob (an untouched file the upgrade may sync), or pass $1 to model an
+# operator who edited it. Only called by tests that also set
+# DOCKERFILE_SYNC_TEST=1 so the git stub answers per-tag for db/Dockerfile;
+# every other test leaves db/Dockerfile absent, matching the pre-existing
+# (harmless) "keeping your version" no-op that produces.
+seed_db_dockerfile() {
+  _dockerfile_installed='FROM --platform=linux/amd64 postgis/postgis:17-3.5
+'
+  printf '%s' "${1:-$_dockerfile_installed}" > "$FAKE/db/Dockerfile"
+}
+
+# Byte-identical to the git stub's DOCKERFILE_TARGET (the sync destination
+# content) — used by cases that model db/Dockerfile as already having been
+# synced to the target release.
+DOCKERFILE_TARGET_FOR_TESTS='FROM --platform=linux/amd64 postgis/postgis:17-3.6
+'
+
 run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
   _mode="$1"; shift
   make_stubs "$_mode"
@@ -296,6 +404,14 @@ run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
       DOCKER_SEAL_DIR="${SEAL_DIR:-}" DOCKER_API_STATE="${API_STATE:-running}" \
       DOCKER_PG_NUM="${PG_NUM:-170005}" GIT_TARGET_PG="${TARGET_PG:-17}" \
       DOCKER_DB_RUNNING_CONF="${DB_RUNNING_CONF-temp_file_limit = 0}" \
+      GIT_DOCKERFILE_SYNC_TEST="${DOCKERFILE_SYNC_TEST:-}" \
+      DOCKER_DB_RECREATE_MODE="${DB_RECREATE_MODE:-ok}" \
+      DOCKER_DB_IMAGE_TAG="${DB_IMAGE_TAG:-}" \
+      DOCKER_DB_PS_FAIL="${DB_PS_FAIL:-0}" \
+      DOCKER_DB_RUNNING_IMAGE_ID="${DB_RUNNING_IMAGE_ID:-}" \
+      DOCKER_DB_BUILT_IMAGE_ID="${DB_BUILT_IMAGE_ID:-}" \
+      DOCKER_DB_BUILT_IMAGE_MISSING="${DB_BUILT_IMAGE_MISSING:-0}" \
+      DOCKER_MIGRATE_CID_MISSING="${MIGRATE_CID_MISSING:-0}" \
       sh "$FAKE/scripts/upgrade.sh" "$@" </dev/null > "$WORK/out.txt" 2>&1 )
   echo $? > "$WORK/code.txt"
 }
@@ -622,6 +738,204 @@ else
   bad "db was recreated despite already serving the release config"
 fi
 unset DB_RUNNING_CONF
+
+# ============================================================================
+# CASE 2e — fix(#1778): db is the ONLY locally-built image in a prebuilt
+# install (compose pull --ignore-buildable skips it), so a release that
+# bumps db/Dockerfile never reached an existing install through this script.
+# An unmodified db/Dockerfile is synced to the target release AND rebuilt
+# before the migrate step, using the same content-vs-release-blob comparison
+# as db/postgresql.conf.
+# ============================================================================
+seed_prod_env
+seed_db_dockerfile
+# fix(#1778 review, P1): no build-state marker yet — this is the "never built
+# under the new tracking" starting point every case below is explicit about.
+rm -f "$FAKE/.geolens-db-image-built-from"
+DOCKERFILE_SYNC_TEST=1
+run_upgrade ok 1.2.4
+DOCKERFILE_SYNC_TEST=
+
+if grep -q 'postgis:17-3.6' "$FAKE/db/Dockerfile"; then
+  ok "unmodified db/Dockerfile is synced to the target release"
+else
+  bad "db/Dockerfile was not synced to the target: $(cat "$FAKE/db/Dockerfile")"
+fi
+build_pos="$(pos_of db_build)"
+recreate_pos="$(pos_of db_recreate)"
+migrate_pos="$(pos_of migrate_up)"
+backup_pos="$(pos_of backup)"
+pull_pos="$(pos_of pull)"
+stop_pos="$(pos_of stop_app)"
+if [ -n "$build_pos" ]; then
+  ok "a synced db/Dockerfile triggers a db image rebuild (compose build db)"
+else
+  bad "db/Dockerfile was synced but no rebuild was triggered: calls=$(tr '\n' ',' < "$WORK/calls.log")"
+fi
+# fix(#1798 review round 8, P2): compose build db moved to BEFORE Step 6's
+# stop — a db/Dockerfile base-layer fetch (the one thing --ignore-buildable
+# deliberately skips) used to run inside the outage window, extending it or
+# failing the upgrade after downtime had already begun. It now runs in the
+# same pre-outage window as the pull.
+if [ -n "$pull_pos" ] && [ -n "$build_pos" ] && [ -n "$stop_pos" ] \
+   && [ "$pull_pos" -lt "$build_pos" ] && [ "$build_pos" -lt "$stop_pos" ]; then
+  ok "db rebuild runs after the pull and BEFORE the outage stop ($pull_pos < $build_pos < $stop_pos)"
+else
+  bad "db rebuild out of place relative to pull/stop (pull=$pull_pos build=$build_pos stop=$stop_pos)"
+fi
+if [ -n "$backup_pos" ] && [ -n "$recreate_pos" ] && [ -n "$migrate_pos" ] \
+   && [ "$backup_pos" -lt "$recreate_pos" ] && [ "$recreate_pos" -lt "$migrate_pos" ]; then
+  ok "the db container recreate still runs between the backup and migrate ($backup_pos < $recreate_pos < $migrate_pos)"
+else
+  bad "db recreate out of place (backup=$backup_pos recreate=$recreate_pos migrate=$migrate_pos)"
+fi
+if [ -n "$build_pos" ] && [ -n "$recreate_pos" ] && [ "$build_pos" -lt "$recreate_pos" ]; then
+  ok "the db container is recreated AFTER the rebuild, to pick up the new image ($build_pos < $recreate_pos)"
+else
+  bad "recreate did not follow the rebuild (build=$build_pos recreate=$recreate_pos)"
+fi
+if [ -f "$FAKE/.geolens-db-image-built-from" ] \
+   && cmp -s "$FAKE/.geolens-db-image-built-from" "$FAKE/db/Dockerfile"; then
+  ok "a successful rebuild records the build marker matching the synced Dockerfile"
+else
+  bad "no build marker was recorded after a successful rebuild"
+fi
+
+# A db/Dockerfile the operator customized (matches neither the installed nor
+# the target release's blob) must be left alone, exactly like postgresql.conf.
+# It's already built (the marker matches it, as if built once at install
+# time), so it must not be needlessly rebuilt either.
+seed_prod_env
+CUSTOM_DOCKERFILE='FROM postgis/postgis:99-custom
+# hand-patched by the operator
+'
+seed_db_dockerfile "$CUSTOM_DOCKERFILE"
+printf '%s' "$CUSTOM_DOCKERFILE" > "$FAKE/.geolens-db-image-built-from"
+DOCKERFILE_SYNC_TEST=1
+run_upgrade ok 1.2.4
+DOCKERFILE_SYNC_TEST=
+
+if grep -q 'hand-patched by the operator' "$FAKE/db/Dockerfile"; then
+  ok "customized db/Dockerfile is NOT overwritten by the upgrade"
+else
+  bad "upgrade clobbered a customized db/Dockerfile: $(cat "$FAKE/db/Dockerfile")"
+fi
+if [ -z "$(pos_of db_build)" ]; then
+  ok "no db rebuild when a customized, already-built db/Dockerfile was left alone"
+else
+  bad "db was rebuilt even though the built image already matched the on-disk Dockerfile"
+fi
+
+# ============================================================================
+# CASE 2f — fix(#1778 review, P1): a synced-but-never-built db/Dockerfile on
+# retry still triggers the build. Before this fix, the rebuild trigger
+# (DB_DOCKERFILE_CHANGED) only tracked whether the SYNC STEP wrote a new file
+# THIS run, not whether the local image was ever actually rebuilt — so a run
+# that synced db/Dockerfile and then failed before reaching the build (a
+# `compose pull` failure is enough) left the target file on disk with the OLD
+# image still installed. On retry, the sync comparison found disk already
+# equal to the target blob and skipped the checkout, so the rebuild was
+# skipped too, and migrations ran against the stale image with no signal.
+# Model exactly that: the target content is ALREADY on disk (as a prior
+# attempt's sync would leave it) and NO build marker exists (the prior
+# attempt never reached the build).
+# ============================================================================
+seed_prod_env
+seed_db_dockerfile "$DOCKERFILE_TARGET_FOR_TESTS"
+rm -f "$FAKE/.geolens-db-image-built-from"
+DOCKERFILE_SYNC_TEST=1
+run_upgrade ok 1.2.4
+DOCKERFILE_SYNC_TEST=
+
+if [ -n "$(pos_of db_build)" ]; then
+  ok "a synced-but-unbuilt db/Dockerfile on retry still triggers the build"
+else
+  bad "retry with a synced-but-unbuilt Dockerfile skipped the rebuild: calls=$(tr '\n' ',' < "$WORK/calls.log")"
+fi
+if [ -f "$FAKE/.geolens-db-image-built-from" ] \
+   && cmp -s "$FAKE/.geolens-db-image-built-from" "$FAKE/db/Dockerfile"; then
+  ok "the retry's rebuild records the build marker, ending the retry loop"
+else
+  bad "the retry did not record a build marker matching db/Dockerfile"
+fi
+
+# ...and once the marker matches what's on disk (the retry above succeeded),
+# a further run does not keep rebuilding forever.
+seed_prod_env
+seed_db_dockerfile "$DOCKERFILE_TARGET_FOR_TESTS"
+printf '%s' "$DOCKERFILE_TARGET_FOR_TESTS" > "$FAKE/.geolens-db-image-built-from"
+DOCKERFILE_SYNC_TEST=1
+run_upgrade ok 1.2.4
+DOCKERFILE_SYNC_TEST=
+
+if [ -z "$(pos_of db_build)" ]; then
+  ok "no perpetual rebuild once the build marker matches the on-disk Dockerfile"
+else
+  bad "db was rebuilt again despite the marker already matching db/Dockerfile"
+fi
+
+# ============================================================================
+# CASE 2g — fix(#1778 review round 2, P1): build succeeds, the FOLLOW-ON
+# recreate fails. Before this fix the marker was written right after
+# `compose build db`, before the separate `compose up --force-recreate`
+# that actually makes the new image live — so a build-ok/recreate-fail run
+# left a marker claiming success while the container was still on the old
+# image, and a retry saw the matching marker and skipped both the rebuild
+# and the recreate. The marker write now happens only after the recreate
+# itself succeeds, so a failed recreate must leave NO marker, and a retry
+# must attempt (and this time complete) both the rebuild and the recreate.
+# ============================================================================
+seed_prod_env
+seed_db_dockerfile
+rm -f "$FAKE/.geolens-db-image-built-from"
+DOCKERFILE_SYNC_TEST=1
+DB_RECREATE_MODE=fail
+run_upgrade ok 1.2.4
+DB_RECREATE_MODE=ok
+
+if [ "$(cat "$WORK/code.txt")" != "0" ]; then
+  ok "build ok / recreate fail aborts the upgrade (non-zero exit)"
+else
+  bad "build ok / recreate fail did not fail the upgrade"
+fi
+if [ -n "$(pos_of db_build)" ] && [ -n "$(pos_of db_recreate)" ]; then
+  ok "build ok / recreate fail still attempted both the rebuild and the recreate"
+else
+  bad "build ok / recreate fail skipped a step: calls=$(tr '\n' ',' < "$WORK/calls.log")"
+fi
+if [ ! -f "$FAKE/.geolens-db-image-built-from" ]; then
+  ok "a failed recreate leaves NO build marker, even though the build itself succeeded"
+else
+  bad "a build marker was recorded despite the recreate failing"
+fi
+
+# ...retry: the Dockerfile is still at target content on disk (nothing to
+# re-sync) and, critically, still has no marker — so the retry must rebuild
+# AND recreate again, not silently skip both the way the pre-fix script did.
+run_upgrade ok 1.2.4
+DOCKERFILE_SYNC_TEST=
+
+if [ "$(cat "$WORK/code.txt")" = "0" ]; then
+  ok "the retry (recreate now succeeding) completes the upgrade"
+else
+  bad "the retry did not complete: $(cat "$WORK/out.txt")"
+fi
+if [ -n "$(pos_of db_build)" ] && [ -n "$(pos_of db_recreate)" ]; then
+  ok "the retry attempts both the rebuild and the recreate again"
+else
+  bad "the retry skipped a step: calls=$(tr '\n' ',' < "$WORK/calls.log")"
+fi
+if [ -n "$(pos_of migrate_up)" ]; then
+  ok "the retry reaches migrate only after rebuild+recreate both completed"
+else
+  bad "the retry reached migrate without a completed rebuild/recreate"
+fi
+if [ -f "$FAKE/.geolens-db-image-built-from" ] \
+   && cmp -s "$FAKE/.geolens-db-image-built-from" "$FAKE/db/Dockerfile"; then
+  ok "the retry's successful recreate records the build marker"
+else
+  bad "the retry did not record a build marker matching db/Dockerfile"
+fi
 
 # ============================================================================
 # CASE 3 — source-build install: instructions + exit 0, NO compose/backup calls.
@@ -1119,6 +1433,126 @@ HC_BACKUP=""
 HC_FRONTEND=""
 STARTED_BACKUP=""
 STARTED_FRONTEND=""
+
+# ============================================================================
+# CASE 11 — fix(#1798 review round 7, P2): the db-image-staleness probe
+# (`compose ps -q db` / `docker inspect --format '{{.Image}}'` / `docker
+# image inspect --format '{{.Id}}'`) had no `|| printf ''` guard on any of
+# its three lookups, so any of them returning nonzero under `set -eu`
+# aborted the WHOLE upgrade — contradicting the "fails open" comment right
+# above that block in upgrade.sh. None of CASE 1-10 above ever drive
+# DB_IMAGE_TAG non-empty, so this is the first coverage of that block at
+# all.
+# ============================================================================
+# Reset ALL five staleness-probe knobs before every scenario below (not
+# just the ones a given test happened to set) — a stray leftover value
+# from an earlier scenario silently changing which branch the NEXT one
+# takes is exactly the kind of bug this suite exists to catch.
+reset_db_image_probe() {
+  DB_IMAGE_TAG=""
+  DB_PS_FAIL=0
+  DB_RUNNING_IMAGE_ID=""
+  DB_BUILT_IMAGE_ID=""
+  DB_BUILT_IMAGE_MISSING=0
+}
+
+reset_db_image_probe
+seed_prod_env
+DB_IMAGE_TAG="geolens-db:local"
+DB_RUNNING_IMAGE_ID="sha256:running123"
+DB_BUILT_IMAGE_MISSING=1
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] \
+   && grep -qF "was not found locally (pruned?)" "$WORK/out.txt" \
+   && [ -n "$(pos_of db_build)" ]; then
+  ok "a pruned local db image forces a rebuild instead of aborting the upgrade"
+else
+  bad "pruned local db image did not force a rebuild (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+reset_db_image_probe
+seed_prod_env
+DB_IMAGE_TAG="geolens-db:local"
+DB_PS_FAIL=1
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -z "$(pos_of db_build)" ]; then
+  ok "the db container vanishing during the staleness probe does not abort the upgrade"
+else
+  bad "a vanished db container aborted the upgrade or forced a spurious rebuild (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+reset_db_image_probe
+seed_prod_env
+DB_IMAGE_TAG="geolens-db:local"
+DB_BUILT_IMAGE_ID="sha256:built123"
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -z "$(pos_of db_build)" ]; then
+  ok "an unreadable running-container image id fails open (no forced rebuild)"
+else
+  bad "an unreadable running image id aborted the upgrade or forced a spurious rebuild (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+reset_db_image_probe
+seed_prod_env
+DB_IMAGE_TAG="geolens-db:local"
+DB_RUNNING_IMAGE_ID="sha256:running123"
+DB_BUILT_IMAGE_ID="sha256:built456"
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] \
+   && grep -qF "does not match the locally built db image" "$WORK/out.txt" \
+   && [ -n "$(pos_of db_build)" ]; then
+  ok "a genuine running-vs-built image mismatch still forces a rebuild"
+else
+  bad "a genuine image mismatch did not force a rebuild (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+reset_db_image_probe
+seed_prod_env
+DB_IMAGE_TAG="geolens-db:local"
+DB_RUNNING_IMAGE_ID="sha256:same789"
+DB_BUILT_IMAGE_ID="sha256:same789"
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -z "$(pos_of db_build)" ]; then
+  ok "matching running/built image ids skip the rebuild"
+else
+  bad "matching image ids incorrectly forced a rebuild (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+reset_db_image_probe
+
+# ============================================================================
+# CASE 12 — fix(#1798 review round 11 audit, low-confidence item): `compose
+# ps -aq migrate` finding NOTHING right after `compose up -d --no-deps
+# migrate` just reported success starting it used to be silently treated
+# as "migrations applied" (the exit-code check was skipped entirely, not
+# just the belated container). The upgrade now fails loudly instead.
+# ============================================================================
+seed_prod_env
+MIGRATE_CID_MISSING=1
+run_upgrade ok 1.2.4
+MIGRATE_CID_MISSING=0
+
+if [ "$(cat "$WORK/code.txt")" != "0" ] \
+   && grep -qF "Could not find the migrate one-shot container" "$WORK/out.txt"; then
+  ok "an empty migrate_cid after a successful compose up fails the upgrade loudly"
+else
+  bad "an empty migrate_cid did not fail the upgrade (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+if [ -z "$(pos_of app_up)" ]; then
+  ok "the NEW app is never brought up when the migrate container could not be found"
+else
+  bad "the new app was brought up despite the missing migrate container: calls=$(tr '\n' ',' < "$WORK/calls.log")"
+fi
+if [ -n "$(pos_of restore_app)" ]; then
+  ok "the previous release is restored, matching every other migrate-step failure"
+else
+  bad "no restore was attempted after the missing migrate container: calls=$(tr '\n' ',' < "$WORK/calls.log")"
+fi
 
 echo "1..$((PASS + FAIL))"
 echo "# $PASS passed, $FAIL failed"

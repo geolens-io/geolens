@@ -63,9 +63,32 @@ docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is required."
 REPO_URL="${GEOLENS_REPO_URL:-https://github.com/geolens-io/geolens.git}"
 
 # --- Step 1: read current install state -------------------------------------
-COMPOSE_FILE="$(get_env_value COMPOSE_FILE)"
+# fix(#1778 review round 6, P2): get_env_value now returns 1 (empty stdout)
+# when a key has no `key=` line in .env at all, distinct from a key present
+# with an empty value — `|| true` keeps that a no-op here, since every use
+# below already treats "" as "not set" via `[ -n "$X" ] || X=default` /
+# `${X:-...}`, and this script has no inherited-process-value case to
+# preserve the way restore.sh/check-env.sh do (nothing here reads these
+# vars before this point). Without the guard, a plain `.env` missing one of
+# these optional keys would abort the whole upgrade under `set -eu`.
+#
+# fix(#1798 review round 15, P2, review 5104520795): assigns straight into
+# each target via env_value_into rather than `VAR="$(get_env_value ...)"` —
+# see restore.sh's own round 15 comment on the same pattern for why plain
+# command substitution is not enough on its own (it strips a trailing
+# decoded newline regardless of what get_env_value itself preserves).
+env_value_into COMPOSE_FILE COMPOSE_FILE .env || true
+# fix(#1798 review round 15, P2, review 5104520795): env_value_into
+# leaves the target COMPLETELY unset on failure (unlike the old
+# `VAR="$(get_env_value ...)" || true`, which always assigned SOMETHING,
+# even ""). Every use of these vars below is already `${VAR:-...}`-
+# guarded EXCEPT the bare `[ -n "$VAR" ]` checks a few lines down —
+# restore this script's prior "always at least empty" invariant with
+# `:=` so a genuinely unset var never trips `set -u` there.
+: "${COMPOSE_FILE:=}"
 [ -n "$COMPOSE_FILE" ] || COMPOSE_FILE="docker-compose.yml"
-CURRENT_VERSION="$(get_env_value GEOLENS_VERSION)"
+env_value_into CURRENT_VERSION GEOLENS_VERSION .env || true
+: "${CURRENT_VERSION:=}"
 
 if [ "$COMPOSE_FILE" != "docker-compose.prod.yml" ]; then
   say "This install builds images from source (COMPOSE_FILE=$COMPOSE_FILE)."
@@ -129,8 +152,13 @@ fi
 say "Upgrading GeoLens: ${CURRENT_VERSION:-unknown} -> ${TARGET_VERSION}"
 say ""
 
-POSTGRES_USER="$(get_env_value POSTGRES_USER)"
-POSTGRES_DB="$(get_env_value POSTGRES_DB)"
+# fix(#1778 review round 6, P2): see the Step 1 comment above — `|| true`
+# keeps a missing key a no-op, since the next two lines already default an
+# empty result.
+env_value_into POSTGRES_USER POSTGRES_USER .env || true
+env_value_into POSTGRES_DB POSTGRES_DB .env || true
+: "${POSTGRES_USER:=}"
+: "${POSTGRES_DB:=}"
 [ -n "$POSTGRES_USER" ] || POSTGRES_USER="geolens"
 [ -n "$POSTGRES_DB" ] || POSTGRES_DB="geolens"
 
@@ -154,8 +182,13 @@ TARGET_TAG="v${TARGET_VERSION}"
 # A bundled install using the opt-in GEOLENS_RUNTIME_DB_ROLE also sets that
 # override, so distinguish it by the Compose-only `db` hostname rather than by
 # the role flag alone (fix(#1287 review)).
-DATABASE_URL_OVERRIDE_VALUE="$(get_env_value DATABASE_URL_OVERRIDE)"
-RUNTIME_DB_ROLE_VALUE="$(get_env_value GEOLENS_RUNTIME_DB_ROLE)"
+# fix(#1778 review round 6, P2): see the Step 1 comment above — both are
+# optional flags already tested with `[ -n "$X" ]` below, so `|| true`
+# keeps a missing key a no-op instead of aborting the upgrade.
+env_value_into DATABASE_URL_OVERRIDE_VALUE DATABASE_URL_OVERRIDE .env || true
+env_value_into RUNTIME_DB_ROLE_VALUE GEOLENS_RUNTIME_DB_ROLE .env || true
+: "${DATABASE_URL_OVERRIDE_VALUE:=}"
+: "${RUNTIME_DB_ROLE_VALUE:=}"
 override_targets_bundled_db() {
   _url="$1"
   _authority="${_url#*://}"
@@ -252,6 +285,7 @@ say "Step 1/5: syncing release files to ${TARGET_TAG}, then pulling prebuilt ima
 DB_CONF="db/postgresql.conf"
 DB_CONF_CHANGED=0
 DB_CONF_AT_TARGET=0
+DB_DOCKERFILE="db/Dockerfile"
 if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
   if git fetch --depth 1 --quiet "$REPO_URL" "refs/tags/${TARGET_TAG}:refs/tags/${TARGET_TAG}" 2>/dev/null \
      || git fetch --tags --quiet "$REPO_URL" 2>/dev/null; then
@@ -309,6 +343,34 @@ if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; th
       fi
       rm -f "$_db_conf_target" "$_db_conf_installed"
     fi
+    # fix(#1778): db is the ONLY locally-built image in a prebuilt install —
+    # `compose pull --ignore-buildable` at Step 5 skips it by definition, and
+    # `docker compose up -d` does not rebuild an existing local image on its
+    # own. Left unsynced, a release that bumps the PostGIS/pgvector base
+    # (db/Dockerfile) never reaches an existing install through this script,
+    # and a migration that depends on the newer base fails mid-migrate with
+    # no earlier signal. Same content-vs-release-blob comparison as
+    # ${DB_CONF} above: sync only when the file still matches the installed
+    # release's blob, so an operator's own Dockerfile edit is left alone.
+    if git cat-file -e "${TARGET_TAG}:${DB_DOCKERFILE}" 2>/dev/null; then
+      _db_dockerfile_target="$(mktemp)"
+      _db_dockerfile_installed="$(mktemp)"
+      if git show "${TARGET_TAG}:${DB_DOCKERFILE}" > "$_db_dockerfile_target" 2>/dev/null; then
+        if cmp -s "$_db_dockerfile_target" "$DB_DOCKERFILE"; then
+          : # already the release's file on disk — nothing to rebuild for
+        elif git show "v${CURRENT_VERSION:-}:${DB_DOCKERFILE}" > "$_db_dockerfile_installed" 2>/dev/null \
+             && cmp -s "$_db_dockerfile_installed" "$DB_DOCKERFILE"; then
+          if git checkout --quiet "$TARGET_TAG" -- "$DB_DOCKERFILE" db/.dockerignore 2>/dev/null; then
+            say "  ${DB_DOCKERFILE} synced to ${TARGET_TAG}"
+          fi
+        else
+          warn "${DB_DOCKERFILE} does not match the installed release — keeping your version."
+          warn "  Review 'git diff ${TARGET_TAG} -- ${DB_DOCKERFILE}', merge any base-image or"
+          warn "  extension bump, then 'docker compose build db && docker compose up -d --force-recreate db'."
+        fi
+      fi
+      rm -f "$_db_dockerfile_target" "$_db_dockerfile_installed"
+    fi
   else
     warn "Could not fetch ${TARGET_TAG} from ${REPO_URL} — keeping the current checkout's compose/scripts."
   fi
@@ -335,10 +397,125 @@ if [ "$DB_CONF_AT_TARGET" = "1" ] && [ -f "$DB_CONF" ]; then
 fi
 say ""
 
-# --- Step 5: pull the new images (the last step before any downtime) ---------
+# --- Step 5: pull the new images, rebuild db locally if needed (the last steps before any downtime) ---------
 compose pull --ignore-buildable \
   || fail "Could not pull prebuilt images for $TARGET_VERSION. Nothing was stopped, .env still pins ${PREVIOUS_VERSION}, and the database is untouched."
 say ""
+
+# fix(#1798 review round 8, P2): this whole block — computing whether the db
+# image needs rebuilding, and the `compose build db` call itself — used to
+# sit AFTER Step 6's `compose stop api worker`, i.e. inside the outage
+# window. `compose build db` is the ONLY step compose pull's
+# `--ignore-buildable` deliberately skips, so on a cache miss (db/Dockerfile
+# changed, or this is the image's first build) it is a real network fetch of
+# db/Dockerfile's base layer — exactly the class of "slow/unavailable
+# registry" risk Step 5's pull comment above already calls out, just for a
+# different image. Running it after the stop extended the outage by however
+# long that fetch took, or failed the upgrade with the app already down. It
+# now runs here, in the same pre-outage window as the pull, so a slow or
+# failed base-image fetch is caught before anything is stopped — matching
+# Step 5's own "Nothing was stopped" failure message below. Only the db
+# CONTAINER RECREATE (a local operation against the image just built, not a
+# network fetch) stays in the post-backup phase, where it belongs: db must
+# stay up through the dump, and the recreate needs the app already stopped
+# to be worth doing before the migrate step.
+#
+# fix(#1778 review, P1): an earlier version of this fix gated the rebuild on
+# a DB_DOCKERFILE_CHANGED flag that only tracked whether THIS run's sync step
+# wrote a new file — not whether the local image was ever actually rebuilt
+# from it. A run that syncs db/Dockerfile and then fails before reaching the
+# build (compose pull failing is enough) leaves the target Dockerfile on disk
+# with the OLD image still installed. On retry, the sync comparison finds
+# disk already equal to the target blob and takes the "nothing to do"
+# branch, so that flag was 0 and the rebuild was skipped — migrations then
+# ran against the stale PostGIS/pgvector image with no earlier signal
+# anything was wrong.
+#
+# DB_IMAGE_BUILT_MARKER tracks image state instead of file-vs-target state: a
+# byte snapshot of the db/Dockerfile the LOCAL IMAGE was actually built from,
+# written only after `compose build db` succeeds. Comparing the on-disk
+# Dockerfile against that marker (not against the release blob) answers "does
+# the built image match what's on disk", regardless of how it got there or
+# which run last touched it. A cmp-based snapshot is used instead of a hash so
+# this needs no sha256sum/shasum dependency — the same reasoning the
+# content-vs-release-blob sync comparisons above already rely on. A missing
+# marker (fresh install of this script version, or the marker file was lost)
+# is treated as "needs rebuild": a one-time rebuild that hits Docker's build
+# cache when the image already matches, which establishes the marker going
+# forward. The marker itself is only WRITTEN later, in the post-backup phase,
+# after the recreate that makes a freshly built image live actually succeeds
+# — see that block's own comment for why.
+DB_IMAGE_BUILT_MARKER="$PROJECT_ROOT/.geolens-db-image-built-from"
+DB_IMAGE_NEEDS_REBUILD=0
+if [ -f "$DB_DOCKERFILE" ] \
+   && { [ ! -f "$DB_IMAGE_BUILT_MARKER" ] || ! cmp -s "$DB_IMAGE_BUILT_MARKER" "$DB_DOCKERFILE"; }; then
+  DB_IMAGE_NEEDS_REBUILD=1
+fi
+
+# fix(#1778 review round 2, P1): the marker alone cannot tell "the on-disk
+# Dockerfile matches what was built" apart from "and that build is what the
+# CONTAINER is actually running" — those used to be conflated by writing the
+# marker right after `compose build db`, before the separate `compose up
+# --force-recreate` that makes the new image live. Build succeeding while the
+# recreate step fails (or never runs) left a marker claiming success while
+# the running container was still on the old image; a retry then saw a
+# matching marker and skipped both the rebuild and the recreate, and
+# migrations ran against the stale container. The marker write stays in the
+# post-backup phase, after the recreate succeeds. This block is a second,
+# independent check for the same class of drift from any OTHER cause (a
+# marker restored from backup, an operator's out-of-band `docker
+# restart`/`down`+`up`): even when the marker matches db/Dockerfile, compare
+# the RUNNING container's image id against the id compose would (re)build/run
+# for `db` — a mismatch forces a rebuild and recreate regardless of what the
+# marker says. `compose config --images` resolves the configured image name
+# from the compose file alone (no container required), so this works even
+# before `db` has ever been created; db itself is never stopped by this
+# script, so reading its state here (before the api/worker stop) versus after
+# is equivalent. Any lookup failing empty (no container yet, unreadable)
+# fails open — like this script's other best-effort probes — since forcing a
+# rebuild on every uncertain read would defeat the marker's purpose.
+DB_IMAGE_STALE_CONTAINER=0
+if [ "$DB_IMAGE_NEEDS_REBUILD" = "0" ]; then
+  # fix(#1778 review round 7, P2): every lookup below now has an explicit
+  # `|| printf ''` — without it, `compose ps -q db` / `docker inspect` /
+  # `docker image inspect` returning nonzero (the db container vanished
+  # between the `compose ps` above and this inspect, or Docker itself
+  # hiccups) aborted the WHOLE upgrade under `set -eu`, contradicting the
+  # "fails open" comment above: a probe failing is supposed to skip this
+  # one drift check, not kill the script three steps into an upgrade.
+  _db_image_tag="$(compose config --images db 2>/dev/null | head -n 1)"
+  _db_container_id="$(compose ps -q db 2>/dev/null || printf '')"
+  if [ -n "$_db_image_tag" ] && [ -n "$_db_container_id" ]; then
+    _db_running_image_id="$(docker inspect --format '{{.Image}}' "$_db_container_id" 2>/dev/null || printf '')"
+    _db_built_image_id="$(docker image inspect --format '{{.Id}}' "$_db_image_tag" 2>/dev/null || printf '')"
+    if [ -n "$_db_running_image_id" ] && [ -z "$_db_built_image_id" ]; then
+      # fix(#1778 review round 7, P2): the tagged local image `compose
+      # config --images` resolved is gone (pruned) even though a `db`
+      # container is currently running from SOME image — we cannot prove
+      # it still matches what db/Dockerfile would build, which is exactly
+      # what this check exists to prove before skipping a rebuild. Treat
+      # a missing local image the same as a confirmed mismatch.
+      DB_IMAGE_STALE_CONTAINER=1
+      warn "The locally built db image (${_db_image_tag}) was not found locally (pruned?) — rebuilding it."
+    elif [ -n "$_db_running_image_id" ] && [ -n "$_db_built_image_id" ] \
+       && [ "$_db_running_image_id" != "$_db_built_image_id" ]; then
+      DB_IMAGE_STALE_CONTAINER=1
+      warn "The running db container's image does not match the locally built db image — rebuilding and recreating it."
+    fi
+  fi
+fi
+
+# fix(#1798 review round 8, P2): runs here, before Step 6's stop, so a
+# db/Dockerfile base-layer fetch (the one thing --ignore-buildable above
+# deliberately skips) cannot extend the outage or fail the upgrade after
+# downtime has already begun. Only the container recreate that makes this
+# build live stays in the post-backup phase (below) — see that block.
+if [ "$DB_IMAGE_NEEDS_REBUILD" = "1" ] || [ "$DB_IMAGE_STALE_CONTAINER" = "1" ]; then
+  say "Rebuilding the db image (db/Dockerfile differs from what the local image was last built from)"
+  compose build db \
+    || fail "Could not rebuild the db image from ${DB_DOCKERFILE}. Nothing was stopped, .env still pins ${PREVIOUS_VERSION}, and the database is untouched."
+  say ""
+fi
 
 # --- Step 6: stop the app, then take the pre-upgrade backup ------------------
 # fix(#1467): this line is the boundary. Everything ABOVE it — the release-file
@@ -483,6 +660,13 @@ print_rollback() {
 }
 rollback_trap() {
   rc=$?
+  # fix(#1778 round 20, P1 class): `trap` holds only ONE handler per
+  # signal — this trap REPLACES common.sh's own EXIT trap (which would
+  # otherwise clean up its env-snapshot directory, see scripts/lib/
+  # common.sh's own comment near the top of that file), so this cleanup
+  # takes over that job too. After $rc is captured, so this never clobbers
+  # the exit status being inspected below.
+  _env_snapshot_cleanup 2>/dev/null || true
   if [ "$rc" -ne 0 ]; then
     warn "Upgrade FAILED (exit $rc). Your data is safe in $BACKUP_FILE."
     if [ "$APP_DOWN" = "1" ]; then
@@ -497,13 +681,36 @@ trap rollback_trap EXIT
 # fix(#959): the release's db/postgresql.conf needs the container RECREATED,
 # not restarted or reloaded — `git checkout` writes a new inode and a
 # single-file bind mount keeps resolving the one the container started with.
-# Do it before the migrate step, while the app is already stopped and the dump
-# is already taken, and wait for the healthcheck.
-if [ "$DB_CONF_CHANGED" = "1" ]; then
-  say "Applying ${DB_CONF} (recreating the db container)"
+# fix(#1778): a rebuilt db image (built earlier, pre-outage — see above) needs
+# the same recreate to pick it up. Do it before the migrate step, while the
+# app is already stopped and the dump is already taken, and wait for the
+# healthcheck.
+if [ "$DB_CONF_CHANGED" = "1" ] || [ "$DB_IMAGE_NEEDS_REBUILD" = "1" ] || [ "$DB_IMAGE_STALE_CONTAINER" = "1" ]; then
+  say "Recreating the db container"
   compose up -d --force-recreate --no-deps --wait db \
-    || fail "Could not recreate the db container after syncing ${DB_CONF}."
+    || fail "Could not recreate the db container after syncing db/Dockerfile and/or ${DB_CONF}."
   say ""
+  # fix(#1778 review round 2, P1): only NOW, after the recreate that makes
+  # the running container match db/Dockerfile has actually succeeded, is it
+  # true that the built image reflects the current file — record the marker
+  # here instead of right after `compose build db`. A build that succeeds
+  # followed by a recreate that fails must leave the marker exactly as it
+  # was (missing or stale), so a retry rebuilds and recreates again rather
+  # than seeing a false match and skipping both.
+  if [ "$DB_IMAGE_NEEDS_REBUILD" = "1" ] || [ "$DB_IMAGE_STALE_CONTAINER" = "1" ]; then
+    # .tmp-then-mv so a container/host killed mid-write never leaves a
+    # truncated marker under the final name (the same reason every backup
+    # artifact in this repo writes state that way). Failing to record it is
+    # not fatal — it only costs a redundant, cache-hit rebuild on the next
+    # upgrade — but is surfaced so a repeatedly-rebuilding operator knows why.
+    if cp "$DB_DOCKERFILE" "${DB_IMAGE_BUILT_MARKER}.tmp" 2>/dev/null \
+       && mv "${DB_IMAGE_BUILT_MARKER}.tmp" "$DB_IMAGE_BUILT_MARKER" 2>/dev/null; then
+      :
+    else
+      rm -f "${DB_IMAGE_BUILT_MARKER}.tmp"
+      warn "Could not record the db image build marker at ${DB_IMAGE_BUILT_MARKER} — the next upgrade will rebuild again even if db/Dockerfile has not changed."
+    fi
+  fi
 fi
 
 # --- Step 7: run migrations (fail-closed) BEFORE bringing the app up ---------
@@ -532,6 +739,19 @@ if [ -n "$migrate_cid" ]; then
     compose logs --tail 30 migrate 2>&1 | sed 's/^/  /' >&2
     fail "Migrations did NOT complete. The database may already hold part of ${TARGET_VERSION}'s migrations, and $TARGET_VERSION was NOT started. The version pin in .env still reads ${PREVIOUS_VERSION}."
   fi
+else
+  # fix(#1798 review round 11 audit, low-confidence item): `compose up -d
+  # --no-deps migrate` just reported success starting this exact
+  # container, and `ps -aq` (unlike a bare `ps -q`) includes stopped/
+  # exited ones — so an EMPTY migrate_cid here means something already
+  # went wrong (a Docker-level race or daemon hiccup) between that success
+  # and this lookup, not a normal "not created yet" state the way it can
+  # be for the db-image-staleness probes elsewhere in this file. Silently
+  # falling through to "migrations applied." would tell the operator (and
+  # the code below that commits the upgrade forward, unarming the
+  # rollback trap) that the schema is safe to build on when there is no
+  # evidence it ran at all.
+  fail "Could not find the migrate one-shot container after starting it — migrations may not have run. $TARGET_VERSION was NOT started and the version pin in .env still reads ${PREVIOUS_VERSION}."
 fi
 say "  migrations applied."
 # Committed forward. The schema is the new release's, so the trap must not put
@@ -566,6 +786,11 @@ if ! wait_for_healthy; then
 fi
 
 # Success — defuse the failure trap and print the rollback recipe for reference.
+# fix(#1778 round 20, P1 class): clearing the trap here also removes
+# common.sh's own snapshot-cleanup trap (already replaced by rollback_trap
+# above, but that handler is now defused too) — clean up explicitly so the
+# directory does not leak for the remainder of this successful run.
+_env_snapshot_cleanup 2>/dev/null || true
 trap - EXIT
 say ""
 say "GeoLens upgraded to $TARGET_VERSION and is healthy."

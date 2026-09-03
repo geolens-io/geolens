@@ -34,7 +34,7 @@ def _extract_backup_staging() -> str:
 
 
 def _run_cycle(
-    tmp_path: Path, tar_exit: int
+    tmp_path: Path, tar_exit: int, verify_exit: int = 0
 ) -> tuple[subprocess.CompletedProcess, Path]:
     staging = tmp_path / "staging"
     daily = tmp_path / "daily"
@@ -45,9 +45,18 @@ def _run_cycle(
     (staging / "object.bin").write_bytes(b"payload")
 
     # Stub tar mirrors real tar's exit-1 behavior: the archive IS written.
-    # Invocation shape is `tar czf <archive> -C <dir> .` so $2 is the archive.
+    # Invocation shape is `tar czf <archive>.tmp -C <dir> .` for the write and
+    # `tar tzf <archive>.tmp` for the fix(#1778) verification step that runs
+    # afterwards — dispatch on $1 so the two calls can be driven independently.
     tar_stub = bin_dir / "tar"
-    tar_stub.write_text(f'#!/bin/sh\necho stub-archive > "$2"\nexit {tar_exit}\n')
+    tar_stub.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = "czf" ]; then\n'
+        '    echo stub-archive > "$2"\n'
+        f"    exit {tar_exit}\n"
+        "fi\n"
+        f"exit {verify_exit}\n"
+    )
     tar_stub.chmod(0o755)
 
     harness = (
@@ -91,3 +100,24 @@ class TestBackupStagingTarSkew:
         assert result.returncode != 0
         assert not archive.exists()
         assert "ERROR: object-storage archive failed" in result.stderr
+
+    def test_tar_writes_to_tmp_name_before_publishing(self, tmp_path: Path):
+        """fix(#1778): `tar czf` must target `<archive>.tmp`, not the final
+        name directly — before the fix it wrote straight to `staging-*.tar.gz`,
+        so a container killed mid-write (OOM, `compose stop`, disk full) left
+        a truncated archive sitting under its final name, indistinguishable
+        from a good one until restore.sh tried to extract it."""
+        source = _extract_backup_staging()
+        assert 'tar czf "${archive}.tmp"' in source
+        assert 'tar czf "$archive"' not in source
+
+    def test_tar_verification_failure_discards_archive_and_fails(self, tmp_path: Path):
+        """fix(#1778): `tar tzf` failing on the freshly written .tmp — a
+        truncated gzip member neither tar exit code above catches — must
+        discard the archive and fail the cycle, the tar-side analogue of the
+        dump's `pg_restore -f /dev/null` verification."""
+        result, archive = _run_cycle(tmp_path, tar_exit=0, verify_exit=2)
+        assert result.returncode != 0
+        assert not archive.exists()
+        assert not (archive.parent / (archive.name + ".tmp")).exists()
+        assert "failed verification" in result.stderr
