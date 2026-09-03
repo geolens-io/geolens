@@ -39,6 +39,7 @@ from typing import Any
 
 from starlette.responses import JSONResponse
 
+from app.api.middleware.liveness import is_liveness_request
 from app.standards.ogc.errors import ProblemDetail
 
 # Sync in-memory cache for the upload limit — avoids an async DB pool
@@ -277,7 +278,17 @@ class RequestBodyLimitMiddleware:
         # _refresh_limit_cache populates the sync _limit_cache; _get_upload_limit
         # reads it.  Per GAP-001, non-upload routes use DEFAULT_BODY_LIMIT_BYTES
         # as the route_override so the large upload limit never applies to them.
-        await _refresh_limit_cache()
+        #
+        # fix(#1778 codex r7): skipped for the liveness probe. The refresh is
+        # already failure-tolerant -- it catches everything and falls back to
+        # the cached or boot-time limit -- so an outage does not FAIL the probe,
+        # but it does make it WAIT: once the 30s cache expires, every request
+        # pays a connection attempt, and against a blackholed database that is
+        # the probe's whole timeout budget spent before the handler runs. A
+        # probe that answers too late is indistinguishable from a dead process.
+        # The size cap still applies, from the cached or fallback value.
+        if not is_liveness_request(scope):
+            await _refresh_limit_cache()
 
         path = scope.get("path", "")
         method = scope.get("method", "")

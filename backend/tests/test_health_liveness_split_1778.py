@@ -103,3 +103,186 @@ def test_the_runbook_sends_liveness_to_the_liveness_route():
     assert not offenders, (
         f"RUNBOOK.md points a liveness check at the readiness endpoint: {offenders}"
     )
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778 codex r7): the probe must not touch a dependency on the way in
+# ---------------------------------------------------------------------------
+#
+# The handler answering without a dependency is only the last step. Three
+# middlewares on the request path have a DB-backed branch, and in multi_tenant
+# mode TenantContextMiddleware turned a database outage into a 403 on the
+# probe -- an orchestrator then restarts an API that is alive and serving
+# catalog reads, which is the restart loop this whole split exists to prevent.
+
+#: Every middleware that reaches the database, the cache or object storage on
+#: the request path, and therefore has to let the probe past. Kept as data so
+#: the structural test below names what it checked rather than grepping the
+#: package and asserting nothing when a rename lands.
+_DB_BACKED_MIDDLEWARE = {
+    "app/api/middleware/tenant_context.py": "public tenant-host registry lookup",
+    "app/api/middleware/cors.py": "CORS_ALLOWED_ORIGINS persistent-config read",
+    "app/api/middleware/body_limit.py": "UPLOAD_MAX_SIZE_MB persistent-config read",
+}
+
+
+def test_every_db_backed_middleware_lets_the_probe_past():
+    """Structural: each one calls the shared predicate, and none rolls its own.
+
+    A path check copied into three middlewares is three things that drift; the
+    predicate lives in api/middleware/liveness.py so a fourth middleware with a
+    DB branch has one obvious thing to call.
+    """
+    for rel, why in _DB_BACKED_MIDDLEWARE.items():
+        src = (_REPO_ROOT / "backend" / rel).read_text()
+        # The call, not the import: `is_liveness_request` on its own is
+        # satisfied by the import line alone, so removing the only call site
+        # would leave this passing. The paren is what makes it a use.
+        assert "is_liveness_request(" in src, (
+            f"{rel} performs a {why} without exempting the liveness probe"
+        )
+        # It must be the shared one, not a local re-spelling of the path.
+        assert "from app.api.middleware.liveness import is_liveness_request" in src, (
+            f"{rel} must use the shared predicate"
+        )
+        assert '"/health/live"' not in src, (
+            f"{rel} hardcodes the liveness path instead of calling the predicate"
+        )
+
+
+def test_the_db_backed_middleware_list_is_the_whole_set():
+    """The list above must not go stale as middlewares gain DB branches.
+
+    Anything under api/middleware/ that reaches app.core.db is either on the
+    list or this fails naming it.
+    """
+    middleware_dir = _REPO_ROOT / "backend" / "app" / "api" / "middleware"
+    touches_db = {
+        f"app/api/middleware/{path.name}"
+        for path in sorted(middleware_dir.glob("*.py"))
+        if "from app.core.db import" in path.read_text()
+    }
+    assert touches_db, "no middleware reads app.core.db -- the scan found nothing"
+    unlisted = touches_db - set(_DB_BACKED_MIDDLEWARE)
+    assert not unlisted, (
+        "middleware reaching the database without an entry in "
+        f"_DB_BACKED_MIDDLEWARE: {sorted(unlisted)}"
+    )
+
+
+def test_the_liveness_route_takes_no_dependencies():
+    """The handler itself: no Depends(get_db), nothing to resolve."""
+    from app.api.main import app
+
+    for route in app.routes:
+        if getattr(route, "path", None) == "/health/live":
+            assert route.dependant.dependencies == [], (
+                "the liveness handler acquired a dependency; get_db would put a "
+                "pool checkout on the one route that must not need one"
+            )
+            break
+    else:  # pragma: no cover - the registration test already covers this
+        pytest.fail("/health/live route not found")
+
+
+def test_the_liveness_route_is_exempt_from_the_rate_limiter():
+    """slowapi's middleware short-circuits an exempt route before any counter.
+
+    A one-second probe would otherwise exhaust a 60/minute budget on its own,
+    and a 429 reads as a dead process. Exemption also keeps the probe off the
+    limiter's storage, which is Redis when REDIS_URL is set.
+    """
+    from slowapi.middleware import _get_route_name
+
+    from app.api.main import health_live
+    from app.platform.ratelimit import limiter
+
+    assert _get_route_name(health_live) in limiter._exempt_routes
+
+
+@pytest.mark.anyio
+async def test_liveness_answers_200_in_multi_tenant_with_the_database_down(
+    monkeypatch,
+):
+    """The reproduction: multi_tenant, tenant hostname, database unreachable.
+
+    Before this, TenantContextMiddleware resolved the host through the public
+    registry, got nothing back because the database was down, and answered 403.
+    """
+    import app.api.middleware.tenant_context as tenant_context
+
+    calls: list[str | None] = []
+
+    async def _registry_is_down(signal):
+        calls.append(signal)
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(tenant_context, "is_multi_tenant", lambda: True)
+    monkeypatch.setattr(tenant_context.settings, "tenant_base_domain", "geolens.app")
+    monkeypatch.setattr(tenant_context.settings, "tenant_trusted_hosts", "testserver")
+    monkeypatch.setattr(tenant_context, "_resolve_tenant_uuid", _registry_is_down)
+
+    from app.api.main import app
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        resp = await http.get("/health/live", headers={"host": "acme.geolens.app"})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"status": "ok"}
+    assert calls == [], (
+        "the probe reached the tenant registry; with the database down that is "
+        "a 403 and a restarted container"
+    )
+
+
+@pytest.mark.anyio
+async def test_readiness_still_resolves_the_tenant_in_multi_tenant(monkeypatch):
+    """The counterweight: the exemption is scoped to the liveness path only.
+
+    /health is the readiness view and stays behind tenant resolution, so a
+    blanket path skip would show up here.
+    """
+    import app.api.middleware.tenant_context as tenant_context
+
+    calls: list[str | None] = []
+
+    async def _resolve(signal):
+        calls.append(signal)
+        return None
+
+    monkeypatch.setattr(tenant_context, "is_multi_tenant", lambda: True)
+    monkeypatch.setattr(tenant_context.settings, "tenant_base_domain", "geolens.app")
+    monkeypatch.setattr(tenant_context.settings, "tenant_trusted_hosts", "testserver")
+    monkeypatch.setattr(tenant_context, "_resolve_tenant_uuid", _resolve)
+
+    from app.api.main import app
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        resp = await http.get("/health", headers={"host": "acme.geolens.app"})
+
+    assert calls == ["acme"], "readiness must still resolve the tenant host"
+    assert resp.status_code == 403
+
+
+def test_the_predicate_matches_the_probe_and_nothing_else():
+    from app.api.middleware.liveness import is_liveness_request
+
+    for path in ("/health/live", "/api/health/live"):
+        assert is_liveness_request({"type": "http", "path": path}), path
+    # Behind an ASGI root_path mount.
+    assert is_liveness_request(
+        {"type": "http", "path": "/geolens/health/live", "root_path": "/geolens"}
+    )
+    for path in (
+        "/health",
+        "/api/health",
+        "/health/live/",
+        "/health/liveness",
+        "/datasets/health/live",
+        "",
+    ):
+        assert not is_liveness_request({"type": "http", "path": path}), path
+    # Not an HTTP request at all (websocket, lifespan).
+    assert not is_liveness_request({"type": "websocket", "path": "/health/live"})
