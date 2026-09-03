@@ -22,6 +22,14 @@ from app.modules.embed_tokens.service import validate_embed_token_access
 # ---------------------------------------------------------------------------
 
 
+# fix(#1778 codex r3): validate_embed_token_access now compares each positive
+# entry's generation stamp against the cluster-global revocation generation, and
+# an entry that carries no stamp (or a stale one) is treated as a miss. These
+# cases are about the SEC-014 expiry re-check, so they pin the generation and
+# stamp the entries they prime with it.
+_TEST_GENERATION = 11
+
+
 def _make_raw_token() -> str:
     import secrets
 
@@ -38,10 +46,25 @@ class FakeCache:
     def __init__(self) -> None:
         self._store: dict = {}
 
-    async def get(self, key: str):
+    async def get(self, key: str, *, security: bool = False):
         return self._store.get(key)
 
-    async def set(self, key: str, value, ttl: int = 300) -> None:
+    async def set(
+        self, key: str, value, ttl: int = 300, *, security: bool = False
+    ) -> None:
+        self._store[key] = value
+
+    async def set_if_absent(
+        self, key: str, value, ttl: int = 300, *, security: bool = False
+    ) -> bool:
+        """fix(#1778): mirrors the provider contract: never overwrite."""
+        if key in self._store:
+            return False
+        self._store[key] = value
+        return True
+
+    async def set_authoritative(self, key: str, value, ttl: int = 300) -> None:
+        """fix(#1778 codex r1): one store here, so this is set."""
         self._store[key] = value
 
     async def delete(self, key: str) -> None:
@@ -89,12 +112,17 @@ class TestEmbedTokenExpiryCacheHit:
             "scoped_dataset_ids": [str(dataset_id)],
             "allowed_origins": None,
             "map_id": str(uuid.uuid4()),
+            "generation": _TEST_GENERATION,
         }
 
         # Patch get_cache() to return our fake cache
         # Patch datetime.now inside the service module to return now_for_check
         with (
             patch("app.modules.embed_tokens.service.get_cache", return_value=cache),
+            patch(
+                "app.modules.embed_tokens.service.current_revocation_generation",
+                AsyncMock(return_value=_TEST_GENERATION),
+            ),
             patch(
                 "app.modules.embed_tokens.service.datetime",
                 wraps=datetime,
@@ -133,10 +161,15 @@ class TestEmbedTokenExpiryCacheHit:
             "allowed_origins": None,
             "map_id": str(uuid.uuid4()),
             "expires_at": expires_at.isoformat(),
+            "generation": _TEST_GENERATION,
         }
 
         with (
             patch("app.modules.embed_tokens.service.get_cache", return_value=cache),
+            patch(
+                "app.modules.embed_tokens.service.current_revocation_generation",
+                AsyncMock(return_value=_TEST_GENERATION),
+            ),
             patch(
                 "app.modules.embed_tokens.service.datetime",
                 wraps=datetime,
@@ -174,10 +207,15 @@ class TestEmbedTokenExpiryCacheHit:
             "allowed_origins": None,
             "map_id": str(uuid.uuid4()),
             "expires_at": expires_at.isoformat(),
+            "generation": _TEST_GENERATION,
         }
 
         with (
             patch("app.modules.embed_tokens.service.get_cache", return_value=cache),
+            patch(
+                "app.modules.embed_tokens.service.current_revocation_generation",
+                AsyncMock(return_value=_TEST_GENERATION),
+            ),
             patch(
                 "app.modules.embed_tokens.service.map_contains_dataset",
                 new=AsyncMock(return_value=True),
@@ -247,6 +285,10 @@ class TestEmbedTokenExpiryEndToEnd:
         with (
             patch("app.modules.embed_tokens.service.get_cache", return_value=cache),
             patch(
+                "app.modules.embed_tokens.service.current_revocation_generation",
+                AsyncMock(return_value=_TEST_GENERATION),
+            ),
+            patch(
                 "app.modules.embed_tokens.service.datetime",
                 wraps=datetime,
             ) as mock_dt,
@@ -259,6 +301,10 @@ class TestEmbedTokenExpiryEndToEnd:
         # --- Call 2: cache hit, time = after expiry ---
         with (
             patch("app.modules.embed_tokens.service.get_cache", return_value=cache),
+            patch(
+                "app.modules.embed_tokens.service.current_revocation_generation",
+                AsyncMock(return_value=_TEST_GENERATION),
+            ),
             patch(
                 "app.modules.embed_tokens.service.datetime",
                 wraps=datetime,
@@ -308,6 +354,10 @@ class TestEmbedTokenExpiryEndToEnd:
         with (
             patch("app.modules.embed_tokens.service.get_cache", return_value=cache),
             patch(
+                "app.modules.embed_tokens.service.current_revocation_generation",
+                AsyncMock(return_value=_TEST_GENERATION),
+            ),
+            patch(
                 "app.modules.embed_tokens.service.datetime",
                 wraps=datetime,
             ) as mock_dt,
@@ -320,6 +370,10 @@ class TestEmbedTokenExpiryEndToEnd:
         # Call 2: cache hit, still within valid window
         with (
             patch("app.modules.embed_tokens.service.get_cache", return_value=cache),
+            patch(
+                "app.modules.embed_tokens.service.current_revocation_generation",
+                AsyncMock(return_value=_TEST_GENERATION),
+            ),
             patch(
                 "app.modules.embed_tokens.service.datetime",
                 wraps=datetime,

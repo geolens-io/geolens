@@ -327,6 +327,13 @@ KNOWN_BAD_JWT_SECRETS = frozenset(
     }
 )
 
+# fix(#1778): bcrypt's input limit, restated here because `core/` may not import
+# from `app.modules.*` (tests/test_layering.py::test_core_does_not_import_from_
+# any_module) and the canonical definition lives beside the hasher, in
+# app/modules/auth/password_policy.py. tests/test_password_policy.py pins the
+# two to the same number so they cannot drift.
+BCRYPT_MAX_PASSWORD_BYTES = 72
+
 
 # fix(#1235 review r6): the shortest presigned-upload window worth issuing.
 # Lives HERE, not next to its only consumer in processing/ingest/presigned.py,
@@ -1180,6 +1187,23 @@ class Settings(BaseSettings):
             raise ValueError(
                 "GEOLENS_ADMIN_PASSWORD must not be empty. Generate one "
                 "with `openssl rand -base64 16` and set it in your .env."
+            )
+        # fix(#1778): bound it at boot, where the message can name the variable.
+        # seed_initial_admin() hashes this value with bcrypt, which refuses an
+        # input over 72 bytes, and nothing upstream of the seed validates it:
+        # an operator who generated the value with something like
+        # `openssl rand -base64 64` (88 characters) got a bare bcrypt
+        # ValueError from inside application startup and an API container that
+        # restart-looped on a message naming nothing about GeoLens config.
+        admin_password_bytes = len(
+            self.geolens_admin_password.get_secret_value().encode("utf-8")
+        )
+        if admin_password_bytes > BCRYPT_MAX_PASSWORD_BYTES:
+            raise ValueError(
+                f"GEOLENS_ADMIN_PASSWORD is {admin_password_bytes} bytes when "
+                f"encoded as UTF-8; the password hash accepts at most "
+                f"{BCRYPT_MAX_PASSWORD_BYTES}. Generate a shorter value with "
+                "`openssl rand -base64 16` and set it in your .env."
             )
         return self
 

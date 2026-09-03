@@ -373,6 +373,20 @@ class TestGithubDomainEnforcement:
     GitHub emails are rejected and no user is created (T-1237-02).
     """
 
+    @pytest.fixture(autouse=True)
+    def _registration_on(self, monkeypatch):
+        """fix(#1778): JIT provisioning now honours REGISTRATION_ENABLED, whose
+        shipped default is False. This class is about the DOMAIN check, so it
+        runs with the operator switch on; the switch has its own tests in
+        tests/test_oauth_registration_gate_1778.py."""
+        from app.modules.auth.oauth import service as oauth_service
+
+        monkeypatch.setattr(
+            oauth_service.REGISTRATION_ENABLED,
+            "get_uncached",
+            AsyncMock(return_value=True),
+        )
+
     async def _make_github_provider(self, db: AsyncSession) -> OAuthProvider:
         """Insert a minimal github-typed OAuthProvider for tests."""
         provider = OAuthProvider(

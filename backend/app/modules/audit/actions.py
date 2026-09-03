@@ -91,6 +91,14 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "oauth.login.failure",
         "oauth.login.init",
         "oauth.login.success",
+        # fix(#1778): the IdP group-role mapping is applied on every OAuth
+        # login, not just the one that creates the account, so a role can now
+        # move without an admin touching it. These two are how an operator sees
+        # that happen: `changed` when the mapping moved the role, `change_refused`
+        # when the last-admin rule kept it where it was. Neither carries a claim
+        # value.
+        "oauth.role.change_refused",
+        "oauth.role.changed",
         "oauth_provider.create",
         "oauth_provider.delete",
         "oauth_provider.update",

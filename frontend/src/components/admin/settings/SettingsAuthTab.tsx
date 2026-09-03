@@ -643,6 +643,12 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                   <SelectItem value="admin">{t('settings.oauth.roles.admin')}</SelectItem>
                 </SelectContent>
               </Select>
+              {/* fix(#1778): the role only applies to accounts this provider
+                  creates, and whether it creates any is the registration
+                  switch's call. Say so here, where the decision is made. */}
+              <p className="text-xs text-muted-foreground">
+                {t('settings.oauth.defaultRoleHint')}
+              </p>
             </div>
 
             <div className="space-y-2">

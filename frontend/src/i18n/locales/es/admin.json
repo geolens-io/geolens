@@ -663,6 +663,7 @@
       "userinfoUrl": "URL de la API de usuario (opcional)",
       "scopes": "Alcances",
       "defaultRole": "Rol predeterminado",
+      "defaultRoleHint": "Se asigna a las cuentas que crea este proveedor. Las cuentas solo se crean cuando el registro de autoservicio está activado; si está desactivado, un inicio de sesión sin cuenta aquí se rechaza y la crea un administrador.",
       "groupClaim": "Claim de grupo",
       "groupClaimHint": "Claim JWT que contiene las membresías de grupo del usuario.",
       "groupRoleMapping": "Mapeo de roles de grupo (JSON)",

@@ -1,6 +1,7 @@
 """Admin service: user CRUD, role assignment, and catalog stats."""
 
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 import structlog
@@ -107,6 +108,30 @@ async def _get_total_storage_bytes(db: AsyncSession, dataset_model: type) -> int
             ).bindparams(schema=data_schema, table_names=table_names)
         )
         return result.scalar_one()
+
+
+@dataclass(frozen=True)
+class IdentityRoleOutcome:
+    """What ``set_role_from_identity_provider`` did.
+
+    fix(#1778 codex r5). Three states, not two, because the caller writes an
+    audit row and each deserves a different one:
+
+    * ``applied=False`` -- the last-admin rule refused the demotion.
+    * ``applied=True, changed=False`` -- the role was already what the mapping
+      asks for. Nothing happened, so nothing is recorded. This is the state a
+      second concurrent callback lands in once it gets the lock.
+    * ``applied=True, changed=True`` -- the role moved, and ``previous_roles``
+      says from where.
+
+    ``previous_roles`` is always read UNDER the advisory lock, so it describes
+    the state the change actually started from rather than one a racing caller
+    had already replaced.
+    """
+
+    applied: bool
+    changed: bool
+    previous_roles: list[str]
 
 
 class AdminService:
@@ -407,8 +432,12 @@ class AdminService:
         *,
         lock_held: bool = False,
         viability_checked: bool = False,
-    ) -> None:
+    ) -> bool:
         """Replace a user's role with new_role_name in the current transaction.
+
+        Returns whether the roles actually CHANGED. fix(#1778 codex r5): the
+        caller needs to tell "applied" from "was already correct", because an
+        IdP-driven caller emits an audit event and only a real change is one.
 
         Raises ValueError if the new role doesn't exist or if this would demote
         the sole admin.
@@ -435,7 +464,7 @@ class AdminService:
             ).scalars()
         )
         if current_role_names == {new_role_name}:
-            return
+            return False
 
         if new_role_name != "admin" and not viability_checked:
             await self._ensure_not_last_admin(user, "demote", lock_held=lock_held)
@@ -451,6 +480,83 @@ class AdminService:
         await self.db.execute(
             update(User).where(User.id == user.id).values(key_epoch=User.key_epoch + 1)
         )
+        return True
+
+    async def set_role_from_identity_provider(
+        self, user: User, role_name: str
+    ) -> IdentityRoleOutcome:
+        """Apply an IdP-mapped role. False when the last-admin rule refused it.
+
+        fix(#1778 codex r1): the OAuth group-role reconciliation
+        (``_reconcile_mapped_role`` in modules/auth/oauth/service.py) must not
+        be a second, weaker copy of this path. Two invariants live here and
+        both were missing from the reconciliation as first written:
+
+        * the last-admin rule. Assigning the default role directly could
+          remove the only active admin, which every other demotion route is
+          stopped from doing.
+        * the ``key_epoch`` bump (#821). Without it an API key minted while
+          the account was a viewer keeps resolving after the account is mapped
+          to admin, so the key silently gains privileges its owner never
+          re-minted it for.
+
+        This is the public seam for that: it calls the same
+        ``_ensure_not_last_admin`` and ``_update_user_role`` the admin router
+        uses, rather than copying the count query. A refusal is not an error
+        for the caller -- an IdP assertion is not an admin action, so the login
+        continues with the role unchanged and the caller records why.
+
+        The advisory lock is taken here, so call this only when a change is
+        actually needed; the caller compares the current role first.
+
+        fix(#1778 codex r4): the lock covers a PROMOTION too, which it did not
+        at first. The reasoning for skipping it was that a promotion cannot
+        threaten the last-admin invariant, which is true and beside the point:
+        two OAuth callbacks for the same returning account can arrive together,
+        and both then ran ``_update_user_role`` unserialized. That deletes and
+        re-inserts ``catalog.user_roles``, whose primary key is
+        ``(user_id, role_id)``, so the two inserts collide and one otherwise
+        valid login fails on a duplicate key.
+
+        Holding the lock across both branches also makes ``_update_user_role``'s
+        idempotency check load-bearing: the second caller re-reads the roles
+        under the lock, finds the promotion already applied, and returns without
+        touching the table or bumping ``key_epoch`` a second time.
+
+        Same lock for both branches rather than a per-user row lock, because the
+        demotion branch needs the global one anyway (the last-admin count is
+        fleet-wide) and one lock cannot deadlock against itself.
+
+        fix(#1778 codex r5): returns an outcome rather than a bare bool, and the
+        ``previous_roles`` it carries are read UNDER the lock. Two concurrent
+        callbacks both captured the previous roles before waiting for the lock,
+        and the one that lost the race then emitted a second `oauth.role.changed`
+        event describing a transition that had already happened, with a snapshot
+        taken before the winner's write. The loser now reports
+        ``changed=False`` and the caller stays quiet.
+        """
+        await self._lock_admin_lifecycle()
+        await self.db.refresh(user, attribute_names=["roles"])
+        # Read under the lock: anything captured before waiting for it describes
+        # a state another caller may already have replaced.
+        previous_roles = sorted(role.name for role in user.roles)
+
+        if role_name == "admin":
+            # A promotion cannot threaten the last-admin invariant, so it skips
+            # the check but not the lock.
+            changed = await self._update_user_role(user, role_name, lock_held=True)
+            return IdentityRoleOutcome(True, changed, previous_roles)
+
+        try:
+            await self._ensure_not_last_admin(user, "demote", lock_held=True)
+        except ValueError:
+            # The only ValueError _ensure_not_last_admin raises is the refusal
+            # itself, and it is a refusal here rather than a failure.
+            return IdentityRoleOutcome(False, False, previous_roles)
+        changed = await self._update_user_role(
+            user, role_name, lock_held=True, viability_checked=True
+        )
+        return IdentityRoleOutcome(True, changed, previous_roles)
 
     async def convert_saml_user_to_local(
         self, user_id: uuid.UUID, password: str

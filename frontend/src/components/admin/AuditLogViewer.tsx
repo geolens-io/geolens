@@ -118,6 +118,11 @@ const CURRENT_AUDIT_ACTIONS = [
   'oauth.login.failure',
   'oauth.login.init',
   'oauth.login.success',
+  // fix(#1778): the IdP group-role mapping is applied on every OAuth login now,
+  // so a role can move without an admin touching it. These two are how that
+  // shows up here.
+  'oauth.role.change_refused',
+  'oauth.role.changed',
   'oauth_provider.create',
   'oauth_provider.delete',
   'oauth_provider.update',

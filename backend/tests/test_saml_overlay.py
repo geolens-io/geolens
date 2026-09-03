@@ -57,6 +57,31 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures" / "saml"
 FIXTURE_CERT_PEM = (FIXTURE_DIR / "idp_cert.pem").read_text()
 
 
+@pytest.fixture(autouse=True)
+def _registration_on(monkeypatch):
+    """fix(#1778): the SAML overlay provisions through find_or_create_oauth_user
+    (see IdentityExtension in app/core/identity.py), which now honours
+    REGISTRATION_ENABLED. Its shipped default is False, so an unknown SAML
+    subject is refused before it reaches anything this module is about. The
+    switch has its own tests in tests/test_oauth_registration_gate_1778.py.
+
+    Autouse and module-scoped because JIT happens behind the ACS route, several
+    tests deep, rather than at a call these tests make directly.
+
+    These tests are skipped in a community run (no overlay), so CI here does not
+    exercise this fixture; it is what stops the enterprise overlay's own run
+    from going red on the gate."""
+    from unittest.mock import AsyncMock
+
+    from app.modules.auth.oauth import service as oauth_service
+
+    monkeypatch.setattr(
+        oauth_service.REGISTRATION_ENABLED,
+        "get_uncached",
+        AsyncMock(return_value=True),
+    )
+
+
 @pytest.fixture(scope="session")
 def saml_response_dir(tmp_path_factory) -> Path:
     """Session-scoped dir holding generated SAML XML responses (Phase 227).

@@ -87,10 +87,23 @@ class _MemoryCache:
     def __init__(self):
         self.values: dict[str, object] = {}
 
-    async def get(self, key: str):
+    async def get(self, key: str, *, security: bool = False):
         return self.values.get(key)
 
-    async def set(self, key: str, value: object, *, ttl: int):
+    async def set(self, key: str, value: object, *, ttl: int, security: bool = False):
+        self.values[key] = value
+
+    async def set_if_absent(
+        self, key: str, value: object, ttl: int = 300, *, security: bool = False
+    ) -> bool:
+        """fix(#1778): mirrors the provider contract: never overwrite."""
+        if key in self.values:
+            return False
+        self.values[key] = value
+        return True
+
+    async def set_authoritative(self, key: str, value: object, ttl: int = 300) -> None:
+        """fix(#1778 codex r1): one store here, so this is set."""
         self.values[key] = value
 
     async def delete(self, key: str):
@@ -440,6 +453,14 @@ async def test_embed_token_negative_cache_cannot_poison_another_tenant(
         async def execute(self, *_args, **_kwargs):
             return _Result()
 
+        async def scalar(self, *_args, **_kwargs):
+            # fix(#1778 codex r5): validate_embed_token_access now reads the
+            # revocation generation before deciding whether to cache a positive
+            # at all (an unusable generation is never written). A stub lacking
+            # this method makes every read look unusable and the positive branch
+            # below is never cached, which is not what this test is checking.
+            return 1
+
         def begin_nested(self):
             return _Nested()
 
@@ -521,5 +542,8 @@ async def test_embed_token_invalidation_is_tenant_local(
         current_tenant_var.reset(tenant_a_token)
 
     assert revoked is token_record
-    assert keys[TENANT_A] not in cache.values
-    assert keys[TENANT_B] in cache.values
+    # fix(#1778): the revoking tenant's entry is REPLACED by a denial rather
+    # than deleted, so a request that raced the revoke cannot re-publish a
+    # positive under the same key. The other tenant's entry is untouched.
+    assert cache.values[keys[TENANT_A]] == {"is_valid": False}
+    assert cache.values[keys[TENANT_B]] == {"is_valid": True}

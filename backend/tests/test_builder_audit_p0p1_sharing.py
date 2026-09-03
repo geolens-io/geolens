@@ -142,7 +142,11 @@ class TestP001EmbedRevokeWiring:
         )
         token = row.scalar_one()
         assert token.is_active is False
-        assert await cache.get(_cache_key(raw)) is None
+        # fix(#1778): the entry is REPLACED by a denial rather than deleted, so
+        # a request that raced the revoke cannot re-publish a positive under the
+        # same key. See EMBED_TOKEN_REVOCATION_DENIAL_TTL_SECONDS in
+        # app/modules/embed_tokens/service.py.
+        assert await cache.get(_cache_key(raw)) == {"is_valid": False}
         assert (
             await validate_embed_token_access(raw, dataset_id, test_db_session) is False
         )

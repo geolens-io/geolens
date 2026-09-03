@@ -15,6 +15,8 @@ concurrent reader scheduled there would observe.
 
 from __future__ import annotations
 
+import asyncio
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -260,6 +262,10 @@ def redis_cache():
     provider._failure_count = 0
     provider._circuit_open_until = 0.0
     provider._fallback = InMemoryCacheProvider()
+    # fix(#1778 codex r2): these build the provider through __new__, so the
+    # replay state __init__ sets up has to be seeded here too.
+    provider._pending_authoritative = OrderedDict()
+    provider._replay_lock = asyncio.Lock()
     return provider
 
 

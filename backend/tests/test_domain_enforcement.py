@@ -38,6 +38,26 @@ _DISALLOWED_DOMAIN = "evil.example.net"
 _ALLOWLIST = [_ALLOWED_DOMAIN]
 
 
+@pytest.fixture(autouse=True)
+def _registration_on(monkeypatch):
+    """fix(#1778): JIT provisioning now honours REGISTRATION_ENABLED, whose
+    shipped default is False, so an unknown OAuth identity is refused before it
+    reaches the domain gate. This module is about the DOMAIN checks, so it runs
+    with the operator switch on; the switch has its own tests in
+    tests/test_oauth_registration_gate_1778.py. Module-scoped and autouse
+    because the SSO classes below reach the provisioning path from several
+    directions."""
+    from unittest.mock import AsyncMock
+
+    from app.modules.auth.oauth import service as oauth_service
+
+    monkeypatch.setattr(
+        oauth_service.REGISTRATION_ENABLED,
+        "get_uncached",
+        AsyncMock(return_value=True),
+    )
+
+
 async def _set_allowed_domains(
     client: AsyncClient, header: dict, domains: list[str]
 ) -> None:

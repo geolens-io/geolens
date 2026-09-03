@@ -29,6 +29,11 @@ function getOAuthErrorMessage(error: string, t: (key: string, opts?: Record<stri
   if (error.includes('domain_not_allowed')) {
     return t('oauthErrors.domainNotAllowed');
   }
+  // fix(#1778): the identity signed in fine but has no account here, and
+  // self-serve registration is off, so nothing may be created for it.
+  if (error.includes('registration_disabled')) {
+    return t('oauthErrors.registrationDisabled');
+  }
   return t('oauthErrors.generic', { error });
 }
 
