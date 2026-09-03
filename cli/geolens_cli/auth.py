@@ -500,6 +500,38 @@ def replace_credentials(
 
     snapshot = _snapshot_credentials(instance)
 
+    # fix(#1778 review round 12): _UNKNOWN used to be checked ONLY on the
+    # rollback path, after the mutating store_bearer_token/store_api_key
+    # call below had already run. That call is unconditionally attempted
+    # against the SAME keyring account the snapshot just tried (and
+    # failed) to read — get_password raising is no guarantee set_password
+    # will too, so a snapshot read failure for the account about to be
+    # overwritten does not mean the write will safely fall back to the
+    # file; it can just as well succeed, silently destroying the one
+    # value _restore_credentials would have needed to recover it. Aborting
+    # here, before any store call, closes that window: if a later failure
+    # (the marker write, cleanup) still triggers a rollback, the
+    # rollback-side _UNKNOWN check (in _restore_credentials) is kept as
+    # defense in depth for the OTHER accounts _delete_stale_credentials
+    # can touch, which this pre-check does not cover.
+    #
+    # Scoped to ``not no_keyring``: with --no-keyring, store_bearer_token/
+    # store_api_key never call keyring.set_password at all (see their own
+    # ``if not no_keyring:`` guard) — the keyring account is never
+    # mutated, so an unreadable snapshot for it is not "needed for
+    # rollback" and must not block the (guaranteed keyring-free) file
+    # write. This is also what keeps TestUnreadableKeyringDuringCleanup's
+    # --no-keyring case passing.
+    if not no_keyring:
+        target = snapshot.keyring_bearer if kind == "bearer" else snapshot.keyring_api_key
+        if target is _UNKNOWN:
+            raise KeyringError(
+                f"keyring unreadable for {instance}; refusing to replace "
+                "credentials without a way to restore the prior one on "
+                "failure. Retry, or pass --no-keyring to store to "
+                "credentials.toml instead."
+            )
+
     if kind == "bearer":
         backend = store_bearer_token(instance, value, no_keyring=no_keyring)
     else:

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Annotated, Any, Optional
 
 import typer
+from keyring.errors import KeyringError
 from rich.table import Table
 
 from . import analysis as _analysis
@@ -467,6 +468,15 @@ def login(
             backend = _auth.replace_credentials(
                 instance, "api_key", api_key, no_keyring=no_keyring
             )
+        except KeyringError as exc:
+            # fix(#1778 review round 12): a keyring failure here (either
+            # replace_credentials' own pre-store abort, or a propagated
+            # cleanup/read failure) maps to EXIT_NETWORK, not the generic
+            # exit — the same "external dependency, not a usage error"
+            # class every other keyring-unavailable path in this package
+            # already uses that code for.
+            state.output.error(f"Could not store the API key: {exc}")
+            raise typer.Exit(EXIT_NETWORK) from exc
         except Exception as exc:
             state.output.error(f"Could not store the API key: {exc}")
             raise typer.Exit(EXIT_GENERIC) from exc
@@ -479,6 +489,9 @@ def login(
             backend = _auth.replace_credentials(
                 instance, "bearer", token, no_keyring=no_keyring
             )
+        except KeyringError as exc:
+            state.output.error(f"Could not store the bearer token: {exc}")
+            raise typer.Exit(EXIT_NETWORK) from exc
         except Exception as exc:
             state.output.error(f"Could not store the bearer token: {exc}")
             raise typer.Exit(EXIT_GENERIC) from exc
@@ -507,6 +520,9 @@ def login(
         backend = _auth.replace_credentials(
             instance, "bearer", access_token, no_keyring=no_keyring
         )
+    except KeyringError as exc:
+        state.output.error(f"Could not store the bearer token: {exc}")
+        raise typer.Exit(EXIT_NETWORK) from exc
     except Exception as exc:
         state.output.error(f"Could not store the bearer token: {exc}")
         raise typer.Exit(EXIT_GENERIC) from exc

@@ -152,7 +152,22 @@ class TestActiveCredentialKindMarkerPrecedence:
         tolerates that rather than failing the login) leaves an old
         bearer token untouched in the keyring. Once the keyring is
         readable again, the marker -- not the old bearer-first
-        precedence -- decides."""
+        precedence -- decides.
+
+        fix(#1778 review round 12): the original version of this test
+        relied on a PLAIN login automatically falling back to the file
+        when the keyring was entirely unreadable. That fallback is gone
+        -- replace_credentials() now refuses outright when it cannot
+        read the account it is about to overwrite, rather than risking
+        a set_password that might succeed where the read just failed
+        (see TestUnreadableKeyringDuringCleanup's renamed sibling in
+        test_exit_codes.py). --no-keyring reaches the same file-fallback
+        state deliberately instead: it never calls set_password, so
+        there is nothing here for the new pre-check to refuse.
+        _delete_stale_credentials' cleanup read of the bearer account
+        still hits the broken keyring, and is still tolerated (not
+        raised) because keep_backend == "file" -- round 9's behavior
+        for that part is unchanged, which is the point of this test."""
         import keyring
         from keyring.errors import KeyringError
 
@@ -173,7 +188,9 @@ class TestActiveCredentialKindMarkerPrecedence:
         monkeypatch.setattr("keyring.set_password", locked)
         monkeypatch.setattr("keyring.get_password", locked)
 
-        result = runner.invoke(app, ["login", instance, "--api-key", "new-key"])
+        result = runner.invoke(
+            app, ["login", instance, "--api-key", "new-key", "--no-keyring"]
+        )
         assert result.exit_code == 0, result.output
 
         # The keyring becomes readable again -- the stale bearer token

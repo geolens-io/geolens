@@ -563,6 +563,87 @@ class TestActiveKindMarkerWriteIsRollbackProtected:
         assert loaded.value == "old-bearer-token"
 
 
+class TestSnapshotUnknownAbortsBeforeAnyStore:
+    """fix(#1778 review round 12): the _UNKNOWN sentinel used to be
+    checked ONLY on the rollback path, after replace_credentials() had
+    already called store_bearer_token/store_api_key -- the mutating
+    keyring.set_password for the SAME account the snapshot just failed
+    to read. A get_password failure is no guarantee the matching
+    set_password would also fail (an entry that cannot be decoded can
+    still be overwritten), so if the snapshot for the credential being
+    replaced was unknown and a LATER step (the marker write, cleanup)
+    then failed, rollback skipped restoring it -- login reported
+    failure with the prior credential irreversibly gone, not restored.
+
+    replace_credentials() now aborts before any store call when the
+    snapshot for the account about to be overwritten is unknown, so the
+    dangerous window (read fails, write succeeds, something later
+    fails) can no longer open at all. The rollback-side _UNKNOWN check
+    (TestSnapshotUnknownStateNeverDeleted, above) stays as defense in
+    depth for the OTHER accounts _delete_stale_credentials can still
+    touch after a successful store."""
+
+    def test_a_snapshot_read_failure_blocks_the_store_and_leaves_the_prior_credential(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Read fails; write is NOT mocked to fail (it would otherwise
+        succeed) -- the asymmetric case the round-12 finding names.
+        Asserts set_password is never even attempted."""
+        import keyring
+        from keyring.errors import KeyringError
+
+        from geolens_cli import auth as _auth
+        from geolens_cli import config as _config
+        from geolens_cli._sdk_helpers import EXIT_NETWORK
+        from geolens_cli.main import app
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com"
+        canonical = _config.normalize_instance_url(instance)
+        bearer_account = canonical  # _keyring_account_token(instance)
+
+        _auth.store_bearer_token(canonical, "old-bearer-token")
+
+        original_get = keyring.get_password  # mock_keyring's dict-backed one
+        set_calls: list[tuple[str, str]] = []
+        original_set = keyring.set_password
+
+        def failing_get(service, username):
+            if username == bearer_account:
+                raise KeyringError("entry cannot be decoded")
+            return original_get(service, username)
+
+        def tracking_set(service, username, password):
+            set_calls.append((service, username))
+            return original_set(service, username, password)
+
+        monkeypatch.setattr("keyring.get_password", failing_get)
+        monkeypatch.setattr("keyring.set_password", tracking_set)
+
+        # Same-kind login: pre-fix, this would call set_password on the
+        # bearer account despite the read above having just failed for
+        # it -- and set_password is NOT mocked to fail here, so it
+        # would have succeeded, destroying the only copy of
+        # "old-bearer-token" before any later step could roll back.
+        result = runner.invoke(app, ["login", instance, "--token", "new-bearer-token"])
+
+        assert result.exit_code == EXIT_NETWORK, result.output
+        assert "--no-keyring" in result.output
+        assert set_calls == [], (
+            "replace_credentials must abort BEFORE calling set_password "
+            "when it cannot read the account it is about to overwrite"
+        )
+
+        # The keyring becomes readable again -- the old bearer token
+        # must still be exactly what it was: untouched, not restored
+        # (there was nothing to restore from, since nothing was ever
+        # written).
+        monkeypatch.setattr("keyring.get_password", original_get)
+        loaded = _auth.load_bearer_token(canonical)
+        assert loaded is not None
+        assert loaded.value == "old-bearer-token"
+
+
 class TestUnreadableKeyringDuringCleanup:
     """fix(#1778 review round 8): an unreadable keyring during the
     existence check (locked, backend down, ...) is not "no such
@@ -654,17 +735,29 @@ class TestUnreadableKeyringDuringCleanup:
         assert loaded is not None
         assert loaded.value == "new-key"
 
-    def test_plain_login_falls_back_to_file_when_the_keyring_is_entirely_unavailable(
+    def test_plain_login_refuses_when_the_keyring_is_entirely_unreadable(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """The other half of the regression: a PLAIN login (no
-        --no-keyring flag) on a box where the keyring simply doesn't
-        work must also succeed via the automatic file fallback, not
-        just an explicit --no-keyring invocation."""
+        """fix(#1778 review round 12) superseded this test's original
+        claim. It used to assert that a PLAIN login (no --no-keyring
+        flag) fell back to the file automatically when the keyring was
+        entirely unavailable -- round 9's tolerance for cleanup. But
+        replace_credentials() now checks the snapshot's _UNKNOWN
+        sentinel BEFORE the mutating store call, not just on the
+        rollback path: a get_password failure is no guarantee the
+        matching set_password below it would also fail (an unreadable
+        entry can still be overwritten), so silently proceeding risked
+        destroying the one value a later rollback would need. A PLAIN
+        login with an unreadable keyring now refuses outright and
+        names the escape hatch (--no-keyring, which never calls
+        set_password at all and so needs no rollback anchor) rather
+        than gambling on a write that might succeed where the read
+        just failed."""
         from keyring.errors import KeyringError
 
         from geolens_cli import auth as _auth
         from geolens_cli import config as _config
+        from geolens_cli._sdk_helpers import EXIT_NETWORK
 
         monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
         instance = "https://x.example.com"
@@ -678,10 +771,9 @@ class TestUnreadableKeyringDuringCleanup:
 
         result = runner.invoke(app, ["login", instance, "--api-key", "new-key"])
 
-        assert result.exit_code == 0, result.output
-        loaded = _auth.load_api_key(canonical)
-        assert loaded is not None
-        assert loaded.value == "new-key"
+        assert result.exit_code == EXIT_NETWORK, result.output
+        assert "--no-keyring" in result.output
+        assert _auth.load_api_key(canonical) is None
 
 
 class TestManifestCommandExitCodes:
