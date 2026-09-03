@@ -844,6 +844,14 @@ async def _resolve_download_user(
                     detail="Invalid or expired download token",
                 )
 
+        # fix(#1778): remember the credential's own deadline. The last hop of
+        # this route hands the caller a presigned bucket URL, and that URL has
+        # to expire with the capability that authorized it rather than on a
+        # flat hour of its own. Stashed rather than returned because the
+        # dependency's contract is Identity | None and a no-sub token resolves
+        # to None -- the anonymous public-dataset case still has a deadline.
+        request.state.download_token_exp = payload.get("exp")
+
         # Per SEC-04: enforce typ='download' on the query-param lane.
         if payload.get("typ") != "download":
             raise HTTPException(
@@ -1188,6 +1196,47 @@ def _managed_key(raster_asset) -> str:
     )
 
 
+# fix(#1778): the presigned redirect used a flat 3600 seconds. That exchanged a
+# 120-second, dataset-scoped, revocable capability (IA-P0-01 / SEC-04, minted by
+# POST /auth/download-token/{id}) for an hour-long bearer URL that authenticates
+# nobody: the SigV4 signature is in the query string and is bound to neither the
+# caller, the session, nor the dataset grant. Revoking the grant, flipping the
+# record to private, disabling the account or discarding the token does not
+# invalidate it, because the bucket has never heard of any of those. The access
+# gate above this is the full RBAC path, so the branch is reached for PRIVATE
+# and INTERNAL datasets too, and the URL lands in browser history and in every
+# proxy or CDN access log on the way.
+#
+# The ceiling is on the same order as the mint TTL rather than 30x it. The floor
+# exists because the deadline is evaluated when the bucket receives the request,
+# not over the transfer: a redirect a browser follows in milliseconds still has
+# to survive clock skew between this process and the object store, and a
+# multi-GB download that starts inside the window completes outside it.
+_COG_PRESIGN_CEILING_SECONDS = 300
+_COG_PRESIGN_FLOOR_SECONDS = 60
+
+
+def _cog_presign_seconds(request: Request) -> int:
+    """How long the redirected bucket URL may stay valid.
+
+    Derived from the remaining lifetime of the caller's download token when
+    there is one, the way `sign_url_with_deadline` expires an ingest presign
+    with its job rather than an hour from now. A caller who reached this route
+    on a session JWT, an API key, or anonymously against a public dataset has
+    no such deadline and gets the ceiling.
+    """
+    import time
+
+    deadline = getattr(request.state, "download_token_exp", None)
+    if deadline is None:
+        return _COG_PRESIGN_CEILING_SECONDS
+    try:
+        remaining = int(float(deadline) - time.time())
+    except (TypeError, ValueError):
+        return _COG_PRESIGN_CEILING_SECONDS
+    return max(_COG_PRESIGN_FLOOR_SECONDS, min(_COG_PRESIGN_CEILING_SECONDS, remaining))
+
+
 async def _s3_cog_response(
     request: Request,
     storage,
@@ -1266,7 +1315,9 @@ async def _s3_cog_response(
             },
         )
 
-    url = storage.generate_presigned_get_url(physical_asset_key, expiration=3600)
+    url = storage.generate_presigned_get_url(
+        physical_asset_key, expiration=_cog_presign_seconds(request)
+    )
     return RedirectResponse(url=url, status_code=302)
 
 

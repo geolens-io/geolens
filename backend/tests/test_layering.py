@@ -4625,7 +4625,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1778): +3 lines — download_cog documents the
     # 412 its If-Match branch raises, closing a gap the repaired
     # OpenAPI-contract gate surfaced. Cap 1548 -> 1551, exact.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1551,
+    # fix(#1778): 1551 -> 1602. +51 for `_cog_presign_seconds` and the note
+    # above it. The s3 branch signed the redirect for a flat 3600 seconds,
+    # which exchanged the 120-second, dataset-scoped, revocable download token
+    # SEC-04 mints for an hour-long bearer URL the bucket will honour after the
+    # grant is revoked. Most of the addition is why the ceiling and the floor
+    # are the values they are: the deadline is evaluated when the bucket
+    # receives the request, not over the transfer.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1602,
     # fix(#1532 review r29): first entry — crossed _RATCHET_INCLUSION_LOC. The
     # export artifact cache: everything is in the key (stamp, size, digest,
     # nonce), freshness and reclamation read one publication bound that is a
