@@ -88,6 +88,7 @@ interface EditingOverrides {
   addFeatures?: (features: Feature[]) => { id?: string | number; valid: boolean }[];
   selectFeature?: (id: string) => void;
   clear?: () => void;
+  resetHistory?: () => void;
 }
 
 function renderEditing(map: MaplibreMap, overrides: EditingOverrides = {}) {
@@ -98,6 +99,7 @@ function renderEditing(map: MaplibreMap, overrides: EditingOverrides = {}) {
     addFeatures: overrides.addFeatures ?? vi.fn(() => []),
     selectFeature: overrides.selectFeature ?? vi.fn(),
     clear: overrides.clear ?? vi.fn(),
+    resetHistory: overrides.resetHistory ?? vi.fn(),
   };
   const hook = renderHook(() =>
     useFeatureEditing({
@@ -338,6 +340,90 @@ describe('useFeatureEditing — post-mutation cleanup skipped after a stale iden
 
     expect(removeFeatures).toHaveBeenCalledWith(['td-7']);
     expect(useDrawingStore.getState().selectedFeature).toBeNull();
+  });
+});
+
+// fix(round1 #1795): a drag/vertex edit only marks the edit dirty
+// (handleEditFinish) — it is not persisted until Save. The undo history for
+// that pending edit must survive until it actually settles: a successful
+// save, or a cancel/deselection (performDeselect, shared by both).
+describe('useFeatureEditing — undo history reset on settle, not on finish (fix round1 #1795)', () => {
+  const baseAuth = useDrawingStore.getState();
+
+  beforeEach(() => {
+    useDrawingStore.setState(baseAuth, true);
+    updateMutateAsync.mockClear();
+  });
+
+  it('handleSaveEdit resets the undo history once the update settles normally', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
+    const resetHistory = vi.fn();
+    const getSnapshotFeature = vi.fn(() => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [0, 0] },
+      properties: {},
+    }));
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map, { getSnapshotFeature, resetHistory });
+
+    await act(async () => {
+      await result.current.handleSaveEdit();
+    });
+
+    expect(resetHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it('handleSaveEdit does NOT reset the undo history when cleanup is skipped for a stale identity', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
+    const update = deferred<unknown>();
+    updateMutateAsync.mockReturnValueOnce(update.promise);
+    const resetHistory = vi.fn();
+    const getSnapshotFeature = vi.fn(() => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [0, 0] },
+      properties: {},
+    }));
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map, { getSnapshotFeature, resetHistory });
+
+    const saving = result.current.handleSaveEdit();
+    act(() => {
+      useDrawingStore.getState().bumpSessionEpoch();
+    });
+    update.resolve({});
+    await act(async () => {
+      await saving;
+    });
+
+    expect(resetHistory).not.toHaveBeenCalled();
+  });
+
+  it('performDeselect (also used for Cancel) resets the undo history', () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
+    const resetHistory = vi.fn();
+    const removeFeatures = vi.fn();
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map, { removeFeatures, resetHistory });
+
+    act(() => {
+      result.current.performDeselect();
+    });
+
+    expect(resetHistory).toHaveBeenCalledTimes(1);
+    expect(useDrawingStore.getState().selectedFeature).toBeNull();
+  });
+
+  it('performDeselect is a no-op (including no history reset) when nothing is selected', () => {
+    useDrawingStore.setState({ selectedFeature: null });
+    const resetHistory = vi.fn();
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map, { resetHistory });
+
+    act(() => {
+      result.current.performDeselect();
+    });
+
+    expect(resetHistory).not.toHaveBeenCalled();
   });
 });
 

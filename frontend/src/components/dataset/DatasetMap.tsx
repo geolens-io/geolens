@@ -308,6 +308,7 @@ export const DatasetMap = memo(function DatasetMap({
     clear,
     undo,
     canUndo,
+    resetHistory,
   } = useTerraDraw(mapInstance, handleDrawFinish, stableEditFinish);
 
   // --- Feature editing hook (all CRUD logic) ---
@@ -332,6 +333,7 @@ export const DatasetMap = memo(function DatasetMap({
     addFeatures,
     selectFeature: tdSelectFeature,
     clear,
+    resetHistory,
   });
 
   // Keep refs current for callbacks that break circular deps

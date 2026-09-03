@@ -82,6 +82,9 @@ interface UseFeatureEditingOptions {
   addFeatures: (features: Feature[]) => { id?: string | number; valid: boolean }[];
   selectFeature: (id: string) => void;
   clear: () => void;
+  /** fix(round1 #1795): reset the undo ring once a pending edit settles
+   *  (save, cancel, or deselection) — NOT on every drag/vertex finish. */
+  resetHistory: () => void;
 }
 
 /**
@@ -109,6 +112,7 @@ export function useFeatureEditing({
   addFeatures,
   selectFeature: tdSelectFeature,
   clear,
+  resetHistory,
 }: UseFeatureEditingOptions) {
   const { t } = useTranslation('dataset');
   const createFeature = useCreateFeature();
@@ -260,7 +264,11 @@ export function useFeatureEditing({
     const map = mapRef.current;
     if (map) showAllFeaturesInTiles(map);
     clearSelectedFeature();
-  }, [mapRef, removeFeatures, clearSelectedFeature]);
+    // fix(round1 #1795): deselection (also used for Cancel — see
+    // DatasetMap's handleDeselect) discards any pending, un-saved undo
+    // history for the edit just abandoned.
+    resetHistory();
+  }, [mapRef, removeFeatures, clearSelectedFeature, resetHistory]);
 
   /** Save edited geometry for the selected feature. */
   const handleSaveEdit = useCallback(async () => {
@@ -296,6 +304,9 @@ export function useFeatureEditing({
       const map = mapRef.current;
       if (map) showAllFeaturesInTiles(map);
       clearSelectedFeature();
+      // fix(round1 #1795): the edit just landed server-side — the pending
+      // undo history it belonged to is no longer meaningful.
+      resetHistory();
     } catch (err) {
       // fix(#1761 review round 7): mirror the success branch's recheck —
       // a failed update is feedback for whoever issued it, not whoever is
@@ -304,7 +315,7 @@ export function useFeatureEditing({
       // fix(#458 E-36): keep the backend detail.
       toast.error(formatMutationError('dataset:map.featureUpdateFailed', err));
     }
-  }, [datasetId, tableName, mapRef, getSnapshotFeature, updateFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, t]);
+  }, [datasetId, tableName, mapRef, getSnapshotFeature, updateFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, resetHistory, t]);
 
   /** Delete the selected feature. */
   const handleDeleteFeature = useCallback(async () => {

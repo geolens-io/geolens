@@ -96,7 +96,11 @@ describe('useTerraDraw — undo history bound (fix #1778)', () => {
     expect(undoCount).toBeGreaterThan(0);
   });
 
-  it('resets undo history on a committed feature edit (dragFeature), not just on draw/setMode/clear', () => {
+  // fix(round1 #1795, P2): a drag/vertex edit only marks the edit dirty
+  // (use-feature-editing's handleEditFinish) — it is not persisted until
+  // Save, so Undo must still be able to revert it. Resetting history right
+  // on 'finish' disabled Undo for a pending, unsaved edit.
+  it('keeps undo history available after a committed feature edit (dragFeature) finishes — Undo still reverts it', () => {
     const map = fakeMap();
     const onEditFinish = vi.fn();
     const { result } = renderHook(() => useTerraDraw(map, vi.fn(), onEditFinish));
@@ -109,13 +113,40 @@ describe('useTerraDraw — undo history bound (fix #1778)', () => {
     });
     expect(result.current.canUndo).toBe(true);
 
-    // Commit the drag — this is the 'finish' event with a drag action, which
-    // previously reset nothing.
+    // Commit the drag — this is the 'finish' event with a drag action.
     act(() => {
       td.emit('finish', 'feat-1', { action: 'dragFeature', mode: 'select' });
     });
 
     expect(onEditFinish).toHaveBeenCalledWith('feat-1', expect.anything());
+    // Undo is still enabled and can revert the just-finished drag.
+    expect(result.current.canUndo).toBe(true);
+    act(() => {
+      result.current.undo();
+    });
+    expect(td.clear).toHaveBeenCalled();
+    expect(td.addFeatures).toHaveBeenCalled();
+  });
+
+  // fix(round1 #1795, P2): the pending edit's history is discarded once it
+  // actually settles — save, cancel, or deselection — via the exposed
+  // resetHistory(), not by the hook itself reacting to 'finish'.
+  it('resetHistory() disables Undo once the caller settles the pending edit (e.g. after Save)', () => {
+    const map = fakeMap();
+    const onEditFinish = vi.fn();
+    const { result } = renderHook(() => useTerraDraw(map, vi.fn(), onEditFinish));
+    const td = lastInstance!;
+
+    act(() => {
+      td.emit('change');
+      td.emit('change');
+      td.emit('finish', 'feat-1', { action: 'dragFeature', mode: 'select' });
+    });
+    expect(result.current.canUndo).toBe(true);
+
+    act(() => {
+      result.current.resetHistory();
+    });
     expect(result.current.canUndo).toBe(false);
   });
 });

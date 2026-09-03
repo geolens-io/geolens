@@ -244,6 +244,10 @@ export function useTerraDraw(
   clear: () => void;
   undo: () => void;
   canUndo: boolean;
+  /** fix(round1 #1795): reset the undo ring without touching the canvas —
+   *  callers own WHEN a pending edit's history should be discarded (save,
+   *  cancel, deselection), not this hook (see resetHistory below). */
+  resetHistory: () => void;
 } {
   // Use refs to avoid stale closures in event listeners
   const onFinishRef = useRef(onFinish);
@@ -325,13 +329,14 @@ export function useTerraDraw(
         context.action === 'dragCoordinate' ||
         context.action === 'dragCoordinateResize'
       ) {
-        // Existing feature edited — pass to onEditFinish, keep on canvas
+        // Existing feature edited — pass to onEditFinish, keep on canvas.
+        // fix(round1 #1795): do NOT reset history here. A drag/vertex edit
+        // only marks the edit dirty (use-feature-editing's handleEditFinish)
+        // — it is not persisted until Save, so Undo must still be able to
+        // revert it. History resets when the pending edit actually settles:
+        // on save (handleSaveEdit) or on cancel/deselection (performDeselect),
+        // both of which call the resetHistory() this hook now exposes.
         onEditFinishRef.current?.(String(id), feature as Feature);
-        // fix(#1778): reset undo history on a committed edit, same as the
-        // 'draw' branch above — otherwise history keeps accumulating for the
-        // whole select-mode editing session instead of resetting per edit.
-        historyRef.current = [];
-        setCanUndo(false);
       }
     };
 
@@ -443,6 +448,15 @@ export function useTerraDraw(
     setCanUndo(false);
   }, [draw]);
 
+  // fix(round1 #1795): the undo ring reset a caller asks for WITHOUT
+  // touching the drawn canvas — clear() above removes features too, which
+  // save/cancel/deselection do themselves (via removeFeatures) before or
+  // instead of calling this.
+  const resetHistory = useCallback(() => {
+    historyRef.current = [];
+    setCanUndo(false);
+  }, []);
+
   return {
     setMode,
     stop,
@@ -454,5 +468,6 @@ export function useTerraDraw(
     clear,
     undo,
     canUndo,
+    resetHistory,
   };
 }
