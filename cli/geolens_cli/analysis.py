@@ -27,7 +27,7 @@ from uuid import UUID
 
 import typer
 
-from ._sdk_helpers import EXIT_AUTH, call_sdk, unwrap
+from ._sdk_helpers import EXIT_AUTH, call_sdk, unwrap, long_request_timeout
 
 #: Distances are metres on the wire, matching the API and the map builder's
 #: unit picker (AnalysisPanel converts feet/miles before it POSTs).
@@ -169,32 +169,51 @@ def build_materialize_request(
 
 
 def run_preview(client: Any, dataset_id: str, request: Any) -> Any:
-    """POST the preview and return the parsed AnalysisPreviewResponse."""
+    """POST the preview and return the parsed AnalysisPreviewResponse.
+
+    fix(#1778 review round 11): the backend can run up to three
+    sequential sandbox queries before responding — a bbox-scoped source
+    count, the capped geometry query, and an uncapped match count, each
+    with its own 10s statement timeout (see the
+    ``LONG_RUNNING_SDK_FUNCTIONS`` docstring in ``_sdk_helpers.py`` for
+    the full accounting) — which can outlast AppState.sdk()'s plain 30s
+    bound for a valid, if slow, preview. Wrapped in
+    ``long_request_timeout()``.
+    """
     from geolens.api.datasets_analysis import (
         analysis_preview_endpoint_datasets_dataset_id_analysis_preview_post as _preview,
     )
 
-    resp = call_sdk(
-        _preview.sync_detailed,
-        dataset_id=dataset_id,
-        client=client,
-        body=request,
-    )
+    with long_request_timeout(client):
+        resp = call_sdk(
+            _preview.sync_detailed,
+            dataset_id=dataset_id,
+            client=client,
+            body=request,
+        )
     return unwrap(resp, expected=200)
 
 
 def run_materialize(client: Any, dataset_id: str, request: Any) -> Any:
-    """POST the materialize request and return the parsed job response."""
+    """POST the materialize request and return the parsed job response.
+
+    fix(#1778 review round 5): this expects 200 back, not a fire-and-
+    forget 202 — the backend does the submit-time validation/setup work
+    synchronously before responding, which can outlast AppState.sdk()'s
+    plain 30s bound for a large or complex request. Wrapped in
+    ``long_request_timeout()``.
+    """
     from geolens.api.datasets_analysis import (
         analysis_materialize_endpoint_datasets_dataset_id_analysis_materialize_post as _materialize,
     )
 
-    resp = call_sdk(
-        _materialize.sync_detailed,
-        dataset_id=dataset_id,
-        client=client,
-        body=request,
-    )
+    with long_request_timeout(client):
+        resp = call_sdk(
+            _materialize.sync_detailed,
+            dataset_id=dataset_id,
+            client=client,
+            body=request,
+        )
     return unwrap(resp, expected=200)
 
 

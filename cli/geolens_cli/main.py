@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Annotated, Any, Optional
 
 import typer
+from keyring.errors import KeyringError
 from rich.table import Table
 
 from . import analysis as _analysis
@@ -35,6 +36,9 @@ from ._sdk_helpers import (
     EXIT_NETWORK,
     EXIT_USAGE,
     call_sdk,
+    call_sdk_with_reauth,
+    long_request_timeout,
+    make_client,
     unwrap,
 )
 
@@ -84,21 +88,75 @@ class AppState:
         return self.config.instance
 
     def sdk(self):
-        """Lazy-construct an authenticated SDK client for the active instance."""
-        from geolens import GeolensClient
+        """Lazy-construct an authenticated SDK client for the active instance.
 
+        fix(#1778 round 30): credential SELECTION itself (GEOLENS_TOKEN
+        vs the active_kind marker vs legacy bearer-first precedence,
+        and everything that can go wrong reading any of those) is
+        entirely delegated to ``auth.resolve_active_credential()`` --
+        the one precedence implementation for this decision across the
+        whole package (see its own docstring for the full list of call
+        sites this closes over). This method's only remaining job is
+        translating that resolver's result (or one of its three typed
+        failure modes) into a constructed client or a reported CLI
+        error -- ``auth.py`` has no access to ``self.output``, so this
+        is the one place that translation can happen.
+        """
         instance = self.active_instance()
         if not instance:
             raise typer.BadParameter(
                 "No instance configured. Run `geolens login <url>` first or pass --instance.",
             )
-        bearer = _auth.load_bearer_token(instance)
-        api_key = _auth.load_api_key(instance)
-        if bearer:
-            return GeolensClient(base_url=instance, bearer_token=bearer.value)
-        if api_key:
-            return GeolensClient(base_url=instance, api_key=api_key.value)
-        return GeolensClient(base_url=instance)
+        # fix(#1778, #1787): make_client() binds every request to
+        # DEFAULT_HTTP_TIMEOUT_SECONDS — the SDK's generated transport
+        # otherwise carries timeout=None (unbounded), so every command
+        # would hang forever against a black-holed host instead of
+        # exiting EXIT_NETWORK. Commands that poll (publish --wait,
+        # analysis materialize --wait) bound each individual request
+        # further still — see publish.resolve_dataset_id.
+        try:
+            resolved = _auth.resolve_active_credential(instance)
+        except _auth.KeyringCredentialUnreadable as exc:
+            # fix(#1778 round 30): covers a corrupt/unreadable
+            # credentials.toml (whether the marker itself or a named
+            # kind's own value), a keyring read failure for a marked
+            # kind, and an unrecognized marker value -- none of these
+            # are ever silently treated as "no marker" any more (round
+            # 30's own finding: that fallback is exactly what let a
+            # stale bearer resurface once the keyring became readable
+            # again while the file stayed corrupt). Mapped to
+            # EXIT_NETWORK, matching every other "keyring/file
+            # unavailable" case in this package.
+            self.output.error(
+                f"The active {exc.kind} could not be read ({exc.detail}). "
+                "Run `geolens login` again, or fix the keyring/credentials file."
+            )
+            raise typer.Exit(EXIT_NETWORK) from exc
+        except _auth.ActiveCredentialMissing as exc:
+            self.output.error("Authentication required. Run `geolens login` first.")
+            raise typer.Exit(EXIT_AUTH) from exc
+        except _auth.CredentialAmbiguous as exc:
+            # fix(#1778 round 30): no marker, and more than one
+            # credential kind genuinely exists -- guessing (the old
+            # unconditional bearer-first precedence) risked silently
+            # authenticating as the wrong principal. Nothing was ever
+            # stored or changed by reaching this; the operator just
+            # needs to log in again to record which one is current.
+            self.output.error(
+                "Multiple stored credentials were found with nothing "
+                "recording which is active. Run `geolens login` again."
+            )
+            raise typer.Exit(EXIT_AUTH) from exc
+
+        if resolved.kind == "bearer":
+            return make_client(
+                instance, bearer_token=resolved.value, provenance=resolved.provenance
+            )
+        if resolved.kind == "api_key":
+            return make_client(
+                instance, api_key=resolved.value, provenance=resolved.provenance
+            )
+        return make_client(instance)
 
 
 def _version_callback(value: bool) -> None:
@@ -267,6 +325,24 @@ def apply_manifest_command(
         bool,
         typer.Option("--dry-run", help="Preview backend apply outcomes without writes"),
     ] = False,
+    timeout: Annotated[
+        Optional[float],
+        typer.Option(
+            "--timeout",
+            envvar="GEOLENS_MANIFEST_APPLY_TIMEOUT",
+            help=(
+                "Override the apply request's timeout, in seconds. Without "
+                "this, the timeout is a HEURISTIC LOWER BOUND computed from "
+                "the manifest's entry count and the API's per-request "
+                "inactivity timeout for a source download -- not a "
+                "guarantee a slow-but-active source finishes within it. "
+                "0 removes the client-side timeout entirely and waits for "
+                "the server. Can also be set via "
+                "GEOLENS_MANIFEST_APPLY_TIMEOUT; this flag wins if both "
+                "are given."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Apply a geolens.yaml manifest through the configured GeoLens API.
 
@@ -275,7 +351,24 @@ def apply_manifest_command(
     reach (http(s)/s3/gs/az/abfs URIs, or files pre-staged server-side). To
     publish a LOCAL file, use `geolens publish <file>` instead. apply errors
     early (GAP-020) if any source URI is a local path.
+
+    Without --timeout, the request's timeout is a heuristic lower bound
+    computed from the manifest's own entry count -- not a guarantee a
+    slow-but-active source finishes within it. --timeout 0 waits for the
+    server indefinitely instead of guessing.
     """
+    # fix(#1778 review round 21): the DEFAULT timeout is a heuristic
+    # lower bound, not a guarantee -- MANIFEST_SOURCE_DOWNLOAD_TIMEOUT_
+    # SECONDS (60s per entry) is the backend's per-chunk INACTIVITY
+    # timeout on a source download, not a total download deadline, so a
+    # large source served slowly but steadily can legitimately outlast
+    # the computed budget while the apply is still succeeding
+    # server-side. --timeout (or GEOLENS_MANIFEST_APPLY_TIMEOUT)
+    # overrides the computed budget outright; --timeout 0 removes the
+    # client-side read timeout and waits for the server indefinitely
+    # (the connect phase stays bounded). See manifest_apply.py's
+    # compute_manifest_apply_timeout()/resolve_apply_timeout() for the
+    # full rationale and the backend facts this mirrors.
     from .manifest.reporting import (
         format_validation_error_lines,
         validation_report_payload,
@@ -326,10 +419,78 @@ def apply_manifest_command(
             "first or use a remote URL (http(s)/s3/gs/az/abfs)."
         )
 
+    # fix(#1778 review round 21): resolved BEFORE the network call so an
+    # invalid --timeout/GEOLENS_MANIFEST_APPLY_TIMEOUT value (negative --
+    # click's own float coercion already rejects non-numeric) is a usage
+    # error, not something discovered mid-request.
+    try:
+        resolved_timeout = _manifest_apply.resolve_apply_timeout(timeout)
+    except _manifest_apply.ManifestApplyTimeoutValueError as exc:
+        state.output.error(str(exc))
+        raise typer.Exit(EXIT_USAGE)
+
     sdk = state.sdk()
     payload = _manifest_apply.build_apply_payload(document, dry_run=dry_run)
     try:
-        response = _manifest_apply.post_manifest_apply(sdk.client, payload)
+        response = _manifest_apply.post_manifest_apply(
+            sdk.client, payload, timeout=resolved_timeout
+        )
+    except _manifest_apply.ManifestApplyTimeout as exc:
+        # fix(#1778 review round 18): a batch-aware POST timeout is
+        # reported distinctly from a plain request failure -- the
+        # server keeps applying after this client gives up, and an
+        # entry it has already queued or completed is skipped on a
+        # later re-apply, so this is NOT the same "the operation
+        # failed" shape as ManifestApplyRequestError below. Both
+        # branches attempt the same best-effort dry-run status
+        # follow-up (report_apply_timeout / attempt_apply_timeout_
+        # status_check are the human- and json-mode halves of the
+        # same round-18 part (c) logic) so --json gets exactly one
+        # structured payload instead of report_apply_timeout's own
+        # output.error()/warn() writes bleeding into it.
+        #
+        # fix(#1778 review round 19): dropped the "resumable": True
+        # field -- it claimed re-running immediately was always safe,
+        # which is not true (see build_apply_timeout_message()'s
+        # docstring: an entry whose source was still downloading when
+        # the timeout hit has no job row yet, so an immediate re-apply
+        # can queue it twice). "guidance" carries the same accurate,
+        # non-blanket explanation --json gets that a human running the
+        # same command interactively already sees via report_apply_
+        # timeout(), instead of a bare boolean.
+        if state.json_mode:
+            status = _manifest_apply.attempt_apply_timeout_status_check(
+                sdk.client, payload
+            )
+            state.output.json(
+                {
+                    "error": str(exc),
+                    "guidance": _manifest_apply.build_apply_timeout_message(exc),
+                    "ok": False,
+                    "path": str(path),
+                    # fix(#1778 review round 21): the effective timeout
+                    # ACTUALLY in effect when this fired -- the computed
+                    # heuristic, or whatever --timeout/
+                    # GEOLENS_MANIFEST_APPLY_TIMEOUT overrode it to.
+                    # None means --timeout 0 (no client-side read
+                    # timeout) was in effect.
+                    "timeout_seconds": exc.budget,
+                    "status_check": (
+                        _manifest_apply.apply_report_payload(path, status)
+                        if status is not None
+                        else None
+                    ),
+                }
+            )
+        else:
+            status = _manifest_apply.report_apply_timeout(
+                sdk.client, payload, exc, state.output
+            )
+            if status is not None:
+                _manifest_apply.render_apply_summary(
+                    state.output.console_stdout, path, status
+                )
+        raise typer.Exit(exc.exit_code)
     except _manifest_apply.ManifestApplyRequestError as exc:
         state.output.error(exc.message)
         raise typer.Exit(exc.exit_code)
@@ -417,33 +578,119 @@ def login(
         api_key = _read_secret_from_stdin()
 
     if api_key:
-        backend = _auth.store_api_key(instance, api_key, no_keyring=no_keyring)
+        # fix(#1778): AppState.sdk() prefers a stored bearer token over an
+        # API key (main.py's own D-35 precedence), so a stale JWT (or a
+        # leftover GEOLENS_TOKEN env var) left over from an earlier login
+        # silently outranked the API key this call just stored — every
+        # command then used the old credential with no error. Evict the
+        # other credential types for this instance first so the one just
+        # stored is the only one that can be resolved.
+        #
+        # fix(#1778 review round 4): replace_credentials() stores the new
+        # credential BEFORE evicting the others — see its docstring
+        # (auth.py) for why deleting first left a user logged out on a
+        # storage failure. Never call delete_credentials() directly from
+        # login (tests/test_client_construction.py's sibling structural
+        # gate — see test_login_atomic_swap.py — checks this file for it).
+        try:
+            backend = _auth.replace_credentials(
+                instance, "api_key", api_key, no_keyring=no_keyring
+            )
+        except KeyringError as exc:
+            # fix(#1778 review round 12): a keyring failure here (either
+            # replace_credentials' own pre-store abort, or a propagated
+            # cleanup/read failure) maps to EXIT_NETWORK, not the generic
+            # exit — the same "external dependency, not a usage error"
+            # class every other keyring-unavailable path in this package
+            # already uses that code for.
+            state.output.error(f"Could not store the API key: {exc}")
+            raise typer.Exit(EXIT_NETWORK) from exc
+        except _auth.CredentialsFileCorrupt as exc:
+            # fix(#1778 review round 28): replace_credentials() now
+            # refuses UNCONDITIONALLY on a corrupt file, before storing
+            # anything -- named and phrased the same way whoami/status/
+            # logout already report it, rather than the generic
+            # "Could not store..." wrapper below.
+            state.output.error(
+                f"{exc.path} is corrupt ({exc.detail}). Fix or move the "
+                "file, then try again."
+            )
+            raise typer.Exit(EXIT_GENERIC) from exc
+        except Exception as exc:
+            state.output.error(f"Could not store the API key: {exc}")
+            raise typer.Exit(EXIT_GENERIC) from exc
         _config.write_default_instance(instance, username=None)
         state.output.success(f"Stored API key for {instance} ({backend})")
         return
 
     if token:
-        backend = _auth.store_bearer_token(instance, token, no_keyring=no_keyring)
+        try:
+            backend = _auth.replace_credentials(
+                instance, "bearer", token, no_keyring=no_keyring
+            )
+        except KeyringError as exc:
+            state.output.error(f"Could not store the bearer token: {exc}")
+            raise typer.Exit(EXIT_NETWORK) from exc
+        except _auth.CredentialsFileCorrupt as exc:
+            # fix(#1778 review round 28): see the api-key branch above.
+            state.output.error(
+                f"{exc.path} is corrupt ({exc.detail}). Fix or move the "
+                "file, then try again."
+            )
+            raise typer.Exit(EXIT_GENERIC) from exc
+        except Exception as exc:
+            state.output.error(f"Could not store the bearer token: {exc}")
+            raise typer.Exit(EXIT_GENERIC) from exc
         _config.write_default_instance(instance, username=None)
         state.output.success(f"Stored bearer token for {instance} ({backend})")
         return
 
     # Interactive flow (D-08)
-    from geolens import GeolensClient
     from geolens.api.auth import login_auth_login_post
     from geolens.models.body_login_auth_login_post import BodyLoginAuthLoginPost
 
     username = typer.prompt("Username")
     password = getpass.getpass("Password: ")
-    sdk = GeolensClient(base_url=instance)
+    # fix(#1778 review round 2): this used to build its own GeolensClient
+    # directly with the SDK's default timeout=None (unbounded), so
+    # `geolens login` could still hang on a host that accepts a
+    # connection and then stalls, despite the bound added elsewhere in
+    # this PR. make_client() is the single construction point for every
+    # GeolensClient in this package (see _sdk_helpers.make_client).
+    sdk = make_client(instance)
     body = BodyLoginAuthLoginPost(username=username, password=password)
     resp = call_sdk(login_auth_login_post.sync_detailed, client=sdk.client, body=body)
     token_response = unwrap(resp, expected=200)
     access_token = token_response.access_token
-    backend = _auth.store_bearer_token(instance, access_token, no_keyring=no_keyring)
+    # fix(#1778 review round 13): the refresh token is passed straight
+    # into replace_credentials()'s own rollback-protected transaction
+    # instead of being stored by a separate call after this returns --
+    # see replace_credentials()'s docstring (auth.py) for why persisting
+    # it afterward left a half-replaced session (new access token, no
+    # refresh token, and nothing to roll back to) on a storage failure.
     refresh_token = getattr(token_response, "refresh_token", None)
-    if refresh_token:
-        _auth.store_refresh_token(instance, refresh_token, no_keyring=no_keyring)
+    try:
+        backend = _auth.replace_credentials(
+            instance,
+            "bearer",
+            access_token,
+            no_keyring=no_keyring,
+            refresh_token=refresh_token,
+        )
+    except KeyringError as exc:
+        state.output.error(f"Could not store the bearer token: {exc}")
+        raise typer.Exit(EXIT_NETWORK) from exc
+    except _auth.CredentialsFileCorrupt as exc:
+        # fix(#1778 review round 28): see the --token/--api-key
+        # branches above -- same unconditional corrupt-file refusal.
+        state.output.error(
+            f"{exc.path} is corrupt ({exc.detail}). Fix or move the "
+            "file, then try again."
+        )
+        raise typer.Exit(EXIT_GENERIC) from exc
+    except Exception as exc:
+        state.output.error(f"Could not store the bearer token: {exc}")
+        raise typer.Exit(EXIT_GENERIC) from exc
     _config.write_default_instance(instance, username=username)
     state.output.success(f"Logged in to {instance} as {username} ({backend})")
 
@@ -456,7 +703,20 @@ def logout(ctx: typer.Context) -> None:
     if not instance:
         state.output.error("No active instance — nothing to log out from.")
         raise typer.Exit(2)
-    _auth.delete_credentials(instance)
+    try:
+        _auth.delete_credentials(instance)
+    except _auth.CredentialsFileCorrupt as exc:
+        # fix(#1778 review round 22): delete_credentials() already
+        # cleared the keyring-side entries above this point (unaffected
+        # by the file) before its own file-section clear refused --
+        # logout genuinely CANNOT complete the file half safely without
+        # being able to read what is currently in it, so this reports a
+        # real failure rather than silently rewriting the file empty.
+        state.output.error(
+            f"{exc.path} is corrupt ({exc.detail}) — logout could not "
+            "update it. Fix or move the file, then try again."
+        )
+        raise typer.Exit(EXIT_GENERIC) from exc
     # BUG-032: only clear config.toml when we are logging out of the DEFAULT
     # instance it stores. With a --instance / GEOLENS_INSTANCE override active,
     # the resolved instance may differ from config.instance — unlinking then
@@ -481,16 +741,18 @@ def whoami(ctx: typer.Context) -> None:
 
     from geolens.api.auth import me_auth_me_get
 
+    # D-13: refresh-retries once on 401 via the shared helper — see
+    # _sdk_helpers.call_sdk_with_reauth (fix(#1778): this used to be
+    # open-coded here only, so every other command hard-failed instead of
+    # spending a stored refresh token).
     sdk = state.sdk()
-    resp = call_sdk(me_auth_me_get.sync_detailed, client=sdk.client)
-    if int(resp.status_code) == 401:
-        # D-13: refresh-retry once
-        new_access = _auth.try_refresh(instance)
-        if not new_access:
-            state.output.error("Session expired — run `geolens login` again")
-            raise typer.Exit(EXIT_AUTH)
-        sdk = state.sdk()  # re-construct with the rotated token
-        resp = call_sdk(me_auth_me_get.sync_detailed, client=sdk.client)
+    resp = call_sdk_with_reauth(
+        me_auth_me_get.sync_detailed,
+        instance=instance,
+        credential_kind=sdk.credential_kind,
+        credential_provenance=sdk.credential_provenance,
+        client=sdk.client,
+    )
     user = unwrap(resp, expected=200)
     email = (
         getattr(user, "email", None) or getattr(user, "username", None) or "<unknown>"
@@ -526,7 +788,17 @@ def status(
             "Dataset id must be a UUID", param_hint="dataset_id"
         ) from exc
 
-    dataset = _refresh.fetch_dataset_status(state.sdk().client, dataset_uuid)
+    sdk = state.sdk()
+    # fix(#1778): refresh-retry once on 401 (D-13) rather than hard-
+    # failing a scripted `status` check on an access token that expired
+    # since login.
+    dataset = _refresh.fetch_dataset_status(
+        sdk.client,
+        dataset_uuid,
+        instance=state.active_instance(),
+        credential_kind=sdk.credential_kind,
+        credential_provenance=sdk.credential_provenance,
+    )
     payload = _refresh.dataset_status_payload(dataset)
     if state.json_mode:
         state.output.json(payload)
@@ -715,10 +987,16 @@ def publish(
         progress.update(t1, description=f"Uploaded (job_id={job_id})")
 
         # Stage 2: Preview.
+        # fix(#1778 review round 6): the backend runs run_ogrinfo_preview()
+        # here, bounded server-side by OGRINFO_TIMEOUT_SECONDS = 300s — a
+        # large file's metadata probe can outlast AppState.sdk()'s plain
+        # 30s bound even though this request carries no file body itself
+        # (round 5's files=-keyed gate missed it for exactly that reason).
         progress.add_task("Previewing...", total=None)
-        preview_resp = call_sdk(
-            _preview.sync_detailed, job_id=job_id, client=sdk.client
-        )
+        with long_request_timeout(sdk.client):
+            preview_resp = call_sdk(
+                _preview.sync_detailed, job_id=job_id, client=sdk.client
+            )
         unwrap(preview_resp, expected=_publish.PREVIEW_OK_STATUS)
 
         # Stage 3 — Commit (NOT idempotent — Pitfall 6).
@@ -1165,13 +1443,18 @@ def replace(
             }
         else:
             # Stage 2: Preview.
-            preview_resp = call_sdk(
-                _rpreview.sync_detailed,
-                dataset_id=dataset_uuid,
-                job_id=job_id,
-                client=sdk.client,
-                body=_replace.build_preview_request(layer),
-            )
+            # fix(#1778 review round 6): same run_ogrinfo_preview() /
+            # OGRINFO_TIMEOUT_SECONDS = 300s story as publish's Stage 2
+            # above — this request carries no file body, so round 5's
+            # files=-keyed gate missed it too.
+            with long_request_timeout(sdk.client):
+                preview_resp = call_sdk(
+                    _rpreview.sync_detailed,
+                    dataset_id=dataset_uuid,
+                    job_id=job_id,
+                    client=sdk.client,
+                    body=_replace.build_preview_request(layer),
+                )
             preview = _replace.unwrap_or_raise(
                 preview_resp, expected=_replace.PREVIEW_OK_STATUS
             )

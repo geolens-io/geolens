@@ -17,11 +17,13 @@ from uuid import UUID
 from rich.table import Table
 
 from ._sdk_helpers import (
-    DeadlineTimeout,
     EXIT_AUTH,
     EXIT_GENERIC,
     EXIT_SERVER,
+    PollDeadlineExceeded,
     call_sdk,
+    call_sdk_with_reauth,
+    poll_until,
     unwrap,
 )
 
@@ -186,13 +188,30 @@ def wait_for_refresh(
     sleep: Callable[[float], None] = time.sleep,
     monotonic: Callable[[], float] = time.monotonic,
 ) -> RefreshPollResult:
-    """Poll until terminal, or until an explicitly supplied timeout expires."""
+    """Poll until terminal, or until an explicitly supplied timeout expires.
+
+    fix(#1778 review round 8): a per-request httpx.TimeoutException is
+    retried via poll_until() (logged at debug, slept past) instead of
+    being treated as immediately fatal. Previously this called plain
+    call_sdk() with no ``reraise_timeout`` — call_sdk's own
+    deadline_expired/DeadlineTimeout path only distinguishes "the
+    request timed out AND the deadline has already passed" from a hard
+    exit; there was no third option to retry a timeout that happens
+    BEFORE the deadline. That meant one slow status GET exited
+    EXIT_NETWORK immediately even with the deadline nowhere near (or,
+    for the default unbounded ``--wait``, with no deadline at all).
+    """
     from geolens.api.admin import get_job_status_jobs_job_id_get
 
     uuid_arg = job_id if isinstance(job_id, UUID) else UUID(str(job_id))
     deadline = monotonic() + timeout if timeout is not None else None
     transport = client.get_httpx_client() if deadline is not None else None
     original_timeout = transport.timeout if transport is not None else None
+    # poll_until() needs a concrete deadline to retry against; the
+    # unbounded default --wait (deadline=None here) has no operation
+    # deadline to give up at, so a per-request timeout is retried
+    # forever — same "no bound" convention as analysis.POLL_FOREVER.
+    poll_deadline = deadline if deadline is not None else float("inf")
     status = "pending"
     try:
         while True:
@@ -208,15 +227,19 @@ def wait_for_refresh(
                     )
                 transport.timeout = remaining
             try:
-                response = call_sdk(
-                    get_job_status_jobs_job_id_get.sync_detailed,
-                    deadline_expired=lambda: (
-                        deadline is not None and monotonic() >= deadline
+                response = poll_until(
+                    lambda: call_sdk(
+                        get_job_status_jobs_job_id_get.sync_detailed,
+                        job_id=uuid_arg,
+                        client=client,
+                        reraise_timeout=True,
                     ),
-                    job_id=uuid_arg,
-                    client=client,
+                    deadline=poll_deadline,
+                    interval=interval,
+                    sleep=sleep,
+                    monotonic=monotonic,
                 )
-            except DeadlineTimeout:
+            except PollDeadlineExceeded:
                 return RefreshPollResult(
                     status="timed_out",
                     error_message=(
@@ -292,15 +315,49 @@ def refresh_payload(response: Any, poll: RefreshPollResult | None = None) -> dic
     return payload
 
 
-def fetch_dataset_status(client: Any, dataset_id: UUID) -> Any:
-    """Read the generated dataset detail model used by ``geolens status``."""
+def fetch_dataset_status(
+    client: Any,
+    dataset_id: UUID,
+    *,
+    instance: str | None = None,
+    credential_kind: str | None = None,
+    credential_provenance: str | None = None,
+) -> Any:
+    """Read the generated dataset detail model used by ``geolens status``.
+
+    fix(#1778): ``instance`` is optional so existing callers are
+    unaffected — pass it to refresh-retry once on 401 instead of
+    hard-failing on an access token that expired since login (D-13;
+    previously only ``whoami`` spent the stored refresh token).
+
+    fix(#1778 review round 3): ``credential_kind`` (from the
+    ``GeolensClient`` returned by ``AppState.sdk()`` / ``make_client()``)
+    is required alongside ``instance`` to enable the retry — it gates
+    the refresh attempt to a bearer-token client. See
+    ``_sdk_helpers.call_sdk_with_reauth``.
+
+    fix(#1778 review round 26): ``credential_provenance`` is forwarded
+    the same way — see ``call_sdk_with_reauth``'s own docstring for why
+    "bearer" alone is not enough to justify spending a stored refresh
+    token.
+    """
     from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get
 
-    response = call_sdk(
-        get_single_dataset_datasets_dataset_id_get.sync_detailed,
-        dataset_id=dataset_id,
-        client=client,
-    )
+    if instance is not None and credential_kind is not None:
+        response = call_sdk_with_reauth(
+            get_single_dataset_datasets_dataset_id_get.sync_detailed,
+            instance=instance,
+            credential_kind=credential_kind,
+            credential_provenance=credential_provenance,
+            dataset_id=dataset_id,
+            client=client,
+        )
+    else:
+        response = call_sdk(
+            get_single_dataset_datasets_dataset_id_get.sync_detailed,
+            dataset_id=dataset_id,
+            client=client,
+        )
     return unwrap(response, expected=DATASET_STATUS_OK)
 
 

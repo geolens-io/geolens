@@ -12,8 +12,22 @@
  *
  * The query-parameter `?api_key=<key>` fallback that the backend supports
  * for browser/embed contexts is NOT exposed by this SDK wrapper (D-11).
+ *
+ * Two ways to use the client this returns, both supported:
+ *
+ * - Pass `{ client: sdk.client }` explicitly to every generated endpoint
+ *   call. This client is scoped to THIS `createGeolensClient()` call —
+ *   concurrent callers (e.g. one client per request in a Node server)
+ *   never interfere with each other (fix(#1778)).
+ * - Omit `client` and rely on the legacy shared default: every generated
+ *   function falls back to one module-level singleton
+ *   (`(options?.client ?? client)`, sdk.gen.ts) that `createGeolensClient()`
+ *   also reconfigures on every call, last-caller-wins, exactly as before
+ *   this file added the scoped client above. This keeps existing
+ *   integrations that never pass `client` working unchanged.
  */
 import { client } from './client/client.gen.js';
+import { createClient, createConfig, type Client } from './client/client/index.js';
 
 export interface GeolensClientOptions {
   /**
@@ -32,8 +46,15 @@ export interface GeolensClient {
   baseUrl: string;
   /** The headers used for every request. */
   headers: Record<string, string>;
-  /** The underlying generated @hey-api client (configured). */
-  client: typeof client;
+  /**
+   * The underlying generated @hey-api client, scoped to this call only.
+   * Pass this explicitly (`{ client: sdk.client }`) to isolate this
+   * caller from any other concurrent `createGeolensClient()` call. If
+   * omitted from a generated call, that call falls back to the shared
+   * singleton instead, which this same `createGeolensClient()` call also
+   * configures — see the module docblock.
+   */
+  client: Client;
 }
 
 /**
@@ -48,7 +69,10 @@ export interface GeolensClient {
  *   baseUrl: 'https://geolens.example.com/api',
  *   bearerToken: '...',
  * });
+ * // Isolated: safe alongside a concurrent createGeolensClient() call.
  * const resp = await searchDatasetsEndpointSearchDatasetsGet({ client: sdk.client });
+ * // Legacy shared default: works too, but last caller wins process-wide.
+ * const resp2 = await searchDatasetsEndpointSearchDatasetsGet();
  * ```
  */
 export const createGeolensClient = (
@@ -60,38 +84,54 @@ export const createGeolensClient = (
     );
   }
 
-  // BUG-023: explicitly clear headers that are NOT provided so that a prior
-  // call's credentials do not persist on the shared singleton. The
-  // @hey-api/client-fetch mergeHeaders implementation deletes a header when
-  // its value is null — passing null removes a previously-set header.
-  const headers: Record<string, string | null> = {
-    Authorization: null,
-    'X-API-Key': null,
-  };
-
-  const publicHeaders: Record<string, string> = {};
+  const headers: Record<string, string> = {};
 
   if (opts.bearerToken) {
     headers['Authorization'] = `Bearer ${opts.bearerToken}`;
-    publicHeaders['Authorization'] = `Bearer ${opts.bearerToken}`;
   }
   if (opts.apiKey) {
     headers['X-API-Key'] = opts.apiKey;
-    publicHeaders['X-API-Key'] = opts.apiKey;
   }
 
-  // Configure the generated singleton client so all generated SDK
-  // function calls inherit the auth headers + base URL.
-  // We pass the full headers (with nulls) to setConfig so stale entries
-  // are removed, but return only non-null headers in the public surface.
-  client.setConfig({
+  // fix(#1778): build a client scoped to this call instead of ONLY
+  // mutating the generated module's shared singleton. Two concurrent
+  // createGeolensClient() calls (e.g. one per request in a Node server)
+  // used to reconfigure the same underlying client object, so the
+  // credentials of whichever call ran last leaked onto every other
+  // call's in-flight and subsequent requests when that call passed
+  // `{ client: sdk.client }` explicitly.
+  const scopedClient = createClient(createConfig({
     baseUrl: opts.baseUrl,
     headers,
+  }));
+
+  // fix(#1778 review round 3): ALSO reconfigure the shared singleton,
+  // exactly as this wrapper did before the scoped client above was
+  // added. Existing consumers that call createGeolensClient() once and
+  // then call generated endpoints WITHOUT passing `client` rely on the
+  // singleton fallback (`options?.client ?? client`, sdk.gen.ts) — those
+  // calls broke when the singleton stopped being touched, hitting
+  // whatever baseUrl (or none) it last had. This package follows the
+  // app's version and this is not a major release, so both call shapes
+  // must keep working: `{ client: sdk.client }` is isolated (the bug
+  // this PR fixes); omitting `client` keeps the legacy shared default,
+  // last-caller-wins, same as always.
+  //
+  // BUG-023: explicitly clear headers that are NOT provided so a prior
+  // call's credentials do not persist on the shared singleton. The
+  // @hey-api/client-fetch mergeHeaders implementation deletes a header
+  // when its value is null — passing null removes a previously-set one.
+  client.setConfig({
+    baseUrl: opts.baseUrl,
+    headers: {
+      Authorization: headers['Authorization'] ?? null,
+      'X-API-Key': headers['X-API-Key'] ?? null,
+    },
   });
 
   return {
     baseUrl: opts.baseUrl,
-    headers: publicHeaders,
-    client,
+    headers,
+    client: scopedClient,
   };
 };

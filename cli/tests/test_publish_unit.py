@@ -285,6 +285,56 @@ class TestUploadFile:
         # Result has the SDK Response shape
         assert int(result.status_code) == 201
 
+    def test_upload_raises_the_timeout_then_restores_it(
+        self, tmp_path: Path
+    ) -> None:
+        """fix(#1778): AppState.sdk() now bounds every request to
+        _sdk_helpers.DEFAULT_HTTP_TIMEOUT_SECONDS (30s), too short for a
+        large geospatial file on an ordinary connection. upload_file()
+        must raise the bound for the POST itself and put the original
+        value back afterward, so a later request on this same client
+        (preview/commit/poll) is not left with the upload's longer bound.
+        """
+        from geolens_cli._sdk_helpers import EXTENDED_REQUEST_TIMEOUT_SECONDS
+        from geolens_cli.publish import upload_file
+
+        sample = tmp_path / "cities.geojson"
+        sample.write_text('{"type":"FeatureCollection","features":[]}')
+
+        seen_timeout_during_post = None
+
+        mock_httpx = MagicMock()
+        mock_httpx.timeout = 30.0  # AppState.sdk()'s default bound
+
+        def fake_post(*args, **kwargs):
+            nonlocal seen_timeout_during_post
+            seen_timeout_during_post = mock_httpx.timeout
+            raw_response = MagicMock()
+            raw_response.status_code = 201
+            raw_response.content = (
+                b'{"job_id":"00000000-0000-0000-0000-000000000001",'
+                b'"status":"pending","message":"ok"}'
+            )
+            raw_response.headers = {}
+            raw_response.json.return_value = {
+                "job_id": "00000000-0000-0000-0000-000000000001",
+                "status": "pending",
+                "message": "ok",
+            }
+            return raw_response
+
+        mock_httpx.post.side_effect = fake_post
+
+        sdk_client = MagicMock()
+        sdk_client.get_httpx_client.return_value = mock_httpx
+        sdk_client.raise_on_unexpected_status = False
+
+        upload_file(sdk_client, sample)
+
+        assert seen_timeout_during_post == EXTENDED_REQUEST_TIMEOUT_SECONDS
+        assert seen_timeout_during_post != 30.0
+        assert mock_httpx.timeout == 30.0
+
 
 # ---------------------------------------------------------------------------
 # Task 2 — geolens publish CLI command body
@@ -672,6 +722,53 @@ class TestPublishCli:
         assert isinstance(captured["body"], CommitRequest)
         assert captured["body"].title == "My Cities"
         assert captured["body"].summary == "hello"
+
+
+class TestPublishStage2PreviewIsBounded:
+    """fix(#1778 review round 6): the Stage 2 preview step runs the
+    backend's run_ogrinfo_preview() probe (OGRINFO_TIMEOUT_SECONDS =
+    300s, backend/app/processing/ingest/ogr.py) — a request with no file
+    body, so round 5's files=-keyed structural gate missed it. Stage 2
+    must wrap the preview call in long_request_timeout()."""
+
+    def test_publish_stage2_preview_captures_the_extended_timeout(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        import httpx
+
+        from geolens_cli._sdk_helpers import EXTENDED_REQUEST_TIMEOUT_SECONDS
+        from geolens_cli.main import app
+
+        instance = "https://x.example.com"
+        _seed_login(instance, mock_keyring)
+
+        monkeypatch.setattr(
+            "geolens_cli.publish.upload_file", lambda *a, **k: _ok_upload()
+        )
+        monkeypatch.setattr(
+            "geolens.api.datasets.commit_import_ingest_commit_job_id_post"
+            ".sync_detailed",
+            lambda **kw: _ok_commit(),
+        )
+
+        seen_timeout = None
+
+        def spying_preview(**kwargs):
+            nonlocal seen_timeout
+            seen_timeout = kwargs["client"].get_httpx_client().timeout
+            return _ok_preview()
+
+        monkeypatch.setattr(
+            "geolens.api.datasets.preview_file_ingest_preview_job_id_post"
+            ".sync_detailed",
+            spying_preview,
+        )
+
+        result = runner.invoke(app, ["publish", str(sample_geojson), "--no-wait"])
+
+        assert result.exit_code == 0, result.output
+        assert seen_timeout is not None
+        assert seen_timeout == httpx.Timeout(EXTENDED_REQUEST_TIMEOUT_SECONDS)
 
 
 # ---------------------------------------------------------------------------
@@ -1602,7 +1699,16 @@ class TestResolveDatasetIdPollOutcomeShape:
             MagicMock(),
             "00000000-0000-0000-0000-000000000001",
             sleep=lambda *_: None,
-            monotonic=iter([0.0, 1.0, 200.0]).__next__,
+            # fix(#1778 review round 16): poll_until now checks the
+            # deadline (a monotonic() call) BEFORE every fetch, not just
+            # after a timeout, and resolve_dataset_id's own outer sleep
+            # now caps to the time remaining (another monotonic() call)
+            # -- both need one more clock value per iteration than
+            # before. 0.0/1.0 are the outer deadline calc + first while
+            # check; 2.0 is poll_until's pre-fetch check (fetch
+            # succeeds); 3.0 is the outer sleep's remaining check; 200.0
+            # is the outer while loop's second check, past the deadline.
+            monotonic=iter([0.0, 1.0, 2.0, 3.0, 200.0]).__next__,
         )
         assert outcome.dataset_id is None
         assert outcome.status == "running"
@@ -1632,7 +1738,12 @@ class TestResolveDatasetIdPollOutcomeShape:
             MagicMock(),
             "00000000-0000-0000-0000-000000000001",
             sleep=sleeps.append,
-            monotonic=iter([0.0, 1.0, 2.0, 3.0]).__next__,
+            # fix(#1778 review round 16): one more clock value per poll
+            # iteration than before -- poll_until now checks the
+            # deadline before every fetch (not just after a timeout),
+            # and the outer sleep between iterations now caps to the
+            # time remaining -- both consume a monotonic() call.
+            monotonic=iter([0.0, 1.0, 2.0, 3.0, 4.0, 5.0]).__next__,
         )
         assert outcome.dataset_id is None
         assert outcome.stopped_because == "poll_failed"
@@ -1779,9 +1890,146 @@ class TestResolveDatasetIdNetworkError:
                 MagicMock(),
                 "00000000-0000-0000-0000-000000000001",
                 sleep=lambda *_: None,
-                monotonic=iter([0.0, 1.0]).__next__,
+                # fix(#1778 review round 16): poll_until now checks the
+                # deadline (a monotonic() call) immediately before every
+                # fetch, including the first -- one more value needed.
+                monotonic=iter([0.0, 1.0, 2.0]).__next__,
             )
         assert exc_info.value.exit_code == EXIT_NETWORK
+
+
+class TestResolveDatasetIdRetriesOnPerRequestTimeout:
+    """fix(#1778 review round 7): the per-request 5s snapshot bound
+    (_SNAPSHOT_REQUEST_TIMEOUT_SECONDS) used to turn one slow
+    GET /jobs/{job_id} (a busy DB pool, say) into an immediate
+    typer.Exit(EXIT_NETWORK) via call_sdk, aborting --wait even though
+    the operation's own deadline still had time left. A per-request
+    httpx.TimeoutException is now retried (logged, slept past) until
+    the deadline itself is reached; only then does it exit
+    EXIT_NETWORK. A genuine network failure (TestResolveDatasetIdNetworkError
+    above) is unaffected."""
+
+    def test_two_timeouts_then_success_still_resolves(self, monkeypatch) -> None:
+        import httpx
+
+        from geolens_cli import publish as _publish
+
+        calls = {"n": 0}
+
+        def flaky(**kwargs):
+            calls["n"] += 1
+            if calls["n"] <= 2:
+                raise httpx.ReadTimeout("db pool busy")
+            return _ok_job_status(dataset_id="00000000-0000-0000-0000-000000000099")
+
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            flaky,
+        )
+
+        outcome = _publish.resolve_dataset_id(
+            MagicMock(),
+            "00000000-0000-0000-0000-000000000001",
+            timeout=120.0,
+            sleep=lambda *_: None,
+            # fix(#1778 review round 16): poll_until now checks the
+            # deadline before every fetch (not just after a timeout),
+            # consuming one more monotonic() call per iteration.
+            monotonic=iter([0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).__next__,
+        )
+
+        assert calls["n"] == 3
+        assert outcome.dataset_id == "00000000-0000-0000-0000-000000000099"
+        assert outcome.stopped_because is None
+
+    def test_always_timing_out_exits_network_at_the_deadline(
+        self, monkeypatch
+    ) -> None:
+        import httpx
+        import typer
+
+        from geolens_cli import publish as _publish
+        from geolens_cli._sdk_helpers import EXIT_NETWORK
+
+        def always_slow(**kwargs):
+            raise httpx.ReadTimeout("db pool busy")
+
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            always_slow,
+        )
+
+        with pytest.raises(typer.Exit) as exc_info:
+            _publish.resolve_dataset_id(
+                MagicMock(),
+                "00000000-0000-0000-0000-000000000001",
+                timeout=10.0,
+                sleep=lambda *_: None,
+                monotonic=iter([0.0, 1.0, 11.0]).__next__,
+            )
+
+        assert exc_info.value.exit_code == EXIT_NETWORK
+
+
+class TestResolveDatasetIdBoundsEachRequest:
+    """fix(#1778, #1787): resolve_dataset_id's own poll requests inherited
+    the client's default timeout=None (unbounded) — the deadline computed
+    from `timeout` is only checked BETWEEN polls, so a single stalled
+    connection could hang --wait forever regardless of how short the
+    caller's overall deadline was. Each request must be bound to
+    _SNAPSHOT_REQUEST_TIMEOUT_SECONDS (the same short bound already used
+    for the one-shot follow-up read of this identical endpoint), and the
+    transport's original timeout restored once polling stops."""
+
+    def test_each_poll_request_is_bounded_and_original_timeout_restored(
+        self, monkeypatch
+    ) -> None:
+        from types import SimpleNamespace
+
+        from geolens_cli import publish as _publish
+
+        transport = SimpleNamespace(timeout="unset-original")
+        client = MagicMock()
+        client.get_httpx_client.return_value = transport
+
+        seen_timeouts: list = []
+
+        def next_status(**kwargs):
+            seen_timeouts.append(transport.timeout)
+            return MagicMock(
+                status_code=HTTPStatus.OK,
+                parsed=SimpleNamespace(status="running", dataset_id=None),
+            )
+
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            next_status,
+        )
+
+        outcome = _publish.resolve_dataset_id(
+            client,
+            "00000000-0000-0000-0000-000000000001",
+            timeout=120.0,
+            sleep=lambda *_: None,
+            # fix(#1778 review round 16): one more clock value per poll
+            # iteration -- poll_until's pre-fetch deadline check and the
+            # outer sleep's remaining-time cap each consume a
+            # monotonic() call. See test_timeout_preserves_the_last_
+            # known_status above for the identical shape.
+            monotonic=iter([0.0, 1.0, 2.0, 3.0, 200.0]).__next__,
+        )
+
+        assert outcome.stopped_because == "timeout"
+        assert seen_timeouts, "no poll request was observed"
+        # Every poll request was bounded well under the 120s overall
+        # deadline — previously it inherited the client's default
+        # (unbounded) timeout.
+        assert all(
+            t == _publish._SNAPSHOT_REQUEST_TIMEOUT_SECONDS for t in seen_timeouts
+        )
+        # The transport's timeout is restored to whatever it was before
+        # polling started, not left at the short per-request bound.
+        assert transport.timeout == "unset-original"
 
 
 # ---------------------------------------------------------------------------

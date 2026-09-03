@@ -183,6 +183,54 @@ class TestUploadFile:
         assert files["file"][2] == "application/geo+json"
         assert int(result.status_code) == 201
 
+    def test_raises_the_timeout_then_restores_it(self, tmp_path: Path) -> None:
+        """fix(#1778 review round 5): the backend saves and validates the
+        replacement before responding, so a large file posted through
+        AppState.sdk()'s plain 30s bound could time out. upload_file()
+        must raise the bound for the POST itself (long_request_timeout()) and
+        put the original value back afterward."""
+        from unittest.mock import MagicMock
+
+        from geolens_cli._sdk_helpers import EXTENDED_REQUEST_TIMEOUT_SECONDS
+        from geolens_cli.replace import upload_file
+
+        sample = tmp_path / "cities.geojson"
+        sample.write_text('{"type":"FeatureCollection","features":[]}')
+
+        seen_timeout_during_post = None
+
+        mock_httpx = MagicMock()
+        mock_httpx.timeout = 30.0  # AppState.sdk()'s default bound
+
+        def fake_post(*args, **kwargs):
+            nonlocal seen_timeout_during_post
+            seen_timeout_during_post = mock_httpx.timeout
+            raw_response = MagicMock()
+            raw_response.status_code = 201
+            raw_response.content = (
+                b'{"job_id":"00000000-0000-0000-0000-000000000202",'
+                b'"status":"pending","message":"ok"}'
+            )
+            raw_response.headers = {}
+            raw_response.json.return_value = {
+                "job_id": "00000000-0000-0000-0000-000000000202",
+                "status": "pending",
+                "message": "ok",
+            }
+            return raw_response
+
+        mock_httpx.post.side_effect = fake_post
+
+        sdk_client = MagicMock()
+        sdk_client.get_httpx_client.return_value = mock_httpx
+        sdk_client.raise_on_unexpected_status = False
+
+        upload_file(sdk_client, DATASET_ID, sample)
+
+        assert seen_timeout_during_post == EXTENDED_REQUEST_TIMEOUT_SECONDS
+        assert seen_timeout_during_post != 30.0
+        assert mock_httpx.timeout == 30.0
+
 
 def _problem(status: int, detail: str | dict) -> SimpleNamespace:
     from geolens.models.problem_detail import ProblemDetail
@@ -505,6 +553,49 @@ class TestReplaceSingleLayerHappyPath:
         )
 
         assert result.exit_code == 0, result.output
+
+
+class TestReplaceStage2PreviewIsBounded:
+    """fix(#1778 review round 6): the Stage 2 preview step runs the
+    backend's run_ogrinfo_preview() probe (OGRINFO_TIMEOUT_SECONDS =
+    300s, backend/app/processing/ingest/ogr.py) — a request with no
+    file body, so round 5's files=-keyed structural gate missed it.
+    Stage 2 must wrap the preview call in long_request_timeout()."""
+
+    def test_replace_stage2_preview_captures_the_extended_timeout(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        import httpx
+
+        from geolens_cli._sdk_helpers import EXTENDED_REQUEST_TIMEOUT_SECONDS
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset())
+        _patch_upload(monkeypatch, _ok_upload())
+        _patch_commit(monkeypatch, _ok_commit())
+
+        seen_timeout = None
+
+        def spying_preview(**kwargs):
+            nonlocal seen_timeout
+            seen_timeout = kwargs["client"].get_httpx_client().timeout
+            return _ok_preview()
+
+        monkeypatch.setattr(
+            "geolens.api.datasets_reupload."
+            "reupload_preview_datasets_dataset_id_reupload_job_id_preview_post"
+            ".sync_detailed",
+            spying_preview,
+        )
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson), "--yes"]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert seen_timeout is not None
+        assert seen_timeout == httpx.Timeout(EXTENDED_REQUEST_TIMEOUT_SECONDS)
 
 
 class TestReplaceMultiLayerRefusal:

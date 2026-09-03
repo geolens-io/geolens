@@ -127,6 +127,103 @@ def test_drift_checker_passes():
     )
 
 
+def _load_checker_module():
+    import importlib.util
+
+    checker_path = _REPO_ROOT / "backend" / "scripts" / "check_fe_type_drift.py"
+    spec = importlib.util.spec_from_file_location("check_fe_type_drift", checker_path)
+    module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    return module
+
+
+class TestResolvedKnownDriftIsReportedEvenAtZeroDrift:
+    """fix(#1778): check_drift() computed "known drift now resolved" AFTER
+    an early ``continue`` for a model with zero CURRENT drift, so a
+    KNOWN_DRIFT entry for a model whose FE mirror had fully caught up was
+    invisible to the reporter forever — the stale allowlist entry sat
+    there as a standing license to regress with no signal telling anyone
+    to remove it. MapResponse, JobStatusResponse and DuplicateMapResponse
+    were exactly this case (confirmed against the tree at the time of the
+    audit) and their entries have been removed from KNOWN_DRIFT below."""
+
+    def test_a_fully_resolved_known_drift_entry_is_reported(self) -> None:
+        module = _load_checker_module()
+
+        be_schemas = {"Widget": {"a", "b"}}
+        fe_interfaces = {"Widget": {"props": {"a", "b"}, "extends": None}}
+        original_known_drift = module.KNOWN_DRIFT
+        module.KNOWN_DRIFT = {"Widget": ["b"]}
+        try:
+            report = module.check_drift(["Widget"], be_schemas, fe_interfaces)
+        finally:
+            module.KNOWN_DRIFT = original_known_drift
+
+        assert report.resolved_known_drift == [("Widget", ["b"])]
+        assert report.new_drift == []
+        assert report.known_drift == []
+
+    def test_a_resolved_known_drift_entry_fails_the_gate(self) -> None:
+        """fix(#1778 review round 9): check_drift() computed
+        resolved_known_drift, but should_fail() ignored it -- the only
+        repo invocation of this checker is test_drift_checker_passes(),
+        so the [RESOLVED] notice was just captured pytest output nobody
+        had to act on. A resolved entry left in KNOWN_DRIFT is a
+        standing license to regress; the gate must fail until the
+        entry is actually removed."""
+        module = _load_checker_module()
+
+        be_schemas = {"Widget": {"a", "b"}}
+        fe_interfaces = {"Widget": {"props": {"a", "b"}, "extends": None}}
+        original_known_drift = module.KNOWN_DRIFT
+        module.KNOWN_DRIFT = {"Widget": ["b"]}
+        try:
+            report = module.check_drift(["Widget"], be_schemas, fe_interfaces)
+        finally:
+            module.KNOWN_DRIFT = original_known_drift
+
+        assert report.resolved_known_drift == [("Widget", ["b"])]
+        assert report.should_fail() is True
+
+    def test_stale_allowlist_entries_are_gone(self) -> None:
+        """The three now-stale entries this finding named must stay gone —
+        pins the KNOWN_DRIFT cleanup so a revert doesn't quietly slide
+        back in."""
+        module = _load_checker_module()
+
+        assert "MapResponse" not in module.KNOWN_DRIFT
+        assert "DuplicateMapResponse" not in module.KNOWN_DRIFT
+        assert "JobStatusResponse" not in module.KNOWN_DRIFT
+
+
+class TestSkippedMaintainedModelFailsTheBuild:
+    """fix(#1778): report.skipped (a maintained model absent from
+    openapi.json or the FE mirror — e.g. renamed on either side) never
+    affected the exit code, so a renamed MAINTAINED_MODELS entry silently
+    dropped out of comparison with zero output and exit 0."""
+
+    def test_should_fail_is_true_when_a_model_is_skipped(self) -> None:
+        module = _load_checker_module()
+
+        report = module.DriftReport()
+        report.skipped.append("GhostModel: not in openapi.json schemas")
+
+        assert report.should_fail() is True
+
+    def test_should_fail_is_false_with_no_drift_and_nothing_skipped(self) -> None:
+        module = _load_checker_module()
+
+        assert module.DriftReport().should_fail() is False
+
+    def test_check_drift_skips_a_model_absent_from_openapi(self) -> None:
+        module = _load_checker_module()
+
+        report = module.check_drift(["GhostModel"], be_schemas={}, fe_interfaces={})
+
+        assert report.skipped == ["GhostModel: not in openapi.json schemas"]
+        assert report.should_fail() is True
+
+
 # ---------------------------------------------------------------------------
 # Task 2: Tenant-bound model hand-audit (minimum bar before Phase 1207)
 # ---------------------------------------------------------------------------

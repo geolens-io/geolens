@@ -42,7 +42,15 @@ from uuid import UUID
 
 import typer
 
-from ._sdk_helpers import EXIT_GENERIC, EXIT_SERVER, call_sdk
+from ._sdk_helpers import (
+    EXIT_GENERIC,
+    EXIT_NETWORK,
+    EXIT_SERVER,
+    PollDeadlineExceeded,
+    call_sdk,
+    long_request_timeout,
+    poll_until,
+)
 
 # ---------------------------------------------------------------------------
 # Status-code constants — verified by Plan 04 Task 0 Q4 spike.
@@ -154,10 +162,15 @@ def upload_file(client: Any, path: Path) -> Any:
     from geolens.api.datasets import upload_file_ingest_upload_post
     from geolens.types import Response
 
-    httpx_client = client.get_httpx_client()
-    with path.open("rb") as fh:
-        files = {"file": (path.name, fh, guess_mime(path))}
-        raw = httpx_client.post("/ingest/upload", files=files)
+    # fix(#1778, review round 5): a large geospatial file upload can
+    # easily outlast AppState.sdk()'s 30s default — long_request_timeout()
+    # raises the bound for the transfer itself and restores it
+    # afterward, so a later request on this same client (preview/
+    # commit/poll) isn't left with the upload's longer timeout.
+    with long_request_timeout(client) as httpx_client:
+        with path.open("rb") as fh:
+            files = {"file": (path.name, fh, guess_mime(path))}
+            raw = httpx_client.post("/ingest/upload", files=files)
     parsed = upload_file_ingest_upload_post._parse_response(client=client, response=raw)
     return Response(
         status_code=HTTPStatus(raw.status_code),
@@ -320,6 +333,17 @@ def resolve_dataset_id(
     guess: ``stopped_because`` says which one happened, from THIS poll, not
     a possibly-contradictory follow-up read.
 
+    fix(#1778 review round 7): a single poll REQUEST timing out (the 5s
+    per-request bound) is retried — logged at debug and slept past —
+    rather than aborting the whole operation immediately; a busy DB
+    pool making one ``GET /jobs/{job_id}`` slow doesn't mean the
+    operation itself is unhealthy, and the caller's own ``timeout``
+    deadline still has the final say. Only once that deadline is
+    reached WHILE a request is timing out does this exit
+    ``typer.Exit(EXIT_NETWORK)`` (naming the deadline in the message) —
+    a real network failure (connection refused/reset, as opposed to a
+    slow response) still exits immediately, unchanged.
+
     ``sleep`` and ``monotonic`` are injectable so tests can run with zero
     real-time delay.
     """
@@ -339,51 +363,105 @@ def resolve_dataset_id(
         uuid_arg = job_id
 
     last_status: Optional[str] = None
-    deadline = monotonic() + timeout
-    while monotonic() < deadline:
-        # BUG-034: route the poll through call_sdk so a network failure during
-        # post-commit polling maps to EXIT_NETWORK (4) per D-32 rather than a
-        # raw httpx traceback + exit 1.
-        resp = call_sdk(
-            get_job_status_jobs_job_id_get.sync_detailed,
-            job_id=uuid_arg,
-            client=client,
-        )
-        code = int(resp.status_code)
-        if code in (401, 403):
-            return PollOutcome(status=last_status, stopped_because="token_expired")
-        if code != JOB_STATUS_OK_STATUS:
-            # Some other non-200 (server error, 404, ...) — give up rather
-            # than spend the whole deadline retrying a status the caller
-            # should decide how to handle. http_status is carried so the
-            # caller can select EXIT_SERVER for a 5xx rather than the
-            # generic exit code (fix(#1778, codex round 7)).
-            return PollOutcome(
-                status=last_status,
-                stopped_because="poll_failed",
-                detail=f"HTTP {code}",
-                http_status=code,
-            )
-        if isinstance(resp.parsed, ProblemDetail):
-            return PollOutcome(
-                status=last_status,
-                stopped_because="poll_failed",
-                detail=resp.parsed.detail or "unexpected response body",
-            )
-        parsed = resp.parsed
-        status = getattr(parsed, "status", None)
-        dataset_id = getattr(parsed, "dataset_id", None)
-        last_status = status
-        # Terminal success: dataset_id materialized.
-        if dataset_id:
-            return PollOutcome(dataset_id=str(dataset_id), status=status)
-        # fix(#1778): "cancelled" and "fanned_out" were missing from the
-        # terminal set, so --wait kept polling until timeout instead of
-        # stopping as soon as the job's fate was known.
-        if status in _TERMINAL_NO_DATASET_STATUSES:
-            return PollOutcome(status=status, stopped_because="terminal")
-        sleep(interval)
-    return PollOutcome(status=last_status, stopped_because="timeout")
+    transport = client.get_httpx_client()
+    original_timeout = transport.timeout
+    # fix(#1778, #1787): AppState.sdk() bounds every request to a default
+    # 30s now, but a caller-supplied `timeout` (or analysis materialize's
+    # POLL_FOREVER) can be far longer than that — bind each INDIVIDUAL
+    # poll request to the same short bound already used for the one-shot
+    # follow-up read of this identical endpoint
+    # (_SNAPSHOT_REQUEST_TIMEOUT_SECONDS), so a single stalled connection
+    # can't outlive the whole --wait the way it previously could (the
+    # deadline below is only checked BETWEEN polls). Restored
+    # unconditionally: publish()'s Stage 5 (--tags/--collection) and
+    # materialize's own follow-up read both reuse this same client
+    # afterward (fix(#1778, codex round 6) regression shape).
+    transport.timeout = min(timeout, _SNAPSHOT_REQUEST_TIMEOUT_SECONDS)
+    try:
+        deadline = monotonic() + timeout
+        while monotonic() < deadline:
+            # BUG-034: route the poll through call_sdk so a network failure during
+            # post-commit polling maps to EXIT_NETWORK (4) per D-32 rather than a
+            # raw httpx traceback + exit 1.
+            #
+            # fix(#1778 review round 7, shared via round 8's poll_until):
+            # a per-request timeout (the 5s snapshot bound above) is
+            # routine under load — a busy DB pool can make one
+            # GET /jobs/{job_id} slow without the overall operation
+            # being unhealthy. poll_until() retries it (logged at
+            # debug, slept past) as long as THIS loop's own deadline
+            # (not call_sdk's) hasn't passed yet. A genuine network
+            # failure (connection refused/reset) still exits
+            # immediately via call_sdk, unchanged from before.
+            try:
+                resp = poll_until(
+                    lambda: call_sdk(
+                        get_job_status_jobs_job_id_get.sync_detailed,
+                        job_id=uuid_arg,
+                        client=client,
+                        reraise_timeout=True,
+                    ),
+                    deadline=deadline,
+                    interval=interval,
+                    sleep=sleep,
+                    monotonic=monotonic,
+                )
+            except PollDeadlineExceeded:
+                typer.secho(
+                    f"Request timed out repeatedly; giving up after the "
+                    f"{timeout:.0f}s deadline.",
+                    fg="red",
+                    err=True,
+                )
+                raise typer.Exit(EXIT_NETWORK) from None
+            code = int(resp.status_code)
+            if code in (401, 403):
+                return PollOutcome(status=last_status, stopped_because="token_expired")
+            if code != JOB_STATUS_OK_STATUS:
+                # Some other non-200 (server error, 404, ...) — give up rather
+                # than spend the whole deadline retrying a status the caller
+                # should decide how to handle. http_status is carried so the
+                # caller can select EXIT_SERVER for a 5xx rather than the
+                # generic exit code (fix(#1778, codex round 7)).
+                return PollOutcome(
+                    status=last_status,
+                    stopped_because="poll_failed",
+                    detail=f"HTTP {code}",
+                    http_status=code,
+                )
+            if isinstance(resp.parsed, ProblemDetail):
+                return PollOutcome(
+                    status=last_status,
+                    stopped_because="poll_failed",
+                    detail=resp.parsed.detail or "unexpected response body",
+                )
+            parsed = resp.parsed
+            status = getattr(parsed, "status", None)
+            dataset_id = getattr(parsed, "dataset_id", None)
+            last_status = status
+            # Terminal success: dataset_id materialized.
+            if dataset_id:
+                return PollOutcome(dataset_id=str(dataset_id), status=status)
+            # fix(#1778): "cancelled" and "fanned_out" were missing from the
+            # terminal set, so --wait kept polling until timeout instead of
+            # stopping as soon as the job's fate was known.
+            if status in _TERMINAL_NO_DATASET_STATUSES:
+                return PollOutcome(status=status, stopped_because="terminal")
+            # fix(#1778 review round 16): capped to the time actually
+            # remaining, matching wait_for_refresh's own outer sleep and
+            # poll_until's fixed inner one -- a bare sleep(interval) here
+            # was harmless for correctness (the `while monotonic() <
+            # deadline:` guard at the top already stops a late fetch),
+            # but could oversleep well past the deadline before this
+            # loop noticed, for no reason once `interval` exceeds the
+            # time actually left.
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                break
+            sleep(min(interval, remaining))
+        return PollOutcome(status=last_status, stopped_because="timeout")
+    finally:
+        transport.timeout = original_timeout
 
 
 # ---------------------------------------------------------------------------
