@@ -752,23 +752,6 @@ def replace_credentials(
     previous_kind = _resolve_current_active_kind(instance)
     kind_changed = previous_kind is not None and previous_kind != kind
 
-    # fix(#1778 review round 23): a kind swap (bearer -> api_key or back)
-    # makes the active_kind marker written below load-bearing, not mere
-    # tidiness -- it is the ONLY thing that keeps a still-lingering OLD
-    # credential in the other backend from outranking the one this login
-    # is about to store (AppState.sdk() falls back to bearer-first
-    # precedence whenever the marker is missing or stale). Round 22 let
-    # a corrupt file swallow that write to a warning and carry on
-    # regardless of kind -- fine for a same-kind re-login (nothing about
-    # precedence changes), wrong for a swap: login would report success
-    # while quietly leaving the OLD kind in charge. Refuse UP FRONT here,
-    # before the new secret is stored anywhere, so a refusal leaves both
-    # backends exactly as they were -- unlike the marker-write failure
-    # handled below, which can only roll back what THIS call already
-    # stored.
-    if kind_changed:
-        ensure_credentials_file_readable()
-
     # fix(#1778 review round 23): mirrors _delete_stale_credentials's own
     # round-14 _UNKNOWN gate for the SAME (old-kind) keyring account --
     # when the pre-swap snapshot could not read it, that cleanup skips
@@ -780,11 +763,60 @@ def replace_credentials(
     # inside _delete_stale_credentials, which runs after the marker
     # write) so the marker's own except block below can decide whether
     # to treat a failure there as fatal.
+    #
+    # fix(#1778 review round 25): round 23 gated all of this on
+    # `kind_changed` alone -- but `kind_changed` comes from
+    # _resolve_current_active_kind(), which uses the TOLERANT
+    # load_bearer_token()/load_api_key() reads. Those catch a
+    # KeyringError on the OLD kind's account and return None, the same
+    # value they'd return for "genuinely nothing stored" -- so an
+    # UNREADABLE old credential looks identical to an ABSENT one from
+    # `kind_changed`'s point of view, and it silently came out False.
+    # An API-key login then stored the key, treated the marker write as
+    # optional, and skipped deleting the (still merely _UNKNOWN, not
+    # confirmed gone) old bearer entry -- exactly the scenario the
+    # marker exists to guard against. `old_kind_snapshot` below is the
+    # SAME snapshot _delete_stale_credentials() will use, taken by a
+    # SEPARATE, single read at the top of this call -- using it as the
+    # sole source of truth for the competing kind's state (rather than
+    # `kind_changed`'s independent, lossy resolution) can't be fooled
+    # the same way, and can't disagree with what cleanup does either.
     old_kind = "api_key" if kind == "bearer" else "bearer"
     old_kind_snapshot = (
         snapshot.keyring_api_key if old_kind == "api_key" else snapshot.keyring_bearer
     )
-    mandatory_marker = kind_changed and old_kind_snapshot is _UNKNOWN
+    # "absent" (confirmed None) is the only state where skipping the
+    # marker is safe -- _UNKNOWN might still be sitting there unseen,
+    # and "present" means it verifiably IS there right now, so either
+    # way a lost marker could let it resurface under bearer-first
+    # fallback. `kind_changed` stays in the OR for the case its OWN
+    # (marker-first) resolution disagrees with the snapshot -- e.g. a
+    # stale file marker names the other kind while the snapshot finds
+    # nothing behind it.
+    competing_confirmed_absent = old_kind_snapshot is None
+    marker_required = kind_changed or not competing_confirmed_absent
+
+    # fix(#1778 review round 23, widened round 25): a kind swap (bearer
+    # -> api_key or back), OR any login where the competing kind's own
+    # state cannot be proven absent, makes the active_kind marker
+    # written below load-bearing, not mere tidiness -- it is the ONLY
+    # thing that keeps a still-lingering (or merely unverifiable) OLD
+    # credential in the other backend from outranking the one this
+    # login is about to store (AppState.sdk() falls back to
+    # bearer-first precedence whenever the marker is missing or stale).
+    # Round 22 let a corrupt file swallow that write to a warning and
+    # carry on regardless -- fine when the competing kind is
+    # confirmed absent (nothing about precedence changes), wrong
+    # otherwise: login would report success while quietly leaving a
+    # credential this call could not account for in charge. Refuse UP
+    # FRONT here, before the new secret is stored anywhere, so a
+    # refusal leaves both backends exactly as they were -- unlike the
+    # marker-write failure handled below, which can only roll back what
+    # THIS call already stored.
+    if marker_required:
+        ensure_credentials_file_readable()
+
+    mandatory_marker = marker_required
 
     # fix(#1778 review round 12): _UNKNOWN used to be checked ONLY on the
     # rollback path, after the mutating store_bearer_token/store_api_key

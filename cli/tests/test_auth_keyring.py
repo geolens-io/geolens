@@ -706,3 +706,135 @@ class TestCorruptFileDiagnosticsStayOffStdout:
         assert payload["ok"] is True
         # The warning still reaches the operator -- just on stderr.
         assert "corrupt" in result.stderr.lower()
+
+
+class TestUnreadableCompetingCredentialMakesTheMarkerMandatory:
+    """fix(#1778 review round 25): round 23/24 gated marker strictness
+    on `kind_changed`, which comes from _resolve_current_active_kind()
+    -- a resolver built on the TOLERANT load_bearer_token()/
+    load_api_key() reads that catch a KeyringError on the OLD kind's
+    account and return None, indistinguishable from "genuinely nothing
+    stored there." A fresh instance (no marker, no prior login this
+    resolver can see) with an UNREADABLE competing account therefore
+    computed kind_changed=False, made the marker optional, and -- once
+    that account becomes readable again -- resolution fell back to it.
+
+    replace_credentials() now reads the competing kind's state from the
+    SAME snapshot _delete_stale_credentials() uses (one read, taken
+    once, at the top of the call) rather than trusting kind_changed's
+    independent, lossy resolution: the marker is required whenever that
+    snapshot has not confirmed the competing kind ABSENT (i.e. it is
+    _UNKNOWN or a real present value), not only when kind_changed says
+    so.
+
+    Truth table (previous_kind from _resolve_current_active_kind() x
+    competing = the OTHER kind's own snapshot state x file health);
+    only rows where round 25 differs from round 24, plus the minimum
+    set the finding asked to pin, are covered here -- every other cell
+    reduces to one of these three or to the round 22/23 same-kind/
+    kind-swap pins already covered elsewhere in this file:
+
+    - previous=None, competing=unknown, file=corrupt -> REFUSED, up
+      front, keyring/file both untouched. (round 24: succeeded --
+      this is the bug.)
+    - previous=None, competing=unknown, file=ok -> marker written,
+      success. (round 24: also succeeded, since the healthy file made
+      the marker write succeed regardless of whether it was treated as
+      mandatory -- confirms the fix doesn't overreach here.)
+    - previous=None, competing=absent (confirmed), file=corrupt ->
+      success, marker optional. (unchanged from round 22/24 -- the one
+      case where skipping the marker is actually safe.)
+    """
+
+    def _patch_bearer_account_unreadable(self, monkeypatch, canonical: str) -> None:
+        import keyring as _keyring_mod
+        from keyring.errors import KeyringError
+
+        real_get_password = _keyring_mod.get_password
+
+        def flaky_get_password(svc: str, user: str):
+            if user == canonical:
+                raise KeyringError("keyring temporarily unavailable")
+            return real_get_password(svc, user)
+
+        monkeypatch.setattr(_keyring_mod, "get_password", flaky_get_password)
+
+    def test_refuses_up_front_when_the_competing_kind_is_unreadable_and_the_file_is_corrupt(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Pin: previous=None + competing=unknown + file=corrupt ->
+        refused, keyring unchanged."""
+        from geolens_cli import config as _cfg
+        from geolens_cli.main import app
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com"
+        canonical = _cfg.normalize_instance_url(instance)
+
+        # No prior login at all -- _resolve_current_active_kind() has
+        # nothing to see even without the patch below. The bearer
+        # account (the "competing" kind for this api_key login) is
+        # made unreadable, standing in for a transient keyring hiccup.
+        self._patch_bearer_account_unreadable(monkeypatch, canonical)
+        path = _write_corrupt_credentials_file(canonical)
+        original_bytes = path.read_bytes()
+
+        result = runner.invoke(app, ["login", instance, "--api-key", "new-api-key"])
+
+        assert result.exit_code != 0, result.output
+        assert "corrupt" in result.output.lower()
+        assert path.read_bytes() == original_bytes, "a refusal must not rewrite the file"
+        api_key_account = ("geolens", f"{canonical}:api_key")
+        assert api_key_account not in mock_keyring, (
+            "the API key must never have been stored"
+        )
+
+    def test_marker_is_written_when_the_competing_kind_is_unreadable_but_the_file_is_healthy(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Pin: previous=None + competing=unknown + file=ok -> marker
+        written, success."""
+        from geolens_cli import auth as _auth
+        from geolens_cli import config as _cfg
+        from geolens_cli.main import app
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com"
+        canonical = _cfg.normalize_instance_url(instance)
+
+        self._patch_bearer_account_unreadable(monkeypatch, canonical)
+
+        result = runner.invoke(app, ["login", instance, "--api-key", "new-api-key"])
+
+        assert result.exit_code == 0, result.output
+        api_key_account = ("geolens", f"{canonical}:api_key")
+        assert mock_keyring.get(api_key_account) == "new-api-key"
+        assert _auth.load_active_credential_kind(canonical) == "api_key"
+
+    def test_marker_stays_optional_when_the_competing_kind_is_confirmed_absent(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Pin: previous=None + competing=absent (confirmed, not
+        merely unread) + file=corrupt -> success, marker optional --
+        unchanged from round 22/24."""
+        from geolens_cli import config as _cfg
+        from geolens_cli.main import app
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com"
+        canonical = _cfg.normalize_instance_url(instance)
+
+        # No patching of keyring.get_password here -- the bearer
+        # account genuinely has nothing stored, and a real read
+        # confirms that (returns None), unlike the _UNKNOWN cases
+        # above.
+        path = _write_corrupt_credentials_file(canonical)
+        original_bytes = path.read_bytes()
+
+        result = runner.invoke(app, ["login", instance, "--api-key", "new-api-key"])
+
+        assert result.exit_code == 0, result.output
+        assert "corrupt" in result.output.lower()
+        assert path.read_bytes() == original_bytes, "the corrupt file must not be rewritten"
+        api_key_account = ("geolens", f"{canonical}:api_key")
+        assert mock_keyring.get(api_key_account) == "new-api-key"
