@@ -365,6 +365,7 @@
     "createError": "Failed to create key",
     "loadingKeys": "Loading keys...",
     "noKeys": "No API keys",
+    "showingOf": "Showing {{shown}} of {{total}}",
     "active": "Active",
     "revoked": "Revoked",
     "created": "Created {{date}}",

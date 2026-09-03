@@ -340,6 +340,7 @@
     "createError": "Error al crear la clave",
     "loadingKeys": "Cargando claves...",
     "noKeys": "Sin claves API",
+    "showingOf": "Mostrando {{shown}} de {{total}}",
     "active": "Activa",
     "revoked": "Revocada",
     "created": "Creada {{date}}",

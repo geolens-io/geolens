@@ -340,6 +340,7 @@
     "createError": "Schlüssel konnte nicht erstellt werden",
     "loadingKeys": "Schlüssel werden geladen...",
     "noKeys": "Keine API-Schlüssel",
+    "showingOf": "{{shown}} von {{total}} angezeigt",
     "active": "Aktiv",
     "revoked": "Widerrufen",
     "created": "Erstellt {{date}}",

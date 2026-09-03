@@ -155,6 +155,10 @@ async def list_api_keys(
     total = (
         await db.execute(select(func.count()).select_from(stmt.subquery()))
     ).scalar_one()
+    # fix(#1778): no ORDER BY meant the planner-chosen 50 rows behind the
+    # default limit could change between refetches, so a key seen once could
+    # silently vanish on reload.
+    stmt = stmt.order_by(ApiKey.created_at.desc())
     keys = (await db.execute(stmt.offset(skip).limit(limit))).scalars().all()
     return AdminApiKeyListResponse(
         items=[_api_key_response(key) for key in keys], total=total

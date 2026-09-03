@@ -2162,7 +2162,9 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # fix(#1778): +4 lines — POST /admin/api-keys/
     # documents the 409 it raises for a pending/suspended/deactivated
     # target user, closing a gap the repaired OpenAPI-contract gate surfaced.
-    "backend/app/modules/admin/router_operations.py": 320,
+    # fix(#1778): +4 lines — GET /admin/api-keys/ orders by created_at desc so
+    # the LIMIT-capped page is deterministic across refetches.
+    "backend/app/modules/admin/router_operations.py": 324,
     # PRIV-1: +7 lines — GET /settings/branding/ also resolves and returns
     # PRIVACY_URL, so the login/register privacy-policy link is admin
     # configurable instead of a hardcoded getgeolens.com URL.

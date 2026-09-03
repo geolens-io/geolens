@@ -31,7 +31,9 @@ interface ApiKeySectionProps {
 
 export function ApiKeySection({ userId }: ApiKeySectionProps) {
   const { t } = useTranslation('admin');
-  const { data: keys, isLoading } = useApiKeys(userId);
+  const { data, isLoading } = useApiKeys(userId);
+  const keys = data?.items;
+  const total = data?.total ?? 0;
   const createApiKey = useCreateApiKey();
   const revokeApiKey = useRevokeApiKey();
 
@@ -134,6 +136,13 @@ export function ApiKeySection({ userId }: ApiKeySectionProps) {
 
       {keys && keys.length > 0 && (
         <div className="space-y-2">
+          {/* fix(#1778): `total` used to be fetched and dropped, so a user
+              past the 50-key page limit had no indication more existed. */}
+          {total > keys.length && (
+            <p className="text-xs text-muted-foreground">
+              {t('apiKeys.showingOf', { shown: keys.length, total })}
+            </p>
+          )}
           {keys.map((key) => (
             <div
               key={key.id}

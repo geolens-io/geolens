@@ -150,9 +150,13 @@ export async function rejectUser(userId: string): Promise<void> {
 }
 
 // API Key management
-export async function listApiKeys(userId: string): Promise<ApiKeyResponse[]> {
-  const data = await apiFetch<{ items: ApiKeyResponse[]; total: number }>(`/admin/api-keys/?user_id=${userId}`);
-  return data.items;
+// fix(#1778): was capped at the backend's default limit=50 with `total`
+// fetched and discarded, so a user holding more than 50 keys had an
+// arbitrary subset silently hidden from the only UI that revokes them.
+// limit=200 is the backend's max (`le=200`); `total` is now returned so the
+// caller can say "showing 50 of N" past that.
+export async function listApiKeys(userId: string): Promise<{ items: ApiKeyResponse[]; total: number }> {
+  return apiFetch<{ items: ApiKeyResponse[]; total: number }>(`/admin/api-keys/?user_id=${userId}&limit=200`);
 }
 
 export async function createApiKey(

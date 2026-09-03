@@ -340,6 +340,7 @@
     "createError": "Échec de la création de la clé",
     "loadingKeys": "Chargement des clés...",
     "noKeys": "Aucune clé API",
+    "showingOf": "Affichage de {{shown}} sur {{total}}",
     "active": "Actif",
     "revoked": "Révoquée",
     "created": "Créée le {{date}}",

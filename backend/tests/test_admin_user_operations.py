@@ -106,6 +106,34 @@ async def test_delete_user_cascades_api_keys(
 
 
 @pytest.mark.anyio
+async def test_list_api_keys_ordered_newest_first(
+    client: AsyncClient,
+    admin_auth_header: dict,
+):
+    """fix(#1778): the admin key list had no ORDER BY, so the LIMIT-capped
+    page could return an arbitrary, planner-chosen subset that changed
+    between refetches — a key seen once could vanish on reload. Pin a
+    deterministic newest-first order.
+    """
+    _, user_id = await _create_test_user(client, admin_auth_header, "editor")
+
+    for name in ("key-1", "key-2", "key-3"):
+        resp = await client.post(
+            "/admin/api-keys/",
+            json={"user_id": user_id, "name": name},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201
+
+    resp = await client.get(
+        f"/admin/api-keys/?user_id={user_id}", headers=admin_auth_header
+    )
+    assert resp.status_code == 200
+    names = [item["name"] for item in resp.json()["items"]]
+    assert names == ["key-3", "key-2", "key-1"]
+
+
+@pytest.mark.anyio
 async def test_delete_user_cannot_delete_self(
     client: AsyncClient,
     admin_auth_header: dict,
