@@ -622,14 +622,24 @@ async def ingest_vrt(
         # shared helper other tails go through) because it never adopted the
         # helper in the first place; the fence has to match by hand here for
         # the same reason.
+        #
+        # fix(#1778 audit r12): `.with_for_update(key_share=True)` closes the
+        # window a plain status check leaves open -- a SELECT is not a lock,
+        # so the sweep could still fail this row between this read and the
+        # puts below completing (see the sibling fix in `_job_phase_session`'s
+        # docstring for the full shape). The lock is held for as long as this
+        # session stays open, which is through the puts and up to the commit
+        # below.
         # ----------------------------------------------------------------- #
         async with async_session() as session:
             result = await session.execute(
-                select(IngestJob).where(
+                select(IngestJob)
+                .where(
                     IngestJob.id == job_uuid,
                     IngestJob.attempt_id == attempt_uuid,
                     IngestJob.status == "running",
                 )
+                .with_for_update(key_share=True)
             )
             job = result.scalar_one_or_none()
             if job is None:
@@ -1241,6 +1251,24 @@ async def regenerate_vrt(
         # written above are unaffected either way: they are reaped by the
         # separate stale-generation mechanism (`sweep_stale_vrt_assets`) on
         # their own timeout, independent of this fence.
+        #
+        # fix(#1778 audit r12): deliberately NOT locked here, unlike the
+        # sibling phase-2 sites. This job row is loaded BEFORE the RasterAsset
+        # row a few lines down, and `cancel_job` (jobs/router.py) takes those
+        # two locks in the opposite order for a vrt_regenerate job (asset
+        # first, job second) specifically to avoid an AB-BA deadlock between
+        # itself and this worker -- see that function's own comment on why
+        # asset-first is the worker's invariant. Locking the job row here
+        # would put it back in job-then-asset order and reopen exactly that
+        # cycle. The residual TOCTOU this leaves is narrow and already
+        # bounded: the objects above are written either way and reaped by
+        # `sweep_stale_vrt_assets` on their own timeout regardless of this
+        # fence, and `current_generation_id` still refuses a stale publish
+        # once a newer generation exists. What a sweep-inserted status flip
+        # in this exact window could still do is let a paused-not-dead worker
+        # complete over a row the sweep just failed, the same class round 11
+        # already narrowed considerably; closing it completely here is not
+        # worth reordering these two locks.
         # ----------------------------------------------------------------- #
         async with async_session() as session:
             result = await session.execute(

@@ -3168,7 +3168,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # phase writes. The two parameters are independent and both now live on
     # the same signature. Almost all of the growth is the docstring stating
     # which phases must pass which. Cap 2447 -> 2470, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2470,
+    # fix(#1778 audit r12): +25. `require_status`'s SELECT now takes `FOR NO
+    # KEY UPDATE`, closing the TOCTOU a plain status check left open: the
+    # sweep could still fail a row in the window between the read and the
+    # phase's first put, since a SELECT is not a lock. Most of the growth is
+    # the docstring stating why `NO KEY UPDATE` over plain `UPDATE`, and
+    # pointing at the sweep-side fixes that now have to contend with this
+    # lock instead of racing past it. Cap 2470 -> 2495, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2495,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -3518,7 +3525,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # exempt from the purge. `_CLEAR_SETTLED_LIST_SQL` also gained an arm for
     # the field's pre-PR plain-string shape, which the array-only WHERE clause
     # had silently excluded from ever clearing. Cap 2328 -> 2374, exact.
-    "backend/app/platform/jobs/sweep.py": 2374,
+    # fix(#1778 audit r12): +18. The running-jobs UPDATE now reads its
+    # candidates through a `FOR UPDATE SKIP LOCKED` subquery instead of
+    # matching them directly in the UPDATE's own WHERE clause, so a row a
+    # live phase-2 transaction holds locked is excluded from the pass
+    # instead of blocking it, or, if this were guarded by a `lock_timeout`
+    # instead, aborting the entire batch on one busy row. Most of the growth
+    # is the comment stating why a set-based UPDATE cannot use `lock_timeout`
+    # the way a single-row write does. Cap 2374 -> 2392, exact.
+    "backend/app/platform/jobs/sweep.py": 2392,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and
@@ -4023,7 +4038,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # race the existing `current_generation_id` check does not cover, since
     # that field lives on a different row than `ingest_jobs.status` and the
     # sweep never touches it. Cap 1575 -> 1600, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1600,
+    # fix(#1778 audit r12): +28. `ingest_vrt`'s hand-matched phase-2 SELECT
+    # gains `.with_for_update(key_share=True)`, the same TOCTOU close as the
+    # other two raster tails, since its puts sit inside this same session
+    # exactly like theirs do. `regenerate_vrt`'s own phase-2 SELECT is
+    # deliberately left unlocked -- most of the growth here is the comment
+    # explaining why: it loads the job row before a RasterAsset row a few
+    # lines down, and `cancel_job` locks those two in the opposite order for
+    # a vrt_regenerate job specifically to avoid an AB-BA deadlock with this
+    # worker, so locking the job row here first would reopen that cycle. Cap
+    # 1600 -> 1628, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1628,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.

@@ -527,6 +527,25 @@ async def _job_phase_session(
     that legitimately runs before the row reaches ``running`` (phase 1, ahead
     of the claim) or one that must record something regardless of status
     (``error_write``).
+
+    fix(#1778 audit r12): the round-11 check above closed the case where the
+    sweep had ALREADY failed the row before this SELECT ran, but a plain
+    SELECT is not a lock — the sweep can still fail the row in the window
+    BETWEEN this read and the phase's own first irreversible write (a storage
+    put), which is the same leak by a narrower door. When ``require_status``
+    is given the SELECT below takes ``FOR NO KEY UPDATE``, so it holds a row
+    lock for as long as this phase's session stays open, which every current
+    ``require_status`` caller does across its own puts and up to its first
+    ``commit()``. The sweep's own transition query is the one that must
+    contend with this lock; see ``fail_stale_jobs`` in ``sweep.py`` and the
+    startup recovery pass in ``worker.py``, both rewritten to a `SELECT ...
+    FOR UPDATE SKIP LOCKED` candidate subquery so a row this lock protects is
+    excluded from that pass rather than blocking (or, worse, aborting) the
+    whole bulk transition. ``NO KEY UPDATE`` rather than plain ``UPDATE``: it
+    still conflicts with anything that needs to exclude a concurrent writer,
+    but not with a hypothetical ``FOR KEY SHARE`` reader this row's primary
+    key might someday gain a foreign-key referrer against, which ``ingest_
+    jobs`` does not have today but costs nothing to leave room for.
     """
     from app.core.db import async_session
     from app.platform.jobs.models import IngestJob
@@ -548,7 +567,13 @@ async def _job_phase_session(
             filters.append(IngestJob.attempt_id == attempt_id)
         if require_status is not None:
             filters.append(IngestJob.status == require_status)
-        result = await session.execute(select(IngestJob).where(*filters))
+        stmt = select(IngestJob).where(*filters)
+        if require_status is not None:
+            # fix(#1778 audit r12): held through this phase's own first
+            # irreversible write and up to its next commit — see the
+            # docstring above.
+            stmt = stmt.with_for_update(key_share=True)
+        result = await session.execute(stmt)
         job = result.scalar_one_or_none()
         if job is None:
             structlog.get_logger().warning(

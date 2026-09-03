@@ -104,13 +104,26 @@ async def _recover_stale_jobs_for_current_scope() -> None:
         # Mirrors fail_stale_jobs (router.py:39) which the lifespan
         # sweeper runs every 5 minutes for the same purpose. The advisory
         # lock ensures startup recovery and the sweeper don't collide.
-        stale_result = await session.execute(
-            update(IngestJob)
+        #
+        # fix(#1778 audit r12): the candidate set is read through its own
+        # `FOR UPDATE SKIP LOCKED` subquery, mirroring fail_stale_jobs's own
+        # fix for the identical race -- see that query's comment for why a
+        # `lock_timeout` on this set-based UPDATE would abort the WHOLE
+        # batch on one busy row rather than skipping just that row. A row a
+        # live phase-2 transaction holds `FOR NO KEY UPDATE` on is excluded
+        # here and picked up by a later pass once that transaction ends.
+        stale_candidates = (
+            select(IngestJob.id)
             .where(
                 IngestJob.status == "running",
                 func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
                 < stale_cutoff,
             )
+            .with_for_update(skip_locked=True)
+        )
+        stale_result = await session.execute(
+            update(IngestJob)
+            .where(IngestJob.id.in_(stale_candidates))
             .values(
                 status="failed",
                 error_message=(

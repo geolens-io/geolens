@@ -326,3 +326,84 @@ def test_every_phase2_site_requires_running() -> None:
         source = (APP / rel).read_text()
         count = source.count(needle)
         assert count >= minimum, (rel, needle, "expected", minimum, "got", count)
+
+
+# ---------------------------------------------------------------------------
+# The row lock (fix(#1778 audit r12))
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_a_locked_phase_two_row_is_skipped_not_blocked_by_the_sweep(
+    test_db_session,
+) -> None:
+    """fix(#1778 audit r12): the pin for the TOCTOU round 11 left open. A
+    plain SELECT is not a lock, so the sweep could still fail a row in the
+    window between ``_job_phase_session``'s read and the phase's first
+    irreversible write. ``require_status`` now takes ``FOR NO KEY UPDATE``,
+    and ``fail_stale_jobs``'s running-job transition reads its candidates
+    through a ``FOR UPDATE SKIP LOCKED`` subquery, so a row phase 2 is
+    actively holding is excluded from that pass rather than blocking it (or,
+    for the bulk statement the old code used, aborting the whole pass).
+
+    A genuinely separate connection, not a mock: ``async_session()`` opens
+    its own session/transaction against the same real Postgres instance
+    ``test_db_session`` and the phase-2 hold below both use, which is what
+    makes the row lock a real interleaving rather than a same-transaction
+    no-op.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.db import async_session
+    from app.platform.jobs.router import fail_stale_jobs
+
+    job_id = await _create_pending_job(test_db_session)
+    async with _job_phase_session(job_id, phase="phase1") as (session, job):
+        assert job is not None
+        job.status = "running"
+        job.started_at = datetime.now(timezone.utc) - timedelta(hours=2)
+        job.heartbeat_at = None
+        await session.commit()
+    assert await _select_status(test_db_session, job_id) == "running"
+
+    # Phase 2 holding the lock across its first put: acquiring it here and
+    # keeping the transaction open is exactly what `require_status="running"`
+    # does inside `_job_phase_session`, for as long as the caller's session
+    # stays open.
+    async with _job_phase_session(job_id, phase="phase2", require_status="running") as (
+        locked_session,
+        locked_job,
+    ):
+        assert locked_job is not None
+
+        async with async_session() as sweep_session:
+            await fail_stale_jobs(sweep_session, detailed=True)
+
+        # Still running: SKIP LOCKED excluded this row from that pass
+        # instead of blocking on it or failing the pass outright.
+        assert await _select_status(test_db_session, job_id) == "running"
+
+    # The lock is released once phase 2's own session closes. A later sweep
+    # pass now sees the row (still past its cutoff) and settles it.
+    async with async_session() as sweep_session:
+        await fail_stale_jobs(sweep_session, detailed=True)
+
+    assert await _select_status(test_db_session, job_id) == "failed"
+
+
+def test_both_running_job_transitions_use_skip_locked() -> None:
+    """fix(#1778 audit r12): the sweep side of the fix has two independent
+    copies -- ``fail_stale_jobs`` (the periodic sweeper) and the worker's own
+    startup recovery pass -- and both had the identical bulk-UPDATE race, so
+    both need the identical fix. The interleaving test above exercises
+    ``fail_stale_jobs`` end to end; this pins that ``worker.py``'s mirror
+    was not left on the old bare ``UPDATE ... WHERE status = 'running'``,
+    which would still block (or, with a `lock_timeout`, abort the WHOLE
+    batch) on a row a live phase 2 holds locked."""
+    needle = ".with_for_update(skip_locked=True)"
+    for rel in (
+        "platform/jobs/sweep.py",
+        "platform/jobs/worker.py",
+    ):
+        source = (APP / rel).read_text()
+        assert needle in source, rel

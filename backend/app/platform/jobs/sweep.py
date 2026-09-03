@@ -1864,13 +1864,31 @@ async def fail_stale_jobs(
     )
 
     running_cutoff = now - timedelta(seconds=JOB_TIMEOUT_SECONDS)
-    running_result = await db.execute(
-        update(IngestJob)
+    # fix(#1778 audit r12): the candidate set is read through its own `FOR
+    # UPDATE SKIP LOCKED` subquery rather than matched directly in the
+    # UPDATE's WHERE clause. A phase-2 write now holds `FOR NO KEY UPDATE` on
+    # its job row for as long as its own session stays open (see
+    # `_job_phase_session`'s `require_status` docstring) -- a bare `UPDATE
+    # ... WHERE status = 'running'` sharing this statement would have to WAIT
+    # for that lock on every row it scans, and a `lock_timeout` on a
+    # set-based UPDATE like this one does not skip the one busy row, it
+    # cancels the WHOLE statement, failing every OTHER genuinely stale job in
+    # the same pass along with it. `SKIP LOCKED` excludes exactly the rows a
+    # live phase-2 transaction currently owns and touches nothing else, so a
+    # row a worker is actively finishing is simply left for the next pass
+    # rather than costing this one its entire batch.
+    running_candidates = (
+        select(IngestJob.id)
         .where(
             IngestJob.status == "running",
             func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
             < running_cutoff,
         )
+        .with_for_update(skip_locked=True)
+    )
+    running_result = await db.execute(
+        update(IngestJob)
+        .where(IngestJob.id.in_(running_candidates))
         .values(
             status="failed",
             error_message=(
