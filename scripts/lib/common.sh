@@ -140,8 +140,17 @@ _env_dequote() {
       fi
       ;;
     \'*)
-      if printf '%s' "$raw" | grep -qE "^'.*'[[:space:]]*(#.*)?\$"; then
-        printf '%s' "$raw" | sed -E "s/^'(.*)'[[:space:]]*(#.*)?\$/\1/"
+      # fix(#1798 review round 9, P2): `(.*)` is greedy — for a trailing
+      # comment that itself contains a `'` (`KEY='geolens' # use
+      # 'production'`), it backtracks all the way to the LAST `'` on the
+      # line, capturing "geolens' # use 'production" instead of stopping
+      # at the value's own closing quote right after "geolens". Compose
+      # single-quoted values have no escaping at all, so a literal `'`
+      # can never legally appear inside one — `[^']*` encodes that
+      # directly: it can only match up to the FIRST `'`, which is always
+      # the real close, comment or no comment.
+      if printf '%s' "$raw" | grep -qE "^'[^']*'[[:space:]]*(#.*)?\$"; then
+        printf '%s' "$raw" | sed -E "s/^'([^']*)'[[:space:]]*(#.*)?\$/\1/"
       else
         printf '%s' "$raw"
       fi
@@ -338,12 +347,16 @@ get_env_value() {
     \'*)
       # Single-quoted values are literal in Compose — no escaping and no
       # interpolation, so a single quote cannot appear inside one at all.
-      # `(.*)` is greedy and backtracks to the LAST `'` the trailing
-      # `[[:space:]]*(#.*)?$` can still match against, which is correct as
-      # long as any trailing comment contains no stray `'` of its own (an
-      # accepted limitation for the handful of keys these scripts read).
-      if printf '%s' "$raw" | grep -qE "^'.*'[[:space:]]*(#.*)?\$"; then
-        printf '%s' "$raw" | sed -E "s/^'(.*)'[[:space:]]*(#.*)?\$/\1/"
+      # fix(#1798 review round 9, P2): that fact is exactly what makes
+      # `[^']*` the correct (not just convenient) content class — it can
+      # only match up to the FIRST `'`, which is always the real close.
+      # The prior `(.*)` was greedy and backtracked to the LAST `'` the
+      # trailing `[[:space:]]*(#.*)?$` could still match against — a
+      # trailing comment containing its own `'`
+      # (`KEY='geolens' # use 'production'`) matched all the way to
+      # THAT quote instead, returning "geolens' # use 'production".
+      if printf '%s' "$raw" | grep -qE "^'[^']*'[[:space:]]*(#.*)?\$"; then
+        printf '%s' "$raw" | sed -E "s/^'([^']*)'[[:space:]]*(#.*)?\$/\1/"
       else
         printf '%s' "$raw"
       fi

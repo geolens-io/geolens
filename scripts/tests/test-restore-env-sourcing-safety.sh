@@ -168,6 +168,11 @@ DOLLAR_PAREN=\$(touch $PWNED_MARKER)
 COMPOSE_FILE="docker-compose.prod.yml" # production
 HASH_INSIDE_DOUBLE="value#withhash"
 SINGLE_WITH_TRAILING_COMMENT='geolens' # trailing comment on a single quote
+SINGLE_TRAILING_COMMENT_HAS_QUOTE='geolens' # use 'production'
+DOUBLE_ESCAPED_WITH_COMMENT="a \"quoted\" value" # trailing comment too
+SINGLE_HASH='value#hash'
+UNQUOTED_HAS_EQUALS=a=b
+SINGLE_HAS_EQUALS='a=b'
 EOF
 rm -f "$PWNED_MARKER"
 
@@ -179,7 +184,9 @@ set -eu
 for key in DOUBLE_QUOTED SINGLE_QUOTED UNQUOTED DOUBLE_WITH_ESCAPES \\
            UNQUOTED_WITH_COMMENT UNQUOTED_HASH_NO_SPACE EMPTY_DOUBLE \\
            EMPTY_SINGLE DOLLAR_PAREN COMPOSE_FILE HASH_INSIDE_DOUBLE \\
-           SINGLE_WITH_TRAILING_COMMENT; do
+           SINGLE_WITH_TRAILING_COMMENT SINGLE_TRAILING_COMMENT_HAS_QUOTE \\
+           DOUBLE_ESCAPED_WITH_COMMENT SINGLE_HASH UNQUOTED_HAS_EQUALS \\
+           SINGLE_HAS_EQUALS; do
   printf '%s=[%s]\n' "\$key" "\$(get_env_value "\$key" "$QUOTE_ENV")"
 done
 DRIVER
@@ -220,6 +227,23 @@ _assert_quote_line 'HASH_INSIDE_DOUBLE=[value#withhash]' \
   "a '#' inside double quotes is preserved even with no trailing comment"
 _assert_quote_line 'SINGLE_WITH_TRAILING_COMMENT=[geolens]' \
   "a single-quoted value followed by a comment strips the comment and the quotes"
+
+# fix(#1798 review round 9, P2): the greedy `(.*)` in get_env_value's own
+# single-quote branch backtracked to the LAST `'` on the line — a trailing
+# comment containing its own apostrophe (a real-world "prefer this instead"
+# comment style) matched all the way to THAT quote, returning
+# "geolens' # use 'production" instead of stopping at the value's own
+# closing quote right after "geolens".
+_assert_quote_line "SINGLE_TRAILING_COMMENT_HAS_QUOTE=[geolens]" \
+  "a single-quoted value's trailing comment may contain its own apostrophe without corrupting the parse"
+_assert_quote_line 'DOUBLE_ESCAPED_WITH_COMMENT=[a "quoted" value]' \
+  "a double-quoted value with an escaped quote AND a trailing comment resolves correctly"
+_assert_quote_line 'SINGLE_HASH=[value#hash]' \
+  "a '#' inside single quotes is preserved, matching the double-quoted case"
+_assert_quote_line 'UNQUOTED_HAS_EQUALS=[a=b]' \
+  "an unquoted value containing '=' is not truncated at it"
+_assert_quote_line 'SINGLE_HAS_EQUALS=[a=b]' \
+  "a single-quoted value containing '=' is not truncated at it"
 
 if printf '%s\n' "$QUOTE_OUT" | grep -qxF 'DOLLAR_PAREN=[$(touch '"$PWNED_MARKER"')]'; then
   ok "a \$(...) value is returned as literal text by get_env_value"
