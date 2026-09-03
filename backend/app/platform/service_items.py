@@ -31,6 +31,22 @@ it never. The WFS driver pages by ``STARTINDEX``/``COUNT`` against the
 GetFeature endpoint the capabilities advertise, which is exactly the endpoint
 ``service_endpoints`` validates, so that driver is bounded by the description
 check already.
+
+What a service is allowed to cost, since the whole chain is its to choose:
+
+``MAX_PAGES`` (10,000) requests, ``MAX_BYTES`` (2 GiB) downloaded and the same
+again written to the staging volume, ``MAX_PAGE_BYTES`` (16 MiB) on the wire
+for any one page, and ``MAX_STRUCTURAL_TOKENS`` (2,000,000) values or
+containers in any one page once decoded. Reaching any of them is a refusal,
+never a short answer: a caller cannot tell a prefix from a collection, and the
+worker would import one over an existing dataset.
+
+The last of those is the least obvious and the reason the others are not
+enough. A byte cap bounds the wire, not the object graph, and compact JSON
+expands 4x to 31x depending on shape (measured; the figures are beside the
+constant). The token bound is counted on the raw bytes before anything is
+decoded, so it costs three ``bytes.count`` passes and refuses before the
+memory would have been spent.
 """
 
 from __future__ import annotations
@@ -84,13 +100,45 @@ logger = structlog.stdlib.get_logger(__name__)
 MAX_PAGES = 10_000
 MAX_BYTES = 2 * 1024 * 1024 * 1024
 
-# What one page may cost, enforced by the shared reader in `service_endpoints`
-# while it streams and before anything is decoded. A page is held whole in memory to be parsed, so this is the real
-# per-request memory bound and the total above cannot substitute for it: one
-# oversized response would exhaust the process long before a running total
-# noticed. 64 MiB against `PAGE_SIZE` features is ~64 KiB of JSON per feature,
-# far past any honest geometry, and a service wanting more can paginate.
-MAX_PAGE_BYTES = 64 * 1024 * 1024
+# What one page may cost on the wire, enforced by the shared reader in
+# `service_endpoints` while it streams and before anything is decoded. A page
+# is held whole in memory to be parsed, so this is a per-request bound the
+# total above cannot substitute for: one oversized response would exhaust the
+# process long before a running total noticed.
+#
+# fix(#1746 B2b review r22): 64 MiB down to 16 MiB. The page size is ours
+# (`limit=`), so a well-behaved service never approaches either figure, and
+# the total budget is on disk rather than in memory. 16 MiB against
+# `PAGE_SIZE` features is ~16 KiB of JSON per feature, still far past any
+# honest geometry, and a service wanting more can paginate.
+MAX_PAGE_BYTES = 16 * 1024 * 1024
+
+# What one page may cost DECODED, bounded before `json.loads` runs.
+#
+# fix(#1746 B2b review r22): the wire cap bounds bytes, not the object graph,
+# and compact JSON expands enormously. Measured on this interpreter against
+# 1 MiB pages:
+#
+#     [1.5,1.5,...]     8.2x    (32.8 bytes per structural token)
+#     [1,1,...]         4.5x    ( 8.9 bytes per token)
+#     [{"a":1},...]    24.1x    (96.4 bytes per token)
+#     [[[1]],...]      30.7x    (61.4 bytes per token)
+#
+# So one 16 MiB page of the worst shape is ~490 MiB decoded, and 64 MiB was
+# ~2 GiB: the whole API container, from a single page, with concurrent
+# previews making it worse.
+#
+# `_structural_tokens` counts commas and opening brackets on the RAW bytes,
+# which is an upper bound on the number of values and containers the decoder
+# will build: every value after the first is preceded by a comma, every
+# container opens with a bracket, and commas inside strings only overcount,
+# which is the safe direction. At the worst measured cost of ~96 bytes per
+# token, two million tokens is ~184 MiB decoded, which is the figure this
+# constant is chosen for. A full page of `PAGE_SIZE` polygon features costs
+# about 22,000 tokens (measured, and pinned in the suite), so the bound is
+# roughly ninety times what an honest service asking for the page size it was
+# given would ever produce.
+MAX_STRUCTURAL_TOKENS = 2_000_000
 
 # What a page fetch asks for. The service may answer with fewer.
 PAGE_SIZE = 1000
@@ -129,6 +177,32 @@ def _items_url(url: str, collection: str) -> str:
         f"{url.rstrip('/')}/collections/{quote(collection, safe='')}"
         f"/items?limit={PAGE_SIZE}"
     )
+
+
+def _structural_tokens(body: bytes) -> int:
+    """An upper bound on the values and containers ``body`` will decode to.
+
+    Every JSON value after the first in a container is preceded by a comma and
+    every container opens with a bracket, so this cannot undercount. Commas and
+    brackets inside strings inflate it, which is the safe direction: the bound
+    refuses a page it could have accepted rather than accepting one it could
+    not hold.
+
+    Three `bytes.count` passes over the raw body, before any decoding, which is
+    the point: whatever the answer, nothing has been built yet.
+    """
+    return body.count(b",") + body.count(b"[") + body.count(b"{")
+
+
+def _require_decodable(body: bytes) -> None:
+    """Refuse a page that would cost too much to decode. fix(#1746 r22).
+
+    Called from `_fetch_page`, which is the only place this module decodes
+    anything, so it covers every document the walk interprets: the collection
+    document, the first page, and every page a `next` names.
+    """
+    if _structural_tokens(body) > MAX_STRUCTURAL_TOKENS:
+        raise ItemFetchFailedError("page is too complex to decode")
 
 
 def _require_object(document: object, what: str) -> dict:
@@ -279,6 +353,7 @@ async def _fetch_page(
             # revalidated every hop and refuses a cross-origin one carrying
             # this header, so the final URL is bounded before it is used.
             final_url = str(response.url)
+        _require_decodable(body)
         return json.loads(body), len(body), final_url
     except (httpx.HTTPError, SSRFError, ValueError) as exc:
         raise ItemFetchFailedError(str(exc)) from None

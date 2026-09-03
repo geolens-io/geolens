@@ -4160,3 +4160,177 @@ class TestAPageThatIsNotAPageIsNotAnEmptyPage:
         assert secret not in str(raised.value)
         assert secret not in raised.value.policy
         assert secret not in raised.value.reason
+
+
+class TestAPageCannotCostMoreDecodedThanItDidOnTheWire:
+    """fix(#1746 B2b review r22): the wire cap bounds bytes, not the objects.
+
+    Compact JSON expands enormously: measured on this interpreter, a 1 MiB
+    page of `[1.5,...]` decodes to 8.2x, `[{"a":1},...]` to 24.1x and
+    `[[[1]],...]` to 30.7x. So the 64 MiB page cap this round lowered allowed
+    roughly 2 GiB of objects from a single response, which is the whole API
+    container, and concurrent previews made it worse.
+
+    The bound that closes it is counted on the raw bytes BEFORE decoding, so
+    reaching it costs three `bytes.count` passes rather than the memory.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_items.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    @staticmethod
+    def _serving(raw: bytes):
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+
+            async def _chunks():
+                yield raw
+
+            return httpx.Response(200, content=_chunks())
+
+        return handle
+
+    def test_the_count_cannot_undercount_the_decoded_values(self) -> None:
+        """The premise the bound rests on, checked against the decoder.
+
+        Every value after the first is preceded by a comma and every container
+        opens with a bracket, so the count is an upper bound. A string full of
+        commas inflates it, which is the safe direction.
+        """
+
+        def values(node) -> int:
+            if isinstance(node, dict):
+                return 1 + sum(values(v) for v in node.values())
+            if isinstance(node, list):
+                return 1 + sum(values(v) for v in node)
+            return 1
+
+        for raw in (
+            b"[1.5,1.5,1.5]",
+            b'[{"a":1},{"a":2}]',
+            b"[[[1]],[[2]],[[3]]]",
+            b"{}",
+            b"[]",
+            b'{"a":{"b":[1,2,{"c":3}]}}',
+            b'["a,b,c,d,e"]',
+        ):
+            assert (
+                service_items_mod._structural_tokens(raw) >= values(json.loads(raw)) - 1
+            ), raw
+
+    async def test_a_page_over_the_token_bound_is_refused_before_decoding(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Refused without the decoder ever running, which is the whole point.
+
+        A cap that fired after `json.loads` would have already paid the memory
+        it exists to save, so the assertion is that the decoder was not called
+        rather than that an error came back.
+        """
+        # Compact and comfortably inside the wire cap; ruinous decoded.
+        raw = b"[" + b"1.5," * 40_000 + b"1.5]"
+        assert len(raw) < service_items_mod.MAX_PAGE_BYTES
+
+        self._transport(monkeypatch, self._serving(raw))
+        monkeypatch.setattr(service_items_mod, "MAX_STRUCTURAL_TOKENS", 10_000)
+
+        decoded: list = []
+        real_loads = json.loads
+
+        def _loads(payload, *args, **kwargs):
+            # The collection document is decoded, as it must be; anything the
+            # size of the page under test is not.
+            if len(payload) > 1000:
+                decoded.append(len(payload))
+                raise AssertionError("the page must not reach the decoder")
+            return real_loads(payload, *args, **kwargs)
+
+        monkeypatch.setattr(service_items_mod.json, "loads", _loads)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert decoded == []
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_an_ordinary_page_of_many_features_is_accepted(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The other half: the bound is generous to anything honest.
+
+        A full page of `PAGE_SIZE` features with real geometry is nowhere near
+        it, so a service that paginates the way it was asked to never sees it.
+        """
+        features = [
+            {
+                "type": "Feature",
+                "id": f"f{n}",
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]],
+                },
+                "properties": {"name": f"n{n}", "area": 1.0},
+            }
+            for n in range(service_items_mod.PAGE_SIZE)
+        ]
+        raw = json.dumps(
+            {"type": "FeatureCollection", "features": features, "links": []}
+        ).encode()
+        tokens = service_items_mod._structural_tokens(raw)
+        # Measured rather than asserted vaguely: a full page of 1,000 polygon
+        # features costs about 22,000 tokens, so the bound is roughly ninety
+        # times an honest page. Pinned at fifty so a future page shape has room
+        # to grow without this becoming a tripwire.
+        assert tokens * 50 < service_items_mod.MAX_STRUCTURAL_TOKENS, tokens
+
+        self._transport(monkeypatch, self._serving(raw))
+
+        path = await self._materialise(tmp_path)
+
+        document = json.loads(pathlib.Path(path).read_text())
+        assert len(document["features"]) == service_items_mod.PAGE_SIZE
+
+    async def test_a_page_one_byte_over_the_wire_cap_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The cheaper bound still fires first, on a page that is merely big."""
+        monkeypatch.setattr(service_items_mod, "MAX_PAGE_BYTES", 4096)
+        # Well under the token bound: this one is refused for its size alone.
+        raw = b'{"type":"FeatureCollection","features":[],"pad":"' + b"x" * 4096 + b'"}'
+        assert service_items_mod._structural_tokens(raw) < 10
+
+        self._transport(monkeypatch, self._serving(raw))
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+    def test_the_wire_cap_is_sixteen_mebibytes(self) -> None:
+        """Pinned because lowering it is the other half of this round's fix."""
+        assert service_items_mod.MAX_PAGE_BYTES == 16 * 1024 * 1024
