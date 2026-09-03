@@ -266,9 +266,60 @@ def _capabilities_url(url: str) -> str:
 # the prefixes bound to them differ across the three versions.
 _WFS_ENDPOINT_ATTRIBUTES = frozenset({"href", "onlineresource"})
 
+# fix(#1770 round 36 P2): the operations the read-only ogr2ogr/OGR_WFS path can
+# ever ask for. GetCapabilities and DescribeFeatureType are the discovery
+# reads; GetFeature is the data read, paged by STARTINDEX/COUNT; GetPropertyValue
+# is WFS 2.0's single-property fetch, which the driver can issue for the same
+# reads. Nothing in this codebase runs ogr2ogr against a WFS source with
+# ``-t transaction`` or with a lock held, so Transaction, LockFeature,
+# GetFeatureWithLock and the 2.0 stored-query management operations
+# (CreateStoredQuery / DropStoredQuery / ListStoredQueries /
+# DescribeStoredQueries) are never requested and their advertised endpoint,
+# on-origin or not, is never contacted with the credential.
+#
+# Matched lower-cased, the same normalisation `_WFS_ENDPOINT_ATTRIBUTES`
+# already applies to the attribute name, since WFS 1.1/2.0 spells the name in
+# the ``ows:Operation`` ``name`` attribute and 1.0 spells it as the element's
+# own tag -- both PascalCase per spec, neither guaranteed by anything this
+# parser enforces.
+_WFS_READ_OPERATIONS = frozenset(
+    {"getcapabilities", "describefeaturetype", "getfeature", "getpropertyvalue"}
+)
+
+# fix(#1770 round 36 P2): WFS 1.0 has no wrapping element that names an
+# operation the way 1.1/2.0's ``ows:Operation name="..."`` does -- the
+# operation IS the element, one level under ``<Request>``
+# (``<GetFeature><DCPType>...``). This is the closed vocabulary of what that
+# element can be, so a 1.0 document's OWN structural tags (``Request``,
+# ``DCPType``, ``HTTP``) never get mistaken for an operation name. Per the
+# WFS 1.0 schema, the same six names 1.1/2.0 use as ``ows:Operation`` values.
+_WFS_1_0_OPERATION_TAGS = frozenset(
+    {
+        "GetCapabilities",
+        "DescribeFeatureType",
+        "GetFeature",
+        "GetFeatureWithLock",
+        "LockFeature",
+        "Transaction",
+    }
+)
+
 
 def _wfs_operation_hrefs(xml_bytes: bytes) -> list[str]:
-    """Every operation endpoint a capabilities document advertises.
+    """The operation endpoints a capabilities document advertises for a read.
+
+    fix(#1770 round 36 P2): filtered to the operations
+    :data:`_WFS_READ_OPERATIONS` names, because the earlier version collected
+    every ``Get``/``Post`` in the document regardless of which operation
+    advertised it -- a service hosting ``Transaction`` or ``LockFeature`` on
+    another origin (ordinary for a WFS-T deployment whose write endpoint is
+    proxied separately from its read one) was refused for an endpoint the
+    read-only ogr2ogr path this check protects can never reach.
+
+    An endpoint this walk cannot attribute to a specific operation is kept
+    rather than dropped: the set above is who is EXCLUDED from, not
+    who is let in by default, so a document shape this parser does not
+    recognise fails closed the way every other unreadable shape here does.
 
     Namespace-agnostic by local name, the way ``parse_wfs_capabilities`` walks
     the same document, because WFS 1.0, 1.1 and 2.0 spell the namespaces
@@ -286,14 +337,31 @@ def _wfs_operation_hrefs(xml_bytes: bytes) -> list[str]:
     # element bound above only counts what is in the body -- it cannot see a
     # tree the doctype would have expanded.
     root = ET.fromstring(xml_bytes, forbid_dtd=True)
-    for element in root.iter():
-        tag = element.tag.split("}")[-1] if "}" in element.tag else element.tag
-        if tag not in ("Get", "Post"):
-            continue
-        for name, value in element.attrib.items():
-            local = name.split("}")[-1].lower()
-            if local in _WFS_ENDPOINT_ATTRIBUTES and value:
-                hrefs.append(value)
+
+    def _local(tag: str) -> str:
+        return tag.split("}")[-1] if "}" in tag else tag
+
+    def _walk(element, operation: str | None) -> None:
+        tag = _local(element.tag)
+        if tag == "Operation":
+            # 1.1/2.0: `ows:Operation name="GetFeature"`. A missing or blank
+            # name leaves the context unattributed rather than guessing one,
+            # which the fail-closed default above still checks.
+            operation = (element.get("name") or "").strip().lower() or None
+        elif tag in _WFS_1_0_OPERATION_TAGS:
+            # 1.0: the element itself names the operation.
+            operation = tag.lower()
+        if tag in ("Get", "Post") and (
+            operation is None or operation in _WFS_READ_OPERATIONS
+        ):
+            for name, value in element.attrib.items():
+                local = _local(name).lower()
+                if local in _WFS_ENDPOINT_ATTRIBUTES and value:
+                    hrefs.append(value)
+        for child in element:
+            _walk(child, operation)
+
+    _walk(root, None)
     return hrefs
 
 

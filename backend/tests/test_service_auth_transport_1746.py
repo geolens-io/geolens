@@ -1970,6 +1970,227 @@ def _capabilities(get_href: str) -> str:
 </WFS_Capabilities>"""
 
 
+def _capabilities_ows(operations: dict[str, str]) -> str:
+    """A WFS 2.0 capabilities document naming each *operations* entry.
+
+    ``operations`` maps an operation name (``"GetFeature"``, ``"Transaction"``,
+    ...) to the ``Get`` href it advertises for that operation.
+    """
+    ops_xml = "".join(
+        f'<ows:Operation name="{name}"><ows:DCP><ows:HTTP>'
+        f'<ows:Get xlink:href="{href}"/>'
+        "</ows:HTTP></ows:DCP></ows:Operation>"
+        for name, href in operations.items()
+    )
+    return f"""<?xml version="1.0"?>
+<WFS_Capabilities version="2.0.0"
+    xmlns="http://www.opengis.net/wfs/2.0"
+    xmlns:ows="http://www.opengis.net/ows/1.1"
+    xmlns:xlink="http://www.w3.org/1999/xlink">
+  <ows:OperationsMetadata>
+    {ops_xml}
+  </ows:OperationsMetadata>
+  <FeatureTypeList>
+    <FeatureType><Name>topp:parcels</Name><Title>Parcels</Title>
+      <DefaultCRS>urn:ogc:def:crs:EPSG::4326</DefaultCRS></FeatureType>
+  </FeatureTypeList>
+</WFS_Capabilities>"""
+
+
+def _capabilities_10_ops(operations: dict[str, str]) -> str:
+    """A WFS 1.0 capabilities document naming each *operations* entry.
+
+    1.0 has no wrapping ``ows:Operation`` element -- the operation IS the
+    element, one level under ``<Request>``, with an ``onlineResource``
+    attribute rather than ``xlink:href``.
+    """
+    ops_xml = "".join(
+        f"<{name}><DCPType><HTTP>"
+        f'<Get onlineResource="{href}"/>'
+        f"</HTTP></DCPType></{name}>"
+        for name, href in operations.items()
+    )
+    return f"""<?xml version="1.0"?>
+<WFS_Capabilities version="1.0.0" xmlns="http://www.opengis.net/wfs">
+  <Capability><Request>
+    {ops_xml}
+  </Request></Capability>
+  <FeatureTypeList>
+    <FeatureType><Name>topp:parcels</Name><Title>Parcels</Title>
+      <SRS>EPSG:4326</SRS></FeatureType>
+  </FeatureTypeList>
+</WFS_Capabilities>"""
+
+
+class TestAWfsCheckOnlyValidatesTheOperationsTheReadPathUses:
+    """fix(#1770 round 36 P2, `service_endpoints.py:292`).
+
+    `_wfs_operation_hrefs` used to collect every `Get`/`Post` in the whole
+    capabilities document, regardless of which `ows:Operation` (or, for 1.0,
+    which top-level request element) advertised it. A service hosting
+    `Transaction` or `LockFeature` on a different origin from its read
+    endpoints -- ordinary for a WFS-T deployment that proxies writes
+    separately -- was refused for an endpoint the read-only ogr2ogr path this
+    check protects can never reach: `run_ogr2ogr_service` never runs ogr2ogr
+    against a WFS source in transaction mode or with a lock held.
+
+    Filtered to `_WFS_READ_OPERATIONS` now: GetCapabilities,
+    DescribeFeatureType, GetFeature, and 2.0's GetPropertyValue. An endpoint
+    this walk cannot attribute to any operation is still checked -- the set
+    is an exclusion list, not an allowlist that fails open on an unrecognised
+    document shape.
+    """
+
+    def test_transaction_on_another_origin_is_ignored_getfeature_still_checked(
+        self,
+    ) -> None:
+        from app.platform.service_endpoints import _wfs_operation_hrefs
+
+        document = _capabilities_ows(
+            {
+                "GetFeature": f"{_SVC_ORIGIN}/geoserver/wfs",
+                "Transaction": f"{_FOREIGN}/wfs",
+            }
+        )
+
+        hrefs = _wfs_operation_hrefs(document.encode())
+
+        assert hrefs == [f"{_SVC_ORIGIN}/geoserver/wfs"]
+
+    def test_lockfeature_on_another_origin_is_also_ignored(self) -> None:
+        from app.platform.service_endpoints import _wfs_operation_hrefs
+
+        document = _capabilities_ows(
+            {
+                "GetFeature": f"{_SVC_ORIGIN}/geoserver/wfs",
+                "LockFeature": f"{_FOREIGN}/wfs",
+            }
+        )
+
+        hrefs = _wfs_operation_hrefs(document.encode())
+
+        assert hrefs == [f"{_SVC_ORIGIN}/geoserver/wfs"]
+
+    def test_describefeaturetype_and_getpropertyvalue_are_still_checked(self) -> None:
+        """Both are read operations the driver can actually issue."""
+        from app.platform.service_endpoints import _wfs_operation_hrefs
+
+        document = _capabilities_ows(
+            {
+                "GetCapabilities": f"{_SVC_ORIGIN}/geoserver/wfs",
+                "DescribeFeatureType": f"{_FOREIGN}/describe",
+                "GetFeature": f"{_SVC_ORIGIN}/geoserver/wfs",
+                "GetPropertyValue": f"{_FOREIGN}/value",
+            }
+        )
+
+        hrefs = _wfs_operation_hrefs(document.encode())
+
+        assert f"{_FOREIGN}/describe" in hrefs
+        assert f"{_FOREIGN}/value" in hrefs
+
+    def test_wfs_1_0_transaction_is_ignored_getfeature_still_checked(self) -> None:
+        """1.0's shape: the operation is the element, not an attribute."""
+        from app.platform.service_endpoints import _wfs_operation_hrefs
+
+        document = _capabilities_10_ops(
+            {
+                "GetFeature": f"{_SVC_ORIGIN}/geoserver/wfs",
+                "Transaction": f"{_FOREIGN}/wfs",
+            }
+        )
+
+        hrefs = _wfs_operation_hrefs(document.encode())
+
+        assert hrefs == [f"{_SVC_ORIGIN}/geoserver/wfs"]
+
+    def test_an_endpoint_outside_any_operation_is_still_checked(self) -> None:
+        """Fail closed: the excluded set is who is OUT, not who is let in."""
+        from app.platform.service_endpoints import _wfs_operation_hrefs
+
+        document = f"""<?xml version="1.0"?>
+<WFS_Capabilities version="2.0.0"
+    xmlns:xlink="http://www.w3.org/1999/xlink">
+  <SomeUnexpectedWrapper>
+    <Get xlink:href="{_FOREIGN}/wfs"/>
+  </SomeUnexpectedWrapper>
+</WFS_Capabilities>"""
+
+        hrefs = _wfs_operation_hrefs(document.encode())
+
+        assert hrefs == [f"{_FOREIGN}/wfs"]
+
+    async def test_transaction_on_another_origin_passes_the_real_check(
+        self, monkeypatch
+    ) -> None:
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        document = _capabilities_ows(
+            {
+                "GetFeature": _SVC_WFS,
+                "Transaction": f"{_FOREIGN}/wfs",
+            }
+        )
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            return _as_stream(httpx.Response(200, text=document))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        await assert_endpoints_stay_on_origin(
+            _SVC_WFS,
+            service_format="wfs",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            collection=None,
+            deadline=None,
+        )
+
+    async def test_getfeature_on_another_origin_still_refuses(
+        self, monkeypatch
+    ) -> None:
+        from app.platform.service_endpoints import (
+            CrossOriginEndpointError,
+            assert_endpoints_stay_on_origin,
+        )
+
+        document = _capabilities_ows(
+            {
+                "GetFeature": f"{_FOREIGN}/wfs",
+                "Transaction": _SVC_WFS,
+            }
+        )
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            return _as_stream(httpx.Response(200, text=document))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        with pytest.raises(CrossOriginEndpointError):
+            await assert_endpoints_stay_on_origin(
+                _SVC_WFS,
+                service_format="wfs",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                collection=None,
+                deadline=None,
+            )
+
+
 class TestAServiceCannotPointTheCredentialSomewhereElse:
     """fix(#1746 B2b review r13/r14): the document GDAL reads, not the one we do.
 
@@ -6924,6 +7145,74 @@ class TestAHeaderAuthJobGoesOnTheVersionedQueue:
         default = Settings.model_fields["worker_queues"].default
         queues = [q.strip() for q in default.split(",") if q.strip()]
         assert HEADER_AUTH_JOB_QUEUE in queues
+
+    def test_docker_compose_and_env_example_name_every_queue_in_the_default(
+        self,
+    ) -> None:
+        """fix(#1770 round 36): the P1 this round closes.
+
+        Round 35 raised the Settings default and reasoned that neither
+        deployment template SETS ``WORKER_QUEUES``, so the raised default
+        reaches every stock install untouched. True for the Helm chart,
+        false for Compose: both compose files interpolate
+        ``WORKER_QUEUES: "${WORKER_QUEUES:-priority,ingest,raster}"``, and
+        Compose supplying that env var — even as a fallback — shadows the
+        Settings class default inside the container entirely. A stock
+        install never picked up the new queue, and a header-auth WFS/OGC API
+        job sat pending forever (the very case
+        ``TestAHeaderAuthJobGoesOnTheVersionedQueue`` above exists to keep
+        from failing), exactly as the ``fix(#695)`` comment beside both
+        compose lines already warned: a queue no worker listens to is not an
+        error, and nothing ever fails it.
+
+        Reads the files as text rather than parsing YAML: the two compose
+        lines are a fixed ``KEY: "${KEY:-default}"`` shape this asserts on
+        directly, and .env.example's is a commented ``# KEY=default`` — no
+        need for a YAML dependency to read either.
+        """
+        from app.core.config import Settings
+        from app.platform.service_auth import HEADER_AUTH_JOB_QUEUE
+
+        default = Settings.model_fields["worker_queues"].default
+        queues = [q.strip() for q in default.split(",") if q.strip()]
+        assert HEADER_AUTH_JOB_QUEUE in queues, (
+            "fix this test's other assertions first, not this one"
+        )
+
+        repo_root = None
+        for candidate in pathlib.Path(__file__).resolve().parents:
+            if (candidate / "docker-compose.yml").is_file():
+                repo_root = candidate
+                break
+        if repo_root is None:
+            # A backend-only container layout ships no compose files at
+            # all — nothing here to drift, and nothing to read.
+            pytest.skip("docker-compose.yml not found above this test file")
+
+        compose_pattern = re.compile(r'WORKER_QUEUES:\s*"\$\{WORKER_QUEUES:-([^}]*)\}"')
+        for compose_file in ("docker-compose.yml", "docker-compose.prod.yml"):
+            text = (repo_root / compose_file).read_text()
+            match = compose_pattern.search(text)
+            assert match is not None, f"{compose_file}: no WORKER_QUEUES default found"
+            compose_queues = [q.strip() for q in match.group(1).split(",") if q.strip()]
+            for queue in queues:
+                assert queue in compose_queues, (
+                    f"{compose_file}'s WORKER_QUEUES default {compose_queues} is "
+                    f"missing {queue!r} that Settings' default now carries — a "
+                    "worker built from this release never dequeues a job Compose "
+                    "routes to it, and nothing ever fails that job to say so"
+                )
+
+        env_example_pattern = re.compile(r"^# WORKER_QUEUES=(\S+)$", re.MULTILINE)
+        env_text = (repo_root / ".env.example").read_text()
+        env_match = env_example_pattern.search(env_text)
+        assert env_match is not None, ".env.example: no commented WORKER_QUEUES= line"
+        env_queues = [q.strip() for q in env_match.group(1).split(",") if q.strip()]
+        for queue in queues:
+            assert queue in env_queues, (
+                f".env.example's WORKER_QUEUES example {env_queues} is missing "
+                f"{queue!r} that Settings' default now carries"
+            )
 
     async def test_a_new_shape_job_lands_on_the_versioned_queue(self) -> None:
         from procrastinate import App, testing

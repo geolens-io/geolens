@@ -3873,10 +3873,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1770 round 35, rebased onto #1778 above): worker_queues' default
     # gains "ingest-auth-v2" beside the three original queues, so a worker
     # built from this release drains the header-auth jobs a rolling deploy's
-    # upgraded API enqueues on it, alongside the comment recording why. This
-    # branch's own increment was 1513 -> 1524 before the rebase; re-measured
-    # with wc -l after both fixes landed together. Cap 1537 -> 1548, exact.
-    "backend/app/core/config.py": 1548,
+    # upgraded API enqueues on it, alongside the comment recording why.
+    # fix(#1770 round 36): the P1 finding was that the round-35 comment was
+    # wrong: both compose files DO set WORKER_QUEUES (their own fallback value
+    # shadows this class default entirely), so they needed the new queue too,
+    # and the correction plus the pointer to the structural test that now
+    # guards it is most of the growth. Re-measured with wc -l after all three
+    # fixes landed together through the rebase. Cap 1537 -> 1562, exact.
+    "backend/app/core/config.py": 1562,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of

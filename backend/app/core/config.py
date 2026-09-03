@@ -588,12 +588,26 @@ class Settings(BaseSettings):
     # ones. It is `app.platform.service_auth.HEADER_AUTH_JOB_QUEUE`
     # (`test_service_auth_transport_1746.py` pins that this default names it)
     # — a worker on this release has to drain it as well as "ingest", or a
-    # header-auth WFS/OGC API job never gets picked up at all. A deployment
-    # that already overrides WORKER_QUEUES (the dedicated-raster-worker case
-    # this comment already describes) must add it to that override by hand;
-    # this default only covers an install that has not customised the
-    # variable, which is every stock Compose or Helm install as of this
-    # release — neither template sets WORKER_QUEUES itself.
+    # header-auth WFS/OGC API job never gets picked up at all.
+    #
+    # fix(#1770 round 36): round 35 stopped here, reasoning that neither
+    # template SETS the variable, so this default reaches every stock
+    # install untouched. Wrong for Compose: both docker-compose.yml and
+    # docker-compose.prod.yml interpolate
+    # `WORKER_QUEUES: "${WORKER_QUEUES:-priority,ingest,raster}"`, and a
+    # Compose-supplied env var — even one that is itself only a fallback —
+    # still reaches the container and shadows this class default entirely.
+    # Both compose files' fallbacks now list "ingest-auth-v2" too, kept in
+    # sync with this one by
+    # `TestAHeaderAuthJobGoesOnTheVersionedQueue::test_docker_compose_and_env_example_name_every_queue_in_the_default`
+    # in `test_service_auth_transport_1746.py`. The Helm chart genuinely
+    # does not set WORKER_QUEUES anywhere (checked the sibling
+    # geolens-deployments repo's templates, values.yaml and configmap.yaml),
+    # so it is unaffected and needs no chart change for this specific gap.
+    # A deployment that overrides WORKER_QUEUES itself (the
+    # dedicated-raster-worker case this comment already describes, on either
+    # Compose or the chart's `worker.extraEnv`) must add the new queue to
+    # that override by hand.
     worker_queues: str = "priority,ingest,ingest-auth-v2,raster"
 
     # CONF-04 (Phase 277 / M-39): replaces raw os.environ.get("ENV_ONLY_CONFIG") in core/public_urls.py
