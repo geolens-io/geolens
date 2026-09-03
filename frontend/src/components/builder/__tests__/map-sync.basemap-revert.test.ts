@@ -17,31 +17,63 @@ import { describe, it, expect, vi } from 'vitest';
 import type { StyleSpecification } from 'maplibre-gl';
 import { applyBasemapConfigToMap } from '@/components/builder/map-sync';
 import { DEFAULT_BASEMAP_CONFIG } from '@/lib/basemap-utils';
+import type { MapBasemapConfig } from '@/types/api';
 
 /** A map mock whose setPaintProperty MUTATES the style it hands back, which is
- *  what the real MapLibre map does and what the bug depended on. */
-function createLiveStyleMap(layers: StyleSpecification['layers']) {
-  const style = {
-    version: 8 as const,
-    sources: {},
-    layers: layers.map((layer) => ({ ...layer, paint: { ...('paint' in layer ? layer.paint : {}) } })),
-  } as unknown as StyleSpecification;
-  const byId = new Map(style.layers.map((layer) => [layer.id, layer]));
+ *  what the real MapLibre map does and what the bug depended on.
+ *
+ *  `loadStyle` replaces the whole style on the SAME map object and fires any
+ *  registered `style.load` listeners, which is what `setStyle` does on a
+ *  basemap swap. `setPaintProperty(key, undefined)` deletes the key, matching
+ *  maplibre's serializer, which omits a paint property whose value is
+ *  undefined. */
+function createLiveStyleMap(initialLayers: StyleSpecification['layers']) {
+  let style = {} as StyleSpecification;
+  let byId = new Map<string, { id: string; paint?: Record<string, unknown> }>();
+  const styleLoadListeners: (() => void)[] = [];
+
+  function install(layers: StyleSpecification['layers']) {
+    style = {
+      version: 8 as const,
+      sources: {},
+      layers: layers.map((layer) => ({ ...layer, paint: { ...('paint' in layer ? layer.paint : {}) } })),
+    } as unknown as StyleSpecification;
+    byId = new Map(
+      style.layers.map((layer) => [layer.id, layer as { id: string; paint?: Record<string, unknown> }]),
+    );
+  }
+  install(initialLayers);
+
   return {
     getStyle: vi.fn(() => style),
     getLayer: vi.fn((id: string) => byId.get(id)),
     setLayoutProperty: vi.fn(),
     setPaintProperty: vi.fn((id: string, key: string, value: unknown) => {
-      const layer = byId.get(id) as { paint?: Record<string, unknown> } | undefined;
+      const layer = byId.get(id);
       if (!layer) return;
       layer.paint = { ...(layer.paint ?? {}) };
       if (value === undefined) delete layer.paint[key];
       else layer.paint[key] = value;
     }),
-    on: vi.fn(),
-    paintOf: (id: string) => ((byId.get(id) as { paint?: Record<string, unknown> })?.paint ?? {}),
+    on: vi.fn((event: string, cb: () => void) => {
+      if (event === 'style.load') styleLoadListeners.push(cb);
+    }),
+    /** Simulate setStyle: a brand new style on the same map, then style.load. */
+    loadStyle(layers: StyleSpecification['layers']) {
+      install(layers);
+      for (const cb of [...styleLoadListeners]) cb();
+    },
+    paintOf: (id: string) => (byId.get(id)?.paint ?? {}),
   };
 }
+
+const waterLayer = (color: string) => ([
+  { id: 'water', type: 'fill', source: 'openmaptiles', paint: { 'fill-color': color } },
+] as unknown as StyleSpecification['layers']);
+
+const POSITRON_WATER = '#a0c8f0';
+const DARK_WATER = '#1b2733';
+const MONOCHROME_WATER = '#d9dde0';
 
 describe('applyBasemapConfigToMap revert passes', () => {
   it('restores the original water fill when land_water_tone returns to default', () => {
@@ -106,25 +138,65 @@ describe('applyBasemapConfigToMap revert passes', () => {
 
     applyBasemapConfigToMap(map as never, { ...DEFAULT_BASEMAP_CONFIG });
     expect(map.paintOf('water')['fill-outline-color']).toBe('#123456');
+    // And the foreign write must not have disturbed this layer's own revert.
+    expect(map.paintOf('water')['fill-color']).toBe('#a0c8f0');
   });
 
-  it('drops the pristine snapshot when a new style loads', () => {
-    const map = createLiveStyleMap([
-      { id: 'water', type: 'fill', source: 'openmaptiles', paint: { 'fill-color': '#a0c8f0' } },
-    ] as unknown as StyleSpecification['layers']);
+  // fix(#1778 codex round 2 P1): the pristine snapshot used to be dropped by a
+  // `style.load` listener this module attached lazily, which meant it was always
+  // registered AFTER BuilderMap's persistent handler and therefore ran after the
+  // appearance pass that handler triggers. Detection is now synchronous and
+  // per key, so listener order cannot matter. Both tests below would fail with
+  // the listener-based invalidation: the first because the appearance listener
+  // is registered first, the second because no listener exists at all.
+  it('re-snapshots pristine across two style swaps that share a layer id', () => {
+    const map = createLiveStyleMap(waterLayer(POSITRON_WATER));
+    const config: { current: MapBasemapConfig } = {
+      current: { ...DEFAULT_BASEMAP_CONFIG, land_water_tone: 'monochrome' },
+    };
+    // Stand-in for BuilderMap's persistent style.load handler, registered
+    // BEFORE any appearance call, exactly as the real one is.
+    map.on('style.load', () => applyBasemapConfigToMap(map as never, config.current));
 
+    // Cycle 1: positron.
+    map.loadStyle(waterLayer(POSITRON_WATER));
+    expect(map.paintOf('water')['fill-color']).toBe(MONOCHROME_WATER);
+
+    // Cycle 2: dark. Same layer id, different pristine colour.
+    map.loadStyle(waterLayer(DARK_WATER));
+    expect(map.paintOf('water')['fill-color']).toBe(MONOCHROME_WATER);
+
+    // The second style's pristine must be the second style's own paint.
+    config.current = { ...DEFAULT_BASEMAP_CONFIG };
+    applyBasemapConfigToMap(map as never, config.current);
+    expect(map.paintOf('water')['fill-color']).toBe(DARK_WATER);
+
+    // Back to positron, and its own pristine must come back too.
+    config.current = { ...DEFAULT_BASEMAP_CONFIG, land_water_tone: 'monochrome' };
+    map.loadStyle(waterLayer(POSITRON_WATER));
+    expect(map.paintOf('water')['fill-color']).toBe(MONOCHROME_WATER);
+    config.current = { ...DEFAULT_BASEMAP_CONFIG };
+    applyBasemapConfigToMap(map as never, config.current);
+    expect(map.paintOf('water')['fill-color']).toBe(POSITRON_WATER);
+  });
+
+  it('never writes the previous basemap colour onto a style that just loaded', () => {
+    const map = createLiveStyleMap(waterLayer(POSITRON_WATER));
     applyBasemapConfigToMap(map as never, { ...DEFAULT_BASEMAP_CONFIG, land_water_tone: 'muted' });
     expect(map.paintOf('water')['fill-color']).toBe('#d8e5e8');
 
-    // A basemap swap replaces the style; positron and dark share layer ids, so
-    // a cache that survived it would restore the previous basemap's colours.
-    const styleLoad = map.on.mock.calls.find((c) => c[0] === 'style.load')?.[1] as () => void;
-    expect(styleLoad).toBeTypeOf('function');
-    map.setPaintProperty('water', 'fill-color', '#1b2733');
-    styleLoad();
-
-    applyBasemapConfigToMap(map as never, { ...DEFAULT_BASEMAP_CONFIG, land_water_tone: 'muted' });
+    // No style.load listener is registered anywhere in this test, so nothing
+    // can clear a cache before the appearance pass below runs.
+    map.loadStyle(waterLayer(DARK_WATER));
+    map.setPaintProperty.mockClear();
     applyBasemapConfigToMap(map as never, { ...DEFAULT_BASEMAP_CONFIG });
-    expect(map.paintOf('water')['fill-color']).toBe('#1b2733');
+
+    expect(map.paintOf('water')['fill-color']).toBe(DARK_WATER);
+    // Nothing at all was written for this key: dark's own paint already IS the
+    // target. The old code wrote positron's pristine over it.
+    const fillColorWrites = map.setPaintProperty.mock.calls.filter(
+      (c) => c[0] === 'water' && c[1] === 'fill-color',
+    );
+    expect(fillColorWrites).toEqual([]);
   });
 });

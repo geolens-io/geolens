@@ -240,6 +240,37 @@ describe('getDataDrivenColumnsForLayer', () => {
     });
     expect(cols).toEqual(['top_level']);
   });
+
+  // fix(#1778 codex round 2 P2): `style_config.symbol ?? style_config.builder.symbol`
+  // picked ONE object whole, so a categoryColumn stashed under `builder` was
+  // dropped the moment any top-level symbol object existed. The adapter merges
+  // the two field by field, and the tile column list has to resolve the column
+  // from the same merged object or the icons fall back below z10 exactly as if
+  // the column had never been read.
+  // Counterfactual: with the `??`, both cases below return [].
+  it('merges a builder-stashed category column under a partial top-level symbol config', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: {
+        render_mode: 'symbol',
+        symbol: { iconSize: 1.5 },
+        builder: { symbol: { categoryColumn: 'kind' } },
+      },
+      paint: {},
+    });
+    expect(cols).toEqual(['kind']);
+  });
+
+  it('merges when the top-level symbol config carries no icon fields at all', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: {
+        render_mode: 'symbol',
+        symbol: {},
+        builder: { symbol: { categoryColumn: 'kind' } },
+      },
+      paint: {},
+    });
+    expect(cols).toEqual(['kind']);
+  });
 });
 
 describe('getDataDrivenColumnsForSource', () => {
