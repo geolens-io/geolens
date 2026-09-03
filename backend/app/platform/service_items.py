@@ -515,13 +515,21 @@ async def _walk_pages(
         # site, so a malformed page cannot mean different things depending on
         # where in the chain it arrived.
         features = _require_feature_page(document, first_page=pages == 1)
-        if pages == 1:
+        if "numberMatched" in document:
             # OGC API Features part 1: the number of features the whole query
             # matches, as opposed to the number this page returned. Optional,
             # and already validated as a non-negative integer by
-            # `_require_feature_page` when it is present at all (r29), so this
-            # only has to decide whether it was there.
-            number_matched = document.get("numberMatched")
+            # `_require_feature_page` when it is present at all (r29).
+            #
+            # fix(#1746 B2b review r30): read from EVERY page, not just the
+            # first. It is a statement about the whole query, so two pages
+            # giving different answers means the service is describing two
+            # different queries and neither can be checked against the walk.
+            reported = document["numberMatched"]
+            if number_matched is None:
+                number_matched = reported
+            elif reported != number_matched:
+                raise ItemFetchFailedError("pages disagree about the size")
         for index, feature in enumerate(features):
             # fix(#1746 B2b review r19): `ensure_ascii=False`, and the file
             # opened in binary. The default escapes every non-ASCII character
@@ -572,6 +580,31 @@ async def _walk_pages(
         # could detect. A preview that reached its sample size has already set
         # `page_url` to None, so this only fires on a genuinely short read.
         raise ItemFetchFailedError("collection exceeds the page cap")
+    if (
+        feature_limit is None
+        and number_matched is not None
+        and written != number_matched
+    ):
+        # fix(#1746 B2b review r30): the chain ran out, and the service's own
+        # count says it should not have. A `next` link that is missing when
+        # there are more features to come is exactly the truncation r18 and
+        # r29 refuse in their own ways, and this is the form of it the response
+        # itself proves: nothing about the document is malformed, the walk just
+        # ended early. Accepting it handed a re-upload ten features to replace
+        # a hundred with.
+        #
+        # Both directions. More than reported is not a happier outcome, it is a
+        # service whose count cannot be trusted, and that count is what a
+        # preview reports and re-upload turns into a row-count delta.
+        #
+        # FULL walks only, which is the path where getting this wrong destroys
+        # data: the worker imports the extract over an existing dataset. A
+        # sampled read is expected to be short by construction, so the count
+        # says nothing about whether the chain ended early, and `truncated`
+        # from r28 is what carries that judgement there. `feature_limit is
+        # None` also implies `not truncated`, since only the sample limit
+        # breaks out of the loop.
+        raise ItemFetchFailedError("collection is shorter than reported")
     out.write(b"]}")
     return pages, written, number_matched, truncated
 

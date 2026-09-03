@@ -6039,3 +6039,228 @@ class TestNothingMalformedIsMistakenForTheLastPage:
         assert secret not in str(raised.value)
         assert secret not in raised.value.policy
         assert secret not in raised.value.reason
+
+
+class TestAChainThatEndsBeforeTheServiceSaidItWould:
+    """fix(#1746 B2b review r30): the response itself proves the truncation.
+
+    A service reporting `numberMatched: 100` whose link chain runs out after
+    ten features has told us both things. Nothing about any page is malformed
+    -- r21 and r29 have no complaint -- the walk simply ended early, and
+    accepting it handed a re-upload ten features to replace a hundred with.
+
+    Checked on FULL walks only. A sampled read is short by construction, so the
+    count says nothing there, and `truncated` from r28 carries that judgement
+    instead.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    @staticmethod
+    def _chain(pages: list[dict]):
+        """A service serving *pages* in order, linked while more remain."""
+        base = f"{_SVC_OAPIF}/collections/c1/items"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            index = int(request.url.params.get("page", 0))
+            body = dict(pages[index])
+            body.setdefault("type", "FeatureCollection")
+            body["links"] = (
+                [{"rel": "next", "href": f"{base}?page={index + 1}"}]
+                if index + 1 < len(pages)
+                else [{"rel": "self", "href": base}]
+            )
+            return _streamed(body)
+
+        return handle
+
+    @staticmethod
+    def _features(count: int, start: int = 0) -> list[dict]:
+        return [_point(f"f{n}") for n in range(start, start + count)]
+
+    async def test_a_chain_shorter_than_reported_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The reported case: says a hundred, delivers ten, stops."""
+        self._transport(
+            monkeypatch,
+            self._chain([{"numberMatched": 100, "features": self._features(10)}]),
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        # And the ten it wrote go with the file: a prefix is not a collection.
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_chain_longer_than_reported_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The mirror. More than promised is not a happier outcome.
+
+        It is a service whose count cannot be trusted, and that count is what a
+        preview reports and re-upload turns into a row-count delta.
+        """
+        self._transport(
+            monkeypatch,
+            self._chain([{"numberMatched": 3, "features": self._features(10)}]),
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_chain_matching_the_report_completes(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The other half, across a real multi-page walk."""
+        self._transport(
+            monkeypatch,
+            self._chain(
+                [
+                    {"numberMatched": 25, "features": self._features(10)},
+                    {"features": self._features(10, 10)},
+                    {"features": self._features(5, 20)},
+                ]
+            ),
+        )
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 25
+        assert extract.total == 25
+
+    async def test_a_service_that_reports_nothing_completes(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """`numberMatched` is optional, and its absence is not evidence."""
+        self._transport(monkeypatch, self._chain([{"features": self._features(10)}]))
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 10
+        assert extract.total == 10
+
+    async def test_pages_that_disagree_about_the_size_are_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """It describes the whole query, so two answers describe two queries.
+
+        Neither can then be checked against the walk, which is the thing the
+        count exists here to do.
+        """
+        self._transport(
+            monkeypatch,
+            self._chain(
+                [
+                    {"numberMatched": 20, "features": self._features(10)},
+                    {"numberMatched": 40, "features": self._features(10, 10)},
+                ]
+            ),
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_pages_that_repeat_the_same_size_are_fine(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Repeating it on every page is ordinary and must not be refused."""
+        self._transport(
+            monkeypatch,
+            self._chain(
+                [
+                    {"numberMatched": 20, "features": self._features(10)},
+                    {"numberMatched": 20, "features": self._features(10, 10)},
+                ]
+            ),
+        )
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 20
+        assert extract.total == 20
+
+    async def test_a_sampled_read_is_not_measured_against_it(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """A preview stops deliberately, so being short proves nothing.
+
+        This is the case the r28 flag covers and this rule must stay out of:
+        refusing here would make every large collection unpreviewable.
+        """
+        self._transport(
+            monkeypatch,
+            self._chain(
+                [
+                    {"numberMatched": 100, "features": self._features(10)},
+                    {"features": self._features(10, 10)},
+                ]
+            ),
+        )
+
+        extract = await self._materialise(tmp_path, feature_limit=5)
+
+        assert extract.features == 5
+        assert extract.total == 100
+
+    async def test_the_refusal_never_echoes_the_page(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The counts and the body are provider-controlled."""
+        secret = "canary" + _value()
+        self._transport(
+            monkeypatch,
+            self._chain(
+                [
+                    {
+                        "numberMatched": 100,
+                        "features": [
+                            {
+                                "type": "Feature",
+                                "id": "a",
+                                "geometry": None,
+                                "properties": {"note": secret},
+                            }
+                        ],
+                    }
+                ]
+            ),
+        )
+
+        with pytest.raises(ItemFetchFailedError) as raised:
+            await self._materialise(tmp_path)
+
+        assert secret not in str(raised.value)
+        assert secret not in raised.value.policy
+        assert secret not in raised.value.reason
