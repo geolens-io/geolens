@@ -3433,7 +3433,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # migration, plus the two residual gaps it records (the one-statement
     # window between a door's own commit and the stamp, and S3-mode direct
     # uploads landing in the bound half). Cap 1827 -> 1857, exact.
-    "backend/app/platform/jobs/sweep.py": 1857,
+    # fix(#1778): +134. Two out-of-process reapers for artifacts a hard kill
+    # used to strand forever. `unpublished_storage_keys_from_metadata` reads the
+    # `rasters/`/`originals/` keys a raster tail named on its own job row before
+    # writing them, and `unadopted_analysis_table_from_metadata` plus
+    # `_reap_unadopted_analysis_outputs` do the same for an analysis output
+    # table; both are collected in `fail_stale_jobs` and deleted only after its
+    # commit, alongside the existing stale-generation keys. Roughly half of it
+    # is the docstrings stating why neither reap needs a survivor query and why
+    # the analysis one takes its own session. Cap 1857 -> 1991, exact.
+    "backend/app/platform/jobs/sweep.py": 1991,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and
@@ -3904,7 +3913,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # stand-down that skipped it stranded bytes no row references and no quota
     # counts. `ingest_vrt` records that it has nothing to reap on that path.
     # Cap 1442 -> 1480, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1480,
+    # fix(#1778): +16. The storage keys are registered before their puts
+    # rather than after (a cancelled put can have completed), the two in-thread
+    # source reads go through the safe-open-env wrappers in `raster/vrt.py`, and
+    # `create_vrt_dataset` accepts a caller-chosen dataset id so the manifest
+    # tail can name its object keys before phase 2 opens. Cap 1480 -> 1496,
+    # exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1496,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.

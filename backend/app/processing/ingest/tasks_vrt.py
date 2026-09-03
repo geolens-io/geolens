@@ -4,7 +4,7 @@ Storage portability (STOR-03/04, Phase 1210):
   VRTs are stored with provider-agnostic SourceFilename nodes (logical keys +
   relativeToVRT="1"). The rewrite pass (rewrite_vrt_sources) runs AFTER metadata
   extraction and quicklook generation at each store site — the in-flight tmp .vrt
-  used by extract_raster_metadata / generate_quicklook must hold concrete,
+  used by read_vrt_metadata / render_vrt_quicklook must hold concrete,
   resolvable paths; only the stored copy is normalised to logical keys.
 
   At open-time, resolve_open_path (app.platform.storage.titiler_url) reconstructs
@@ -30,9 +30,13 @@ from app.platform.jobs.heartbeat import (
 )
 from app.core.db import tenant_task
 from app.processing.embeddings.helpers import defer_embedding
-from app.processing.raster.cog import extract_raster_metadata, sha256_file
-from app.processing.raster.quicklook import generate_quicklook
-from app.processing.raster.vrt import build_vrt, resolve_vrt_source_path
+from app.processing.raster.cog import sha256_file
+from app.processing.raster.vrt import (
+    build_vrt,
+    read_vrt_metadata,
+    render_vrt_quicklook,
+    resolve_vrt_source_path,
+)
 from app.processing.raster.vrt_rewrite import rewrite_vrt_sources
 from app.platform.storage import get_storage
 
@@ -242,6 +246,7 @@ async def create_vrt_dataset(
     record_status: str = "published",
     snapshot_at: datetime | None = None,
     built_from: dict | None = None,
+    dataset_id: uuid.UUID | None = None,
 ) -> tuple:
     """Create Record + Dataset + RasterAsset records for a VRT dataset.
 
@@ -250,6 +255,10 @@ async def create_vrt_dataset(
     - source_format=None (avoids chk_datasets_source_format constraint)
     - Sets vrt_type and resolution_strategy on RasterAsset
     - Inserts vrt_source_links rows with position ordering
+
+    fix(#1778): ``dataset_id`` has the same job it has on
+    ``create_raster_dataset``: let the manifest-VRT tail name its object keys
+    on the durable job row before this transaction opens.
 
     Returns (record, dataset, raster_asset).
     """
@@ -292,6 +301,7 @@ async def create_vrt_dataset(
 
     table_name = f"vrt_{record.id.hex[:16]}"
     dataset = Dataset(
+        **({"id": dataset_id} if dataset_id is not None else {}),
         record_id=record.id,
         table_name=table_name,
         source_format=None,  # VRT datasets have no source_format (avoids chk constraint)
@@ -506,7 +516,7 @@ async def ingest_vrt(
         )
 
         # 6. Extract metadata from assembled VRT
-        meta = await asyncio.to_thread(extract_raster_metadata, vrt_path)
+        meta = await asyncio.to_thread(read_vrt_metadata, vrt_path)
         if not meta.get("crs_wkt"):
             raise ValueError("Assembled VRT has no coordinate reference system.")
 
@@ -518,8 +528,8 @@ async def ingest_vrt(
         ql256: bytes | None = None
         ql512: bytes | None = None
         try:
-            ql256 = await asyncio.to_thread(generate_quicklook, vrt_path, 256)
-            ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
+            ql256 = await asyncio.to_thread(render_vrt_quicklook, vrt_path, 256)
+            ql512 = await asyncio.to_thread(render_vrt_quicklook, vrt_path, 512)
         except Exception:  # broad: quicklook generation is non-fatal; rasterio rendering can fail for any reason
             logger_vrt.warning(
                 "Quicklook generation failed for VRT %s", job_id, exc_info=True
@@ -610,16 +620,19 @@ async def ingest_vrt(
                     ql512_key, tenant_id=current_tenant_var.get()
                 )
 
+                # fix(#1778): registered before the put, per
+                # archive_lossy_original's rule. A cancelled put can have
+                # completed, and CancelledError skips every statement below it.
+                written_storage_keys.append(_storage_vrt_key)
                 with open(vrt_path, "rb") as fobj:
                     await storage.put(_storage_vrt_key, fobj)
-                written_storage_keys.append(_storage_vrt_key)
 
                 if ql256 is not None:
-                    await storage.put(_storage_ql256_key, io.BytesIO(ql256))
                     written_storage_keys.append(_storage_ql256_key)
+                    await storage.put(_storage_ql256_key, io.BytesIO(ql256))
                 if ql512 is not None:
-                    await storage.put(_storage_ql512_key, io.BytesIO(ql512))
                     written_storage_keys.append(_storage_ql512_key)
+                    await storage.put(_storage_ql512_key, io.BytesIO(ql512))
 
                 # 11. Update asset URIs and create distribution.
                 # asset_uri stays as the logical (un-prefixed) key — the tenant
@@ -1031,7 +1044,7 @@ async def regenerate_vrt(
         )
 
         # 6 & 7. Extract metadata (also serves as post-validation)
-        meta = await asyncio.to_thread(extract_raster_metadata, vrt_path)
+        meta = await asyncio.to_thread(read_vrt_metadata, vrt_path)
         if not meta.get("crs_wkt"):
             raise ValueError("Regenerated VRT has no coordinate reference system.")
 
@@ -1043,8 +1056,8 @@ async def regenerate_vrt(
         ql256: bytes | None = None
         ql512: bytes | None = None
         try:
-            ql256 = await asyncio.to_thread(generate_quicklook, vrt_path, 256)
-            ql512 = await asyncio.to_thread(generate_quicklook, vrt_path, 512)
+            ql256 = await asyncio.to_thread(render_vrt_quicklook, vrt_path, 256)
+            ql512 = await asyncio.to_thread(render_vrt_quicklook, vrt_path, 512)
         except Exception:  # broad: quicklook generation is non-fatal; rasterio rendering can fail for any reason
             logger_regen.warning(
                 "Quicklook regeneration failed for VRT %s",
@@ -1099,16 +1112,19 @@ async def regenerate_vrt(
             next_ql512_uri, tenant_id=_ctv.get()
         )
 
+        # fix(#1778): registered before the put, per archive_lossy_original's
+        # rule. A cancelled put can have completed, and CancelledError skips
+        # every statement below it.
+        written_storage_keys.append(next_vrt_physical_key)
         with open(vrt_path, "rb") as fobj:
             await storage.put(next_vrt_physical_key, fobj)
-        written_storage_keys.append(next_vrt_physical_key)
 
         if ql256 is not None:
-            await storage.put(next_ql256_physical_key, io.BytesIO(ql256))
             written_storage_keys.append(next_ql256_physical_key)
+            await storage.put(next_ql256_physical_key, io.BytesIO(ql256))
         if ql512 is not None:
-            await storage.put(next_ql512_physical_key, io.BytesIO(ql512))
             written_storage_keys.append(next_ql512_physical_key)
+            await storage.put(next_ql512_physical_key, io.BytesIO(ql512))
 
         prior_storage_keys = _prior_generation_storage_keys_to_reap(
             vrt_key=vrt_storage_key,

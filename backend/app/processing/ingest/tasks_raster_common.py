@@ -169,12 +169,19 @@ async def create_raster_dataset(
     visibility: str,
     record_status: str = "published",
     original_srid: int | None = None,
+    dataset_id: uuid.UUID | None = None,
 ) -> tuple:
     """Create Record + Dataset + RasterAsset records for a raster ingest.
 
     ``meta`` describes the CONVERTED COG — the file this dataset will serve
     (fix(#1290 review)). ``original_srid`` is the one value that must describe
     the upload instead, so the caller reads it off the source and passes it in.
+
+    fix(#1778): ``dataset_id`` lets the caller decide the id BEFORE this
+    transaction opens. The object keys the tail is about to write embed it, and
+    naming them on the durable job row is only possible if the id exists while
+    that row can still be written to. Default None keeps every other caller on
+    the database-generated id.
 
     Returns (record, dataset, raster_asset).
     """
@@ -224,6 +231,7 @@ async def create_raster_dataset(
 
     table_name = f"raster_{record.id.hex[:16]}"
     dataset = Dataset(
+        **({"id": dataset_id} if dataset_id is not None else {}),
         record_id=record.id,
         table_name=table_name,
         source_format="geotiff",
@@ -492,3 +500,82 @@ def absorb_cancellation(exc: BaseException) -> None:
     task = asyncio.current_task()
     if task is not None:
         task.uncancel()
+
+
+# fix(#1778): the `user_metadata` field a raster tail names its pre-commit
+# object keys under. `written_storage_keys` is a local list, so a SIGKILL or an
+# OOM between the puts and the terminal `finally` reclaimed nothing: `base_key`
+# embeds a dataset id that rolls back with the transaction, so no row, no
+# `delete_dataset` prefix reap and no staging reconciler (`STAGING_PREFIX` is
+# `staging/` only) could ever name the objects again. The VRT publish path
+# already had an out-of-process owner for this class
+# (`_stale_generation_storage_keys` in the job sweep); this field extends the
+# same shape to `rasters/` and `originals/`.
+UNPUBLISHED_STORAGE_KEYS_FIELD = "unpublished_storage_keys"
+
+
+async def record_unpublished_storage_keys(
+    job_uuid: uuid.UUID,
+    attempt_uuid: uuid.UUID,
+    *,
+    keys: list[str],
+    job_id: str,
+    task: str,
+) -> None:
+    """Persist the object keys this attempt is ABOUT to write, best effort.
+
+    fix(#1778). One JSONB write, committed on its own session before the
+    publishing transaction opens, which is what makes the keys nameable after
+    the process is gone. Logical keys (never tenant-resolved) so the sweep
+    resolves them in its own tenant context, the way it already does for
+    ``_staged_presigned_keys``.
+
+    Ordering is the whole mechanism and it is narrow. This must run BEFORE the
+    phase-2 session takes the ``ingest_jobs`` row lock (phase 2's first
+    statements dirty ``current_step``/``progress``): a second session updating
+    that row while phase 2 holds it would block until phase 2 ended, and phase
+    2 would be waiting on this call. So it lives beside the pre-phase-2
+    progress write, never inside phase 2.
+
+    A JSONB merge rather than an assignment, so it cannot clobber a field a
+    later write adds, and fenced on ``attempt_id`` so a retry's keys never land
+    on another attempt's row.
+
+    Failure is swallowed. This buys reclaimability for a crash that may not
+    happen; refusing the ingest over it would trade a possible leak for a
+    certain failure.
+    """
+    from sqlalchemy import bindparam, func, text, update
+    from sqlalchemy.dialects.postgresql import JSONB
+
+    import app.core.db as db_module
+
+    from app.platform.jobs.models import IngestJob
+
+    if not keys:
+        return
+    try:
+        async with db_module.async_session() as session:
+            await session.execute(
+                update(IngestJob)
+                .where(
+                    IngestJob.id == job_uuid,
+                    IngestJob.attempt_id == attempt_uuid,
+                )
+                .values(
+                    user_metadata=func.coalesce(
+                        IngestJob.user_metadata, text("'{}'::jsonb")
+                    ).op("||")(
+                        bindparam(
+                            "unpublished_patch",
+                            value={UNPUBLISHED_STORAGE_KEYS_FIELD: list(keys)},
+                            type_=JSONB,
+                        )
+                    )
+                )
+            )
+            await session.commit()
+    except Exception:  # broad: reclaimability is best effort, the ingest is not
+        structlog.get_logger().warning(
+            "unpublished_storage_keys_not_recorded", job_id=job_id, task=task
+        )

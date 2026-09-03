@@ -214,8 +214,12 @@ async def _recover_stale_jobs_for_current_scope() -> None:
         # consistent — mirrors the fail_stale_jobs periodic sweep.
         from app.platform.jobs.router import (
             _reap_stale_generation_storage,
+            _reap_unadopted_analysis_outputs,
             sweep_stale_vrt_assets,
+            unadopted_analysis_table_from_metadata,
+            unpublished_storage_keys_from_metadata,
         )
+        from app.platform.storage.titiler_url import resolve_current_storage_key
 
         (
             vrt_assets_recovered,
@@ -229,6 +233,30 @@ async def _recover_stale_jobs_for_current_scope() -> None:
         # restored ownership is durable can orphan a 'ready' asset against
         # bytes a rolled-back commit never actually freed for deletion.
         await _reap_stale_generation_storage(stale_generation_storage_keys)
+        # fix(#1778): the same treatment for a killed raster ingest or
+        # replace's own pre-commit objects. This pass matters more than the
+        # periodic sweep for that class: an OOM-killed worker is restarted, and
+        # the restart runs this before any lifespan sweeper gets there, so
+        # without it the keys are settled `failed` here and never seen again.
+        # Resolved from the rows this pass just moved off `running`, and
+        # deleted only after the commit above, for the reason the line above
+        # gives.
+        await _reap_stale_generation_storage(
+            tuple(
+                resolve_current_storage_key(key)
+                for job in stale_jobs
+                for key in unpublished_storage_keys_from_metadata(job.user_metadata)
+            )
+        )
+        # fix(#1778): and the analysis peer, same pass, same ordering.
+        await _reap_unadopted_analysis_outputs(
+            tuple(
+                name
+                for job in stale_jobs
+                if (name := unadopted_analysis_table_from_metadata(job.user_metadata))
+                is not None
+            )
+        )
         total = len(stale_jobs) + len(orphaned_jobs)
         if total or vrt_assets_recovered:
             log.info(

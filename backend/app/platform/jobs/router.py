@@ -63,6 +63,9 @@ from app.platform.jobs.sweep import (
     stale_pending_cutoff_seconds,
     stale_pending_unbound_values,
     sweep_stale_vrt_assets,  # noqa: F401 -- re-exported, see __all__
+    unadopted_analysis_table_from_metadata,  # noqa: F401 -- re-exported, see __all__
+    unpublished_storage_keys_from_metadata,  # noqa: F401 -- re-exported, see __all__
+    _reap_unadopted_analysis_outputs,  # noqa: F401 -- re-exported, see __all__
 )
 from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.standards.ogc.errors import CONFLICT_RESPONSE, ERROR_RESPONSES_AUTH
@@ -1255,4 +1258,10 @@ __all__ = [
     "stale_pending_cutoff_seconds",
     "stale_pending_unbound_values",
     "sweep_stale_vrt_assets",
+    # fix(#1778): the startup recovery pass reaps the same pre-commit raster
+    # objects and analysis outputs the periodic sweep does, through the same
+    # façade.
+    "_reap_unadopted_analysis_outputs",
+    "unadopted_analysis_table_from_metadata",
+    "unpublished_storage_keys_from_metadata",
 ]

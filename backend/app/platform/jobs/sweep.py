@@ -363,6 +363,18 @@ class StaleCleanupOutcome:
     _stale_generation_storage_keys: tuple[str, ...] = field(
         default=(), repr=False, compare=False
     )
+    # fix(#1778): logical object keys a raster ingest or replace named on its
+    # job row before writing them, carried out to whoever commits under the
+    # same rule as the two fields above. Logical, not tenant-resolved: the reap
+    # resolves them in its own tenant context, like _staged_presigned_keys.
+    _unpublished_storage_keys: tuple[str, ...] = field(
+        default=(), repr=False, compare=False
+    )
+    # fix(#1778): analysis output tables named on the job rows this pass
+    # settled, dropped after the settling commit under the same rule.
+    _unadopted_analysis_tables: tuple[str, ...] = field(
+        default=(), repr=False, compare=False
+    )
 
     @property
     def total_cleaned(self) -> int:
@@ -723,6 +735,30 @@ async def _reap_committed_staged_paths(
                 storage_key=stale_key,
             )
 
+    # fix(#1778): a killed raster ingest or replace's own pre-commit objects,
+    # named on the job row before the puts and withheld from deletion until
+    # this point for the reason `_reap_stale_generation_storage` gives. Safe
+    # without a survivor query: every one of those tails stamps the job's
+    # terminal status in the SAME transaction as the pointer it publishes, so a
+    # row this pass just moved off `running` cannot have a durable publish
+    # behind it, and the keys it names are therefore referenced by nothing.
+    for unpublished_key in outcome._unpublished_storage_keys:
+        try:
+            from app.platform.storage import get_storage
+
+            await get_storage().delete(resolve_current_storage_key(unpublished_key))
+            storage_objects_reaped += 1
+        except Exception:  # broad: best-effort staging cleanup
+            staged_cleanup_failures += 1
+            log.warning(
+                "Failed to reap unpublished raster object for stale job",
+                storage_key=unpublished_key,
+            )
+
+    # fix(#1778): the analysis peer of the loop above. Same rule, same reason:
+    # the table is dropped only once the row that stopped owning it is durable.
+    await _reap_unadopted_analysis_outputs(outcome._unadopted_analysis_tables)
+
     return replace(
         outcome,
         local_files_reaped=local_files_reaped,
@@ -730,6 +766,90 @@ async def _reap_committed_staged_paths(
         staged_paths_skipped=staged_paths_skipped,
         staged_cleanup_failures=staged_cleanup_failures,
     )
+
+
+def unpublished_storage_keys_from_metadata(
+    user_metadata: object,
+) -> tuple[str, ...]:
+    """Read the object keys a killed raster tail named on its own job row.
+
+    fix(#1778). ``written_storage_keys`` is a local list, so a SIGKILL or an
+    OOM between the puts and the terminal ``finally`` reclaimed nothing: the
+    key embeds a dataset id the rolled-back transaction took with it, and no
+    row, no ``delete_dataset`` prefix reap and no staging reconciler
+    (``STAGING_PREFIX`` is ``staging/`` only) could name the objects again. The
+    tails now write the keys to ``user_metadata`` before the puts, and the two
+    stale-job passes are the remaining owners.
+
+    Defensive about the shape because ``user_metadata`` is a schemaless JSONB
+    blob: a non-list, or a list carrying anything but the two managed prefixes,
+    yields nothing. That prefix check is the only thing standing between a
+    hand-edited job row and an arbitrary delete, so it is not optional.
+    """
+    from app.processing.ingest.tasks_raster_common import (
+        UNPUBLISHED_STORAGE_KEYS_FIELD,
+    )
+
+    if not isinstance(user_metadata, dict):
+        return ()
+    raw = user_metadata.get(UNPUBLISHED_STORAGE_KEYS_FIELD)
+    if not isinstance(raw, list):
+        return ()
+    return tuple(
+        key
+        for key in raw
+        if isinstance(key, str)
+        and key.startswith(("rasters/", "originals/"))
+        and ".." not in key
+    )
+
+
+def unadopted_analysis_table_from_metadata(user_metadata: object) -> str | None:
+    """Read the output table an analysis job named on its own job row.
+
+    fix(#1778). The name is generated inside the worker and every DROP of it
+    lives in a handler a SIGKILL never runs, so the table used to survive with
+    no catalog row and nothing able to name it. ``drop_unadopted_analysis_output``
+    re-validates the identifier before it reaches DDL; this only reads it.
+    """
+    from app.processing.analysis.tasks import ANALYSIS_OUTPUT_TABLE_FIELD
+
+    if not isinstance(user_metadata, dict):
+        return None
+    name = user_metadata.get(ANALYSIS_OUTPUT_TABLE_FIELD)
+    return name if isinstance(name, str) and name else None
+
+
+async def _reap_unadopted_analysis_outputs(out_tables: tuple[str, ...]) -> None:
+    """Drop the analysis outputs of jobs this pass just settled.
+
+    fix(#1778). Its own session, opened after the settling commit, for the two
+    reasons the storage reaps give: a DROP inside the sweep transaction would
+    block the whole pass on a lock the dead worker might still hold, and
+    deleting before the settle is durable can destroy an output a rolled-back
+    reconciliation still owns. Empty is the common case and opens nothing.
+
+    The tenant context is the caller's: both callers run inside
+    ``tenant_job_context`` per tenant in multi-tenant mode, the same context
+    the analysis worker resolved its schema under.
+    """
+    if not out_tables:
+        return
+    from app.core.db import async_session
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+    from app.core.tenancy import is_multi_tenant
+    from app.processing.analysis.tasks import drop_unadopted_analysis_output
+
+    schema = tenant_data_schema(current_tenant_var.get() if is_multi_tenant() else None)
+    async with async_session() as session:
+        for out_table in out_tables:
+            try:
+                await drop_unadopted_analysis_output(
+                    session, out_table=out_table, schema=schema, job_id="stale_sweep"
+                )
+            except Exception:  # broad: best-effort cleanup of one orphan
+                log.warning("Failed to reap unadopted analysis output")
 
 
 def _stale_generation_storage_keys(
@@ -1431,6 +1551,18 @@ async def fail_stale_jobs(
     )
     running_rows = list(running_result.all())
     running_job_ids = [row[0] for row in running_rows]
+    # fix(#1778): resolved here, deleted only after this pass's commit lands,
+    # the rule every other external artifact in this function follows.
+    unpublished_storage_keys = tuple(
+        key
+        for _job_id, user_metadata_, _created_by in running_rows
+        for key in unpublished_storage_keys_from_metadata(user_metadata_)
+    )
+    unadopted_analysis_tables = tuple(
+        name
+        for _job_id, user_metadata_, _created_by in running_rows
+        if (name := unadopted_analysis_table_from_metadata(user_metadata_)) is not None
+    )
 
     # fix(#1550 review): the row and its audit trail are settled by the same
     # actor, in the same transaction. After a hard kill this sweep is the only
@@ -1732,6 +1864,8 @@ async def fail_stale_jobs(
         _staged_presigned_keys=tuple(sorted(deleted_presigned_keys)),
         _refresh_runs_reconciled=cancelled_runs,
         _stale_generation_storage_keys=stale_generation_storage_keys,
+        _unpublished_storage_keys=unpublished_storage_keys,
+        _unadopted_analysis_tables=unadopted_analysis_tables,
     )
     if commit:
         # Never remove an external artifact for a DELETE that may still roll
