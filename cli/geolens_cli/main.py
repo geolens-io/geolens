@@ -516,9 +516,20 @@ def login(
     resp = call_sdk(login_auth_login_post.sync_detailed, client=sdk.client, body=body)
     token_response = unwrap(resp, expected=200)
     access_token = token_response.access_token
+    # fix(#1778 review round 13): the refresh token is passed straight
+    # into replace_credentials()'s own rollback-protected transaction
+    # instead of being stored by a separate call after this returns --
+    # see replace_credentials()'s docstring (auth.py) for why persisting
+    # it afterward left a half-replaced session (new access token, no
+    # refresh token, and nothing to roll back to) on a storage failure.
+    refresh_token = getattr(token_response, "refresh_token", None)
     try:
         backend = _auth.replace_credentials(
-            instance, "bearer", access_token, no_keyring=no_keyring
+            instance,
+            "bearer",
+            access_token,
+            no_keyring=no_keyring,
+            refresh_token=refresh_token,
         )
     except KeyringError as exc:
         state.output.error(f"Could not store the bearer token: {exc}")
@@ -526,9 +537,6 @@ def login(
     except Exception as exc:
         state.output.error(f"Could not store the bearer token: {exc}")
         raise typer.Exit(EXIT_GENERIC) from exc
-    refresh_token = getattr(token_response, "refresh_token", None)
-    if refresh_token:
-        _auth.store_refresh_token(instance, refresh_token, no_keyring=no_keyring)
     _config.write_default_instance(instance, username=username)
     state.output.success(f"Logged in to {instance} as {username} ({backend})")
 

@@ -446,9 +446,33 @@ def _delete_stale_credentials(instance: str, *, keep: str, keep_backend: str) ->
 
 
 def replace_credentials(
-    instance: str, kind: str, value: str, *, no_keyring: bool = False
+    instance: str,
+    kind: str,
+    value: str,
+    *,
+    no_keyring: bool = False,
+    refresh_token: Optional[str] = None,
 ) -> str:
     """Atomically swap the active credential for ``instance`` to ``kind``.
+
+    fix(#1778 review round 13): ``refresh_token``, when given, is
+    persisted inside this SAME rollback-protected transaction rather
+    than by a separate ``store_refresh_token()`` call after this
+    function returns. The interactive login flow used to do the
+    latter -- by the time it ran, ``replace_credentials`` had already
+    committed the new access token AND deleted the prior refresh
+    credential as part of its own cleanup. If that separate call then
+    failed (keyring rejects, file fallback read-only), login reported
+    failure with a half-replaced session: a new access token with no
+    refresh token at all, and nothing left to roll back to. Folding it
+    in here means a refresh-token write failure rolls back the ENTIRE
+    swap through the existing snapshot/restore machinery -- the access
+    token, the refresh token, and the marker are all restored to their
+    pre-login values together, exactly like any other failure inside
+    this transaction. Stored AFTER ``_delete_stale_credentials`` below
+    (not before): that cleanup unconditionally deletes any existing
+    refresh entry as part of clearing stale state, so writing the new
+    one first would just have cleanup delete it again.
 
     fix(#1778 review round 4): ``login`` used to call ``delete_credentials()``
     BEFORE storing the replacement, so a storage failure (keyring falling
@@ -508,34 +532,59 @@ def replace_credentials(
     # will too, so a snapshot read failure for the account about to be
     # overwritten does not mean the write will safely fall back to the
     # file; it can just as well succeed, silently destroying the one
-    # value _restore_credentials would have needed to recover it. Aborting
-    # here, before any store call, closes that window: if a later failure
-    # (the marker write, cleanup) still triggers a rollback, the
-    # rollback-side _UNKNOWN check (in _restore_credentials) is kept as
-    # defense in depth for the OTHER accounts _delete_stale_credentials
-    # can touch, which this pre-check does not cover.
+    # value _restore_credentials would have needed to recover it.
     #
-    # Scoped to ``not no_keyring``: with --no-keyring, store_bearer_token/
-    # store_api_key never call keyring.set_password at all (see their own
-    # ``if not no_keyring:`` guard) — the keyring account is never
-    # mutated, so an unreadable snapshot for it is not "needed for
-    # rollback" and must not block the (guaranteed keyring-free) file
-    # write. This is also what keeps TestUnreadableKeyringDuringCleanup's
-    # --no-keyring case passing.
+    # fix(#1778 review round 13): round 12 closed that window by ABORTING
+    # outright, which broke the documented automatic credentials.toml
+    # fallback (round 8/9) — an ordinary ``login --token``/``--api-key``
+    # on a headless box with no usable keyring now refused unless the
+    # caller already knew to pass --no-keyring, even when the file
+    # backend was perfectly writable. Reconciling rounds 9-12: an
+    # unreadable snapshot for the account about to be overwritten no
+    # longer aborts the login. It instead forces the SAME keyring-free
+    # path --no-keyring already takes for this one store call —
+    # store_bearer_token/store_api_key skip keyring.set_password
+    # entirely and write straight to the file — so there is no
+    # unpredictable set_password outcome left to protect against; round
+    # 12's actual danger (a write landing in an account whose read had
+    # just failed) cannot happen when the write never touches that
+    # account. The round-10 marker below still records the new kind
+    # unconditionally, so the file credential outranks any stale keyring
+    # entry that later becomes readable again. Keyring cleanup for the
+    # OTHER account kinds stays best-effort exactly as round 9 already
+    # made it (an unreadable keyring is tolerated whenever
+    # keep_backend == "file", which this forces here). The only way this
+    # call still fails is the file backend itself being unwritable —
+    # store_bearer_token/store_api_key then raise directly, before
+    # anything has been mutated (see this function's own top-level
+    # docstring), propagating exactly like any other store failure.
+    target_is_unknown = False
     if not no_keyring:
         target = snapshot.keyring_bearer if kind == "bearer" else snapshot.keyring_api_key
-        if target is _UNKNOWN:
-            raise KeyringError(
-                f"keyring unreadable for {instance}; refusing to replace "
-                "credentials without a way to restore the prior one on "
-                "failure. Retry, or pass --no-keyring to store to "
-                "credentials.toml instead."
-            )
+        target_is_unknown = target is _UNKNOWN
 
-    if kind == "bearer":
-        backend = store_bearer_token(instance, value, no_keyring=no_keyring)
-    else:
-        backend = store_api_key(instance, value, no_keyring=no_keyring)
+    store_no_keyring = no_keyring or target_is_unknown
+
+    try:
+        if kind == "bearer":
+            backend = store_bearer_token(instance, value, no_keyring=store_no_keyring)
+        else:
+            backend = store_api_key(instance, value, no_keyring=store_no_keyring)
+    except Exception as exc:
+        if target_is_unknown:
+            # fix(#1778 review round 13): the keyring was unreadable AND
+            # the forced file write above also failed (e.g. a read-only
+            # or full XDG config dir) -- there is genuinely no backend
+            # this credential could land in. Re-raised as KeyringError
+            # (not the raw OSError/etc.) so it reaches EXIT_NETWORK
+            # through the same handler every other "credential store
+            # backend unavailable" case in this package already uses;
+            # login reports it as one class of failure, not two.
+            raise KeyringError(
+                f"keyring unreadable for {instance}, and the fallback "
+                f"credentials.toml write also failed: {exc}"
+            ) from exc
+        raise
 
     # fix(#1778 review round 11): the marker write must be INSIDE the
     # rollback-protected block, not before it. It lives in the file
@@ -554,6 +603,8 @@ def replace_credentials(
     try:
         _set_credential_field(instance, _ACTIVE_KIND_FIELD, kind)
         _delete_stale_credentials(instance, keep=kind, keep_backend=backend)
+        if refresh_token:
+            store_refresh_token(instance, refresh_token, no_keyring=no_keyring)
     except Exception:
         _restore_credentials(instance, snapshot)
         raise

@@ -154,16 +154,19 @@ class TestActiveCredentialKindMarkerPrecedence:
         readable again, the marker -- not the old bearer-first
         precedence -- decides.
 
-        fix(#1778 review round 12): the original version of this test
-        relied on a PLAIN login automatically falling back to the file
-        when the keyring was entirely unreadable. That fallback is gone
-        -- replace_credentials() now refuses outright when it cannot
-        read the account it is about to overwrite, rather than risking
-        a set_password that might succeed where the read just failed
-        (see TestUnreadableKeyringDuringCleanup's renamed sibling in
-        test_exit_codes.py). --no-keyring reaches the same file-fallback
-        state deliberately instead: it never calls set_password, so
-        there is nothing here for the new pre-check to refuse.
+        fix(#1778 review round 12): this test briefly needed an explicit
+        --no-keyring flag here, because replace_credentials() had
+        started refusing outright whenever it could not read the
+        account it was about to overwrite -- a PLAIN login's automatic
+        file fallback was gone for that case.
+
+        fix(#1778 review round 13): round 12's refusal broke the
+        documented automatic fallback for a real headless install, so
+        it forces the keyring-free file path instead of aborting (see
+        TestSnapshotUnknownForcesFileBackend in test_exit_codes.py).
+        This test is back to a PLAIN login -- no --no-keyring needed --
+        exercising the actual regression path: an ordinary login that
+        cannot read the keyring falls back to the file on its own.
         _delete_stale_credentials' cleanup read of the bearer account
         still hits the broken keyring, and is still tolerated (not
         raised) because keep_backend == "file" -- round 9's behavior
@@ -188,9 +191,7 @@ class TestActiveCredentialKindMarkerPrecedence:
         monkeypatch.setattr("keyring.set_password", locked)
         monkeypatch.setattr("keyring.get_password", locked)
 
-        result = runner.invoke(
-            app, ["login", instance, "--api-key", "new-key", "--no-keyring"]
-        )
+        result = runner.invoke(app, ["login", instance, "--api-key", "new-key"])
         assert result.exit_code == 0, result.output
 
         # The keyring becomes readable again -- the stale bearer token
