@@ -43,6 +43,29 @@ function floatsAligned(a: number, b: number): boolean {
   return Math.abs(a - b) <= GRID_ALIGNMENT_TOLERANCE;
 }
 
+type NodataState = 'defined' | 'absent' | 'unknown';
+
+// fix(#1805 review round 2 P1): _check_nodata_consistency compares the
+// backend's authoritative RasterAsset.nodata column, which IS populated for
+// remote COGs. But cog_info.py's band-level stats for a remote COG carry
+// only min/max/mean -- service_records.py never puts a `nodata` key on
+// that source's raster:bands entries even though the backend sees nodata
+// as defined. A band with no `nodata` key therefore means "this source's
+// band metadata doesn't carry the value" (unknown), not "no nodata"
+// (absent) -- those are different states, and conflating them (round 1's
+// fix did, via `!= null`) produces a false nodata_inconsistent whenever a
+// remote-COG source is paired with a locally-probed one. `nodata: null`
+// (as opposed to the key being entirely missing) is the one shape that
+// legitimately means "absent" today; no OGCRecordProperties field carries
+// a top-level nodata today; if the API adds one, check it here too.
+function nodataState(record: OGCRecordResponse): NodataState {
+  const bands = record.properties['raster:bands'];
+  if (!bands || bands.length === 0) return 'unknown';
+  if (bands.some((b) => b.nodata != null)) return 'defined';
+  if (bands.some((b) => b.nodata === null)) return 'absent';
+  return 'unknown';
+}
+
 type VrtType = 'mosaic' | 'band_stack';
 type ResolutionStrategy = 'finest' | 'coarsest' | 'average';
 
@@ -71,7 +94,9 @@ function validateSources(
     const src = sources[i];
     const errs: string[] = [];
 
-    // CRS check -- mirrors _check_crs.
+    // CRS check -- mirrors _check_crs. Unknown never blocks: the `&&` guard
+    // skips the comparison whenever either side's CRS is unknown, same
+    // tri-state principle as nodataState() below.
     if (src.properties.crs && refCrs && src.properties.crs !== refCrs) {
       errs.push('crs_mismatch');
     }
@@ -82,9 +107,10 @@ function validateSources(
       // NOT NULL column on the authoritative RasterAsset row re-fetched at
       // creation time); band_count here comes from OGC search-result
       // properties, which omit the key entirely for legacy records with no
-      // recorded band count, so this client-side hint skips rather than
-      // flags a false mismatch against unknown data. The backend re-runs
-      // this check authoritatively before the VRT is actually created.
+      // recorded band count. Unknown never blocks: this client-side hint
+      // skips rather than flags a false mismatch against unknown data. The
+      // backend re-runs this check authoritatively before the VRT is
+      // actually created.
       if (
         src.properties.band_count != null &&
         first.properties.band_count != null &&
@@ -94,39 +120,46 @@ function validateSources(
       }
     }
 
-    // fix(#1778): dtype/nodata come from the first band of raster:bands, the
-    // shape the API actually returns — the flat dtype/nodata fields these
-    // checks used to read were never emitted by the serializer, so they were
-    // always undefined and every check below was dead code.
+    // fix(#1778): dtype comes from the first band of raster:bands, the
+    // shape the API actually returns — the flat dtype field this check
+    // used to read was never emitted by the serializer, so it was always
+    // undefined and this check was dead code.
     const srcDtype = src.properties['raster:bands']?.[0]?.data_type;
     const firstDtype = first.properties['raster:bands']?.[0]?.data_type;
-    const srcNodata = src.properties['raster:bands']?.[0]?.nodata;
-    const firstNodata = first.properties['raster:bands']?.[0]?.nodata;
 
-    // Dtype check -- mirrors _check_dtype (VAL-04). Same "unknown data
-    // skips rather than flags" rationale as band_count above: raster:bands
-    // is entirely absent from OGC search-result properties for sources
-    // ingested before band-info tracking existed, while the backend's dtype
-    // column is guaranteed non-null.
+    // Dtype check -- mirrors _check_dtype (VAL-04). Unknown never blocks:
+    // raster:bands is entirely absent from OGC search-result properties
+    // for sources ingested before band-info tracking existed, while the
+    // backend's dtype column is guaranteed non-null. Comparing only when
+    // both sides are known avoids flagging a legitimate combination the
+    // client simply cannot see dtype for.
     if (srcDtype && firstDtype && srcDtype !== firstDtype) {
       errs.push('dtype_mismatch');
     }
 
-    // fix(#1805 review round 1 P1): _check_nodata_consistency (VAL-06)
-    // requires only consistent PRESENCE of nodata across sources -- either
-    // all define one or none do -- not equal VALUES. The previous check
-    // compared values directly, so two sources that both define a nodata
-    // sentinel (-9999 and 0) were wrongly flagged, while a source defining
-    // one and a source defining none (a real inconsistency) were not
-    // compared at all whenever either side was null.
-    const srcHasNodata = srcNodata != null;
-    const firstHasNodata = firstNodata != null;
-    if (srcHasNodata !== firstHasNodata) {
+    // fix(#1805 review round 2 P1): _check_nodata_consistency (VAL-06)
+    // requires only consistent PRESENCE of nodata, not equal values (fixed
+    // in round 1) -- but "present" has to be judged per source, not
+    // inferred from `!= null` on a single band field. A remote COG's
+    // nodata IS defined on the backend but its band stats never carry a
+    // `nodata` key (see nodataState() above), so a plain presence check
+    // conflated "unknown" with "absent" and flagged a false mismatch.
+    // Unknown never blocks: skip the comparison and let the backend, which
+    // always has the authoritative value, decide.
+    const srcNodataState = nodataState(src);
+    const firstNodataState = nodataState(first);
+    if (
+      srcNodataState !== 'unknown' &&
+      firstNodataState !== 'unknown' &&
+      srcNodataState !== firstNodataState
+    ) {
       errs.push('nodata_inconsistent');
     }
 
     // Band stack grid alignment check -- mirrors _check_grid_alignment
-    // (VAL-05).
+    // (VAL-05). Unknown never blocks: every `!= null` guard below skips
+    // its comparison when either side's dimension/resolution is unknown,
+    // same tri-state principle as nodataState() above.
     if (vrtType === 'band_stack') {
       const srcShape = src.properties['proj:shape'];
       const firstShape = first.properties['proj:shape'];

@@ -42,6 +42,11 @@ vi.mock('react-i18next', () => ({
 // fix(#1778): rebuilt to the shape service_records.py actually serializes
 // (proj:code / proj:shape / raster:bands / gsd), not the flat
 // epsg/dtype/nodata/width/height/res_x/res_y fields the API never returned.
+// fix(#1805 review round 2): `nodata` now distinguishes three real JSON
+// shapes -- omitted entirely (default '-9999' when unset, or forced via
+// `omitNodataKey` to simulate the remote-COG shape where band stats never
+// carry a nodata key), explicitly `null` (a band that HAS nodata metadata
+// and says there is none), and a defined string value.
 function makeCogSource(
   overrides: Partial<{
     id: string;
@@ -50,12 +55,18 @@ function makeCogSource(
     band_count: number;
     dtype: string;
     nodata: string | null;
+    /** Omit the raster:bands[0].nodata key entirely, simulating a remote
+     * COG whose band-level stats (cog_info.py) carry only min/max/mean --
+     * the backend's RasterAsset.nodata can still be defined even though
+     * this source's band metadata says nothing about it. */
+    omitNodataKey: boolean;
     width: number;
     height: number;
     gsd: number;
     crs: string | null;
   }>,
 ): OGCRecordResponse {
+  const nodataValue = overrides.nodata !== undefined ? overrides.nodata : '-9999';
   return {
     type: 'Feature',
     id: overrides.id ?? 'ds-1',
@@ -82,7 +93,7 @@ function makeCogSource(
       'raster:bands': [
         {
           data_type: overrides.dtype ?? 'float32',
-          ...(overrides.nodata === null ? {} : { nodata: overrides.nodata ?? '-9999' }),
+          ...(overrides.omitNodataKey ? {} : { nodata: nodataValue }),
         },
       ],
       gsd: overrides.gsd ?? 0.001,
@@ -314,14 +325,18 @@ describe('VrtCreatorForm', () => {
     expect(submitButton).toBeDisabled();
   });
 
-  // fix(#1805 review round 1 P1): _check_nodata_consistency requires only
-  // consistent PRESENCE of nodata, not equal values. Pinned per the review:
-  // -9999 and 0 (both defined) is valid; -9999 and undefined (one defined,
-  // one not) is invalid.
-  it('nodata presence mismatch across mosaic sources disables submit (#1805 P1)', { timeout: 15000 }, async () => {
+  // fix(#1805 review round 2 P1): round 1 fixed the VALUE-vs-PRESENCE bug
+  // but still inferred presence from a single `!= null` read, conflating
+  // "unknown" (no band metadata for nodata at all -- the remote-COG shape,
+  // since cog_info.py's band stats carry only min/max/mean) with "absent"
+  // (a band that explicitly has no nodata). Pinned per the review: a
+  // remote-COG-shaped source (no nodata key on its bands) paired with a
+  // locally-probed source that defines one is NOT flagged -- the client
+  // cannot tell, so it defers to the backend's authoritative check.
+  it('remote-COG-shaped nodata (unknown) paired with a defined value is not flagged (#1805 P1 round 2)', { timeout: 15000 }, async () => {
     const user = userEvent.setup({ delay: null });
     const source1 = makeCogSource({ id: 'ds-nodata-a', title: 'Nodata Source A', nodata: '-9999' });
-    const source2 = makeCogSource({ id: 'ds-nodata-b', title: 'Nodata Source B', nodata: null });
+    const source2 = makeCogSource({ id: 'ds-nodata-b', title: 'Nodata Source B', omitNodataKey: true });
 
     mockSearchDatasets.mockResolvedValue({
       type: 'FeatureCollection',
@@ -337,10 +352,65 @@ describe('VrtCreatorForm', () => {
     await selectSource(user, searchInput, 'Nodata Source B');
 
     const titleInput = screen.getByPlaceholderText('vrt.titlePlaceholder');
-    await user.type(titleInput, 'Nodata Presence Mismatch VRT');
+    await user.type(titleInput, 'Unknown Nodata Not Flagged VRT');
+
+    const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
+    expect(submitButton).not.toBeDisabled();
+  });
+
+  // Pinned per the review: two sources that both carry nodata metadata but
+  // disagree on PRESENCE (one explicitly null, one a defined value) is the
+  // real inconsistency and must still be flagged.
+  it('explicit nodata:null vs a defined value is flagged (#1805 P1 round 2)', { timeout: 15000 }, async () => {
+    const user = userEvent.setup({ delay: null });
+    const source1 = makeCogSource({ id: 'ds-nodata-e', title: 'Nodata Source E', nodata: null });
+    const source2 = makeCogSource({ id: 'ds-nodata-f', title: 'Nodata Source F', nodata: '0' });
+
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection',
+      numberMatched: 2,
+      numberReturned: 2,
+      features: [source1, source2],
+    });
+
+    render(<VrtCreatorForm />);
+
+    const searchInput = screen.getByPlaceholderText('vrt.searchPlaceholder');
+    await selectSource(user, searchInput, 'Nodata Source E');
+    await selectSource(user, searchInput, 'Nodata Source F');
+
+    const titleInput = screen.getByPlaceholderText('vrt.titlePlaceholder');
+    await user.type(titleInput, 'Explicit Null Vs Defined VRT');
 
     const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
     expect(submitButton).toBeDisabled();
+  });
+
+  // Pinned per the review: two sources both with unknown nodata metadata
+  // (remote-COG shape on both sides) is not flagged.
+  it('two unknown-nodata sources are not flagged (#1805 P1 round 2)', { timeout: 15000 }, async () => {
+    const user = userEvent.setup({ delay: null });
+    const source1 = makeCogSource({ id: 'ds-nodata-g', title: 'Nodata Source G', omitNodataKey: true });
+    const source2 = makeCogSource({ id: 'ds-nodata-h', title: 'Nodata Source H', omitNodataKey: true });
+
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection',
+      numberMatched: 2,
+      numberReturned: 2,
+      features: [source1, source2],
+    });
+
+    render(<VrtCreatorForm />);
+
+    const searchInput = screen.getByPlaceholderText('vrt.searchPlaceholder');
+    await selectSource(user, searchInput, 'Nodata Source G');
+    await selectSource(user, searchInput, 'Nodata Source H');
+
+    const titleInput = screen.getByPlaceholderText('vrt.titlePlaceholder');
+    await user.type(titleInput, 'Two Unknowns VRT');
+
+    const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
+    expect(submitButton).not.toBeDisabled();
   });
 
   it('different nodata VALUES across mosaic sources remain valid when both define one (#1805 P1)', { timeout: 15000 }, async () => {
