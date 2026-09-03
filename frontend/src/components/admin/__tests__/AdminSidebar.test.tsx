@@ -243,7 +243,13 @@ describe('AdminSidebar', () => {
   // multi-tenant mode — a manage_settings-only per-tenant admin must not see
   // the Settings group (every request behind those links 403s). Audit Log
   // stays manage_settings in BOTH modes.
-  it('multi-tenant: hides the Settings group for a manage_settings-only admin', () => {
+  //
+  // fix(#1778): SAML calls the same mode-aware /settings/oauth-providers/
+  // API, so it must follow the Settings group here too, not Audit Log — a
+  // manage_settings-only per-tenant admin saw the SAML nav item and the
+  // route admitted them, but every SAML request 403'd (the exact drift #817
+  // fixed for the Settings tabs).
+  it('multi-tenant: hides the Settings group AND SAML for a manage_settings-only admin', () => {
     const multiTenant = {
       isEnterprise: true,
       edition: 'enterprise',
@@ -252,7 +258,8 @@ describe('AdminSidebar', () => {
       isResolved: true,
     };
     // Two queued values: AdminSidebar's own useEdition call, then the
-    // useSettingsAdmin hook's internal call (in component order).
+    // useSettingsAdmin hook's internal call (canAdminSettings is computed
+    // once and reused for both the Settings group and the SAML item).
     useEditionMock
       .mockReturnValueOnce(multiTenant as never)
       .mockReturnValueOnce(multiTenant as never);
@@ -260,6 +267,8 @@ describe('AdminSidebar', () => {
 
     expect(screen.queryByText('General')).toBeNull();
     expect(screen.queryByText('Config Ops')).toBeNull();
+    expect(screen.queryByText('SAML SSO')).toBeNull();
+    expect(document.querySelector('a[href="/admin/saml"]')).toBeNull();
     expect(useEnterpriseOnlyTabsMock).toHaveBeenCalledWith({ enabled: false });
     expect(screen.getByText('Audit Log')).toBeInTheDocument();
   });

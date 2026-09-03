@@ -129,7 +129,6 @@ export const appRoutes = (
             </Route>
             <Route element={<AdminCapabilityRoute capability="manage_settings" />}>
               <Route path="admin/audit" element={<AdminAuditPage />} errorElement={<RouteErrorBoundary />} />
-              <Route path="admin/saml" element={<AdminSamlPage />} errorElement={<RouteErrorBoundary />} />
             </Route>
             {/* fix(#817): the settings and config-ops APIs flip to
                 manage_tenants in multi-tenant mode, so their routes gate
@@ -140,6 +139,10 @@ export const appRoutes = (
               <Route path="admin/settings" element={<Navigate to="/admin/settings/general" replace />} />
               <Route path="admin/settings/:tab" element={<AdminSettingsPage />} errorElement={<RouteErrorBoundary />} />
               <Route path="admin/config-ops" element={<AdminConfigOpsPage />} errorElement={<RouteErrorBoundary />} />
+              {/* fix(#1778): SAML calls /settings/oauth-providers/, the same
+                  mode-aware API as the tabs above — it was gated on raw
+                  manage_settings, the exact drift #817 fixed for Settings. */}
+              <Route path="admin/saml" element={<AdminSamlPage />} errorElement={<RouteErrorBoundary />} />
             </Route>
             {/* Redirects from old routes.
                 fix(#871): no `admin/settings/appearance` entry in this block — a
