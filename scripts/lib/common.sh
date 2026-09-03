@@ -9,10 +9,11 @@
 # boot under QEMU emulation), while this copy keeps a 90s budget for the
 # upgrade path where images and volumes already exist locally.
 #
-# fix(#1778 round 20, P1): this file now has ONE side effect on source — see
-# the snapshot block below, right after this comment — which the rest of
-# this note documents. Everything else here still only defines functions and
-# the few constants below; the caller sets COMPOSE_FILE before invoking
+# fix(#1778 round 20, P1; relocated round 21): this file has ONE side
+# effect on source — see the snapshot block below `fail()`'s definition,
+# which needs `fail` to exist before it runs and so cannot sit this early
+# in the file. Everything else here still only defines functions and the
+# few constants below; the caller sets COMPOSE_FILE before invoking
 # compose().
 
 # COMPOSE_FILE is selected by the caller (upgrade.sh/restore.sh/check-env.sh
@@ -20,126 +21,6 @@
 # a bare source still works. Always relative to PROJECT_ROOT (Compose's own
 # convention for this variable), never an absolute path a caller might set.
 : "${COMPOSE_FILE:=docker-compose.yml}"
-
-# fix(#1778 round 20, P1) at scripts/restore.sh:41: _env_resolve_name's
-# "process environment wins" check (round 18) tested the LIVE shell
-# variable table via `${NAME+set}` — which cannot tell "genuinely inherited
-# before this script ran" apart from "this script's OWN env_value_into
-# assigned it moments ago while resolving a DIFFERENT key". A caller with
-# more than one env_value_into call against the same .env file is exposed:
-# with a forward reference `POSTGRES_DB=${POSTGRES_USER:-dbfallback}`
-# followed LATER in the file by `POSTGRES_USER=admin`, real Compose
-# resolves POSTGRES_DB to "dbfallback" — POSTGRES_USER is defined after
-# POSTGRES_DB in the file (invisible to an earlier line's own resolution)
-# and was never actually inherited, so the `:-` default fires. But
-# restore.sh calls `env_value_into POSTGRES_USER POSTGRES_USER .env`
-# BEFORE `env_value_into POSTGRES_DB POSTGRES_DB .env`, which assigns
-# POSTGRES_USER=admin into THIS shell first; by the time POSTGRES_DB's
-# `${POSTGRES_USER:-dbfallback}` reference is resolved, `${POSTGRES_USER+
-# set}` is now true — not because Compose would have seen an inherited
-# override, but because this script just set it — so the old check misread
-# it as one and resolved POSTGRES_DB to "admin". `pg_restore --clean` can
-# then target a different database from the one the running services use.
-#
-# Fixed by snapshotting the environment exactly ONCE, the moment this file
-# is sourced — before the caller has assigned anything into its own shell
-# via env_value_into or otherwise — into a private directory, one file per
-# variable, named after it, holding its exact original bytes verbatim.
-# Every later "is NAME in the process environment" check (three sites:
-# _env_raw_before's and get_env_value's bare-key branches, and
-# _env_resolve_name's interpolation-reference check) consults ONLY this
-# frozen snapshot; nothing any script does afterward, including its own
-# env_value_into calls, can ever change what the snapshot says.
-#
-# Why a one-shot `xargs`, not a shell loop over `env`, and not `awk`:
-#   - An environment value can contain a real embedded newline (a `.env`-
-#     derived one already can, per round 19, and an inherited one legally
-#     could too), so a NEWLINE-delimited dump (plain `env`) is ambiguous
-#     to split back apart — the exact "line-oriented tool over a value
-#     that can contain the record separator" class round 19 closed
-#     elsewhere in this file.
-#   - A NUL byte can NEVER appear inside a real environment value (the
-#     OS's own environ representation forbids it) — which is exactly what
-#     makes `env -0`'s NUL-delimited dump unambiguous. But a shell
-#     variable cannot HOLD a NUL byte in any POSIX shell, bash included,
-#     so that dump can never be read into a variable and scanned with
-#     parameter expansion the way this file parses .env FILES.
-#   - `awk -v RS='\0'` is the usual portable answer to that, and is NOT
-#     actually portable here: measured directly (not assumed), macOS's
-#     shipped `awk` — a one-true-awk descendant, not gawk — does not honor
-#     NUL as a record separator under any spelling tried (`-v RS='\0'`,
-#     `-v RS='\000'`, `BEGIN{RS="\0"}`); it silently falls back to
-#     treating the whole input as one record rather than erroring, which
-#     would have made a naive version of this fix silently see the entire
-#     environment as a single blob on any operator's Mac — restore.sh,
-#     upgrade.sh, and check-env.sh all run on the operator's own host, not
-#     only inside a container with a known-Linux awk.
-#   - `xargs -0` IS portable (verified: GNU findutils, and macOS's own
-#     BSD-derived xargs, both document and implement `-0`/`--null`) and
-#     never round-trips the NUL bytes through a shell variable at all — it
-#     splits them in its own process and hands each record to the invoked
-#     command as an already-separated argv element. `xargs` picks its own
-#     batch size, so a realistic environment (tens to low hundreds of
-#     variables) costs ONE `sh -c` fork, not one per variable; that one
-#     invocation receives every record as "$@" and writes each one's
-#     value — verbatim bytes, embedded newline included — to its own file.
-if [ -z "${_ENV_SNAPSHOT_DIR:-}" ]; then
-  _ENV_SNAPSHOT_DIR="$(mktemp -d 2>/dev/null || true)"
-  if [ -n "$_ENV_SNAPSHOT_DIR" ] && [ -d "$_ENV_SNAPSHOT_DIR" ]; then
-    env -0 2>/dev/null | xargs -0 sh -c '
-      dir="$1"
-      shift
-      for _ess_rec in "$@"; do
-        _ess_name="${_ess_rec%%=*}"
-        _ess_value="${_ess_rec#*=}"
-        case "$_ess_name" in
-          [A-Za-z_]*)
-            case "$_ess_name" in
-              *[!A-Za-z0-9_]*) continue ;;
-            esac
-            ;;
-          *) continue ;;
-        esac
-        printf "%s" "$_ess_value" > "$dir/$_ess_name" 2>/dev/null
-      done
-    ' _ "$_ENV_SNAPSHOT_DIR" 2>/dev/null || true
-    # Best-effort cleanup: correct as-is for every script that never
-    # replaces the EXIT trap (check-env.sh, env-value.sh). `trap` only
-    # ever holds ONE handler per signal, so a script that sets its own
-    # LATER `trap ... EXIT` (restore.sh's _cleanup, upgrade.sh's
-    # rollback_trap) would silently replace this one — both are updated
-    # to call _env_snapshot_cleanup from their own trap handler instead of
-    # relying on this one surviving.
-    trap '_env_snapshot_cleanup' EXIT
-  else
-    _ENV_SNAPSHOT_DIR=""
-  fi
-fi
-
-# Removes the snapshot directory. Exposed (not just the bare trap above)
-# so a caller that installs its OWN later EXIT trap — replacing this
-# file's — can call it from that trap instead, rather than leaking the
-# directory for the rest of that script's run.
-_env_snapshot_cleanup() {
-  [ -n "${_ENV_SNAPSHOT_DIR:-}" ] && rm -rf "${_ENV_SNAPSHOT_DIR:?}" 2>/dev/null
-}
-
-# True if NAME was present in the environment snapshot taken when this file
-# was sourced — regardless of what the live shell variable of the same name
-# holds right now.
-_env_snapshot_has() {
-  [ -n "${_ENV_SNAPSHOT_DIR:-}" ] && [ -f "${_ENV_SNAPSHOT_DIR}/$1" ]
-}
-
-# Prints NAME's snapshotted value. Caller must have already confirmed
-# _env_snapshot_has "NAME". Sentinel-protected the same way every other
-# value read in this file is (see _env_resolve_name/_env_dequote): a
-# bare `$(cat file)` would silently strip a real trailing newline the
-# value legitimately ends in.
-_env_snapshot_value() {
-  _esv_raw="$(cat "${_ENV_SNAPSHOT_DIR}/$1" 2>/dev/null && printf x)"
-  printf '%s' "${_esv_raw%x}"
-}
 
 # fix(#1798 review round 16, P2, review 5104847831): a caller must tell
 # Compose where the PROJECT lives for its OWN purposes -- reading `.env` to
@@ -202,6 +83,157 @@ fail() {
 
 need_command() {
   command -v "$1" >/dev/null 2>&1 || fail "$1 is required but was not found"
+}
+
+# fix(#1778 round 21, P1) at scripts/lib/common.sh:89: round 20's capture
+# was `env -0 | xargs -0 sh -c '...' ... 2>/dev/null || true` -- an
+# EXTERNAL, GNU-flavored `env -0` that is not guaranteed everywhere these
+# scripts run (measured, not assumed: some `/usr/bin/env` builds do not
+# accept `-0` at all -- see the man page differences across BSD-derived
+# envs). The stderr redirect plus `|| true` swallowed that failure
+# completely: an EMPTY snapshot directory is indistinguishable, from
+# every call site's point of view, from "this operator genuinely has
+# nothing exported" -- every inherited setting is then silently treated
+# as absent. With POSTGRES_USER=production exported and .env holding
+# POSTGRES_DB=${POSTGRES_USER:-fallback}, restore.sh would resolve
+# "fallback" and could run `pg_restore --clean` against the wrong
+# database -- exactly the class round 20 exists to close, reopened by its
+# own capture mechanism's failure mode.
+#
+# Fixed two ways:
+#
+#   1. No external tool AT ALL for the snapshot, not even a NUL-safe one.
+#      Where bash is actually running this file ($BASH_VERSION set --
+#      true whenever invoked as `bash script.sh`, and ALSO true on macOS
+#      even for a `#!/bin/sh` script, since macOS's /bin/sh IS bash in
+#      POSIX mode; confirmed by checking $BASH_VERSION there directly,
+#      not assumed), `compgen -e` (a bash BUILTIN) enumerates every
+#      exported name, and `printf '%s' "${!name}"` (bash's indirect
+#      expansion) reads each one straight out of the shell's own
+#      variable table -- no serialization step exists for a naive parser
+#      to misread, so an inherited value's embedded newline is not even
+#      a question here (unlike round 20's approach, which had to reason
+#      about it at all).
+#
+#      This file is genuinely dash-compatible too, not just
+#      bash-compatible: upgrade.sh and scripts/env-value.sh both run it
+#      under `#!/bin/sh`, which IS dash (no bash extensions at all) on a
+#      Debian/Ubuntu operator host -- the actual self-hosted deployment
+#      target -- even though it happens to be bash on macOS. dash has
+#      neither `compgen` nor `${!name}`, so both are gated on `[ -n
+#      "${BASH_VERSION:-}" ]`. The dash branch uses `export -p` -- a
+#      shell BUILTIN, not an external tool -- to enumerate NAMES ONLY.
+#      Its exact quoting dialect differs by shell (dash: `export
+#      NAME='value'`; bash's OWN `export -p`, for contrast, differs
+#      again: `declare -x NAME="value"`) and is deliberately never
+#      relied on to parse the VALUE -- only to find where each NAME
+#      starts (the identifier between "export " and the line's first
+#      `=`) -- so that dialect difference never has to be handled. Every
+#      name found is then re-read fresh via `eval`, the same
+#      indirect-variable-access idiom this file already uses throughout
+#      (_env_resolve_name and others): POSIX, and correct under either
+#      shell. Known, accepted limitation: a NAME is identified per
+#      PHYSICAL line of `export -p`'s output, so an inherited value
+#      whose own text contains an embedded real newline immediately
+#      followed by something that itself looks like `export SOMENAME=`
+#      could be misread as a second, phantom name -- a deliberately
+#      narrow, low-severity edge (a fabricated NAME entry, not a
+#      security-relevant misresolution of a real one) accepted the same
+#      way round 20 accepted awk's RS='\0' portability gap, rather than
+#      building a full shell-quoting-grammar parser for a case this
+#      unlikely.
+#
+#   2. Fails closed. No `|| true`, no `2>/dev/null`, on the capture
+#      itself: `mktemp -d` or a write failing now calls `fail` (defined
+#      just above) with a clear message instead of silently continuing
+#      with an empty directory. A positive control right after capture
+#      asserts a name every process is guaranteed to have -- PATH --
+#      actually landed in the snapshot; if it did not, the whole
+#      mechanism is broken, and this fails closed too, rather than
+#      quietly treating every OTHER inherited value as absent for the
+#      rest of the run.
+if [ -z "${_ENV_SNAPSHOT_DIR:-}" ]; then
+  _ENV_SNAPSHOT_DIR="$(mktemp -d)" || fail "could not create a temp directory for the environment snapshot"
+  [ -d "$_ENV_SNAPSHOT_DIR" ] || fail "environment snapshot directory does not exist after mktemp: $_ENV_SNAPSHOT_DIR"
+
+  if [ -n "${BASH_VERSION:-}" ]; then
+    # shellcheck disable=SC3044,SC3053
+    # SC3044/SC3053: compgen and ${!name} indirect expansion are bash-only
+    # and this file is checked as POSIX sh (`shellcheck shell=sh` at the
+    # top) since it is ALSO sourced by real dash -- but this whole branch
+    # is gated on $BASH_VERSION being set, so a POSIX-only shell never
+    # reaches either construct; see this block's own comment above for why
+    # bash gets its own, simpler path here instead of the export -p scan.
+    for _ess_name in $(compgen -e); do
+      case "$_ess_name" in
+        *[!A-Za-z0-9_]*) continue ;;
+        "") continue ;;
+      esac
+      printf '%s' "${!_ess_name}" > "${_ENV_SNAPSHOT_DIR}/${_ess_name}" \
+        || fail "could not write the environment snapshot for ${_ess_name}"
+    done
+  else
+    export -p | {
+      _ess_saw_name=0
+      while IFS= read -r _ess_line; do
+        case "$_ess_line" in
+          "export "[A-Za-z_]*=*) : ;;
+          *) continue ;;
+        esac
+        _ess_rest="${_ess_line#export }"
+        _ess_name="${_ess_rest%%=*}"
+        case "$_ess_name" in
+          *[!A-Za-z0-9_]*) continue ;;
+          "") continue ;;
+        esac
+        _ess_saw_name=1
+        eval "printf '%s' \"\${${_ess_name}}\"" > "${_ENV_SNAPSHOT_DIR}/${_ess_name}" \
+          || fail "could not write the environment snapshot for ${_ess_name}"
+      done
+      [ "$_ess_saw_name" -eq 1 ] \
+        || fail "export -p produced no recognizable NAME= line -- cannot build an environment snapshot"
+    } || fail "could not enumerate the process environment (export -p failed)"
+  fi
+
+  # Positive control (round 21): PATH is set in every process this file
+  # will ever run in. Its absence here means the capture above is
+  # broken -- never proceed with a snapshot that might just be empty.
+  [ -f "${_ENV_SNAPSHOT_DIR}/PATH" ] \
+    || fail "environment snapshot sanity check failed: PATH is not present (expected in every process) -- refusing to proceed with a possibly-empty snapshot"
+
+  # Best-effort cleanup: correct as-is for every script that never
+  # replaces the EXIT trap (check-env.sh, env-value.sh). `trap` only
+  # ever holds ONE handler per signal, so a script that sets its own
+  # LATER `trap ... EXIT` (restore.sh's _cleanup, upgrade.sh's
+  # rollback_trap) would silently replace this one -- both are updated
+  # to call _env_snapshot_cleanup from their own trap handler instead of
+  # relying on this one surviving.
+  trap '_env_snapshot_cleanup' EXIT
+fi
+
+# Removes the snapshot directory. Exposed (not just the bare trap above)
+# so a caller that installs its OWN later EXIT trap -- replacing this
+# file's -- can call it from that trap instead, rather than leaking the
+# directory for the rest of that script's run.
+_env_snapshot_cleanup() {
+  [ -n "${_ENV_SNAPSHOT_DIR:-}" ] && rm -rf "${_ENV_SNAPSHOT_DIR:?}" 2>/dev/null
+}
+
+# True if NAME was present in the environment snapshot taken when this file
+# was sourced -- regardless of what the live shell variable of the same name
+# holds right now.
+_env_snapshot_has() {
+  [ -n "${_ENV_SNAPSHOT_DIR:-}" ] && [ -f "${_ENV_SNAPSHOT_DIR}/$1" ]
+}
+
+# Prints NAME's snapshotted value. Caller must have already confirmed
+# _env_snapshot_has "NAME". Sentinel-protected the same way every other
+# value read in this file is (see _env_resolve_name/_env_dequote): a
+# bare `$(cat file)` would silently strip a real trailing newline the
+# value legitimately ends in.
+_env_snapshot_value() {
+  _esv_raw="$(cat "${_ENV_SNAPSHOT_DIR}/$1" 2>/dev/null && printf x)"
+  printf '%s' "${_esv_raw%x}"
 }
 
 # fix(#1778 review round 3, P2): Compose-compatible ${VAR} interpolation for
