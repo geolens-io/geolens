@@ -161,6 +161,9 @@ UNQUOTED_HASH_NO_SPACE=value#nothash
 EMPTY_DOUBLE=""
 EMPTY_SINGLE=''
 DOLLAR_PAREN=\$(touch $PWNED_MARKER)
+COMPOSE_FILE="docker-compose.prod.yml" # production
+HASH_INSIDE_DOUBLE="value#withhash"
+SINGLE_WITH_TRAILING_COMMENT='geolens' # trailing comment on a single quote
 EOF
 rm -f "$PWNED_MARKER"
 
@@ -171,7 +174,8 @@ set -eu
 . "$FAKE/scripts/lib/common.sh"
 for key in DOUBLE_QUOTED SINGLE_QUOTED UNQUOTED DOUBLE_WITH_ESCAPES \\
            UNQUOTED_WITH_COMMENT UNQUOTED_HASH_NO_SPACE EMPTY_DOUBLE \\
-           EMPTY_SINGLE DOLLAR_PAREN; do
+           EMPTY_SINGLE DOLLAR_PAREN COMPOSE_FILE HASH_INSIDE_DOUBLE \\
+           SINGLE_WITH_TRAILING_COMMENT; do
   printf '%s=[%s]\n' "\$key" "\$(get_env_value "\$key" "$QUOTE_ENV")"
 done
 DRIVER
@@ -200,6 +204,18 @@ _assert_quote_line 'UNQUOTED_HASH_NO_SPACE=[value#nothash]' \
   "a '#' with no preceding space is literal, matching Compose"
 _assert_quote_line 'EMPTY_DOUBLE=[]' "an empty double-quoted value is empty, not two quote chars"
 _assert_quote_line 'EMPTY_SINGLE=[]' "an empty single-quoted value is empty, not two quote chars"
+
+# fix(#1778 review round 2, P2): a comment MAY follow the closing quote —
+# `COMPOSE_FILE="docker-compose.prod.yml" # production` is valid Compose
+# syntax. The raw text does not end in a quote (it ends in the comment), so
+# the "starts and ends with a quote" dispatch used to take the unquoted
+# branch, strip the comment, and return the value WITH its quotes attached.
+_assert_quote_line 'COMPOSE_FILE=[docker-compose.prod.yml]' \
+  "a double-quoted value followed by a comment strips the comment, not just the trailing quote check"
+_assert_quote_line 'HASH_INSIDE_DOUBLE=[value#withhash]' \
+  "a '#' inside double quotes is preserved even with no trailing comment"
+_assert_quote_line 'SINGLE_WITH_TRAILING_COMMENT=[geolens]' \
+  "a single-quoted value followed by a comment strips the comment and the quotes"
 
 if printf '%s\n' "$QUOTE_OUT" | grep -qxF 'DOLLAR_PAREN=[$(touch '"$PWNED_MARKER"')]'; then
   ok "a \$(...) value is returned as literal text by get_env_value"

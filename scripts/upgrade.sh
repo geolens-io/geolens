@@ -553,28 +553,50 @@ if [ -f "$DB_DOCKERFILE" ] \
   DB_IMAGE_NEEDS_REBUILD=1
 fi
 
+# fix(#1778 review round 2, P1): the marker alone cannot tell "the on-disk
+# Dockerfile matches what was built" apart from "and that build is what the
+# CONTAINER is actually running" — those used to be conflated by writing the
+# marker right after `compose build db`, before the separate `compose up
+# --force-recreate` that makes the new image live. Build succeeding while the
+# recreate step fails (or never runs) left a marker claiming success while
+# the running container was still on the old image; a retry then saw a
+# matching marker and skipped both the rebuild and the recreate, and
+# migrations ran against the stale container. The marker write moves below,
+# after the recreate succeeds. This block is a second, independent check for
+# the same class of drift from any OTHER cause (a marker restored from
+# backup, an operator's out-of-band `docker restart`/`down`+`up`): even when
+# the marker matches db/Dockerfile, compare the RUNNING container's image id
+# against the id compose would (re)build/run for `db` — a mismatch forces a
+# rebuild and recreate regardless of what the marker says. `compose config
+# --images` resolves the configured image name from the compose file alone
+# (no container required), so this works even before `db` has ever been
+# created. Any lookup failing empty (no container yet, unreadable) fails
+# open — like this script's other best-effort probes — since forcing a
+# rebuild on every uncertain read would defeat the marker's purpose.
+DB_IMAGE_STALE_CONTAINER=0
+if [ "$DB_IMAGE_NEEDS_REBUILD" = "0" ]; then
+  _db_image_tag="$(compose config --images db 2>/dev/null | head -n 1)"
+  _db_container_id="$(compose ps -q db 2>/dev/null)"
+  if [ -n "$_db_image_tag" ] && [ -n "$_db_container_id" ]; then
+    _db_running_image_id="$(docker inspect --format '{{.Image}}' "$_db_container_id" 2>/dev/null)"
+    _db_built_image_id="$(docker image inspect --format '{{.Id}}' "$_db_image_tag" 2>/dev/null)"
+    if [ -n "$_db_running_image_id" ] && [ -n "$_db_built_image_id" ] \
+       && [ "$_db_running_image_id" != "$_db_built_image_id" ]; then
+      DB_IMAGE_STALE_CONTAINER=1
+      warn "The running db container's image does not match the locally built db image — rebuilding and recreating it."
+    fi
+  fi
+fi
+
 # fix(#1778): the local image needs REBUILDING before anything downstream
 # (the migrate step, then the app) can use it — compose pull at Step 5 never
 # touched it (--ignore-buildable). Before the migrate step, while the app is
 # already stopped, so a migration that depends on a newer base runs against
 # the new image, not the stale one.
-if [ "$DB_IMAGE_NEEDS_REBUILD" = "1" ]; then
+if [ "$DB_IMAGE_NEEDS_REBUILD" = "1" ] || [ "$DB_IMAGE_STALE_CONTAINER" = "1" ]; then
   say "Rebuilding the db image (db/Dockerfile differs from what the local image was last built from)"
   compose build db \
     || fail "Could not rebuild the db image from ${DB_DOCKERFILE}."
-  # Record what was just built from, .tmp-then-mv so a container/host killed
-  # mid-write never leaves a truncated marker under the final name (the same
-  # reason every backup artifact in this repo writes state that way). Failing
-  # to record it is not fatal — it only costs a redundant, cache-hit rebuild
-  # on the next upgrade — but is surfaced so a repeatedly-rebuilding operator
-  # knows why.
-  if cp "$DB_DOCKERFILE" "${DB_IMAGE_BUILT_MARKER}.tmp" 2>/dev/null \
-     && mv "${DB_IMAGE_BUILT_MARKER}.tmp" "$DB_IMAGE_BUILT_MARKER" 2>/dev/null; then
-    :
-  else
-    rm -f "${DB_IMAGE_BUILT_MARKER}.tmp"
-    warn "Could not record the db image build marker at ${DB_IMAGE_BUILT_MARKER} — the next upgrade will rebuild again even if db/Dockerfile has not changed."
-  fi
   say ""
 fi
 
@@ -584,11 +606,32 @@ fi
 # fix(#1778): a rebuilt db image needs the same recreate to pick it up. Do it
 # before the migrate step, while the app is already stopped and the dump is
 # already taken, and wait for the healthcheck.
-if [ "$DB_CONF_CHANGED" = "1" ] || [ "$DB_IMAGE_NEEDS_REBUILD" = "1" ]; then
+if [ "$DB_CONF_CHANGED" = "1" ] || [ "$DB_IMAGE_NEEDS_REBUILD" = "1" ] || [ "$DB_IMAGE_STALE_CONTAINER" = "1" ]; then
   say "Recreating the db container"
   compose up -d --force-recreate --no-deps --wait db \
     || fail "Could not recreate the db container after syncing db/Dockerfile and/or ${DB_CONF}."
   say ""
+  # fix(#1778 review round 2, P1): only NOW, after the recreate that makes
+  # the running container match db/Dockerfile has actually succeeded, is it
+  # true that the built image reflects the current file — record the marker
+  # here instead of right after `compose build db`. A build that succeeds
+  # followed by a recreate that fails must leave the marker exactly as it
+  # was (missing or stale), so a retry rebuilds and recreates again rather
+  # than seeing a false match and skipping both.
+  if [ "$DB_IMAGE_NEEDS_REBUILD" = "1" ] || [ "$DB_IMAGE_STALE_CONTAINER" = "1" ]; then
+    # .tmp-then-mv so a container/host killed mid-write never leaves a
+    # truncated marker under the final name (the same reason every backup
+    # artifact in this repo writes state that way). Failing to record it is
+    # not fatal — it only costs a redundant, cache-hit rebuild on the next
+    # upgrade — but is surfaced so a repeatedly-rebuilding operator knows why.
+    if cp "$DB_DOCKERFILE" "${DB_IMAGE_BUILT_MARKER}.tmp" 2>/dev/null \
+       && mv "${DB_IMAGE_BUILT_MARKER}.tmp" "$DB_IMAGE_BUILT_MARKER" 2>/dev/null; then
+      :
+    else
+      rm -f "${DB_IMAGE_BUILT_MARKER}.tmp"
+      warn "Could not record the db image build marker at ${DB_IMAGE_BUILT_MARKER} — the next upgrade will rebuild again even if db/Dockerfile has not changed."
+    fi
+  fi
 fi
 
 # --- Step 7: run migrations (fail-closed) BEFORE bringing the app up ---------

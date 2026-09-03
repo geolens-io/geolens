@@ -76,6 +76,7 @@ make_stubs() {
 LOG="${DOCKER_LOG:?}"
 MIGRATE_MODE="${DOCKER_MIGRATE_MODE:-ok}"
 STOP_MODE="${DOCKER_STOP_MODE:-ok}"
+DB_RECREATE_MODE="${DOCKER_DB_RECREATE_MODE:-ok}"
 if [ "$1" = "compose" ]; then
   shift
   # strip "-f <file>"
@@ -135,7 +136,10 @@ if [ "$1" = "compose" ]; then
       # through to app_up here, and the "no app_up on the failure path"
       # assertions below catch it.
       case "$*" in
-        *--no-deps*\ db|*--no-deps*\ db\ *) echo "db_recreate" >> "$LOG"; exit 0 ;;
+        *--no-deps*\ db|*--no-deps*\ db\ *)
+          echo "db_recreate" >> "$LOG"
+          [ "$DB_RECREATE_MODE" = "fail" ] && exit 1
+          exit 0 ;;
         *--no-deps*api\ worker*)            echo "restore_app" >> "$LOG"; exit 0 ;;
       esac
       echo "app_up" >> "$LOG"; exit 0 ;;
@@ -344,6 +348,7 @@ run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
       DOCKER_PG_NUM="${PG_NUM:-170005}" GIT_TARGET_PG="${TARGET_PG:-17}" \
       DOCKER_DB_RUNNING_CONF="${DB_RUNNING_CONF-temp_file_limit = 0}" \
       GIT_DOCKERFILE_SYNC_TEST="${DOCKERFILE_SYNC_TEST:-}" \
+      DOCKER_DB_RECREATE_MODE="${DB_RECREATE_MODE:-ok}" \
       sh "$FAKE/scripts/upgrade.sh" "$@" </dev/null > "$WORK/out.txt" 2>&1 )
   echo $? > "$WORK/code.txt"
 }
@@ -791,6 +796,69 @@ if [ -z "$(pos_of db_build)" ]; then
   ok "no perpetual rebuild once the build marker matches the on-disk Dockerfile"
 else
   bad "db was rebuilt again despite the marker already matching db/Dockerfile"
+fi
+
+# ============================================================================
+# CASE 2g — fix(#1778 review round 2, P1): build succeeds, the FOLLOW-ON
+# recreate fails. Before this fix the marker was written right after
+# `compose build db`, before the separate `compose up --force-recreate`
+# that actually makes the new image live — so a build-ok/recreate-fail run
+# left a marker claiming success while the container was still on the old
+# image, and a retry saw the matching marker and skipped both the rebuild
+# and the recreate. The marker write now happens only after the recreate
+# itself succeeds, so a failed recreate must leave NO marker, and a retry
+# must attempt (and this time complete) both the rebuild and the recreate.
+# ============================================================================
+seed_prod_env
+seed_db_dockerfile
+rm -f "$FAKE/.geolens-db-image-built-from"
+DOCKERFILE_SYNC_TEST=1
+DB_RECREATE_MODE=fail
+run_upgrade ok 1.2.4
+DB_RECREATE_MODE=ok
+
+if [ "$(cat "$WORK/code.txt")" != "0" ]; then
+  ok "build ok / recreate fail aborts the upgrade (non-zero exit)"
+else
+  bad "build ok / recreate fail did not fail the upgrade"
+fi
+if [ -n "$(pos_of db_build)" ] && [ -n "$(pos_of db_recreate)" ]; then
+  ok "build ok / recreate fail still attempted both the rebuild and the recreate"
+else
+  bad "build ok / recreate fail skipped a step: calls=$(tr '\n' ',' < "$WORK/calls.log")"
+fi
+if [ ! -f "$FAKE/.geolens-db-image-built-from" ]; then
+  ok "a failed recreate leaves NO build marker, even though the build itself succeeded"
+else
+  bad "a build marker was recorded despite the recreate failing"
+fi
+
+# ...retry: the Dockerfile is still at target content on disk (nothing to
+# re-sync) and, critically, still has no marker — so the retry must rebuild
+# AND recreate again, not silently skip both the way the pre-fix script did.
+run_upgrade ok 1.2.4
+DOCKERFILE_SYNC_TEST=
+
+if [ "$(cat "$WORK/code.txt")" = "0" ]; then
+  ok "the retry (recreate now succeeding) completes the upgrade"
+else
+  bad "the retry did not complete: $(cat "$WORK/out.txt")"
+fi
+if [ -n "$(pos_of db_build)" ] && [ -n "$(pos_of db_recreate)" ]; then
+  ok "the retry attempts both the rebuild and the recreate again"
+else
+  bad "the retry skipped a step: calls=$(tr '\n' ',' < "$WORK/calls.log")"
+fi
+if [ -n "$(pos_of migrate_up)" ]; then
+  ok "the retry reaches migrate only after rebuild+recreate both completed"
+else
+  bad "the retry reached migrate without a completed rebuild/recreate"
+fi
+if [ -f "$FAKE/.geolens-db-image-built-from" ] \
+   && cmp -s "$FAKE/.geolens-db-image-built-from" "$FAKE/db/Dockerfile"; then
+  ok "the retry's successful recreate records the build marker"
+else
+  bad "the retry did not record a build marker matching db/Dockerfile"
 fi
 
 # ============================================================================

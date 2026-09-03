@@ -63,16 +63,24 @@ _LS_LISTING = "\n".join(
 )
 
 
-def _extract_prune_s3_prefix() -> str:
+def _extract_function(name: str) -> str:
     source = SCRIPT.read_text(encoding="utf-8")
     match = re.search(
-        r"^prune_s3_prefix\(\) \{.*?^\}", source, re.DOTALL | re.MULTILINE
+        rf"^{re.escape(name)}\(\) \{{.*?^\}}", source, re.DOTALL | re.MULTILINE
     )
     assert match, (
-        f"prune_s3_prefix() not found in {SCRIPT}; if the function was "
-        f"renamed or moved, update this test."
+        f"{name}() not found in {SCRIPT}; if the function was renamed or "
+        f"moved, update this test."
     )
     return match.group(0)
+
+
+def _extract_prune_s3_prefix() -> str:
+    # fix(#1778 review round 2, P1): prune_s3_prefix calls
+    # s3_newest_complete_ts (the S3 analogue of the local newest-complete-set
+    # protection) — a separate function, so it must be extracted alongside
+    # prune_s3_prefix or the harness fails with "command not found".
+    return f"{_extract_function('s3_newest_complete_ts')}\n{_extract_function('prune_s3_prefix')}"
 
 
 def _extract_run_backup_definitions() -> str:
@@ -169,10 +177,17 @@ def _run(
 
 class TestPruneS3Prefix:
     def test_prunes_oldest_dumps_beyond_retention(self, tmp_path: Path):
+        """With keep=2, the naive count would prune 08-01 AND 08-02 (the two
+        oldest of four). But 08-04 is the newest COMPLETE set (fixture has
+        globals for 08-01 and 08-04 only) and is held back in addition to
+        the retention window (see test_protects_newest_complete_set_from_count_based_pruning
+        below), so only 3 dumps are ever candidates and just 1 is pruned."""
         result, deleted = _run(tmp_path, keep="2")
         assert result.returncode == 0, result.stderr
         assert "s3://test-bucket/backups/daily/geolens_20260801_020000.dump" in deleted
-        assert "s3://test-bucket/backups/daily/geolens_20260802_020000.dump" in deleted
+        assert (
+            "s3://test-bucket/backups/daily/geolens_20260802_020000.dump" not in deleted
+        )
         assert (
             "s3://test-bucket/backups/daily/geolens_20260803_020000.dump" not in deleted
         )
@@ -201,6 +216,69 @@ class TestPruneS3Prefix:
         result, deleted = _run(tmp_path, keep="10")
         assert result.returncode == 0, result.stderr
         assert deleted == []
+
+    def test_protects_newest_complete_set_from_count_based_pruning(
+        self, tmp_path: Path
+    ):
+        """fix(#1778 review round 2, P1): a partial upload cycle (the dump
+        uploads, the globals upload fails) must not destroy the only
+        complete offsite set. 08-01 is the only complete pair (dump +
+        globals); 08-02 is a partial cycle (dump only). With
+        BACKUP_RETENTION_DAILY=1, the naive count would see 2 dumps, keep 1
+        (08-02, the newest), and prune 08-01's dump — then its now-orphaned
+        globals right behind it in the same cycle, leaving nothing a
+        disaster-recovery restore could rebuild roles from. Protecting the
+        newest COMPLETE set means 08-01 is excluded from the count
+        entirely, leaving only 1 real candidate (08-02) against keep=1: no
+        pruning at all. Everything survives."""
+        listing = "\n".join(
+            [
+                "2026-08-01 02:00:00        100 geolens_20260801_020000.dump",
+                "2026-08-01 02:05:00         50 globals-20260801_020000.sql",
+                "2026-08-02 02:00:00        100 geolens_20260802_020000.dump",
+            ]
+        )
+        result, deleted = _run(tmp_path, keep="1", ls_listing=listing)
+        assert result.returncode == 0, result.stderr
+        assert deleted == [], (
+            "the only complete offsite set (or the partial dump beside it) "
+            f"was pruned: {deleted}"
+        )
+
+    def test_older_complete_set_still_prunes_beyond_the_protected_budget(
+        self, tmp_path: Path
+    ):
+        """Positive control for the fix above: protection is scoped to the
+        SINGLE newest complete set, not every complete set — pruning must
+        still work normally once there is more than one candidate beyond
+        it. 08-01 and 08-03 are both complete (dump + globals); 08-02 is a
+        partial cycle (dump only, the newest complete set's globals upload
+        having failed on an intervening cycle). With keep=1, 08-03 (newest
+        complete) is protected and excluded from the count, leaving 08-01
+        and 08-02 as the 2 real candidates against keep=1: the older one,
+        08-01, is pruned — dump and its now-orphaned globals both."""
+        listing = "\n".join(
+            [
+                "2026-08-01 02:00:00        100 geolens_20260801_020000.dump",
+                "2026-08-01 02:05:00         50 globals-20260801_020000.sql",
+                "2026-08-02 02:00:00        100 geolens_20260802_020000.dump",
+                "2026-08-03 02:00:00        100 geolens_20260803_020000.dump",
+                "2026-08-03 02:05:00         50 globals-20260803_020000.sql",
+            ]
+        )
+        result, deleted = _run(tmp_path, keep="1", ls_listing=listing)
+        assert result.returncode == 0, result.stderr
+        assert "s3://test-bucket/backups/daily/geolens_20260801_020000.dump" in deleted
+        assert "s3://test-bucket/backups/daily/globals-20260801_020000.sql" in deleted
+        assert (
+            "s3://test-bucket/backups/daily/geolens_20260802_020000.dump" not in deleted
+        )
+        assert (
+            "s3://test-bucket/backups/daily/geolens_20260803_020000.dump" not in deleted
+        )
+        assert (
+            "s3://test-bucket/backups/daily/globals-20260803_020000.sql" not in deleted
+        )
 
     def test_empty_prefix_does_not_abort_under_set_e(self, tmp_path: Path):
         """The prefix has zero objects (fresh install, or weekly/ before the

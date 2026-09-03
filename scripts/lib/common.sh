@@ -62,10 +62,20 @@ need_command() {
 #     of line) is stripped and the result is whitespace-trimmed, matching
 #     Compose's own "inline comments for unquoted values must be preceded
 #     by a space" rule. A quoted value's `#` is always literal; comment
-#     stripping never applies once a value is quoted.
-# A malformed quote (opens but never closes) is left completely alone rather
-# than guessed at, the same policy this repo's content-vs-blob sync
-# comparisons already use for unparseable input.
+#     stripping never applies once a value is quoted — BUT the comment may
+#     still follow the closing quote (fix(#1778 review round 2, P2)):
+#     `COMPOSE_FILE="docker-compose.prod.yml" # production` is valid Compose
+#     syntax. The raw text does not END in a quote (it ends in the comment),
+#     so the original "starts and ends with a quote" dispatch took the
+#     unquoted branch, stripped the trailing comment, and returned the value
+#     WITH its quotes still attached. Detecting "is this quoted" now only
+#     checks the FIRST character; where the closing quote actually falls,
+#     and whether only whitespace/a comment trails it, is resolved by the
+#     regex below instead of by the raw string's last character.
+# A malformed quote (opens but never closes, or has non-comment content
+# after the closing quote) is left completely alone rather than guessed at,
+# the same policy this repo's content-vs-blob sync comparisons already use
+# for unparseable input.
 get_env_value() {
   key="$1"
   file="${2:-.env}"
@@ -80,20 +90,30 @@ get_env_value() {
   ' "$file")"
 
   case "$raw" in
-    \"*\")
-      if [ "${#raw}" -ge 2 ]; then
-        body="${raw#\"}"
-        body="${body%\"}"
-        printf '%s' "$body" | sed -E 's/\\(.)/\1/g'
+    \"*)
+      # `([^"\\]|\\.)*` walks escape-aware to the first UNescaped closing
+      # quote: any run of chars that are neither `"` nor `\`, or a
+      # backslash-escaped pair, consumed greedily — so an embedded `\"`
+      # cannot be mistaken for the close. What follows that quote must be
+      # nothing, whitespace, or a `#comment`; anything else (including a
+      # second, unrelated quoted chunk) is left alone as malformed.
+      if printf '%s' "$raw" | grep -qE '^"([^"\\]|\\.)*"[[:space:]]*(#.*)?$'; then
+        printf '%s' "$raw" \
+          | sed -E 's/^"(([^"\\]|\\.)*)".*$/\1/' \
+          | sed -E 's/\\(.)/\1/g'
       else
         printf '%s' "$raw"
       fi
       ;;
-    \'*\')
-      if [ "${#raw}" -ge 2 ]; then
-        body="${raw#\'}"
-        body="${body%\'}"
-        printf '%s' "$body"
+    \'*)
+      # Single-quoted values are literal in Compose — no escaping, so a
+      # single quote cannot appear inside one at all. `(.*)` is greedy and
+      # backtracks to the LAST `'` the trailing `[[:space:]]*(#.*)?$` can
+      # still match against, which is correct as long as any trailing
+      # comment contains no stray `'` of its own (an accepted limitation
+      # for the handful of keys these scripts read).
+      if printf '%s' "$raw" | grep -qE "^'.*'[[:space:]]*(#.*)?\$"; then
+        printf '%s' "$raw" | sed -E "s/^'(.*)'[[:space:]]*(#.*)?\$/\1/"
       else
         printf '%s' "$raw"
       fi

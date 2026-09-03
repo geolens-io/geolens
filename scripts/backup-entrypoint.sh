@@ -459,6 +459,36 @@ upload_to_s3() {
 # No new env var: this is gated by the same BACKUP_S3_ENABLED an operator
 # already opted into for the upload itself, and uses the same
 # BACKUP_RETENTION_DAILY / BACKUP_RETENTION_WEEKLY counts as the local path.
+#
+# fix(#1778 review round 2, P1): the S3 analogue of newest_complete_ts()
+# below — the timestamp of the newest set that is COMPLETE (a *.dump object
+# with the globals-*.sql that pairs with it), read from the SAME `aws s3 ls`
+# listing prune_s3_prefix already fetched (no second S3 round trip). Without
+# this, a partial upload cycle (the dump uploads, the globals upload fails)
+# can destroy the only complete offsite set: the partial cycle's own dump
+# still counts toward `keep`, evicts the previous COMPLETE dump under
+# BACKUP_RETENTION_DAILY=1, and that complete dump's globals companion is
+# pruned right behind it as an orphan in the very same cycle — a
+# disaster-recovery restore then has a dump but no globals to rebuild roles
+# on a fresh cluster.
+s3_newest_complete_ts() {
+    local listing="$1"
+    local names name ts best=""
+    names="$(printf '%s\n' "$listing" | awk '{print $NF}')"
+    while IFS= read -r name; do
+        if [[ "$name" == globals-*.sql ]]; then
+            ts="$(printf '%s' "$name" | sed -nE 's/^globals-([0-9]{8}_[0-9]{6})\.sql$/\1/p')"
+            [ -n "$ts" ] || continue
+            if printf '%s\n' "$names" | grep -qE "_${ts}\.dump\$"; then
+                if [ -z "$best" ] || [ "$ts" \> "$best" ]; then
+                    best="$ts"
+                fi
+            fi
+        fi
+    done <<< "$names"
+    printf '%s' "$best"
+}
+
 prune_s3_prefix() {
     local prefix="$1"
     local keep="$2"
@@ -528,9 +558,31 @@ prune_s3_prefix() {
     # the loop body then runs in THIS shell, so `rm_failed=1` actually
     # persists past the loop.
     local rm_failed=0
-    if [ -n "$dumps" ]; then
+
+    # fix(#1778 review round 2, P1): protect the newest COMPLETE set (a dump
+    # with the globals that pairs with it) the same way prune_old_backups
+    # does locally — held back IN ADDITION to the retention window, not
+    # inside it, so a retention of 1 keeps the complete set and prunes the
+    # newest incomplete dump instead of the other way around. See
+    # s3_newest_complete_ts's comment above for why this matters more here
+    # than it might look: a partial upload cycle can otherwise take out the
+    # only restorable-onto-a-fresh-cluster set in a single pass.
+    local protect protect_line=""
+    protect="$(s3_newest_complete_ts "$ls_output")"
+    if [ -n "$protect" ]; then
+        protect_line="$(printf '%s\n' "$dumps" | grep "^${protect}	" || true)"
+    fi
+
+    local candidates
+    if [ -n "$protect" ]; then
+        candidates="$(printf '%s\n' "$dumps" | grep -v "^${protect}	" || true)"
+    else
+        candidates="$dumps"
+    fi
+
+    if [ -n "$candidates" ]; then
         local count
-        count="$(printf '%s\n' "$dumps" | wc -l | tr -d ' ')"
+        count="$(printf '%s\n' "$candidates" | wc -l | tr -d ' ')"
         if [ "$count" -gt "$keep" ]; then
             local to_remove=$((count - keep))
             log "Pruning ${to_remove} old offsite backup(s) from s3://${S3_BUCKET}/backups/${prefix}/"
@@ -539,9 +591,18 @@ prune_s3_prefix() {
                     log "ERROR: could not delete s3://${S3_BUCKET}/backups/${prefix}/${name}"
                     rm_failed=1
                 fi
-            done < <(printf '%s\n' "$dumps" | head -n "$to_remove" | cut -f2)
-            dumps="$(printf '%s\n' "$dumps" | tail -n "+$((to_remove + 1))")"
+            done < <(printf '%s\n' "$candidates" | head -n "$to_remove" | cut -f2)
+            candidates="$(printf '%s\n' "$candidates" | tail -n "+$((to_remove + 1))")"
         fi
+    fi
+
+    # Recombine the surviving candidates with the protected entry (if any) —
+    # its companion must not be pruned as an orphan below just because the
+    # protected dump sat outside the count-based candidate set.
+    if [ -n "$protect_line" ]; then
+        dumps="$(printf '%s\n%s\n' "$candidates" "$protect_line" | sed '/^$/d' | sort)"
+    else
+        dumps="$candidates"
     fi
     local kept_ts
     kept_ts="$(printf '%s\n' "$dumps" | cut -f1)"
