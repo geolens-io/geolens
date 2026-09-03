@@ -83,8 +83,11 @@ function featureMeta(record: OGCRecordResponse, t: TFunction<'builder'>) {
   const props = record.properties;
   if (props.feature_count != null) return t('search.featureCount', { count: props.feature_count });
   if (props.row_count != null) return t('search.rowCount', { count: props.row_count });
-  if (props.width != null && props.height != null) {
-    return `${formatNumber(props.width)} x ${formatNumber(props.height)} px`;
+  // fix(#1778): width/height were never returned by the API under those flat
+  // names -- this check was always false. proj:shape is [height, width].
+  const shape = props['proj:shape'];
+  if (shape != null) {
+    return `${formatNumber(shape[1])} x ${formatNumber(shape[0])} px`;
   }
   return null;
 }
@@ -147,7 +150,10 @@ function DatasetMetadata({ record }: { record: OGCRecordResponse }) {
     [t('search.metadata.type', { defaultValue: 'Type' }), typeMeta(record, t)],
     [t('search.metadata.source', { defaultValue: 'Source' }), props.source_organization],
     [t('search.metadata.count', { defaultValue: 'Count' }), featureMeta(record, t)],
-    [t('search.metadata.crs', { defaultValue: 'CRS' }), props.epsg ? `EPSG:${props.epsg}` : props.crs],
+    // fix(#1778): epsg was never returned under that flat name -- this was
+    // always undefined, always falling through to props.crs. proj:code is
+    // already formatted as "EPSG:{code}" by the serializer.
+    [t('search.metadata.crs', { defaultValue: 'CRS' }), props['proj:code'] ?? props.crs],
   ].filter((row): row is [string, string] => Boolean(row[1]));
 
   return (

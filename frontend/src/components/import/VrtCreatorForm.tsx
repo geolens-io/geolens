@@ -69,36 +69,40 @@ function validateSources(
       }
     }
 
+    // fix(#1778): dtype/nodata come from the first band of raster:bands, the
+    // shape the API actually returns — the flat dtype/nodata fields these
+    // checks used to read were never emitted by the serializer, so they were
+    // always undefined and every check below was dead code.
+    const srcDtype = src.properties['raster:bands']?.[0]?.data_type;
+    const firstDtype = first.properties['raster:bands']?.[0]?.data_type;
+    const srcNodata = src.properties['raster:bands']?.[0]?.nodata;
+    const firstNodata = first.properties['raster:bands']?.[0]?.nodata;
+
     // Dtype check
-    if (src.properties.dtype && first.properties.dtype && src.properties.dtype !== first.properties.dtype) {
+    if (srcDtype && firstDtype && srcDtype !== firstDtype) {
       errs.push('dtype_mismatch');
     }
 
     // Nodata check
-    if (src.properties.nodata != null && first.properties.nodata != null && src.properties.nodata !== first.properties.nodata) {
+    if (srcNodata != null && firstNodata != null && srcNodata !== firstNodata) {
       errs.push('nodata_inconsistent');
     }
 
     // Band stack grid alignment check
     if (vrtType === 'band_stack') {
-      const widthMismatch =
-        src.properties.width != null &&
-        first.properties.width != null &&
-        src.properties.width !== first.properties.width;
+      const srcShape = src.properties['proj:shape'];
+      const firstShape = first.properties['proj:shape'];
+      // proj:shape is [height, width].
       const heightMismatch =
-        src.properties.height != null &&
-        first.properties.height != null &&
-        src.properties.height !== first.properties.height;
-      const resXMismatch =
-        src.properties.res_x != null &&
-        first.properties.res_x != null &&
-        src.properties.res_x !== first.properties.res_x;
-      const resYMismatch =
-        src.properties.res_y != null &&
-        first.properties.res_y != null &&
-        src.properties.res_y !== first.properties.res_y;
+        srcShape != null && firstShape != null && srcShape[0] !== firstShape[0];
+      const widthMismatch =
+        srcShape != null && firstShape != null && srcShape[1] !== firstShape[1];
+      const gsdMismatch =
+        src.properties.gsd != null &&
+        first.properties.gsd != null &&
+        src.properties.gsd !== first.properties.gsd;
 
-      if (widthMismatch || heightMismatch || resXMismatch || resYMismatch) {
+      if (widthMismatch || heightMismatch || gsdMismatch) {
         errs.push('grid_misaligned');
       }
     }
@@ -123,7 +127,10 @@ function errorMessage(
     case 'band_count_mismatch':
       return t('vrt.bandMismatch', { src: src.properties.band_count, first: first.properties.band_count });
     case 'dtype_mismatch':
-      return t('vrt.dtypeMismatch', { src: src.properties.dtype, first: first.properties.dtype });
+      return t('vrt.dtypeMismatch', {
+        src: src.properties['raster:bands']?.[0]?.data_type,
+        first: first.properties['raster:bands']?.[0]?.data_type,
+      });
     case 'nodata_inconsistent':
       return t('vrt.nodataMismatch');
     case 'grid_misaligned':
@@ -426,10 +433,10 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
                               {result.properties.band_count != null && (
                                 <span>{t('vrt.bandCount', { count: result.properties.band_count })}</span>
                               )}
-                              {result.properties.res_x != null && (
+                              {result.properties.gsd != null && (
                                 <span>
                                   {t('vrt.resolutionValue', {
-                                    value: formatNumber(result.properties.res_x, {
+                                    value: formatNumber(result.properties.gsd, {
                                       minimumFractionDigits: 4,
                                       maximumFractionDigits: 4,
                                     }),

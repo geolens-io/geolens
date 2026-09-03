@@ -39,6 +39,9 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+// fix(#1778): rebuilt to the shape service_records.py actually serializes
+// (proj:code / proj:shape / raster:bands / gsd), not the flat
+// epsg/dtype/nodata/width/height/res_x/res_y fields the API never returned.
 function makeCogSource(
   overrides: Partial<{
     id: string;
@@ -49,8 +52,7 @@ function makeCogSource(
     nodata: string;
     width: number;
     height: number;
-    res_x: number;
-    res_y: number;
+    gsd: number;
   }>,
 ): OGCRecordResponse {
   return {
@@ -73,14 +75,13 @@ function makeCogSource(
       license: null,
       source_organization: null,
       record_type: 'raster_dataset',
-      epsg: overrides.epsg ?? 4326,
+      'proj:code': `EPSG:${overrides.epsg ?? 4326}`,
+      'proj:shape': [overrides.height ?? 1000, overrides.width ?? 1000],
       band_count: overrides.band_count ?? 1,
-      dtype: overrides.dtype ?? 'float32',
-      nodata: overrides.nodata ?? '-9999',
-      width: overrides.width ?? 1000,
-      height: overrides.height ?? 1000,
-      res_x: overrides.res_x ?? 0.001,
-      res_y: overrides.res_y ?? 0.001,
+      'raster:bands': [
+        { data_type: overrides.dtype ?? 'float32', nodata: overrides.nodata ?? '-9999' },
+      ],
+      gsd: overrides.gsd ?? 0.001,
     },
     links: [],
   };
@@ -241,6 +242,90 @@ describe('VrtCreatorForm', () => {
     await user.type(titleInput, 'Mismatched CRS VRT');
 
     // Submit button should be disabled due to CRS mismatch
+    const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
+    expect(submitButton).toBeDisabled();
+  });
+
+  // fix(#1778): these three checks read epsg/dtype/nodata/width/height/
+  // res_x/res_y off OGCRecordProperties, none of which the API ever
+  // returned, so the operands were always undefined and every branch below
+  // was dead code -- the fixture agreed with the (wrong) hand-typed mirror
+  // and both disagreed with the server. Now sourced from raster:bands,
+  // proj:shape, and gsd, the shape the API actually serializes.
+  it('mismatched dtype across mosaic sources disables submit (#1778)', { timeout: 15000 }, async () => {
+    const user = userEvent.setup({ delay: null });
+    const source1 = makeCogSource({ id: 'ds-dtype-a', title: 'Dtype Source A', dtype: 'uint8' });
+    const source2 = makeCogSource({ id: 'ds-dtype-b', title: 'Dtype Source B', dtype: 'float32' });
+
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection',
+      numberMatched: 2,
+      numberReturned: 2,
+      features: [source1, source2],
+    });
+
+    render(<VrtCreatorForm />);
+
+    const searchInput = screen.getByPlaceholderText('vrt.searchPlaceholder');
+    await selectSource(user, searchInput, 'Dtype Source A');
+    await selectSource(user, searchInput, 'Dtype Source B');
+
+    const titleInput = screen.getByPlaceholderText('vrt.titlePlaceholder');
+    await user.type(titleInput, 'Mismatched Dtype VRT');
+
+    const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
+    expect(submitButton).toBeDisabled();
+  });
+
+  it('mismatched nodata across mosaic sources disables submit (#1778)', { timeout: 15000 }, async () => {
+    const user = userEvent.setup({ delay: null });
+    const source1 = makeCogSource({ id: 'ds-nodata-a', title: 'Nodata Source A', nodata: '-9999' });
+    const source2 = makeCogSource({ id: 'ds-nodata-b', title: 'Nodata Source B', nodata: '0' });
+
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection',
+      numberMatched: 2,
+      numberReturned: 2,
+      features: [source1, source2],
+    });
+
+    render(<VrtCreatorForm />);
+
+    const searchInput = screen.getByPlaceholderText('vrt.searchPlaceholder');
+    await selectSource(user, searchInput, 'Nodata Source A');
+    await selectSource(user, searchInput, 'Nodata Source B');
+
+    const titleInput = screen.getByPlaceholderText('vrt.titlePlaceholder');
+    await user.type(titleInput, 'Mismatched Nodata VRT');
+
+    const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
+    expect(submitButton).toBeDisabled();
+  });
+
+  it('misaligned grid across band-stack sources disables submit (#1778)', { timeout: 15000 }, async () => {
+    const user = userEvent.setup({ delay: null });
+    const source1 = makeCogSource({ id: 'ds-grid-a', title: 'Grid Source A', width: 1000, height: 1000, gsd: 0.001 });
+    const source2 = makeCogSource({ id: 'ds-grid-b', title: 'Grid Source B', width: 2000, height: 2000, gsd: 0.002 });
+
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection',
+      numberMatched: 2,
+      numberReturned: 2,
+      features: [source1, source2],
+    });
+
+    render(<VrtCreatorForm />);
+
+    // Switch to band-stack mode, where the grid-alignment check applies.
+    await user.click(screen.getByRole('radio', { name: 'vrt.modeBandStack' }));
+
+    const searchInput = screen.getByPlaceholderText('vrt.searchPlaceholder');
+    await selectSource(user, searchInput, 'Grid Source A');
+    await selectSource(user, searchInput, 'Grid Source B');
+
+    const titleInput = screen.getByPlaceholderText('vrt.titlePlaceholder');
+    await user.type(titleInput, 'Misaligned Grid VRT');
+
     const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
     expect(submitButton).toBeDisabled();
   });

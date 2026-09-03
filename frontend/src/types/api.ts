@@ -567,19 +567,26 @@ export interface OGCRecordProperties {
   update_frequency?: string | null;
   has_quicklook?: boolean;
   band_count?: number | null;
-  epsg?: number | null;
-  res_x?: number | null;
-  res_y?: number | null;
-  width?: number | null;
-  height?: number | null;
-  dtype?: string | null;
-  nodata?: string | null;
   dataset_count?: number;
   vrt_type?: string | null;
   source_count?: number | null;
   gsd?: number | null;
   /** True when the raster CRS is geographic (gsd is degrees, not meters). */
   crs_is_geographic?: boolean | null;
+  /**
+   * fix(#1778): the flat epsg/res_x/res_y/width/height/dtype/nodata fields
+   * this interface used to declare were never returned by the API — the
+   * serializer (service_records.py) emits STAC names instead. Read those.
+   */
+  'proj:code'?: string | null;
+  /** [height, width] in pixels. */
+  'proj:shape'?: [number, number] | null;
+  'raster:bands'?: Array<{
+    name?: string;
+    data_type?: string;
+    nodata?: string | null;
+    description?: string;
+  }> | null;
 }
 
 export interface OGCRecordLink {
