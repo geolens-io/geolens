@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -205,6 +206,20 @@ def resolve_apply_timeout(raw: float | None) -> float | None | Any:
     """
     if raw is None:
         return _UNSET
+    # fix(#1778 review round 24): click/typer's float coercion happily
+    # parses "nan", "inf"/"-inf", and overflowing literals like "1e309"
+    # (which rounds to inf) into real float values -- the `raw < 0`
+    # check below lets nan through outright (every comparison against
+    # NaN is False, including `< 0`), and lets +inf/1e309 all the way
+    # through to `long_request_timeout()` as a real, silently-unbounded
+    # timeout that never went through the documented `--timeout 0`
+    # path. Rejected the same way analysis.py's require_finite() and
+    # main.py's refresh/materialize `--timeout` checks already reject
+    # their own non-finite input.
+    if not math.isfinite(raw):
+        raise ManifestApplyTimeoutValueError(
+            f"--timeout must be 0 or a positive, finite number of seconds, got {raw!r}."
+        )
     if raw < 0:
         raise ManifestApplyTimeoutValueError(
             f"--timeout must be 0 or a positive number of seconds, got {raw!r}."

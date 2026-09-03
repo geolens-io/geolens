@@ -16,6 +16,7 @@ Storage backends:
 """
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union
@@ -28,6 +29,26 @@ from keyring.errors import KeyringError
 
 from . import config as _config
 
+# fix(#1778 review round 24): structlog's UNCONFIGURED default is a
+# PrintLogger that writes every log.*() call straight to stdout,
+# regardless of level -- every log.warning() below used to land there,
+# silently corrupting the one JSON document a --json command promises
+# on stdout the moment one fired on a path that still ends in success
+# (e.g. a keyring fallback during `login`, or the best-effort cleanup
+# skip in _delete_stale_credentials below). Configuring the factory
+# once, here, at import time, sends every call this module's logger
+# ever makes to stderr instead -- closing the class for every current
+# call site AND any future one, rather than requiring each new
+# log.warning() to remember to route around the default. This mirrors
+# _sdk_helpers.py's own stdlib `logging` choice (its lastResort handler
+# is stderr-only by default) without having to rewrite every structured
+# key=value call site here into stdlib logging's positional-args shape.
+# _warn_credentials_file_corrupt() below still prints directly rather
+# than using log.warning() -- not for stdout-safety anymore, but
+# because it wants an unconditional, human-readable sentence instead of
+# structlog's key=value dump for the one warning a user must actually
+# read and act on.
+structlog.configure(logger_factory=structlog.PrintLoggerFactory(file=sys.stderr))
 log = structlog.get_logger()
 SERVICE = "geolens"
 
@@ -107,18 +128,20 @@ def _warn_credentials_file_corrupt(exc: CredentialsFileCorrupt) -> None:
 
     fix(#1778 review round 22): this module has no access to the CLI's
     Output formatter (data layer, not command layer -- see every other
-    function here, none of which print), and structlog's unconfigured
-    default PrintLogger (used by ``log.warning`` throughout this file)
-    writes to STDOUT, not stderr -- fine for a routine, best-effort
-    diagnostic, but wrong for a data-integrity warning a human needs to
-    actually see, and actively harmful in ``--json`` mode where it
-    would corrupt the JSON stream on stdout. Printed unconditionally
+    function here, none of which print). Printed unconditionally
     (independent of ``--json``) for the one case a login genuinely
     needs a human to notice: the marker was NOT updated, and the file
     needs fixing or moving before it can be trusted again.
-    """
-    import sys
 
+    fix(#1778 review round 24): kept as a direct print rather than
+    switched to ``log.warning()`` now that the module's structlog
+    logger is configured to stderr too (see the module-level comment
+    above) -- this one warning still wants an unconditional,
+    human-readable sentence ("Fix or move the file") rather than
+    structlog's key=value dump, since it is the one diagnostic in this
+    file a user is actually expected to read and act on, not just a
+    routine breadcrumb.
+    """
     print(
         f"Warning: {exc.path} is corrupt ({exc.detail}) -- the active "
         "credential marker was not updated there. Fix or move the file.",
@@ -870,9 +893,10 @@ def replace_credentials(
             # roll back and fail the login -- the file was healthy a
             # moment ago there and something just broke a write we
             # could have trusted), this file was never trustworthy to
-            # begin with. Printed to stderr (not log.warning: structlog's
-            # unconfigured default writes to STDOUT, which would corrupt
-            # --json output) so the operator actually sees it.
+            # begin with. Printed via _warn_credentials_file_corrupt()
+            # (a human-readable sentence, not log.warning()'s key=value
+            # dump -- see that function's own docstring, round 24) so
+            # the operator actually notices it.
             _warn_credentials_file_corrupt(exc)
         _delete_stale_credentials(
             instance, keep=kind, keep_backend=backend, snapshot=snapshot

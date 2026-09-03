@@ -666,3 +666,43 @@ class TestLoginKindSwapMakesTheMarkerMandatory:
         assert mock_keyring.get(bearer_account) == "old-bearer-token", (
             "the old bearer credential must be untouched"
         )
+
+
+class TestCorruptFileDiagnosticsStayOffStdout:
+    """fix(#1778 review round 24): structlog's UNCONFIGURED default
+    PrintLogger writes every log.warning() call straight to stdout --
+    the CLI configures no structlog handler anywhere, so the
+    best-effort corrupt-file cleanup skip in _delete_stale_credentials
+    (stale_credential_file_cleanup_skipped_corrupt_file) used to print
+    directly into a --json login's promised single JSON document on
+    stdout. auth.py now configures structlog's logger_factory to
+    stderr at import time (module-level, see auth.py's own comment),
+    so every log.warning() in this module -- current and future -- is
+    stderr-safe without having to remember to route around the
+    default at each call site."""
+
+    def test_json_login_emits_exactly_one_json_document_on_stdout_despite_a_corrupt_file(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Pin: corrupt file + keyring login with --json -> stdout is
+        exactly one JSON document, warning present on stderr."""
+        import json
+
+        from geolens_cli.main import app
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com"
+        _write_corrupt_credentials_file(instance)
+
+        result = runner.invoke(
+            app, ["--json", "login", instance, "--token", "new-bearer-token"]
+        )
+
+        assert result.exit_code == 0, result.output
+        # Exactly one JSON document on stdout -- a bare json.loads (not
+        # a line-by-line scan) fails outright if any stray diagnostic
+        # text shares the stream.
+        payload = json.loads(result.stdout)
+        assert payload["ok"] is True
+        # The warning still reaches the operator -- just on stderr.
+        assert "corrupt" in result.stderr.lower()

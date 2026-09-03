@@ -299,6 +299,29 @@ class TestResolveApplyTimeout:
         with pytest.raises(ManifestApplyTimeoutValueError):
             resolve_apply_timeout(-1.0)
 
+    def test_a_large_finite_value_is_accepted(self) -> None:
+        from geolens_cli.manifest_apply import resolve_apply_timeout
+
+        assert resolve_apply_timeout(7600.0) == 7600.0
+
+    @pytest.mark.parametrize(
+        "raw", [float("nan"), float("inf"), float("-inf"), float("1e309")]
+    )
+    def test_a_non_finite_value_is_rejected(self, raw: float) -> None:
+        """fix(#1778 review round 24): float("nan") < 0 is False (every
+        NaN comparison is False), and float("inf")/float("1e309")
+        (which rounds to inf) are both non-negative -- the pre-round-24
+        checks let all three all the way through to
+        long_request_timeout() as a real, silently-unbounded timeout
+        that never went through the documented --timeout 0 path."""
+        from geolens_cli.manifest_apply import (
+            ManifestApplyTimeoutValueError,
+            resolve_apply_timeout,
+        )
+
+        with pytest.raises(ManifestApplyTimeoutValueError):
+            resolve_apply_timeout(raw)
+
 
 class TestManifestApplyTimeoutReporting:
     """fix(#1778 review round 18) parts (b)/(c), corrected by round 19:
@@ -933,6 +956,63 @@ class TestApplyTimeoutFlagAndEnvOverride:
 
         assert result.exit_code == EXIT_USAGE, result.output
         assert seen == [], "must be rejected before any network call"
+
+    @pytest.mark.parametrize("raw", ["nan", "inf", "-inf", "1e309"])
+    def test_a_non_finite_flag_value_is_a_usage_error(
+        self, runner, tmp_xdg_home, monkeypatch: pytest.MonkeyPatch, raw: str
+    ) -> None:
+        """Pin (P2 round 24): nan/inf/-inf/1e309 -> usage error for
+        --timeout, rejected before any network call."""
+        from geolens_cli._sdk_helpers import EXIT_USAGE
+
+        _sdk, seen = self._spying_sdk(monkeypatch)
+
+        result = runner.invoke(
+            app, ["apply", "--timeout", raw, str(_remote_manifest_path())]
+        )
+
+        assert result.exit_code == EXIT_USAGE, result.output
+        assert seen == [], "must be rejected before any network call"
+
+    @pytest.mark.parametrize("raw", ["nan", "inf", "-inf", "1e309"])
+    def test_a_non_finite_env_var_value_is_a_usage_error(
+        self, runner, tmp_xdg_home, monkeypatch: pytest.MonkeyPatch, raw: str
+    ) -> None:
+        """Pin (P2 round 24): nan/inf/-inf/1e309 -> usage error for
+        GEOLENS_MANIFEST_APPLY_TIMEOUT too, rejected before any network
+        call."""
+        from geolens_cli._sdk_helpers import EXIT_USAGE
+
+        _sdk, seen = self._spying_sdk(monkeypatch)
+
+        result = runner.invoke(
+            app,
+            ["apply", str(_remote_manifest_path())],
+            env={"GEOLENS_MANIFEST_APPLY_TIMEOUT": raw},
+        )
+
+        assert result.exit_code == EXIT_USAGE, result.output
+        assert seen == [], "must be rejected before any network call"
+
+    def test_zero_and_a_large_finite_value_are_still_accepted(
+        self, runner, tmp_xdg_home, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Pin (P2 round 24): 0 and 7600 still accepted -- the
+        non-finite guard must not overreach onto ordinary values."""
+        _sdk, seen = self._spying_sdk(monkeypatch)
+
+        result = runner.invoke(
+            app, ["apply", "--timeout", "7600", str(_remote_manifest_path())]
+        )
+        assert result.exit_code == 0, result.output
+        assert seen == [7600.0]
+
+        _sdk2, seen2 = self._spying_sdk(monkeypatch)
+        result2 = runner.invoke(
+            app, ["apply", "--timeout", "0", str(_remote_manifest_path())]
+        )
+        assert result2.exit_code == 0, result2.output
+        assert len(seen2) == 1
 
 
 def _flaky_then_ok_sdk(monkeypatch: pytest.MonkeyPatch, status_response: dict) -> FakeSdk:
