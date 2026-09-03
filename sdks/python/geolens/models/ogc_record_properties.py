@@ -82,6 +82,8 @@ class OGCRecordProperties:
         record_status (None | str | Unset):
         has_quicklook (bool | Unset):  Default: False.
         gsd (float | None | Unset):
+        res_x (float | None | Unset):
+        res_y (float | None | Unset):
         crs_is_geographic (bool | None | Unset): True when the raster CRS is geographic (gsd/res are degrees, not
             meters); None when the CRS class is unknown.
         vrt_type (None | str | Unset):
@@ -132,6 +134,8 @@ class OGCRecordProperties:
     record_status: None | str | Unset = UNSET
     has_quicklook: bool | Unset = False
     gsd: float | None | Unset = UNSET
+    res_x: float | None | Unset = UNSET
+    res_y: float | None | Unset = UNSET
     crs_is_geographic: bool | None | Unset = UNSET
     vrt_type: None | str | Unset = UNSET
     source_count: int | None | Unset = UNSET
@@ -350,6 +354,18 @@ class OGCRecordProperties:
         else:
             gsd = self.gsd
 
+        res_x: float | None | Unset
+        if isinstance(self.res_x, Unset):
+            res_x = UNSET
+        else:
+            res_x = self.res_x
+
+        res_y: float | None | Unset
+        if isinstance(self.res_y, Unset):
+            res_y = UNSET
+        else:
+            res_y = self.res_y
+
         crs_is_geographic: bool | None | Unset
         if isinstance(self.crs_is_geographic, Unset):
             crs_is_geographic = UNSET
@@ -480,6 +496,10 @@ class OGCRecordProperties:
             field_dict["has_quicklook"] = has_quicklook
         if gsd is not UNSET:
             field_dict["gsd"] = gsd
+        if res_x is not UNSET:
+            field_dict["res_x"] = res_x
+        if res_y is not UNSET:
+            field_dict["res_y"] = res_y
         if crs_is_geographic is not UNSET:
             field_dict["crs_is_geographic"] = crs_is_geographic
         if vrt_type is not UNSET:
@@ -861,6 +881,24 @@ class OGCRecordProperties:
 
         gsd = _parse_gsd(d.pop("gsd", UNSET))
 
+        def _parse_res_x(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        res_x = _parse_res_x(d.pop("res_x", UNSET))
+
+        def _parse_res_y(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        res_y = _parse_res_y(d.pop("res_y", UNSET))
+
         def _parse_crs_is_geographic(data: object) -> bool | None | Unset:
             if data is None:
                 return data
@@ -997,6 +1035,8 @@ class OGCRecordProperties:
             record_status=record_status,
             has_quicklook=has_quicklook,
             gsd=gsd,
+            res_x=res_x,
+            res_y=res_y,
             crs_is_geographic=crs_is_geographic,
             vrt_type=vrt_type,
             source_count=source_count,

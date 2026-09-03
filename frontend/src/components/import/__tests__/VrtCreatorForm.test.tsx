@@ -63,6 +63,11 @@ function makeCogSource(
     width: number;
     height: number;
     gsd: number;
+    /** Independent per-axis resolution (fix(#1805 review round 5)); each
+     * defaults to `gsd` when unset, so existing gsd-only fixtures still set
+     * matching res_x/res_y and their old comparisons keep working. */
+    res_x: number;
+    res_y: number;
     crs: string | null;
   }>,
 ): OGCRecordResponse {
@@ -97,6 +102,8 @@ function makeCogSource(
         },
       ],
       gsd: overrides.gsd ?? 0.001,
+      res_x: overrides.res_x ?? overrides.gsd ?? 0.001,
+      res_y: overrides.res_y ?? overrides.gsd ?? 0.001,
     },
     links: [],
   };
@@ -522,6 +529,65 @@ describe('VrtCreatorForm', () => {
 
     const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
     expect(submitButton).toBeDisabled();
+  });
+
+  // fix(#1805 review round 5): gsd is a lossy min(abs(res_x), abs(res_y)) --
+  // (res_x=10, res_y=20) and (res_x=10, res_y=30) share the identical
+  // gsd=10 and identical dimensions, so a gsd-only comparison passed this
+  // pair while the backend's _check_grid_alignment (independent res_x/res_y
+  // comparison) rejects it. Pinned per the review.
+  it('sources with matching gsd but mismatched res_y disable submit (#1805 review round 5)', { timeout: 15000 }, async () => {
+    const user = userEvent.setup({ delay: null });
+    const source1 = makeCogSource({ id: 'ds-axis-a', title: 'Axis Source A', res_x: 10, res_y: 20 });
+    const source2 = makeCogSource({ id: 'ds-axis-b', title: 'Axis Source B', res_x: 10, res_y: 30 });
+
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection',
+      numberMatched: 2,
+      numberReturned: 2,
+      features: [source1, source2],
+    });
+
+    render(<VrtCreatorForm />);
+
+    await user.click(screen.getByRole('radio', { name: 'vrt.modeBandStack' }));
+
+    const searchInput = screen.getByPlaceholderText('vrt.searchPlaceholder');
+    await selectSource(user, searchInput, 'Axis Source A');
+    await selectSource(user, searchInput, 'Axis Source B');
+
+    const titleInput = screen.getByPlaceholderText('vrt.titlePlaceholder');
+    await user.type(titleInput, 'Mismatched Res Y VRT');
+
+    const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
+    expect(submitButton).toBeDisabled();
+  });
+
+  it('sources with matching res_x and res_y remain valid (#1805 review round 5)', { timeout: 15000 }, async () => {
+    const user = userEvent.setup({ delay: null });
+    const source1 = makeCogSource({ id: 'ds-axis-c', title: 'Axis Source C', res_x: 10, res_y: 20 });
+    const source2 = makeCogSource({ id: 'ds-axis-d', title: 'Axis Source D', res_x: 10, res_y: 20 });
+
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection',
+      numberMatched: 2,
+      numberReturned: 2,
+      features: [source1, source2],
+    });
+
+    render(<VrtCreatorForm />);
+
+    await user.click(screen.getByRole('radio', { name: 'vrt.modeBandStack' }));
+
+    const searchInput = screen.getByPlaceholderText('vrt.searchPlaceholder');
+    await selectSource(user, searchInput, 'Axis Source C');
+    await selectSource(user, searchInput, 'Axis Source D');
+
+    const titleInput = screen.getByPlaceholderText('vrt.titlePlaceholder');
+    await user.type(titleInput, 'Matching Res VRT');
+
+    const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
+    expect(submitButton).not.toBeDisabled();
   });
 
   it('submit button disabled when fewer than 2 sources selected', () => {

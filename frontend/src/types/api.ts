@@ -571,6 +571,17 @@ export interface OGCRecordProperties {
   vrt_type?: string | null;
   source_count?: number | null;
   gsd?: number | null;
+  /**
+   * fix(#1805 review round 5): gsd is a lossy min(abs(res_x), abs(res_y)) --
+   * two sources with different per-axis resolution can share one gsd, so a
+   * client-side grid-alignment check built on gsd alone cannot replicate
+   * the backend's _check_grid_alignment, which compares res_x/res_y
+   * independently. These are real fields now (unlike the res_x/res_y this
+   * interface used to declare and removed in #1778 -- those were never
+   * returned by the API; these are, from service_records.py).
+   */
+  res_x?: number | null;
+  res_y?: number | null;
   /** True when the raster CRS is geographic (gsd is degrees, not meters). */
   crs_is_geographic?: boolean | null;
   /**

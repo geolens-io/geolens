@@ -12629,6 +12629,28 @@
             ],
             "title": "Gsd"
           },
+          "res_x": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Res X"
+          },
+          "res_y": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Res Y"
+          },
           "crs_is_geographic": {
             "anyOf": [
               {

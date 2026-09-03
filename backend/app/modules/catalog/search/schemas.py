@@ -189,6 +189,13 @@ class OGCRecordProperties(BaseModel):
     record_status: str | None = None
     has_quicklook: bool = False
     gsd: float | None = None
+    # fix(#1805 review round 5): gsd is a lossy min(abs(res_x), abs(res_y))
+    # -- two sources with different per-axis resolution can share one gsd,
+    # so the client cannot replicate _check_grid_alignment (which compares
+    # res_x and res_y independently) from gsd alone. Same values raster_meta
+    # already carries (RasterAsset.res_x/res_y), just not previously surfaced.
+    res_x: float | None = None
+    res_y: float | None = None
     crs_is_geographic: bool | None = Field(
         default=None,
         description=(

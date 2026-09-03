@@ -1684,7 +1684,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # now emits an explicit nodata: null, so the client can tell
         # "confirmed absent" from "genuinely unavailable" (the latter keeps
         # the key missing). Cap 526 -> 539, exact.
-        "backend/app/modules/catalog/search/service_records.py": 539,
+        # fix(#1805 review round 5): +9 — res_x/res_y are now surfaced
+        # alongside the lossy gsd (min(abs(res_x), abs(res_y))), so a
+        # client-side grid-alignment check can compare each axis
+        # independently, matching the backend's _check_grid_alignment.
+        # Cap 539 -> 548, exact.
+        "backend/app/modules/catalog/search/service_records.py": 548,
         # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
         # wrapper) + the gated/approximated vector-only match COUNT in
         # _run_rrf_merge (perf audit 2026-07-10 §2d). Cap 350 → 390

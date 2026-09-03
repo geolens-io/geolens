@@ -170,17 +170,22 @@ function validateSources(
       const widthMismatch =
         srcShape != null && firstShape != null && srcShape[1] !== firstShape[1];
       // fix(#1805 review round 1 P2): the backend compares res_x/res_y with
-      // a 1e-10 absolute float tolerance, not strict equality -- gsd is
-      // derived from those same floats (min(abs(res_x), abs(res_y))) and
-      // carries the same serialization noise, so strict !== flagged
-      // grid_misaligned for values that are aligned within tolerance (e.g.
-      // 0.30000000000000004 vs 0.3).
-      const gsdMismatch =
-        src.properties.gsd != null &&
-        first.properties.gsd != null &&
-        !floatsAligned(src.properties.gsd, first.properties.gsd);
+      // a 1e-10 absolute float tolerance, not strict equality.
+      // fix(#1805 review round 5): gsd is a lossy min(abs(res_x), abs(res_y))
+      // -- two sources at (res_x=10, res_y=20) and (res_x=10, res_y=30)
+      // collapse to the identical gsd=10, so a gsd-only comparison passed a
+      // pair _check_grid_alignment (which compares res_x and res_y
+      // independently) rejects. Compare each axis directly instead.
+      const resXMismatch =
+        src.properties.res_x != null &&
+        first.properties.res_x != null &&
+        !floatsAligned(src.properties.res_x, first.properties.res_x);
+      const resYMismatch =
+        src.properties.res_y != null &&
+        first.properties.res_y != null &&
+        !floatsAligned(src.properties.res_y, first.properties.res_y);
 
-      if (widthMismatch || heightMismatch || gsdMismatch) {
+      if (widthMismatch || heightMismatch || resXMismatch || resYMismatch) {
         errs.push('grid_misaligned');
       }
     }

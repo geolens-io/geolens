@@ -7373,6 +7373,14 @@ export type OgcRecordProperties = {
      */
     gsd?: number | null;
     /**
+     * Res X
+     */
+    res_x?: number | null;
+    /**
+     * Res Y
+     */
+    res_y?: number | null;
+    /**
      * Crs Is Geographic
      *
      * True when the raster CRS is geographic (gsd/res are degrees, not meters); None when the CRS class is unknown.

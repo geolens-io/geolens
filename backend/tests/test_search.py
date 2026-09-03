@@ -1666,6 +1666,77 @@ async def test_search_datasets_raster_band_nodata_presence(
 
 
 @pytest.mark.anyio
+async def test_search_datasets_raster_res_x_res_y_survive_response_model(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """fix(#1805 review round 5): gsd is a lossy min(abs(res_x), abs(res_y)) --
+    two sources at (res_x=10, res_y=20) and (res_x=10, res_y=30) collapse to
+    the identical gsd=10 and, if both share dimensions, look grid-aligned to
+    a client comparing gsd alone. _check_grid_alignment (backend/app/
+    processing/raster/validation.py) compares res_x and res_y independently,
+    so this pair is a real mismatch the client could not detect until both
+    axes were exposed on the search payload.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    token = uuid.uuid4().hex[:10]
+
+    ds_a = await create_raster_dataset(
+        session,
+        created_by=admin_id,
+        name=f"Res Axis A {token}",
+        create_raster_asset=True,
+        raster_asset_kwargs=dict(
+            epsg=4326,
+            width=100,
+            height=100,
+            res_x=10.0,
+            res_y=20.0,
+            band_count=1,
+            dtype="uint8",
+        ),
+    )
+    ds_b = await create_raster_dataset(
+        session,
+        created_by=admin_id,
+        name=f"Res Axis B {token}",
+        create_raster_asset=True,
+        raster_asset_kwargs=dict(
+            epsg=4326,
+            width=100,
+            height=100,
+            res_x=10.0,
+            res_y=30.0,
+            band_count=1,
+            dtype="uint8",
+        ),
+    )
+
+    resp = await client.get(
+        "/search/datasets/",
+        params={"q": f"Res Axis {token}", "limit": 10},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    features = {f["id"]: f for f in resp.json()["features"]}
+
+    props_a = features[str(ds_a.id)]["properties"]
+    props_b = features[str(ds_b.id)]["properties"]
+
+    # Same gsd (the lossy min) despite a real res_y mismatch -- the whole
+    # point of the finding.
+    assert props_a["gsd"] == 10.0
+    assert props_b["gsd"] == 10.0
+
+    assert props_a["res_x"] == 10.0
+    assert props_a["res_y"] == 20.0
+    assert props_b["res_x"] == 10.0
+    assert props_b["res_y"] == 30.0
+
+
+@pytest.mark.anyio
 async def test_search_pagination_stable_number_matched_with_collection(
     client: AsyncClient,
     admin_auth_header: dict,
