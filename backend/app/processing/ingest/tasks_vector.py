@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
-from sqlalchemy import text
+from sqlalchemy import or_, text, update
 
 from app.core.db.tenant_session import tenant_task
 from app.core.url_redaction import scrub_secret_from_exception
@@ -144,7 +144,37 @@ async def _service_import_heartbeat_tick(
     initial SELECT unprotected, and a SELECT can itself stall behind a lock
     the later UPDATE would never even see (e.g. another session's ACCESS
     EXCLUSIVE on the table).
+
+    fix(#1778 codex r11): the SELECT above (run inside ``_job_phase_session``)
+    is a snapshot, not a lock. If THIS tick's own connection then stalls --
+    for whatever reason the DB timeout above does not itself close, e.g. a
+    connection stuck before it ever reaches Postgres -- long enough for the
+    caller's cancellation drain (the safety net two paragraphs up) to expire,
+    the caller moves on while this ``asyncio.shield``ed tick is still alive
+    in the background. ``_finalize_ingest`` can commit
+    ``status="complete"``/``progress=1.0`` in the meantime, or a retry can
+    rotate ``attempt_id`` -- and an unconditional ORM commit here would then
+    overwrite that finalized row BY PRIMARY KEY with this tick's stale
+    progress (never above ``_SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS``),
+    resurrecting a "still running" progress bar on a job that already
+    finished, or writing into a job attempt this worker no longer owns.
+
+    The write below re-checks every fact the SELECT read, atomically, in the
+    UPDATE's own WHERE clause, rather than trusting that earlier read: the
+    same attempt must still own the row, it must still be "running" on
+    "ogr2ogr", and the row's CURRENT progress -- not the value this tick
+    read minutes ago -- must still be below what it is about to write.
+    Matches the attempt-fenced UPDATE shape ``_finalize_ingest`` already uses
+    via ``require_ingest_job_update``/``update_ingest_job_for_attempt``, just
+    inlined here because this call site also needs the extra
+    ``current_step``/``progress`` guards those helpers do not take. Zero rows
+    affected means the job moved on since the SELECT: log and do nothing --
+    the same "abandon this write, it costs nothing the caller depends on"
+    posture the rest of this tick's timeout handling already takes for a
+    write that never lands.
     """
+    from app.platform.jobs.models import IngestJob
+
     _timeout_ms = int(_SERVICE_IMPORT_HEARTBEAT_TICK_DB_TIMEOUT_SECONDS * 1000)
     async with _job_phase_session(
         job_uuid,
@@ -169,8 +199,27 @@ async def _service_import_heartbeat_tick(
         if next_progress <= existing_progress:
             return True
 
-        job.progress = next_progress
+        result = await session.execute(
+            update(IngestJob)
+            .where(
+                IngestJob.id == job_uuid,
+                IngestJob.attempt_id == attempt_id,
+                IngestJob.status == "running",
+                IngestJob.current_step == "ogr2ogr",
+                or_(
+                    IngestJob.progress.is_(None),
+                    IngestJob.progress < next_progress,
+                ),
+            )
+            .values(progress=next_progress)
+        )
         await session.commit()
+        if not result.rowcount:  # type: ignore[attr-defined]
+            structlog.get_logger().debug(
+                "service_import_heartbeat_tick_stale",
+                job_id=str(job_uuid),
+                attempt_id=str(attempt_id),
+            )
         return True
 
 

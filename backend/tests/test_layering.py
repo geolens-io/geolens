@@ -3885,7 +3885,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # cover that helper's own initial SELECT, which used to run before this
     # function's own `SET LOCAL` calls and could stall behind a lock the row
     # never got far enough to hit. Cap 1281 -> 1284, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1284,
+    # fix(#1778 codex r11): +49 — the tick's own SELECT is a snapshot, not a
+    # lock: if this shielded tick's connection stalls past the caller's
+    # cancellation drain, the caller moves on while the tick is still alive,
+    # and `_finalize_ingest` can commit status="complete"/progress=1.0 (or a
+    # retry can rotate attempt_id) before the tick's own commit runs. An
+    # unconditional ORM commit would then overwrite that finalized row by
+    # primary key with a stale progress. The write is now a single UPDATE
+    # gated on id + attempt_id + status="running" + current_step="ogr2ogr" +
+    # progress still below what it is about to write, matching the
+    # attempt-fenced shape `_finalize_ingest` already uses via
+    # `require_ingest_job_update`; zero rows affected logs at debug and does
+    # nothing. Cap 1284 -> 1333, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1333,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern

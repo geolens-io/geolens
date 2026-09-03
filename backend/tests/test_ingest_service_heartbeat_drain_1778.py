@@ -38,9 +38,32 @@ the heartbeat task itself in another ``asyncio.wait_for`` -- that would
 cancel it on ITS OWN timeout and mask the exact thing under test, whether the
 drain deadline constant is what actually bounds completion.
 
-The final test exercises the round-3 mechanism directly against a REAL row
-lock held by a second, real database session -- the one property the mocked
-tests above cannot stand in for.
+The tests through ``test_a_tick_blocked_on_its_own_initial_select_times_out_
+inside_the_db_and_releases_its_connection`` exercise the round-3/round-6
+mechanism directly against a REAL row lock held by a second, real database
+session -- the one property the mocked tests above cannot stand in for.
+
+Round 11 closes a residual: even with the drain deadline and the DB-side
+lock/statement timeouts, the tick's own SELECT (inside ``_job_phase_
+session``) is a snapshot, not a lock. A tick that read the row as
+"running"/"ogr2ogr" can still have its OWN write land AFTER
+``_finalize_ingest`` commits ``status="complete"``/``progress=1.0`` (or a
+retry rotates ``attempt_id``) -- an unconditional ORM commit would then
+overwrite the finalized row, by primary key, with the tick's stale progress.
+The write is now a single atomic UPDATE gated on
+``id + attempt_id + status="running" + current_step="ogr2ogr" + progress <
+next_progress``, so it re-checks the CURRENT row rather than trusting the
+earlier SELECT; zero rows affected means the job moved on, logged at debug,
+nothing written. The final three tests exercise this directly against a
+REAL race: ``_pause_the_tick_after_its_select`` pauses the tick
+DETERMINISTICALLY right after its own SELECT (not via a real row lock, and
+not via ``pg_stat_activity`` polling -- both were tried against the actual
+test database this suite runs against, a live dev stack shares it, so
+unrelated backends routinely show lock contention and connection-acquisition
+timing varies with how busy it is, and neither technique was reliable
+here), a second real session commits the competing write strictly between
+the tick's SELECT and its own write, then the tick resumes and its atomic
+UPDATE is checked against what actually landed.
 """
 
 import asyncio
@@ -66,6 +89,47 @@ async def _poll_until(predicate, *, timeout: float, interval: float = 0.01) -> b
             return True
         await asyncio.sleep(interval)
     return predicate()
+
+
+def _pause_the_tick_after_its_select(
+    monkeypatch,
+) -> tuple[asyncio.Event, asyncio.Event]:
+    """Deterministically pause ``_service_import_heartbeat_tick`` between its
+    own SELECT (inside ``_job_phase_session``) and whatever it does next, so
+    a test can commit a real, concurrent mutation to the row strictly
+    between the two -- the exact ordering fix(#1778 codex r11) closes a gap
+    for.
+
+    Wraps ``tasks_vector._job_phase_session`` (patched by name in
+    ``tasks_vector``'s own module namespace, where
+    ``_service_import_heartbeat_tick`` actually looks it up) so the real
+    SELECT still runs for real, against the real database. Two events
+    coordinate the two coroutines: ``reached_select`` fires once the SELECT
+    has returned and the wrapper is about to await ``resume_tick``, so the
+    caller knows exactly when it is safe to make its own concurrent
+    write -- no fixed sleep, no ``pg_stat_activity`` polling, which this
+    file's other tests measured as unreliable against the test database
+    this suite actually runs against (a live dev stack shares it, so many
+    unrelated backends can show lock contention at any moment, and
+    connection acquisition timing varies with how busy it is).
+    """
+    from contextlib import asynccontextmanager
+
+    from app.processing.ingest import tasks_common
+
+    reached_select = asyncio.Event()
+    resume_tick = asyncio.Event()
+    real_job_phase_session = tasks_common._job_phase_session
+
+    @asynccontextmanager
+    async def _paused_job_phase_session(*args, **kwargs):
+        async with real_job_phase_session(*args, **kwargs) as (session, job):
+            reached_select.set()
+            await resume_tick.wait()
+            yield session, job
+
+    monkeypatch.setattr(tasks_vector, "_job_phase_session", _paused_job_phase_session)
+    return reached_select, resume_tick
 
 
 @pytest.mark.anyio
@@ -429,3 +493,175 @@ async def test_a_tick_blocked_on_its_own_initial_select_times_out_inside_the_db_
     finally:
         event.remove(sync_engine, "checkout", _on_checkout)
         event.remove(sync_engine, "checkin", _on_checkin)
+
+
+@pytest.mark.anyio
+async def test_a_tick_that_loses_a_race_to_finalize_does_not_clobber_the_completed_job(
+    test_db_session, monkeypatch
+):
+    """fix(#1778 codex r11): the tick's own SELECT read the row as
+    "running"/"ogr2ogr" with progress=0.5. Pause the tick DETERMINISTICALLY
+    right after that SELECT (see ``_pause_the_tick_after_its_select`` below --
+    this test database is shared with a live dev stack, so timing- or
+    pg_stat_activity-based synchronization is not reliable enough here),
+    commit ``_finalize_ingest``'s effect (status="complete",
+    current_step="complete", progress=1.0) on a second, real session while
+    the tick is paused, then resume it. The tick's own UPDATE must re-check
+    its WHERE clause against the row Postgres just committed, not the stale
+    snapshot the tick read -- it must affect zero rows and leave the
+    finalized row untouched.
+    """
+    import app.core.db as db_module
+    from sqlalchemy import select, update
+
+    from app.platform.jobs.models import IngestJob as _IngestJob
+    from tests.factories import get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    job = IngestJob(
+        source_filename="RaceFinalizeHeartbeatJob",
+        created_by=admin_id,
+        status="running",
+        current_step="ogr2ogr",
+        progress=0.5,
+    )
+    test_db_session.add(job)
+    await test_db_session.flush()
+    await test_db_session.commit()
+    job_id = job.id
+    attempt_id = job.attempt_id
+
+    reached_select, resume_tick = _pause_the_tick_after_its_select(monkeypatch)
+
+    tick_task = asyncio.ensure_future(
+        tasks_vector._service_import_heartbeat_tick(job_id, attempt_id)
+    )
+    await asyncio.wait_for(reached_select.wait(), timeout=5.0)
+
+    # Simulate _finalize_ingest committing first, strictly between the
+    # tick's own SELECT and its write.
+    async with db_module.async_session() as finalizer_session:
+        await finalizer_session.execute(
+            update(_IngestJob)
+            .where(_IngestJob.id == job_id)
+            .values(status="complete", current_step="complete", progress=1.0)
+        )
+        await finalizer_session.commit()
+
+    resume_tick.set()
+    keep_going = await asyncio.wait_for(tick_task, timeout=5.0)
+    assert keep_going is True
+
+    async with db_module.async_session() as check_session:
+        result = await check_session.execute(
+            select(_IngestJob).where(_IngestJob.id == job_id)
+        )
+        final = result.scalar_one()
+    assert final.status == "complete"
+    assert final.current_step == "complete"
+    assert final.progress == 1.0, (
+        f"the tick's stale write clobbered the finalized job's progress: "
+        f"{final.progress!r}"
+    )
+
+
+@pytest.mark.anyio
+async def test_a_tick_that_loses_a_race_to_a_retry_does_not_write_into_the_new_attempt(
+    test_db_session, monkeypatch
+):
+    """Same race as above, but the row is claimed by a NEW attempt (a retry)
+    instead of finalized. The old tick's write is fenced to the OLD
+    attempt_id it was called with, so once the row's attempt_id has rotated
+    out from under it, the atomic UPDATE must affect zero rows -- the new
+    attempt's own progress must survive untouched.
+    """
+    import app.core.db as db_module
+    from sqlalchemy import select, update
+
+    from app.platform.jobs.models import IngestJob as _IngestJob
+    from tests.factories import get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    job = IngestJob(
+        source_filename="RaceRetryHeartbeatJob",
+        created_by=admin_id,
+        status="running",
+        current_step="ogr2ogr",
+        progress=0.5,
+    )
+    test_db_session.add(job)
+    await test_db_session.flush()
+    await test_db_session.commit()
+    job_id = job.id
+    old_attempt_id = job.attempt_id
+    new_attempt_id = uuid.uuid4()
+
+    reached_select, resume_tick = _pause_the_tick_after_its_select(monkeypatch)
+
+    tick_task = asyncio.ensure_future(
+        tasks_vector._service_import_heartbeat_tick(job_id, old_attempt_id)
+    )
+    await asyncio.wait_for(reached_select.wait(), timeout=5.0)
+
+    # Simulate a retry rotating attempt_id and restarting progress under the
+    # new token, strictly between the OLD tick's SELECT and its write.
+    async with db_module.async_session() as retry_session:
+        await retry_session.execute(
+            update(_IngestJob)
+            .where(_IngestJob.id == job_id)
+            .values(attempt_id=new_attempt_id, progress=0.2)
+        )
+        await retry_session.commit()
+
+    resume_tick.set()
+    keep_going = await asyncio.wait_for(tick_task, timeout=5.0)
+    assert keep_going is True
+
+    async with db_module.async_session() as check_session:
+        result = await check_session.execute(
+            select(_IngestJob).where(_IngestJob.id == job_id)
+        )
+        final = result.scalar_one()
+    assert final.attempt_id == new_attempt_id
+    assert final.status == "running"
+    assert final.progress == 0.2, (
+        f"the old attempt's stale write reached the new attempt's row: "
+        f"{final.progress!r}"
+    )
+
+
+@pytest.mark.anyio
+async def test_a_normal_tick_still_advances_progress(test_db_session):
+    """Positive control for the round-11 atomic UPDATE: with nothing racing
+    it, an ordinary tick must still advance progress exactly as the ORM
+    commit it replaces did."""
+    import app.core.db as db_module
+    from sqlalchemy import select
+
+    from app.platform.jobs.models import IngestJob as _IngestJob
+    from tests.factories import get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    job = IngestJob(
+        source_filename="NormalHeartbeatJob",
+        created_by=admin_id,
+        status="running",
+        current_step="ogr2ogr",
+        progress=0.2,
+    )
+    test_db_session.add(job)
+    await test_db_session.flush()
+    await test_db_session.commit()
+    job_id = job.id
+    attempt_id = job.attempt_id
+
+    keep_going = await tasks_vector._service_import_heartbeat_tick(job_id, attempt_id)
+    assert keep_going is True
+
+    async with db_module.async_session() as check_session:
+        result = await check_session.execute(
+            select(_IngestJob).where(_IngestJob.id == job_id)
+        )
+        refreshed = result.scalar_one()
+    expected = 0.2 + tasks_vector._SERVICE_IMPORT_HEARTBEAT_INCREMENT
+    assert refreshed.progress == pytest.approx(expected)
