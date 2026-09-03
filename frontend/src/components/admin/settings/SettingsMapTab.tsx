@@ -107,9 +107,10 @@ function PluginToggles({ settings, enabledPlugins, onChangeEnabled, onReset, env
             <div key={w.id} className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Icon className="h-4 w-4 text-muted-foreground" />
-                <Label>{tBuilder(w.labelKey)}</Label>
+                <Label htmlFor={`plugin-toggle-${w.id}`}>{tBuilder(w.labelKey)}</Label>
               </div>
               <Switch
+                id={`plugin-toggle-${w.id}`}
                 checked={enabledPlugins.includes(w.id)}
                 onCheckedChange={(checked) => handleToggle(w.id, checked)}
                 disabled={envOnly}
@@ -216,8 +217,9 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, s
         <div className="space-y-3 max-w-md">
           {presets.map((basemap) => (
             <div key={basemap.id} className="flex items-center justify-between">
-              <Label>{basemap.label}</Label>
+              <Label htmlFor={`basemap-toggle-${basemap.id}`}>{basemap.label}</Label>
               <Switch
+                id={`basemap-toggle-${basemap.id}`}
                 checked={basemap.enabled}
                 onCheckedChange={(checked) => handleToggle(basemap.id, checked)}
                 disabled={envOnly}
@@ -236,11 +238,12 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, s
             <div key={basemap.id} className="space-y-2 border rounded-md p-3">
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">{basemap.label}</p>
+                  <Label htmlFor={`basemap-toggle-${basemap.id}`} className="text-sm font-medium block">{basemap.label}</Label>
                   <p className="text-xs text-muted-foreground truncate">{basemap.url}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <Switch
+                    id={`basemap-toggle-${basemap.id}`}
                     checked={basemap.enabled}
                     onCheckedChange={(checked) => handleToggle(basemap.id, checked)}
                     disabled={envOnly}
@@ -259,8 +262,9 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, s
               </div>
               {basemap.url.includes('{api_key}') && !envOnly && (
                 <div className="flex items-center gap-2">
-                  <Label className="text-xs shrink-0">{t('settings.basemaps.apiKeyLabel', 'API Key')}</Label>
+                  <Label htmlFor={`basemap-apikey-${basemap.id}`} className="text-xs shrink-0">{t('settings.basemaps.apiKeyLabel', 'API Key')}</Label>
                   <Input
+                    id={`basemap-apikey-${basemap.id}`}
                     type="password"
                     className="h-7 text-xs max-w-xs"
                     placeholder={basemap.api_key ? '••••••••' : t('settings.basemaps.apiKeyPlaceholder', 'Enter API key')}
