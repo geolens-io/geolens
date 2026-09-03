@@ -3227,7 +3227,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1746 codex r1): +5 — the marker comment now states the claim
     # narrowly ("the last successful pull was MADE with a token"), because the
     # worker never sees a challenge on the happy path. Cap 1278 -> 1283, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1283,
+    # fix(#1778): +8. The pending -> running run transition is committed
+    # before `resolve_file_path` instead of after it, plus the comment saying
+    # why. Holding the `dataset_refresh_runs` row lock across the staging
+    # download made every cancel in that window a 409 that also rolled back the
+    # job cancellation it had already written. Cap 1283 -> 1291, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1291,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
