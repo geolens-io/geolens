@@ -17,15 +17,40 @@ logger = structlog.stdlib.get_logger(__name__)
 class CacheProvider(Protocol):
     """Provider-agnostic cache interface."""
 
-    async def get(self, key: str) -> Any | None:
-        """Return cached value or None on miss."""
+    async def get(self, key: str, *, security: bool = False) -> Any | None:
+        """Return cached value or None on miss.
+
+        fix(#1778 codex r3): ``security=True`` marks the read as an
+        AUTHORIZATION decision, and a positive one may then only come from a
+        store every worker shares. A layered provider must not answer it from a
+        process-local fallback: production runs several Uvicorn workers, so one
+        worker's fallback is not the deployment's view, and a revoke another
+        worker performed during a Redis outage is invisible to it. When the
+        shared store cannot be reached the answer is None, and the caller
+        re-derives the decision from the database.
+
+        A REFUSAL is not subject to that rule. Refusing on possibly-stale
+        information is fail-closed, so a security read may still be answered
+        from a pending authoritative override.
+        """
         ...
 
-    async def set(self, key: str, value: Any, ttl: int = 300) -> None:
-        """Store value with TTL in seconds."""
+    async def set(
+        self, key: str, value: Any, ttl: int = 300, *, security: bool = False
+    ) -> None:
+        """Store value with TTL in seconds.
+
+        fix(#1778 codex r3): ``security=True`` means "do not write this where it
+        could later be mistaken for a shared answer". A layered provider skips
+        its process-local fallback entirely, because a security positive there
+        can never be served anyway and keeping one only invites a future reader
+        to trust it.
+        """
         ...
 
-    async def set_if_absent(self, key: str, value: Any, ttl: int = 300) -> bool:
+    async def set_if_absent(
+        self, key: str, value: Any, ttl: int = 300, *, security: bool = False
+    ) -> bool:
         """Store value with TTL only when *key* has no entry. True if stored.
 
         fix(#1778): the contract is "do not overwrite", which is what lets a
@@ -44,6 +69,12 @@ class CacheProvider(Protocol):
         implementation might later read from, not just the one it would write
         to now. A layered provider whose fallback still holds a denial must
         answer False even while its primary store is empty.
+
+        fix(#1778 codex r3): ``security=True`` carries the same meaning it has
+        on ``set`` -- never publish an authorization positive into a
+        process-local store. A layered provider answers False when it cannot
+        reach the shared one, which reads as "not published" and costs the
+        caller one database re-derivation next time.
         """
         ...
 

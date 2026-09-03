@@ -20,6 +20,10 @@ from app.core.public_urls import (
 from app.core.tenancy import is_multi_tenant
 from app.platform.cache import tenant_cache_context_available, tenant_cache_key
 from app.platform.cache.provider import get_cache
+from app.platform.cache.revocation import (
+    bump_revocation_generation,
+    current_revocation_generation,
+)
 from app.modules.embed_tokens.models import EmbedToken
 from app.modules.embed_tokens.schemas import (
     ADVANCED_SHARING_ERROR,
@@ -68,6 +72,16 @@ logger = structlog.stdlib.get_logger(__name__)
 # self-healing, and it is the one to be wrong in.
 EMBED_TOKEN_REVOCATION_DENIAL_TTL_SECONDS = 300
 
+# fix(#1778 codex r3): named because it is the bound on a residual rather than a
+# tuning knob. A worker that took no traffic at all during a Redis outage never
+# opened its circuit, so it never learns it should re-read the revocation
+# generation, and it keeps trusting whatever Redis holds for a token until that
+# entry expires. This number is how long that can last: five minutes. See the
+# residual section of platform/cache/revocation.py. Lowering it shortens the
+# exposure and costs a database read per token per interval; raising it does the
+# reverse.
+EMBED_TOKEN_POSITIVE_TTL_SECONDS = 300
+
 
 def _embed_token_cache_key(token_hash: str) -> str:
     """Return the active tenant's validation-cache key.
@@ -80,16 +94,27 @@ def _embed_token_cache_key(token_hash: str) -> str:
     return tenant_cache_key(f"embed_token:{token_hash}")
 
 
-async def _deny_revoked_embed_tokens(*token_hashes: str) -> None:
+async def _deny_revoked_embed_tokens(db: AsyncSession, *token_hashes: str) -> None:
     """Stamp a denial over each revoked token's validation-cache entry.
 
     Best-effort, like the eviction it replaces: a cache failure must not break
     the revocation, which is what the database row records. See the module note
     on EMBED_TOKEN_REVOCATION_DENIAL_TTL_SECONDS for why this writes a denial
     rather than deleting the key.
+
+    fix(#1778 codex r3): also advances the cluster-global revocation generation.
+    The denial above is written through this worker's cache provider, and during
+    a Redis outage that reaches no other worker; the generation is a database
+    row every worker consults, so it is what carries the revocation across the
+    process boundary. It is bumped FIRST, so no positive entry can be minted
+    under the new generation while the revoke is still landing.
     """
     if not token_hashes:
         return
+    try:
+        await bump_revocation_generation(db)
+    except Exception:  # broad: a generation bump must not break the revocation the database row already records
+        logger.error("Revocation generation bump failed", exc_info=True)
     try:
         cache = get_cache()
         for token_hash in token_hashes:
@@ -520,7 +545,7 @@ async def create_embed_token(
         revoked_hashes.append(old_token.token_hash)
 
     # Best-effort cache invalidation for revoked tokens
-    await _deny_revoked_embed_tokens(*revoked_hashes)
+    await _deny_revoked_embed_tokens(db, *revoked_hashes)
 
     # Generate raw token
     raw_token = "et_" + secrets.token_urlsafe(32)
@@ -595,7 +620,7 @@ async def revoke_embed_token(
     await db.flush()
 
     # Best-effort cache invalidation
-    await _deny_revoked_embed_tokens(token.token_hash)
+    await _deny_revoked_embed_tokens(db, token.token_hash)
 
     return token
 
@@ -636,7 +661,7 @@ async def revoke_embed_tokens_by_map(
     # Best-effort cache invalidation — a cached positive entry must not outlive
     # the revocation (builder-audit #338 P0-01 acceptance: Redis positive cache does
     # not extend access).
-    await _deny_revoked_embed_tokens(*(token.token_hash for token in tokens))
+    await _deny_revoked_embed_tokens(db, *(token.token_hash for token in tokens))
 
     return len(tokens)
 
@@ -802,12 +827,34 @@ async def validate_embed_token_access(
     cache = get_cache()
     token: EmbedToken | None = None
 
-    # Check cache first
-    cached = await cache.get(cache_key)
-    if cached is not None:
-        if not cached.get("is_valid", False):
-            return False
+    # fix(#1778 codex r3): the generation every positive entry is stamped with.
+    # Read before the cache so a hit can be compared without a second
+    # round-trip; platform/cache/revocation.py says why a process-local answer
+    # is not enough here.
+    generation = await current_revocation_generation(db)
 
+    # Check cache first. security=True: a positive here decides access to
+    # private data, so it may only come from the store every worker shares.
+    cached = await cache.get(cache_key, security=True)
+    if cached is not None and not cached.get("is_valid", False):
+        return False
+
+    # fix(#1778 codex r3): an entry minted before the latest revocation is not
+    # evidence about the token now. A revoke performed while THIS worker could
+    # not reach Redis is invisible to it in every other way; this comparison is
+    # what makes it visible, because the generation advanced in the database,
+    # which is the store that stayed up.
+    #
+    # An entry with NO stamp fails this too, which is what an entry written by a
+    # pre-upgrade process looks like. The cost is one database re-validation per
+    # live token in the minutes after a rolling deploy, and the alternative
+    # (treating a missing stamp as current) would trust exactly the entries this
+    # cannot vouch for.
+    if cached is not None and cached.get("generation") != generation:
+        await cache.delete(cache_key)
+        cached = None
+
+    if cached is not None:
         # SEC-014: re-check expiry on every cache hit so a token cannot stay
         # valid for up to the 5-minute positive-cache TTL past its real
         # expires_at.  The cached dict now stores expires_at as an ISO string;
@@ -841,8 +888,11 @@ async def validate_embed_token_access(
         token = result.scalar_one_or_none()
 
         if token is None:
-            # Cache negative result
-            await cache.set(cache_key, {"is_valid": False}, ttl=300)
+            # Cache negative result. security=True keeps it out of the
+            # process-local fallback for symmetry with the positive; a denial
+            # would be safe there, but a store that only ever holds denials is
+            # one fewer thing for a future reader to reason about.
+            await cache.set(cache_key, {"is_valid": False}, ttl=300, security=True)
             return False
 
         allowed_origins = token.allowed_origins
@@ -862,7 +912,9 @@ async def validate_embed_token_access(
         # P0-01 exists to close. See the module note on
         # EMBED_TOKEN_REVOCATION_DENIAL_TTL_SECONDS.
         seconds_until_expiry = (token.expires_at - now).total_seconds()
-        cache_ttl = int(min(300, max(0, seconds_until_expiry)))
+        cache_ttl = int(
+            min(EMBED_TOKEN_POSITIVE_TTL_SECONDS, max(0, seconds_until_expiry))
+        )
         await cache.set_if_absent(
             cache_key,
             {
@@ -872,8 +924,14 @@ async def validate_embed_token_access(
                 "map_id": str(token.map_id),
                 "expires_at": token.expires_at.isoformat(),
                 "tenant_id": str(token.tenant_id) if token.tenant_id else None,
+                # fix(#1778 codex r3): the generation this decision was made
+                # under. A later read compares it and refuses an entry that
+                # predates a revocation, which is how a revoke performed on
+                # another worker during a Redis outage reaches this one.
+                "generation": generation,
             },
             ttl=cache_ttl,
+            security=True,
         )
 
     # Domain-locking check (before dataset scope check). Shares ONE policy
@@ -1101,6 +1159,6 @@ async def bulk_revoke_embed_tokens(
     await db.flush()
 
     # Best-effort cache invalidation
-    await _deny_revoked_embed_tokens(*(token.token_hash for token in tokens))
+    await _deny_revoked_embed_tokens(db, *(token.token_hash for token in tokens))
 
     return len(tokens)

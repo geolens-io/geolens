@@ -84,9 +84,25 @@ class TestClientIsLoopback:
         assert embed_service._client_is_loopback(request) is False
 
 
+_TEST_GENERATION = 3
+
+
 class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
     """Phase 268 H-31: validate_embed_token_access must NOT honor a forged
     ``Origin: http://localhost`` from a non-loopback TCP peer."""
+
+    @pytest.fixture(autouse=True)
+    def _pin_revocation_generation(self, monkeypatch):
+        """fix(#1778 codex r3): a positive entry now carries the revocation
+        generation it was minted under, and one whose stamp is stale (or
+        missing) is refused and re-read from the database. These cases are about
+        the ORIGIN check on the cache-hit path, so they pin the generation and
+        stamp the entries they prime with the same value."""
+        monkeypatch.setattr(
+            embed_service,
+            "current_revocation_generation",
+            AsyncMock(return_value=_TEST_GENERATION),
+        )
 
     @pytest.mark.anyio
     async def test_remote_caller_forging_localhost_origin_is_rejected(
@@ -109,6 +125,7 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
                 "expires_at": (
                     datetime.now(timezone.utc) + timedelta(days=1)
                 ).isoformat(),
+                "generation": _TEST_GENERATION,
             }
         )
         cache.set = AsyncMock()
@@ -148,6 +165,7 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
                 "expires_at": (
                     datetime.now(timezone.utc) + timedelta(days=1)
                 ).isoformat(),
+                "generation": _TEST_GENERATION,
             }
         )
         cache.set = AsyncMock()
@@ -183,6 +201,7 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
                 "expires_at": (
                     datetime.now(timezone.utc) + timedelta(days=1)
                 ).isoformat(),
+                "generation": _TEST_GENERATION,
             }
         )
         cache.set = AsyncMock()

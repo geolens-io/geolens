@@ -171,6 +171,9 @@ async def _scope(request, allowed_origins: list[str] | None) -> set[uuid.UUID]:
 # --------------------------------------------------------------------------
 
 
+_TEST_GENERATION = 3
+
+
 async def _validate(request, allowed_origins: list[str] | None, monkeypatch) -> bool:
     """Drive validate_embed_token_access through its cache-hit path."""
     cache = AsyncMock()
@@ -182,11 +185,22 @@ async def _validate(request, allowed_origins: list[str] | None, monkeypatch) -> 
             "map_id": str(MAP_ID),
             "expires_at": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
             "tenant_id": None,
+            # fix(#1778 codex r3): a positive entry now carries the revocation
+            # generation it was minted under, and one whose stamp is stale (or
+            # missing) is refused and re-read from the database. This module is
+            # about the ORIGIN check on the cache-hit path, so it pins the
+            # generation and stamps the entry it primes with the same value.
+            "generation": _TEST_GENERATION,
         }
     )
     cache.set = AsyncMock()
     cache.delete = AsyncMock()
     monkeypatch.setattr(embed_service, "get_cache", lambda: cache)
+    monkeypatch.setattr(
+        embed_service,
+        "current_revocation_generation",
+        AsyncMock(return_value=_TEST_GENERATION),
+    )
     monkeypatch.setattr(
         embed_service, "map_contains_dataset", AsyncMock(return_value=True)
     )
@@ -204,6 +218,11 @@ async def _validate_cache_miss(
     cache.set = AsyncMock()
     cache.delete = AsyncMock()
     monkeypatch.setattr(embed_service, "get_cache", lambda: cache)
+    monkeypatch.setattr(
+        embed_service,
+        "current_revocation_generation",
+        AsyncMock(return_value=_TEST_GENERATION),
+    )
     monkeypatch.setattr(
         embed_service, "map_contains_dataset", AsyncMock(return_value=True)
     )

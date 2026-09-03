@@ -50,6 +50,10 @@ from app.platform.cache.memory import InMemoryCacheProvider
 pytestmark = pytest.mark.anyio
 
 
+# fix(#1778 codex r3): the generation the race cases pin themselves to.
+_TEST_GENERATION = 7
+
+
 def _raw_token() -> str:
     import secrets
 
@@ -71,11 +75,11 @@ class RaceCache(InMemoryCacheProvider):
         super().__init__()
         self.first_get_done = False
 
-    async def get(self, key: str):
+    async def get(self, key: str, *, security: bool = False):
         if not self.first_get_done:
             self.first_get_done = True
             return None
-        return await super().get(key)
+        return await super().get(key, security=security)
 
 
 def _active_token_row(map_id: uuid.UUID, dataset_id: uuid.UUID):
@@ -120,6 +124,15 @@ async def _validate_with(cache, raw, dataset_id, map_id) -> bool:
         patch(
             "app.modules.embed_tokens.service._bump_embed_token_usage_detached",
             AsyncMock(return_value=None),
+        ),
+        # fix(#1778 codex r3): these cases are about the NX race, not the
+        # revocation generation, and RaceCache's deliberately-missing first read
+        # would otherwise be spent on the generation lookup instead of the token.
+        # Pinned to a constant so the entry the racer publishes is stamped with
+        # the same value the reader compares against.
+        patch(
+            "app.modules.embed_tokens.service.current_revocation_generation",
+            AsyncMock(return_value=_TEST_GENERATION),
         ),
     ):
         result = await validate_embed_token_access(raw, dataset_id, db)
@@ -171,6 +184,7 @@ async def test_a_first_validation_still_publishes_its_positive_entry():
     assert cached is not None, "a clean cache miss must still prime the cache"
     assert cached["is_valid"] is True
     assert cached["scoped_dataset_ids"] == [str(dataset_id)]
+    assert cached["generation"] == _TEST_GENERATION
 
 
 class TestSetIfAbsent:
@@ -223,6 +237,8 @@ class TestDenialReachesEveryStore:
         # replay state __init__ sets up has to be seeded here too.
         provider._pending_authoritative = OrderedDict()
         provider._replay_lock = asyncio.Lock()
+        provider._was_open = False
+        provider._recovery_signal = False
         return provider
 
     async def test_a_revoke_denies_through_the_next_redis_outage(self, monkeypatch):
@@ -235,12 +251,16 @@ class TestDenialReachesEveryStore:
 
         token_hash = "a" * 64
         key = embed_service._embed_token_cache_key(token_hash)
+        # The revoke advances the generation; a scalar-answering session is all
+        # _deny_revoked_embed_tokens needs from the database here.
+        db = AsyncMock()
+        db.scalar = AsyncMock(return_value=_TEST_GENERATION)
 
         # 1. Redis was down; the validation result landed in the fallback.
         await provider._fallback.set(key, {"is_valid": True}, 300)
 
         # 2. Redis has recovered and the token is revoked.
-        await embed_service._deny_revoked_embed_tokens(token_hash)
+        await embed_service._deny_revoked_embed_tokens(db, token_hash)
         assert await provider.get(key) == {"is_valid": False}
 
         # 3. Redis blips again inside the entry's TTL.

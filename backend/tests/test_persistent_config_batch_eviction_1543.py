@@ -266,6 +266,8 @@ def redis_cache():
     # replay state __init__ sets up has to be seeded here too.
     provider._pending_authoritative = OrderedDict()
     provider._replay_lock = asyncio.Lock()
+    provider._was_open = False
+    provider._recovery_signal = False
     return provider
 
 

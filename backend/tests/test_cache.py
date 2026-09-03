@@ -99,6 +99,8 @@ def redis_cache():
     # replay state __init__ sets up has to be seeded here too.
     provider._pending_authoritative = OrderedDict()
     provider._replay_lock = asyncio.Lock()
+    provider._was_open = False
+    provider._recovery_signal = False
     return provider
 
 
@@ -148,6 +150,8 @@ async def test_redis_graceful_get_on_failure():
     # replay state __init__ sets up has to be seeded here too.
     provider._pending_authoritative = OrderedDict()
     provider._replay_lock = asyncio.Lock()
+    provider._was_open = False
+    provider._recovery_signal = False
     result = await provider.get("any_key")
     assert result is None
 
@@ -168,6 +172,8 @@ async def test_redis_graceful_set_on_failure():
     # replay state __init__ sets up has to be seeded here too.
     provider._pending_authoritative = OrderedDict()
     provider._replay_lock = asyncio.Lock()
+    provider._was_open = False
+    provider._recovery_signal = False
     # Should not raise
     await provider.set("any_key", "any_value", ttl=60)
 
@@ -212,6 +218,8 @@ def cb_redis():
     # replay state __init__ sets up has to be seeded here too.
     provider._pending_authoritative = OrderedDict()
     provider._replay_lock = asyncio.Lock()
+    provider._was_open = False
+    provider._recovery_signal = False
     return provider
 
 
@@ -470,6 +478,8 @@ async def test_a_failing_redis_delete_still_evicts_the_fallback():
     # replay state __init__ sets up has to be seeded here too.
     provider._pending_authoritative = OrderedDict()
     provider._replay_lock = asyncio.Lock()
+    provider._was_open = False
+    provider._recovery_signal = False
 
     await provider._fallback.set("embed_token:abc", {"is_valid": True}, 300)
     await provider.delete("embed_token:abc")
@@ -530,6 +540,8 @@ async def test_set_authoritative_still_lands_when_redis_is_down():
     # replay state __init__ sets up has to be seeded here too.
     provider._pending_authoritative = OrderedDict()
     provider._replay_lock = asyncio.Lock()
+    provider._was_open = False
+    provider._recovery_signal = False
 
     await provider.set_authoritative("k", {"is_valid": False}, 60)
     assert await provider._fallback.get("k") == {"is_valid": False}

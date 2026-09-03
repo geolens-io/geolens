@@ -87,13 +87,15 @@ class _MemoryCache:
     def __init__(self):
         self.values: dict[str, object] = {}
 
-    async def get(self, key: str):
+    async def get(self, key: str, *, security: bool = False):
         return self.values.get(key)
 
-    async def set(self, key: str, value: object, *, ttl: int):
+    async def set(self, key: str, value: object, *, ttl: int, security: bool = False):
         self.values[key] = value
 
-    async def set_if_absent(self, key: str, value: object, ttl: int = 300) -> bool:
+    async def set_if_absent(
+        self, key: str, value: object, ttl: int = 300, *, security: bool = False
+    ) -> bool:
         """fix(#1778): mirrors the provider contract: never overwrite."""
         if key in self.values:
             return False

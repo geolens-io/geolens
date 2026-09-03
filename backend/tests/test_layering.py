@@ -4944,7 +4944,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # breaker says is live, so a positive that landed in the in-memory fallback
     # during an outage survived a denial written after Redis recovered.
     # Cap 1100 -> 1106, exact.
-    "backend/app/modules/embed_tokens/service.py": 1106,
+    # fix(#1778 codex r3): +52. The fallback and the replay queue are
+    # PROCESS-local and production runs several Uvicorn workers, so a revoke on
+    # one worker during a Redis outage reached no other. Reads and writes of the
+    # validation entry now pass security=True (never answer an authorization
+    # positive from this worker's memory), every positive is stamped with the
+    # cluster-global revocation generation and compared against it on each hit,
+    # and the revoke paths advance that generation. Most of the lines are the
+    # comment on EMBED_TOKEN_POSITIVE_TTL_SECONDS, which names the residual this
+    # bounds rather than closes, plus the note on what an unstamped pre-upgrade
+    # entry does. Cap 1106 -> 1164, exact.
+    "backend/app/modules/embed_tokens/service.py": 1164,
     # fix(#1778): first entry for this module — it crossed the 1000-line
     # inclusion threshold on the property-filter typing. Property filters used
     # to bind the raw query-string value, so PostgreSQL had no
@@ -6982,3 +6992,90 @@ def test_cross_package_router_import_allowlist_is_current() -> None:
             "_CROSS_PACKAGE_ROUTER_IMPORT_BURNDOWN lists edges that no longer "
             "exist. Delete them — the list only shrinks.\n" + "\n".join(stale)
         )
+
+
+# fix(#1778 codex r3): every cache read that DECIDES ACCESS must be marked
+# security=True, so the layered provider refuses to answer it from this worker's
+# process-local fallback. The provider cannot tell an authorization decision
+# from a cached listing by looking at the value, so the marking is the contract
+# and this test is what keeps the marking honest.
+#
+# Phrased as a per-module rule rather than a repo-wide one on purpose. Sweeping
+# every `cache.get(` in backend/app/ and demanding the flag would be wrong: the
+# catalog and collection listings, the search cache and persistent config are
+# cached ANSWERS whose staleness is a correctness annoyance bounded by a TTL,
+# not a capability someone still holds. Adding a module here is the deliberate
+# act of saying "the values this module caches are decisions".
+_AUTHORIZATION_CACHE_MODULES: tuple[str, ...] = (
+    "backend/app/modules/embed_tokens/service.py",
+)
+
+
+@pytest.mark.architecture
+def test_authorization_cache_reads_are_security_scoped() -> None:
+    """Every cache get/set in an authorization module passes security=True.
+
+    ``set_authoritative`` is exempt: it is security-shaped by construction (it
+    writes a revocation into every store) and takes no flag.
+    """
+    import ast
+
+    offenders: list[str] = []
+    for rel in _AUTHORIZATION_CACHE_MODULES:
+        path = _backend_path(rel.removeprefix("backend/"))
+        source = path.read_text(encoding="utf-8")
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not isinstance(func, ast.Attribute):
+                continue
+            if func.attr not in {"get", "set", "set_if_absent"}:
+                continue
+            # Only calls on something named `cache`, which is what get_cache()
+            # is bound to everywhere in these modules.
+            if not (isinstance(func.value, ast.Name) and func.value.id == "cache"):
+                continue
+            flagged = any(
+                kw.arg == "security"
+                and isinstance(kw.value, ast.Constant)
+                and kw.value.value is True
+                for kw in node.keywords
+            )
+            if not flagged:
+                offenders.append(f"  {rel}:{node.lineno} cache.{func.attr}(...)")
+
+    if offenders:
+        pytest.fail(
+            "An authorization cache call is missing security=True, so a layered "
+            "provider may answer it from this worker's in-memory fallback. That "
+            "fallback cannot see a revoke another Uvicorn worker performed while "
+            "Redis was down (fix(#1778 codex r3)). Offending calls:\n"
+            + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_authorization_cache_guard_catches_a_seeded_violation() -> None:
+    """The guard above fails on an unflagged call, so a green run means something."""
+    import ast
+
+    seeded = "cache.get(cache_key)\ncache.set(k, v, ttl=1, security=True)\n"
+    found = []
+    for node in ast.walk(ast.parse(seeded)):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Attribute) or func.attr not in {"get", "set"}:
+            continue
+        flagged = any(
+            kw.arg == "security"
+            and isinstance(kw.value, ast.Constant)
+            and kw.value.value is True
+            for kw in node.keywords
+        )
+        if not flagged:
+            found.append(func.attr)
+    assert found == ["get"], (
+        "the seeded unflagged call was not detected, so the real guard is inert"
+    )
