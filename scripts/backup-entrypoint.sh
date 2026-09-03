@@ -92,6 +92,18 @@ run_backup() {
     [ "$(date '+%u')" = "7" ] && CYCLE_IS_WEEKLY=1
     local filename="${POSTGRES_DB}_${timestamp}.dump"
     local filepath="${DAILY_DIR}/${filename}"
+    # fix(#1778 review round 3, P1): declared here, before the FIRST early-exit
+    # candidate after the dump is published (the pg_restore verification
+    # below), so every failure between "dump published" and "retention" can
+    # record itself and fall through to retention instead of returning early.
+    # A `return` in that stretch used to skip prune_old_backups/
+    # prune_s3_prefix entirely — for a Sunday cycle whose weekly copy failed
+    # (typically a nearly full volume), that meant NEITHER daily nor weekly
+    # ever expired, so the next cycle ran out of space before it could prune
+    # either. dump_ok tracks whether $filepath itself is still there to copy
+    # or upload after a verification failure removes it.
+    local cycle_failed=0
+    local dump_ok=1
 
     # fix(#819): orphaned .tmp dumps (pg_dump killed mid-write) match no prune glob and
     # would accumulate forever; a new cycle starting means no dump is in
@@ -137,12 +149,19 @@ run_backup() {
     if ! pg_restore -f /dev/null < "$filepath" > /dev/null 2>&1; then
         log "ERROR: ${filename} failed verification (pg_restore could not read it) — discarding the corrupt dump"
         rm -f "$filepath"
-        return 1
+        # fix(#1778 review round 3, P1): mark failed and fall through to
+        # retention instead of returning — this dump is gone, but old dumps
+        # (local and offsite) still need pruning, and staging/globals for
+        # THIS cycle are independent of $filepath and can still succeed.
+        cycle_failed=1
+        dump_ok=0
+    else
+        log "Backup verified: ${filename} fully readable"
     fi
-    log "Backup verified: ${filename} fully readable"
 
-    # Weekly copy on Sundays
-    if [ "$CYCLE_IS_WEEKLY" -eq 1 ]; then
+    # Weekly copy on Sundays. Skipped when verification above already
+    # discarded the dump (dump_ok=0) — there is nothing left to copy.
+    if [ "$dump_ok" -eq 1 ] && [ "$CYCLE_IS_WEEKLY" -eq 1 ]; then
         # fix(#1778): same .tmp-then-rename as the daily dump and the weekly
         # globals copy — a container killed mid-cp (OOM, `compose stop`,
         # ENOSPC) would otherwise leave a truncated file under the final
@@ -152,9 +171,15 @@ run_backup() {
             || ! mv "${WEEKLY_DIR}/${filename}.tmp" "${WEEKLY_DIR}/${filename}"; then
             log "ERROR: could not write the weekly dump copy to ${WEEKLY_DIR}"
             rm -f "${WEEKLY_DIR}/${filename}.tmp"
-            return 1
+            # fix(#1778 review round 3, P1): mark failed and fall through —
+            # a nearly full volume is the typical cause, and the fix for
+            # that is retention pruning, which a `return` here used to skip
+            # for BOTH daily and weekly, letting the volume run out of space
+            # before it could ever prune either.
+            cycle_failed=1
+        else
+            log "Weekly copy saved: ${filename}"
         fi
-        log "Weekly copy saved: ${filename}"
     fi
 
     # BKP-01: archive the object-storage staging volume alongside the dump.
@@ -164,7 +189,10 @@ run_backup() {
     # `|| cycle_failed=1` also keeps `set -e` from aborting on the non-zero
     # command substitution. The cycle then exits non-zero and `.last-success`
     # is never touched, so the healthcheck sees the missed staging archive.
-    local cycle_failed=0
+    # cycle_failed is declared near the top of this function now (fix(#1778
+    # review round 3, P1)) — NOT re-declared `local` here, which would reset
+    # any failure the verification or weekly-copy steps above already
+    # recorded back to 0.
     local staging_archive=""
     staging_archive="$(backup_staging "$timestamp")" || cycle_failed=1
 
@@ -181,7 +209,12 @@ run_backup() {
     # below must still run so a transient S3 outage can't let them accumulate.
     if [ "$BACKUP_S3_ENABLED" = "true" ]; then
         local upload_failed=0
-        upload_to_s3 "$filepath" "daily/${filename}" || upload_failed=1
+        # fix(#1778 review round 3, P1): $filepath no longer exists when
+        # verification discarded it above (dump_ok=0) — nothing to upload,
+        # and not itself a new failure (already counted via cycle_failed).
+        if [ "$dump_ok" -eq 1 ]; then
+            upload_to_s3 "$filepath" "daily/${filename}" || upload_failed=1
+        fi
         if [ -n "$staging_archive" ]; then
             upload_to_s3 "$staging_archive" "daily/$(basename "$staging_archive")" || upload_failed=1
         fi
@@ -192,7 +225,9 @@ run_backup() {
             upload_to_s3 "$globals_dump" "daily/$(basename "$globals_dump")" || upload_failed=1
         fi
         if [ "$CYCLE_IS_WEEKLY" -eq 1 ]; then
-            upload_to_s3 "$filepath" "weekly/${filename}" || upload_failed=1
+            if [ "$dump_ok" -eq 1 ]; then
+                upload_to_s3 "$filepath" "weekly/${filename}" || upload_failed=1
+            fi
             if [ -n "$staging_archive" ]; then
                 upload_to_s3 "$staging_archive" "weekly/$(basename "$staging_archive")" || upload_failed=1
             fi
@@ -482,7 +517,16 @@ s3_list_prefix() {
         return 0
     fi
 
-    log "ERROR: could not list s3://${S3_BUCKET}/backups/${prefix}/ for retention pruning (exit ${rc}): $(cat "$err" 2>/dev/null) — offsite objects were not pruned this cycle"
+    # fix(#1778 review round 3, P2): this function's caller captures stdout
+    # via `ls_output="$(s3_list_prefix ...)"` — a bare `log` call here (the
+    # file's log() is a plain `echo`, no redirect) would be swallowed into
+    # that command substitution instead of reaching the container log, so
+    # the operator sees only the generic "offsite objects were not pruned"
+    # symptom with none of the diagnostic. Every log call in a function
+    # whose stdout is consumed by the caller (this one, backup_staging,
+    # backup_globals) must go to stderr for the same reason; the latter two
+    # already do.
+    log "ERROR: could not list s3://${S3_BUCKET}/backups/${prefix}/ for retention pruning (exit ${rc}): $(cat "$err" 2>/dev/null) — offsite objects were not pruned this cycle" >&2
     rm -f "$out" "$err"
     return 1
 }
@@ -627,13 +671,27 @@ prune_s3_prefix() {
         if [ "$count" -gt "$keep" ]; then
             local to_remove=$((count - keep))
             log "Pruning ${to_remove} old offsite backup(s) from s3://${S3_BUCKET}/backups/${prefix}/"
-            while IFS= read -r name; do
-                if ! aws s3 rm "s3://${S3_BUCKET}/backups/${prefix}/${name}" "${aws_args[@]}" > /dev/null; then
-                    log "ERROR: could not delete s3://${S3_BUCKET}/backups/${prefix}/${name}"
+            # fix(#1778 review round 3, P2): a dump whose `aws s3 rm` FAILED
+            # is still an object in S3 — it must not be dropped from the
+            # kept set below just because it was sliced off the candidate
+            # list for deletion. Before this fix, a failed dump deletion
+            # left the dump behind but its timestamp missing from `dumps`,
+            # so the orphan-companion pass right below read its globals/
+            # staging as orphaned and deleted them, turning a complete
+            # backup set into an incomplete one.
+            local -a failed_lines=()
+            while IFS=$'\t' read -r line_ts line_name; do
+                [ -n "$line_name" ] || continue
+                if ! aws s3 rm "s3://${S3_BUCKET}/backups/${prefix}/${line_name}" "${aws_args[@]}" > /dev/null; then
+                    log "ERROR: could not delete s3://${S3_BUCKET}/backups/${prefix}/${line_name}"
                     rm_failed=1
+                    failed_lines+=("${line_ts}	${line_name}")
                 fi
-            done < <(printf '%s\n' "$candidates" | head -n "$to_remove" | cut -f2)
+            done < <(printf '%s\n' "$candidates" | head -n "$to_remove")
             candidates="$(printf '%s\n' "$candidates" | tail -n "+$((to_remove + 1))")"
+            if [ "${#failed_lines[@]}" -gt 0 ]; then
+                candidates="$(printf '%s\n' "$candidates" "${failed_lines[@]}" | sed '/^$/d' | sort)"
+            fi
         fi
     fi
 

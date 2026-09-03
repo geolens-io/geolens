@@ -229,6 +229,72 @@ else
   rm -f "$PWNED_MARKER"
 fi
 
+# ============================================================================
+# CASE 4 — fix(#1778 review round 3, P2): Compose-compatible ${VAR}
+# interpolation. A valid Compose .env may write
+# COMPOSE_FILE="${DEPLOY_FILE}"; the plain quote/comment parsing above
+# returns that literally, `${DEPLOY_FILE}` and all, instead of the value
+# real Compose resolves there. get_env_value now interpolates
+# ${VAR}/$VAR/${VAR:-d}/${VAR-d}/${VAR:?m} against an earlier line in the
+# SAME file, then the process environment, leaving an unresolved reference
+# completely unchanged (Compose's own choice — expand to empty with a
+# warning — has no channel to reach an operator here; see the doc comment
+# on _env_interpolate in scripts/lib/common.sh for the full reasoning).
+# ============================================================================
+INTERP_ENV="$WORK/.env.interp"
+cat > "$INTERP_ENV" <<EOF
+DEPLOY_FILE=docker-compose.prod.yml
+COMPOSE_FILE="\${DEPLOY_FILE}"
+UNKNOWN_REF="prefix-\${TOTALLY_UNKNOWN_XYZ}-suffix"
+CHAINED_A=alpha
+CHAINED_B="\${CHAINED_A}-beta"
+FROM_ENV="\${GEOLENS_TEST_INTERP_VAR}"
+DOLLAR_PAREN_AGAIN=\$(touch $PWNED_MARKER)
+EOF
+rm -f "$PWNED_MARKER"
+
+INTERP_DRIVER="$WORK/interp_driver.sh"
+cat > "$INTERP_DRIVER" <<DRIVER
+#!/bin/sh
+set -eu
+. "$FAKE/scripts/lib/common.sh"
+for key in DEPLOY_FILE COMPOSE_FILE UNKNOWN_REF CHAINED_B FROM_ENV \\
+           DOLLAR_PAREN_AGAIN; do
+  printf '%s=[%s]\n' "\$key" "\$(get_env_value "\$key" "$INTERP_ENV")"
+done
+DRIVER
+INTERP_OUT="$(GEOLENS_TEST_INTERP_VAR=from-process-env sh "$INTERP_DRIVER" 2>&1)"
+
+_assert_interp_line() {
+  # $1 = expected "KEY=[value]" line, $2 = description
+  if printf '%s\n' "$INTERP_OUT" | grep -qxF "$1"; then
+    ok "$2"
+  else
+    bad "$2 (got: $(printf '%s\n' "$INTERP_OUT" | grep "^${1%%=*}=" || echo "<no line>"))"
+  fi
+}
+
+_assert_interp_line 'COMPOSE_FILE=[docker-compose.prod.yml]' \
+  "COMPOSE_FILE=\"\${DEPLOY_FILE}\" resolves against the earlier DEPLOY_FILE= line"
+_assert_interp_line 'UNKNOWN_REF=[prefix-${TOTALLY_UNKNOWN_XYZ}-suffix]' \
+  "an unresolved \${UNKNOWN} reference is left completely unchanged, not blanked"
+_assert_interp_line 'CHAINED_B=[alpha-beta]' \
+  "a chained reference (B references A) resolves within the bounded-pass loop"
+_assert_interp_line 'FROM_ENV=[from-process-env]' \
+  "a reference with no earlier-file definition falls back to the process environment"
+
+if printf '%s\n' "$INTERP_OUT" | grep -qxF 'DOLLAR_PAREN_AGAIN=[$(touch '"$PWNED_MARKER"')]'; then
+  ok "a \$(...) value survives interpolation as literal text too"
+else
+  bad "interpolation altered a \$(...) payload: $(printf '%s\n' "$INTERP_OUT" | grep '^DOLLAR_PAREN_AGAIN=')"
+fi
+if [ ! -e "$PWNED_MARKER" ]; then
+  ok "interpolation never executes a \$(...) payload"
+else
+  bad "interpolation executed a \$(...) payload"
+  rm -f "$PWNED_MARKER"
+fi
+
 echo "1..$((PASS + FAIL))"
 echo "# ${PASS} passed, ${FAIL} failed"
 [ "$FAIL" -eq 0 ]

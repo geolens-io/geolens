@@ -44,6 +44,17 @@ case "$1 $2" in
         ;;
     "s3 rm")
         echo "$3" >> "${AWS_STUB_DELETED_FILE}"
+        # fix(#1778 review round 3, P2) test support: a uniform
+        # AWS_STUB_RM_EXIT can't tell "the dump's own deletion failed" apart
+        # from "a companion's deletion was wrongly attempted" — both would
+        # just be one more failed rm. AWS_STUB_RM_FAIL_PATTERN fails only
+        # the object whose name contains it, so the two are distinguishable.
+        if [ -n "${AWS_STUB_RM_FAIL_PATTERN:-}" ]; then
+            case "$3" in
+                *"${AWS_STUB_RM_FAIL_PATTERN}"*) exit 1 ;;
+                *) exit 0 ;;
+            esac
+        fi
         exit "${AWS_STUB_RM_EXIT:-0}"
         ;;
     *)
@@ -136,6 +147,17 @@ echo '-- fake globals dump'
 exit 0
 """
 
+# fix(#1778 review round 3, P1): same portable shim
+# scripts/tests/test-backup-restore-roundtrip.sh already uses to force a
+# Sunday cycle without depending on the day the test happens to run — only
+# `+%u` is faked, every other format (the real timestamp naming the dump)
+# passes through to a real `date` binary.
+_DATE_STUB = """#!/bin/sh
+case "$*" in "+%u") echo 7; exit 0;; esac
+for real in /bin/date /usr/bin/date; do [ -x "$real" ] && exec "$real" "$@"; done
+exit 127
+"""
+
 
 def _run(
     tmp_path: Path,
@@ -144,6 +166,7 @@ def _run(
     ls_exit: int = 0,
     ls_stderr: str = "",
     rm_exit: int = 0,
+    rm_fail_pattern: str = "",
     with_credentials: bool = True,
 ) -> tuple[subprocess.CompletedProcess, list[str]]:
     bin_dir = tmp_path / "bin"
@@ -181,11 +204,85 @@ def _run(
             "AWS_STUB_DELETED_FILE": str(deleted_file),
             "AWS_STUB_LS_EXIT": str(ls_exit),
             "AWS_STUB_LS_STDERR": ls_stderr,
+            "AWS_STUB_RM_FAIL_PATTERN": rm_fail_pattern,
             "AWS_STUB_RM_EXIT": str(rm_exit),
         },
     )
     deleted = [line for line in deleted_file.read_text().splitlines() if line.strip()]
     return result, deleted
+
+
+def _run_prune_s3_prefix_with_real_log(
+    tmp_path: Path, ls_exit: int, ls_stderr: str
+) -> subprocess.CompletedProcess:
+    """Like _run() above, but keeps the SCRIPT's real log() — a plain
+    `echo "[$timestamp] $*"` with no redirect, i.e. stdout — instead of
+    _run's own test-only `log() { echo "$@" >&2; }` override. That override
+    sends every log call to stderr regardless of whether the call site in
+    the script does, which would make
+    test_listing_failure_diagnostic_reaches_stderr below pass on both fixed
+    and pre-fix code and prove nothing about fix(#1778 review round 3, P2).
+    Uses _extract_run_backup_definitions() purely for its real log() (same
+    extraction _run_full_cycle uses); S3 credentials are exported directly
+    so prune_s3_prefix can run standalone without a full run_backup cycle.
+    """
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    ls_file = tmp_path / "ls_output.txt"
+    ls_file.write_text("")
+    deleted_file = tmp_path / "deleted.txt"
+    deleted_file.write_text("")
+
+    aws_stub = bin_dir / "aws"
+    aws_stub.write_text(_AWS_STUB)
+    aws_stub.chmod(0o755)
+
+    harness = (
+        f"{_extract_run_backup_definitions()}\n"
+        'S3_BUCKET="test-bucket"\n'
+        'S3_ACCESS_KEY_ID="test-key"\n'
+        'S3_SECRET_ACCESS_KEY="test-secret"\n'
+        'prune_s3_prefix "daily" "2"\n'
+    )
+    return subprocess.run(
+        ["bash", "-c", harness],
+        capture_output=True,
+        text=True,
+        env={
+            "PATH": f"{bin_dir}:/usr/bin:/bin",
+            "BACKUP_DIR": str(tmp_path / "backups"),
+            "AWS_STUB_LS_FILE": str(ls_file),
+            "AWS_STUB_DELETED_FILE": str(deleted_file),
+            "AWS_STUB_LS_EXIT": str(ls_exit),
+            "AWS_STUB_LS_STDERR": ls_stderr,
+            "AWS_STUB_RM_FAIL_PATTERN": "",
+            "AWS_STUB_RM_EXIT": "0",
+        },
+    )
+
+
+class TestS3ListPrefixDiagnosticReachesStderr:
+    """fix(#1778 review round 3, P2): scripts/backup-entrypoint.sh:563 —
+    s3_list_prefix's caller captures its stdout via
+    `ls_output="$(s3_list_prefix ...)"`. A `log` call with no explicit
+    `>&2` at the call site (the script's real log() is a plain
+    unredirected `echo`) would be swallowed into that command substitution
+    instead of reaching the container's stdout/stderr log at all — the
+    operator would see only the generic "offsite objects were not pruned"
+    line from prune_s3_prefix, with the actual aws CLI error nowhere.
+    """
+
+    def test_listing_failure_diagnostic_reaches_stderr(self, tmp_path: Path):
+        result = _run_prune_s3_prefix_with_real_log(
+            tmp_path,
+            ls_exit=1,
+            ls_stderr="An error occurred (AccessDenied) when calling the ListObjectsV2 operation",
+        )
+        assert result.returncode != 0
+        assert "could not list" in result.stderr, (
+            "the listing-failure diagnostic did not reach stderr — got "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
 
 
 class TestPruneS3Prefix:
@@ -370,6 +467,38 @@ class TestPruneS3Prefix:
         assert deleted != []
         assert "could not delete" in result.stderr
 
+    def test_failed_dump_deletion_does_not_orphan_its_companions(self, tmp_path: Path):
+        """fix(#1778 review round 3, P2): with keep=2, 08-01 is the single
+        retention candidate (08-04 is protected as the newest complete set;
+        see test_protects_newest_complete_set_from_count_based_pruning) and
+        is pruned along with its globals/staging companions. Here the
+        08-01 DUMP's own `aws s3 rm` fails — AWS_STUB_RM_FAIL_PATTERN
+        targets only that one object, so if its companions' rm calls are
+        even attempted, they succeed and show up in `deleted`. Before this
+        fix, a failed dump deletion still dropped the dump's timestamp from
+        the kept set, so the very next loop read its companions as orphaned
+        and deleted them — a complete backup set losing its dump-deletion
+        race would end up with globals/staging but no dump, or worse here,
+        losing everything but the (still-present) dump."""
+        result, deleted = _run(
+            tmp_path,
+            keep="2",
+            rm_fail_pattern="geolens_20260801_020000.dump",
+        )
+        assert result.returncode != 0, (
+            "the dump deletion failure must still be reported"
+        )
+        assert (
+            "s3://test-bucket/backups/daily/geolens_20260801_020000.dump" in deleted
+        ), "the dump deletion itself was never attempted"
+        assert (
+            "s3://test-bucket/backups/daily/globals-20260801_020000.sql" not in deleted
+        ), "a companion was pruned as an orphan after its dump's rm failed"
+        assert (
+            "s3://test-bucket/backups/daily/staging-20260801_020000.tar.gz"
+            not in deleted
+        ), "a companion was pruned as an orphan after its dump's rm failed"
+
 
 def _run_full_cycle(
     tmp_path: Path, rm_exit: int = 0
@@ -459,3 +588,103 @@ class TestRunBackupS3PruneFailureMarksCycleFailed:
         result, marker = _run_full_cycle(tmp_path, rm_exit=0)
         assert result.returncode == 0, result.stderr
         assert marker.exists()
+
+
+def _run_weekly_copy_failure_cycle(
+    tmp_path: Path, weekly_dir_writable: bool = False
+) -> tuple[subprocess.CompletedProcess, Path, Path]:
+    """Runs a REAL Sunday run_backup() cycle (same extraction technique as
+    _run_full_cycle) with BACKUP_S3_ENABLED=false, so this isolates the
+    LOCAL retention path from the S3 path _run_full_cycle above already
+    covers. WEEKLY_DIR is made read-only by default so the weekly dump
+    copy's `cp` genuinely fails — the "nearly full volume" case
+    fix(#1778 review round 3, P1) describes — via the shell (not a mock),
+    the same way the CI-failure fix a commit ago used a real `aws s3 ls`
+    rather than stubbing the distinction. Three pre-existing daily dumps
+    with no globals companions (so none is a "complete" set eligible for
+    newest_complete_ts protection) are seeded old enough that
+    BACKUP_RETENTION_DAILY=1 must prune some of them once today's dump is
+    added, proving retention still runs.
+    """
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name, content in (
+        ("date", _DATE_STUB),
+        ("pg_dump", _PG_DUMP_STUB),
+        ("pg_restore", _PG_RESTORE_STUB),
+        ("pg_dumpall", _PG_DUMPALL_STUB),
+    ):
+        stub = bin_dir / name
+        stub.write_text(content)
+        stub.chmod(0o755)
+
+    backup_dir = tmp_path / "backups"
+    daily_dir = backup_dir / "daily"
+    weekly_dir = backup_dir / "weekly"
+    staging_dir = tmp_path / "no-such-staging-mount"
+
+    daily_dir.mkdir(parents=True)
+    for ts in ("20260101_020000", "20260102_020000", "20260103_020000"):
+        (daily_dir / f"geolens_{ts}.dump").write_text("old dump bytes\n")
+
+    extra_setup = "" if weekly_dir_writable else 'chmod 555 "$WEEKLY_DIR"\n'
+    harness = f"{_extract_run_backup_definitions()}\n{extra_setup}run_backup\n"
+    result = subprocess.run(
+        ["bash", "-c", harness],
+        capture_output=True,
+        text=True,
+        env={
+            "PATH": f"{bin_dir}:/usr/bin:/bin",
+            "BACKUP_DIR": str(backup_dir),
+            "STAGING_DIR": str(staging_dir),
+            "POSTGRES_DB": "geolens",
+            "POSTGRES_HOST": "db",
+            "POSTGRES_USER": "geolens",
+            "POSTGRES_PASSWORD": "test-password",
+            "BACKUP_RETENTION_DAILY": "1",
+            "BACKUP_RETENTION_WEEKLY": "4",
+            "BACKUP_S3_ENABLED": "false",
+        },
+    )
+    weekly_dir.chmod(0o755)  # let tmp_path teardown clean up regardless
+    return result, daily_dir, backup_dir / ".last-success"
+
+
+class TestWeeklyCopyFailureStillPrunesDaily:
+    """fix(#1778 review round 3, P1): scripts/backup-entrypoint.sh:155 — a
+    Sunday cycle whose weekly copy fails (typically a nearly full volume)
+    used to `return` immediately, skipping prune_old_backups/prune_s3_prefix
+    for BOTH daily/ and weekly/ entirely. The next cycle then ran out of
+    space before it could ever prune either. The fix marks the cycle failed
+    and falls through to retention, matching how the staging/globals paths
+    already behaved.
+    """
+
+    def test_weekly_copy_failure_still_prunes_daily_and_reports_failed(
+        self, tmp_path: Path
+    ):
+        result, daily_dir, marker = _run_weekly_copy_failure_cycle(tmp_path)
+        assert result.returncode != 0, (
+            "a failed weekly copy must fail the cycle: " + result.stdout
+        )
+        assert not marker.exists(), (
+            ".last-success was touched despite a failed weekly copy"
+        )
+        remaining = sorted(p.name for p in daily_dir.glob("*.dump"))
+        assert "geolens_20260101_020000.dump" not in remaining, (
+            "daily retention did not prune the oldest dump after a failed "
+            f"weekly copy — daily/ still holds: {remaining}"
+        )
+
+    def test_successful_weekly_copy_is_unaffected(self, tmp_path: Path):
+        """Positive control: with WEEKLY_DIR writable, the same cycle (same
+        retention config, same pre-seeded old dumps) succeeds outright —
+        proving the failure above comes from the read-only weekly copy, not
+        from some other part of the fixture."""
+        result, daily_dir, marker = _run_weekly_copy_failure_cycle(
+            tmp_path, weekly_dir_writable=True
+        )
+        assert result.returncode == 0, result.stdout
+        assert marker.exists()
+        remaining = sorted(p.name for p in daily_dir.glob("*.dump"))
+        assert "geolens_20260101_020000.dump" not in remaining

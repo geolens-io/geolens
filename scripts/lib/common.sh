@@ -38,6 +38,189 @@ need_command() {
   command -v "$1" >/dev/null 2>&1 || fail "$1 is required but was not found"
 }
 
+# fix(#1778 review round 3, P2): Compose-compatible ${VAR} interpolation for
+# unquoted and double-quoted .env values, without executing the file (the
+# whole point of get_env_value existing). A valid Compose .env may write
+# `COMPOSE_FILE="${DEPLOY_FILE}"`, and the plain awk extraction returned that
+# literally — `${DEPLOY_FILE}` and all — instead of the value real Compose
+# would resolve there.
+#
+# Supports ${VAR}, $VAR, ${VAR:-default}, ${VAR-default}, and ${VAR:?msg}.
+# Resolution precedence per reference, matching a top-to-bottom read of the
+# file: a value already parsed from an EARLIER line in the SAME .env file,
+# then the process environment. Bounded to a few passes so a chain
+# (A references B references C) resolves without looping forever on a
+# genuinely circular or unresolvable reference.
+#
+# A reference unresolved in both sources is left COMPLETELY UNCHANGED in the
+# output. Real Compose expands an unresolved reference to empty, with a
+# warning on stderr. This parser deliberately does NOT match that: it has no
+# channel to raise that warning where an operator driving `restore.sh` or
+# `check-env.sh` would see it, and silently collapsing a config value like
+# COMPOSE_FILE to empty on a typo'd reference is a worse failure mode (an
+# unreadable compose invocation, or a compose call against the wrong file)
+# than leaving the operator's literal, greppable `${TYPO}` in the value read
+# back — the same "don't guess at malformed input" policy the quote parsing
+# above already follows. `${VAR:?msg}` is resolved the same way as
+# `${VAR:-}` when VAR is unresolved (substituted with nothing) rather than
+# reproducing Compose's "abort the whole file load with `msg`" behavior —
+# that behavior has no meaning for a function that reads ONE key at a time,
+# and none of the keys these scripts read plausibly use this form.
+_ENV_INTERP_MAX_PASSES=5
+
+# Escapes a literal string for use as a sed BRE search pattern with `/` as
+# the delimiter.
+_env_sed_escape_pattern() {
+  printf '%s' "$1" | sed -e 's/[.[\*^$\/]/\\&/g'
+}
+
+# Escapes a literal string for use as a sed replacement with `/` as the
+# delimiter.
+_env_sed_escape_replacement() {
+  printf '%s' "$1" | sed -e 's/[&\/\\]/\\&/g'
+}
+
+# The 1-based line number of key's LAST `key=` definition in file, or 0 if
+# absent. A repeated key follows "last write wins", the same assumption
+# get_env_value's own single-match awk scan already makes implicitly for the
+# top-level lookup (it keeps scanning and only the last match survives via
+# `exit` never firing early... no — see get_env_value: it DOES exit on the
+# first match. This bound-lookup helper intentionally takes the LAST match
+# instead, so a same-cycle interpolation lookup and the top-level lookup
+# could in principle disagree on a file with a duplicate key; not a
+# realistic shape for this repo's .env, so left as the simpler behavior.)
+_env_line_of() {
+  key="$1"
+  file="$2"
+  awk -v k="$key" '
+    { pat = "^" k "="; if ($0 ~ pat) { n = NR } }
+    END { print n + 0 }
+  ' "$file"
+}
+
+# Raw (unprocessed — no quote/comment stripping) value of key, from the
+# LAST line strictly before line `before` (before=0 disables the bound).
+# Exits 1 (prints nothing) if key has no such definition, so the caller can
+# tell "defined here, value empty" apart from "not defined before this
+# line" and correctly fall through to the process environment.
+_env_raw_before() {
+  key="$1"
+  file="$2"
+  before="$3"
+  awk -v k="$key" -v before="$before" '
+    {
+      pat = "^" k "="
+      if ($0 ~ pat && (before == 0 || NR < before)) {
+        found = 1
+        val = substr($0, length(k) + 2)
+      }
+    }
+    END { if (found) { print val; exit 0 } else { exit 1 } }
+  ' "$file"
+}
+
+# Strips Compose .env quoting/escaping from a raw value — the same rules
+# get_env_value documents above, factored out so the interpolation
+# resolver below can apply them to an earlier-line value it looks up on
+# key's behalf. Unlike get_env_value, a malformed quote here is returned
+# as-is rather than specially flagged; the interpolation resolver treats a
+# reference to a malformed value as "resolved to this literal text", which
+# is the least surprising behavior available without a way to report the
+# malformed line separately from the reference that pointed at it.
+_env_dequote() {
+  raw="$1"
+  case "$raw" in
+    \"*)
+      if printf '%s' "$raw" | grep -qE '^"([^"\\]|\\.)*"[[:space:]]*(#.*)?$'; then
+        printf '%s' "$raw" \
+          | sed -E 's/^"(([^"\\]|\\.)*)".*$/\1/' \
+          | sed -E 's/\\(.)/\1/g'
+      else
+        printf '%s' "$raw"
+      fi
+      ;;
+    \'*)
+      if printf '%s' "$raw" | grep -qE "^'.*'[[:space:]]*(#.*)?\$"; then
+        printf '%s' "$raw" | sed -E "s/^'(.*)'[[:space:]]*(#.*)?\$/\1/"
+      else
+        printf '%s' "$raw"
+      fi
+      ;;
+    *)
+      printf '%s' "$raw" | sed -E -e 's/ #.*$//' -e 's/[[:space:]]+$//' -e 's/^[[:space:]]+//'
+      ;;
+  esac
+}
+
+# Resolves ${VAR...}/$VAR references in value per the precedence and the
+# unresolved-reference policy documented above. `file`/`before_line` scope
+# the "earlier lines in this file" half of that precedence — before_line is
+# the referencing key's OWN line, from _env_line_of, so a key can never
+# resolve a reference against itself or a later line.
+_env_interpolate() {
+  value="$1"
+  file="$2"
+  before_line="$3"
+  pass=0
+  while [ "$pass" -lt "$_ENV_INTERP_MAX_PASSES" ]; do
+    token="$(printf '%s' "$value" | grep -oE '\$\{[A-Za-z_][A-Za-z0-9_]*(:?[-?][^}]*)?\}|\$[A-Za-z_][A-Za-z0-9_]*' | head -n 1)"
+    [ -n "$token" ] || break
+
+    body="${token#\$}"
+    case "$body" in
+      "{"*"}")
+        body="${body#\{}"
+        body="${body%\}}"
+        ;;
+    esac
+    case "$body" in
+      *:-*) name="${body%%:-*}"; op=":-"; fallback="${body#*:-}" ;;
+      *:\?*) name="${body%%:\?*}"; op=":?"; fallback="${body#*:\?}" ;;
+      *-*) name="${body%%-*}"; op="-"; fallback="${body#*-}" ;;
+      *) name="$body"; op=""; fallback="" ;;
+    esac
+
+    have_value=0
+    resolved=""
+    if earlier="$(_env_raw_before "$name" "$file" "$before_line")"; then
+      resolved="$(_env_dequote "$earlier")"
+      have_value=1
+    elif eval "[ \"\${${name}+set}\" = set ]" 2>/dev/null; then
+      eval "resolved=\"\${${name}}\""
+      have_value=1
+    fi
+
+    if [ "$have_value" -eq 1 ]; then
+      # ${VAR:-default}: fall back only when VAR is set but EMPTY.
+      if [ "$op" = ":-" ] && [ -z "$resolved" ]; then
+        resolved="$fallback"
+      fi
+      # ${VAR-default} and ${VAR:?msg}: VAR is set (possibly to ""), so its
+      # value is used as-is — Compose's ${VAR-default} falls back only when
+      # VAR is UNSET, and ${VAR:?msg} only errors when VAR is unset/empty,
+      # neither of which applies once a value was actually found.
+      replacement="$resolved"
+    else
+      case "$op" in
+        ":-" | "-") replacement="$fallback" ;;
+        *) replacement="$token" ;; # bare ${VAR}/$VAR or ${VAR:?msg}: see policy above
+      esac
+    fi
+
+    if [ "$replacement" = "$token" ]; then
+      # Nothing left to substitute for this occurrence — stop instead of
+      # re-matching the same unresolved token every remaining pass.
+      break
+    fi
+
+    pat="$(_env_sed_escape_pattern "$token")"
+    rep="$(_env_sed_escape_replacement "$replacement")"
+    value="$(printf '%s' "$value" | sed "s/${pat}/${rep}/")"
+    pass=$((pass + 1))
+  done
+  printf '%s' "$value"
+}
+
 # Read a value from .env. Handles values containing `=` correctly (returns the
 # full remainder after the first `=`). Returns empty if the key is missing or
 # the value is empty. Reads from "$1" if given, else ./.env.
@@ -98,20 +281,26 @@ get_env_value() {
       # nothing, whitespace, or a `#comment`; anything else (including a
       # second, unrelated quoted chunk) is left alone as malformed.
       if printf '%s' "$raw" | grep -qE '^"([^"\\]|\\.)*"[[:space:]]*(#.*)?$'; then
-        printf '%s' "$raw" \
-          | sed -E 's/^"(([^"\\]|\\.)*)".*$/\1/' \
-          | sed -E 's/\\(.)/\1/g'
+        _env_value="$(
+          printf '%s' "$raw" \
+            | sed -E 's/^"(([^"\\]|\\.)*)".*$/\1/' \
+            | sed -E 's/\\(.)/\1/g'
+        )"
+        # fix(#1778 review round 3, P2): double-quoted values interpolate
+        # ${VAR}/$VAR references, matching Compose (only single-quoted
+        # values are literal there).
+        _env_interpolate "$_env_value" "$file" "$(_env_line_of "$key" "$file")"
       else
         printf '%s' "$raw"
       fi
       ;;
     \'*)
-      # Single-quoted values are literal in Compose — no escaping, so a
-      # single quote cannot appear inside one at all. `(.*)` is greedy and
-      # backtracks to the LAST `'` the trailing `[[:space:]]*(#.*)?$` can
-      # still match against, which is correct as long as any trailing
-      # comment contains no stray `'` of its own (an accepted limitation
-      # for the handful of keys these scripts read).
+      # Single-quoted values are literal in Compose — no escaping and no
+      # interpolation, so a single quote cannot appear inside one at all.
+      # `(.*)` is greedy and backtracks to the LAST `'` the trailing
+      # `[[:space:]]*(#.*)?$` can still match against, which is correct as
+      # long as any trailing comment contains no stray `'` of its own (an
+      # accepted limitation for the handful of keys these scripts read).
       if printf '%s' "$raw" | grep -qE "^'.*'[[:space:]]*(#.*)?\$"; then
         printf '%s' "$raw" | sed -E "s/^'(.*)'[[:space:]]*(#.*)?\$/\1/"
       else
@@ -119,7 +308,11 @@ get_env_value() {
       fi
       ;;
     *)
-      printf '%s' "$raw" | sed -E -e 's/ #.*$//' -e 's/[[:space:]]+$//' -e 's/^[[:space:]]+//'
+      _env_value="$(
+        printf '%s' "$raw" | sed -E -e 's/ #.*$//' -e 's/[[:space:]]+$//' -e 's/^[[:space:]]+//'
+      )"
+      # fix(#1778 review round 3, P2): unquoted values interpolate too.
+      _env_interpolate "$_env_value" "$file" "$(_env_line_of "$key" "$file")"
       ;;
   esac
 }
