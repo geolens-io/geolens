@@ -2529,6 +2529,16 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     generated). Leaving them was the worse option — a reader who trusts a
 #     stale precondition unwinds the wrong defence.
 _MODULE_LOC_CAPS: dict[str, int] = {
+    # fix(#1770 round 42): first entry, crossed _RATCHET_INCLUSION_LOC on the
+    # completeness-predicate unification. `_page_proves_complete` is the one
+    # function round 41's full-walk-only proof and round 42's sampled-preview
+    # mirror of it both call now, and `_end_of_chain`/`_sample_truncated` are
+    # the extractions that keep `_walk_pages` itself under ruff's C901
+    # ceiling rather than adding another exemption (the same reason
+    # `_resolve_conformance` was pulled out of `probe_ogcapi` in #1746).
+    # Most of the added lines are the docstrings recording the round 38-42
+    # history so a future reader does not re-derive it from the diff.
+    "backend/app/platform/service_items.py": 1033,
     # fix(#1758): the ArcGIS sign-in protocol, which crossed 1000 lines over
     # nine review rounds. What the growth bought, in order: the two-phase
     # split that resolves WHERE a password would go before any lock or budget

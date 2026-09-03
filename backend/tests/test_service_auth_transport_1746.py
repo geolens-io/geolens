@@ -6288,6 +6288,17 @@ class TestASampleThatExactlyFillsACollection:
     r24 reported the total as unknown whenever `written >= feature_limit`,
     which is also true of a collection holding exactly the sample size and
     ending there. That is a complete read, and its total is known.
+
+    fix(#1770 round 42): the tests above ask this question only where the
+    sample limit's own `written >= feature_limit` break fires -- a page at
+    least as large as the sample. A page SHORTER than the sample exhausts
+    naturally instead (Python's `for ... else`, never breaking), which used
+    to skip the completeness question entirely for a sampled walk: `links`
+    absent and no `numberMatched` there left `truncated` at its untouched
+    `False`, and the preview reported `written` -- the page's own row
+    count -- as the collection's total. `_page_proves_complete` (the single
+    predicate round 41 corrected for the full-walk case) now answers this
+    question too, at the SAME boundary, regardless of which door reached it.
     """
 
     def _transport(self, monkeypatch, handler):
@@ -6400,6 +6411,90 @@ class TestASampleThatExactlyFillsACollection:
         assert extract.features == 5
         # A link was offered, so the read is short; it was never followed.
         assert extract.total is None
+
+    async def test_a_short_page_with_no_links_no_total_is_unknown(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Pin, fix(#1770 round 42): the finding itself. Three features, a
+        sample of five (so the page exhausts naturally, never breaking on
+        the sample limit), `links` ABSENT ENTIRELY, no `numberMatched`.
+        Nothing here proves the collection actually holds only three -- a
+        service that merely forgot pagination is indistinguishable from
+        one that stopped there on purpose -- so the total must be unknown,
+        not the three rows this page happened to carry.
+        """
+        self._transport(
+            monkeypatch,
+            lambda request: (
+                httpx.Response(200, json=_collection_doc(None))
+                if not request.url.path.endswith("/items")
+                else _streamed(
+                    {
+                        "type": "FeatureCollection",
+                        "features": [_point(f"f{n}") for n in range(3)],
+                    }
+                )
+            ),
+        )
+
+        extract = await self._materialise(tmp_path, feature_limit=5)
+
+        assert extract.features == 3
+        assert extract.total is None
+
+    async def test_a_short_page_with_matching_number_matched_is_known(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Pin, fix(#1770 round 42): the other half of the same boundary.
+        Same shape as the finding above, except the page states
+        `numberMatched` equal to what it actually carries -- which IS proof,
+        so the total is known even with `links` absent entirely.
+        """
+        self._transport(
+            monkeypatch,
+            lambda request: (
+                httpx.Response(200, json=_collection_doc(None))
+                if not request.url.path.endswith("/items")
+                else _streamed(
+                    {
+                        "type": "FeatureCollection",
+                        "features": [_point(f"f{n}") for n in range(3)],
+                        "numberMatched": 3,
+                    }
+                )
+            ),
+        )
+
+        extract = await self._materialise(tmp_path, feature_limit=5)
+
+        assert extract.features == 3
+        assert extract.total == 3
+
+    async def test_a_full_walk_short_page_is_unaffected(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Control, fix(#1770 round 42): the same page shape -- `links`
+        absent, no `numberMatched` -- on a FULL walk (no `feature_limit`) is
+        exactly round 41's already-covered refusal, unchanged by anything
+        round 42 added to the sampled path."""
+        self._transport(
+            monkeypatch,
+            lambda request: (
+                httpx.Response(200, json=_collection_doc(None))
+                if not request.url.path.endswith("/items")
+                else _streamed(
+                    {
+                        "type": "FeatureCollection",
+                        "features": [_point(f"f{n}") for n in range(3)],
+                    }
+                )
+            ),
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
 
     async def test_number_matched_still_wins(self, monkeypatch, tmp_path) -> None:
         """What the service says beats what the walk inferred, either way."""

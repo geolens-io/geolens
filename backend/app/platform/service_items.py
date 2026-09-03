@@ -495,6 +495,165 @@ async def _resolve_items_url(
     return _with_page_size(href), size
 
 
+def _sample_truncated(
+    document: dict,
+    *,
+    landed_mid_page: bool,
+    observed: int,
+    number_matched: int | None,
+) -> bool | None:
+    """Whether a SAMPLED read that just broke out of its loop stopped short.
+
+    fix(#1770 round 42). Split out of `_walk_pages` to keep the branching in
+    one small function rather than pushing `_walk_pages` itself over the
+    complexity ceiling; see `_page_proves_complete` for the actual proof this
+    delegates to once it is worth asking.
+
+    `landed_mid_page` is unambiguous on its own: more sits right there, on
+    the very page just read, so `True` needs no further proof. Landing
+    exactly on the page's last feature is the one case worth asking
+    `_page_proves_complete` about, using `_has_next` (never raises on an
+    unparseable link) rather than `_next_href` (which can, appropriately,
+    when a link is actually about to be followed) since this link is never
+    going to be followed either way.
+    """
+    if landed_mid_page:
+        return True
+    complete = _page_proves_complete(
+        document,
+        has_next=_has_next(document),
+        observed=observed,
+        number_matched=number_matched,
+    )
+    return False if complete else None
+
+
+def _page_proves_complete(
+    document: dict,
+    *,
+    has_next: bool,
+    observed: int,
+    number_matched: int | None,
+) -> bool:
+    """Whether THIS page, with no next page left to follow, proves the walk
+    has reached the true end of the collection.
+
+    fix(#1770 round 42). One predicate, used at both places a walk can reach
+    this question: a FULL walk's natural end (round 38 P1, tightened round
+    40 P1, corrected round 41 P1), and a SAMPLED preview that happens to land
+    exactly on a page's last feature -- the same boundary, reached by a
+    different door. Before round 42 the sampled door asked a weaker,
+    page-local question (`index + 1 < len(features) or _has_next(document)`)
+    that could not see a service which omits BOTH `links` and `numberMatched`
+    on a page that also happens to be no bigger than the sample: nothing
+    stopped there noticing more was possible, so the preview reported
+    `written` as the collection's total and re-upload's schema diff turned
+    that into a delta against the real dataset the next time the service
+    changed size.
+
+    `has_next` True means there is more to follow, definitively -- neither
+    proof below can override a service that names a next page. `links`
+    PRESENT (even `[]`, even one carrying only `self`/`alternate`) with no
+    `next` in it is the service's own, unambiguous terminal-page signal, so
+    that proves completeness on its own. `links` ABSENT ENTIRELY means
+    nothing was said about pagination at all, so the only proof left is
+    `numberMatched` equal to what the walk has actually read (`observed`).
+
+    Callers pass `has_next` rather than resolving it here on purpose: the
+    full walk already validated and resolved the link via `_next_href`
+    (which can raise on an unparseable one, appropriately, since it is about
+    to be followed); a sampled preview that will never follow this link uses
+    `_has_next` instead, which only asks whether one is present and never
+    raises on a malformed href -- refusing a preview over a link it was
+    never going to use would turn "your preview is complete" into a failure.
+    """
+    if has_next:
+        return False
+    if "links" in document:
+        return True
+    return number_matched is not None and number_matched == observed
+
+
+def _end_of_chain(
+    document: dict,
+    *,
+    from_url: str,
+    url: str,
+    feature_limit: int | None,
+    pages: int,
+    observed: int,
+    number_matched: int | None,
+    truncated: bool | None,
+) -> tuple[str | None, bool | None]:
+    """The page this walk's `for ... else` reaches without breaking early:
+    either another page to fetch, or the genuine end of the chain.
+
+    fix(#1770 round 42): extracted out of `_walk_pages` itself so the
+    branching that decides "was this really the end" lives in one place
+    judged on its own terms, rather than pushing `_walk_pages` over ruff's
+    C901 ceiling -- the same reason `_resolve_conformance` was extracted out
+    of `probe_ogcapi` in #1746; extraction is what this repo does about that
+    rather than another exemption.
+
+    Returns `(page_url, truncated)`. `page_url` is `following` unchanged --
+    the caller's own loop reads it exactly as before. `truncated` is the
+    incoming value, passed straight through, EXCEPT in the one case round 42
+    closes: a SAMPLED walk (`feature_limit is not None`) whose chain has
+    just genuinely ended (`following is None`, meaning the page this
+    function was called for held FEWER rows than `feature_limit`, so the
+    for-loop above exhausted it naturally instead of breaking on the sample
+    limit). There, `truncated` becomes this page's own completeness verdict
+    -- `False` if `_page_proves_complete` proves it, `None` (unknown) if it
+    does not -- rather than staying at whatever an EARLIER page's break
+    might have left it, which is what a preview whose walk crosses several
+    pages before naturally ending on the last one needs: the LAST page
+    decides, not a stale value an intermediate one wrote.
+
+    Raises `ItemFetchFailedError` for a `next` that leaves the origin, or
+    (full walks only, first page only) one that cannot prove it is the last
+    one -- both unchanged from round 41.
+    """
+    following = _next_href(document, from_url)
+    if following is not None and not same_origin(url, following):
+        # The whole reason this module exists. The page chose the next
+        # address; it does not get to choose a different service to be paid
+        # with this credential.
+        raise ItemFetchFailedError("next page leaves the origin")
+    if following is None and feature_limit is None and pages == 1:
+        # fix(#1770 round 38 P1, tightened round 40 P1, corrected round 41
+        # P1): a FULL walk ending on the FIRST page with no `next` must be
+        # able to PROVE it -- see `_page_proves_complete`'s own docstring
+        # for what counts as proof and why. `has_next=False`: this branch is
+        # reached only when `following is None` (the `if` above), i.e. no
+        # next was found.
+        provably_complete = _page_proves_complete(
+            document, has_next=False, observed=observed, number_matched=number_matched
+        )
+        if not provably_complete:
+            raise ItemFetchFailedError("collection may not be complete")
+        return following, truncated
+    if following is None and feature_limit is not None:
+        # fix(#1770 round 42): the SAMPLED-walk mirror of the branch above.
+        # Never refuses -- a preview stays usable regardless of what this
+        # page can prove -- but the total this walk eventually reports is
+        # honest only when `_page_proves_complete` actually proves it.
+        # `_sample_truncated` with `landed_mid_page=False`: `following is
+        # None` here means exactly what `_has_next(document)` would answer
+        # too, on the same `links` this page carries. No `pages == 1`
+        # restriction: `_require_links` already refuses an absent `links`
+        # member on every page past the first, so the predicate's
+        # `links`-absent branch is only ever reachable here on page one
+        # regardless, and the `links`-present branch needs no restriction
+        # at all.
+        return following, _sample_truncated(
+            document,
+            landed_mid_page=False,
+            observed=observed,
+            number_matched=number_matched,
+        )
+    return following, truncated
+
+
 async def _walk_pages(
     client: httpx.AsyncClient,
     out,
@@ -504,15 +663,19 @@ async def _walk_pages(
     headers: dict,
     feature_limit: int | None,
     on_first_request: Callable[[], None] | None,
-) -> tuple[int, int, int | None, bool]:
+) -> tuple[int, int, int | None, bool | None]:
     """Follow the chain, writing features.
 
     Returns pages read, features written, what the service said the whole
     collection holds (fix(#1746 B2b review r24): a preview writes
     ``feature_limit`` features and nothing downstream could tell that apart
-    from a collection that small), and whether the walk stopped SHORT
-    (fix(#1746 B2b review r28): a collection holding exactly the sample size is
-    complete, and counting features could not say so).
+    from a collection that small), and whether the walk stopped SHORT --
+    `True`, `False`, or `None` (fix(#1746 B2b review r28): a collection
+    holding exactly the sample size is complete, and counting features could
+    not say so; fix(#1770 round 42): `None` when the page proves neither --
+    landed exactly on the sample size with nothing on the page to prove one
+    way or the other, so the honest answer is that the total is unknown, not
+    that it stopped short).
 
     The count-shaped invariants, complete
     -------------------------------------
@@ -564,6 +727,14 @@ async def _walk_pages(
        short pages ending in an empty `links` list is not this finding
        either way.
 
+       fix(#1770 round 42): the two-shape rule above is now `_page_proves_
+       complete`, a single function -- this branch was its only caller
+       before round 42, and a SAMPLED preview landing on exactly this same
+       boundary asks it too, rather than the page-local, weaker question
+       (`index + 1 < len(features) or _has_next(document)`) round 42's own
+       finding is about. See that function's docstring for the full
+       reasoning; nothing about what counts as proof changed here.
+
     ``observed`` is the sum of ``len(features)`` across every page this walk
     read, counted before a sample limit truncates what gets written (fix
     (#1746 B2b round 34)). ``written`` is bounded by ``feature_limit`` and can
@@ -593,7 +764,15 @@ async def _walk_pages(
     # cannot tell those apart: a collection holding exactly the sample size
     # satisfies it while being complete, and r24 then reported its total as
     # unknown. Only the site that breaks out of the loop knows which happened.
-    truncated = False
+    #
+    # fix(#1770 round 42): tri-state. Stays `False` for the whole function
+    # unless the sample limit actually breaks the loop -- a FULL walk
+    # (`feature_limit is None`) never touches it, which is what lets the
+    # total computation below read `feature_limit is None` as implying
+    # `not truncated`. `None` means the break happened but the page proved
+    # neither complete nor short: the honest total there is unknown, not a
+    # guess in either direction.
+    truncated: bool | None = False
     # fix(#1746 B2b review r17, moved r20, made once-ness r23): the origin is
     # contacted HERE, not by the subprocess, so this is the moment a caller
     # that dates origin contacts has to hear about. `fire_once` means the
@@ -666,71 +845,30 @@ async def _walk_pages(
             on_disk += len(chunk)
             written += 1
             if feature_limit is not None and written >= feature_limit:
-                # Short only if something was left: more features on this page,
-                # or another page on offer. Landing exactly on the last feature
-                # of the last page is a complete read that happens to be the
-                # size of the sample.
-                truncated = index + 1 < len(features) or _has_next(document)
+                # fix(#1770 round 42): `_sample_truncated` -- landing
+                # exactly on the page's last feature asks the same
+                # completeness predicate a full walk's natural end does,
+                # rather than the page-local, weaker question this used to
+                # ask on its own.
+                truncated = _sample_truncated(
+                    document,
+                    landed_mid_page=index + 1 < len(features),
+                    observed=observed,
+                    number_matched=number_matched,
+                )
                 page_url = None
                 break
         else:
-            following = _next_href(document, from_url)
-            if following is not None and not same_origin(url, following):
-                # The whole reason this module exists. The page chose the next
-                # address; it does not get to choose a different service to be
-                # paid with this credential.
-                raise ItemFetchFailedError("next page leaves the origin")
-            if following is None and feature_limit is None and pages == 1:
-                # fix(#1770 round 38 P1): the walk is about to conclude the
-                # FIRST page was also the last one, on a FULL walk -- the one
-                # shape nothing downstream can tell apart from a truncated
-                # read afterward. `_require_links` accepts a first page with
-                # no `links` at all (nothing was followed to get here yet, so
-                # nothing was decided from a link); that reads as "no next"
-                # the same way a real end-of-collection does. That is a shape
-                # check, not a completeness one, and it is right to keep
-                # tolerating the shape -- but tolerating the shape must not by
-                # itself mean tolerating the conclusion drawn from it.
-                #
-                # fix(#1770 round 40 P1): round 38 also accepted a page
-                # SHORTER than `limit=PAGE_SIZE` as proof on its own, reasoning
-                # that a server with more to give would have filled the page
-                # up to the limit this module asked for. That assumes the
-                # server's own page size is at least `PAGE_SIZE`, which is not
-                # this module's to assume: a server with a SMALLER server-side
-                # page size returns a page shorter than `PAGE_SIZE` while still
-                # having more to give, and one that also omits `links` and
-                # `numberMatched` left nothing here to catch it. `limit` is a
-                # ceiling this module asked for, never a promise the server
-                # fills it. Page length proves nothing on its own, on EITHER
-                # side of the check below -- that half of round 38 stays gone.
-                #
-                # fix(#1770 round 41 P1): round 40 over-corrected the OTHER
-                # way. A `links` member that IS PRESENT -- even `[]`, even one
-                # carrying only `self`/`alternate` -- is the service's own,
-                # unambiguous statement that it considered pagination and
-                # chose not to offer a `next`: `_next_href` already found none
-                # in it (`following is None` is why we are here at all), so
-                # there is nothing further this branch can learn by also
-                # demanding `numberMatched`. OGC API Features Part 1 makes
-                # `links` optional but `next`'s ABSENCE from a `links` array
-                # that exists is the spec's own terminal-page signal, and
-                # round 40 was refusing every server that follows it and
-                # simply has nothing else to say (no `numberMatched`) --
-                # which most conforming ones do. The proof this branch still
-                # owns is for the shape `_require_links` tolerates but does
-                # NOT itself vouch for: `links` ABSENT ENTIRELY, which reads
-                # as "no next" only because nothing was decided from a link
-                # that was never there to read. That is the one case where
-                # `numberMatched == observed` is still required, and where
-                # its absence still refuses.
-                has_links_member = "links" in document
-                provably_complete = has_links_member or (
-                    number_matched is not None and number_matched == observed
-                )
-                if not provably_complete:
-                    raise ItemFetchFailedError("collection may not be complete")
-            page_url = following
+            page_url, truncated = _end_of_chain(
+                document,
+                from_url=from_url,
+                url=url,
+                feature_limit=feature_limit,
+                pages=pages,
+                observed=observed,
+                number_matched=number_matched,
+                truncated=truncated,
+            )
     if page_url is not None:
         # fix(#1746 B2b review r18): the page cap was reached and the service
         # still had more to give. Closing the array here would return a prefix
@@ -871,7 +1009,7 @@ async def materialise_oapif_items(
         pages=pages,
         features=written,
     )
-    if number_matched is None and truncated:
+    if number_matched is None and truncated is not False:
         # fix(#1746 B2b review r24): the walk stopped short and the service did
         # not say how many features there are, so the only honest answer is
         # that the total is unknown. `written` would be the sample size, which
@@ -882,6 +1020,13 @@ async def materialise_oapif_items(
         # `written >= feature_limit`. The latter is also true of a collection
         # that holds exactly the sample size and ended, which is a complete
         # read: its total is known, and it is `written`.
+        #
+        # fix(#1770 round 42): `is not False` rather than truthy, now that
+        # `truncated` is tri-state. `True` (stopped short, unambiguous) and
+        # `None` (the page proved neither way) both mean the same thing
+        # here: nothing here can name the total, so it stays unknown. Only
+        # `False` -- the page itself proved there is nothing left -- lets
+        # `written` stand in for it below.
         total: int | None = None
     else:
         total = number_matched if number_matched is not None else written
