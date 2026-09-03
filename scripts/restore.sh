@@ -102,7 +102,27 @@ _dump_base="$(basename "$BACKUP_FILE")"
 # matched inside $POSTGRES_DB whenever the database name carried its own
 # 8-digit_6-digit run, silently sending every sibling lookup down the
 # unpaired-fallback path.
-_ts="$(printf '%s' "$_dump_base" | sed -nE 's/^.*_([0-9]{8}_[0-9]{6})(\..*)?$/\1/p' || true)"
+#
+# fix(#1778 round 19, P2 class): was `printf '%s' "$_dump_base" | sed -nE
+# '...p'`. `_dump_base` is `basename "$BACKUP_FILE"`, and the dump side of
+# that name is `${POSTGRES_DB}_<timestamp>.dump` — a POSTGRES_DB carrying an
+# embedded newline puts one inside `_dump_base` intact (basename does not
+# reject or strip it, and `$(...)` only strips a TRAILING newline, never an
+# internal one). sed then reads `_dump_base` as multiple lines and, with
+# `-n '...p'`, can print more than one match, so `$_ts` stops being a single
+# timestamp. The paired-artifact lookups just below (`${_dump_dir}/globals-
+# ${_ts}.sql`, and further down `${_dump_dir}/staging-${_ts}.tar.gz`) then
+# look for a path that does not exist and silently fall back to "unpaired"
+# — the same failure mode this comment already describes for the
+# grep-inside-POSTGRES_DB case, reached a different way. `[[ str =~ regex ]]`
+# matches the whole string in one shot, so an embedded newline can only make
+# the anchored pattern fail to match at all (same as any other name this
+# script cannot parse), never yield a second match.
+if [[ "$_dump_base" =~ ^.*_([0-9]{8}_[0-9]{6})(\..*)?$ ]]; then
+    _ts="${BASH_REMATCH[1]}"
+else
+    _ts=""
+fi
 
 # fix(#995): roles are cluster objects and travel in globals-<ts>.sql, never in
 # the dump. Report BEFORE the destructive --clean rather than after: replaying

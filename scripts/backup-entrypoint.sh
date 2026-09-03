@@ -660,9 +660,10 @@ for obj in data.get("Contents", []):
 # removed one, so with BACKUP_S3_ENABLED=true the offsite copies grow without
 # bound while RUNBOOK documents a fixed "N daily / N weekly" retention. This
 # mirrors that local policy against the S3 prefix: keep the newest `keep`
-# *.dump objects by their embedded timestamp (same sort key dump_listing
-# uses), then drop any *.sql/*.tar.gz companion whose paired dump is no
-# longer among the kept set (the S3 analogue of prune_orphaned_companions).
+# *.dump objects by their embedded timestamp (same sort key
+# dump_listing_arrays uses), then drop any *.sql/*.tar.gz companion whose
+# paired dump is no longer among the kept set (the S3 analogue of
+# prune_orphaned_companions).
 #
 # No new env var: this is gated by the same BACKUP_S3_ENABLED an operator
 # already opted into for the upload itself, and uses the same
@@ -689,13 +690,29 @@ for obj in data.get("Contents", []):
 # would have matched a `.dump` suffix trapped inside a DIFFERENT key's
 # embedded newline; a plain `[[ glob ]]` test against each parameter in
 # turn cannot cross a parameter boundary at all.
+#
+# fix(#1778 round 19, P2 class): timestamp extraction is a bash `=~` match
+# against the whole $name string, never a value piped into sed/grep/awk.
+# `name` is a bucket key, and a key built from POSTGRES_DB (the dump side of
+# this same listing) can carry an embedded newline. A line-oriented tool
+# reads that as MULTIPLE records — `sed -n '...p'` on a two-line string
+# prints every matching line, turning a single `$(...)` capture into a
+# multi-line $ts that then fails to equal a genuine single-line timestamp
+# anywhere it is compared. `[[ str =~ regex ]]` matches the ENTIRE string in
+# one shot with no line splitting, so an embedded newline can only ever make
+# the anchored ^...$ pattern fail to match at all — never produce a second,
+# spurious match. See prune_s3_prefix's ts extraction below for the exact
+# case this was reported against.
 s3_newest_complete_ts() {
     local name ts best="" n2 matched
     for name in "${@:-}"; do
         [ -n "$name" ] || continue
         if [[ "$name" == globals-*.sql ]]; then
-            ts="$(printf '%s' "$name" | sed -nE 's/^globals-([0-9]{8}_[0-9]{6})\.sql$/\1/p')"
-            [ -n "$ts" ] || continue
+            if [[ "$name" =~ ^globals-([0-9]{8}_[0-9]{6})\.sql$ ]]; then
+                ts="${BASH_REMATCH[1]}"
+            else
+                continue
+            fi
             matched=0
             for n2 in "${@:-}"; do
                 if [[ "$n2" == *"_${ts}.dump" ]]; then
@@ -800,15 +817,36 @@ prune_s3_prefix() {
     for name in "${all_names[@]:-}"; do
         [ -n "$name" ] || continue
         if [[ "$name" == *.dump ]]; then
-            # `sed -nE ...p` (not `grep -oE`) extracts the timestamp: this
-            # file runs under `set -euo pipefail`, and a `grep` that
-            # matches nothing exits 1 — on the ordinary "nothing to prune
-            # yet" cycle that would abort the whole backup, not just skip
-            # pruning. `sed -n` exits 0 regardless of whether anything
-            # matched, the same reason dump_listing() below uses `find`
-            # (never errors on zero matches).
-            ts="$(printf '%s' "$name" | sed -nE 's/^.*[_-]([0-9]{8}_[0-9]{6})\.dump$/\1/p')"
-            [ -n "$ts" ] || continue
+            # fix(#1778 round 19, P2): was `printf '%s' "$name" | sed -nE
+            # '...p'`. `name` is a bucket key derived from POSTGRES_DB
+            # (backup_globals writes `${POSTGRES_DB}_${timestamp}.dump`), so
+            # an embedded newline in POSTGRES_DB puts one inside `name`. sed
+            # processes its input line by line regardless of where that
+            # input came from: `evil_20250101_000000.dump\ngeo_20260101_00`
+            # `0000.dump` (one S3 key, one newline) reads as TWO lines, both
+            # matching the same anchored pattern, and `-n '...p'` prints
+            # both — `ts` becomes a two-line string
+            # "20250101_000000\n20260101_000000" instead of a single
+            # timestamp. That value then never string-equals `$protect`
+            # even when the real (second-line) timestamp is the protected
+            # one, so the protected complete dump falls into the ordinary
+            # count-based `dump_ts`/`dump_name` bucket instead of
+            # `protect_ts`/`protect_name` — at BACKUP_RETENTION_DAILY=1 a
+            # newer partial-upload cycle can then evict it, and the orphan
+            # pass right below deletes its now-unpaired globals file.
+            #
+            # `[[ str =~ regex ]]` matches the whole $name string in one
+            # shot — there is no per-line splitting to exploit, so an
+            # embedded newline can only make the anchored ^...$ pattern fail
+            # to match (name skipped, same as any other malformed key), never
+            # yield a second match. `[ -n "$ts" ] || continue` above (now the
+            # `else continue` arm) is unchanged: still exits 0 on "no
+            # match", never a hard error on the ordinary empty-listing cycle.
+            if [[ "$name" =~ ^.*[_-]([0-9]{8}_[0-9]{6})\.dump$ ]]; then
+                ts="${BASH_REMATCH[1]}"
+            else
+                continue
+            fi
             if [ -n "$protect" ] && [ "$ts" = "$protect" ]; then
                 protect_ts+=("$ts")
                 protect_name+=("$name")
@@ -895,8 +933,19 @@ prune_s3_prefix() {
     for name in "${all_names[@]:-}"; do
         [ -n "$name" ] || continue
         if [[ "$name" == *.sql || "$name" == *.tar.gz ]]; then
-            ts="$(printf '%s' "$name" | sed -nE 's/^.*[_-]([0-9]{8}_[0-9]{6})\.(sql|tar\.gz)$/\1/p')"
-            [ -n "$ts" ] || continue
+            # fix(#1778 round 19, P2 class): same site as the dump loop
+            # above — this key can be a globals-*.sql or staging-*.tar.gz
+            # companion, and while neither embeds POSTGRES_DB directly, this
+            # loop runs over the SAME $all_names listing that also holds
+            # POSTGRES_DB-derived dump keys, so the identical embedded-
+            # newline hazard applies to whatever key lands here. Matched with
+            # `[[ =~ ]]` against the whole string instead of piping through
+            # sed, for the same reason.
+            if [[ "$name" =~ ^.*[_-]([0-9]{8}_[0-9]{6})\.(sql|tar\.gz)$ ]]; then
+                ts="${BASH_REMATCH[1]}"
+            else
+                continue
+            fi
             local _found=0 _kt
             for _kt in "${kept_ts[@]:-}"; do
                 [ -n "$_kt" ] || continue
@@ -942,15 +991,67 @@ prune_s3_prefix() {
 # the oldest and be pruned first. Files whose name carries no timestamp are not
 # ours; they are neither counted nor deleted.
 #
-# Emits "<timestamp>\t<path>" lines, oldest first.
-dump_listing() {
+# fix(#1778 round 19, P2 class): used to return a newline-joined
+# "<ts>\t<path>" text blob, built by piping `find ... | while IFS= read -r
+# dump` through a sed timestamp extraction, then consumed downstream by
+# grep/wc/head/cut/while-read — the exact "line-oriented tool over an
+# env-derived value" shape prune_s3_prefix's S3 listing had before round 11
+# moved IT to parallel arrays (see the comment on prune_s3_prefix's own
+# array declarations above). The local path never got that treatment. A
+# dump filename is `${POSTGRES_DB}_${timestamp}.dump`, and a filesystem name
+# allows an embedded newline exactly as freely as an S3 key does — here it
+# bites even before the sed step: `find`'s own output is one pathname per
+# line, so a single file whose NAME contains a literal newline byte already
+# reads back as TWO separate `dump` values from `while IFS= read -r dump`,
+# before any text-processing tool downstream gets a chance to make it
+# worse.
+#
+# Populates the parallel DL_TS/DL_PATH globals instead (same naming pattern
+# as scripts/lib/common.sh's `_ern_*`/`_eir_*` out-parameters) — every step
+# (`find -print0`, the array append, the index-permutation sort
+# prune_s3_prefix uses below) treats one dump as one array element, never as
+# text a line-oriented tool could re-split. Oldest first, matching the old
+# return contract.
+dump_listing_arrays() {
     local dir="$1"
-    local dump ts
-    find "$dir" -maxdepth 1 -name "*.dump" -type f | while IFS= read -r dump; do
-        ts="$(printf '%s' "${dump##*/}" | sed -nE 's/^.*_([0-9]{8}_[0-9]{6})\.dump$/\1/p')"
-        [ -n "$ts" ] || continue
-        printf '%s\t%s\n' "$ts" "$dump"
-    done | sort
+    DL_TS=()
+    DL_PATH=()
+    local dump base ts
+    while IFS= read -r -d '' dump; do
+        base="${dump##*/}"
+        if [[ "$base" =~ ^.*_([0-9]{8}_[0-9]{6})\.dump$ ]]; then
+            ts="${BASH_REMATCH[1]}"
+        else
+            continue
+        fi
+        DL_TS+=("$ts")
+        DL_PATH+=("$dump")
+    done < <(find "$dir" -maxdepth 1 -name "*.dump" -type f -print0)
+
+    # Same NUL-safe index-permutation sort prune_s3_prefix uses (lines
+    # above): `sort` only ever sees "<timestamp> <index>" lines, both plain
+    # whitespace-free ASCII, never a path — the sorted index order then
+    # permutes DL_TS/DL_PATH in place.
+    if [ "${#DL_TS[@]}" -gt 0 ]; then
+        local _i sort_input=""
+        for ((_i = 0; _i < ${#DL_TS[@]}; _i++)); do
+            sort_input="${sort_input}${DL_TS[$_i]} ${_i}"$'\n'
+        done
+        local -a order=()
+        local _sts _sidx
+        while IFS=' ' read -r _sts _sidx; do
+            [ -n "$_sidx" ] || continue
+            order+=("$_sidx")
+        done < <(printf '%s' "$sort_input" | sort)
+        local -a sorted_ts=() sorted_path=()
+        for _i in "${order[@]:-}"; do
+            [ -n "$_i" ] || continue
+            sorted_ts+=("${DL_TS[$_i]}")
+            sorted_path+=("${DL_PATH[$_i]}")
+        done
+        DL_TS=("${sorted_ts[@]:-}")
+        DL_PATH=("${sorted_path[@]:-}")
+    fi
 }
 
 # fix(#995): the timestamp of the newest set that is COMPLETE — a dump with the
@@ -971,8 +1072,19 @@ newest_complete_ts() {
     local globals ts best=""
     for globals in "$dir"/globals-*.sql; do
         [ -f "$globals" ] || continue
-        ts="$(printf '%s' "${globals##*/}" | sed -nE 's/^globals-([0-9]{8}_[0-9]{6})\.sql$/\1/p')"
-        [ -n "$ts" ] || continue
+        # fix(#1778 round 19, P2 class): bash `=~` on the whole string, not
+        # a value piped into sed — see dump_listing_arrays's comment above
+        # for why. globals-*.sql is script-generated (never carries
+        # POSTGRES_DB), but every extraction site in this file is converted
+        # for the same reason prune_s3_prefix converted BOTH of its sites
+        # (round 19 reply): consistency, and no exemption that depends on
+        # "this particular filename happens not to embed operator input
+        # today."
+        if [[ "${globals##*/}" =~ ^globals-([0-9]{8}_[0-9]{6})\.sql$ ]]; then
+            ts="${BASH_REMATCH[1]}"
+        else
+            continue
+        fi
         find "$dir" -maxdepth 1 -name "*_${ts}.dump" -type f | grep -q . || continue
         if [ -z "$best" ] || [ "$ts" \> "$best" ]; then
             best="$ts"
@@ -985,9 +1097,8 @@ prune_old_backups() {
     local dir="$1"
     local keep="$2"
 
-    local listing
-    listing="$(dump_listing "$dir")"
-    [ -n "$listing" ] || return 0
+    dump_listing_arrays "$dir"
+    [ "${#DL_TS[@]}" -gt 0 ] || return 0
 
     # The protected set is held back IN ADDITION to the retention window, not
     # inside it: letting it occupy a slot would mean a retention of 1 keeps the
@@ -996,24 +1107,31 @@ prune_old_backups() {
     local protect
     protect="$(newest_complete_ts "$dir")"
 
-    local candidates
-    if [ -n "$protect" ]; then
-        candidates="$(printf '%s\n' "$listing" | grep -v "^${protect}	" || true)"
-    else
-        candidates="$listing"
-    fi
-    [ -n "$candidates" ] || return 0
+    # fix(#1778 round 19, P2 class): filters DL_TS/DL_PATH by array index,
+    # never by grepping a "<ts>\t<path>" text line — a $protect comparison
+    # against a validated, digits-only $ts (both sides guaranteed newline-
+    # free by dump_listing_arrays's own regex capture) can't be fooled by
+    # an embedded newline anywhere; there is no text stream left for one to
+    # hide in.
+    local -a cand_ts=() cand_path=()
+    local _i
+    for ((_i = 0; _i < ${#DL_TS[@]}; _i++)); do
+        if [ -n "$protect" ] && [ "${DL_TS[$_i]}" = "$protect" ]; then
+            continue
+        fi
+        cand_ts+=("${DL_TS[$_i]}")
+        cand_path+=("${DL_PATH[$_i]}")
+    done
+    [ "${#cand_ts[@]}" -gt 0 ] || return 0
 
-    local count
-    count="$(printf '%s\n' "$candidates" | wc -l | tr -d ' ')"
+    local count="${#cand_ts[@]}"
     [ "$count" -gt "$keep" ] || return 0
 
     local to_remove=$((count - keep))
     log "Pruning ${to_remove} old backup(s) from ${dir}"
-    printf '%s\n' "$candidates" | head -n "$to_remove" | cut -f2- | \
-        while IFS= read -r stale; do
-            rm -f "$stale"
-        done
+    for ((_i = 0; _i < to_remove; _i++)); do
+        rm -f "${cand_path[$_i]}"
+    done
 }
 
 # BKP-01 / fix(#995): companion artifacts (the object-storage archive and the
@@ -1038,10 +1156,15 @@ prune_orphaned_companions() {
         # Unmatched globs expand to themselves; -f skips those.
         [ -f "$companion" ] || continue
         base="$(basename "$companion")"
-        # Anchored at the end, like restore.sh's parse.
-        ts="$(printf '%s' "$base" | sed -nE 's/^.*-([0-9]{8}_[0-9]{6})\..*$/\1/p')"
-        # A name we cannot pair is left alone rather than guessed at.
-        [ -n "$ts" ] || continue
+        # Anchored at the end, like restore.sh's parse. fix(#1778 round 19,
+        # P2 class): bash `=~` on the whole string, not piped into sed — see
+        # dump_listing_arrays's comment above.
+        if [[ "$base" =~ ^.*-([0-9]{8}_[0-9]{6})\..*$ ]]; then
+            ts="${BASH_REMATCH[1]}"
+        else
+            # A name we cannot pair is left alone rather than guessed at.
+            continue
+        fi
         if ! find "$dir" -maxdepth 1 -name "*_${ts}.dump" -type f | grep -q .; then
             log "Pruning orphaned ${base} from ${dir} (its dump has aged out)"
             rm -f "$companion"

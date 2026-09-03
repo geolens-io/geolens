@@ -409,12 +409,27 @@ one is not. Command substitution here strips a trailing newline from the
 captured value the same way it always does; that only matters if one of
 these specific values were ever deliberately set to end in one (unlikely
 for a password, role name, or database name, but worth knowing if a value
-here ever looks truncated by exactly one trailing character):
+here ever looks truncated by exactly one trailing character).
+
+`scripts/env-value.sh` exits 1 with no output when the key has no line in
+`.env` at all — including the ordinary case of a value supplied purely
+through the process environment and deliberately left out of `.env`
+(`GEOLENS_RUNTIME_DB_ROLE=managed_reader` exported in this shell, say). An
+unconditional `VAR="$(scripts/env-value.sh KEY)"` does not distinguish that
+from a real failure: the assignment still runs, on a helper exit of 1, to an
+EMPTY string — blanking whatever this shell already had for `VAR` — and
+under `set -e` (common in a copy-pasted troubleshooting session) it aborts
+the snippet outright instead. Guard the assignment on the helper's own exit
+status, the same way `restore.sh`/`check-env.sh`/`upgrade.sh` guard
+`env_value_into` internally (see the comment above `env_value_into`'s
+definition in `scripts/lib/common.sh`): assign the real variable only
+inside the `if`, never on the failure branch, so a key absent from `.env`
+leaves this shell's existing value — inherited or default — untouched:
 
 ```bash
-GEOLENS_RUNTIME_DB_PASSWORD="$(scripts/env-value.sh GEOLENS_RUNTIME_DB_PASSWORD)"
-GEOLENS_RUNTIME_DB_ROLE="$(scripts/env-value.sh GEOLENS_RUNTIME_DB_ROLE)"
-POSTGRES_DB="$(scripts/env-value.sh POSTGRES_DB)"
+if _v="$(scripts/env-value.sh GEOLENS_RUNTIME_DB_PASSWORD)"; then GEOLENS_RUNTIME_DB_PASSWORD="$_v"; fi
+if _v="$(scripts/env-value.sh GEOLENS_RUNTIME_DB_ROLE)"; then GEOLENS_RUNTIME_DB_ROLE="$_v"; fi
+if _v="$(scripts/env-value.sh POSTGRES_DB)"; then POSTGRES_DB="$_v"; fi
 docker compose exec -T db env PGPASSWORD="$GEOLENS_RUNTIME_DB_PASSWORD" \
   psql -h 127.0.0.1 -U "$GEOLENS_RUNTIME_DB_ROLE" -d "$POSTGRES_DB" -c \
   "SELECT current_user, rolsuper, rolbypassrls, rolcreaterole,
@@ -542,9 +557,12 @@ extracts all three artifacts together), then replay it **before** `pg_restore`:
 ```bash
 # Load $POSTGRES_USER / $POSTGRES_DB via get_env_value (not shell-sourcing
 # .env — see the runtime-role verification note above for why, including
-# the trailing-newline caveat on command substitution here).
-POSTGRES_USER="$(scripts/env-value.sh POSTGRES_USER)"
-POSTGRES_DB="$(scripts/env-value.sh POSTGRES_DB)"
+# the trailing-newline caveat on command substitution here, and why the
+# assignment is guarded on the helper's own exit status rather than
+# unconditional — a key supplied only via the process environment and
+# absent from .env must not be blanked).
+if _v="$(scripts/env-value.sh POSTGRES_USER)"; then POSTGRES_USER="$_v"; fi
+if _v="$(scripts/env-value.sh POSTGRES_DB)"; then POSTGRES_DB="$_v"; fi
 
 # On the new cluster, BEFORE pg_restore. Substitute the timestamp of the dump
 # you are restoring; ./restore is where step 0 put the extracted artifacts.
