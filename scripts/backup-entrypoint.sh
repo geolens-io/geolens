@@ -517,35 +517,57 @@ prune_s3_prefix() {
             done | sort
     )"
 
+    # fix(#1778 review, P2): a `| while` loop runs in a SUBSHELL — a `local`
+    # variable set inside it (a failure flag) never reaches this function's
+    # own scope. Before this fix, `aws s3 rm` failing just logged an ERROR
+    # from *inside* that subshell and the loop (and therefore the pipeline,
+    # and therefore this function) still exited 0: `cycle_failed` in
+    # run_backup never got set, `.last-success` was touched, and the offsite
+    # bucket kept growing with the healthcheck reporting green. Both deletion
+    # loops below use `< <(...)` process substitution instead of `| while` —
+    # the loop body then runs in THIS shell, so `rm_failed=1` actually
+    # persists past the loop.
+    local rm_failed=0
     if [ -n "$dumps" ]; then
         local count
         count="$(printf '%s\n' "$dumps" | wc -l | tr -d ' ')"
         if [ "$count" -gt "$keep" ]; then
             local to_remove=$((count - keep))
             log "Pruning ${to_remove} old offsite backup(s) from s3://${S3_BUCKET}/backups/${prefix}/"
-            printf '%s\n' "$dumps" | head -n "$to_remove" | cut -f2 \
-                | while IFS= read -r name; do
-                    aws s3 rm "s3://${S3_BUCKET}/backups/${prefix}/${name}" "${aws_args[@]}" > /dev/null \
-                        || log "ERROR: could not delete s3://${S3_BUCKET}/backups/${prefix}/${name}"
-                done
+            while IFS= read -r name; do
+                if ! aws s3 rm "s3://${S3_BUCKET}/backups/${prefix}/${name}" "${aws_args[@]}" > /dev/null; then
+                    log "ERROR: could not delete s3://${S3_BUCKET}/backups/${prefix}/${name}"
+                    rm_failed=1
+                fi
+            done < <(printf '%s\n' "$dumps" | head -n "$to_remove" | cut -f2)
             dumps="$(printf '%s\n' "$dumps" | tail -n "+$((to_remove + 1))")"
         fi
     fi
     local kept_ts
     kept_ts="$(printf '%s\n' "$dumps" | cut -f1)"
 
-    printf '%s\n' "$ls_output" | awk '{print $NF}' \
-        | while IFS= read -r name; do
-            if [[ "$name" == *.sql || "$name" == *.tar.gz ]]; then
-                ts="$(printf '%s' "$name" | sed -nE 's/^.*[_-]([0-9]{8}_[0-9]{6})\.(sql|tar\.gz)$/\1/p')"
-                [ -n "$ts" ] || continue
-                if ! printf '%s\n' "$kept_ts" | grep -qx "$ts"; then
-                    log "Pruning orphaned s3://${S3_BUCKET}/backups/${prefix}/${name} (its dump aged out)"
-                    aws s3 rm "s3://${S3_BUCKET}/backups/${prefix}/${name}" "${aws_args[@]}" > /dev/null \
-                        || log "ERROR: could not delete s3://${S3_BUCKET}/backups/${prefix}/${name}"
+    while IFS= read -r name; do
+        if [[ "$name" == *.sql || "$name" == *.tar.gz ]]; then
+            ts="$(printf '%s' "$name" | sed -nE 's/^.*[_-]([0-9]{8}_[0-9]{6})\.(sql|tar\.gz)$/\1/p')"
+            [ -n "$ts" ] || continue
+            if ! printf '%s\n' "$kept_ts" | grep -qx "$ts"; then
+                log "Pruning orphaned s3://${S3_BUCKET}/backups/${prefix}/${name} (its dump aged out)"
+                if ! aws s3 rm "s3://${S3_BUCKET}/backups/${prefix}/${name}" "${aws_args[@]}" > /dev/null; then
+                    log "ERROR: could not delete s3://${S3_BUCKET}/backups/${prefix}/${name}"
+                    rm_failed=1
                 fi
             fi
-        done
+        fi
+    done < <(printf '%s\n' "$ls_output" | awk '{print $NF}')
+
+    # fix(#1778 review, P2): surface a partial-prune cycle to the caller so
+    # run_backup marks it failed (cycle_failed=1) — the same treatment a
+    # listing failure above already gets, and the same reason: retention
+    # that "mostly" ran and quietly leaves objects behind is the exact bug
+    # this function exists to fix.
+    if [ "$rm_failed" -eq 1 ]; then
+        return 1
+    fi
 }
 
 # ---------------------------------------------------------------------------

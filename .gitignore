@@ -51,6 +51,11 @@ dist/
 # dump carries the full contents of their database.
 backups/
 restore/
+
+# fix(#1778 review): scripts/upgrade.sh's local marker recording which
+# db/Dockerfile the db image was last built from (per-install state, not
+# source).
+.geolens-db-image-built-from
 *.dump
 
 # Audit-log retention archives. RUNBOOK section 8 tells operators to point

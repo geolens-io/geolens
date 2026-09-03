@@ -5,13 +5,37 @@ backend/frontend style-check recipes, and ARCHITECTURE.md's E2E policy line.
 
 from __future__ import annotations
 
+import re
+from urllib.parse import urlsplit
+
 from tests.repo_paths import repo_root
 
 REPO_ROOT = repo_root(__file__)
 
+_CODE_SPAN = re.compile(r"`([^`]+)`")
+
 
 def _read(rel_path: str) -> str:
     return (REPO_ROOT / rel_path).read_text(encoding="utf-8")
+
+
+def _doc_mentions_host(body: str, host: str) -> bool:
+    """True if a backtick-quoted code span in `body` names exactly `host`.
+
+    fix(#1778 review, CodeQL py/incomplete-url-substring-sanitization):
+    the previous `host in body` check is the exact shape that query flags —
+    a substring-containment test against a hostname-shaped literal, which a
+    same-prefix host (`host.evil.com`) or same-suffix host (`evil-host`)
+    could also satisfy. Extract each backtick code span, parse it with
+    urlsplit (a bare `host` and a full `scheme://host/path` both parse
+    correctly since a leading `//` is prepended when no scheme is present),
+    and compare `.hostname` for exact equality instead.
+    """
+    for token in _CODE_SPAN.findall(body):
+        candidate = token if "//" in token else f"//{token}"
+        if urlsplit(candidate).hostname == host:
+            return True
+    return False
 
 
 def test_egress_default_posture_does_not_overclaim_no_outbound_calls() -> None:
@@ -21,7 +45,7 @@ def test_egress_default_posture_does_not_overclaim_no_outbound_calls() -> None:
     # internet calls" full stop is false; only the server side makes none.
     assert "**no outbound internet calls**" not in body
     assert "no server-side outbound calls" in body
-    assert "tiles.openfreemap.org" in body
+    assert _doc_mentions_host(body, "tiles.openfreemap.org")
 
 
 def test_egress_basemaps_row_is_default_on_not_optional() -> None:

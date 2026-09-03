@@ -253,7 +253,6 @@ DB_CONF="db/postgresql.conf"
 DB_CONF_CHANGED=0
 DB_CONF_AT_TARGET=0
 DB_DOCKERFILE="db/Dockerfile"
-DB_DOCKERFILE_CHANGED=0
 if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
   if git fetch --depth 1 --quiet "$REPO_URL" "refs/tags/${TARGET_TAG}:refs/tags/${TARGET_TAG}" 2>/dev/null \
      || git fetch --tags --quiet "$REPO_URL" 2>/dev/null; then
@@ -329,7 +328,6 @@ if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; th
         elif git show "v${CURRENT_VERSION:-}:${DB_DOCKERFILE}" > "$_db_dockerfile_installed" 2>/dev/null \
              && cmp -s "$_db_dockerfile_installed" "$DB_DOCKERFILE"; then
           if git checkout --quiet "$TARGET_TAG" -- "$DB_DOCKERFILE" db/.dockerignore 2>/dev/null; then
-            DB_DOCKERFILE_CHANGED=1
             say "  ${DB_DOCKERFILE} synced to ${TARGET_TAG}"
           fi
         else
@@ -525,15 +523,58 @@ rollback_trap() {
 }
 trap rollback_trap EXIT
 
-# fix(#1778): a synced db/Dockerfile needs the local image REBUILT before
-# anything downstream (the migrate step, then the app) can use it — compose
-# pull at Step 5 never touched it (--ignore-buildable). Before the migrate
-# step, while the app is already stopped, so a migration that depends on a
-# newer base runs against the new image, not the stale one.
-if [ "$DB_DOCKERFILE_CHANGED" = "1" ]; then
-  say "Rebuilding the db image from the synced ${DB_DOCKERFILE}"
+# fix(#1778 review, P1): an earlier version of this fix gated the rebuild on
+# a DB_DOCKERFILE_CHANGED flag that only tracked whether THIS run's sync step
+# wrote a new file — not whether the local image was ever actually rebuilt
+# from it. A run that syncs db/Dockerfile and then fails before reaching the
+# build (compose pull failing is enough) leaves the target Dockerfile on disk
+# with the OLD image still installed. On retry, the sync comparison finds
+# disk already equal to the target blob and takes the "nothing to do"
+# branch, so that flag was 0 and the rebuild was skipped — migrations then
+# ran against the stale PostGIS/pgvector image with no earlier signal
+# anything was wrong.
+#
+# DB_IMAGE_BUILT_MARKER tracks image state instead of file-vs-target state: a
+# byte snapshot of the db/Dockerfile the LOCAL IMAGE was actually built from,
+# written only after `compose build db` succeeds. Comparing the on-disk
+# Dockerfile against that marker (not against the release blob) answers "does
+# the built image match what's on disk", regardless of how it got there or
+# which run last touched it. A cmp-based snapshot is used instead of a hash so
+# this needs no sha256sum/shasum dependency — the same reasoning the
+# content-vs-release-blob sync comparisons above already rely on. A missing
+# marker (fresh install of this script version, or the marker file was lost)
+# is treated as "needs rebuild": a one-time rebuild that hits Docker's build
+# cache when the image already matches, which establishes the marker going
+# forward.
+DB_IMAGE_BUILT_MARKER="$PROJECT_ROOT/.geolens-db-image-built-from"
+DB_IMAGE_NEEDS_REBUILD=0
+if [ -f "$DB_DOCKERFILE" ] \
+   && { [ ! -f "$DB_IMAGE_BUILT_MARKER" ] || ! cmp -s "$DB_IMAGE_BUILT_MARKER" "$DB_DOCKERFILE"; }; then
+  DB_IMAGE_NEEDS_REBUILD=1
+fi
+
+# fix(#1778): the local image needs REBUILDING before anything downstream
+# (the migrate step, then the app) can use it — compose pull at Step 5 never
+# touched it (--ignore-buildable). Before the migrate step, while the app is
+# already stopped, so a migration that depends on a newer base runs against
+# the new image, not the stale one.
+if [ "$DB_IMAGE_NEEDS_REBUILD" = "1" ]; then
+  say "Rebuilding the db image (db/Dockerfile differs from what the local image was last built from)"
   compose build db \
-    || fail "Could not rebuild the db image after syncing ${DB_DOCKERFILE}."
+    || fail "Could not rebuild the db image from ${DB_DOCKERFILE}."
+  # Record what was just built from, .tmp-then-mv so a container/host killed
+  # mid-write never leaves a truncated marker under the final name (the same
+  # reason every backup artifact in this repo writes state that way). Failing
+  # to record it is not fatal — it only costs a redundant, cache-hit rebuild
+  # on the next upgrade — but is surfaced so a repeatedly-rebuilding operator
+  # knows why.
+  if cp "$DB_DOCKERFILE" "${DB_IMAGE_BUILT_MARKER}.tmp" 2>/dev/null \
+     && mv "${DB_IMAGE_BUILT_MARKER}.tmp" "$DB_IMAGE_BUILT_MARKER" 2>/dev/null; then
+    :
+  else
+    rm -f "${DB_IMAGE_BUILT_MARKER}.tmp"
+    warn "Could not record the db image build marker at ${DB_IMAGE_BUILT_MARKER} — the next upgrade will rebuild again even if db/Dockerfile has not changed."
+  fi
   say ""
 fi
 
@@ -543,7 +584,7 @@ fi
 # fix(#1778): a rebuilt db image needs the same recreate to pick it up. Do it
 # before the migrate step, while the app is already stopped and the dump is
 # already taken, and wait for the healthcheck.
-if [ "$DB_CONF_CHANGED" = "1" ] || [ "$DB_DOCKERFILE_CHANGED" = "1" ]; then
+if [ "$DB_CONF_CHANGED" = "1" ] || [ "$DB_IMAGE_NEEDS_REBUILD" = "1" ]; then
   say "Recreating the db container"
   compose up -d --force-recreate --no-deps --wait db \
     || fail "Could not recreate the db container after syncing db/Dockerfile and/or ${DB_CONF}."

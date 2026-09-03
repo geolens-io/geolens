@@ -137,6 +137,82 @@ else
   bad "check-env.sh executed a command-substitution payload from .env"
 fi
 
+# ============================================================================
+# CASE 3 — fix(#1778 review, P2): get_env_value's raw awk extraction used to
+# return a Compose-quoted value WITH its quote characters still attached — a
+# legal, common .env line like COMPOSE_FILE="docker-compose.prod.yml" (or
+# POSTGRES_USER="geolens") came back as the 25-character string
+# `"docker-compose.prod.yml"`, quotes and all, silently breaking any caller
+# that put it in a path or SQL identifier. Compose itself strips exactly one
+# matching pair of quotes and, inside double quotes, unescapes \" and \\.
+# Drive get_env_value directly (not through restore.sh/check-env.sh, which
+# only exercise a handful of keys) against every shape Compose's env-file
+# reference documents, plus the $(...) payload again at the parser level —
+# the value must round-trip as inert text, never be evaluated.
+# ============================================================================
+QUOTE_ENV="$WORK/.env.quoting"
+cat > "$QUOTE_ENV" <<EOF
+DOUBLE_QUOTED="docker-compose.prod.yml"
+SINGLE_QUOTED='geolens'
+UNQUOTED=geolens
+DOUBLE_WITH_ESCAPES="a \"quoted\" value with \\\\backslash"
+UNQUOTED_WITH_COMMENT=value # trailing comment
+UNQUOTED_HASH_NO_SPACE=value#nothash
+EMPTY_DOUBLE=""
+EMPTY_SINGLE=''
+DOLLAR_PAREN=\$(touch $PWNED_MARKER)
+EOF
+rm -f "$PWNED_MARKER"
+
+QUOTE_DRIVER="$WORK/quote_driver.sh"
+cat > "$QUOTE_DRIVER" <<DRIVER
+#!/bin/sh
+set -eu
+. "$FAKE/scripts/lib/common.sh"
+for key in DOUBLE_QUOTED SINGLE_QUOTED UNQUOTED DOUBLE_WITH_ESCAPES \\
+           UNQUOTED_WITH_COMMENT UNQUOTED_HASH_NO_SPACE EMPTY_DOUBLE \\
+           EMPTY_SINGLE DOLLAR_PAREN; do
+  printf '%s=[%s]\n' "\$key" "\$(get_env_value "\$key" "$QUOTE_ENV")"
+done
+DRIVER
+QUOTE_OUT="$(sh "$QUOTE_DRIVER" 2>&1)"
+
+_assert_quote_line() {
+  # $1 = expected "KEY=[value]" line, $2 = description
+  if printf '%s\n' "$QUOTE_OUT" | grep -qxF "$1"; then
+    ok "$2"
+  else
+    bad "$2 (got: $(printf '%s\n' "$QUOTE_OUT" | grep "^${1%%=*}=" || echo "<no line>"))"
+  fi
+}
+
+_assert_quote_line 'DOUBLE_QUOTED=[docker-compose.prod.yml]' \
+  "a double-quoted value round-trips without its quotes"
+_assert_quote_line 'SINGLE_QUOTED=[geolens]' \
+  "a single-quoted value round-trips without its quotes"
+_assert_quote_line 'UNQUOTED=[geolens]' \
+  "an unquoted value is unaffected"
+_assert_quote_line 'DOUBLE_WITH_ESCAPES=[a "quoted" value with \backslash]' \
+  'double-quote escapes (\" and \\) unescape correctly'
+_assert_quote_line 'UNQUOTED_WITH_COMMENT=[value]' \
+  "an unquoted value's inline ' #comment' is stripped, matching Compose"
+_assert_quote_line 'UNQUOTED_HASH_NO_SPACE=[value#nothash]' \
+  "a '#' with no preceding space is literal, matching Compose"
+_assert_quote_line 'EMPTY_DOUBLE=[]' "an empty double-quoted value is empty, not two quote chars"
+_assert_quote_line 'EMPTY_SINGLE=[]' "an empty single-quoted value is empty, not two quote chars"
+
+if printf '%s\n' "$QUOTE_OUT" | grep -qxF 'DOLLAR_PAREN=[$(touch '"$PWNED_MARKER"')]'; then
+  ok "a \$(...) value is returned as literal text by get_env_value"
+else
+  bad "get_env_value did not return the \$(...) value as literal text: $(printf '%s\n' "$QUOTE_OUT" | grep '^DOLLAR_PAREN=')"
+fi
+if [ ! -e "$PWNED_MARKER" ]; then
+  ok "get_env_value never executes a \$(...) value while parsing quotes/escapes"
+else
+  bad "get_env_value executed a \$(...) payload while parsing"
+  rm -f "$PWNED_MARKER"
+fi
+
 echo "1..$((PASS + FAIL))"
 echo "# ${PASS} passed, ${FAIL} failed"
 [ "$FAIL" -eq 0 ]

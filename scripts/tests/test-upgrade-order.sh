@@ -321,6 +321,12 @@ seed_db_dockerfile() {
   printf '%s' "${1:-$_dockerfile_installed}" > "$FAKE/db/Dockerfile"
 }
 
+# Byte-identical to the git stub's DOCKERFILE_TARGET (the sync destination
+# content) — used by cases that model db/Dockerfile as already having been
+# synced to the target release.
+DOCKERFILE_TARGET_FOR_TESTS='FROM --platform=linux/amd64 postgis/postgis:17-3.6
+'
+
 run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
   _mode="$1"; shift
   make_stubs "$_mode"
@@ -675,6 +681,9 @@ unset DB_RUNNING_CONF
 # ============================================================================
 seed_prod_env
 seed_db_dockerfile
+# fix(#1778 review, P1): no build-state marker yet — this is the "never built
+# under the new tracking" starting point every case below is explicit about.
+rm -f "$FAKE/.geolens-db-image-built-from"
 DOCKERFILE_SYNC_TEST=1
 run_upgrade ok 1.2.4
 DOCKERFILE_SYNC_TEST=
@@ -704,13 +713,23 @@ if [ -n "$build_pos" ] && [ -n "$recreate_pos" ] && [ "$build_pos" -lt "$recreat
 else
   bad "recreate did not follow the rebuild (build=$build_pos recreate=$recreate_pos)"
 fi
+if [ -f "$FAKE/.geolens-db-image-built-from" ] \
+   && cmp -s "$FAKE/.geolens-db-image-built-from" "$FAKE/db/Dockerfile"; then
+  ok "a successful rebuild records the build marker matching the synced Dockerfile"
+else
+  bad "no build marker was recorded after a successful rebuild"
+fi
 
 # A db/Dockerfile the operator customized (matches neither the installed nor
 # the target release's blob) must be left alone, exactly like postgresql.conf.
+# It's already built (the marker matches it, as if built once at install
+# time), so it must not be needlessly rebuilt either.
 seed_prod_env
-seed_db_dockerfile 'FROM postgis/postgis:99-custom
+CUSTOM_DOCKERFILE='FROM postgis/postgis:99-custom
 # hand-patched by the operator
 '
+seed_db_dockerfile "$CUSTOM_DOCKERFILE"
+printf '%s' "$CUSTOM_DOCKERFILE" > "$FAKE/.geolens-db-image-built-from"
 DOCKERFILE_SYNC_TEST=1
 run_upgrade ok 1.2.4
 DOCKERFILE_SYNC_TEST=
@@ -721,9 +740,57 @@ else
   bad "upgrade clobbered a customized db/Dockerfile: $(cat "$FAKE/db/Dockerfile")"
 fi
 if [ -z "$(pos_of db_build)" ]; then
-  ok "no db rebuild when a customized db/Dockerfile was left alone"
+  ok "no db rebuild when a customized, already-built db/Dockerfile was left alone"
 else
-  bad "db was rebuilt even though the Dockerfile was not synced"
+  bad "db was rebuilt even though the built image already matched the on-disk Dockerfile"
+fi
+
+# ============================================================================
+# CASE 2f — fix(#1778 review, P1): a synced-but-never-built db/Dockerfile on
+# retry still triggers the build. Before this fix, the rebuild trigger
+# (DB_DOCKERFILE_CHANGED) only tracked whether the SYNC STEP wrote a new file
+# THIS run, not whether the local image was ever actually rebuilt — so a run
+# that synced db/Dockerfile and then failed before reaching the build (a
+# `compose pull` failure is enough) left the target file on disk with the OLD
+# image still installed. On retry, the sync comparison found disk already
+# equal to the target blob and skipped the checkout, so the rebuild was
+# skipped too, and migrations ran against the stale image with no signal.
+# Model exactly that: the target content is ALREADY on disk (as a prior
+# attempt's sync would leave it) and NO build marker exists (the prior
+# attempt never reached the build).
+# ============================================================================
+seed_prod_env
+seed_db_dockerfile "$DOCKERFILE_TARGET_FOR_TESTS"
+rm -f "$FAKE/.geolens-db-image-built-from"
+DOCKERFILE_SYNC_TEST=1
+run_upgrade ok 1.2.4
+DOCKERFILE_SYNC_TEST=
+
+if [ -n "$(pos_of db_build)" ]; then
+  ok "a synced-but-unbuilt db/Dockerfile on retry still triggers the build"
+else
+  bad "retry with a synced-but-unbuilt Dockerfile skipped the rebuild: calls=$(tr '\n' ',' < "$WORK/calls.log")"
+fi
+if [ -f "$FAKE/.geolens-db-image-built-from" ] \
+   && cmp -s "$FAKE/.geolens-db-image-built-from" "$FAKE/db/Dockerfile"; then
+  ok "the retry's rebuild records the build marker, ending the retry loop"
+else
+  bad "the retry did not record a build marker matching db/Dockerfile"
+fi
+
+# ...and once the marker matches what's on disk (the retry above succeeded),
+# a further run does not keep rebuilding forever.
+seed_prod_env
+seed_db_dockerfile "$DOCKERFILE_TARGET_FOR_TESTS"
+printf '%s' "$DOCKERFILE_TARGET_FOR_TESTS" > "$FAKE/.geolens-db-image-built-from"
+DOCKERFILE_SYNC_TEST=1
+run_upgrade ok 1.2.4
+DOCKERFILE_SYNC_TEST=
+
+if [ -z "$(pos_of db_build)" ]; then
+  ok "no perpetual rebuild once the build marker matches the on-disk Dockerfile"
+else
+  bad "db was rebuilt again despite the marker already matching db/Dockerfile"
 fi
 
 # ============================================================================

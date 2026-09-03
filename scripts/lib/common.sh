@@ -41,10 +41,35 @@ need_command() {
 # Read a value from .env. Handles values containing `=` correctly (returns the
 # full remainder after the first `=`). Returns empty if the key is missing or
 # the value is empty. Reads from "$1" if given, else ./.env.
+#
+# fix(#1778 review, P2): the awk extraction returns everything after the
+# first `=` VERBATIM — but Docker Compose's own .env parser (the one
+# `docker compose` itself uses to fill ${COMPOSE_FILE} etc. in the compose
+# files) does not treat that text as a bare string. A `.env` an operator
+# hand-edits with `COMPOSE_FILE="docker-compose.prod.yml"` or
+# `POSTGRES_USER="geolens"` is valid Compose syntax and resolves to the
+# unquoted value there, but used to come back from this function WITH the
+# quote characters attached, silently breaking every caller that put the
+# result in a path or SQL identifier. Apply the same rules Compose's
+# env-file reference documents:
+#   - a value wrapped in one matching pair of double or single quotes has
+#     the quotes stripped;
+#   - inside DOUBLE quotes, `\"` unescapes to `"` and `\\` unescapes to `\`
+#     (a single left-to-right `\X -> X` pass handles both without an
+#     ordering hazard between the two substitutions); single-quoted values
+#     are literal — Compose applies no escape processing inside them;
+#   - an UNQUOTED value's inline comment (a literal space then `#`, to end
+#     of line) is stripped and the result is whitespace-trimmed, matching
+#     Compose's own "inline comments for unquoted values must be preceded
+#     by a space" rule. A quoted value's `#` is always literal; comment
+#     stripping never applies once a value is quoted.
+# A malformed quote (opens but never closes) is left completely alone rather
+# than guessed at, the same policy this repo's content-vs-blob sync
+# comparisons already use for unparseable input.
 get_env_value() {
   key="$1"
   file="${2:-.env}"
-  awk -v k="$key" '
+  raw="$(awk -v k="$key" '
     {
       pat = "^" k "="
       if ($0 ~ pat) {
@@ -52,7 +77,31 @@ get_env_value() {
         exit
       }
     }
-  ' "$file"
+  ' "$file")"
+
+  case "$raw" in
+    \"*\")
+      if [ "${#raw}" -ge 2 ]; then
+        body="${raw#\"}"
+        body="${body%\"}"
+        printf '%s' "$body" | sed -E 's/\\(.)/\1/g'
+      else
+        printf '%s' "$raw"
+      fi
+      ;;
+    \'*\')
+      if [ "${#raw}" -ge 2 ]; then
+        body="${raw#\'}"
+        body="${body%\'}"
+        printf '%s' "$body"
+      else
+        printf '%s' "$raw"
+      fi
+      ;;
+    *)
+      printf '%s' "$raw" | sed -E -e 's/ #.*$//' -e 's/[[:space:]]+$//' -e 's/^[[:space:]]+//'
+      ;;
+  esac
 }
 
 # Replace `KEY=...` in .env (or append if missing). Pass the value via ENVIRON

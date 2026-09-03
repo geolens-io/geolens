@@ -75,6 +75,49 @@ def _extract_prune_s3_prefix() -> str:
     return match.group(0)
 
 
+def _extract_run_backup_definitions() -> str:
+    """Everything before the "# Entry point" section: variable defaults
+    (BACKUP_DIR/DAILY_DIR/WEEKLY_DIR/STAGING_DIR/... — all env-overridable,
+    which is what makes this fixture possible), the retention-value
+    validation, and every function run_backup() calls (backup_staging,
+    backup_globals, upload_to_s3, prune_old_backups,
+    prune_orphaned_companions, prune_s3_prefix, run_backup itself). Cutting
+    before "# Entry point" is what excludes the cron/sleep-loop dispatch —
+    everything kept here is a definition or an idempotent setup step (mkdir,
+    a retention check) driven entirely by the env this harness controls.
+    """
+    source = SCRIPT.read_text(encoding="utf-8")
+    marker_idx = source.index("# Entry point")
+    header_idx = source.rindex("# ---", 0, marker_idx)
+    return source[:header_idx]
+
+
+# Real commands run_backup() shells out to, none of which exist on a bare
+# test runner. Each stub does the minimal real filesystem work the calling
+# code depends on (pg_dump must actually create the file its caller `mv`s
+# into place) and nothing else.
+_PG_DUMP_STUB = """#!/bin/sh
+prev=""
+for arg in "$@"; do
+    if [ "$prev" = "-f" ]; then
+        printf 'fake dump bytes\\n' > "$arg"
+    fi
+    prev="$arg"
+done
+exit 0
+"""
+
+_PG_RESTORE_STUB = """#!/bin/sh
+cat > /dev/null
+exit 0
+"""
+
+_PG_DUMPALL_STUB = """#!/bin/sh
+echo '-- fake globals dump'
+exit 0
+"""
+
+
 def _run(
     tmp_path: Path,
     keep: str = "2",
@@ -179,3 +222,110 @@ class TestPruneS3Prefix:
         assert result.returncode != 0
         assert deleted == []
         assert "S3_BUCKET" in result.stderr
+
+    def test_rm_failure_is_reported_and_fails(self, tmp_path: Path):
+        """fix(#1778 review, P2): `aws s3 rm` failing inside either deletion
+        loop (retention pruning, then orphaned-companion pruning) used to
+        just log an ERROR and continue — both loops run in a `| while`
+        subshell, so a `local` failure flag set there never reached this
+        function's own scope, and the pipeline (and therefore this function)
+        still exited 0. Both loops now use `< <(...)` process substitution
+        so the loop body runs in THIS shell, and a failed deletion must make
+        this function return nonzero — the same treatment a listing failure
+        already gets."""
+        result, deleted = _run(tmp_path, keep="2", rm_exit=1)
+        assert result.returncode != 0
+        # The deletions were attempted (and reported) — this is not the
+        # missing-credentials early return, which never calls `aws` at all.
+        assert deleted != []
+        assert "could not delete" in result.stderr
+
+
+def _run_full_cycle(
+    tmp_path: Path, rm_exit: int = 0
+) -> tuple[subprocess.CompletedProcess, Path]:
+    """Runs the REAL run_backup() end to end (extracted from
+    scripts/backup-entrypoint.sh, same technique as _run above), stubbing
+    only the external commands it shells out to: aws (S3), pg_dump,
+    pg_restore, pg_dumpall. Everything else (mkdir, retention pruning,
+    file writes) is the real filesystem, real awk/sed/find/cut, real bash
+    control flow.
+    """
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    backup_dir = tmp_path / "backups"
+    staging_dir = tmp_path / "no-such-staging-mount"  # never created: skips cleanly
+
+    ls_file = tmp_path / "ls_output.txt"
+    ls_file.write_text(_LS_LISTING + "\n")
+    deleted_file = tmp_path / "deleted.txt"
+    deleted_file.write_text("")
+
+    for name, content in (
+        ("aws", _AWS_STUB),
+        ("pg_dump", _PG_DUMP_STUB),
+        ("pg_restore", _PG_RESTORE_STUB),
+        ("pg_dumpall", _PG_DUMPALL_STUB),
+    ):
+        stub = bin_dir / name
+        stub.write_text(content)
+        stub.chmod(0o755)
+
+    harness = f"{_extract_run_backup_definitions()}\nrun_backup\n"
+    result = subprocess.run(
+        ["bash", "-c", harness],
+        capture_output=True,
+        text=True,
+        env={
+            "PATH": f"{bin_dir}:/usr/bin:/bin",
+            "BACKUP_DIR": str(backup_dir),
+            "STAGING_DIR": str(staging_dir),
+            "POSTGRES_DB": "geolens",
+            "POSTGRES_HOST": "db",
+            "POSTGRES_USER": "geolens",
+            "POSTGRES_PASSWORD": "test-password",
+            # Matches _LS_LISTING's 4 dumps: keep=2 forces the S3 retention
+            # loop to actually attempt deletions, not just list an
+            # already-within-budget prefix.
+            "BACKUP_RETENTION_DAILY": "2",
+            "BACKUP_RETENTION_WEEKLY": "2",
+            "BACKUP_S3_ENABLED": "true",
+            "S3_BUCKET": "test-bucket",
+            "S3_ACCESS_KEY_ID": "test-key",
+            "S3_SECRET_ACCESS_KEY": "test-secret",
+            "AWS_STUB_LS_FILE": str(ls_file),
+            "AWS_STUB_DELETED_FILE": str(deleted_file),
+            "AWS_STUB_LS_EXIT": "0",
+            "AWS_STUB_RM_EXIT": str(rm_exit),
+        },
+    )
+    return result, backup_dir / ".last-success"
+
+
+class TestRunBackupS3PruneFailureMarksCycleFailed:
+    """fix(#1778 review, P2): the fix in TestPruneS3Prefix.
+    test_rm_failure_is_reported_and_fails proves prune_s3_prefix() itself
+    now returns nonzero on a failed deletion. These tests prove that
+    failure actually reaches run_backup()'s caller-visible signal — the
+    `.last-success` freshness marker the compose healthcheck reads — by
+    running a REAL (stub-backed) backup cycle end to end, not just the
+    prune function in isolation.
+    """
+
+    def test_rm_failure_leaves_last_success_untouched(self, tmp_path: Path):
+        result, marker = _run_full_cycle(tmp_path, rm_exit=1)
+        assert result.returncode != 0, result.stderr
+        assert not marker.exists(), (
+            "run_backup touched .last-success despite a failed S3 deletion — "
+            "the healthcheck would report this cycle healthy"
+        )
+        # The real log() (unlike _run's test-only override above) writes to
+        # stdout, not stderr.
+        assert "could not delete" in result.stdout
+
+    def test_successful_cycle_still_touches_last_success(self, tmp_path: Path):
+        """Positive control: the fix must not make an otherwise-healthy
+        cycle report unhealthy."""
+        result, marker = _run_full_cycle(tmp_path, rm_exit=0)
+        assert result.returncode == 0, result.stderr
+        assert marker.exists()

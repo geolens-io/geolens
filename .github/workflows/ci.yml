@@ -252,6 +252,18 @@ jobs:
               # CodeQL policy.
               - '.github/workflows/codeql.yml'
               - '.github/codeql/**'
+              # fix(#1778 review): test_ci_alembic_filter_paths.py's currency
+              # scan flagged these two — both are docstring cross-references
+              # (test_backup_entrypoint_atomic_writes.py names this script as
+              # the real end-to-end coverage its own structural checks stand
+              # in for; test_audit_1778_docs.py's EGRESS/CONTRIBUTING test
+              # names package.json while asserting Prettier isn't a frontend
+              # dependency), not files under test, but the scan cannot tell
+              # the two apart from a literal path string, deliberately — see
+              # its docstring, and the "last four entries" comment above for
+              # the same shape.
+              - 'scripts/tests/test-backup-restore-roundtrip.sh'
+              - 'frontend/package.json'
             frontend:
               - 'frontend/**'
               - 'backend/openapi.json'
