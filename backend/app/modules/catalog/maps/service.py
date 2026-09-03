@@ -15,6 +15,7 @@ from app.modules.catalog.maps.service_crud import (
     get_map_with_layers,
     list_maps,
     lock_map_for_asset_write,
+    map_asset_publication,
     new_map_asset_key,
     update_map,
 )
@@ -68,6 +69,7 @@ __all__ = [
     "delete_map",
     "discard_map_asset_objects",
     "lock_map_for_asset_write",
+    "map_asset_publication",
     "new_map_asset_key",
     "record_map_history_event",
     "list_map_history",

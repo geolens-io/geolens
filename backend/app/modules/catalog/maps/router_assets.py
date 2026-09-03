@@ -21,6 +21,7 @@ from app.modules.catalog.maps.sprites import (
     get_icon_content,
     list_icons,
 )
+from app.modules.catalog.maps.service import map_asset_publication
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC, FORBIDDEN_RESPONSE
 
 router = APIRouter()
@@ -49,18 +50,24 @@ async def upload_map_icon_endpoint(
 ) -> MapIconResponse:
     """Upload a reusable SVG or PNG icon for symbol layers."""
     content = await file.read()
-    try:
-        asset = await create_icon_asset(
-            db,
-            filename=file.filename,
-            content_type=file.content_type,
-            content=content,
-            created_by=user.id,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    await db.commit()
-    await db.refresh(asset)
+    # fix(#1778 round 4): the icon bytes and the row that names them are
+    # published together. This is the third write-object-then-commit-row site in
+    # the maps package, and the only one whose write and commit sit in different
+    # functions, so the ledger is threaded through create_icon_asset.
+    async with map_asset_publication() as published:
+        try:
+            asset = await create_icon_asset(
+                db,
+                filename=file.filename,
+                content_type=file.content_type,
+                content=content,
+                created_by=user.id,
+                published=published,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await db.commit()
+        await db.refresh(asset)
     return next(icon for icon in await list_icons(db) if icon.id == str(asset.id))
 
 

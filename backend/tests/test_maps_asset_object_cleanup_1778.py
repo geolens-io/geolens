@@ -631,3 +631,266 @@ class TestTheLockedReadIsNotStale:
 
         assert locked.thumbnail_uri == fresh_key
         await test_db_session.rollback()
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778 round 4): the cleanup's own failures stay inside it
+# ---------------------------------------------------------------------------
+
+
+def _break_liveness_read(monkeypatch) -> None:
+    """Make the post-commit liveness query raise, the way a blip would."""
+
+    async def _raise(session, map_id):
+        raise OSError("connection reset while re-reading the map row")
+
+    monkeypatch.setattr(
+        "app.modules.catalog.maps.service_crud._live_map_asset_keys", _raise
+    )
+
+
+class TestALiveNessReadFailureIsNotTheRequestsProblem:
+    """The read happens after the caller committed, so it cannot fail the call.
+
+    It is part of the best-effort cleanup, not part of the outcome. Letting it
+    escape turned a durable delete or upload into a 500 and invited a retry of
+    something that had already happened.
+    """
+
+    async def test_delete_still_answers_204_and_deletes_nothing(
+        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        map_id = await _create_map(client, admin_auth_header)
+        await client.put(
+            f"/maps/{map_id}/thumbnail/",
+            json={"data_uri": _jpeg_data_uri()},
+            headers=admin_auth_header,
+        )
+        key = await _the_object("maps/thumbnails", map_id)
+        _break_liveness_read(monkeypatch)
+
+        resp = await client.delete(f"/maps/{map_id}", headers=admin_auth_header)
+
+        assert resp.status_code == 204, resp.text
+        # The row delete committed; only the tidying was skipped.
+        assert (
+            await client.get(f"/maps/{map_id}", headers=admin_auth_header)
+        ).status_code == 404
+        assert await _storage().exists(key)
+
+    @pytest.mark.parametrize(
+        ("route", "prefix"),
+        [("thumbnail", "maps/thumbnails"), ("og-image", "maps/og-images")],
+    )
+    async def test_an_upload_still_answers_204_and_deletes_nothing(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        monkeypatch,
+        route: str,
+        prefix: str,
+    ) -> None:
+        map_id = await _create_map(client, admin_auth_header)
+        await client.put(
+            f"/maps/{map_id}/{route}/",
+            json={"data_uri": _jpeg_data_uri()},
+            headers=admin_auth_header,
+        )
+        first_key = await _the_object(prefix, map_id)
+        _break_liveness_read(monkeypatch)
+
+        resp = await client.put(
+            f"/maps/{map_id}/{route}/",
+            json={"data_uri": _png_data_uri()},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 204, resp.text
+        # The replacement committed and serves; the old object was left alone
+        # rather than deleted on a read that could not be trusted.
+        served = await client.get(f"/maps/{map_id}/{route}/", headers=admin_auth_header)
+        assert served.status_code == 200, served.text
+        assert await _storage().exists(first_key)
+        assert len(await _objects(prefix, map_id)) == 2
+
+    async def test_the_helper_itself_never_raises(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ) -> None:
+        from app.modules.catalog.maps.service import discard_map_asset_objects
+
+        map_id = await _create_map(client, admin_auth_header)
+        _break_liveness_read(monkeypatch)
+
+        await discard_map_asset_objects(
+            test_db_session, uuid.UUID(map_id), ["maps/thumbnails/whatever.jpg"]
+        )
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778 round 4): an object whose row never commits is rolled back
+# ---------------------------------------------------------------------------
+
+
+class TestAFailedPublishLeavesNoObject:
+    """`storage.put` succeeded, the row that names it did not.
+
+    Keys are never reused now, so without this every retry of a failing capture
+    added another undiscoverable object under `maps/`.
+    """
+
+    @pytest.mark.parametrize(
+        ("route", "prefix"),
+        [("thumbnail", "maps/thumbnails"), ("og-image", "maps/og-images")],
+    )
+    async def test_a_failing_capture_removes_the_object_it_wrote(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        monkeypatch,
+        route: str,
+        prefix: str,
+    ) -> None:
+        map_id = await _create_map(client, admin_auth_header)
+
+        async def _raise(db, map_id_arg, **columns):
+            raise OSError("commit failed after the object was written")
+
+        monkeypatch.setattr(
+            "app.modules.catalog.maps.router._record_image_capture", _raise
+        )
+
+        with pytest.raises(OSError):
+            await client.put(
+                f"/maps/{map_id}/{route}/",
+                json={"data_uri": _jpeg_data_uri()},
+                headers=admin_auth_header,
+            )
+
+        assert await _objects(prefix, map_id) == set()
+
+    async def test_every_retry_of_a_failing_capture_still_leaves_nothing(
+        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        map_id = await _create_map(client, admin_auth_header)
+
+        async def _raise(db, map_id_arg, **columns):
+            raise OSError("commit failed after the object was written")
+
+        monkeypatch.setattr(
+            "app.modules.catalog.maps.router._record_image_capture", _raise
+        )
+
+        for _ in range(3):
+            with pytest.raises(OSError):
+                await client.put(
+                    f"/maps/{map_id}/thumbnail/",
+                    json={"data_uri": _jpeg_data_uri()},
+                    headers=admin_auth_header,
+                )
+
+        assert await _objects("maps/thumbnails", map_id) == set()
+
+    async def test_a_previously_stored_image_survives_a_failed_replacement(
+        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        """The rollback removes the new key, never the one still on the row."""
+        map_id = await _create_map(client, admin_auth_header)
+        await client.put(
+            f"/maps/{map_id}/thumbnail/",
+            json={"data_uri": _jpeg_data_uri()},
+            headers=admin_auth_header,
+        )
+        stored = await _the_object("maps/thumbnails", map_id)
+
+        async def _raise(db, map_id_arg, **columns):
+            raise OSError("commit failed after the object was written")
+
+        monkeypatch.setattr(
+            "app.modules.catalog.maps.router._record_image_capture", _raise
+        )
+        with pytest.raises(OSError):
+            await client.put(
+                f"/maps/{map_id}/thumbnail/",
+                json={"data_uri": _png_data_uri()},
+                headers=admin_auth_header,
+            )
+
+        assert await _objects("maps/thumbnails", map_id) == {stored}
+        served = await client.get(
+            f"/maps/{map_id}/thumbnail/", headers=admin_auth_header
+        )
+        assert served.status_code == 200
+
+    async def test_a_failed_icon_commit_removes_the_icon_object(
+        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        """The third write-object-then-commit-row site in the package."""
+        before = set(await _storage().list("maps/icons/"))
+
+        async def _raise(self):
+            raise OSError("commit failed after the icon was written")
+
+        monkeypatch.setattr(
+            "sqlalchemy.ext.asyncio.AsyncSession.commit", _raise, raising=True
+        )
+
+        png = BytesIO()
+        from PIL import Image
+
+        Image.new("RGB", (8, 8), color=(1, 2, 3)).save(png, format="PNG")
+        with pytest.raises(OSError):
+            await client.post(
+                "/maps/icons",
+                files={"file": ("icon.png", png.getvalue(), "image/png")},
+                headers=admin_auth_header,
+            )
+
+        assert set(await _storage().list("maps/icons/")) == before
+
+
+def test_every_object_write_in_the_maps_package_is_published_1778() -> None:
+    """Enumerate the write-object-then-commit-row sites.
+
+    The reviewer asked for the sweep to be explicit rather than assumed. Walks
+    the package for calls to a storage provider's ``put`` and requires the
+    enclosing function either to open a publication or to record into one it was
+    handed, so a fourth writer cannot appear without a rollback path.
+    """
+    import ast
+    from pathlib import Path
+
+    package = Path(__file__).resolve().parents[1] / "app/modules/catalog/maps"
+    writers: dict[str, set[str]] = {}
+    for path in sorted(package.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            # The body only: `@router.put(...)` is a Call to an attribute
+            # named `put` too, and every route decorated with it would
+            # otherwise read as an object write.
+            body = [child for stmt in node.body for child in ast.walk(stmt)]
+            puts = any(
+                isinstance(child, ast.Call)
+                and isinstance(child.func, ast.Attribute)
+                and child.func.attr == "put"
+                for child in body
+            )
+            if not puts:
+                continue
+            names = {child.id for child in body if isinstance(child, ast.Name)} | {
+                child.arg for child in ast.walk(node.args) if isinstance(child, ast.arg)
+            }
+            writers[f"{path.name}::{node.name}"] = names
+
+    assert set(writers) == {
+        "router.py::upload_thumbnail",
+        "router.py::upload_og_image",
+        "sprites.py::create_icon_asset",
+    }, sorted(writers)
+    unguarded = [
+        where
+        for where, names in writers.items()
+        if "map_asset_publication" not in names and "published" not in names
+    ]
+    assert unguarded == [], unguarded

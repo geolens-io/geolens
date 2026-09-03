@@ -74,6 +74,7 @@ from app.modules.catalog.maps.service import (
     list_map_history,
     list_maps,
     lock_map_for_asset_write,
+    map_asset_publication,
     new_map_asset_key,
     record_map_history_event,
     remove_layer,
@@ -1060,16 +1061,24 @@ async def upload_thumbnail(
     previous_key = locked.thumbnail_uri
 
     storage = get_storage()
-    try:
-        await storage.put(_map_asset_storage_key(storage_key), image_bytes)
-    except Exception:  # broad: storage backend (S3/MinIO/local) can throw varied SDK/I/O errors; map to 502
-        logger.exception("thumbnail_upload_failed", map_id=str(map_id))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Thumbnail storage unavailable",
-        )
+    # fix(#1778 round 4): the object and the row that names it are published
+    # together. A failure in the update or the commit below would otherwise
+    # leave the image behind with nothing pointing at it, and since keys stopped
+    # being reused every retry would add another.
+    async with map_asset_publication() as published:
+        physical_key = _map_asset_storage_key(storage_key)
+        try:
+            await storage.put(physical_key, image_bytes)
+        except Exception:  # broad: storage backend (S3/MinIO/local) can throw varied SDK/I/O errors; map to 502
+            logger.exception("thumbnail_upload_failed", map_id=str(map_id))
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Thumbnail storage unavailable",
+            )
+        published.append(physical_key)
 
-    await _record_image_capture(db, map_id, thumbnail_uri=storage_key)
+        await _record_image_capture(db, map_id, thumbnail_uri=storage_key)
+
     if previous_key and previous_key != storage_key:
         await discard_map_asset_objects(db, map_id, [previous_key])
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -1203,16 +1212,23 @@ async def upload_og_image(
     previous_key = locked.og_image_uri
 
     storage = get_storage()
-    try:
-        await storage.put(_map_asset_storage_key(storage_key), image_bytes)
-    except Exception:  # broad: S3/MinIO/local storage can throw varied errors -> 502
-        logger.exception("og_image_upload_failed", map_id=str(map_id))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="OG image storage unavailable",
-        )
+    # fix(#1778 round 4): same publication guard as the thumbnail PUT above.
+    async with map_asset_publication() as published:
+        physical_key = _map_asset_storage_key(storage_key)
+        try:
+            await storage.put(physical_key, image_bytes)
+        except (
+            Exception
+        ):  # broad: S3/MinIO/local storage can throw varied errors -> 502
+            logger.exception("og_image_upload_failed", map_id=str(map_id))
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="OG image storage unavailable",
+            )
+        published.append(physical_key)
 
-    await _record_image_capture(db, map_id, og_image_uri=storage_key)
+        await _record_image_capture(db, map_id, og_image_uri=storage_key)
+
     if previous_key and previous_key != storage_key:
         await discard_map_asset_objects(db, map_id, [previous_key])
     return Response(status_code=status.HTTP_204_NO_CONTENT)

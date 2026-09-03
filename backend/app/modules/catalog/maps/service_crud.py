@@ -2,7 +2,8 @@
 
 import re
 import uuid
-from collections.abc import Iterable
+from collections.abc import AsyncIterator, Iterable
+from contextlib import asynccontextmanager
 from typing import cast
 
 import structlog
@@ -173,7 +174,22 @@ async def discard_map_asset_objects(
     candidates = {key for key in storage_keys if key}
     if not candidates:
         return
-    live = await _live_map_asset_keys(session, map_id)
+    try:
+        live = await _live_map_asset_keys(session, map_id)
+    except Exception:  # broad: any failure of the post-commit read
+        # fix(#1778 round 4): the liveness read is a database call made after the
+        # caller has already committed, so a transient failure here used to
+        # escape as a 500 for a delete or an upload that had durably succeeded,
+        # and the client would retry a thing that already happened. It is part
+        # of the best-effort cleanup, not part of the request's outcome. Without
+        # the read there is no way to tell a dead key from a live one, so the
+        # deletes are skipped: an object nothing points at costs storage, while
+        # deleting one the row still names costs the image.
+        logger.warning(
+            "map_asset_liveness_read_failed", map_id=str(map_id), exc_info=True
+        )
+        return
+
     for key in sorted(candidates - live):
         try:
             await get_storage().delete(resolve_current_storage_key(key))
@@ -183,6 +199,48 @@ async def discard_map_asset_objects(
             )
     for key in sorted(candidates & live):
         logger.info("map_asset_object_delete_skipped_still_referenced", storage_key=key)
+
+
+@asynccontextmanager
+async def map_asset_publication() -> AsyncIterator[list[str]]:
+    """Undo object writes when the row that would name them never commits.
+
+    fix(#1778 round 4): the upload handlers write the image and then record its
+    key on the map row. A failure between those two, in the update or in the
+    commit, left the object behind with nothing pointing at it, and since keys
+    stopped being reused every retry added another. Nothing in the backend
+    enumerates the ``maps/`` prefix, so those are not merely unreclaimed, they
+    are undiscoverable.
+
+    Yields the list a caller appends each PHYSICAL key to right after the write
+    that created it. Physical, not logical: the two writers resolve their keys
+    differently (map images cross ``resolve_current_storage_key`` into the tenant
+    prefix, sprite icons are deliberately global), and this cleanup deletes what
+    it is given rather than resolving anything itself. A key appended before its
+    write would delete an object that does not exist, which is harmless; a key
+    appended after the commit would never be cleaned, which is the mistake to
+    avoid.
+
+    Cleanup runs on any exception, including an HTTPException the handler raises
+    itself, and never replaces it: a failure to tidy up is logged and dropped so
+    the caller still sees what actually went wrong.
+    """
+    from app.platform.storage.provider import get_storage
+
+    published: list[str] = []
+    try:
+        yield published
+    except BaseException:
+        for physical_key in published:
+            try:
+                await get_storage().delete(physical_key)
+            except Exception:  # broad: storage backends raise varied errors
+                logger.warning(
+                    "map_asset_publication_rollback_failed",
+                    storage_key=physical_key,
+                    exc_info=True,
+                )
+        raise
 
 
 async def check_map_ownership(map_obj: Map, user: Identity, db: AsyncSession) -> None:

@@ -1628,7 +1628,17 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # it is easy to undo: every caller has already loaded the map, so an
         # entity select returns the identity-mapped instance and reads back the
         # keys from before the wait on the lock. Cap 606 -> 650, exact.
-        "backend/app/modules/catalog/maps/service_crud.py": 650,
+        # fix(#1778 round 4): +58. The post-commit liveness read moved inside
+        # the best-effort boundary, because it is a database call made after the
+        # caller already committed and a blip in it was turning a durable delete
+        # into a 500. And map_asset_publication, the rollback scope the three
+        # object writers in this package share. Most of it is the two rationales
+        # a later reader would otherwise undo: why skipping the deletes is the
+        # safe side of a failed liveness read, and why the ledger records
+        # physical keys rather than logical ones (map images resolve into the
+        # tenant prefix, sprite icons are deliberately global).
+        # Cap 650 -> 708, exact.
+        "backend/app/modules/catalog/maps/service_crud.py": 708,
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the
         # carve-out exact so further growth requires another review.
@@ -2258,7 +2268,12 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # `sprites_router`, mounted with ERROR_RESPONSES_PUBLIC directly on
     # api_router (api/router.py) as a sibling of the maps router rather than
     # a descendant. Cap 132 -> 142, exact.
-    "backend/app/modules/catalog/maps/router_assets.py": 142,
+    # fix(#1778 round 4): +7 — the icon upload publishes the object and its row
+    # inside one rollback scope. It is the third write-object-then-commit-row
+    # site in the package and the only one whose write and commit sit in
+    # different functions, so the comment records why the ledger is threaded
+    # through create_icon_asset. Cap 142 -> 149.
+    "backend/app/modules/catalog/maps/router_assets.py": 149,
     # fix(#526 B-048): the card-route SPA-redirect fallback shell.
     # fix(#819): visibility-check owner-or-admin gate + rationale docstring.
     # fix(#1518 codex P2 round 3): 398 -> 404. +6 to apply the rule once, ahead
@@ -4784,7 +4799,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # exists and holds 142 lines. Cap 1497 -> 1509, exact.
     # fix(#1778 round 3): +1 — the two image keys come from new_map_asset_key,
     # which never returns a name twice. Cap 1509 -> 1510, exact.
-    "backend/app/modules/catalog/maps/router.py": 1510,
+    # fix(#1778 round 4): +16 — both upload handlers publish the object and the
+    # row that names it inside one rollback scope, so a failure between the put
+    # and the commit does not leave an undiscoverable object under maps/.
+    # Cap 1510 -> 1526, exact.
+    "backend/app/modules/catalog/maps/router.py": 1526,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.
