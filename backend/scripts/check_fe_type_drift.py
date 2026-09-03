@@ -109,14 +109,6 @@ MAINTAINED_MODELS: list[str] = TENANT_BOUND_MODELS + [
 # ---------------------------------------------------------------------------
 
 KNOWN_DRIFT: dict[str, list[str]] = {
-    # MapResponse.og_image_url: open-graph image URL for map share previews.
-    # FE does not currently use it in the viewer; not displayed anywhere yet.
-    # TODO: wire to og_image_url when map share page is built.
-    "MapResponse": ["og_image_url"],
-    # JobStatusResponse: progress fields added in v1.0+; FE job-status polling
-    # only uses 'status' and 'error_message'; the polling loop doesn't render
-    # these. TODO: add to FE when progress UI is built.
-    "JobStatusResponse": ["current_step", "progress", "rows_processed"],
     # MapLayerDiffRequest.fallback_full_replace: backend field for diff fallback.
     # FE builder always sends a full diff; fallback path not needed in FE yet.
     # TODO: add to FE if incremental diff optimization ships.
@@ -157,12 +149,6 @@ KNOWN_DRIFT: dict[str, list[str]] = {
     # So message/next_step "missing" here is expected, not real drift.
     # TODO: dedupe by renaming one of the two backend RegisterResponse models.
     "RegisterResponse": ["message", "next_step"],
-    # DuplicateMapResponse: extends MapResponse in FE, so its inherited props
-    # mirror MapResponse exactly (including the og_image_url omission above).
-    # The BE schema for DuplicateMapResponse inlines all parent props, so
-    # og_image_url appears here too. Same root cause as MapResponse above.
-    # TODO: resolve together with MapResponse.og_image_url.
-    "DuplicateMapResponse": ["og_image_url"],
     # EmbedTokenCreatedResponse / AdminEmbedTokenResponse: FE uses 'extends'
     # inheritance — parent properties are inherited and NOT re-declared.
     # The checker resolves inheritance chains and these have no real drift.
@@ -271,6 +257,14 @@ class DriftReport:
     def has_new_drift(self) -> bool:
         return bool(self.new_drift)
 
+    def should_fail(self) -> bool:
+        """fix(#1778): a maintained model this checker could not compare at
+        all (absent from openapi.json or from the FE mirror) is exactly the
+        case the KNOWN_DRIFT allowlist cannot cover — silently skipping it
+        let a renamed/removed maintained model pass with zero output.
+        """
+        return bool(self.new_drift) or bool(self.skipped)
+
 
 def check_drift(
     model_names: list[str],
@@ -292,18 +286,24 @@ def check_drift(
             continue
 
         missing = sorted(be_props - fe_props)
+
+        # fix(#1778): compute "known drift now resolved" BEFORE the
+        # early-continue below. A model with ZERO current drift used to
+        # skip this block entirely, so a KNOWN_DRIFT entry for a model the
+        # FE mirror had fully caught up on was invisible to this reporter
+        # forever — the allowlist entry just sat there as a standing
+        # license to regress with no signal telling anyone to remove it.
+        known = KNOWN_DRIFT.get(name, [])
+        resolved = [p for p in known if p and p not in missing]
+        if resolved:
+            report.resolved_known_drift.append((name, resolved))
+
         if not missing:
             continue
 
         # Partition: known vs new drift
-        known = KNOWN_DRIFT.get(name, [])
         truly_known = [p for p in missing if p in known]
         new_missing = [p for p in missing if p not in known]
-
-        # Check if any previously known-drift props are now resolved
-        resolved = [p for p in known if p and p not in missing]
-        if resolved:
-            report.resolved_known_drift.append((name, resolved))
 
         if truly_known:
             report.known_drift.append((name, truly_known))
@@ -319,10 +319,20 @@ def check_drift(
 
 
 def _print_report(report: DriftReport, verbose: bool = False) -> None:
-    if report.skipped and verbose:
-        print("[SKIP] Models not checkable (absent from openapi.json or api.ts):")
+    if report.skipped:
+        # fix(#1778): printed unconditionally (not just under --verbose) —
+        # this now fails the build (DriftReport.should_fail()), so a
+        # skipped, uncomparable maintained model must be visible without
+        # needing to know to pass a flag; the pytest wrapper does not.
+        print(
+            "[FAIL] Maintained models not checkable (absent from openapi.json or api.ts):"
+        )
         for s in report.skipped:
             print(f"  - {s}")
+        print(
+            "  → A renamed/removed model must be updated here and in "
+            "MAINTAINED_MODELS, or removed from both."
+        )
         print()
 
     if report.known_drift:
@@ -353,7 +363,7 @@ def _print_report(report: DriftReport, verbose: bool = False) -> None:
             "OR add it to KNOWN_DRIFT in scripts/check_fe_type_drift.py with a TODO."
         )
         print("  References: OCG-03, T-1206-08")
-    elif not report.known_drift:
+    elif not report.known_drift and not report.skipped:
         print("[PASS] No drift detected between backend schemas and FE type mirrors.")
 
 
@@ -427,7 +437,7 @@ def main(argv: list[str] | None = None) -> int:
             extra_report = check_drift(all_common, be_schemas, fe_interfaces)
             _print_report(extra_report, verbose=args.verbose)
 
-    return 1 if report.has_new_drift() else 0
+    return 1 if report.should_fail() else 0
 
 
 if __name__ == "__main__":
