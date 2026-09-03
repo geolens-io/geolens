@@ -1,3 +1,4 @@
+import inspect
 import os
 import stat
 import time
@@ -74,21 +75,22 @@ async def test_export_dataset_creates_temp_dir_after_staging_guard_passes(
 ) -> None:
     monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
 
-    async def _fake_run_ogr2ogr_export(
-        table_name: str,
-        output_path: str,
-        driver: str,
-        *,
-        schema: str,
-        target_srs: str | None = None,
-        bbox: list[float] | None = None,
-        where: str | None = None,
-        format_key: str = "",
-        pmtiles_maxzoom: int | None = None,
-        deadline: float | None = None,
-    ) -> None:
+    # fix(#1778): this double used to restate run_ogr2ogr_export's parameter
+    # list by hand. That is a mirror with no one holding it: adding a keyword
+    # to the real function made the double reject a call the real function
+    # accepts, and the failure named this test rather than the change. It now
+    # binds whatever it is called with against the REAL signature, which keeps
+    # the property the mirror was reaching for -- the caller passes something
+    # run_ogr2ogr_export would accept -- without going stale when a parameter
+    # is added. The sibling doubles in test_export_temp_cleanup.py take
+    # **kwargs and check nothing; this one checks and does not drift.
+    async def _fake_run_ogr2ogr_export(*args, **kwargs) -> None:
+        from app.processing.export.ogr import run_ogr2ogr_export
+
+        bound = inspect.signature(run_ogr2ogr_export).bind(*args, **kwargs)
+        bound.apply_defaults()
         # Simulate successful export by creating the output file.
-        Path(output_path).write_text("export-data", encoding="utf-8")
+        Path(bound.arguments["output_path"]).write_text("export-data", encoding="utf-8")
 
     monkeypatch.setattr(
         "app.processing.export.service.run_ogr2ogr_export", _fake_run_ogr2ogr_export

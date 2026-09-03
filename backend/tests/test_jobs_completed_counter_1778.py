@@ -306,12 +306,19 @@ async def test_a_succeeded_row_is_not_a_source_for_the_counter():
 def test_the_stalled_sweep_counts_its_own_failures_after_persisting():
     """It calls finish_job_by_id_async directly, so the wrapper never sees it."""
     src = inspect.getsource(worker_module.fail_stalled_queue_jobs)
-    assert "count_failed_job(job.queue)" in src, (
+    assert "count_failed_job(" in src, (
         "failing a stalled job is a terminal transition the counter must see"
     )
     persist_at = src.index("finish_job_by_id_async(")
-    count_at = src.index("count_failed_job(job.queue)")
+    count_at = src.index("count_failed_job(")
     assert persist_at < count_at, "a persistence failure must count nothing"
+    # fix(#1778 codex r5): the queue is read defensively. count_failed_job
+    # guards the registry call, but the attribute read happens at the call site
+    # and outside that guard, so `job.queue` on a job object without the
+    # attribute raised mid-loop and aborted the rest of the sweep.
+    assert 'getattr(job, "queue", None)' in src, (
+        "a metrics read must never be the thing that stops the sweep"
+    )
 
     queue = "q1778_sweep"
     before = _failed(queue)

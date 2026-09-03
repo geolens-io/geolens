@@ -422,7 +422,14 @@ async def fail_stalled_queue_jobs() -> int:
         # matching the manager wrapper's ordering. This path calls
         # `finish_job_by_id_async` directly and so never passes through that
         # wrapper, which is why the increment is written out here.
-        count_failed_job(job.queue)
+        #
+        # fix(#1778 codex r5): `getattr`, not `job.queue`. count_failed_job
+        # guards the registry call, but the attribute read happened at the call
+        # site and outside that guard, so a job object without the attribute
+        # raised here -- mid-loop, after some rows had already been failed, and
+        # aborting the rest of the sweep. Metrics bookkeeping must never be the
+        # thing that stops a sweep; an unlabelled failure counts as "default".
+        count_failed_job(getattr(job, "queue", None))
         failed += 1
         log.warning(
             "Failed stalled queue job — its worker stopped heartbeating",
