@@ -1065,7 +1065,7 @@ async def upload_thumbnail(
     # together. A failure in the update or the commit below would otherwise
     # leave the image behind with nothing pointing at it, and since keys stopped
     # being reused every retry would add another.
-    async with map_asset_publication() as published:
+    async with map_asset_publication() as publication:
         physical_key = _map_asset_storage_key(storage_key)
         try:
             await storage.put(physical_key, image_bytes)
@@ -1075,9 +1075,13 @@ async def upload_thumbnail(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Thumbnail storage unavailable",
             )
-        published.append(physical_key)
+        publication.record(physical_key)
 
         await _record_image_capture(db, map_id, thumbnail_uri=storage_key)
+        # fix(#1778 round 5): the commit inside _record_image_capture is the
+        # boundary, not the end of this block. Settling here means anything that
+        # runs after it cannot roll back an object the committed row names.
+        publication.settled()
 
     if previous_key and previous_key != storage_key:
         await discard_map_asset_objects(db, map_id, [previous_key])
@@ -1213,7 +1217,7 @@ async def upload_og_image(
 
     storage = get_storage()
     # fix(#1778 round 4): same publication guard as the thumbnail PUT above.
-    async with map_asset_publication() as published:
+    async with map_asset_publication() as publication:
         physical_key = _map_asset_storage_key(storage_key)
         try:
             await storage.put(physical_key, image_bytes)
@@ -1225,9 +1229,13 @@ async def upload_og_image(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="OG image storage unavailable",
             )
-        published.append(physical_key)
+        publication.record(physical_key)
 
         await _record_image_capture(db, map_id, og_image_uri=storage_key)
+        # fix(#1778 round 5): the commit inside _record_image_capture is the
+        # boundary, not the end of this block. Settling here means anything that
+        # runs after it cannot roll back an object the committed row names.
+        publication.settled()
 
     if previous_key and previous_key != storage_key:
         await discard_map_asset_objects(db, map_id, [previous_key])

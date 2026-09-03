@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.async_io import run_in_thread_draining
 from app.modules.catalog.maps.models import MapIconAsset
+from app.modules.catalog.maps.service import MapAssetPublication
 from app.modules.catalog.maps.schemas import MapIconResponse
 from app.platform.storage import get_storage
 
@@ -302,11 +303,11 @@ async def create_icon_asset(
     content_type: str | None,
     content: bytes,
     created_by: uuid.UUID | None,
-    published: list[str] | None = None,
+    publication: MapAssetPublication | None = None,
 ) -> MapIconAsset:
     """Store one uploaded icon and the row that names it.
 
-    fix(#1778 round 4): ``published`` is the rollback ledger from
+    fix(#1778 round 4): ``publication`` is the rollback ledger from
     ``map_asset_publication``. This is the third write-object-then-commit-row
     site in the package, and the one whose commit is not here: the row is only
     flushed below, and the route commits afterwards, so a failure in either step
@@ -345,8 +346,8 @@ async def create_icon_asset(
     # Persist the sanitized form so the bytes on disk match what validation
     # accepted (SEC-09). For PNG this is the original bytes unchanged.
     await get_storage().put(storage_key, sanitized_content)
-    if published is not None:
-        published.append(storage_key)
+    if publication is not None:
+        publication.record(storage_key)
     asset = MapIconAsset(
         id=icon_id,
         name=Path(filename or "Icon").stem or "Icon",

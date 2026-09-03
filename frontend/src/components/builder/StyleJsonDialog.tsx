@@ -62,6 +62,14 @@ function ImportSummary({ summary }: { summary: MapStyleImportSummary }) {
           ))}
         </div>
       )}
+      {/* fix(#1778): the backend stops listing warnings after 100, so without
+          this line a document with thousands of unmatched sources looked like
+          it had exactly 100 problems. */}
+      {(summary.warnings_truncated ?? 0) > 0 && (
+        <div className="text-muted-foreground">
+          {t('styleJson.summary.warningsTruncated', { count: summary.warnings_truncated })}
+        </div>
+      )}
     </div>
   );
 }

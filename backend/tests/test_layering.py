@@ -1638,7 +1638,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # physical keys rather than logical ones (map images resolve into the
         # tenant prefix, sprite icons are deliberately global).
         # Cap 650 -> 708, exact.
-        "backend/app/modules/catalog/maps/service_crud.py": 708,
+        # fix(#1778 round 5): +33 — the ledger became MapAssetPublication, whose
+        # settled() moves the rollback boundary onto the commit. Keying it on
+        # "did the block raise" answered a different question from "did the row
+        # commit", so the icon route's post-commit refresh could delete an
+        # object the committed row referenced. The class docstring carries that,
+        # and record() carries the physical-vs-logical rule the two writers
+        # depend on. Cap 708 -> 741, exact.
+        "backend/app/modules/catalog/maps/service_crud.py": 741,
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the
         # carve-out exact so further growth requires another review.
@@ -2273,7 +2280,10 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # site in the package and the only one whose write and commit sit in
     # different functions, so the comment records why the ledger is threaded
     # through create_icon_asset. Cap 142 -> 149.
-    "backend/app/modules/catalog/maps/router_assets.py": 149,
+    # fix(#1778 round 5): +4 — the publication settles on the commit and the
+    # refresh moved below the scope, which is the case that found the boundary
+    # bug. Cap 149 -> 153.
+    "backend/app/modules/catalog/maps/router_assets.py": 153,
     # fix(#526 B-048): the card-route SPA-redirect fallback shell.
     # fix(#819): visibility-check owner-or-admin gate + rationale docstring.
     # fix(#1518 codex P2 round 3): 398 -> 404. +6 to apply the rule once, ahead
@@ -4803,7 +4813,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # row that names it inside one rollback scope, so a failure between the put
     # and the commit does not leave an undiscoverable object under maps/.
     # Cap 1510 -> 1526, exact.
-    "backend/app/modules/catalog/maps/router.py": 1526,
+    # fix(#1778 round 5): +8 — both handlers settle the publication on the
+    # commit inside _record_image_capture, so a failure after it cannot roll
+    # back an object the committed row names. Cap 1526 -> 1534, exact.
+    "backend/app/modules/catalog/maps/router.py": 1534,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.

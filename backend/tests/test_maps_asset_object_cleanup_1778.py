@@ -891,6 +891,168 @@ def test_every_object_write_in_the_maps_package_is_published_1778() -> None:
     unguarded = [
         where
         for where, names in writers.items()
-        if "map_asset_publication" not in names and "published" not in names
+        if "map_asset_publication" not in names and "publication" not in names
     ]
     assert unguarded == [], unguarded
+
+
+def test_every_publication_settles_at_the_commit_1778() -> None:
+    """fix(#1778 round 5): the rollback boundary is the commit, not the block.
+
+    Keying the rollback on "did the block raise" is not the same question as
+    "did the row commit": the icon route's ``session.refresh`` ran after a
+    successful commit and inside the scope, so a failure there deleted an object
+    the committed row referenced. ``settled()`` moves the boundary onto the
+    commit, and this walks the package to require it as the LAST statement of
+    every publication block, so nothing can be appended below it later.
+    """
+    import ast
+    from pathlib import Path
+
+    package = Path(__file__).resolve().parents[1] / "app/modules/catalog/maps"
+    blocks = 0
+    offenders: list[str] = []
+    for path in sorted(package.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.AsyncWith):
+                continue
+            opens = any(
+                isinstance(item.context_expr, ast.Call)
+                and isinstance(item.context_expr.func, ast.Name)
+                and item.context_expr.func.id == "map_asset_publication"
+                for item in node.items
+            )
+            if not opens:
+                continue
+            blocks += 1
+            last = node.body[-1]
+            settles = (
+                isinstance(last, ast.Expr)
+                and isinstance(last.value, ast.Await)
+                is False  # settled() is sync; an await here would be a different call
+                and isinstance(last.value, ast.Call)
+                and isinstance(last.value.func, ast.Attribute)
+                and last.value.func.attr == "settled"
+            )
+            if not settles:
+                offenders.append(f"{path.name}:{node.lineno}")
+
+    assert blocks == 3, blocks
+    assert offenders == [], offenders
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778 round 5): a failure after the commit must not roll anything back
+# ---------------------------------------------------------------------------
+
+
+class TestAFailureAfterTheCommitKeepsTheObject:
+    """Once the row is committed the object is referenced, not pending.
+
+    The rollback used to be keyed on whether the block raised, which is not the
+    same question as whether the row committed. The icon route's
+    `session.refresh` runs after a successful commit, so a failure there deleted
+    an icon the committed row named.
+    """
+
+    async def test_a_refresh_that_raises_after_the_icon_commit_keeps_the_object(
+        self, client: AsyncClient, admin_auth_header: dict, monkeypatch, test_db_session
+    ) -> None:
+        from sqlalchemy import delete, select
+
+        from PIL import Image
+
+        from app.modules.catalog.maps.models import MapIconAsset
+        from app.modules.catalog.maps.sprites import clear_sprite_cache
+
+        before = set(await _storage().list("maps/icons/"))
+
+        async def _raise(self, *args, **kwargs):
+            raise OSError("refresh failed after the row committed")
+
+        monkeypatch.setattr(
+            "sqlalchemy.ext.asyncio.AsyncSession.refresh", _raise, raising=True
+        )
+
+        png = BytesIO()
+        Image.new("RGB", (8, 8), color=(4, 5, 6)).save(png, format="PNG")
+        try:
+            with pytest.raises(OSError):
+                await client.post(
+                    "/maps/icons",
+                    files={"file": ("icon.png", png.getvalue(), "image/png")},
+                    headers=admin_auth_header,
+                )
+
+            added = set(await _storage().list("maps/icons/")) - before
+            assert len(added) == 1, added
+        finally:
+            # The row DID commit, which is the whole point, and icon rows are
+            # deployment-global with no per-test cleanup. The storage provider is
+            # per-test, so a row surviving into another test points the sprite
+            # build at bytes under a tmp_path that no longer exists and the PNG
+            # route raises FileNotFoundError. Take the row back out here.
+            monkeypatch.undo()
+            keys = [
+                key for key in await _storage().list("maps/icons/") if key not in before
+            ]
+            if keys:
+                await test_db_session.execute(
+                    delete(MapIconAsset).where(MapIconAsset.storage_key.in_(keys))
+                )
+                await test_db_session.commit()
+            clear_sprite_cache()
+            assert (
+                await test_db_session.execute(
+                    select(MapIconAsset.id).where(MapIconAsset.storage_key.in_(keys))
+                )
+            ).first() is None
+
+    async def test_a_settled_publication_rolls_nothing_back(self) -> None:
+        """The unit shape of the same rule, without a route in the way."""
+        from app.modules.catalog.maps.service import map_asset_publication
+
+        deleted: list[str] = []
+
+        class _Storage:
+            async def delete(self, key: str) -> None:
+                deleted.append(key)
+
+        import app.platform.storage.provider as provider_module
+
+        original = provider_module._storage
+        provider_module._storage = _Storage()
+        try:
+            with pytest.raises(RuntimeError):
+                async with map_asset_publication() as publication:
+                    publication.record("maps/thumbnails/settled.jpg")
+                    publication.settled()
+                    raise RuntimeError("anything after the commit")
+        finally:
+            provider_module._storage = original
+
+        assert deleted == []
+
+    async def test_an_unsettled_publication_still_rolls_back(self) -> None:
+        from app.modules.catalog.maps.service import map_asset_publication
+
+        deleted: list[str] = []
+
+        class _Storage:
+            async def delete(self, key: str) -> None:
+                deleted.append(key)
+
+        import app.platform.storage.provider as provider_module
+
+        original = provider_module._storage
+        provider_module._storage = _Storage()
+        try:
+            with pytest.raises(RuntimeError):
+                async with map_asset_publication() as publication:
+                    publication.record("maps/thumbnails/pending.jpg")
+                    raise RuntimeError("the row never committed")
+        finally:
+            provider_module._storage = original
+
+        assert deleted == ["maps/thumbnails/pending.jpg"]

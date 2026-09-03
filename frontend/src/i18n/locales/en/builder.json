@@ -1251,6 +1251,8 @@
       "matched_other": "{{count}} matched sources",
       "skipped_one": "{{count}} skipped layer.",
       "skipped_other": "{{count}} skipped layers.",
+      "warningsTruncated_one": "{{count}} more warning omitted.",
+      "warningsTruncated_other": "{{count}} more warnings omitted.",
       "newMap": "Created new map “{{name}}”."
     }
   },

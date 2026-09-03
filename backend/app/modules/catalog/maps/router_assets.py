@@ -54,7 +54,7 @@ async def upload_map_icon_endpoint(
     # published together. This is the third write-object-then-commit-row site in
     # the maps package, and the only one whose write and commit sit in different
     # functions, so the ledger is threaded through create_icon_asset.
-    async with map_asset_publication() as published:
+    async with map_asset_publication() as publication:
         try:
             asset = await create_icon_asset(
                 db,
@@ -62,12 +62,16 @@ async def upload_map_icon_endpoint(
                 content_type=file.content_type,
                 content=content,
                 created_by=user.id,
-                published=published,
+                publication=publication,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         await db.commit()
-        await db.refresh(asset)
+        # fix(#1778 round 5): settle on the commit, and keep the refresh below
+        # outside the scope. A refresh that raises after a successful commit
+        # would otherwise have deleted an icon the committed row references.
+        publication.settled()
+    await db.refresh(asset)
     return next(icon for icon in await list_icons(db) if icon.id == str(asset.id))
 
 

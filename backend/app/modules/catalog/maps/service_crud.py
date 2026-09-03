@@ -201,8 +201,49 @@ async def discard_map_asset_objects(
         logger.info("map_asset_object_delete_skipped_still_referenced", storage_key=key)
 
 
+class MapAssetPublication:
+    """The objects written for a row that has not committed yet.
+
+    fix(#1778 round 5): the rollback used to be keyed on "did the block raise",
+    which is not the same question as "did the row commit". Anything after a
+    successful commit but still inside the scope, such as the icon route's
+    ``session.refresh``, would fail and take an object the committed row
+    references. Settling is what ends the tracking, so the boundary is the
+    commit itself rather than the last statement someone happened to leave in
+    the block.
+    """
+
+    def __init__(self) -> None:
+        self._pending: list[str] = []
+
+    def record(self, physical_key: str) -> None:
+        """Note an object that exists but is not named by a committed row yet.
+
+        PHYSICAL, not logical: the writers resolve their keys differently (map
+        images cross ``resolve_current_storage_key`` into the tenant prefix,
+        sprite icons are deliberately global), and the rollback deletes what it
+        is given rather than resolving anything itself. Recording before the
+        write would target an object that does not exist, which is harmless;
+        recording after the commit would never be rolled back, which is not.
+        """
+        self._pending.append(physical_key)
+
+    def settled(self) -> None:
+        """The row naming every recorded object is committed. Stop tracking.
+
+        Call this as the next statement after the commit, and as the last
+        statement of the block: ``test_every_publication_settles_at_the_commit``
+        fails the build otherwise.
+        """
+        self._pending.clear()
+
+    @property
+    def pending(self) -> tuple[str, ...]:
+        return tuple(self._pending)
+
+
 @asynccontextmanager
-async def map_asset_publication() -> AsyncIterator[list[str]]:
+async def map_asset_publication() -> AsyncIterator[MapAssetPublication]:
     """Undo object writes when the row that would name them never commits.
 
     fix(#1778 round 4): the upload handlers write the image and then record its
@@ -212,26 +253,18 @@ async def map_asset_publication() -> AsyncIterator[list[str]]:
     enumerates the ``maps/`` prefix, so those are not merely unreclaimed, they
     are undiscoverable.
 
-    Yields the list a caller appends each PHYSICAL key to right after the write
-    that created it. Physical, not logical: the two writers resolve their keys
-    differently (map images cross ``resolve_current_storage_key`` into the tenant
-    prefix, sprite icons are deliberately global), and this cleanup deletes what
-    it is given rather than resolving anything itself. A key appended before its
-    write would delete an object that does not exist, which is harmless; a key
-    appended after the commit would never be cleaned, which is the mistake to
-    avoid.
-
     Cleanup runs on any exception, including an HTTPException the handler raises
     itself, and never replaces it: a failure to tidy up is logged and dropped so
-    the caller still sees what actually went wrong.
+    the caller still sees what actually went wrong. It runs only on what is
+    still pending, so a settled publication rolls nothing back.
     """
     from app.platform.storage.provider import get_storage
 
-    published: list[str] = []
+    publication = MapAssetPublication()
     try:
-        yield published
+        yield publication
     except BaseException:
-        for physical_key in published:
+        for physical_key in publication.pending:
             try:
                 await get_storage().delete(physical_key)
             except Exception:  # broad: storage backends raise varied errors

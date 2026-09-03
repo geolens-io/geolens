@@ -1247,6 +1247,8 @@
       "matched_other": "{{count}} übereinstimmende Quellen",
       "skipped_one": "{{count}} Layer übersprungen.",
       "skipped_other": "{{count}} Layer übersprungen.",
+      "warningsTruncated_one": "{{count}} weitere Warnung nicht angezeigt.",
+      "warningsTruncated_other": "{{count}} weitere Warnungen nicht angezeigt.",
       "newMap": "Neue Karte „{{name}}“ erstellt."
     }
   },
