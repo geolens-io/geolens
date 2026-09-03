@@ -56,7 +56,7 @@ class FakeHttpxClient:
     def __init__(self, response: FakeResponse) -> None:
         self.response = response
         self.calls: list[dict[str, Any]] = []
-        # fix(#1778 review round 5): upload_timeout() reads/restores this,
+        # fix(#1778 review round 5): long_request_timeout() reads/restores this,
         # matching real httpx.Client's `.timeout` attribute.
         self.timeout = 30.0
 

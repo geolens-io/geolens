@@ -36,18 +36,19 @@ EXIT_SERVER = 5
 #: against a host that black-holes packets, and this module's own
 #: httpx.TimeoutException branch above can never fire. A plain float
 #: (not httpx.Timeout) so callers stay clear of OCCLI-06's import
-#: restriction; httpx accepts either. upload_timeout() below overrides
+#: restriction; httpx accepts either. long_request_timeout() below overrides
 #: this with a more generous bound for requests that carry a file body or
 #: that the backend processes synchronously before responding.
 DEFAULT_HTTP_TIMEOUT_SECONDS: float = 30.0
 
-#: fix(#1778 review round 5): AppState.sdk()'s 30s default is too short
-#: for a request that carries a large geospatial file (upload, replace/
-#: reupload) or that the backend saves/validates/computes synchronously
-#: before responding (apply's manifest POST, analysis materialize's
-#: submit — both expect 200/202 back from work already done, not a
-#: fire-and-forget 202 with nothing behind it). One shared bound so
-#: there is a single number to tune, not one guess per call site.
+#: fix(#1778 review round 5, extended round 6): AppState.sdk()'s 30s
+#: default is too short for a request the BACKEND documents as
+#: long-running before it responds. The largest backend-declared
+#: deadline this package's call sites hit is
+#: OGRINFO_TIMEOUT_SECONDS = 300s (backend/app/processing/ingest/ogr.py)
+#: for the ingest/reupload preview step's ogrinfo probe; this is that
+#: plus a 2x margin, one shared bound so there is a single number to
+#: tune, not one guess per call site.
 EXTENDED_REQUEST_TIMEOUT_SECONDS: float = 600.0
 
 
@@ -56,21 +57,34 @@ class DeadlineTimeout(Exception):
 
 
 @contextmanager
-def upload_timeout(client: Any) -> Iterator[Any]:
+def long_request_timeout(client: Any) -> Iterator[Any]:
     """Temporarily raise ``client``'s httpx transport timeout to
     EXTENDED_REQUEST_TIMEOUT_SECONDS, restoring the original afterward.
 
     fix(#1778 review round 5): every CLI request that carries a file
-    body or that waits on server-side processing before the response
-    must go through this — previously each call site open-coded its own
-    save/override/restore (or, in replace.py's and manifest_apply.py's
-    case, never raised the bound at all and just ate whatever
-    AppState.sdk()'s 30s default left it with). Routing every one
+    body must go through this — previously each call site open-coded
+    its own save/override/restore (or, in replace.py's and
+    manifest_apply.py's case, never raised the bound at all and just
+    ate whatever AppState.sdk()'s 30s default left it with).
+
+    fix(#1778 review round 6): the class is bigger than "carries a
+    file body" — round 5's structural gate keyed on ``files=`` and
+    still missed the ingest/reupload preview requests (main.py), which
+    have no multipart body but wait on the backend's synchronous
+    ogrinfo probe (up to 300s, OGRINFO_TIMEOUT_SECONDS). The real
+    classification is "every request the backend documents as
+    long-running before it responds" — carrying a file is one way a
+    request earns that, not the definition. This module now also keeps
+    ``LONG_RUNNING_SDK_FUNCTIONS`` (below), naming every generated SDK
+    function known to be long-running by that definition;
+    ``tests/test_long_request_timeout_usage.py`` structurally asserts
+    every call to one of those functions sits inside a
+    ``with long_request_timeout(client):`` block, and separately
+    asserts each name in the registry still resolves against the
+    generated SDK (so a rename there fails the test loudly instead of
+    silently dropping a call site out of coverage). Routing every one
     through a single helper closes the class: a new call site with the
     same shape has nowhere else to get its timeout from.
-    tests/test_upload_timeout_usage.py structurally asserts every
-    ``files=``/multipart call in this package sits inside a
-    ``with upload_timeout(client):`` block.
 
     Restored unconditionally (even on an exception) so a later request
     on this same client isn't left with the extended bound.
@@ -82,6 +96,61 @@ def upload_timeout(client: Any) -> Iterator[Any]:
         yield httpx_client
     finally:
         httpx_client.timeout = original_timeout
+
+
+#: fix(#1778 review round 6): every generated SDK function this package
+#: calls that the BACKEND documents as long-running before it responds —
+#: not just the ones with a multipart body. Keyed by a short display
+#: name; each value is the (module, attribute) pair
+#: tests/test_long_request_timeout_usage.py resolves against the
+#: installed ``geolens`` SDK, so a rename on either side (this registry
+#: or the generated module) fails that test instead of silently
+#: dropping a call site out of coverage.
+#:
+#: - ``ingest_preview`` / ``reupload_preview``: both call
+#:   ``run_ogrinfo_preview()`` server-side (backend/app/processing/
+#:   ingest/router.py, backend/app/modules/catalog/datasets/api/
+#:   router_reupload.py), bounded by
+#:   ``OGRINFO_TIMEOUT_SECONDS = 300`` (backend/app/processing/ingest/
+#:   ogr.py) — confirmed the source of the round-6 finding (main.py's
+#:   publish/replace Stage 2 previews carry no file body, so round 5's
+#:   ``files=``-keyed gate missed them).
+#: - ``analysis_materialize``: expects a synchronous 200 back (submit-
+#:   time validation/setup work), not a fire-and-forget 202 — already
+#:   covered since round 5, kept here so the registry is the single
+#:   list this test enumerates from.
+#:
+#: Deliberately NOT included, with the backend fact that rules each
+#: out: commit/finalize (publish and reupload commit both queue a
+#: background job and return 202/202 immediately — CommitRequest/
+#: ReuploadCommitRequest handlers do no synchronous ingest work);
+#: refresh trigger (``refresh_dataset_...`` also returns 202 and queues
+#: — REFRESH_ACCEPTED_STATUS); service preview (``run_service_preview``,
+#: backend/app/modules/catalog/sources/preview.py, IS long-running
+#: server-side, but no CLI command calls
+#: ``preview_service_layer_services_preview_post`` today); any export/
+#: download (no CLI command streams a file response today). The
+#: manifest apply POST (manifest_apply.post_manifest_apply) is also
+#: long-running but is a raw ``httpx_client.post()`` call, not a
+#: generated SDK function — it has no name to register here and is
+#: covered by its own dedicated pin test instead
+#: (test_manifest_apply.py::test_post_manifest_apply_raises_the_timeout_then_restores_it).
+LONG_RUNNING_SDK_FUNCTIONS: dict[str, tuple[str, str]] = {
+    "ingest_preview": (
+        "geolens.api.datasets.preview_file_ingest_preview_job_id_post",
+        "sync_detailed",
+    ),
+    "reupload_preview": (
+        "geolens.api.datasets_reupload."
+        "reupload_preview_datasets_dataset_id_reupload_job_id_preview_post",
+        "sync_detailed",
+    ),
+    "analysis_materialize": (
+        "geolens.api.datasets_analysis."
+        "analysis_materialize_endpoint_datasets_dataset_id_analysis_materialize_post",
+        "sync_detailed",
+    ),
+}
 
 
 def make_client(

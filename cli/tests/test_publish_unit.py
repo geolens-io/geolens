@@ -724,6 +724,53 @@ class TestPublishCli:
         assert captured["body"].summary == "hello"
 
 
+class TestPublishStage2PreviewIsBounded:
+    """fix(#1778 review round 6): the Stage 2 preview step runs the
+    backend's run_ogrinfo_preview() probe (OGRINFO_TIMEOUT_SECONDS =
+    300s, backend/app/processing/ingest/ogr.py) — a request with no file
+    body, so round 5's files=-keyed structural gate missed it. Stage 2
+    must wrap the preview call in long_request_timeout()."""
+
+    def test_publish_stage2_preview_captures_the_extended_timeout(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        import httpx
+
+        from geolens_cli._sdk_helpers import EXTENDED_REQUEST_TIMEOUT_SECONDS
+        from geolens_cli.main import app
+
+        instance = "https://x.example.com"
+        _seed_login(instance, mock_keyring)
+
+        monkeypatch.setattr(
+            "geolens_cli.publish.upload_file", lambda *a, **k: _ok_upload()
+        )
+        monkeypatch.setattr(
+            "geolens.api.datasets.commit_import_ingest_commit_job_id_post"
+            ".sync_detailed",
+            lambda **kw: _ok_commit(),
+        )
+
+        seen_timeout = None
+
+        def spying_preview(**kwargs):
+            nonlocal seen_timeout
+            seen_timeout = kwargs["client"].get_httpx_client().timeout
+            return _ok_preview()
+
+        monkeypatch.setattr(
+            "geolens.api.datasets.preview_file_ingest_preview_job_id_post"
+            ".sync_detailed",
+            spying_preview,
+        )
+
+        result = runner.invoke(app, ["publish", str(sample_geojson), "--no-wait"])
+
+        assert result.exit_code == 0, result.output
+        assert seen_timeout is not None
+        assert seen_timeout == httpx.Timeout(EXTENDED_REQUEST_TIMEOUT_SECONDS)
+
+
 # ---------------------------------------------------------------------------
 # fix(#1778) — `publish --wait` must not report success (exit 0,
 # "Published: ...") for a job that failed, was cancelled, timed out, or

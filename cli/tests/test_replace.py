@@ -187,7 +187,7 @@ class TestUploadFile:
         """fix(#1778 review round 5): the backend saves and validates the
         replacement before responding, so a large file posted through
         AppState.sdk()'s plain 30s bound could time out. upload_file()
-        must raise the bound for the POST itself (upload_timeout()) and
+        must raise the bound for the POST itself (long_request_timeout()) and
         put the original value back afterward."""
         from unittest.mock import MagicMock
 
@@ -553,6 +553,49 @@ class TestReplaceSingleLayerHappyPath:
         )
 
         assert result.exit_code == 0, result.output
+
+
+class TestReplaceStage2PreviewIsBounded:
+    """fix(#1778 review round 6): the Stage 2 preview step runs the
+    backend's run_ogrinfo_preview() probe (OGRINFO_TIMEOUT_SECONDS =
+    300s, backend/app/processing/ingest/ogr.py) — a request with no
+    file body, so round 5's files=-keyed structural gate missed it.
+    Stage 2 must wrap the preview call in long_request_timeout()."""
+
+    def test_replace_stage2_preview_captures_the_extended_timeout(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        import httpx
+
+        from geolens_cli._sdk_helpers import EXTENDED_REQUEST_TIMEOUT_SECONDS
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset())
+        _patch_upload(monkeypatch, _ok_upload())
+        _patch_commit(monkeypatch, _ok_commit())
+
+        seen_timeout = None
+
+        def spying_preview(**kwargs):
+            nonlocal seen_timeout
+            seen_timeout = kwargs["client"].get_httpx_client().timeout
+            return _ok_preview()
+
+        monkeypatch.setattr(
+            "geolens.api.datasets_reupload."
+            "reupload_preview_datasets_dataset_id_reupload_job_id_preview_post"
+            ".sync_detailed",
+            spying_preview,
+        )
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson), "--yes"]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert seen_timeout is not None
+        assert seen_timeout == httpx.Timeout(EXTENDED_REQUEST_TIMEOUT_SECONDS)
 
 
 class TestReplaceMultiLayerRefusal:

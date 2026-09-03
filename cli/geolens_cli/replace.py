@@ -24,7 +24,7 @@ from typing import Any, Optional
 from uuid import UUID
 
 from . import publish as _publish
-from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_SERVER, call_sdk, upload_timeout
+from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_SERVER, call_sdk, long_request_timeout
 from .refresh import _problem_detail
 
 #: Upload returns 201 Created (ReuploadResponse). Cited:
@@ -72,7 +72,7 @@ def upload_file(client: Any, dataset_id: UUID, path: Path) -> Any:
     fix(#1778 review round 5): the backend saves and validates the
     replacement before responding, so a large file posted through
     AppState.sdk()'s plain 30s-bound client could time out. Wrapped in
-    ``upload_timeout()`` — the same extended, restored bound
+    ``long_request_timeout()`` — the same extended, restored bound
     ``publish.upload_file`` uses.
     """
     from geolens.api.datasets_reupload import (
@@ -80,7 +80,7 @@ def upload_file(client: Any, dataset_id: UUID, path: Path) -> Any:
     )
     from geolens.types import Response
 
-    with upload_timeout(client) as httpx_client:
+    with long_request_timeout(client) as httpx_client:
         with path.open("rb") as fh:
             files = {"file": (path.name, fh, _publish.guess_mime(path))}
             raw = httpx_client.post(f"/datasets/{dataset_id}/reupload", files=files)

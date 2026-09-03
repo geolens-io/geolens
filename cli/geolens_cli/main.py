@@ -36,6 +36,7 @@ from ._sdk_helpers import (
     EXIT_USAGE,
     call_sdk,
     call_sdk_with_reauth,
+    long_request_timeout,
     make_client,
     unwrap,
 )
@@ -769,10 +770,16 @@ def publish(
         progress.update(t1, description=f"Uploaded (job_id={job_id})")
 
         # Stage 2: Preview.
+        # fix(#1778 review round 6): the backend runs run_ogrinfo_preview()
+        # here, bounded server-side by OGRINFO_TIMEOUT_SECONDS = 300s — a
+        # large file's metadata probe can outlast AppState.sdk()'s plain
+        # 30s bound even though this request carries no file body itself
+        # (round 5's files=-keyed gate missed it for exactly that reason).
         progress.add_task("Previewing...", total=None)
-        preview_resp = call_sdk(
-            _preview.sync_detailed, job_id=job_id, client=sdk.client
-        )
+        with long_request_timeout(sdk.client):
+            preview_resp = call_sdk(
+                _preview.sync_detailed, job_id=job_id, client=sdk.client
+            )
         unwrap(preview_resp, expected=_publish.PREVIEW_OK_STATUS)
 
         # Stage 3 — Commit (NOT idempotent — Pitfall 6).
@@ -1219,13 +1226,18 @@ def replace(
             }
         else:
             # Stage 2: Preview.
-            preview_resp = call_sdk(
-                _rpreview.sync_detailed,
-                dataset_id=dataset_uuid,
-                job_id=job_id,
-                client=sdk.client,
-                body=_replace.build_preview_request(layer),
-            )
+            # fix(#1778 review round 6): same run_ogrinfo_preview() /
+            # OGRINFO_TIMEOUT_SECONDS = 300s story as publish's Stage 2
+            # above — this request carries no file body, so round 5's
+            # files=-keyed gate missed it too.
+            with long_request_timeout(sdk.client):
+                preview_resp = call_sdk(
+                    _rpreview.sync_detailed,
+                    dataset_id=dataset_uuid,
+                    job_id=job_id,
+                    client=sdk.client,
+                    body=_replace.build_preview_request(layer),
+                )
             preview = _replace.unwrap_or_raise(
                 preview_resp, expected=_replace.PREVIEW_OK_STATUS
             )

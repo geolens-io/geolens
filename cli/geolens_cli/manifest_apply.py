@@ -19,7 +19,7 @@ from ._sdk_helpers import (
     EXIT_SERVER,
     EXIT_USAGE,
     call_sdk,
-    upload_timeout,
+    long_request_timeout,
 )
 
 APPLY_ENDPOINT = "/ingest/manifest/apply"
@@ -120,9 +120,9 @@ def post_manifest_apply(client: Any, payload: Mapping[str, Any]) -> dict[str, An
     fix(#1778 review round 5): the backend validates and applies the
     manifest (create/update/skip/error per dataset) before responding,
     which can outlast AppState.sdk()'s plain 30s bound for a manifest
-    with many datasets. Wrapped in ``upload_timeout()``.
+    with many datasets. Wrapped in ``long_request_timeout()``.
     """
-    with upload_timeout(client) as httpx_client:
+    with long_request_timeout(client) as httpx_client:
         response = call_sdk(
             httpx_client.post,
             url=APPLY_ENDPOINT,

@@ -27,7 +27,7 @@ from uuid import UUID
 
 import typer
 
-from ._sdk_helpers import EXIT_AUTH, call_sdk, unwrap, upload_timeout
+from ._sdk_helpers import EXIT_AUTH, call_sdk, unwrap, long_request_timeout
 
 #: Distances are metres on the wire, matching the API and the map builder's
 #: unit picker (AnalysisPanel converts feet/miles before it POSTs).
@@ -190,13 +190,13 @@ def run_materialize(client: Any, dataset_id: str, request: Any) -> Any:
     forget 202 — the backend does the submit-time validation/setup work
     synchronously before responding, which can outlast AppState.sdk()'s
     plain 30s bound for a large or complex request. Wrapped in
-    ``upload_timeout()``.
+    ``long_request_timeout()``.
     """
     from geolens.api.datasets_analysis import (
         analysis_materialize_endpoint_datasets_dataset_id_analysis_materialize_post as _materialize,
     )
 
-    with upload_timeout(client):
+    with long_request_timeout(client):
         resp = call_sdk(
             _materialize.sync_detailed,
             dataset_id=dataset_id,
