@@ -157,11 +157,30 @@ if [ "$1" = "compose" ]; then
           exit 0 ;;
         *" -q "*)
           for a in "$@"; do svc="$a"; done
+          # fix(#1798 review round 7, P2): DOCKER_DB_PS_FAIL models `compose
+          # ps -q db` itself failing (the db container vanished between the
+          # earlier `compose ps` and this one) — only for svc=db, only when
+          # explicitly requested, so the 93 other cid-<svc> lookups in this
+          # file are unaffected.
+          if [ "$svc" = "db" ] && [ "${DOCKER_DB_PS_FAIL:-0}" = "1" ]; then
+            exit 1
+          fi
           echo "cid-$svc"
           exit 0 ;;
       esac
       exit 0 ;;
     logs) exit 0 ;;
+    config)
+      # fix(#1798 review round 7, P2): `compose config --images db` -> the
+      # DB_IMAGE_TAG probe in the staleness check. Empty by default (the
+      # existing no-op every other test in this file relies on); only
+      # DOCKER_DB_IMAGE_TAG opts a test into driving it.
+      case "$*" in
+        *--images*db*)
+          [ -n "${DOCKER_DB_IMAGE_TAG:-}" ] && printf '%s\n' "${DOCKER_DB_IMAGE_TAG}"
+          ;;
+      esac
+      exit 0 ;;
     *) exit 0 ;;
   esac
 fi
@@ -206,7 +225,31 @@ if [ "$1" = "inspect" ]; then
       esac
       exit 0 ;;
     *State.ExitCode*) [ "$MIGRATE_MODE" = "fail" ] && echo 3 || echo 0 ; exit 0 ;;
+    *.Image*)
+      # fix(#1798 review round 7, P2): `docker inspect --format '{{.Image}}'
+      # <cid>` -> the RUNNING container's image id in the db-staleness
+      # check. Only answers for cid-db, and only when
+      # DOCKER_DB_RUNNING_IMAGE_ID is set — every other cid is unaffected
+      # (empty output, matching the pre-existing default).
+      for a in "$@"; do cid="$a"; done
+      case "$cid" in
+        cid-db) [ -n "${DOCKER_DB_RUNNING_IMAGE_ID:-}" ] && printf '%s\n' "${DOCKER_DB_RUNNING_IMAGE_ID}" ;;
+      esac
+      exit 0 ;;
   esac
+  exit 0
+fi
+if [ "$1" = "image" ] && [ "$2" = "inspect" ]; then
+  # fix(#1798 review round 7, P2): `docker image inspect --format '{{.Id}}'
+  # <tag>` -> the LOCAL built-image lookup in the db-staleness check.
+  # DOCKER_DB_BUILT_IMAGE_MISSING=1 models the tag being pruned locally
+  # (nonzero exit, matching the real CLI's "No such image" failure);
+  # otherwise answers DOCKER_DB_BUILT_IMAGE_ID (empty by default, the
+  # existing no-op for every other test).
+  if [ "${DOCKER_DB_BUILT_IMAGE_MISSING:-0}" = "1" ]; then
+    exit 1
+  fi
+  [ -n "${DOCKER_DB_BUILT_IMAGE_ID:-}" ] && printf '%s\n' "${DOCKER_DB_BUILT_IMAGE_ID}"
   exit 0
 fi
 exit 0
@@ -349,6 +392,11 @@ run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
       DOCKER_DB_RUNNING_CONF="${DB_RUNNING_CONF-temp_file_limit = 0}" \
       GIT_DOCKERFILE_SYNC_TEST="${DOCKERFILE_SYNC_TEST:-}" \
       DOCKER_DB_RECREATE_MODE="${DB_RECREATE_MODE:-ok}" \
+      DOCKER_DB_IMAGE_TAG="${DB_IMAGE_TAG:-}" \
+      DOCKER_DB_PS_FAIL="${DB_PS_FAIL:-0}" \
+      DOCKER_DB_RUNNING_IMAGE_ID="${DB_RUNNING_IMAGE_ID:-}" \
+      DOCKER_DB_BUILT_IMAGE_ID="${DB_BUILT_IMAGE_ID:-}" \
+      DOCKER_DB_BUILT_IMAGE_MISSING="${DB_BUILT_IMAGE_MISSING:-0}" \
       sh "$FAKE/scripts/upgrade.sh" "$@" </dev/null > "$WORK/out.txt" 2>&1 )
   echo $? > "$WORK/code.txt"
 }
@@ -1357,6 +1405,96 @@ HC_BACKUP=""
 HC_FRONTEND=""
 STARTED_BACKUP=""
 STARTED_FRONTEND=""
+
+# ============================================================================
+# CASE 11 — fix(#1798 review round 7, P2): the db-image-staleness probe
+# (`compose ps -q db` / `docker inspect --format '{{.Image}}'` / `docker
+# image inspect --format '{{.Id}}'`) had no `|| printf ''` guard on any of
+# its three lookups, so any of them returning nonzero under `set -eu`
+# aborted the WHOLE upgrade — contradicting the "fails open" comment right
+# above that block in upgrade.sh. None of CASE 1-10 above ever drive
+# DB_IMAGE_TAG non-empty, so this is the first coverage of that block at
+# all.
+# ============================================================================
+# Reset ALL five staleness-probe knobs before every scenario below (not
+# just the ones a given test happened to set) — a stray leftover value
+# from an earlier scenario silently changing which branch the NEXT one
+# takes is exactly the kind of bug this suite exists to catch.
+reset_db_image_probe() {
+  DB_IMAGE_TAG=""
+  DB_PS_FAIL=0
+  DB_RUNNING_IMAGE_ID=""
+  DB_BUILT_IMAGE_ID=""
+  DB_BUILT_IMAGE_MISSING=0
+}
+
+reset_db_image_probe
+seed_prod_env
+DB_IMAGE_TAG="geolens-db:local"
+DB_RUNNING_IMAGE_ID="sha256:running123"
+DB_BUILT_IMAGE_MISSING=1
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] \
+   && grep -qF "was not found locally (pruned?)" "$WORK/out.txt" \
+   && [ -n "$(pos_of db_build)" ]; then
+  ok "a pruned local db image forces a rebuild instead of aborting the upgrade"
+else
+  bad "pruned local db image did not force a rebuild (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+reset_db_image_probe
+seed_prod_env
+DB_IMAGE_TAG="geolens-db:local"
+DB_PS_FAIL=1
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -z "$(pos_of db_build)" ]; then
+  ok "the db container vanishing during the staleness probe does not abort the upgrade"
+else
+  bad "a vanished db container aborted the upgrade or forced a spurious rebuild (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+reset_db_image_probe
+seed_prod_env
+DB_IMAGE_TAG="geolens-db:local"
+DB_BUILT_IMAGE_ID="sha256:built123"
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -z "$(pos_of db_build)" ]; then
+  ok "an unreadable running-container image id fails open (no forced rebuild)"
+else
+  bad "an unreadable running image id aborted the upgrade or forced a spurious rebuild (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+reset_db_image_probe
+seed_prod_env
+DB_IMAGE_TAG="geolens-db:local"
+DB_RUNNING_IMAGE_ID="sha256:running123"
+DB_BUILT_IMAGE_ID="sha256:built456"
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] \
+   && grep -qF "does not match the locally built db image" "$WORK/out.txt" \
+   && [ -n "$(pos_of db_build)" ]; then
+  ok "a genuine running-vs-built image mismatch still forces a rebuild"
+else
+  bad "a genuine image mismatch did not force a rebuild (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+reset_db_image_probe
+seed_prod_env
+DB_IMAGE_TAG="geolens-db:local"
+DB_RUNNING_IMAGE_ID="sha256:same789"
+DB_BUILT_IMAGE_ID="sha256:same789"
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -z "$(pos_of db_build)" ]; then
+  ok "matching running/built image ids skip the rebuild"
+else
+  bad "matching image ids incorrectly forced a rebuild (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+reset_db_image_probe
 
 echo "1..$((PASS + FAIL))"
 echo "# $PASS passed, $FAIL failed"

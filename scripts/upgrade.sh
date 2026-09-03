@@ -589,12 +589,28 @@ fi
 # rebuild on every uncertain read would defeat the marker's purpose.
 DB_IMAGE_STALE_CONTAINER=0
 if [ "$DB_IMAGE_NEEDS_REBUILD" = "0" ]; then
+  # fix(#1778 review round 7, P2): every lookup below now has an explicit
+  # `|| printf ''` — without it, `compose ps -q db` / `docker inspect` /
+  # `docker image inspect` returning nonzero (the db container vanished
+  # between the `compose ps` above and this inspect, or Docker itself
+  # hiccups) aborted the WHOLE upgrade under `set -eu`, contradicting the
+  # "fails open" comment above: a probe failing is supposed to skip this
+  # one drift check, not kill the script three steps into an upgrade.
   _db_image_tag="$(compose config --images db 2>/dev/null | head -n 1)"
-  _db_container_id="$(compose ps -q db 2>/dev/null)"
+  _db_container_id="$(compose ps -q db 2>/dev/null || printf '')"
   if [ -n "$_db_image_tag" ] && [ -n "$_db_container_id" ]; then
-    _db_running_image_id="$(docker inspect --format '{{.Image}}' "$_db_container_id" 2>/dev/null)"
-    _db_built_image_id="$(docker image inspect --format '{{.Id}}' "$_db_image_tag" 2>/dev/null)"
-    if [ -n "$_db_running_image_id" ] && [ -n "$_db_built_image_id" ] \
+    _db_running_image_id="$(docker inspect --format '{{.Image}}' "$_db_container_id" 2>/dev/null || printf '')"
+    _db_built_image_id="$(docker image inspect --format '{{.Id}}' "$_db_image_tag" 2>/dev/null || printf '')"
+    if [ -n "$_db_running_image_id" ] && [ -z "$_db_built_image_id" ]; then
+      # fix(#1778 review round 7, P2): the tagged local image `compose
+      # config --images` resolved is gone (pruned) even though a `db`
+      # container is currently running from SOME image — we cannot prove
+      # it still matches what db/Dockerfile would build, which is exactly
+      # what this check exists to prove before skipping a rebuild. Treat
+      # a missing local image the same as a confirmed mismatch.
+      DB_IMAGE_STALE_CONTAINER=1
+      warn "The locally built db image (${_db_image_tag}) was not found locally (pruned?) — rebuilding it."
+    elif [ -n "$_db_running_image_id" ] && [ -n "$_db_built_image_id" ] \
        && [ "$_db_running_image_id" != "$_db_built_image_id" ]; then
       DB_IMAGE_STALE_CONTAINER=1
       warn "The running db container's image does not match the locally built db image — rebuilding and recreating it."

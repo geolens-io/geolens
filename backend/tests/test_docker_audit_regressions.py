@@ -166,3 +166,84 @@ def test_frontend_image_healthcheck_uses_ipv4_loopback():
 
     assert "--spider http://127.0.0.1:8080/" in text
     assert "--spider http://localhost:8080/" not in text
+
+
+def _backup_stage_text() -> str:
+    """The `AS backup` build stage's own text, up to the next `FROM` line
+    (or EOF) — scoping COPY-line parsing to just that stage so a similarly
+    named script elsewhere in the Dockerfile can't cross-contaminate the
+    check.
+    """
+    text = DOCKERFILE.read_text()
+    match = re.search(r"^FROM .* AS backup$", text, re.MULTILINE)
+    assert match, "no `AS backup` stage found in Dockerfile"
+    rest = text[match.end() :]
+    next_from = re.search(r"^FROM ", rest, re.MULTILINE)
+    return rest[: next_from.start()] if next_from else rest
+
+
+def _backup_stage_copy_map() -> dict[str, Path]:
+    """Every plain `COPY <src...> <dest>` line in the backup stage,
+    resolved to {baked destination path: repo source path}. Mirrors
+    Docker's own COPY placement rule: a destination ending in "/" (or
+    naming more than one source) places each source under it by basename;
+    a single source with an exact destination path is placed there
+    verbatim. `COPY --from=...` (pulling from another stage/image, not the
+    build context) is deliberately excluded — nothing in this stage uses
+    it, and a `--from` copy has no single repo source path to map to.
+    """
+    baked: dict[str, Path] = {}
+    for line in _backup_stage_text().splitlines():
+        line = line.strip()
+        if not line.startswith("COPY ") or "--from=" in line:
+            continue
+        parts = line.split()[1:]
+        assert len(parts) >= 2, f"unparseable COPY line in backup stage: {line!r}"
+        *sources, dest = parts
+        if dest.endswith("/") or len(sources) > 1:
+            for src in sources:
+                baked[dest.rstrip("/") + "/" + Path(src).name] = REPO_ROOT / src
+        else:
+            baked[dest] = REPO_ROOT / sources[0]
+    return baked
+
+
+def test_backup_stage_bakes_every_script_it_sources():
+    """fix(#1798 review round 7, P2): restore.sh sources
+    `$SCRIPT_DIR/lib/common.sh` (SCRIPT_DIR=/scripts in this baked
+    layout) for get_env_value, but the backup stage's COPY line used to
+    bring in only backup-entrypoint.sh and restore.sh — the PUBLISHED
+    geolens-backup image's baked restore.sh (no dev bind-mount there to
+    mask it) hit "No such file or directory" on that `.` and exited
+    immediately. Generic sweep, not a common.sh-specific check: for every
+    script the backup stage bakes, every bash `. "$SCRIPT_DIR/<path>"`
+    source line in the REAL repo file must resolve to something the same
+    stage also bakes at that path.
+    """
+    baked = _backup_stage_copy_map()
+    assert baked, "no COPY destinations found in the backup stage"
+
+    source_line = re.compile(r'^\s*\.\s+"\$SCRIPT_DIR/([^"]+)"')
+    checked_any_source_line = False
+    for dest, repo_path in baked.items():
+        if repo_path.suffix != ".sh" or not repo_path.is_file():
+            continue
+        script_dir = dest.rsplit("/", 1)[0]
+        for line in repo_path.read_text().splitlines():
+            match = source_line.match(line)
+            if not match:
+                continue
+            checked_any_source_line = True
+            resolved = f"{script_dir}/{match.group(1)}"
+            assert resolved in baked, (
+                f"{repo_path.relative_to(REPO_ROOT)} (baked at {dest}) sources "
+                f"{resolved!r}, which the backup stage never COPYs — the "
+                f'baked script will fail with "No such file or directory" '
+                f"in the published image"
+            )
+
+    assert checked_any_source_line, (
+        'no `. "$SCRIPT_DIR/..."` sourcing line found in any baked script — '
+        "if restore.sh's sourcing style changed, update source_line's regex "
+        "instead of silently passing with nothing checked"
+    )
