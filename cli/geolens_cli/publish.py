@@ -447,7 +447,18 @@ def resolve_dataset_id(
             # stopping as soon as the job's fate was known.
             if status in _TERMINAL_NO_DATASET_STATUSES:
                 return PollOutcome(status=status, stopped_because="terminal")
-            sleep(interval)
+            # fix(#1778 review round 16): capped to the time actually
+            # remaining, matching wait_for_refresh's own outer sleep and
+            # poll_until's fixed inner one -- a bare sleep(interval) here
+            # was harmless for correctness (the `while monotonic() <
+            # deadline:` guard at the top already stops a late fetch),
+            # but could oversleep well past the deadline before this
+            # loop noticed, for no reason once `interval` exceeds the
+            # time actually left.
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                break
+            sleep(min(interval, remaining))
         return PollOutcome(status=last_status, stopped_because="timeout")
     finally:
         transport.timeout = original_timeout

@@ -1699,7 +1699,16 @@ class TestResolveDatasetIdPollOutcomeShape:
             MagicMock(),
             "00000000-0000-0000-0000-000000000001",
             sleep=lambda *_: None,
-            monotonic=iter([0.0, 1.0, 200.0]).__next__,
+            # fix(#1778 review round 16): poll_until now checks the
+            # deadline (a monotonic() call) BEFORE every fetch, not just
+            # after a timeout, and resolve_dataset_id's own outer sleep
+            # now caps to the time remaining (another monotonic() call)
+            # -- both need one more clock value per iteration than
+            # before. 0.0/1.0 are the outer deadline calc + first while
+            # check; 2.0 is poll_until's pre-fetch check (fetch
+            # succeeds); 3.0 is the outer sleep's remaining check; 200.0
+            # is the outer while loop's second check, past the deadline.
+            monotonic=iter([0.0, 1.0, 2.0, 3.0, 200.0]).__next__,
         )
         assert outcome.dataset_id is None
         assert outcome.status == "running"
@@ -1729,7 +1738,12 @@ class TestResolveDatasetIdPollOutcomeShape:
             MagicMock(),
             "00000000-0000-0000-0000-000000000001",
             sleep=sleeps.append,
-            monotonic=iter([0.0, 1.0, 2.0, 3.0]).__next__,
+            # fix(#1778 review round 16): one more clock value per poll
+            # iteration than before -- poll_until now checks the
+            # deadline before every fetch (not just after a timeout),
+            # and the outer sleep between iterations now caps to the
+            # time remaining -- both consume a monotonic() call.
+            monotonic=iter([0.0, 1.0, 2.0, 3.0, 4.0, 5.0]).__next__,
         )
         assert outcome.dataset_id is None
         assert outcome.stopped_because == "poll_failed"
@@ -1876,7 +1890,10 @@ class TestResolveDatasetIdNetworkError:
                 MagicMock(),
                 "00000000-0000-0000-0000-000000000001",
                 sleep=lambda *_: None,
-                monotonic=iter([0.0, 1.0]).__next__,
+                # fix(#1778 review round 16): poll_until now checks the
+                # deadline (a monotonic() call) immediately before every
+                # fetch, including the first -- one more value needed.
+                monotonic=iter([0.0, 1.0, 2.0]).__next__,
             )
         assert exc_info.value.exit_code == EXIT_NETWORK
 
@@ -1915,7 +1932,10 @@ class TestResolveDatasetIdRetriesOnPerRequestTimeout:
             "00000000-0000-0000-0000-000000000001",
             timeout=120.0,
             sleep=lambda *_: None,
-            monotonic=iter([0.0, 1.0, 2.0, 3.0, 4.0, 5.0]).__next__,
+            # fix(#1778 review round 16): poll_until now checks the
+            # deadline before every fetch (not just after a timeout),
+            # consuming one more monotonic() call per iteration.
+            monotonic=iter([0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).__next__,
         )
 
         assert calls["n"] == 3
@@ -1991,7 +2011,12 @@ class TestResolveDatasetIdBoundsEachRequest:
             "00000000-0000-0000-0000-000000000001",
             timeout=120.0,
             sleep=lambda *_: None,
-            monotonic=iter([0.0, 1.0, 200.0]).__next__,
+            # fix(#1778 review round 16): one more clock value per poll
+            # iteration -- poll_until's pre-fetch deadline check and the
+            # outer sleep's remaining-time cap each consume a
+            # monotonic() call. See test_timeout_preserves_the_last_
+            # known_status above for the identical shape.
+            monotonic=iter([0.0, 1.0, 2.0, 3.0, 200.0]).__next__,
         )
 
         assert outcome.stopped_because == "timeout"

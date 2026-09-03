@@ -106,26 +106,67 @@ def poll_until(
     ``lambda: call_sdk(fn, reraise_timeout=True, ...)`` — ``poll_until``
     itself only handles the retry-vs-give-up decision, not the SDK call.
 
-    A per-request timeout is logged at debug and slept past
-    (``interval``) rather than treated as fatal. Raises
-    ``PollDeadlineExceeded`` once ``deadline`` is reached without a
-    successful call; the caller decides what that means (e.g.
+    fix(#1778 review round 16): round 8's loop checked the deadline only
+    AFTER a timeout, then slept the FULL ``interval`` regardless of how
+    much time actually remained, and looped straight back into
+    ``fetch()`` with no recheck at all — only the NEXT timeout would
+    have caught a deadline that had already passed. Two bugs from that
+    one gap: a request that timed out less than ``interval`` before the
+    deadline overslept past it and then fired another request anyway,
+    so a SUCCESS on that request was accepted after the caller's own
+    advertised deadline; and a stall straddling the deadline paid for a
+    full extra per-request timeout it never needed to. Every iteration
+    now computes ``remaining`` and checks it BEFORE calling ``fetch()``
+    — not just after a timeout — and any sleep is capped to
+    ``min(interval, remaining)`` rather than the bare interval.
+
+    Four timing invariants this loop now guarantees, each pinned in
+    ``tests/test_poll_retry_usage.py::TestPollUntilDeadlineDiscipline``:
+
+    (a) No ``fetch()`` call ever starts after ``deadline`` — every
+        iteration re-derives ``remaining = deadline - monotonic()``
+        and raises before calling ``fetch()`` once ``remaining <= 0``,
+        not just when a timeout happens to land there.
+    (b) Total wall time is bounded by ``deadline`` plus at most ONE
+        request's own per-request timeout — the single in-flight
+        request that was already running when the deadline arrived
+        (its own ``httpx`` timeout, set by the caller's ``fetch``
+        closure, not by this function). No sleep after that: the very
+        next ``remaining`` check catches the now-passed deadline and
+        raises without a further request.
+    (c) Unbounded mode (``deadline = float("inf")``, the convention
+        ``wait_for_refresh``'s default ``--wait`` and
+        ``analysis.POLL_FOREVER`` both already use) never raises
+        ``PollDeadlineExceeded`` — ``remaining`` is always positive —
+        and always sleeps the FULL ``interval`` between timeouts
+        (``min(interval, inf) == interval``), matching the pre-round-16
+        unbounded behavior exactly.
+    (d) A ``fetch()`` that succeeds returns its result immediately, with
+        no post-hoc deadline check — including one that straddles the
+        deadline (started before it, a slow-but-successful response
+        after it): the request was legitimately in flight before the
+        deadline, so its result is honored, matching (b)'s allowance
+        for exactly one straddling request.
+
+    Raises ``PollDeadlineExceeded`` once ``deadline`` is reached without
+    a successful call; the caller decides what that means (e.g.
     ``resolve_dataset_id`` exits ``EXIT_NETWORK`` naming the deadline,
-    matching round 7's behavior). A SUCCESSFUL call's result is
-    returned as-is on the first attempt that doesn't raise — the caller
-    decides what's terminal about it; ``poll_until`` doesn't loop past a
-    success.
+    matching round 7's behavior).
     """
     import httpx  # lazy — only for exception types
 
     while True:
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            raise PollDeadlineExceeded
         try:
             return fetch()
         except httpx.TimeoutException:
             log.debug("poll_request_timed_out")
-            if monotonic() >= deadline:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
                 raise PollDeadlineExceeded from None
-            sleep(interval)
+            sleep(min(interval, remaining))
 
 
 @contextmanager
