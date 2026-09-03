@@ -656,6 +656,17 @@ def login(
             # already uses that code for.
             state.output.error(f"Could not store the API key: {exc}")
             raise typer.Exit(EXIT_NETWORK) from exc
+        except _auth.CredentialsFileCorrupt as exc:
+            # fix(#1778 review round 28): replace_credentials() now
+            # refuses UNCONDITIONALLY on a corrupt file, before storing
+            # anything -- named and phrased the same way whoami/status/
+            # logout already report it, rather than the generic
+            # "Could not store..." wrapper below.
+            state.output.error(
+                f"{exc.path} is corrupt ({exc.detail}). Fix or move the "
+                "file, then try again."
+            )
+            raise typer.Exit(EXIT_GENERIC) from exc
         except Exception as exc:
             state.output.error(f"Could not store the API key: {exc}")
             raise typer.Exit(EXIT_GENERIC) from exc
@@ -671,6 +682,13 @@ def login(
         except KeyringError as exc:
             state.output.error(f"Could not store the bearer token: {exc}")
             raise typer.Exit(EXIT_NETWORK) from exc
+        except _auth.CredentialsFileCorrupt as exc:
+            # fix(#1778 review round 28): see the api-key branch above.
+            state.output.error(
+                f"{exc.path} is corrupt ({exc.detail}). Fix or move the "
+                "file, then try again."
+            )
+            raise typer.Exit(EXIT_GENERIC) from exc
         except Exception as exc:
             state.output.error(f"Could not store the bearer token: {exc}")
             raise typer.Exit(EXIT_GENERIC) from exc
@@ -713,6 +731,14 @@ def login(
     except KeyringError as exc:
         state.output.error(f"Could not store the bearer token: {exc}")
         raise typer.Exit(EXIT_NETWORK) from exc
+    except _auth.CredentialsFileCorrupt as exc:
+        # fix(#1778 review round 28): see the --token/--api-key
+        # branches above -- same unconditional corrupt-file refusal.
+        state.output.error(
+            f"{exc.path} is corrupt ({exc.detail}). Fix or move the "
+            "file, then try again."
+        )
+        raise typer.Exit(EXIT_GENERIC) from exc
     except Exception as exc:
         state.output.error(f"Could not store the bearer token: {exc}")
         raise typer.Exit(EXIT_GENERIC) from exc

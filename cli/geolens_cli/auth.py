@@ -43,11 +43,6 @@ from . import config as _config
 # _sdk_helpers.py's own stdlib `logging` choice (its lastResort handler
 # is stderr-only by default) without having to rewrite every structured
 # key=value call site here into stdlib logging's positional-args shape.
-# _warn_credentials_file_corrupt() below still prints directly rather
-# than using log.warning() -- not for stdout-safety anymore, but
-# because it wants an unconditional, human-readable sentence instead of
-# structlog's key=value dump for the one warning a user must actually
-# read and act on.
 structlog.configure(logger_factory=structlog.PrintLoggerFactory(file=sys.stderr))
 log = structlog.get_logger()
 SERVICE = "geolens"
@@ -120,32 +115,6 @@ def _write_credentials_file(data: dict) -> None:
         tomli_w.dumps(data),
         mode=0o600,
         tighten_parent=True,
-    )
-
-
-def _warn_credentials_file_corrupt(exc: CredentialsFileCorrupt) -> None:
-    """Print a corrupt-credentials.toml warning directly to stderr.
-
-    fix(#1778 review round 22): this module has no access to the CLI's
-    Output formatter (data layer, not command layer -- see every other
-    function here, none of which print). Printed unconditionally
-    (independent of ``--json``) for the one case a login genuinely
-    needs a human to notice: the marker was NOT updated, and the file
-    needs fixing or moving before it can be trusted again.
-
-    fix(#1778 review round 24): kept as a direct print rather than
-    switched to ``log.warning()`` now that the module's structlog
-    logger is configured to stderr too (see the module-level comment
-    above) -- this one warning still wants an unconditional,
-    human-readable sentence ("Fix or move the file") rather than
-    structlog's key=value dump, since it is the one diagnostic in this
-    file a user is actually expected to read and act on, not just a
-    routine breadcrumb.
-    """
-    print(
-        f"Warning: {exc.path} is corrupt ({exc.detail}) -- the active "
-        "credential marker was not updated there. Fix or move the file.",
-        file=sys.stderr,
     )
 
 
@@ -703,30 +672,6 @@ def _delete_stale_credentials(
             path.unlink()
 
 
-def _resolve_current_active_kind(instance: str) -> Optional[str]:
-    """Best-effort resolution of the credential kind currently in effect
-    for ``instance``, mirroring ``AppState.sdk()``'s own precedence (the
-    active_kind marker first, then bearer-over-api_key) via the
-    TOLERANT reads -- ``load_active_credential_kind``/``load_bearer_token``/
-    ``load_api_key`` already degrade a corrupt credentials.toml to
-    "nothing here, check the other backend" -- so this can run safely
-    before ``replace_credentials`` knows whether the file is healthy.
-
-    fix(#1778 review round 23): ``replace_credentials`` needs to know,
-    BEFORE storing anything, whether this login is about to CHANGE the
-    active kind (bearer -> api_key or back) so it can decide how
-    strictly to treat the marker write below.
-    """
-    marker = load_active_credential_kind(instance)
-    if marker is not None:
-        return marker
-    if load_bearer_token(instance) is not None:
-        return "bearer"
-    if load_api_key(instance) is not None:
-        return "api_key"
-    return None
-
-
 def replace_credentials(
     instance: str,
     kind: str,
@@ -798,82 +743,44 @@ def replace_credentials(
     just stored; ``_delete_stale_credentials`` below is now tidiness,
     not the thing correctness depends on.
 
+    fix(#1778 review round 28): rounds 22-25 each tried to characterize
+    exactly when a corrupt credentials.toml was "safe" to tolerate
+    during login -- same kind unchanged (round 22), or the competing
+    kind's OWN state confirmed absent (round 25's
+    ``competing_confirmed_absent``, computed from the keyring alone).
+    Round 27 found the second characterization already wrong: a
+    corrupt FILE can itself be the thing holding a competing bearer
+    value, invisible to a keyring-only check, so "confirmed absent"
+    was sometimes lying. The file is BOTH the credential store and the
+    marker store; while it cannot be parsed, neither the competing
+    credential's state nor the marker itself can be established, which
+    is exactly the information every one of those carve-outs needed to
+    reason about. Closing the class instead of adding a third
+    exception: a corrupt file now refuses EVERY login up front, before
+    any secret is stored, unconditionally -- regardless of ``kind``,
+    keyring state, or what was active before. ``whoami``/``status``/
+    every other read-only command stay tolerant exactly as round 23
+    left them (a corrupt file only surfaces there when the file was
+    genuinely the last thing to try -- see ``AppState.sdk()``);
+    ``logout`` still refuses (round 22, unrelated to this function);
+    ``try_refresh()``'s own marker write stays non-fatal (round 19,
+    also unrelated -- a different function, refreshing an ALREADY
+    -trusted session rather than deciding what to trust next).
+
     ``kind`` is ``"bearer"`` or ``"api_key"``. Returns ``'keyring'`` or
     ``'file'`` (where the new credential landed).
     """
     if kind not in ("bearer", "api_key"):
         raise ValueError(f"unknown credential kind: {kind!r}")
 
+    # fix(#1778 review round 28): see the docstring above -- refuse
+    # before anything else runs, read-only or not. The snapshot below
+    # is itself read-only and harmless against a corrupt file, but
+    # there is no longer any reason to take it, or read the active
+    # kind, or store anything, when the file cannot be trusted.
+    ensure_credentials_file_readable()
+
     snapshot = _snapshot_credentials(instance)
-
-    previous_kind = _resolve_current_active_kind(instance)
-    kind_changed = previous_kind is not None and previous_kind != kind
-
-    # fix(#1778 review round 23): mirrors _delete_stale_credentials's own
-    # round-14 _UNKNOWN gate for the SAME (old-kind) keyring account --
-    # when the pre-swap snapshot could not read it, that cleanup skips
-    # it below rather than risk deleting something it never actually
-    # saw. The marker is what makes a skipped, still-lingering old
-    # credential harmless; if the marker write ITSELF then also fails,
-    # nothing stops that old credential from resurfacing under
-    # AppState.sdk()'s bearer-first fallback. Detected here (rather than
-    # inside _delete_stale_credentials, which runs after the marker
-    # write) so the marker's own except block below can decide whether
-    # to treat a failure there as fatal.
-    #
-    # fix(#1778 review round 25): round 23 gated all of this on
-    # `kind_changed` alone -- but `kind_changed` comes from
-    # _resolve_current_active_kind(), which uses the TOLERANT
-    # load_bearer_token()/load_api_key() reads. Those catch a
-    # KeyringError on the OLD kind's account and return None, the same
-    # value they'd return for "genuinely nothing stored" -- so an
-    # UNREADABLE old credential looks identical to an ABSENT one from
-    # `kind_changed`'s point of view, and it silently came out False.
-    # An API-key login then stored the key, treated the marker write as
-    # optional, and skipped deleting the (still merely _UNKNOWN, not
-    # confirmed gone) old bearer entry -- exactly the scenario the
-    # marker exists to guard against. `old_kind_snapshot` below is the
-    # SAME snapshot _delete_stale_credentials() will use, taken by a
-    # SEPARATE, single read at the top of this call -- using it as the
-    # sole source of truth for the competing kind's state (rather than
-    # `kind_changed`'s independent, lossy resolution) can't be fooled
-    # the same way, and can't disagree with what cleanup does either.
-    old_kind = "api_key" if kind == "bearer" else "bearer"
-    old_kind_snapshot = (
-        snapshot.keyring_api_key if old_kind == "api_key" else snapshot.keyring_bearer
-    )
-    # "absent" (confirmed None) is the only state where skipping the
-    # marker is safe -- _UNKNOWN might still be sitting there unseen,
-    # and "present" means it verifiably IS there right now, so either
-    # way a lost marker could let it resurface under bearer-first
-    # fallback. `kind_changed` stays in the OR for the case its OWN
-    # (marker-first) resolution disagrees with the snapshot -- e.g. a
-    # stale file marker names the other kind while the snapshot finds
-    # nothing behind it.
-    competing_confirmed_absent = old_kind_snapshot is None
-    marker_required = kind_changed or not competing_confirmed_absent
-
-    # fix(#1778 review round 23, widened round 25): a kind swap (bearer
-    # -> api_key or back), OR any login where the competing kind's own
-    # state cannot be proven absent, makes the active_kind marker
-    # written below load-bearing, not mere tidiness -- it is the ONLY
-    # thing that keeps a still-lingering (or merely unverifiable) OLD
-    # credential in the other backend from outranking the one this
-    # login is about to store (AppState.sdk() falls back to
-    # bearer-first precedence whenever the marker is missing or stale).
-    # Round 22 let a corrupt file swallow that write to a warning and
-    # carry on regardless -- fine when the competing kind is
-    # confirmed absent (nothing about precedence changes), wrong
-    # otherwise: login would report success while quietly leaving a
-    # credential this call could not account for in charge. Refuse UP
-    # FRONT here, before the new secret is stored anywhere, so a
-    # refusal leaves both backends exactly as they were -- unlike the
-    # marker-write failure handled below, which can only roll back what
-    # THIS call already stored.
-    if marker_required:
-        ensure_credentials_file_readable()
-
-    mandatory_marker = marker_required
 
     # fix(#1778 review round 12): _UNKNOWN used to be checked ONLY on the
     # rollback path, after the mutating store_bearer_token/store_api_key
@@ -951,42 +858,18 @@ def replace_credentials(
     # marker in place pointing at a value that had also already
     # changed backends. Either way login reported failure with the
     # credential store left in a state nothing had rolled back.
+    #
+    # fix(#1778 review round 28): rounds 22-25 special-cased a
+    # ``CredentialsFileCorrupt`` failure HERE as tolerable (sometimes
+    # non-fatal, sometimes conditionally fatal via ``mandatory_marker``)
+    # -- moot now that the file is refused unconditionally, up front,
+    # before this point is ever reached (see this function's own
+    # docstring). Any failure writing the marker -- corrupt file or
+    # otherwise -- is now an ORDINARY marker-write failure: it rolls
+    # back the whole swap and fails the login, exactly like any other
+    # write in this transaction.
     try:
-        try:
-            _set_credential_field(instance, _ACTIVE_KIND_FIELD, kind)
-        except CredentialsFileCorrupt as exc:
-            if mandatory_marker:
-                # fix(#1778 review round 23): unlike the ordinary case
-                # below, there is no stale-entry safety net here -- the
-                # old kind's keyring entry could not be verified or
-                # deleted (round 14's _UNKNOWN gate on
-                # _delete_stale_credentials, computed above as
-                # old_kind_snapshot), so the marker is the ONLY thing
-                # standing between this login and a silent fallback to
-                # the OLD credential. Propagate so the outer except
-                # rolls the whole swap back -- the secret just stored a
-                # few lines up is removed, and the untouched old
-                # credential is left exactly where it was.
-                raise
-            # fix(#1778 review round 22): a PRE-EXISTING corrupt
-            # credentials.toml is not something THIS login broke, and
-            # the primary credential already landed safely in
-            # `backend` a few lines up -- refusing to touch the file
-            # (not overwriting it with a marker-only "fresh" version
-            # that would destroy every OTHER instance's file-backed
-            # credentials sitting in that same unparseable file) is
-            # strictly safer than either silently overwriting it or
-            # failing the whole login over a marker round 10 already
-            # documented as tidiness, not correctness-bearing. Unlike
-            # an ORDINARY marker-write failure (round 11, which DOES
-            # roll back and fail the login -- the file was healthy a
-            # moment ago there and something just broke a write we
-            # could have trusted), this file was never trustworthy to
-            # begin with. Printed via _warn_credentials_file_corrupt()
-            # (a human-readable sentence, not log.warning()'s key=value
-            # dump -- see that function's own docstring, round 24) so
-            # the operator actually notices it.
-            _warn_credentials_file_corrupt(exc)
+        _set_credential_field(instance, _ACTIVE_KIND_FIELD, kind)
         _delete_stale_credentials(
             instance, keep=kind, keep_backend=backend, snapshot=snapshot
         )
