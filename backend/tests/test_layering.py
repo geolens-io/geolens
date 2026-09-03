@@ -4408,7 +4408,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # and arming the origin-contact callback at the first page rather than at a
     # spawn that no longer happens first.
     # Cap 1292 -> 1314, exact.
-    "backend/app/processing/ingest/ogr.py": 1314,
+    # fix(#1746 B2b review r23): +26. The WFS capabilities preflight
+    # authenticates against the origin before the subprocess exists, so it now
+    # arms the origin-contact callback and runs under the caller's deadline;
+    # a 401, malformed XML or cross-origin endpoint used to leave
+    # `last_checked_at` stale. One `fire_once` callback is shared by the page
+    # walk, the preflight and the spawn, so no site has to assume another one
+    # fired it, and the remaining-budget arithmetic moved to just before the
+    # spawn where it accounts for both preflights.
+    # Cap 1314 -> 1340, exact.
+    "backend/app/processing/ingest/ogr.py": 1340,
     # fix(#1778): +157 for two audit findings that both land in JIT
     # provisioning. One is the REGISTRATION_ENABLED gate plus its exception
     # class, so enabling a provider stops being a way to reopen signup while

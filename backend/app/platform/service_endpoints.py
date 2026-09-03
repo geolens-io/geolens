@@ -34,11 +34,52 @@ Lives in ``platform/`` because both callers are in layers that may not import
 each other: ``modules/catalog`` for the probe and preview doors, and
 ``processing/ingest`` for the worker that runs the same source through ogr2ogr
 minutes later. Both check, because the document can change in between.
+
+The contract for reading anything from an untrusted service
+------------------------------------------------------------------
+
+fix(#1746 B2b review r23). This module and ``service_items`` both read
+documents a caller-named service chose, into the same process, holding the same
+credential. They had grown different subsets of the same protections, and
+closing that by hand was costing a review round per protection per site. There
+is now ONE request function, :func:`fetch_document`, and every read in both
+modules goes through it. ``test_service_auth_transport_1746`` asserts that
+structurally, so a second call site fails there rather than in a review weeks
+later.
+
+What it applies, and what each one is for:
+
+* ``Accept-Encoding: identity`` on the request, and a refusal of any
+  ``Content-Encoding`` that comes back. Asking without enforcing lets a
+  compression bomb through; enforcing without asking rejects an honest server
+  that took httpx's default offer of ``gzip, deflate``. Both halves, or
+  neither.
+* A declared ``Content-Length`` over the budget refused before the body is
+  read. Free when the service is honest.
+* A streamed byte cap that stops at the bound rather than at the end of the
+  response, over ``aiter_raw`` so nothing is inflated on the way past.
+* A structural-token bound applied to the raw bytes BEFORE decoding, because a
+  byte cap bounds the wire and not the object graph.
+* SSRF revalidation of every URL immediately before its request, including one
+  that a previous document named, because a host that resolved publicly a
+  moment ago can resolve privately now.
+* The final URL after redirects returned alongside the body, so a relative
+  link resolves against the document it came from.
+* An optional origin-contact callback, fired before the request, so a caller
+  that dates contacts hears about the first one even if it fails.
+
+Two things it deliberately does NOT do, because they belong to the whole
+operation rather than to one read: the monotonic caller deadline, which each
+entry point wraps around all of its reads, and the same-origin rule, which is
+about what a document is allowed to name rather than about how it is fetched.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
+from collections.abc import Callable
 from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse, urlunparse
 
 import defusedxml.ElementTree as ET
@@ -109,6 +150,20 @@ class CrossOriginEndpointError(Exception):
 # so this is the real per-request bound; the service chooses the size.
 MAX_DOCUMENT_BYTES = 32 * 1024 * 1024
 
+# And what it may cost DECODED. fix(#1746 B2b review r23): the sibling of
+# `service_items.MAX_STRUCTURAL_TOKENS`, which r22 added on the items path
+# while the description reads beside it kept only a byte cap. Compact JSON
+# expands 4x to 31x (measured; the figures are in `service_items`), so 32 MiB
+# of landing page was ~1 GiB of objects. Half the items figure because a
+# description is metadata rather than data: 1,000,000 tokens is ~92 MiB
+# decoded at the worst measured cost, and a collections listing of 1,000
+# entries costs about 20,000.
+MAX_DOCUMENT_TOKENS = 1_000_000
+
+# How long an endpoint check may take when the caller has a clock. `None`
+# means no caller deadline, which is the direct-call and offline case.
+DEFAULT_CHECK_TIMEOUT = 30.0
+
 
 class EndpointCheckFailedError(Exception):
     """A credentialed source's description could not be read, so nothing is known.
@@ -163,20 +218,6 @@ def _capabilities_url(url: str) -> str:
     params["service"] = "WFS"
     params["request"] = "GetCapabilities"
     return urlunparse(parsed._replace(query=urlencode(params)))
-
-
-def _credential_headers(credential_line: str) -> dict[str, str]:
-    """The one header the description fetch carries, from the finished line.
-
-    The line is the wire format everything downstream of a door speaks (plan
-    D9) and it has already been validated by the door that composed it, so
-    this splits rather than re-derives. It is the only place the line is split
-    for sending, and it sends to the submitted origin alone: the client refuses
-    a cross-origin redirect carrying this header, and the check itself refuses
-    a cross-origin endpoint before GDAL ever sees one.
-    """
-    name, _, value = credential_line.partition(HEADER_LINE_SEPARATOR)
-    return {name: value}
 
 
 # The two ways a WFS capabilities document names an operation endpoint.
@@ -271,6 +312,106 @@ def _assert_same_origin(url: str, hrefs: list[str], base: str | None = None) -> 
             raise CrossOriginEndpointError(_origin_of(resolved))
 
 
+def structural_tokens(body: bytes) -> int:
+    """An upper bound on the values and containers ``body`` will decode to.
+
+    Every JSON value after the first in a container is preceded by a comma and
+    every container opens with a bracket, so this cannot undercount. Commas and
+    brackets inside strings inflate it, which is the safe direction: the bound
+    refuses a document it could have accepted rather than accepting one it
+    could not hold.
+
+    Three `bytes.count` passes over the raw body, before any decoding, which is
+    the point: whatever the answer, nothing has been built yet.
+    """
+    return body.count(b",") + body.count(b"[") + body.count(b"{")
+
+
+def require_decodable(
+    body: bytes,
+    token_budget: int,
+    *,
+    error: type[EndpointCheckFailedError] = EndpointCheckFailedError,
+) -> None:
+    """Refuse a document that would cost too much to decode. fix(#1746 r22/r23).
+
+    A byte cap bounds the wire, not the object graph. Called from
+    `fetch_document` below, which is the only place either module makes a
+    request, so it covers every document either one reads.
+    """
+    if structural_tokens(body) > token_budget:
+        raise error("document is too complex to decode")
+
+
+def fire_once(callback: "Callable[[], None] | None") -> "Callable[[], None] | None":
+    """Wrap a callback so the first call fires it and later ones do not.
+
+    fix(#1746 B2b review r23): both modules have to tell a caller that dates
+    origin contacts when the origin was first reached, and both used to do it
+    by special-casing the first iteration of their own loop. This moves the
+    once-ness to the callback, so `fetch_document` can fire it unconditionally
+    and no loop has to remember which pass it is on.
+    """
+    if callback is None:
+        return None
+    fired = False
+
+    def _fire() -> None:
+        nonlocal fired
+        if not fired:
+            fired = True
+            callback()
+
+    return _fire
+
+
+def deadline_budget(
+    deadline: float | None,
+    *,
+    error: type[EndpointCheckFailedError] = EndpointCheckFailedError,
+) -> float | None:
+    """Seconds left before ``deadline``, or a refusal if it has passed.
+
+    fix(#1746 B2b review r23): shared, because the HTTP client's timeout is per
+    inactivity rather than per operation on both paths, and a service that
+    answers slowly but never stops answering passes it forever. The explicit
+    expired check matters because `asyncio.timeout` on a past deadline only
+    fires at the first suspension, which a fast enough first response never
+    reaches.
+    """
+    if deadline is None:
+        return None
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise error("deadline exceeded")
+    return remaining
+
+
+def credential_headers(
+    credential_line: str, *, accept: str | None = None
+) -> dict[str, str]:
+    """The request headers a credentialed read carries. fix(#1746 r23).
+
+    The line is the wire format everything downstream of a door speaks (plan
+    D9) and it has already been validated by the door that composed it, so
+    this splits rather than re-derives. It is the only place the line is split
+    for sending, and it sends to the submitted origin alone: the client refuses
+    a cross-origin redirect carrying this header, and the checks themselves
+    refuse a cross-origin endpoint before GDAL ever sees one.
+
+    ``Accept-Encoding: identity`` is asked for and enforced by
+    `read_bounded_body`. Both halves are needed and r23 is where the
+    description path got the first of them: refusing an encoded body while
+    letting httpx advertise its default `gzip, deflate` meant a server that
+    honoured the offer had its answer rejected as unreadable.
+    """
+    name, _, value = credential_line.partition(HEADER_LINE_SEPARATOR)
+    headers = {name: value, "Accept-Encoding": "identity"}
+    if accept is not None:
+        headers["Accept"] = accept
+    return headers
+
+
 async def read_bounded_body(
     response: httpx.Response,
     budget: int,
@@ -321,22 +462,43 @@ async def read_bounded_body(
     return b"".join(chunks)
 
 
-async def _fetch(
-    client: httpx.AsyncClient, url: str, headers: dict[str, str]
+async def fetch_document(
+    client: httpx.AsyncClient,
+    url: str,
+    headers: dict[str, str],
+    *,
+    budget: int | None = None,
+    token_budget: int | None = None,
+    error: type[EndpointCheckFailedError] = EndpointCheckFailedError,
+    on_first_request: "Callable[[], None] | None" = None,
 ) -> tuple[bytes, str]:
-    """One description document and the URL it came from, or a refusal.
+    """One document from an untrusted service, and the URL it came from.
 
-    THE request site for this module, and deliberately the only one: every
-    document the validator reads goes through here, so the SSRF revalidation
-    below cannot be forgotten at a new call site and there is exactly one
-    suppression marker to keep correct. ``test_service_auth_transport_1746``
-    asserts both counts (fix(#1746 B2b review r15)).
+    THE request site for BOTH this module and `service_items`, and deliberately
+    the only one. fix(#1746 B2b review r23): the two modules had grown
+    different sets of protections around near-identical reads, and closing that
+    by hand would have cost a review round per protection per site. Everything
+    the contract in the module docstring lists is applied here, once.
 
     Every URL is revalidated immediately before the request even though it is
     same-origin with one already validated: a host that resolved publicly at
     the door can resolve to a private address by the time the worker asks, and
     same-origin says nothing about that (AGENTS.md Rule 2).
+
+    ``on_first_request`` is fired before the request. Wrap it in `fire_once` if
+    it should fire for the first read only, which is what a caller dating
+    origin contacts wants.
     """
+    # Resolved here rather than as default arguments: a default binds the
+    # module constant once at definition time, so a caller (or a test) that
+    # changes the constant would be silently ignored.
+    budget = MAX_DOCUMENT_BYTES if budget is None else budget
+    token_budget = MAX_DOCUMENT_TOKENS if token_budget is None else token_budget
+    if on_first_request is not None:
+        # Outside the guard below: a callback failure is this process's bug,
+        # not the service's, and must not be reported as an unreadable
+        # document.
+        on_first_request()
     try:
         await validate_url_for_ssrf(url)
         # The client comes from `make_safe_client`, whose transport re-resolves
@@ -350,19 +512,30 @@ async def _fetch(
         # codeql[py/full-ssrf] fix(#1746): Rule 2 posture — validate_url_for_ssrf gates this exact URL immediately above, and make_safe_client's transport re-resolves, validates and pins the IP at connect time and revalidates every redirect hop
         async with client.stream("GET", url, headers=headers) as response:
             if response.status_code >= 400:
-                # Read nothing: an error body from the service this module
-                # exists to distrust is not worth the bytes, and the status is
+                # Read nothing: an error body from a service these modules
+                # exist to distrust is not worth the bytes, and the status is
                 # the whole of what the refusal says.
-                raise EndpointCheckFailedError(f"HTTP {response.status_code}")
-            body = await read_bounded_body(response, MAX_DOCUMENT_BYTES)
+                raise error(f"HTTP {response.status_code}")
+            body = await read_bounded_body(response, budget, error=error)
             # fix(#1746 B2b review r19): the URL the representation actually
             # came from. A same-origin canonical redirect (`/wfs` to `/wfs/`)
             # changes what a relative href in the body is relative to, and
             # resolving against the pre-redirect URL asks for the wrong path.
             final_url = str(response.url)
+        require_decodable(body, token_budget, error=error)
         return body, final_url
     except (httpx.HTTPError, SSRFError, ValueError) as exc:
-        raise EndpointCheckFailedError(str(exc)) from None
+        raise error(str(exc)) from None
+
+
+async def _fetch(
+    client: httpx.AsyncClient,
+    url: str,
+    headers: dict[str, str],
+    on_first_request: "Callable[[], None] | None" = None,
+) -> tuple[bytes, str]:
+    """This module's reads, with its own caps and exception."""
+    return await fetch_document(client, url, headers, on_first_request=on_first_request)
 
 
 def _parsed_json(body: bytes) -> object:
@@ -373,9 +546,14 @@ def _parsed_json(body: bytes) -> object:
 
 
 async def _check_wfs(
-    client: httpx.AsyncClient, url: str, headers: dict[str, str]
+    client: httpx.AsyncClient,
+    url: str,
+    headers: dict[str, str],
+    on_first_request: "Callable[[], None] | None" = None,
 ) -> None:
-    xml_bytes, from_url = await _fetch(client, _capabilities_url(url), headers)
+    xml_bytes, from_url = await _fetch(
+        client, _capabilities_url(url), headers, on_first_request
+    )
     try:
         hrefs = _wfs_operation_hrefs(xml_bytes)
     except ET.ParseError as exc:
@@ -388,8 +566,9 @@ async def _check_ogcapi(
     url: str,
     headers: dict[str, str],
     collection: str | None,
+    on_first_request: "Callable[[], None] | None" = None,
 ) -> None:
-    body, from_url = await _fetch(client, url, headers)
+    body, from_url = await _fetch(client, url, headers, on_first_request)
     _assert_same_origin(url, _ogcapi_link_hrefs(_parsed_json(body)), from_url)
 
     if collection is not None:
@@ -436,6 +615,8 @@ async def assert_endpoints_stay_on_origin(
     service_format: str | None,
     credential_line: str | None,
     collection: str | None = None,
+    deadline: float | None = None,
+    on_first_request: "Callable[[], None] | None" = None,
 ) -> None:
     """Refuse a credentialed source that advertises a foreign operation endpoint.
 
@@ -450,14 +631,32 @@ async def assert_endpoints_stay_on_origin(
     document GDAL will act on rather than a 401. ``collection`` is the
     collection an OGC API import will read, which the preview and worker paths
     know and the probe does not.
+
+    ``deadline`` is a :func:`time.monotonic` stamp by which the whole check
+    must be done, covering every read rather than the gaps between them.
+    ``on_first_request`` fires once, before the first request, for a caller
+    that dates origin contacts. fix(#1746 B2b review r23) for both.
     """
     if not credential_line or not requires_header_token_policy(service_format):
         return
-    headers = _credential_headers(credential_line)
-    async with make_safe_client(
-        timeout=PROBE_TIMEOUT, credential_header=next(iter(headers))
-    ) as client:
-        if service_format == "wfs":
-            await _check_wfs(client, url, headers)
-        else:
-            await _check_ogcapi(client, url, headers, collection)
+    headers = credential_headers(credential_line)
+    # The check has to fit inside the caller's clock: the client's timeout is
+    # per inactivity, so a service that trickles a 32 MiB capabilities document
+    # would otherwise hold a preview request or an ingest worker indefinitely
+    # before the work it precedes had started.
+    try:
+        async with asyncio.timeout(deadline_budget(deadline)):
+            async with make_safe_client(
+                timeout=PROBE_TIMEOUT, credential_header=next(iter(headers))
+            ) as client:
+                arm = fire_once(on_first_request)
+                if service_format == "wfs":
+                    await _check_wfs(client, url, headers, arm)
+                else:
+                    await _check_ogcapi(client, url, headers, collection, arm)
+    except TimeoutError:
+        # Translated, not propagated. Every caller of this function handles
+        # `EndpointCheckFailedError` and turns it into a coded 422; a bare
+        # `TimeoutError` would escape those handlers as a 500 about nothing the
+        # caller can act on.
+        raise EndpointCheckFailedError("deadline exceeded") from None

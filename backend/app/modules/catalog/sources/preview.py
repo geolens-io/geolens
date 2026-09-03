@@ -244,11 +244,6 @@ async def run_service_preview(
     gdal_source, layer_name, credential, items_path = await _localise_protected_oapif(
         gdal_source, layer_name, credential, sample_limit, deadline
     )
-    # What the walk did not spend. Floored so a materialisation that used the
-    # whole budget still fails through the ordinary ogrinfo timeout rather than
-    # through an arithmetic edge.
-    timeout = max(deadline - time.monotonic(), _SUBPROCESS_FLOOR_SECONDS)
-
     cmd = [
         "ogrinfo",
         "-json",
@@ -331,6 +326,11 @@ async def run_service_preview(
                     # the one checked rather than whatever fits on page one.
                     credential_line=credential_header_line(pair),
                     collection=layer_name or None,
+                    # fix(#1746 B2b review r23): inside the preview's budget.
+                    # The client's timeout is per inactivity, so a service
+                    # trickling a 32 MiB capabilities document held the request
+                    # open indefinitely before ogrinfo had started.
+                    deadline=deadline,
                 )
             except (CrossOriginEndpointError, EndpointCheckFailedError) as exc:
                 # A coded 422, not the 502 the broad handler upstairs would
@@ -401,6 +401,13 @@ async def run_service_preview(
             # keep the credential or a protected service answers 401.
             env.update(GDAL_HEADER_FILE_REDIRECT_ENV)
 
+        # fix(#1746 B2b review r23): computed HERE rather than earlier, so it
+        # accounts for everything that has already spent the budget: the
+        # in-process page walk for a protected OGC API collection, and the
+        # endpoint check just above. Floored so a preflight that used the whole
+        # budget still fails through the ordinary ogrinfo timeout rather than
+        # through an arithmetic edge.
+        timeout = max(deadline - time.monotonic(), _SUBPROCESS_FLOOR_SECONDS)
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,

@@ -55,6 +55,7 @@ from app.platform import security
 from app.platform.security import SSRFError, make_safe_client
 from app.processing.ingest import tasks_vector
 from app.processing.ingest import ogr as ogr_mod
+from app.platform import service_endpoints as service_endpoints_mod
 from app.platform import service_items as service_items_mod
 from app.platform.service_endpoints import EndpointCheckFailedError
 from app.platform.service_items import ItemFetchFailedError, materialise_oapif_items
@@ -2004,8 +2005,11 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
             "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
             AsyncMock(),
         )
+        # fix(#1746 B2b review r23): one module makes the requests now, so
+        # there is one place to gate. A patch of `service_items` would silently
+        # stop covering anything.
         monkeypatch.setattr(
-            "app.platform.service_items.validate_url_for_ssrf", AsyncMock()
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
         )
         return recorded
 
@@ -2714,8 +2718,11 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
         )
+        # fix(#1746 B2b review r23): one module makes the requests now, so
+        # there is one place to gate. A patch of `service_items` would silently
+        # stop covering anything.
         monkeypatch.setattr(
-            "app.platform.service_items.validate_url_for_ssrf", AsyncMock()
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
         )
         return recorded
 
@@ -3023,8 +3030,11 @@ class TestOnePageCannotCostTheWholeProcess:
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
         )
+        # fix(#1746 B2b review r23): one module makes the requests now, so
+        # there is one place to gate. A patch of `service_items` would silently
+        # stop covering anything.
         monkeypatch.setattr(
-            "app.platform.service_items.validate_url_for_ssrf", AsyncMock()
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
         )
         return recorded
 
@@ -3304,8 +3314,11 @@ class TestTheCallersClockCoversTheDownload:
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
         )
+        # fix(#1746 B2b review r23): one module makes the requests now, so
+        # there is one place to gate. A patch of `service_items` would silently
+        # stop covering anything.
         monkeypatch.setattr(
-            "app.platform.service_items.validate_url_for_ssrf", AsyncMock()
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
         )
         return recorded
 
@@ -3435,7 +3448,11 @@ class TestTheCallersClockCoversTheDownload:
             timeout=1800.0,
         )
 
-        assert waited == [1800.0]
+        # fix(#1746 B2b review r23): the remaining budget rather than the
+        # nominal one, because the recompute moved to immediately before the
+        # spawn so it accounts for the endpoint-check preflight too. Nothing
+        # spent it here, so it is the whole of it bar the arithmetic.
+        assert waited and 1799.0 < waited[0] <= 1800.0, waited
 
 
 class TestAFailedMaterialisationStillDatesTheContact:
@@ -3463,8 +3480,11 @@ class TestAFailedMaterialisationStillDatesTheContact:
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
         )
+        # fix(#1746 B2b review r23): one module makes the requests now, so
+        # there is one place to gate. A patch of `service_items` would silently
+        # stop covering anything.
         monkeypatch.setattr(
-            "app.platform.service_items.validate_url_for_ssrf", AsyncMock()
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
         )
 
         async def _fake_exec(*cmd, **kwargs):
@@ -3726,9 +3746,9 @@ class TestARelativeLinkIsResolvedAgainstTheDocument:
         # The redirect hook resolves it through security's own namespace, so
         # patching the two importers is not enough for a test that redirects.
         monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
-        monkeypatch.setattr(
-            "app.platform.service_items.validate_url_for_ssrf", AsyncMock()
-        )
+        # fix(#1746 B2b review r23): one module makes the requests now, so
+        # there is one place to gate. A patch of `service_items` would silently
+        # stop covering anything.
         monkeypatch.setattr(
             "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
         )
@@ -3855,8 +3875,11 @@ class TestTheItemsLinkTheCollectionAdvertises:
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
         )
+        # fix(#1746 B2b review r23): one module makes the requests now, so
+        # there is one place to gate. A patch of `service_items` would silently
+        # stop covering anything.
         monkeypatch.setattr(
-            "app.platform.service_items.validate_url_for_ssrf", AsyncMock()
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
         )
         return recorded
 
@@ -4031,8 +4054,11 @@ class TestAPageThatIsNotAPageIsNotAnEmptyPage:
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
         )
+        # fix(#1746 B2b review r23): one module makes the requests now, so
+        # there is one place to gate. A patch of `service_items` would silently
+        # stop covering anything.
         monkeypatch.setattr(
-            "app.platform.service_items.validate_url_for_ssrf", AsyncMock()
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
         )
         return recorded
 
@@ -4185,8 +4211,11 @@ class TestAPageCannotCostMoreDecodedThanItDidOnTheWire:
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
         )
+        # fix(#1746 B2b review r23): one module makes the requests now, so
+        # there is one place to gate. A patch of `service_items` would silently
+        # stop covering anything.
         monkeypatch.setattr(
-            "app.platform.service_items.validate_url_for_ssrf", AsyncMock()
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
         )
         return recorded
 
@@ -4240,7 +4269,8 @@ class TestAPageCannotCostMoreDecodedThanItDidOnTheWire:
             b'["a,b,c,d,e"]',
         ):
             assert (
-                service_items_mod._structural_tokens(raw) >= values(json.loads(raw)) - 1
+                service_endpoints_mod.structural_tokens(raw)
+                >= values(json.loads(raw)) - 1
             ), raw
 
     async def test_a_page_over_the_token_bound_is_refused_before_decoding(
@@ -4301,7 +4331,7 @@ class TestAPageCannotCostMoreDecodedThanItDidOnTheWire:
         raw = json.dumps(
             {"type": "FeatureCollection", "features": features, "links": []}
         ).encode()
-        tokens = service_items_mod._structural_tokens(raw)
+        tokens = service_endpoints_mod.structural_tokens(raw)
         # Measured rather than asserted vaguely: a full page of 1,000 polygon
         # features costs about 22,000 tokens, so the bound is roughly ninety
         # times an honest page. Pinned at fifty so a future page shape has room
@@ -4322,7 +4352,7 @@ class TestAPageCannotCostMoreDecodedThanItDidOnTheWire:
         monkeypatch.setattr(service_items_mod, "MAX_PAGE_BYTES", 4096)
         # Well under the token bound: this one is refused for its size alone.
         raw = b'{"type":"FeatureCollection","features":[],"pad":"' + b"x" * 4096 + b'"}'
-        assert service_items_mod._structural_tokens(raw) < 10
+        assert service_endpoints_mod.structural_tokens(raw) < 10
 
         self._transport(monkeypatch, self._serving(raw))
 
@@ -4334,3 +4364,381 @@ class TestAPageCannotCostMoreDecodedThanItDidOnTheWire:
     def test_the_wire_cap_is_sixteen_mebibytes(self) -> None:
         """Pinned because lowering it is the other half of this round's fix."""
         assert service_items_mod.MAX_PAGE_BYTES == 16 * 1024 * 1024
+
+
+class TestBothModulesReadThroughOneRequestFunction:
+    """fix(#1746 B2b review r23): the sibling-site class, closed structurally.
+
+    `service_endpoints` and `service_items` read documents a caller-named
+    service chose, into the same process, holding the same credential. They had
+    grown different subsets of the same protections, and every round since r17
+    has found one that reached one module and not the other. There is one
+    request function now, and this asserts it rather than trusting it.
+    """
+
+    _MODULES = ("app/platform/service_endpoints.py", "app/platform/service_items.py")
+    _VERBS = ("get", "post", "put", "patch", "delete", "request", "stream", "send")
+
+    def _sources(self):
+        import inspect as _inspect
+
+        from app.platform import service_endpoints, service_items
+
+        return {
+            "service_endpoints": _inspect.getsource(service_endpoints),
+            "service_items": _inspect.getsource(service_items),
+        }
+
+    def test_only_fetch_document_talks_to_the_network(self) -> None:
+        """Every `client.<verb>(` in either module is inside the one helper."""
+        import ast
+        import inspect as _inspect
+
+        from app.platform import service_endpoints, service_items
+
+        offenders: list[str] = []
+        for module in (service_endpoints, service_items):
+            tree = ast.parse(_inspect.getsource(module))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                    continue
+                for inner in ast.walk(node):
+                    if not isinstance(inner, ast.Call):
+                        continue
+                    func = inner.func
+                    if not isinstance(func, ast.Attribute):
+                        continue
+                    if func.attr not in self._VERBS:
+                        continue
+                    if not isinstance(func.value, ast.Name):
+                        continue
+                    if func.value.id != "client":
+                        continue
+                    offenders.append(f"{module.__name__}.{node.name}")
+
+        assert offenders == ["app.platform.service_endpoints.fetch_document"], offenders
+
+    def test_the_suppression_marker_follows_the_one_call(self) -> None:
+        """One request site means one marker, and it binds to the call."""
+        sources = self._sources()
+        assert sources["service_items"].count("# codeql[py/full-ssrf]") == 0
+        endpoints = sources["service_endpoints"]
+        assert endpoints.count("# codeql[py/full-ssrf]") == 1
+        lines = endpoints.splitlines()
+        marker = next(
+            index
+            for index, line in enumerate(lines)
+            if "# codeql[py/full-ssrf]" in line
+        )
+        assert "client.stream(" in lines[marker + 1]
+        assert "validate_url_for_ssrf(url)" in "\n".join(lines[marker - 12 : marker])
+
+    def test_neither_module_builds_its_own_credential_headers(self) -> None:
+        """One header builder, so `Accept-Encoding` cannot reach one and not the other.
+
+        This is the shape of the r23 P1: `service_items` asked for identity and
+        `service_endpoints` did not, while both refused an encoded body. The
+        refusal without the request is a working-looking configuration that
+        rejects honest servers.
+        """
+        sources = self._sources()
+        for name, source in sources.items():
+            assert source.count("HEADER_LINE_SEPARATOR)") <= 1, name
+        assert "def credential_headers(" in sources["service_endpoints"]
+        assert "def credential_headers(" not in sources["service_items"]
+
+    def test_the_contract_is_written_down(self) -> None:
+        """The list a future protection has to be added to, in one place."""
+        from app.platform import service_endpoints
+
+        contract = service_endpoints.__doc__ or ""
+        for phrase in (
+            "Accept-Encoding: identity",
+            "Content-Length",
+            "structural-token bound",
+            "SSRF revalidation",
+            "origin-contact callback",
+            "final URL after redirects",
+        ):
+            assert phrase in contract, phrase
+
+
+class TestTheDescriptionReadHasTheItemsPathsProtections:
+    """fix(#1746 B2b review r23): one test per protection that was missing."""
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _check(self, **kwargs):
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        await assert_endpoints_stay_on_origin(
+            _SVC_WFS,
+            service_format="wfs",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            **kwargs,
+        )
+
+    @staticmethod
+    def _capabilities() -> str:
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<WFS_Capabilities xmlns:xlink="http://www.w3.org/1999/xlink">'
+            '<OperationsMetadata><Operation name="GetFeature"><DCP><HTTP>'
+            f'<Get xlink:href="{_SVC_WFS}"/>'
+            "</HTTP></DCP></Operation></OperationsMetadata>"
+            "</WFS_Capabilities>"
+        )
+
+    async def test_the_description_request_asks_for_identity(self, monkeypatch) -> None:
+        """P1: refusing an encoded body while offering to accept one.
+
+        httpx defaults to `Accept-Encoding: gzip, deflate`, so a server that
+        honoured the offer had its answer refused as unreadable. The refusal
+        was right and the offer was the bug.
+        """
+        recorded = self._transport(
+            monkeypatch, lambda request: httpx.Response(200, text=self._capabilities())
+        )
+
+        await self._check()
+
+        assert recorded
+        assert all(r.headers["Accept-Encoding"] == "identity" for r in recorded)
+
+    async def test_an_encoded_description_is_still_refused(self, monkeypatch) -> None:
+        """The other half, which was already right and must stay right."""
+        self._transport(
+            monkeypatch,
+            lambda request: httpx.Response(
+                200,
+                headers={"Content-Encoding": "gzip"},
+                text=self._capabilities(),
+            ),
+        )
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check()
+
+    async def test_a_slow_description_is_stopped_at_the_deadline(
+        self, monkeypatch
+    ) -> None:
+        """P1: the check had only the client's per-inactivity timeout.
+
+        A service answering slowly but never stopping held the read for as long
+        as it liked, before the preview or the import it precedes had started.
+        """
+
+        # A VALID document, delivered slowly. An invalid one would fail on the
+        # parser whether or not the clock worked, and the test would pass
+        # vacuously with the deadline disarmed (it did, until this was fixed).
+        raw = self._capabilities().encode()
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            async def _chunks():
+                for start in range(0, len(raw), 8):
+                    await asyncio.sleep(0.02)
+                    yield raw[start : start + 8]
+
+            return httpx.Response(200, content=_chunks())
+
+        recorded = self._transport(monkeypatch, handle)
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check(deadline=time.monotonic() + 0.2)
+
+        # Stopped mid-read rather than after it: the service was answering
+        # steadily and would have finished, given long enough.
+        assert recorded
+
+    async def test_a_deadline_already_passed_makes_no_request(
+        self, monkeypatch
+    ) -> None:
+        recorded = self._transport(
+            monkeypatch, lambda request: httpx.Response(200, text=self._capabilities())
+        )
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check(deadline=time.monotonic() - 1.0)
+
+        assert recorded == []
+
+    async def test_a_description_over_the_token_bound_is_refused(
+        self, monkeypatch
+    ) -> None:
+        """P1: 32 MiB of wire was ~1 GiB of objects on the landing path."""
+        from app.platform import service_endpoints
+
+        raw = b'{"links":[' + b"[[1]]," * 20_000 + b"[[1]]]}"
+        assert len(raw) < service_endpoints.MAX_DOCUMENT_BYTES
+
+        parsed: list = []
+        real_loads = json.loads
+
+        def _loads(payload, *args, **kwargs):
+            if len(payload) > 1000:
+                parsed.append(len(payload))
+                raise AssertionError("the document must not reach the decoder")
+            return real_loads(payload, *args, **kwargs)
+
+        self._transport(monkeypatch, lambda request: httpx.Response(200, content=raw))
+        monkeypatch.setattr(service_endpoints, "MAX_DOCUMENT_TOKENS", 10_000)
+        monkeypatch.setattr(service_endpoints.json, "loads", _loads)
+
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        with pytest.raises(EndpointCheckFailedError):
+            await assert_endpoints_stay_on_origin(
+                _SVC_OAPIF,
+                service_format="ogcapi_features",
+                credential_line=f"{pair[0]}: {pair[1]}",
+            )
+
+        assert parsed == []
+
+    async def test_an_ordinary_description_still_passes(self, monkeypatch) -> None:
+        """The counterfactual's other half for all four bounds at once."""
+        recorded = self._transport(
+            monkeypatch, lambda request: httpx.Response(200, text=self._capabilities())
+        )
+
+        await self._check(deadline=time.monotonic() + 30.0)
+
+        assert recorded
+
+
+class TestAWfsPreflightDatesTheOriginContact:
+    """fix(#1746 B2b review r23): the WFS half of what r17 fixed for OGC API.
+
+    The authenticated capabilities preflight contacts the origin before the
+    subprocess exists, so a 401, malformed XML or cross-origin endpoint had
+    already reached the service. Firing the callback only at the spawn left
+    `origin_contact_attempted` false and `last_checked_at` stale for exactly
+    the failures the check exists to produce.
+    """
+
+    uses_the_real_endpoint_check = True
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _import(self, monkeypatch, contacted, spawn_allowed: bool):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+
+        async def _fake_exec(*cmd, **kwargs):
+            if not spawn_allowed:
+                raise AssertionError("ogr2ogr must not run for a refused source")
+            proc = MagicMock()
+            proc.returncode = 0
+            return proc
+
+        async def _fake_communicate(proc, timeout, tool_name):
+            return (b"", b"")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
+        )
+        await run_ogr2ogr_service(
+            gdal_source=f"WFS:{_SVC_WFS}",
+            layer_name="topp:parcels",
+            table_name="t",
+            db_conn_str="PG:dummy",
+            service_type="wfs",
+            token=f"{pair[0]}: {pair[1]}",
+            schema="data",
+            on_spawn=lambda: contacted.append(1),
+        )
+
+    async def test_a_preflight_failure_still_marks_the_origin_contacted(
+        self, monkeypatch
+    ) -> None:
+        from app.platform.service_endpoints import EndpointCheckFailedError
+
+        contacted: list[int] = []
+        self._transport(monkeypatch, lambda request: httpx.Response(401))
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._import(monkeypatch, contacted, spawn_allowed=False)
+
+        assert contacted == [1]
+
+    async def test_a_cross_origin_refusal_still_marks_it(self, monkeypatch) -> None:
+        from app.platform.service_endpoints import CrossOriginEndpointError
+
+        contacted: list[int] = []
+        self._transport(
+            monkeypatch,
+            lambda request: httpx.Response(
+                200,
+                text=(
+                    '<?xml version="1.0" encoding="UTF-8"?>'
+                    '<WFS_Capabilities xmlns:xlink="http://www.w3.org/1999/xlink">'
+                    '<OperationsMetadata><Operation name="GetFeature"><DCP><HTTP>'
+                    f'<Get xlink:href="{_FOREIGN}/wfs"/>'
+                    "</HTTP></DCP></Operation></OperationsMetadata>"
+                    "</WFS_Capabilities>"
+                ),
+            ),
+        )
+
+        with pytest.raises(CrossOriginEndpointError):
+            await self._import(monkeypatch, contacted, spawn_allowed=False)
+
+        assert contacted == [1]
+
+    async def test_it_fires_once_when_the_import_succeeds(self, monkeypatch) -> None:
+        """Not twice: the preflight arms it and the spawn must not re-arm it."""
+        contacted: list[int] = []
+        self._transport(
+            monkeypatch,
+            lambda request: httpx.Response(
+                200,
+                text=(
+                    '<?xml version="1.0" encoding="UTF-8"?>'
+                    '<WFS_Capabilities xmlns:xlink="http://www.w3.org/1999/xlink">'
+                    '<OperationsMetadata><Operation name="GetFeature"><DCP><HTTP>'
+                    f'<Get xlink:href="{_SVC_WFS}"/>'
+                    "</HTTP></DCP></Operation></OperationsMetadata>"
+                    "</WFS_Capabilities>"
+                ),
+            ),
+        )
+
+        await self._import(monkeypatch, contacted, spawn_allowed=True)
+
+        assert contacted == [1]

@@ -18,7 +18,10 @@ from app.core.runtime.staging import (
     gdal_header_dir,
 )
 from app.platform.service_items import materialise_oapif_items
-from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+from app.platform.service_endpoints import (
+    assert_endpoints_stay_on_origin,
+    fire_once,
+)
 from app.core.service_tokens import (
     BEARER_SCHEME,
     HEADER_LINE_SEPARATOR,
@@ -1071,6 +1074,13 @@ async def run_ogr2ogr_service(
     # service trickling pages inside the client's per-read timeout could hold a
     # worker for hours and then still be handed the full half-hour to convert.
     deadline = time.monotonic() + timeout
+    # fix(#1746 B2b review r23): ONE callback, wrapped so it fires at most
+    # once, handed to every site that might reach the origin first: the
+    # in-process page walk, the endpoint-check preflight, and the spawn.
+    # Nulling it out after whichever one is expected to fire it would be an
+    # assumption about a callee, and a callee that returns early (or is
+    # stubbed) would silently lose the contact date.
+    arm_origin_contact = fire_once(on_spawn)
     if token and service_type == "ogcapi_features":
         items_path = await materialise_oapif_items(
             gdal_source.split(":", 1)[1],
@@ -1086,11 +1096,9 @@ async def run_ogr2ogr_service(
             # fails on its first page has still reached the service and the
             # caller that dates contacts has to hear about it. Fired at most
             # once: the spawn below skips it when the walk already did.
-            on_first_request=on_spawn,
+            on_first_request=arm_origin_contact,
         )
         gdal_source, layer_name, token = items_path, "", None
-        on_spawn = None
-        timeout = max(deadline - time.monotonic(), _SUBPROCESS_FLOOR_SECONDS)
 
     if layer_name:
         validate_layer_name_argv(layer_name)
@@ -1227,6 +1235,15 @@ async def run_ogr2ogr_service(
                 # whose own document names the endpoint that gets the header.
                 credential_line=header_line,
                 collection=layer_name or None,
+                # fix(#1746 B2b review r23): under the same clock as the
+                # subprocess it precedes, and arming the origin-contact
+                # callback. The preflight authenticates against the origin, so
+                # a 401, malformed XML or cross-origin endpoint has reached the
+                # service; firing only at the spawn below left
+                # `origin_contact_attempted` false and `last_checked_at` stale
+                # for exactly the failures this check exists to produce.
+                deadline=deadline,
+                on_first_request=arm_origin_contact,
             )
             # Write the header to a 0600 tempfile under the staging dir
             # (predictable owner, ephemeral). Using tempfile + os.chmod 0o600
@@ -1265,14 +1282,23 @@ async def run_ogr2ogr_service(
             # keep the credential or a protected service answers 401.
             env.update(GDAL_HEADER_FILE_REDIRECT_ENV)
 
+        # fix(#1746 B2b review r23): computed HERE rather than at each place
+        # that spends the budget, so it accounts for all of them: the
+        # in-process page walk for a protected OGC API collection, and the
+        # endpoint-check preflight. Floored so a preflight that used the whole
+        # budget still fails through the ordinary subprocess timeout rather
+        # than through an arithmetic edge.
+        timeout = max(deadline - time.monotonic(), _SUBPROCESS_FLOOR_SECONDS)
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
         )
-        if on_spawn is not None:
-            on_spawn()
+        if arm_origin_contact is not None:
+            # A no-op when the walk or the preflight already reached the
+            # origin, which is the point of wrapping it.
+            arm_origin_contact()
 
         # Use the shared helper for graceful kill-on-timeout (R-9).
         stdout, stderr = await _communicate_with_timeout(

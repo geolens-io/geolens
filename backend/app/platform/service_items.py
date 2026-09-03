@@ -55,7 +55,6 @@ import asyncio
 import json
 import os
 import tempfile
-import time
 from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
@@ -63,18 +62,19 @@ from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsp
 import httpx
 import structlog
 
-from app.core.service_tokens import HEADER_LINE_SEPARATOR
 from app.platform.security import (
     PROBE_TIMEOUT,
-    SSRFError,
     make_safe_client,
     same_origin,
-    validate_url_for_ssrf,
 )
 from app.platform.service_endpoints import (
     MAX_DOCUMENT_BYTES,
+    MAX_DOCUMENT_TOKENS,
     EndpointCheckFailedError,
-    read_bounded_body,
+    credential_headers,
+    deadline_budget,
+    fetch_document,
+    fire_once,
 )
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -161,48 +161,11 @@ def _discard(path: str) -> None:
         pass
 
 
-def _credential_headers(credential_line: str) -> dict[str, str]:
-    name, _, value = credential_line.partition(HEADER_LINE_SEPARATOR)
-    return {
-        name: value,
-        "Accept": "application/geo+json, application/json",
-        # fix(#1746 B2b review r17): identity asked for, and enforced below.
-        # The bytes counted against the page bound have to be the bytes read.
-        "Accept-Encoding": "identity",
-    }
-
-
 def _items_url(url: str, collection: str) -> str:
     return (
         f"{url.rstrip('/')}/collections/{quote(collection, safe='')}"
         f"/items?limit={PAGE_SIZE}"
     )
-
-
-def _structural_tokens(body: bytes) -> int:
-    """An upper bound on the values and containers ``body`` will decode to.
-
-    Every JSON value after the first in a container is preceded by a comma and
-    every container opens with a bracket, so this cannot undercount. Commas and
-    brackets inside strings inflate it, which is the safe direction: the bound
-    refuses a page it could have accepted rather than accepting one it could
-    not hold.
-
-    Three `bytes.count` passes over the raw body, before any decoding, which is
-    the point: whatever the answer, nothing has been built yet.
-    """
-    return body.count(b",") + body.count(b"[") + body.count(b"{")
-
-
-def _require_decodable(body: bytes) -> None:
-    """Refuse a page that would cost too much to decode. fix(#1746 r22).
-
-    Called from `_fetch_page`, which is the only place this module decodes
-    anything, so it covers every document the walk interprets: the collection
-    document, the first page, and every page a `next` names.
-    """
-    if _structural_tokens(body) > MAX_STRUCTURAL_TOKENS:
-        raise ItemFetchFailedError("page is too complex to decode")
 
 
 def _require_object(document: object, what: str) -> dict:
@@ -313,49 +276,35 @@ def _next_href(document: object, base: str) -> str | None:
 
 
 async def _fetch_page(
-    client: httpx.AsyncClient, url: str, headers: dict, *, budget: int
+    client: httpx.AsyncClient,
+    url: str,
+    headers: dict,
+    *,
+    budget: int,
+    token_budget: int | None = None,
+    on_first_request: "Callable[[], None] | None" = None,
 ) -> tuple[object, int, str]:
     """One items page, its wire size and its URL, or a refusal.
 
-    THE request site for this module.
-
-    Every page is revalidated immediately before the request, including pages
-    the previous one named: a chain the service controls is exactly where a
-    host that resolved publicly a moment ago can start resolving to a private
-    address (AGENTS.md Rule 2).
-
-    Streamed rather than buffered, and refused at ``budget`` bytes before
-    anything is decoded. The decoded object is the memory high-water mark of
-    this whole module, so the bound has to be on the input.
+    fix(#1746 B2b review r23): the request itself is `fetch_document` in
+    `service_endpoints`, shared with the description reads, so the protections
+    the two paths need cannot diverge again. This adds only what is specific to
+    an items page: the caps it is read under, and the decode.
     """
+    body, final_url = await fetch_document(
+        client,
+        url,
+        headers,
+        budget=budget,
+        # Read at call time for the same reason `fetch_document` does it: a
+        # default argument would freeze the constant at definition.
+        token_budget=MAX_STRUCTURAL_TOKENS if token_budget is None else token_budget,
+        error=ItemFetchFailedError,
+        on_first_request=on_first_request,
+    )
     try:
-        await validate_url_for_ssrf(url)
-        # The client is `make_safe_client`, whose transport re-resolves,
-        # validates and pins the IP at connect time and revalidates every
-        # redirect hop, and the caller has already refused any `next` that
-        # leaves the origin. CodeQL models none of that.
-        #
-        # The marker below must stay the LAST line before the call: the
-        # suppression query binds a marker to the line that follows it, so an
-        # explanatory comment inserted between the two silently disarms it.
-        # codeql[py/full-ssrf] fix(#1746): Rule 2 posture — validate_url_for_ssrf gates this exact URL immediately above, same_origin has already bounded it to the submitted origin, and make_safe_client's transport re-resolves, validates and pins the IP at connect time
-        async with client.stream("GET", url, headers=headers) as response:
-            if response.status_code >= 400:
-                # Read nothing: the body of an error from a service this module
-                # distrusts is not worth the bytes, and the status is the whole
-                # of what the refusal says.
-                raise ItemFetchFailedError(f"HTTP {response.status_code}")
-            body = await read_bounded_body(response, budget, error=ItemFetchFailedError)
-            # fix(#1746 B2b review r19): the URL this page actually came from.
-            # A same-origin canonical redirect (`/items` to `/items/`) changes
-            # what a relative `next` is relative to, so resolving against the
-            # URL that was asked for requests the wrong path. The safe client
-            # revalidated every hop and refuses a cross-origin one carrying
-            # this header, so the final URL is bounded before it is used.
-            final_url = str(response.url)
-        _require_decodable(body)
         return json.loads(body), len(body), final_url
-    except (httpx.HTTPError, SSRFError, ValueError) as exc:
+    except ValueError as exc:
         raise ItemFetchFailedError(str(exc)) from None
 
 
@@ -365,6 +314,7 @@ async def _resolve_items_url(
     url: str,
     collection: str,
     headers: dict,
+    on_first_request: "Callable[[], None] | None" = None,
 ) -> tuple[str, int]:
     """Where this collection actually keeps its items, and what asking cost.
 
@@ -382,6 +332,10 @@ async def _resolve_items_url(
         f"{url.rstrip('/')}/collections/{quote(collection, safe='')}",
         headers,
         budget=MAX_DOCUMENT_BYTES,
+        # A collection document is a description, so it gets the description
+        # budget rather than an items page's.
+        token_budget=MAX_DOCUMENT_TOKENS,
+        on_first_request=on_first_request,
     )
     href = _advertised_items_href(
         _require_object(document, "collection document"), from_url
@@ -410,16 +364,14 @@ async def _walk_pages(
     written = 0
     pages = 0
     on_disk = 0
-    if on_first_request is not None:
-        # fix(#1746 B2b review r17, moved r20): the origin is contacted HERE,
-        # not by the subprocess, so this is the moment a caller that dates
-        # origin contacts has to hear about. It fires before the collection
-        # document is read rather than before the first page, because that
-        # read is now the first request and a failure in it has still reached
-        # the service; leaving `last_checked_at` stale would report otherwise.
-        on_first_request()
+    # fix(#1746 B2b review r17, moved r20, made once-ness r23): the origin is
+    # contacted HERE, not by the subprocess, so this is the moment a caller
+    # that dates origin contacts has to hear about. `fire_once` means the
+    # request function can fire it on every read and only the first one lands,
+    # so no loop has to remember which pass it is on.
+    arm = fire_once(on_first_request)
     first_page, downloaded = await _resolve_items_url(
-        client, url=url, collection=collection, headers=headers
+        client, url=url, collection=collection, headers=headers, on_first_request=arm
     )
     out.write(b'{"type": "FeatureCollection", "features": [')
     page_url: str | None = first_page
@@ -430,6 +382,7 @@ async def _walk_pages(
             page_url,
             headers,
             budget=min(MAX_PAGE_BYTES, MAX_BYTES - downloaded),
+            on_first_request=arm,
         )
         downloaded += size
         # Both the first page and every page a `next` named. One rule, one
@@ -524,21 +477,24 @@ async def materialise_oapif_items(
     caller cannot tell a prefix from a collection and the worker would import
     one over an existing dataset.
     """
-    headers = _credential_headers(credential_line)
+    headers = credential_headers(
+        credential_line, accept="application/geo+json, application/json"
+    )
     handle, path = tempfile.mkstemp(
         prefix="oapif_items_", suffix=".geojson", dir=str(staging_dir)
     )
     os.close(handle)
     os.chmod(path, 0o600)
 
-    budget = None if deadline is None else deadline - time.monotonic()
-    if budget is not None and budget <= 0:
-        # Refused before a client is opened. `asyncio.timeout` with an expired
-        # deadline only fires at the first suspension, which a fast enough
-        # first page never reaches, so the guard is explicit rather than
-        # inferred from the timer's semantics.
+    try:
+        # Refused before a client is opened when the deadline has already
+        # passed: `asyncio.timeout` on a past deadline only fires at the first
+        # suspension, which a fast enough first page never reaches. Shared with
+        # the endpoint check, which has the same clock and the same trap.
+        budget = deadline_budget(deadline, error=ItemFetchFailedError)
+    except ItemFetchFailedError:
         _discard(path)
-        raise ItemFetchFailedError("deadline exceeded")
+        raise
     try:
         # `asyncio.timeout` wraps the whole walk — DNS, connect, headers and
         # body of every page — rather than the gaps between reads, which is
