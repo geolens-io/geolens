@@ -532,21 +532,22 @@ async def _walk_pages(
        produce fewer rows than the total; nothing can produce more.
     4. ``observed == numberMatched``, on FULL walks only. A sampled read is
        short by construction, so falling below says nothing there.
-    5. fix(#1770 round 38 P1). A FULL walk ending on the FIRST page with no
-       `next` must be able to PROVE it, the same way (3) and (4) must be able
-       to prove ``numberMatched``: either `numberMatched` equals `observed`,
-       or that first page returned fewer features than the
-       `limit=PAGE_SIZE` this module always asks for there. A server that
-       returns exactly `PAGE_SIZE` features on page one, states no
-       `numberMatched`, and omits `links` entirely is indistinguishable from
-       one with more to give that merely forgot pagination -- and the former
-       reads as a complete collection under every check above it, because
-       none of them are ABOUT whether the walk ended honestly. Scoped to the
-       first page: only there does this module control the limit
-       (`_items_url` / `_with_page_size` both pin it), so only there does a
-       short page prove anything; a later page follows whatever limit the
-       service's own `next` href encoded, and an ordinary multi-page walk of
-       short pages ending in an empty `links` list is not this finding.
+    5. fix(#1770 round 38 P1, tightened round 40 P1). A FULL walk ending on
+       the FIRST page with no `next` must be able to PROVE it, the same way
+       (3) and (4) must be able to prove ``numberMatched``: `numberMatched`
+       equal to `observed`, and nothing else. A server that returns exactly
+       `PAGE_SIZE` features on page one, states no `numberMatched`, and omits
+       `links` entirely is indistinguishable from one with more to give that
+       merely forgot pagination -- and the former reads as a complete
+       collection under every check above it, because none of them are ABOUT
+       whether the walk ended honestly. Round 38 also accepted a page
+       SHORTER than `limit=PAGE_SIZE` as proof, reasoning a server with more
+       to give would have filled it; round 40 removed that half, because it
+       assumes the server's own page size is at least `PAGE_SIZE`, which is
+       the server's choice, not a floor this module gets to assume. A later
+       page follows whatever limit the service's own `next` href encoded,
+       and an ordinary multi-page walk of short pages ending in an empty
+       `links` list is not this finding either way.
 
     ``observed`` is the sum of ``len(features)`` across every page this walk
     read, counted before a sample limit truncates what gets written (fix
@@ -676,27 +677,33 @@ async def _walk_pages(
                 # tolerating the shape -- but tolerating the shape must not by
                 # itself mean tolerating the conclusion drawn from it.
                 #
-                # Scoped to the first page deliberately, not every page a walk
-                # could end on: `_items_url` and `_with_page_size` both pin
-                # `limit=PAGE_SIZE` there, so a page shorter than that is a
-                # server that had nothing left to give, not one that merely
-                # forgot to say so -- a count this module can trust because it
-                # chose it. A later page follows whatever limit the SERVICE'S
-                # OWN `next` href encoded, which this module never overrides (a
-                # cursor paginator may fold state into it that a rewritten
-                # `limit` would break), so this module has no floor to compare
-                # a later page's length against and `len(features)` there
-                # proves nothing about whether more was on offer -- an
-                # ordinary short final page (`test_a_same_origin_chain_is_
-                # followed_to_the_end`, one feature per page throughout) is
-                # not this finding.
+                # fix(#1770 round 40 P1): round 38 also accepted a page
+                # SHORTER than `limit=PAGE_SIZE` as proof on its own, reasoning
+                # that a server with more to give would have filled the page
+                # up to the limit this module asked for. That assumes the
+                # server's own page size is at least `PAGE_SIZE`, which is not
+                # this module's to assume: a server with a SMALLER server-side
+                # page size returns a page shorter than `PAGE_SIZE` while still
+                # having more to give, and one that also omits `links` and
+                # `numberMatched` left nothing here to catch it. `limit` is a
+                # ceiling this module asked for, never a promise the server
+                # fills it. The only floor this module actually owns is the
+                # `numberMatched` it can compare against what it has read
+                # itself; a page's raw length proves nothing about what is
+                # left on the server's side of a cursor it does not control.
                 #
-                # `numberMatched` equal to what the walk has read still proves
-                # it regardless of page count, so it is checked here too
-                # rather than folded into the length test above.
+                # `numberMatched` equal to what the walk has read is therefore
+                # the ONLY accepted proof on this branch now, regardless of
+                # page length -- an ordinary short final page with no proof at
+                # all now refuses with the same materialization error a
+                # missing `next` on a longer page already gets
+                # (`test_a_same_origin_chain_is_followed_to_the_end`'s short
+                # pages all carry an empty `links` list, which is a REAL
+                # signal this module already follows to its end, not the "no
+                # `links` at all" shape this branch is about).
                 provably_complete = (
                     number_matched is not None and number_matched == observed
-                ) or len(features) < PAGE_SIZE
+                )
                 if not provably_complete:
                     raise ItemFetchFailedError("collection may not be complete")
             page_url = following

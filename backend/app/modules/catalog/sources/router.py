@@ -16,7 +16,11 @@ from slowapi.util import get_remote_address
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.url_redaction import has_url_credentials, redact_url_credentials
+from app.core.url_redaction import (
+    has_url_credentials,
+    redact_exception_text,
+    redact_url_credentials,
+)
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.crs_uri import parse_crs_uri
 from app.core.identity import Identity
@@ -578,7 +582,7 @@ async def _fetch_ogcapi_collection_srid(
         logger.debug(
             "OGC API collection CRS fallback fetch failed",
             url=collection_url,
-            error=str(exc),
+            error=redact_exception_text(exc),
         )
         return None
 
@@ -1172,7 +1176,7 @@ async def preview_service_layer(
                 "ArcGIS preview failed",
                 url=safe_url,
                 layer=request.layer_name,
-                error=str(exc),
+                error=redact_exception_text(exc),
             )
             await _fail_preview(db, user.id, request.url, request.layer_name)
 

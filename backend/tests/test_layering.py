@@ -2602,7 +2602,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # detection. The lines are the comment recording why reading the URL there
     # was wrong, since `/FeatureServer/wfs` is a WFS and the door had refused
     # it a credential it supports.
-    "backend/app/modules/catalog/sources/router.py": 1579,
+    # fix(#1770 round 40 P2): +4. The credentialed CRS fallback fetch's
+    # `error=str(exc)` becomes `error=redact_exception_text(exc)`, plus the
+    # new import. Cap 1579 -> 1583, exact.
+    "backend/app/modules/catalog/sources/router.py": 1583,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against
@@ -5144,7 +5147,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the active path explicitly rather than relying on inf/nan's
     # comparison behavior to fail the existing bound check.
     # Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2706,
+    # fix(#1770 round 40 P2): +1. The raster tile proxy's two retry-path
+    # `error=str(exc)` sites become `error=redact_exception_text(exc)`,
+    # net +1 after the new import. Cap 2706 -> 2707, exact.
+    "backend/app/processing/tiles/router.py": 2707,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),

@@ -26,6 +26,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.url_redaction import redact_exception_text
 from app.core.geo import (
     extent_lon_span,
     extent_to_span_bbox,
@@ -1460,7 +1461,7 @@ async def raster_tile_proxy(
                     x=x,
                     y=y,
                     titiler_url=titiler_url,
-                    error=str(exc),
+                    error=redact_exception_text(exc),
                     exc_info=True,
                 )
                 raise HTTPException(
@@ -1473,7 +1474,7 @@ async def raster_tile_proxy(
                 "Raster tile proxy transient failure; retrying",
                 attempt=attempt,
                 dataset_id=str(dataset_id),
-                error=str(exc),
+                error=redact_exception_text(exc),
             )
             await asyncio.sleep(0.5 * (2**attempt))
             continue

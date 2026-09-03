@@ -3713,6 +3713,12 @@ class TestOnePageCannotCostTheWholeProcess:
                             }
                         ],
                         "links": [],
+                        # fix(#1770 round 40 P1): a single feature with no
+                        # `numberMatched` no longer proves completeness on
+                        # its own -- this test is about byte-level encoding,
+                        # not that proof, so state the total the page
+                        # actually carries.
+                        "numberMatched": 1,
                     }
                 )
             ),
@@ -4416,6 +4422,14 @@ class TestTheItemsLinkTheCollectionAdvertises:
                         "type": "FeatureCollection",
                         "features": [_point("a")],
                         "links": [],
+                        # fix(#1770 round 40 P1): a single feature with no
+                        # `numberMatched` no longer proves completeness on
+                        # its own (round 40 removed the short-page
+                        # tolerance) -- these tests are about link
+                        # resolution, not this proof, so state the total the
+                        # page actually carries rather than let the walk
+                        # refuse for an unrelated reason.
+                        "numberMatched": 1,
                     }
                 )
             if path.endswith("/collections/c1"):
@@ -4499,6 +4513,8 @@ class TestTheItemsLinkTheCollectionAdvertises:
                         "type": "FeatureCollection",
                         "features": [_point("a")],
                         "links": [],
+                        # fix(#1770 round 40 P1): see `_service` above.
+                        "numberMatched": 1,
                     }
                 )
             return httpx.Response(200, json=_collection_doc(None))
@@ -4629,7 +4645,17 @@ class TestAPageThatIsNotAPageIsNotAnEmptyPage:
         """The other half. Without this the refusal is just distrust."""
         self._transport(
             monkeypatch,
-            self._serving({"type": "FeatureCollection", "features": [], "links": []}),
+            self._serving(
+                {
+                    "type": "FeatureCollection",
+                    "features": [],
+                    "links": [],
+                    # fix(#1770 round 40 P1): an empty page with no stated
+                    # total no longer proves completeness on its own; state
+                    # the total a genuinely empty collection actually has.
+                    "numberMatched": 0,
+                }
+            ),
         )
 
         path = (await self._materialise(tmp_path)).path
@@ -6228,7 +6254,14 @@ class TestAnOrphanedExtractIsReclaimed:
             if not request.url.path.endswith("/items"):
                 return _as_stream(httpx.Response(200, json=_collection_doc(None)))
             return _streamed(
-                {"type": "FeatureCollection", "features": [_point("a")], "links": []}
+                {
+                    "type": "FeatureCollection",
+                    "features": [_point("a")],
+                    "links": [],
+                    # fix(#1770 round 40 P1): see the sibling fixtures above
+                    # -- this test is about the sweeper, not this proof.
+                    "numberMatched": 1,
+                }
             )
 
         monkeypatch.setattr(
@@ -6560,9 +6593,17 @@ class TestNothingMalformedIsMistakenForTheLastPage:
         """The other half. Nothing was followed to get here, and none is read.
 
         Common enough that refusing it would break ordinary services, and
-        harmless because no link is being consulted.
+        harmless because no link is being consulted. `numberMatched` is
+        added (fix(#1770 round 40 P1)) so this stays a test of the SHAPE
+        tolerance it names, not an incidental exercise of the now-closed
+        completeness gap `TestAFullPageWithoutLinksMustProveItIsTheLastOne`
+        covers on its own terms.
         """
-        page = {"type": "FeatureCollection", "features": [_point("a")]}
+        page = {
+            "type": "FeatureCollection",
+            "features": [_point("a")],
+            "numberMatched": 1,
+        }
         self._transport(monkeypatch, self._serving(page))
 
         extract = await self._materialise(tmp_path)
@@ -6736,16 +6777,26 @@ class TestAChainThatEndsBeforeTheServiceSaidItWould:
         assert extract.features == 25
         assert extract.total == 25
 
-    async def test_a_service_that_reports_nothing_completes(
+    async def test_a_single_page_reporting_nothing_is_refused(
         self, monkeypatch, tmp_path
     ) -> None:
-        """`numberMatched` is optional, and its absence is not evidence."""
+        """fix(#1770 round 40 P1). Replaces `test_a_service_that_reports_
+        nothing_completes`, whose premise round 40 closed: `numberMatched`'s
+        absence on a FULL walk that ends on the first page is no longer
+        tolerated, because a page shorter than this module's own
+        `limit=PAGE_SIZE` no longer proves anything by itself -- a server
+        with a smaller server-side page size can send exactly this shape
+        while still having more to give. A MULTI-page walk (`test_a_chain_
+        matching_the_report_completes`, three pages) is unaffected: this
+        finding is about the FIRST page only, where this module controls the
+        limit; a later page proves nothing about its own length either way,
+        and this class's other tests already cover that half."""
         self._transport(monkeypatch, self._chain([{"features": self._features(10)}]))
 
-        extract = await self._materialise(tmp_path)
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
 
-        assert extract.features == 10
-        assert extract.total == 10
+        assert list(tmp_path.iterdir()) == []
 
     async def test_pages_that_disagree_about_the_size_are_refused(
         self, monkeypatch, tmp_path
@@ -6952,8 +7003,17 @@ class TestAPageThatContradictsItsOwnCount:
     async def test_an_absent_number_returned_passes(
         self, monkeypatch, tmp_path
     ) -> None:
-        """It is optional, and its absence is not evidence of anything."""
-        page = {"features": [_point(f"f{n}") for n in range(3)]}
+        """It is optional, and its absence is not evidence of anything.
+
+        `numberMatched` is supplied (fix(#1770 round 40 P1)) so this stays a
+        test of `numberReturned`'s own optionality, not an incidental
+        exercise of the completeness proof a first page with neither now
+        needs (`TestAFullPageWithoutLinksMustProveItIsTheLastOne`).
+        """
+        page = {
+            "features": [_point(f"f{n}") for n in range(3)],
+            "numberMatched": 3,
+        }
         self._transport(monkeypatch, self._serving(page))
 
         extract = await self._materialise(tmp_path)
@@ -7118,7 +7178,7 @@ class TestASampleCanBeShorterButNeverLonger:
 
 
 class TestAFullPageWithoutLinksMustProveItIsTheLastOne:
-    """fix(#1770 round 38 P1, `service_items.py:278`).
+    """fix(#1770 round 38 P1, `service_items.py:278`; tightened round 40 P1).
 
     A first page with no `links` at all is accepted as a well-formed shape
     (`_require_links` tolerates it -- nothing was followed to get here, so
@@ -7128,13 +7188,24 @@ class TestAFullPageWithoutLinksMustProveItIsTheLastOne:
     preview) that let a server which returns exactly the page size but omits
     pagination metadata entirely replace an existing dataset with page one.
 
-    Provably complete now means one of two things, checked once the page has
-    already passed `_require_links`/`_require_counts`: `numberMatched` equals
-    what the walk has actually totalled across every page it read, or -- only
-    on the FIRST page, where this module pins `limit=PAGE_SIZE` itself -- the
-    page returned fewer features than that limit, which a server with more to
-    give could not have done. A preview is unaffected either way: it was
-    never claiming to be the whole collection.
+    Round 38's fix also accepted a page SHORTER than `limit=PAGE_SIZE` as
+    proof on its own, reasoning that a server with more to give would have
+    filled the page up to the limit this module itself asked for. Round 40's
+    re-review found the flaw: that assumes the server's own page size is at
+    least `PAGE_SIZE`, which is the server's choice, not this module's
+    assumption to make. A server with a SMALLER server-side page size returns
+    a page shorter than `PAGE_SIZE` while still having more to give, and one
+    that also omits `links` and `numberMatched` left nothing here to catch
+    it. `limit` is a ceiling this module asks for, never a promise the
+    server fills it.
+
+    Provably complete now means exactly one thing, checked once the page has
+    already passed `_require_links`/`_require_counts`: `numberMatched`
+    present and equal to what the walk has actually totalled across every
+    page it read (`observed`). A page's raw length, at any point below the
+    limit, proves nothing on its own. A preview is unaffected either way: it
+    was never claiming to be the whole collection, so `feature_limit is not
+    None` keeps it off this branch entirely.
     """
 
     def _transport(self, monkeypatch, handler):
@@ -7202,17 +7273,21 @@ class TestAFullPageWithoutLinksMustProveItIsTheLastOne:
 
         assert list(tmp_path.iterdir()) == []
 
-    async def test_full_walk_page_under_the_limit_no_links_accepts(
+    async def test_full_walk_page_under_the_limit_no_links_no_total_refuses(
         self, monkeypatch, tmp_path
     ) -> None:
-        """Pin (b). Fewer features than `limit=PAGE_SIZE` proves it on its
-        own: a server that had more to give would have filled the page."""
+        """Pin (b), fix(#1770 round 40 P1). Replaces the round-38 test that
+        assumed the opposite (`test_full_walk_page_under_the_limit_no_links_
+        accepts`): a page shorter than `limit=PAGE_SIZE`, with no `links` and
+        no `numberMatched`, no longer proves anything on its own -- a server
+        with a smaller server-side page size than `PAGE_SIZE` can send
+        exactly this shape while still having more to give."""
         self._first_page_no_links(monkeypatch, feature_count=3, number_matched=None)
 
-        extract = await self._materialise(tmp_path)
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
 
-        assert extract.features == 3
-        assert extract.total == 3
+        assert list(tmp_path.iterdir()) == []
 
     async def test_full_walk_page_at_the_limit_matching_total_accepts(
         self, monkeypatch, tmp_path
@@ -7229,6 +7304,21 @@ class TestAFullPageWithoutLinksMustProveItIsTheLastOne:
 
         assert extract.features == PAGE_SIZE
         assert extract.total == PAGE_SIZE
+
+    async def test_full_walk_page_with_mismatched_total_refuses(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Pin (c'), fix(#1770 round 40 P1). `numberMatched` present but NOT
+        equal to what the walk actually read is refused, not merely tolerated
+        as "no proof" -- a server that states a total and then contradicts it
+        on the very page carrying that total is not a case the completeness
+        check should stay silent on."""
+        self._first_page_no_links(monkeypatch, feature_count=3, number_matched=7)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
 
     async def test_preview_page_at_the_limit_no_links_no_total_accepts(
         self, monkeypatch, tmp_path
@@ -7254,7 +7344,7 @@ def _mentions_httpx(node: "ast.expr | None") -> bool:
     return node is not None and "httpx" in ast.dump(node)
 
 
-def _is_error_kw_log_call(node: "ast.Call") -> bool:
+def _is_log_call(node: "ast.Call") -> bool:
     func = node.func
     log_methods = {"debug", "info", "warning", "error", "exception", "critical"}
     return (
@@ -7265,9 +7355,17 @@ def _is_error_kw_log_call(node: "ast.Call") -> bool:
     )
 
 
-def _unwrapped_httpx_error_name(kw: "ast.keyword", httpx_names: set[str]) -> str | None:
-    """The bound except-name a bare/`str(...)` `error=` kwarg still carries."""
-    if kw.arg != "error":
+# fix(#1770 round 40 P2): widened from `error` alone to the four keyword
+# spellings actually used for a caught exception's text across this tree
+# (`grep`-confirmed: `detail=` on a raised `HTTPException`'s body, `reason=`
+# on an audit/refusal record, `message=` nowhere yet but cheap to cover
+# alongside the other three).
+_TRACKED_KEYWORDS = frozenset({"error", "detail", "reason", "message"})
+
+
+def _unwrapped_httpx_name(kw: "ast.keyword", httpx_names: set[str]) -> str | None:
+    """The bound except-name a bare/`str(...)` tracked kwarg still carries."""
+    if kw.arg not in _TRACKED_KEYWORDS:
         return None
     if isinstance(kw.value, ast.Name) and kw.value.id in httpx_names:
         return kw.value.id
@@ -7283,16 +7381,12 @@ def _unwrapped_httpx_error_name(kw: "ast.keyword", httpx_names: set[str]) -> str
     return None
 
 
-def _find_unredacted_error_fields(module) -> set[tuple[str, str]]:
-    """(function, offending-name) for every unwrapped `error=` log site.
-
-    Module-level (fix(#1770 round 39)) so its own branching is judged on its
-    own terms rather than folded into the test method that calls it -- see
-    ``TestAResponseProvidedUrlNeverReachesALogUnredacted`` for what this
-    enumerates and its documented Known limits.
-    """
-    tree = ast.parse(inspect.getsource(module))
-    found: set[tuple[str, str]] = set()
+def _find_unredacted_error_fields_in_source(
+    source: str,
+) -> set[tuple[str, str, str]]:
+    """(function, keyword, offending-name) for every unwrapped log site."""
+    tree = ast.parse(source)
+    found: set[tuple[str, str, str]] = set()
     func_stack: list[str] = []
     httpx_names: set[str] = set()
 
@@ -7318,16 +7412,35 @@ def _find_unredacted_error_fields(module) -> set[tuple[str, str]]:
                 httpx_names.discard(bound)
 
         def visit_Call(self, node: "ast.Call") -> None:
-            if _is_error_kw_log_call(node):
+            if _is_log_call(node):
                 for kw in node.keywords:
-                    bad_name = _unwrapped_httpx_error_name(kw, httpx_names)
+                    bad_name = _unwrapped_httpx_name(kw, httpx_names)
                     if bad_name is not None:
                         fname = func_stack[-1] if func_stack else "<module>"
-                        found.add((fname, bad_name))
+                        found.add((fname, kw.arg, bad_name))
             self.generic_visit(node)
 
     _Visitor().visit(tree)
     return found
+
+
+def _find_unredacted_error_fields_in_tree(root: "pathlib.Path") -> dict:
+    """Same sweep, over every ``.py`` file under ``root`` (fix(#1770 round
+    40)): widened from a hand-picked list of six modules to the whole
+    backend, since the round 39 P2 re-review found the sixth-listed sweep
+    scope itself was the gap -- `sources/router.py`'s CRS-fallback fetch was
+    never one of the six.
+    """
+    findings: dict = {}
+    for path in sorted(root.rglob("*.py")):
+        try:
+            source = path.read_text()
+            hits = _find_unredacted_error_fields_in_source(source)
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        if hits:
+            findings[str(path.relative_to(root.parent))] = hits
+    return findings
 
 
 class TestAResponseProvidedUrlNeverReachesALogUnredacted:
@@ -7549,57 +7662,137 @@ class TestAResponseProvidedUrlNeverReachesALogUnredacted:
         assert "conformance fetch failed" in rendered
         assert "another origin" not in rendered
 
+    async def test_a_same_origin_redirect_reflecting_the_credential_is_not_logged(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1770 round 40 P2, `sources/router.py:564`).
+
+        Round 39's sweep covered `modules/catalog/sources/adapters/` and
+        `platform/service_*.py` only, and this site -- the credentialed CRS
+        fallback fetch a preview uses to resolve an OGC API collection's
+        SRID -- was never in scope. Same leak shape as the conformance case:
+        `except (httpx.HTTPError, ValueError, SSRFError) as exc:` logged
+        `error=str(exc)` on the same call whose `url=` field was already
+        redacted.
+
+        This one exercises the REDIRECT half of the reflection rather than
+        an advertised href: `make_safe_client`'s `follow_redirects=True`
+        forwards a service-chosen custom header across a SAME-origin hop
+        (only a cross-origin one is refused, by `credential_header=`), so a
+        same-origin path this function did not ask for can redirect to a URL
+        that echoes the header's value back as a query parameter, and a 4xx
+        there puts that whole URL into `HTTPStatusError`'s own message.
+        """
+        import structlog
+
+        from app.modules.catalog.sources.router import _fetch_ogcapi_collection_srid
+
+        credential, value = _header_key()
+        recorded: list[httpx.Request] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            if len(recorded) == 1:
+                return httpx.Response(
+                    302,
+                    headers={
+                        "Location": (
+                            "https://services.example.test/oapif/"
+                            f"collections-moved?token={value}"
+                        )
+                    },
+                )
+            return httpx.Response(404, json={"error": "not found"})
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(handle)
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+
+        with structlog.testing.capture_logs() as captured:
+            srid = await _fetch_ogcapi_collection_srid(
+                "https://services.example.test/oapif",
+                "parcels",
+                ServiceCredential(
+                    method=credential.method,
+                    service_format="ogcapi_features",
+                    header_name=credential.header_name,
+                    header_value=credential.header_value,
+                ),
+            )
+
+        assert srid is None
+        # Not vacuous: both requests happened (the redirect was followed),
+        # and the branch this is pinning actually logged.
+        assert len(recorded) == 2
+        rendered = str(captured)
+        assert value not in rendered
+        assert "CRS fallback fetch failed" in rendered
+
     def test_an_error_field_bound_to_an_httpx_except_never_bypasses_the_helper(
         self,
     ) -> None:
-        """Source-enumeration, closed set (fix(#1770 round 39 P2)).
+        """Source-enumeration, whole-tree (fix(#1770 round 39 P2, widened
+        round 40 P2)).
 
-        Extends the round-38 href sweep to the sibling leak: a keyword
-        argument literally named `error`, whose value is a bare reference to
-        a name bound by an `except ...httpx...` clause -- or `str()` of that
-        name -- with no `redact_exception_text(...)` wrapper. That is
-        precisely the shape the P2 finding named: the href gets redacted but
-        the caught exception's own text, which `HTTPStatusError` fills with
-        the whole request URL, does not.
+        Round 39 swept six hand-picked modules for a keyword argument
+        literally named `error`, whose value is a bare reference to a name
+        bound by an `except ...httpx...` clause -- or `str()` of that name --
+        with no `redact_exception_text(...)` wrapper. Round 40's re-review
+        found the real gap was the scope itself:
+        `sources/router.py`'s credentialed CRS fallback fetch logged
+        `error=str(exc)` on exactly this shape and was never one of the six.
+        This now walks every `.py` file under `app/`, and tracks `detail=`
+        and `reason=` alongside `error=` (`message=` too, unused today but as
+        cheap to cover) -- `detail=` is how a raised `HTTPException` carries
+        exception text to a response body, `reason=` how an audit/refusal
+        record carries it.
 
-        Known limits, on purpose: only an `except` clause whose type
-        expression literally contains "httpx" is tracked (covers every site
-        in this tree: `httpx.HTTPStatusError`, `httpx.TransportError`,
-        `httpx.HTTPError`, tuples of the three) -- an alias-imported or
-        re-exported httpx exception type would not match. Only a keyword
-        literally spelled `error` is checked, and only a value shaped as a
-        bare name or `str(name)`; `repr(name)`, an f-string interpolating the
-        name, or a differently-named keyword would need a human audit. It
-        does not walk the old-style positional `logger.debug("... %s",
-        value)` calls in `arcgis.py`/`wfs.py`: those pass the exception as a
-        plain positional argument, a different shape this AST pattern does
-        not match at all -- audited by hand instead, and every site there
-        wraps the exception in `redact_exception_text(...)` before the
-        format string sees it. `service_endpoints.py`/`service_items.py`
-        are included below for completeness even though they hold no
-        matching site today: `EndpointCheckFailedError.__init__` always sets
-        `self.policy` to a fixed constant and passes THAT to
-        `super().__init__`, so `reason` -- which is where a raw `str(exc)`
-        lands there -- is stored but never read anywhere in this tree
-        (verified by grep), and never reaches `str()` of the raised
-        exception or a log line.
+        Known limits, on purpose, same as round 39's: only an `except`
+        clause whose type expression literally contains "httpx" is tracked
+        (covers every site in this tree today: `httpx.HTTPStatusError`,
+        `httpx.TransportError`, `httpx.HTTPError`, `httpx.TimeoutException`,
+        tuples of these) -- an alias-imported or re-exported httpx exception
+        type would not match. Only the four keywords above are checked, and
+        only a value shaped as a bare name or `str(name)`; `repr(name)`, an
+        f-string interpolating the name, or a differently-named keyword would
+        need a human audit. It does not walk the old-style positional
+        `logger.debug("... %s", value)` calls in `arcgis.py`/`wfs.py`: those
+        pass the exception as a plain positional argument, a different shape
+        this AST pattern does not match at all -- audited by hand instead,
+        and every site there wraps the exception in
+        `redact_exception_text(...)` before the format string sees it.
+
+        A bare `except Exception as exc:` inside a function that itself
+        awaits an httpx call is the harder sibling case round 40 asked to
+        close if tractable: it is not, at an acceptable false-positive rate,
+        by a purely syntactic sweep. A verb-name heuristic ("does the
+        function await anything named `.get(`/`.post(`/etc.") was tried by
+        hand across this tree and produced three false positives on its
+        first run -- `api/main.py`'s DB-connectivity retry (`await
+        cfg.get(session)`, a `PersistentConfig` read, not httpx),
+        `processing/analysis/tasks.py`'s job-failure handler (`await
+        session.get(...)`, a SQLAlchemy `AsyncSession.get`, not httpx) -- for
+        one real hit (`sources/cog_info.py`'s Titiler fetch, fixed below).
+        Telling those apart needs the callee's actual type, which is real
+        data-flow analysis this repo's other structural gates deliberately
+        stay out of (see `test_credential_producer_structural.py`'s own
+        Known-limits). `processing/ai/probe.py`'s embeddings probe matched
+        the heuristic too and was hand-audited rather than fixed: its
+        `_sanitized_failure` docstring already documents the tradeoff on
+        purpose ("The response must never carry exception text... The full
+        detail is logged server-side instead") for a first-party paid
+        provider's own error body, a different threat model from a
+        self-hosted GIS service reflecting a query parameter shaped like a
+        credential -- the class this fix and its predecessors close.
         """
-        from app.modules.catalog.sources.adapters import arcgis as arcgis_adapter
-        from app.modules.catalog.sources.adapters import ogcapi as ogcapi_adapter
-        from app.modules.catalog.sources.adapters import stac as stac_adapter
-        from app.modules.catalog.sources.adapters import wfs as wfs_adapter
-        from app.platform import service_endpoints as service_endpoints_mod
-        from app.platform import service_items as service_items_mod
+        import pathlib
 
-        for module in (
-            ogcapi_adapter,
-            arcgis_adapter,
-            stac_adapter,
-            wfs_adapter,
-            service_endpoints_mod,
-            service_items_mod,
-        ):
-            assert _find_unredacted_error_fields(module) == set(), module.__name__
+        import app as app_package
+
+        app_root = pathlib.Path(app_package.__file__).parent
+        findings = _find_unredacted_error_fields_in_tree(app_root)
+        assert findings == {}, findings
 
 
 class TestASecretDoesNotSurviveInTheChain:
