@@ -3474,8 +3474,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # row names it) so the next pass can purge the row. The survivor query also
     # went from four IN clauses to one shared array bind, because four binds
     # per key crossed asyncpg's 32767-argument ceiling at about 8192 keys and
-    # the resulting failure skipped every delete. Cap 2100 -> 2252, exact.
-    "backend/app/platform/jobs/sweep.py": 2252,
+    # the resulting failure skipped every delete. Cap 2100 -> 2252.
+    # fix(#1778 codex r6): +36. Both arms that clear an artifact record now key
+    # the settle off a NAMED outcome instead of off control flow. The analysis
+    # arm was reading "the call returned" as success, but the callee catches
+    # its own probe and DROP failures, so a failed cleanup stripped the table's
+    # last durable name and orphaned it; the storage arm was correct only by
+    # where a statement sat inside a try block. `STORAGE_KEY_FINAL_OUTCOMES`
+    # and the try/else restructure are most of the growth. Cap 2252 -> 2288,
+    # exact.
+    "backend/app/platform/jobs/sweep.py": 2288,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and
@@ -4494,8 +4502,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # probe-then-drop the two fence-miss handlers each carried inline is now one
     # `drop_unadopted_analysis_output` the stale-job sweeps call too. The
     # helper's docstring and its identifier re-validation are most of the net
-    # growth; the two inlined copies came out. Cap 1420 -> 1462, exact.
-    "backend/app/processing/analysis/tasks.py": 1462,
+    # growth; the two inlined copies came out. Cap 1420 -> 1462.
+    # fix(#1778 codex r6): +33. `drop_unadopted_analysis_output` returns what
+    # it established rather than the same None whether it dropped the table or
+    # failed to. The sweep clears the recorded name on the strength of that
+    # call, and the name is the table's last durable pointer, so a swallowed
+    # failure read as success orphaned the table permanently. The five outcomes
+    # and the note on why a raised probe is "failed" and not "adopted" are the
+    # growth. Cap 1462 -> 1495, exact.
+    "backend/app/processing/analysis/tasks.py": 1495,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

@@ -858,6 +858,14 @@ async def _live_referenced_storage_keys(keys: tuple[str, ...]) -> set[str]:
         return {row[0] for row in (await session.execute(stmt)).all() if row[0]}
 
 
+# fix(#1778 codex r6): the outcomes that license forgetting a storage key,
+# the peer of `ANALYSIS_OUTPUT_FINAL_OUTCOMES`. "refused" is final because a
+# key a live row names is answered, not pending: re-refusing it every sweep
+# forever would pin the job row for the life of the dataset. "failed" is the
+# only outcome that keeps the record, and it is the whole point of the split.
+STORAGE_KEY_FINAL_OUTCOMES = frozenset({"deleted", "refused"})
+
+
 async def _clear_settled_artifact_records(
     *,
     storage_keys: set[str] = frozenset(),  # type: ignore[assignment]
@@ -997,28 +1005,38 @@ async def reap_unpublished_storage_keys(
     # is what licenses clearing them off the job row. A delete that raised is
     # absent from it on purpose, so its row keeps the record and the next
     # sweep retries.
+    #
+    # fix(#1778 codex r6): the outcome is named, and the settle keys off the
+    # NAME rather than off where a statement sits in a try block. This arm was
+    # already correct, and correct by an ordering an edit could undo without
+    # looking wrong -- which is precisely how the analysis arm came to settle
+    # tables whose DROP had failed. Both arms now read the same way.
     settled: set[str] = set()
     for key in keys:
         if key in live:
             skipped += 1
-            settled.add(key)
+            outcome = "refused"
             log.warning(
                 "Refused to reap a raster object a live row still names",
                 storage_key=key,
             )
-            continue
-        try:
-            from app.platform.storage import get_storage
+        else:
+            try:
+                from app.platform.storage import get_storage
 
-            await get_storage().delete(resolve_current_storage_key(key))
-            reaped += 1
+                await get_storage().delete(resolve_current_storage_key(key))
+            except Exception:  # broad: best-effort staging cleanup
+                failures += 1
+                outcome = "failed"
+                log.warning(
+                    "Failed to reap unpublished raster object for stale job",
+                    storage_key=key,
+                )
+            else:
+                reaped += 1
+                outcome = "deleted"
+        if outcome in STORAGE_KEY_FINAL_OUTCOMES:
             settled.add(key)
-        except Exception:  # broad: best-effort staging cleanup
-            failures += 1
-            log.warning(
-                "Failed to reap unpublished raster object for stale job",
-                storage_key=key,
-            )
     await _clear_settled_artifact_records(storage_keys=settled)
     return (reaped, skipped, failures)
 
@@ -1042,24 +1060,42 @@ async def _reap_unadopted_analysis_outputs(out_tables: tuple[str, ...]) -> None:
     from app.core.db.tenant_schema import tenant_data_schema
     from app.core.db.tenant_session import current_tenant_var
     from app.core.tenancy import is_multi_tenant
-    from app.processing.analysis.tasks import drop_unadopted_analysis_output
+    from app.processing.analysis.tasks import (
+        ANALYSIS_OUTPUT_FINAL_OUTCOMES,
+        drop_unadopted_analysis_output,
+    )
 
     schema = tenant_data_schema(current_tenant_var.get() if is_multi_tenant() else None)
     # fix(#1778 codex r5): the peer of the storage reaper's `settled` set. A
     # table this pass reached a final answer about (dropped, or left alone
     # because a dataset row adopted it) comes off the job row; one whose drop
-    # raised stays on it, so the row survives the retention purge and the next
-    # sweep tries again.
+    # did not resolve stays on it, so the row survives the retention purge and
+    # the next sweep tries again.
+    #
+    # fix(#1778 codex r6): keyed on what the call REPORTS, not on whether it
+    # returned. `drop_unadopted_analysis_output` catches its own probe and DROP
+    # failures, so "it did not raise" was true of a failed cleanup too, and
+    # settling on that stripped the table's last durable name and orphaned it
+    # permanently. Only a final outcome settles; "failed" is retryable and
+    # keeps the record. The try/except stays for a failure the callee does not
+    # catch at all, and it deliberately does not settle either.
     settled: set[str] = set()
     async with async_session() as session:
         for out_table in set(out_tables):
             try:
-                await drop_unadopted_analysis_output(
+                outcome = await drop_unadopted_analysis_output(
                     session, out_table=out_table, schema=schema, job_id="stale_sweep"
                 )
-                settled.add(out_table)
             except Exception:  # broad: best-effort cleanup of one orphan
                 log.warning("Failed to reap unadopted analysis output")
+                continue
+            if outcome in ANALYSIS_OUTPUT_FINAL_OUTCOMES:
+                settled.add(out_table)
+            else:
+                log.warning(
+                    "Analysis output reap did not settle, retrying next sweep",
+                    outcome=outcome,
+                )
     await _clear_settled_artifact_records(analysis_tables=settled)
 
 

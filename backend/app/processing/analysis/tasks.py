@@ -14,7 +14,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 
 import structlog
 from prometheus_client import Counter
@@ -790,44 +790,77 @@ ANALYSIS_OUTPUT_TABLE_FIELD = "analysis_out_table"
 _ANALYSIS_TABLE_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 
 
+# fix(#1778 codex r6): what `drop_unadopted_analysis_output` actually managed
+# to establish. The distinction that matters to the stale-job sweeps is FINAL
+# versus RETRYABLE: a caller may forget the table's name only once the answer
+# can never change, because that name is the last durable pointer to it.
+#
+#   "adopted"  a dataset row owns the table. Final: it is not an orphan.
+#   "dropped"  the DROP committed. Final: there is nothing left to name.
+#   "invalid"  the recorded name is not an identifier `generate_table_name`
+#              could have produced, so no table of that name was made by this
+#              system and no retry can change the string. Final.
+#   "skipped"  nothing was named. Final, vacuously.
+#   "failed"   the probe or the DROP raised. NOT final. The table may exist and
+#              be unadopted, so the record has to survive for the next sweep.
+ANALYSIS_OUTPUT_FINAL_OUTCOMES = frozenset({"adopted", "dropped", "invalid", "skipped"})
+
+AnalysisOutputOutcome = Literal["skipped", "invalid", "adopted", "dropped", "failed"]
+
+
 async def drop_unadopted_analysis_output(
     session: AsyncSession,
     *,
     out_table: str | None,
     schema: str,
     job_id: str,
-) -> None:
+) -> AnalysisOutputOutcome:
     """Drop an analysis output table no dataset row has adopted.
 
     fix(#1778): the probe-then-drop the two fence-miss handlers already ran,
     lifted into one function so the stale-job sweeps can apply the same policy
     to a job whose worker was killed outright. Failure direction is the one
-    those handlers chose: an adoption probe that itself errors reports adopted,
-    so an unreadable catalog leaks a table rather than dropping a registered
-    dataset's storage.
+    those handlers chose: an adoption probe that itself errors leaks a table
+    rather than dropping a registered dataset's storage.
 
     The name is re-validated here because the sweeps read it out of
     ``user_metadata``, a JSONB blob with no schema, and it is interpolated into
     a DDL statement that takes no bind parameters.
+
+    fix(#1778 codex r6): it REPORTS, rather than returning the same ``None``
+    whether it dropped the table or failed to. The two fence-miss handlers can
+    ignore that -- they are inside the worker, and the job row still names the
+    table afterwards -- but the sweeps cannot. They clear the recorded name on
+    the strength of this call, and the name is the last durable pointer to the
+    table, so a swallowed failure read as success stripped the record and left
+    the table orphaned for good: exactly the leak this function exists to stop,
+    reintroduced by the function itself.
+
+    Note that a probe that RAISES is "failed" and not "adopted". Treating an
+    unreadable catalog as adoption is the right call for whether to DROP -- it
+    prefers a leak to destroying a live dataset's storage -- and the wrong one
+    for whether the question is settled, because nothing was established.
     """
     if out_table is None:
-        return
+        return "skipped"
     if not _ANALYSIS_TABLE_NAME_RE.match(out_table):
         logger.warning("analysis.output_table_name_rejected", job_id=job_id)
-        return
-    adopted = True
+        return "invalid"
     try:
         adopted = await _output_table_adopted(session, out_table)
     except Exception:  # broad: prefer leak over loss
         logger.warning("analysis.adoption_probe_failed", job_id=job_id)
         await session.rollback()
+        return "failed"
     if adopted:
-        return
+        return "adopted"
     try:
         await session.execute(text(f'DROP TABLE IF EXISTS "{schema}"."{out_table}"'))
         await session.commit()
     except Exception:  # broad: best-effort cleanup of the orphan
         await session.rollback()
+        return "failed"
+    return "dropped"
 
 
 async def _mark_job_failed(
