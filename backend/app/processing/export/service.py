@@ -11,6 +11,7 @@ import structlog
 
 from app.core.async_io import run_in_thread_draining
 from app.core.config import settings
+from app.core.csv_safety import numeric_column_names
 from app.processing.export.ogr import FORMAT_MAP, run_ogr2ogr_export
 from app.processing.export.where_validator import validate_where_ast
 from app.core.runtime.staging import ensure_staging_ready
@@ -535,6 +536,11 @@ async def export_dataset(
             # shp branch above can never be pmtiles.
             pmtiles_maxzoom=pmtiles_maxzoom,
             deadline=deadline,
+            # fix(#1778 codex r2): the CSV formula hardening exempts a leading
+            # sign only in a column the database calls numeric, so it needs the
+            # types, not the values. Empty for every other format, and empty
+            # when the caller had no column_info, which escapes everything.
+            numeric_columns=numeric_column_names(column_info),
         )
         if format_key == "gpkg":
             # fix(#1532 review r12): off the event loop, like every other

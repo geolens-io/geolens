@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from app.core.csv_safety import escape_csv_formula
+from app.core.csv_safety import escape_csv_formula, numeric_column_names
 from app.processing.export.ogr import (
     ExportError,
     _harden_csv_formulas,
@@ -56,13 +56,52 @@ def test_formula_shaped_cells_are_escaped(value: str) -> None:
     "value",
     ["-12", "+12", "-0.5", "+.5", "-1.5e-3", "+2E10", "-0"],
 )
-def test_plain_numbers_are_left_alone(value: str) -> None:
+def test_the_default_escapes_numbers_too(value: str) -> None:
+    """fix(#1778 codex r2): strict is the default, and the audit and admin
+    exports keep it. A username of `+123` or an account id of `-001` is a
+    string that happens to look like a number, and a security log should not
+    trade its protection for right-alignment."""
+    assert escape_csv_formula(value) == "\t" + value
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["-12", "+12", "-0.5", "+.5", "-1.5e-3", "+2E10", "-0"],
+)
+def test_a_numeric_column_keeps_its_numbers_bare(value: str) -> None:
     """A number is not a formula, and a data export is full of negatives.
 
     Tab-prefixing them would turn every negative measurement in an attribute
     table into text, for the spreadsheet and for pandas and QGIS alike.
     """
-    assert escape_csv_formula(value) == value
+    assert escape_csv_formula(value, allow_numeric=True) == value
+
+
+@pytest.mark.parametrize("value", ["-12+A1", "-", "+", "-1.2.3", "=1", "@x"])
+def test_a_numeric_column_still_escapes_what_is_not_a_number(value: str) -> None:
+    assert escape_csv_formula(value, allow_numeric=True) == "\t" + value
+
+
+def test_numeric_column_names_reads_the_declared_type_not_the_values():
+    """The exemption is placed by column type. `get_column_info` stores
+    information_schema's data_type verbatim."""
+    column_info = [
+        {"name": "elevation", "type": "double precision"},
+        {"name": "population", "type": "integer"},
+        {"name": "count_big", "type": "bigint"},
+        {"name": "ratio", "type": "numeric"},
+        {"name": "name", "type": "text"},
+        {"name": "code", "type": "character varying"},
+        {"name": "seen_at", "type": "timestamp without time zone"},
+        {"name": "shape", "type": "USER-DEFINED"},
+        {"name": None, "type": "integer"},
+        "not-a-mapping",
+    ]
+    assert numeric_column_names(column_info) == frozenset(
+        {"elevation", "population", "count_big", "ratio"}
+    )
+    assert numeric_column_names(None) == frozenset()
+    assert numeric_column_names([]) == frozenset()
 
 
 @pytest.mark.parametrize(
@@ -81,7 +120,7 @@ def test_hardening_rewrites_a_csv_in_place(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    _harden_csv_formulas(str(target), _far_deadline())
+    _harden_csv_formulas(str(target), _far_deadline(), frozenset({"elevation"}))
 
     with open(target, newline="", encoding="utf-8") as fh:
         rows = list(csv.reader(fh))
@@ -91,6 +130,36 @@ def test_hardening_rewrites_a_csv_in_place(tmp_path: Path) -> None:
     assert rows[2] == ["POINT (3 4)", "ordinary", "+0.5", "\t@evil"]
     # No leftover intermediate file.
     assert not (tmp_path / "export.csv.hardened").exists()
+
+
+def test_the_exemption_follows_the_column_not_the_value(tmp_path: Path) -> None:
+    """fix(#1778 codex r2): the same characters, two columns, two answers."""
+    target = tmp_path / "typed.csv"
+    target.write_text(
+        "elevation,label\n-1,-1\n+2.5,+2.5\n-12+A1,-12+A1\n",
+        encoding="utf-8",
+    )
+
+    _harden_csv_formulas(str(target), _far_deadline(), frozenset({"elevation"}))
+
+    with open(target, newline="", encoding="utf-8") as fh:
+        rows = list(csv.reader(fh))
+
+    assert rows[1] == ["-1", "\t-1"], "a numeric column keeps -1 bare"
+    assert rows[2] == ["+2.5", "\t+2.5"]
+    assert rows[3] == ["\t-12+A1", "\t-12+A1"], "not a number, so not exempt"
+
+
+def test_no_declared_numeric_columns_escapes_everything(tmp_path: Path) -> None:
+    """An export whose dataset has no column_info fails toward escaping."""
+    target = tmp_path / "untyped.csv"
+    target.write_text("elevation,label\n-1,-1\n", encoding="utf-8")
+
+    _harden_csv_formulas(str(target), _far_deadline(), frozenset())
+
+    with open(target, newline="", encoding="utf-8") as fh:
+        rows = list(csv.reader(fh))
+    assert rows[1] == ["\t-1", "\t-1"]
 
 
 def test_hardening_preserves_the_line_ending_gdal_chose(tmp_path: Path) -> None:
@@ -116,7 +185,7 @@ def test_hardening_survives_a_wkt_cell_past_the_csv_default_limit(
         writer.writerow(["WKT", "note"])
         writer.writerow([huge, "=SUM(1,1)"])
 
-    _harden_csv_formulas(str(target), _far_deadline())
+    _harden_csv_formulas(str(target), _far_deadline(), frozenset())
 
     with open(target, newline="", encoding="utf-8") as fh:
         rows = list(csv.reader(fh))
@@ -154,6 +223,25 @@ def test_all_three_csv_writers_share_one_rule() -> None:
     assert admin_router.escape_csv_formula is escape_csv_formula
 
 
+def test_the_admin_and_audit_exports_stay_strict() -> None:
+    """fix(#1778 codex r2): neither may pass allow_numeric.
+
+    They call the shared helper positionally, so the default governs; this
+    fails if someone opts either of them into the dataset export's exemption.
+    """
+    from app.modules.admin import router as admin_router
+    from app.modules.audit import router as audit_router
+
+    for module in (admin_router, audit_router):
+        assert "allow_numeric" not in inspect.getsource(module), (
+            f"{module.__name__} must keep escaping every leading sign"
+        )
+
+    # The property, not just the absence: a username shaped like a number.
+    assert escape_csv_formula("+123") == "\t+123"
+    assert escape_csv_formula("-001") == "\t-001"
+
+
 @pytest.mark.anyio
 async def test_a_large_pass_does_not_block_a_concurrent_request(tmp_path: Path) -> None:
     """fix(#1778 codex r1): the loop stays responsive while the pass runs.
@@ -182,7 +270,9 @@ async def test_a_large_pass_does_not_block_a_concurrent_request(tmp_path: Path) 
 
     ticker = asyncio.create_task(keep_turning())
     try:
-        await run_in_thread_draining(_harden_csv_formulas, str(target), _far_deadline())
+        await run_in_thread_draining(
+            _harden_csv_formulas, str(target), _far_deadline(), frozenset({"value"})
+        )
     finally:
         ticker.cancel()
         await asyncio.gather(ticker, return_exceptions=True)
@@ -203,7 +293,7 @@ def test_an_expired_deadline_fails_the_export_instead_of_finishing_late(
     target.write_text(original, encoding="utf-8")
 
     with pytest.raises(ExportError, match="request budget"):
-        _harden_csv_formulas(str(target), time.monotonic() - 1)
+        _harden_csv_formulas(str(target), time.monotonic() - 1, frozenset())
 
     # The artifact is untouched and no half-rewritten sibling is left behind.
     assert target.read_text(encoding="utf-8") == original

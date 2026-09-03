@@ -314,7 +314,11 @@ _CSV_FIELD_SIZE_LIMIT = 2**31 - 1
 _CSV_DEADLINE_CHECK_ROWS = 512
 
 
-def _harden_csv_formulas(output_path: str, hard_deadline: float) -> None:
+def _harden_csv_formulas(
+    output_path: str,
+    hard_deadline: float,
+    numeric_columns: frozenset[str] = frozenset(),
+) -> None:
     """Rewrite a just-written CSV with every formula-triggering cell escaped.
 
     Blocking. Call it through ``run_in_thread_draining`` -- fix(#1778 codex
@@ -342,6 +346,16 @@ def _harden_csv_formulas(output_path: str, hard_deadline: float) -> None:
     The reader's field-size limit is raised and never lowered: a WKT geometry
     for a detailed polygon passes csv's 128 KiB default easily, and lowering it
     again would be a process-global change racing any concurrent export.
+
+    fix(#1778 codex r2): ``numeric_columns`` names the columns whose declared
+    SQL type is numeric, and only those get the number exemption. In an
+    ``integer`` or ``double precision`` column ``-12`` is a measurement and the
+    tab would turn it into text for pandas and QGIS as much as for Excel; in a
+    text column the same characters are a string a user typed, and it keeps the
+    tab. The decision is by column type, never by the shape of the value, and
+    the header row is always escaped strictly. A name ogr2ogr did not emit --
+    the geometry column it writes as ``WKT``, or a column the driver renamed --
+    simply does not match, which fails toward escaping.
     """
     if csv.field_size_limit() < _CSV_FIELD_SIZE_LIMIT:
         csv.field_size_limit(_CSV_FIELD_SIZE_LIMIT)
@@ -359,6 +373,7 @@ def _harden_csv_formulas(output_path: str, hard_deadline: float) -> None:
             open(hardened_path, "w", newline="", encoding="utf-8") as dst,
         ):
             writer = csv.writer(dst, lineterminator=terminator)
+            numeric_at: frozenset[int] = frozenset()
             for index, row in enumerate(csv.reader(src)):
                 if (
                     index % _CSV_DEADLINE_CHECK_ROWS == 0
@@ -368,7 +383,22 @@ def _harden_csv_formulas(output_path: str, hard_deadline: float) -> None:
                         "CSV export exceeded the request budget while applying "
                         "spreadsheet-formula hardening"
                     )
-                writer.writerow([escape_csv_formula(cell) for cell in row])
+                if index == 0:
+                    # The header names the columns; escape it strictly and use
+                    # it to place the exemption by position for every row after.
+                    numeric_at = frozenset(
+                        position
+                        for position, name in enumerate(row)
+                        if name in numeric_columns
+                    )
+                    writer.writerow([escape_csv_formula(cell) for cell in row])
+                    continue
+                writer.writerow(
+                    [
+                        escape_csv_formula(cell, allow_numeric=position in numeric_at)
+                        for position, cell in enumerate(row)
+                    ]
+                )
     except BaseException:
         # Never leave a half-rewritten sibling next to the artifact: the export
         # temp dir is swept by age, and a partial file here would outlive the
@@ -391,6 +421,7 @@ async def run_ogr2ogr_export(
     format_key: str = "",
     pmtiles_maxzoom: int | None = None,
     deadline: float | None = None,
+    numeric_columns: frozenset[str] = frozenset(),
 ) -> None:
     """Run ogr2ogr to export a PostGIS table to a file.
 
@@ -411,6 +442,10 @@ async def run_ogr2ogr_export(
             be answered, from the route's entry. Bounds both this subprocess
             and its server-side query. ``None`` for a caller outside a
             request; see ``export_subprocess_timeout_seconds``.
+        numeric_columns: names of the columns whose declared SQL type is
+            numeric, from ``numeric_column_names(column_info)``. CSV only, and
+            only to decide which cells may keep a leading sign unescaped; see
+            ``_harden_csv_formulas``. An empty set escapes every one.
 
     Raises:
         ExportError: If ogr2ogr exits with non-zero code.
@@ -542,4 +577,5 @@ async def run_ogr2ogr_export(
             _harden_csv_formulas,
             output_path,
             time.monotonic() + export_subprocess_timeout_seconds(deadline),
+            numeric_columns,
         )
