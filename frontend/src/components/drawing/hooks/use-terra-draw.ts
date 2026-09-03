@@ -21,6 +21,30 @@ import { MAP_COLORS } from '@/lib/map-colors';
 const MAX_UNDO_HISTORY = 50;
 
 /**
+ * fix(round3 #1795): the single filtered-snapshot reader shared by the
+ * `change` handler (ring entries) and the baseline capture points below —
+ * 'select'/'static' entries are select-mode's own UI decoration (selection
+ * handles), not the geometry being edited.
+ */
+function filteredSnapshot(
+  draw: TerraDraw,
+): GeoJSONStoreFeatures<GeoJSONStoreGeometries>[] {
+  return draw.getSnapshot().filter(
+    (f) => !['select', 'static'].includes(f.properties?.mode as string),
+  );
+}
+
+/**
+ * fix(round3 #1795): whether a further undo step exists. Normally true
+ * while the ring holds more than one entry; once only the ring's OLDEST
+ * entry remains, a further step exists only if a true pre-edit baseline was
+ * captured to fall back to — otherwise this is as far back as we can go.
+ */
+function canUndoFrom(ringLength: number, hasBaseline: boolean): boolean {
+  return ringLength > 1 || (ringLength === 1 && hasBaseline);
+}
+
+/**
  * Create fresh Terra Draw mode instances. Must be called per-mount because
  * TerraDraw internally registers modes on construction — reusing mode objects
  * across mounts (e.g. after error boundary recovery) causes
@@ -273,6 +297,12 @@ export function useTerraDraw(
 
   // Undo history state
   const historyRef = useRef<GeoJSONStoreFeatures<GeoJSONStoreGeometries>[][]>([]);
+  // fix(round3 #1795): the TRUE pre-edit snapshot, held OUTSIDE the bounded
+  // ring so it survives eviction once a long drag pushes past
+  // MAX_UNDO_HISTORY change events. null means "no baseline captured for
+  // this session" — undo() must never report reaching baseline in that
+  // case (see undo() below).
+  const baselineRef = useRef<GeoJSONStoreFeatures<GeoJSONStoreGeometries>[] | null>(null);
   const isRestoringRef = useRef(false);
   const [canUndo, setCanUndo] = useState(false);
 
@@ -336,6 +366,9 @@ export function useTerraDraw(
         // Reset undo history — the feature was committed, not an in-progress sketch
         historyRef.current = [];
         setCanUndo(false);
+        // fix(round3 #1795): the committed feature's session is over — its
+        // baseline snapshot is no longer meaningful.
+        baselineRef.current = null;
       } else if (
         context.action === 'dragFeature' ||
         context.action === 'dragCoordinate' ||
@@ -366,16 +399,16 @@ export function useTerraDraw(
     const handler = () => {
       if (isRestoringRef.current) return;
 
-      const snapshot = draw.getSnapshot().filter(
-        (f) => !['select', 'static'].includes(f.properties?.mode as string),
-      );
+      const snapshot = filteredSnapshot(draw);
       historyRef.current.push(snapshot);
       // fix(#1778): drop the oldest entry once the ring exceeds its cap —
       // still enough undo depth for normal use, without unbounded growth.
+      // fix(round3 #1795): the true pre-edit baseline lives in baselineRef,
+      // OUTSIDE this ring, so eviction here never loses it.
       if (historyRef.current.length > MAX_UNDO_HISTORY) {
         historyRef.current.shift();
       }
-      setCanUndo(historyRef.current.length > 1);
+      setCanUndo(canUndoFrom(historyRef.current.length, baselineRef.current !== null));
     };
 
     draw.on('change', handler);
@@ -391,6 +424,10 @@ export function useTerraDraw(
       // Reset undo history on mode change to prevent cross-mode undo
       historyRef.current = [];
       setCanUndo(false);
+      // fix(round3 #1795): a mode switch starts a fresh edit/draw session —
+      // capture its baseline (the canvas as setMode left it) OUTSIDE the
+      // bounded ring so it survives eviction later in this session.
+      baselineRef.current = filteredSnapshot(draw);
     },
     [draw],
   );
@@ -420,6 +457,11 @@ export function useTerraDraw(
     (id: string) => {
       if (!draw?.enabled) return;
       draw.selectFeature(id);
+      // fix(round3 #1795): selecting an existing feature starts its edit
+      // session — capture the TRUE pre-edit snapshot now, outside the
+      // bounded ring, so a long drag that later evicts the ring's oldest
+      // entries can still undo all the way back to it.
+      baselineRef.current = filteredSnapshot(draw);
     },
     [draw],
   );
@@ -432,13 +474,23 @@ export function useTerraDraw(
   );
 
   const undo = useCallback(() => {
-    if (!draw?.enabled || historyRef.current.length <= 1) return;
+    if (!draw?.enabled) return;
+    const hasBaseline = baselineRef.current !== null;
+    if (!canUndoFrom(historyRef.current.length, hasBaseline)) return;
 
-    // Pop the current state
+    // Pop the current (top) state off the ring.
     historyRef.current.pop();
 
-    // Get the previous state
-    const prev = historyRef.current[historyRef.current.length - 1];
+    // fix(round3 #1795): what we restore. If the ring still holds an
+    // entry, that's the previous intermediate state, same as before. If
+    // popping just emptied the ring, the ring's own oldest entry may
+    // already have been evicted by the MAX_UNDO_HISTORY cap — so the
+    // correct "one step further back" state is the TRUE pre-edit baseline
+    // captured outside the ring, not an assumption that the ring's start
+    // IS the baseline.
+    const prev = historyRef.current.length > 0
+      ? historyRef.current[historyRef.current.length - 1]
+      : baselineRef.current;
 
     isRestoringRef.current = true;
     draw.clear();
@@ -450,14 +502,18 @@ export function useTerraDraw(
       isRestoringRef.current = false;
     });
 
-    const atBaseline = historyRef.current.length <= 1;
-    setCanUndo(!atBaseline);
-    // fix(round2 #1795): signal the ring has been popped all the way back to
-    // its earliest recorded snapshot BY UNDO (as opposed to a
-    // draw/setMode/clear/resetHistory reset) — the editing layer uses this
-    // to clear isEditDirty, since the displayed geometry is once again
-    // whatever was there when the ring started.
-    if (atBaseline) {
+    // fix(round3 #1795): we are AT the true baseline only when the ring is
+    // now empty AND a baseline was actually captured for this session — a
+    // ring merely reaching length 0 with no captured baseline (or, before
+    // this fix, just reaching length <= 1) is NOT a verified return to the
+    // original pre-edit geometry, so it must never report baseline.
+    const atTrueBaseline = historyRef.current.length === 0 && hasBaseline;
+    setCanUndo(canUndoFrom(historyRef.current.length, hasBaseline));
+    // fix(round2 #1795): signal a verified return to the true pre-edit
+    // snapshot — the editing layer uses this to clear isEditDirty, since
+    // the displayed geometry is once again whatever was there before this
+    // edit session started.
+    if (atTrueBaseline) {
       onHistoryBaselineRef.current?.();
     }
   }, [draw]);
@@ -467,6 +523,8 @@ export function useTerraDraw(
     draw.clear();
     historyRef.current = [];
     setCanUndo(false);
+    // fix(round3 #1795): the session this baseline belonged to is over.
+    baselineRef.current = null;
   }, [draw]);
 
   // fix(round1 #1795): the undo ring reset a caller asks for WITHOUT
@@ -476,6 +534,9 @@ export function useTerraDraw(
   const resetHistory = useCallback(() => {
     historyRef.current = [];
     setCanUndo(false);
+    // fix(round3 #1795): the session this baseline belonged to has settled
+    // (save/cancel/deselection) — clear it alongside the ring.
+    baselineRef.current = null;
   }, []);
 
   return {

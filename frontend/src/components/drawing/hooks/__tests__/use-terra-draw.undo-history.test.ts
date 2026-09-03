@@ -156,14 +156,24 @@ describe('useTerraDraw — undo history bound (fix #1778)', () => {
 // geometry still triggered the unsaved-changes confirmation on Cancel/Done/
 // mode-switch. onHistoryBaseline is the signal the editing layer uses to
 // clear isEditDirty at exactly the right moment.
-describe('useTerraDraw — onHistoryBaseline (fix round2 #1795)', () => {
-  it('fires onHistoryBaseline only on the undo() call that pops the ring back to its earliest snapshot', () => {
+describe('useTerraDraw — onHistoryBaseline (fix round2/round3 #1795)', () => {
+  // fix(round3 #1795): with a captured baseline, reaching the ring's own
+  // oldest entry (round2's old "atBaseline" condition) is NOT the true
+  // pre-edit snapshot — it's just as far as the RING goes. One more undo
+  // step, falling back to baselineRef, is what actually restores the
+  // original geometry and fires the callback.
+  it('fires onHistoryBaseline only on the undo() call that reaches the TRUE captured baseline, not when the ring itself is merely exhausted', () => {
     const map = fakeMap();
     const onHistoryBaseline = vi.fn();
     const { result } = renderHook(() => useTerraDraw(map, vi.fn(), null, onHistoryBaseline));
     const td = lastInstance!;
 
-    // Three snapshots recorded (ring length 3): two undos are available.
+    // Selecting a feature captures the TRUE pre-edit baseline outside the ring.
+    act(() => {
+      result.current.selectFeature('feat-1');
+    });
+
+    // Three snapshots recorded (ring length 3).
     act(() => {
       td.emit('change');
       td.emit('change');
@@ -171,14 +181,22 @@ describe('useTerraDraw — onHistoryBaseline (fix round2 #1795)', () => {
     });
     expect(result.current.canUndo).toBe(true);
 
-    // First undo: ring still has more than one entry left — not at baseline yet.
+    // First undo: ring still has more than one entry left.
     act(() => {
       result.current.undo();
     });
     expect(onHistoryBaseline).not.toHaveBeenCalled();
     expect(result.current.canUndo).toBe(true);
 
-    // Second undo: ring collapses to its earliest entry — baseline reached.
+    // Second undo: only the ring's own oldest entry remains. NOT the true
+    // baseline yet — canUndo stays true only because a baseline was captured.
+    act(() => {
+      result.current.undo();
+    });
+    expect(onHistoryBaseline).not.toHaveBeenCalled();
+    expect(result.current.canUndo).toBe(true);
+
+    // Third undo: the ring is now empty — the TRUE baseline is restored.
     act(() => {
       result.current.undo();
     });
@@ -222,20 +240,99 @@ describe('useTerraDraw — onHistoryBaseline (fix round2 #1795)', () => {
     expect(onHistoryBaseline).not.toHaveBeenCalled();
   });
 
-  it('an undo() call while already at baseline (no-op) does not re-fire onHistoryBaseline', () => {
+  it('an undo() call after the ring is already exhausted with no baseline (no-op) does not fire onHistoryBaseline', () => {
     const map = fakeMap();
     const onHistoryBaseline = vi.fn();
     const { result } = renderHook(() => useTerraDraw(map, vi.fn(), null, onHistoryBaseline));
     const td = lastInstance!;
 
+    // No selectFeature()/setMode() call — no baseline captured.
     act(() => {
       td.emit('change');
     });
-    expect(result.current.canUndo).toBe(false); // one snapshot only — already at baseline
+    // fix(round3 #1795): with no captured baseline, one ring entry is as far
+    // as undo can verifiably go — canUndo is false, same as before this fix.
+    expect(result.current.canUndo).toBe(false);
 
     act(() => {
-      result.current.undo(); // guarded no-op: historyRef.length <= 1
+      result.current.undo(); // guarded no-op: canUndoFrom(1, false) === false
     });
     expect(onHistoryBaseline).not.toHaveBeenCalled();
+  });
+
+  // fix(round3 #1795, P2 pin): after more than MAX_UNDO_HISTORY (50) change
+  // events in one drag, the ring's shift() evicts the original pre-edit
+  // snapshot. Undo must still reach the TRUE original geometry — not
+  // whatever the ring's own (now-not-original) oldest surviving entry is —
+  // and onHistoryBaseline must fire exactly once, on that final step.
+  it('undoing past an evicted ring restores the TRUE pre-edit baseline, not a stale ring entry (60 changes, cap 50)', () => {
+    const map = fakeMap();
+    const onHistoryBaseline = vi.fn();
+    const { result } = renderHook(() => useTerraDraw(map, vi.fn(), null, onHistoryBaseline));
+    const td = lastInstance!;
+
+    const baselineSnapshot = [{ properties: { mode: 'point', tag: 'baseline' } }] as unknown[];
+    td.getSnapshot.mockReturnValue(baselineSnapshot);
+    act(() => {
+      result.current.selectFeature('feat-1');
+    });
+
+    // 60 change events — the ring (cap 50) evicts its oldest 10 entries, so
+    // its surviving oldest entry ("change-11") is NOT the true baseline.
+    for (let i = 1; i <= 60; i++) {
+      td.getSnapshot.mockReturnValue([{ properties: { mode: 'point', tag: `change-${i}` } }] as unknown[]);
+      act(() => {
+        td.emit('change');
+      });
+    }
+    expect(result.current.canUndo).toBe(true);
+
+    let undoCount = 0;
+    while (result.current.canUndo && undoCount < 200) {
+      act(() => {
+        result.current.undo();
+      });
+      undoCount++;
+    }
+
+    // 50 ring entries take exactly 50 undo() calls to exhaust: 49 step
+    // through the ring, the 50th falls back to the true baseline.
+    expect(undoCount).toBe(50);
+    expect(onHistoryBaseline).toHaveBeenCalledTimes(1);
+    const lastAddFeaturesCall = td.addFeatures.mock.calls[td.addFeatures.mock.calls.length - 1];
+    expect(lastAddFeaturesCall[0]).toEqual(baselineSnapshot);
+  });
+
+  // fix(round3 #1795, P2 pin): if the session's baseline was never captured
+  // (e.g. change events reached the hook before any recognized
+  // session-start point ran), undo must refuse to fabricate one — the ring
+  // stops at its own oldest entry and onHistoryBaseline never fires, so
+  // isEditDirty stays true.
+  it('with the baseline deliberately missing, onHistoryBaseline never fires even after undo is fully exhausted', () => {
+    const map = fakeMap();
+    const onHistoryBaseline = vi.fn();
+    const { result } = renderHook(() => useTerraDraw(map, vi.fn(), null, onHistoryBaseline));
+    const td = lastInstance!;
+
+    // No selectFeature()/setMode() call anywhere in this test.
+    act(() => {
+      td.emit('change');
+      td.emit('change');
+      td.emit('change');
+    });
+    expect(result.current.canUndo).toBe(true);
+
+    let undoCount = 0;
+    while (result.current.canUndo && undoCount < 200) {
+      act(() => {
+        result.current.undo();
+      });
+      undoCount++;
+    }
+
+    // Refused to go past the ring's own oldest entry without a verified baseline.
+    expect(undoCount).toBe(2);
+    expect(onHistoryBaseline).not.toHaveBeenCalled();
+    expect(result.current.canUndo).toBe(false);
   });
 });
