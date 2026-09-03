@@ -222,10 +222,24 @@ async def test_guc_never_set_in_single_tenant(fresh_engine):
 
 
 @pytest.mark.asyncio
-async def test_guc_bound_param_no_sql_injection(fresh_engine):
-    """set_config uses a bound param: a value with a single quote must not raise."""
-    # If the tenant id were f-string'd into SQL, a single-quote would break parsing.
-    # A bound param passes cleanly through the driver.
+async def test_guc_refuses_a_tenant_id_that_is_not_a_uuid(fresh_engine):
+    """A value with a single quote must not raise, and must not reach the GUC.
+
+    fix(#1778 codex r5): the hook issues ``SET LOCAL app.current_tenant = '...'``
+    rather than ``SELECT set_config(..., true)``, because the SELECT form takes
+    the transaction's first snapshot and locks out SET TRANSACTION ISOLATION
+    LEVEL / DEFERRABLE. ``SET`` accepts no bind parameter, so the guard moved
+    from the parameter to the value: ``_normalize_context_tenant_id`` rejects
+    anything that is not a UUID.
+
+    This used to assert that the payload round-tripped through the bound
+    parameter, which was the right proof for that shape and the wrong property
+    to want. An unvalidated tenant id reaching ``app.current_tenant`` is not a
+    safe outcome even when it parses -- every RLS policy compares against that
+    GUC. The stronger guarantee is that it never gets there: no SQL error, no
+    injection, and the GUC left unset so RLS fail-closes exactly as it does for
+    an unset var.
+    """
     malicious_tid = "tenant-x'; SELECT 1; --"
 
     with patch.dict(os.environ, {"GEOLENS_TENANCY_MODE": "multi_tenant"}):
@@ -235,18 +249,49 @@ async def test_guc_bound_param_no_sql_injection(fresh_engine):
 
         token = current_tenant_var.set(malicious_tid)
         try:
-            # Should not raise — proves bound-param safety
+            # Must not raise: a rejected id is a no-op, not a broken statement.
             async with AsyncSession(fresh_engine) as session:
                 async with session.begin():
-                    result = await session.execute(
-                        text("SELECT current_setting('app.current_tenant', true)")
-                    )
-                    guc_val = result.scalar_one()
+                    guc_val = (
+                        await session.execute(
+                            text("SELECT current_setting('app.current_tenant', true)")
+                        )
+                    ).scalar_one()
+                    # And the transaction is still usable afterwards.
+                    assert (await session.execute(text("SELECT 1"))).scalar_one() == 1
 
-            # The exact value round-trips cleanly through the bound param
-            assert guc_val == malicious_tid, (
-                f"Expected {malicious_tid!r} but got {guc_val!r}"
+            assert guc_val != malicious_tid, (
+                "an unvalidated tenant id reached app.current_tenant; every RLS "
+                "policy compares against that GUC"
             )
+            assert not guc_val, f"expected the GUC to be left unset, got {guc_val!r}"
+        finally:
+            current_tenant_var.reset(token)
+            _reload_settings()
+
+    await fresh_engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_guc_still_carries_a_legitimate_tenant_id(fresh_engine):
+    """The other half: a real UUID still reaches the GUC, canonicalized."""
+    tenant_uuid = "3F2504E0-4F89-41D3-9A0C-0305E82C3301"
+
+    with patch.dict(os.environ, {"GEOLENS_TENANCY_MODE": "multi_tenant"}):
+        _reload_settings()
+
+        from app.core.db.tenant_session import current_tenant_var
+
+        token = current_tenant_var.set(tenant_uuid)
+        try:
+            async with AsyncSession(fresh_engine) as session:
+                async with session.begin():
+                    guc_val = (
+                        await session.execute(
+                            text("SELECT current_setting('app.current_tenant', true)")
+                        )
+                    ).scalar_one()
+            assert guc_val == tenant_uuid.lower()
         finally:
             current_tenant_var.reset(token)
             _reload_settings()

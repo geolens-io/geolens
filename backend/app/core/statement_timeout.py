@@ -66,6 +66,11 @@ behaviours that drift, and only one of them gets exercised in CI. It costs one
 extra round trip per transaction, on a local socket, which is the price of the
 deadline applying at all when a pooler is in front.
 
+fix(#1778 codex r5): the statement is `SET LOCAL statement_timeout = <ms>` and
+not `SELECT set_config('statement_timeout', :ms, true)`. See the comment at the
+listener for why -- the SELECT form takes the transaction's first snapshot and
+locks out `SET TRANSACTION ISOLATION LEVEL` / `DEFERRABLE`.
+
 A later ``SET LOCAL`` in the same transaction still wins, which is how the
 handful of API routes that need longer keep working.
 
@@ -73,9 +78,7 @@ It rides the engine's ``begin`` event rather than the ORM ``Session``'s
 ``after_begin``, for two reasons: the listener is then scoped to ONE engine
 instance instead of to every Session in the process, and it fires for a raw
 ``engine.connect()`` transaction as well as an ORM one.
-``install_tenant_session_hook`` uses the same event for the same reasons, and
-``set_config(..., is_local => true)`` is ``SET LOCAL`` with a bound parameter
-rather than an interpolated one.
+``install_tenant_session_hook`` uses the same event for the same reasons.
 
 Not set here: ``idle_in_transaction_session_timeout``. ``processing/ingest``'s
 job route opens a transaction and then waits out a 300-second ``ogrinfo``
@@ -122,13 +125,34 @@ def install_api_statement_timeout(engine) -> None:
     if getattr(sync_engine, _INSTALLED_ATTR, False) is True:
         return
 
-    # `set_config(..., is_local => true)` IS `SET LOCAL`, and unlike the `SET
-    # LOCAL` statement it accepts a bound parameter, so the value is never
-    # interpolated into SQL. The tenant GUC hook issues the tenant id the same
-    # way. Postgres reads a bare number for statement_timeout as milliseconds.
-    statement = text("SELECT set_config('statement_timeout', :ms, true)").bindparams(
-        ms=str(timeout_ms)
-    )
+    # fix(#1778 codex r5): a plain `SET LOCAL` utility statement, NOT
+    # `SELECT set_config(..., true)`. The two set the same GUC, but the SELECT
+    # form is a query: it takes the transaction's first snapshot, and Postgres
+    # refuses `SET TRANSACTION ISOLATION LEVEL` and `SET TRANSACTION
+    # [NOT] DEFERRABLE` after that with "must be called before any query"
+    # (25001). This engine already had one begin-time SELECT -- the tenant GUC
+    # hook -- and `processing/ingest/tasks_postgis_refresh.py` documents having
+    # been bitten by exactly that: the in-transaction spelling of REPEATABLE
+    # READ worked in single_tenant, where the tenant hook is a no-op, and would
+    # have failed every registered-table refresh on a multi-tenant deployment.
+    # A second begin-time SELECT here would have extended that hazard to every
+    # deployment. `SET LOCAL` takes no snapshot, so nothing downstream is
+    # constrained by the order.
+    #
+    # MEASURED, because the shape of the exposure is easy to get wrong:
+    # `SET TRANSACTION READ ONLY` is NOT affected either way -- Postgres only
+    # applies the first-query restriction to read_only when going read-only ->
+    # read-write -- so the sandbox executor's write backstop held under both
+    # forms. ISOLATION LEVEL and DEFERRABLE are the two that break.
+    #
+    # SET does not take a bind parameter, so the value is interpolated; the
+    # int() round-trip below IS the injection guard. `timeout_ms` is derived
+    # from a ge=0 integer Settings field and cannot be anything else, and this
+    # restates that at the point where it reaches SQL.
+    literal_ms = int(timeout_ms)
+    if literal_ms < 0:
+        raise ValueError(f"statement timeout must be non-negative, got {literal_ms}")
+    statement = text(f"SET LOCAL statement_timeout = {literal_ms}")
 
     @event.listens_for(sync_engine, "begin")
     def _apply_statement_timeout(conn) -> None:

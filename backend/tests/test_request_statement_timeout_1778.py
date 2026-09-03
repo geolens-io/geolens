@@ -13,6 +13,15 @@ open request-scoped sessions directly through ``async_session()`` in more than
 twenty modules -- ``GET /stac/collections`` runs three aggregates that way --
 so a per-dependency binding covered none of them.
 
+fix(#1778 codex r5): the statement is a ``SET LOCAL`` UTILITY statement, not
+``SELECT set_config(..., true)``. The two set the same GUC, but the SELECT form
+is a query and takes the transaction's first snapshot, after which Postgres
+refuses ``SET TRANSACTION ISOLATION LEVEL`` and ``SET TRANSACTION [NOT]
+DEFERRABLE`` (25001). ``SET TRANSACTION READ ONLY`` is unaffected by either
+form -- the first-query restriction applies to ``transaction_read_only`` only
+when going read-only to read-write -- and both properties are pinned below
+against the live database rather than reasoned about.
+
 fix(#1778 codex r3): and it is issued as ``SET LOCAL`` at the start of every
 transaction, not as asyncpg ``server_settings``. ``server_settings`` travels in
 the startup packet, which standard PgBouncer rejects, so under the documented
@@ -24,9 +33,11 @@ both topologies, so the direct and pooled paths cannot drift.
 
 from __future__ import annotations
 
+import ast
 import inspect
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -259,3 +270,126 @@ async def test_a_zero_setting_installs_nothing(test_db_session, monkeypatch):
             assert result.scalar_one() == "0"
     finally:
         await engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778 codex r5): what a begin-time hook may and may not consume
+# ---------------------------------------------------------------------------
+
+
+def _both_hooks_engine():
+    """An engine carrying the tenant GUC hook AND the statement deadline.
+
+    The production API engine has both, and a defect that only appears when
+    they are stacked is exactly the kind this module exists to catch.
+    """
+    from app.core.db.tenant_session import install_tenant_session_hook
+
+    engine = _fresh_engine()
+    install_tenant_session_hook(engine)
+    install_api_statement_timeout(engine)
+    return engine
+
+
+@pytest.mark.anyio
+async def test_the_hooks_do_not_take_the_transactions_first_snapshot(test_db_session):
+    """`SET TRANSACTION ISOLATION LEVEL` must still be legal after the hooks.
+
+    This is the real exposure of a `SELECT`-shaped begin hook. Postgres
+    refuses ISOLATION LEVEL and DEFERRABLE once a query has run in the
+    transaction, and `processing/ingest/tasks_postgis_refresh.py` documents
+    having been bitten by it through the tenant hook: the in-transaction
+    spelling of REPEATABLE READ worked in single_tenant, where that hook is a
+    no-op, and failed on multi-tenant. A second `SELECT` hook would have
+    extended that to every deployment.
+    """
+    engine = _both_hooks_engine()
+    try:
+        async with engine.connect() as conn:
+            async with conn.begin():
+                # Would raise ActiveSQLTransactionError (25001) if either hook
+                # had run a query first.
+                await conn.execute(text("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"))
+                await conn.execute(text("SET TRANSACTION DEFERRABLE"))
+                level = (
+                    await conn.execute(text("SHOW transaction_isolation"))
+                ).scalar_one()
+                assert level == "serializable"
+                # ...and the deadline is still in force in that transaction.
+                timeout = (await conn.execute(_SHOW_TIMEOUT)).scalar_one()
+                assert timeout == str(statement_timeout_ms())
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.anyio
+async def test_the_sandbox_write_backstop_holds_under_the_hooks(test_db_session):
+    """`SET TRANSACTION READ ONLY` still refuses a write, with no warning.
+
+    `platform/sandbox/executor.py` opens a transaction on this engine and
+    issues READ ONLY as its database-level guard against a write from
+    AI-generated SQL. Pinned here because it is the property a begin-time hook
+    would be most costly to break, even though Postgres does not in fact
+    restrict this direction after a snapshot.
+    """
+    from sqlalchemy.exc import DBAPIError
+
+    engine = _both_hooks_engine()
+    notices: list[str] = []
+    try:
+        async with engine.connect() as conn:
+            raw = await conn.get_raw_connection()
+            raw.driver_connection.add_log_listener(
+                lambda _c, message: notices.append(str(message))
+            )
+            async with conn.begin():
+                await conn.execute(text("SET TRANSACTION READ ONLY"))
+                assert (
+                    await conn.execute(text("SHOW transaction_read_only"))
+                ).scalar_one() == "on"
+                assert (await conn.execute(_SHOW_TIMEOUT)).scalar_one() == str(
+                    statement_timeout_ms()
+                )
+                with pytest.raises(DBAPIError) as excinfo:
+                    await conn.execute(text("CREATE TEMP TABLE guard_probe (a int)"))
+                assert "read-only transaction" in str(excinfo.value)
+    finally:
+        await engine.dispose()
+
+    assert not notices, f"the server warned while the guard was being set: {notices}"
+
+
+def test_neither_begin_hook_issues_a_query():
+    """The rule, on the source: a begin hook runs utility statements only.
+
+    A new hook that reaches for `SELECT set_config(...)` is the defect this
+    round fixed, and it would pass every other test in this module.
+    """
+    from app.core.db import tenant_session
+    from app.core import statement_timeout as timeout_module
+
+    hooks = {
+        "tenant GUC": inspect.getsource(tenant_session._on_begin),
+        "statement deadline": inspect.getsource(
+            timeout_module.install_api_statement_timeout
+        ),
+    }
+    for label, src in hooks.items():
+        # ast.unparse drops comments AND the docstring, so prose explaining why
+        # set_config is not used cannot be mistaken for a use of it.
+        tree = ast.parse(textwrap.dedent(src))
+        fn = tree.body[0]
+        assert isinstance(fn, ast.FunctionDef)
+        if fn.body and isinstance(fn.body[0], ast.Expr):
+            first = fn.body[0].value
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                fn.body = fn.body[1:]
+        code = ast.unparse(fn)
+        assert "set_config" not in code, (
+            f"the {label} begin hook runs `set_config`, which is a SELECT: it "
+            "takes the transaction's first snapshot and locks out SET "
+            "TRANSACTION ISOLATION LEVEL / DEFERRABLE"
+        )
+        assert "SET LOCAL" in code, (
+            f"the {label} begin hook must use a SET LOCAL utility statement"
+        )
