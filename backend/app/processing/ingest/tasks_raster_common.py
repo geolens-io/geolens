@@ -512,6 +512,42 @@ def absorb_cancellation(exc: BaseException) -> None:
 # already had an out-of-process owner for this class
 # (`_stale_generation_storage_keys` in the job sweep); this field extends the
 # same shape to `rasters/` and `originals/`.
+def attempt_scoped_raster_base_key(
+    dataset_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    asset_sha256: str,
+) -> str:
+    """The object prefix ONE replace attempt may write under.
+
+    fix(#1778 codex r3). The replace tail used to key on dataset id plus the
+    content hash alone, which is deterministic across attempts: re-running the
+    same upload derives the same three keys. That is a collision the durable
+    reaper cannot survive. ``fail_stale_jobs`` commits, and that commit both
+    settles the dead attempt and releases the dataset's active-run reservation
+    through the refresh-run sweep, so a replacement can be admitted while the
+    post-commit cleanup is still running. The new attempt then writes the same
+    keys the reaper is about to delete, after the survivor snapshot and before
+    the delete, with no row naming them yet, and its own commit lands a
+    ``RasterAsset`` pointing at bytes that are gone.
+
+    Attempt fencing closes that structurally rather than by ordering, which is
+    what the VRT publish path already does with
+    ``rasters/{id}/generations/{generation_id}/``: no two attempts can name the
+    same object, so there is no window left to get the ordering wrong in. Same
+    convention as ``attempt_scoped_staging_table``, which fences the vector
+    tails' staging tables on the identical fact.
+
+    The content hash stays in the key. It is what invariant 10 rests on (a
+    replacement cannot overwrite the live asset in place) and it keeps the
+    stored key content-addressed; the attempt segment makes it
+    attempt-addressed as well.
+
+    The first-ingest tail needs no equivalent: its keys sit under a dataset id
+    generated inside the task, so a retry produces a different one.
+    """
+    return f"rasters/{dataset_id}/attempts/{attempt_id}/{asset_sha256}"
+
+
 UNPUBLISHED_STORAGE_KEYS_FIELD = "unpublished_storage_keys"
 
 
@@ -521,6 +557,7 @@ async def record_unpublished_storage_keys(
     *,
     keys: list[str],
     already_published: "Iterable[str]",
+    attempt_scope: str,
     job_id: str,
     task: str,
 ) -> None:
@@ -548,6 +585,18 @@ async def record_unpublished_storage_keys(
     The reaper carries the second half of this: it refuses to delete a key a
     live row still references, whatever the job row says.
 
+    fix(#1778 codex r3): ``attempt_scope`` is a token unique to this attempt,
+    and a key that does not contain it is DROPPED rather than recorded. That is
+    the rule the recorded set has to satisfy for the reaper to be safe at all,
+    because the reaper deletes on the strength of "the attempt that wrote this
+    is gone": a key two attempts can both name is one the reaper can delete out
+    from under the live one. Checking it here, at the single point where keys
+    become durable, is what stops a future writer from recording a shared key
+    and finding out about it from a support ticket. The replace tail's token is
+    its attempt id, carried by every key through
+    ``attempt_scoped_raster_base_key``; the first-ingest tail's is the dataset
+    id it generates per attempt.
+
     Ordering is the whole mechanism and it is narrow. This must run BEFORE the
     phase-2 session takes the ``ingest_jobs`` row lock (phase 2's first
     statements dirty ``current_step``/``progress``): a second session updating
@@ -571,7 +620,12 @@ async def record_unpublished_storage_keys(
     from app.platform.jobs.models import IngestJob
 
     published = set(already_published)
-    unpublished = [key for key in keys if key not in published]
+    candidates = [key for key in keys if key not in published]
+    unpublished = [key for key in candidates if attempt_scope in key]
+    if len(unpublished) < len(candidates):
+        structlog.get_logger().warning(
+            "unpublished_storage_key_not_attempt_scoped", job_id=job_id, task=task
+        )
     if not unpublished:
         return
     try:

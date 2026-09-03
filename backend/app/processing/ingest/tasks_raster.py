@@ -412,6 +412,11 @@ async def ingest_raster(
             # an identical re-upload derives the same content hash and would
             # otherwise register the objects the dataset is serving.
             already_published=(),
+            # fix(#1778 codex r3): every key above sits under this id, and it
+            # is generated per task invocation, so a retry cannot reproduce
+            # one. That is this tail's attempt fence; the replace tail has a
+            # fixed dataset id and uses its attempt id instead.
+            attempt_scope=str(planned_dataset_id),
             job_id=job_id,
             task="ingest_raster",
         )

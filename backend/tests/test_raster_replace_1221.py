@@ -1113,11 +1113,22 @@ class TestIdempotentReplace:
     async def test_replacing_with_the_identical_file_keeps_the_asset_readable(
         self, test_db_session, raster_storage, tmp_path
     ) -> None:
-        """Replace twice with the same bytes. The second conversion hashes to
-        the key the first one published, so the new object IS the live object —
-        and a reap that only asked "what was the previous pointer" would delete
-        the raster the dataset is serving. The filter on both cleanup paths is
-        what makes this a no-op instead."""
+        """Replace twice with the same bytes.
+
+        The second conversion hashes to what the first one published, and this
+        used to make the new object BE the live object: same dataset id, same
+        content hash, same three keys. A reap that only asked "what was the
+        previous pointer" then deleted the raster the dataset was serving, and
+        the filter on both cleanup paths was what made it a no-op.
+
+        fix(#1778 codex r3): the keys carry an attempt segment now, so the two
+        attempts cannot name one object at all and the collision this test was
+        written for is unreachable. What it pins instead is the pair of
+        properties that collision threatened: the published COG is readable
+        after the second replace, and the superseded one is gone rather than
+        orphaned. The content hash is still shared, which is what keeps this a
+        test about identical bytes.
+        """
         admin_id = (
             await test_db_session.execute(
                 select(User.id).where(User.username == "admin")
@@ -1160,12 +1171,22 @@ class TestIdempotentReplace:
                 ).scalar_one()
                 keys.append(asset.asset_uri)
 
-            assert keys[0] == keys[1], (
-                "identical bytes must hash to one key — otherwise this test is "
-                "no longer exercising the collision it exists for"
+            assert keys[0] != keys[1], (
+                "attempt fencing must give each attempt its own key — a shared "
+                "one is what let the stale-job reaper delete a live raster"
+            )
+            first_sha, second_sha = (key.split("/")[-2] for key in keys)
+            assert first_sha == second_sha, (
+                "identical bytes must still hash to one value — otherwise this "
+                "test is no longer about an identical re-upload"
             )
             assert await raster_storage.exists(keys[1]), (
                 "the live COG was reaped by its own replacement"
+            )
+            assert not await raster_storage.exists(keys[0]), (
+                "the superseded COG must be reaped, not orphaned: with the two "
+                "attempts writing distinct keys, the post-swap followups are "
+                "the only thing that removes the first one"
             )
         finally:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)

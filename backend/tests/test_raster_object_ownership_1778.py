@@ -236,6 +236,7 @@ class TestIdenticalReplacementKeepsTheLiveAsset:
                 uuid.uuid4(),
                 keys=list(self.LIVE),
                 already_published=self.LIVE,
+                attempt_scope="dataset-1",
                 job_id="j",
                 task="reupload_raster",
             )
@@ -258,6 +259,7 @@ class TestIdenticalReplacementKeepsTheLiveAsset:
                 uuid.uuid4(),
                 keys=[fresh, *self.LIVE],
                 already_published=self.LIVE,
+                attempt_scope="dataset-1",
                 job_id="j",
                 task="reupload_raster",
             )
@@ -403,6 +405,156 @@ class TestLiveReferenceQuery:
             original,
         }
         assert orphan not in live
+
+
+class TestAttemptScopedReplaceKeys:
+    """fix(#1778 codex r3): the reaper's TOCTOU against a re-admitted replace.
+
+    `fail_stale_jobs` commits once, and that commit settles the dead attempt
+    AND releases the dataset's active-run reservation through the refresh-run
+    sweep. The post-commit cleanup then runs with the door open: a replacement
+    can be admitted, and while the reaper is between its survivor snapshot and
+    its delete, that new attempt can write objects no row names yet. With keys
+    derived from dataset id plus content hash alone, a retry of the same upload
+    derived the SAME keys, so the reaper deleted the new attempt's bytes and
+    the new attempt then committed a `RasterAsset` pointing at nothing.
+
+    Closed by the key layout rather than by ordering, which is what the VRT
+    publish path already does with `generations/{generation_id}/`. Ordering
+    fixes here would have had to survive every future caller of the reaper; a
+    key two attempts cannot both name has no window to order around.
+    """
+
+    DATASET = uuid.UUID("11111111-1111-1111-1111-111111111111")
+    SHA = "b" * 64
+
+    def _keys(self, attempt: uuid.UUID) -> list[str]:
+        from app.processing.ingest.tasks_raster_common import (
+            attempt_scoped_raster_base_key,
+        )
+
+        base = attempt_scoped_raster_base_key(self.DATASET, attempt, self.SHA)
+        return [
+            f"{base}/source.cog.tif",
+            f"{base}/quicklook_256.png",
+            f"{base}/quicklook_512.png",
+        ]
+
+    def test_two_attempts_of_the_same_upload_share_no_key(self) -> None:
+        """Identical dataset, identical bytes, identical conversion."""
+        first = self._keys(uuid.uuid4())
+        second = self._keys(uuid.uuid4())
+        assert set(first).isdisjoint(second)
+
+    def test_the_key_still_carries_the_content_hash(self) -> None:
+        """Invariant 10 rests on it: a replacement cannot overwrite in place."""
+        for key in self._keys(uuid.uuid4()):
+            assert self.SHA in key
+            assert key.startswith(f"rasters/{self.DATASET}/")
+
+    @pytest.mark.asyncio
+    async def test_a_replacement_admitted_mid_reap_keeps_its_objects(self) -> None:
+        """The review's scenario, end to end through the reaper.
+
+        The stale attempt's keys are reaped and the newly admitted attempt's
+        survive, even though nothing references either set at snapshot time.
+        """
+        from app.platform.jobs.sweep import reap_unpublished_storage_keys
+
+        stale = self._keys(uuid.uuid4())
+        admitted_mid_reap = self._keys(uuid.uuid4())
+
+        storage = MagicMock()
+        storage.delete = AsyncMock()
+        with (
+            patch("app.platform.storage.get_storage", return_value=storage),
+            # Neither set is referenced yet: the stale attempt rolled back and
+            # the new one has not committed its pointer.
+            patch(
+                "app.platform.jobs.sweep._live_referenced_storage_keys",
+                AsyncMock(return_value=set()),
+            ),
+        ):
+            reaped, skipped, failures = await reap_unpublished_storage_keys(
+                tuple(stale)
+            )
+
+        assert (reaped, skipped, failures) == (3, 0, 0)
+        deleted = {call.args[0] for call in storage.delete.await_args_list}
+        assert deleted == set(stale)
+        assert deleted.isdisjoint(admitted_mid_reap)
+
+    @pytest.mark.asyncio
+    async def test_a_key_outside_this_attempt_is_never_recorded(self) -> None:
+        """The rule the recorded set must satisfy for the reaper to be safe.
+
+        A future writer that derives a key two attempts can both name gets it
+        dropped here rather than discovering the collision from a deleted
+        raster.
+        """
+        from app.processing.ingest.tasks_raster_common import (
+            UNPUBLISHED_STORAGE_KEYS_FIELD,
+            record_unpublished_storage_keys,
+        )
+
+        attempt = uuid.uuid4()
+        mine = self._keys(attempt)
+        shared = f"rasters/{self.DATASET}/{self.SHA}/source.cog.tif"
+
+        session = AsyncMock()
+        maker = MagicMock()
+        maker.return_value.__aenter__ = AsyncMock(return_value=session)
+        maker.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.core.db.async_session", maker):
+            await record_unpublished_storage_keys(
+                uuid.uuid4(),
+                attempt,
+                keys=[*mine, shared],
+                already_published=(),
+                attempt_scope=str(attempt),
+                job_id="j",
+                task="reupload_raster",
+            )
+
+        session.execute.assert_awaited_once()
+        stmt = session.execute.await_args.args[0]
+        recorded = stmt.compile().params["unpublished_patch"]
+        assert recorded == {UNPUBLISHED_STORAGE_KEYS_FIELD: mine}
+
+    def test_the_replace_tail_derives_both_key_sets_from_the_one_helper(
+        self,
+    ) -> None:
+        """Recording one prefix and writing another would be silent."""
+        source = _source("processing/ingest/tasks_raster_replace.py")
+        # Exactly two calls: the durable record and the put block. A third
+        # would mean a third derivation to keep in step.
+        assert source.count("attempt_scoped_raster_base_key(") == 2
+        assert 'rasters/{dataset_uuid}/{asset_sha256}"' not in source
+        assert 'rasters/{dataset.id}/{asset_sha256}"' not in source
+
+    def test_the_first_ingest_tail_is_fenced_by_its_generated_dataset_id(
+        self,
+    ) -> None:
+        """Its keys need no attempt segment, and this is why."""
+        source = _source("processing/ingest/tasks_raster.py")
+        lines = source.splitlines()
+        generated = next(
+            i
+            for i, line in enumerate(lines)
+            if "planned_dataset_id = uuid.uuid4()" in line
+        )
+        used = next(
+            i
+            for i, line in enumerate(lines)
+            if i > generated and '_base_key = f"rasters/{planned_dataset_id}/' in line
+        )
+        scoped = next(
+            i
+            for i, line in enumerate(lines)
+            if i > used and "attempt_scope=str(planned_dataset_id)" in line
+        )
+        assert generated < used < scoped
 
 
 def _mock_db_for_fail_stale(*, running_rows: list) -> AsyncMock:

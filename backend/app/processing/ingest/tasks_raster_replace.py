@@ -10,8 +10,10 @@ pointer.
 
 **Invariant 10, last-known-good is sacred.** The previous COG is not deleted or
 overwritten until the replacement has been written to storage AND read back
-successfully. The new asset lands under keys derived from its own content hash,
-so it cannot collide with the live asset's; the pointer moves in a single
+successfully. The new asset lands under keys derived from this attempt's id and
+its own content hash, so it can collide neither with the live asset's nor with
+another attempt's (fix(#1778 codex r3) added the first half of that; see
+``attempt_scoped_raster_base_key``); the pointer moves in a single
 transaction alongside the tile-cache bump; and only after that transaction
 commits are the superseded objects reaped. Every failure before the commit
 leaves the old COG serving tiles, which is what the dataset's map layers keep
@@ -73,6 +75,7 @@ from app.processing.ingest.tasks_raster_common import (
     _enforce_strict_cog,
     _resolve_managed_raster_storage_keys,
     absorb_cancellation,
+    attempt_scoped_raster_base_key,
     extract_source_raster_metadata,
     publish_commit_landed,
     record_unpublished_storage_keys,
@@ -485,13 +488,14 @@ async def reupload_raster(
         # names the OLD keys and `delete_dataset`'s prefix reap only runs when
         # the dataset is deleted.
         #
-        # fix(#1778 codex r1): the content hash does NOT make this prefix this
-        # attempt's alone, which an earlier revision of this comment claimed.
-        # Re-uploading the file the dataset already serves converts to the same
-        # COG and hashes to the same `asset_sha256`, so all three keys below
-        # are the ones currently being served. `already_published` is what
-        # keeps them out of the durable record; the reaper's own survivor check
-        # is the second half.
+        # fix(#1778 codex r3): the prefix is attempt-scoped, so these three keys
+        # are this attempt's alone: not the live asset's (which an identical
+        # re-upload would otherwise reproduce exactly, since it converts to the
+        # same COG and hashes the same), and not a later attempt's (which the
+        # reaper would otherwise be able to delete after its survivor snapshot
+        # and before its delete, once this pass's commit released the run
+        # reservation). `already_published` and the reaper's survivor check
+        # both stay, as defence in depth behind the key layout.
         #
         # The kept original is deliberately NOT registered here. Its key is
         # derived from the SOURCE hash, so re-uploading bytes this dataset has
@@ -499,7 +503,9 @@ async def reupload_raster(
         # live `dataset_assets` row still points at. `archive_lossy_original`
         # registers it only when its own pre-write probe proves absence, and
         # that probe result is not available this early.
-        _replace_base_key = f"rasters/{dataset_uuid}/{asset_sha256}"
+        _replace_base_key = attempt_scoped_raster_base_key(
+            dataset_uuid, attempt_uuid, asset_sha256
+        )
         await record_unpublished_storage_keys(
             job_uuid,
             attempt_uuid,
@@ -509,6 +515,7 @@ async def reupload_raster(
                 f"{_replace_base_key}/quicklook_512.png",
             ],
             already_published=prior_logical_keys,
+            attempt_scope=str(attempt_uuid),
             job_id=job_id,
             task="reupload_raster",
         )
@@ -554,7 +561,12 @@ async def reupload_raster(
             from app.platform.storage import get_storage
 
             storage = get_storage()
-            base_key = f"rasters/{dataset.id}/{asset_sha256}"
+            # fix(#1778 codex r3): the same derivation the durable record used,
+            # through the one helper, so the two cannot drift into recording
+            # one prefix and writing another.
+            base_key = attempt_scoped_raster_base_key(
+                dataset.id, attempt_uuid, asset_sha256
+            )
             cog_key = f"{base_key}/source.cog.tif"
             ql256_key = f"{base_key}/quicklook_256.png"
             ql512_key = f"{base_key}/quicklook_512.png"
