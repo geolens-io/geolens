@@ -7,6 +7,8 @@ from urllib.parse import quote, urlencode, urlparse
 import httpx
 import structlog
 
+from app.core.url_redaction import redact_exception_text
+
 logger = structlog.stdlib.get_logger(__name__)
 
 # What this adapter is, in the vocabulary ``build_credential_header`` reads.
@@ -149,7 +151,13 @@ async def probe_arcgis_service(
         response = await client.get(query)
         response.raise_for_status()
     except (httpx.HTTPStatusError, httpx.TransportError) as exc:
-        logger.debug("ArcGIS probe failed for %s: %s", base_url, exc)
+        # fix(#1770 round 39): this request embeds OUR OWN token in the URL
+        # (see the fix(#1746 codex r7) comment above) -- an HTTPStatusError's
+        # message quotes that whole URL back, so the caught exception's text
+        # must be redacted, not just the href a response body carries.
+        logger.debug(
+            "ArcGIS probe failed for %s: %s", base_url, redact_exception_text(exc)
+        )
         return None
 
     try:
@@ -454,7 +462,7 @@ async def fetch_arcgis_layer_preview(
             "ArcGIS sample-row fetch failed for %s/%s: %s",
             base,
             safe_layer_id,
-            exc,
+            redact_exception_text(exc),
         )
 
     # fix(#1746): the preview previously always returned feature_count=None;
@@ -471,7 +479,7 @@ async def fetch_arcgis_layer_preview(
             "ArcGIS feature-count fetch failed for %s/%s: %s",
             base,
             safe_layer_id,
-            exc,
+            redact_exception_text(exc),
         )
 
     return {

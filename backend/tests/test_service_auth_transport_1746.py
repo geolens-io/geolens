@@ -24,6 +24,7 @@ coincidence, and no literal password is written down anywhere (Rule 3).
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import base64
 import inspect
@@ -7249,6 +7250,86 @@ class TestAFullPageWithoutLinksMustProveItIsTheLastOne:
         assert extract.total is None
 
 
+def _mentions_httpx(node: "ast.expr | None") -> bool:
+    return node is not None and "httpx" in ast.dump(node)
+
+
+def _is_error_kw_log_call(node: "ast.Call") -> bool:
+    func = node.func
+    log_methods = {"debug", "info", "warning", "error", "exception", "critical"}
+    return (
+        isinstance(func, ast.Attribute)
+        and isinstance(func.value, ast.Name)
+        and func.value.id in ("logger", "log")
+        and func.attr in log_methods
+    )
+
+
+def _unwrapped_httpx_error_name(kw: "ast.keyword", httpx_names: set[str]) -> str | None:
+    """The bound except-name a bare/`str(...)` `error=` kwarg still carries."""
+    if kw.arg != "error":
+        return None
+    if isinstance(kw.value, ast.Name) and kw.value.id in httpx_names:
+        return kw.value.id
+    if (
+        isinstance(kw.value, ast.Call)
+        and isinstance(kw.value.func, ast.Name)
+        and kw.value.func.id == "str"
+        and len(kw.value.args) == 1
+        and isinstance(kw.value.args[0], ast.Name)
+        and kw.value.args[0].id in httpx_names
+    ):
+        return kw.value.args[0].id
+    return None
+
+
+def _find_unredacted_error_fields(module) -> set[tuple[str, str]]:
+    """(function, offending-name) for every unwrapped `error=` log site.
+
+    Module-level (fix(#1770 round 39)) so its own branching is judged on its
+    own terms rather than folded into the test method that calls it -- see
+    ``TestAResponseProvidedUrlNeverReachesALogUnredacted`` for what this
+    enumerates and its documented Known limits.
+    """
+    tree = ast.parse(inspect.getsource(module))
+    found: set[tuple[str, str]] = set()
+    func_stack: list[str] = []
+    httpx_names: set[str] = set()
+
+    class _Visitor(ast.NodeVisitor):
+        def visit_FunctionDef(self, node: "ast.FunctionDef") -> None:
+            self._enter(node)
+
+        def visit_AsyncFunctionDef(self, node: "ast.AsyncFunctionDef") -> None:
+            self._enter(node)
+
+        def _enter(self, node) -> None:
+            func_stack.append(node.name)
+            self.generic_visit(node)
+            func_stack.pop()
+
+        def visit_ExceptHandler(self, node: "ast.ExceptHandler") -> None:
+            bound = None
+            if _mentions_httpx(node.type) and node.name:
+                httpx_names.add(node.name)
+                bound = node.name
+            self.generic_visit(node)
+            if bound is not None:
+                httpx_names.discard(bound)
+
+        def visit_Call(self, node: "ast.Call") -> None:
+            if _is_error_kw_log_call(node):
+                for kw in node.keywords:
+                    bad_name = _unwrapped_httpx_error_name(kw, httpx_names)
+                    if bad_name is not None:
+                        fname = func_stack[-1] if func_stack else "<module>"
+                        found.add((fname, bad_name))
+            self.generic_visit(node)
+
+    _Visitor().visit(tree)
+    return found
+
+
 class TestAResponseProvidedUrlNeverReachesALogUnredacted:
     """fix(#1770 round 38 P2, `adapters/ogcapi.py:131`).
 
@@ -7410,6 +7491,115 @@ class TestAResponseProvidedUrlNeverReachesALogUnredacted:
 
         assert _find_calls(ogcapi_adapter) == expected_ogcapi
         assert _find_calls(stac_adapter) == expected_stac
+
+    async def test_a_reflected_token_in_a_same_origin_conformance_fetch_is_not_logged(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1770 round 39 P2, `adapters/ogcapi.py` conformance fetch-failed
+        branch).
+
+        The href field on this log call was redacted in round 38, but the
+        `error` field carried `str(exc)` verbatim -- and `httpx.HTTPStatusError`
+        (what `raise_for_status` raises) puts the WHOLE request URL, query
+        string included, into its own message. A same-origin conformance link
+        never trips the cross-origin refusal (round 38's pin), so it reaches
+        the actual GET; if that service answers 401, the exception text alone
+        still carries whatever the link's query string held. Pins the `error`
+        field of the fetch-failed log, not the `href` field round 38 already
+        covered.
+        """
+        import structlog
+
+        from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
+
+        secret = "reflect-" + _value()
+        landing = {
+            "links": [
+                {"rel": "data", "href": f"{_SERVICE_ORIGIN}/oapif/collections"},
+                {
+                    "rel": "conformance",
+                    "href": f"{_SERVICE_ORIGIN}/oapif/conformance?token={secret}",
+                },
+            ]
+        }
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/conformance"):
+                return httpx.Response(401, json={"error": "unauthorized"})
+            if request.url.path.endswith("/collections"):
+                return httpx.Response(200, json={"collections": [{"id": "c1"}]})
+            return httpx.Response(200, json=landing)
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+            AsyncMock(),
+        )
+
+        with structlog.testing.capture_logs() as captured:
+            async with httpx.AsyncClient(
+                transport=httpx.MockTransport(handle)
+            ) as client:
+                await probe_ogcapi(f"{_SERVICE_ORIGIN}/oapif", client)
+
+        rendered = str(captured)
+        assert secret not in rendered
+        # Not vacuous: the branch this is pinning actually ran, and it is the
+        # fetch-failed branch specifically, not the cross-origin refusal
+        # round 38 already pins (this href is same-origin).
+        assert "conformance fetch failed" in rendered
+        assert "another origin" not in rendered
+
+    def test_an_error_field_bound_to_an_httpx_except_never_bypasses_the_helper(
+        self,
+    ) -> None:
+        """Source-enumeration, closed set (fix(#1770 round 39 P2)).
+
+        Extends the round-38 href sweep to the sibling leak: a keyword
+        argument literally named `error`, whose value is a bare reference to
+        a name bound by an `except ...httpx...` clause -- or `str()` of that
+        name -- with no `redact_exception_text(...)` wrapper. That is
+        precisely the shape the P2 finding named: the href gets redacted but
+        the caught exception's own text, which `HTTPStatusError` fills with
+        the whole request URL, does not.
+
+        Known limits, on purpose: only an `except` clause whose type
+        expression literally contains "httpx" is tracked (covers every site
+        in this tree: `httpx.HTTPStatusError`, `httpx.TransportError`,
+        `httpx.HTTPError`, tuples of the three) -- an alias-imported or
+        re-exported httpx exception type would not match. Only a keyword
+        literally spelled `error` is checked, and only a value shaped as a
+        bare name or `str(name)`; `repr(name)`, an f-string interpolating the
+        name, or a differently-named keyword would need a human audit. It
+        does not walk the old-style positional `logger.debug("... %s",
+        value)` calls in `arcgis.py`/`wfs.py`: those pass the exception as a
+        plain positional argument, a different shape this AST pattern does
+        not match at all -- audited by hand instead, and every site there
+        wraps the exception in `redact_exception_text(...)` before the
+        format string sees it. `service_endpoints.py`/`service_items.py`
+        are included below for completeness even though they hold no
+        matching site today: `EndpointCheckFailedError.__init__` always sets
+        `self.policy` to a fixed constant and passes THAT to
+        `super().__init__`, so `reason` -- which is where a raw `str(exc)`
+        lands there -- is stored but never read anywhere in this tree
+        (verified by grep), and never reaches `str()` of the raised
+        exception or a log line.
+        """
+        from app.modules.catalog.sources.adapters import arcgis as arcgis_adapter
+        from app.modules.catalog.sources.adapters import ogcapi as ogcapi_adapter
+        from app.modules.catalog.sources.adapters import stac as stac_adapter
+        from app.modules.catalog.sources.adapters import wfs as wfs_adapter
+        from app.platform import service_endpoints as service_endpoints_mod
+        from app.platform import service_items as service_items_mod
+
+        for module in (
+            ogcapi_adapter,
+            arcgis_adapter,
+            stac_adapter,
+            wfs_adapter,
+            service_endpoints_mod,
+            service_items_mod,
+        ):
+            assert _find_unredacted_error_fields(module) == set(), module.__name__
 
 
 class TestASecretDoesNotSurviveInTheChain:

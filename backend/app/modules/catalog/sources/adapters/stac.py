@@ -18,7 +18,7 @@ import httpx
 import structlog
 from pydantic import HttpUrl
 
-from app.core.url_redaction import has_url_credentials
+from app.core.url_redaction import has_url_credentials, redact_exception_text
 from app.platform.security import make_safe_client
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -227,7 +227,9 @@ async def connect_stac_api(url: str) -> dict | None:
             resp = await client.get(url, headers=headers)
             resp.raise_for_status()
         except (httpx.HTTPStatusError, httpx.TransportError) as exc:
-            logger.debug("STAC connect failed", url=url, error=str(exc))
+            logger.debug(
+                "STAC connect failed", url=url, error=redact_exception_text(exc)
+            )
             return None
 
         try:

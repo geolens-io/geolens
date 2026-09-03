@@ -322,6 +322,31 @@ def redact_url_credentials(url: str) -> str:
     )
 
 
+def redact_exception_text(exc: BaseException) -> str:
+    """``str(exc)``, with any URL-shaped substring redacted.
+
+    fix(#1770 round 39): ``httpx.HTTPStatusError`` -- what ``raise_for_status``
+    raises -- puts the WHOLE request URL, query string included, into its own
+    message: ``"Client error '401 Unauthorized' for url '<url>'"``. A caller
+    that reads a response chosen by an untrusted service and logs the caught
+    exception's text was logging that URL verbatim, so a service that
+    reflects a query parameter shaped like a credential into its own error
+    page gets it echoed straight into the log -- the free-text sibling of the
+    ``href=`` leak `redact_url_credentials` already closes for a value read
+    directly off a link.
+
+    ``redact_url_credentials`` already redacts a URL embedded in arbitrary
+    text (its ``URL_LIKE_RE`` fallback for anything that is not, as a WHOLE
+    string, a bare ``http``/``https`` URL), so this is that function applied
+    to the one shape an exception's text actually has. Safe to call
+    unconditionally: an exception whose message carries no URL at all --
+    ``httpx.RequestError`` and its connection-level subclasses generally
+    don't, the address lives on ``exc.request.url`` instead and is never read
+    here -- passes through unchanged.
+    """
+    return redact_url_credentials(str(exc))
+
+
 def _basic_cleartext(blob: str) -> set[str]:
     """The username and password inside a base64 basic credential.
 

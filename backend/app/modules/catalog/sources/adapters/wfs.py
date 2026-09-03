@@ -33,6 +33,7 @@ import httpx
 import structlog
 
 from app.core.service_tokens import ServiceCredential, build_credential_header
+from app.core.url_redaction import redact_exception_text
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -146,7 +147,11 @@ async def probe_wfs(
         response = await client.get(capabilities_url, headers=request_headers)
         response.raise_for_status()
     except (httpx.HTTPStatusError, httpx.TransportError) as exc:
-        logger.debug("WFS probe failed for %s: %s", url, exc)
+        # fix(#1770 round 39): this request can carry a credential header (see
+        # build_credential_header above); an HTTPStatusError's message quotes
+        # the whole request URL, so a reflected credential-shaped query
+        # parameter on `capabilities_url` must be redacted before logging.
+        logger.debug("WFS probe failed for %s: %s", url, redact_exception_text(exc))
         return None
 
     # Check Content-Type is XML (not HTML error page)

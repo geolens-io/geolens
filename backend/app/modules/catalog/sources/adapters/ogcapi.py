@@ -35,7 +35,7 @@ import httpx
 import structlog
 
 from app.core.service_tokens import ServiceCredential, build_credential_header
-from app.core.url_redaction import redact_url_credentials
+from app.core.url_redaction import redact_exception_text, redact_url_credentials
 from app.modules.catalog.sources.classify import classify_layer_kind
 from app.platform.security import SSRFError, same_origin, validate_url_for_ssrf
 
@@ -162,7 +162,7 @@ async def _resolve_conformance(
         logger.debug(
             "OGC API probe: conformance fetch failed",
             href=redact_url_credentials(abs_href),
-            error=str(exc),
+            error=redact_exception_text(exc),
         )
     return conforms_to, has_data_link
 
@@ -208,7 +208,9 @@ async def probe_ogcapi(
         response.raise_for_status()
     except (httpx.HTTPStatusError, httpx.TransportError) as exc:
         logger.debug(
-            "OGC API probe: landing page request failed", url=url, error=str(exc)
+            "OGC API probe: landing page request failed",
+            url=url,
+            error=redact_exception_text(exc),
         )
         return None
 
@@ -216,7 +218,9 @@ async def probe_ogcapi(
         data = response.json()
     except Exception as exc:  # broad: httpx response.json() can throw varied parser/decoder errors; degrade to None
         logger.debug(
-            "OGC API probe: landing page JSON parse failed", url=url, error=str(exc)
+            "OGC API probe: landing page JSON parse failed",
+            url=url,
+            error=redact_exception_text(exc),
         )
         return None
 
@@ -257,7 +261,7 @@ async def probe_ogcapi(
         logger.debug(
             "OGC API probe: collections fetch failed",
             collections_url=collections_url,
-            error=str(exc),
+            error=redact_exception_text(exc),
         )
         return None
 
