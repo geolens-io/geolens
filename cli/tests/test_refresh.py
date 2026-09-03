@@ -23,6 +23,19 @@ def _seed_login(mock_keyring: dict) -> None:
     config.write_default_instance(INSTANCE, username="alice")
 
 
+def _pair_refresh_fingerprint(
+    mock_keyring: dict, bearer: str, instance: str = INSTANCE
+) -> None:
+    """fix(#1778 round 31): tests that seed a bearer + refresh token
+    directly into mock_keyring (bypassing store_refresh_token(), which
+    would pair them automatically) must also seed the matching pairing
+    fingerprint, or try_refresh() now correctly treats the refresh
+    token as unpaired and discards it instead of using it."""
+    from geolens_cli import auth as _auth
+
+    mock_keyring[("geolens", f"{instance}:refresh_fp")] = _auth._fingerprint_bearer(bearer)
+
+
 def _accepted(trigger: str = "api"):
     from geolens.models.dataset_refresh_response import DatasetRefreshResponse
 
@@ -746,6 +759,7 @@ class TestDatasetStatusRefreshRetry:
 
         mock_keyring[("geolens", INSTANCE)] = "expired-access-token"
         mock_keyring[("geolens", f"{INSTANCE}:refresh")] = "valid-refresh-token"
+        _pair_refresh_fingerprint(mock_keyring, "expired-access-token")
         _config.write_default_instance(INSTANCE, username="alice")
 
         calls = {"status": 0}
@@ -871,7 +885,10 @@ class TestReauthReviewRoundOne:
         from geolens_cli import auth as _auth
         from geolens_cli._sdk_helpers import DEFAULT_HTTP_TIMEOUT_SECONDS
 
-        _auth.store_refresh_token(INSTANCE, "some-refresh-token")
+        _auth.store_bearer_token(INSTANCE, "current-bearer")
+        _auth.store_refresh_token(
+            INSTANCE, "some-refresh-token", bearer_token="current-bearer"
+        )
 
         seen_timeout = None
 
@@ -1121,6 +1138,7 @@ class TestReauthReviewRoundThree:
         monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
         mock_keyring[("geolens", INSTANCE)] = "expired-access-token"
         mock_keyring[("geolens", f"{INSTANCE}:refresh")] = "valid-refresh-token"
+        _pair_refresh_fingerprint(mock_keyring, "expired-access-token")
         _config.write_default_instance(INSTANCE, username="alice")
 
         calls = {"status": 0}
@@ -1186,6 +1204,7 @@ class TestRefreshPersistenceFailureNeverCrashes:
 
         mock_keyring[("geolens", INSTANCE)] = "expired-access-token"
         mock_keyring[("geolens", f"{INSTANCE}:refresh")] = "valid-refresh-token"
+        _pair_refresh_fingerprint(mock_keyring, "expired-access-token")
 
         monkeypatch.setattr(
             "keyring.set_password",
@@ -1207,6 +1226,7 @@ class TestRefreshPersistenceFailureNeverCrashes:
 
         mock_keyring[("geolens", INSTANCE)] = "expired-access-token"
         mock_keyring[("geolens", f"{INSTANCE}:refresh")] = "valid-refresh-token"
+        _pair_refresh_fingerprint(mock_keyring, "expired-access-token")
 
         real_set_password = __import__("keyring").set_password
 
@@ -1231,7 +1251,12 @@ class TestRefreshPersistenceFailureNeverCrashes:
         from geolens_cli import auth as _auth
 
         _auth.store_bearer_token(INSTANCE, "expired-access-token", no_keyring=True)
-        _auth.store_refresh_token(INSTANCE, "valid-refresh-token", no_keyring=True)
+        _auth.store_refresh_token(
+            INSTANCE,
+            "valid-refresh-token",
+            bearer_token="expired-access-token",
+            no_keyring=True,
+        )
 
         monkeypatch.setattr(
             _auth,
@@ -1325,3 +1350,158 @@ class TestRefreshPersistenceFailureNeverCrashes:
         assert refresh_calls["count"] == 1
         # Exactly one warning explaining the situation, not a crash.
         assert warnings.count("refresh_rotated_but_not_stored") == 1
+
+
+def _setup_bearer_provenance(mock_keyring: dict, monkeypatch, provenance: str) -> str:
+    """Store a bearer credential per `provenance` and return its value
+    (the value try_refresh() must PROVE a refresh token is paired
+    with). "interactive" and "manual" are both keyring-stored bearers
+    -- they produce the IDENTICAL credential_provenance == "stored-
+    bearer" tag (round 26 does not distinguish HOW a stored bearer got
+    there, only THAT it's stored vs. env) -- given distinct literal
+    values purely so each row's setup and assertions read clearly."""
+    if provenance == "env":
+        monkeypatch.setenv("GEOLENS_TOKEN", "env-bearer-token")
+        return "env-bearer-token"
+    monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+    bearer = "interactive-bearer-token" if provenance == "interactive" else "manual-bearer-token"
+    mock_keyring[("geolens", INSTANCE)] = bearer
+    return bearer
+
+
+def _setup_refresh_state(mock_keyring: dict, current_bearer: str, refresh_state: str) -> None:
+    """Construct the refresh-token/fingerprint state named by
+    `refresh_state`, relative to `current_bearer` (the bearer this
+    test row just stored)."""
+    from geolens_cli import auth as _auth
+
+    if refresh_state == "absent":
+        return
+    mock_keyring[("geolens", f"{INSTANCE}:refresh")] = "some-refresh-token"
+    if refresh_state == "paired":
+        mock_keyring[("geolens", f"{INSTANCE}:refresh_fp")] = _auth._fingerprint_bearer(
+            current_bearer
+        )
+    elif refresh_state == "unpaired-legacy":
+        pass  # No fingerprint field at all -- a pre-round-31 profile.
+    elif refresh_state == "mismatched":
+        mock_keyring[("geolens", f"{INSTANCE}:refresh_fp")] = _auth._fingerprint_bearer(
+            "some-other-stale-bearer"
+        )
+    else:
+        raise AssertionError(f"unhandled refresh_state: {refresh_state!r}")
+
+
+# fix(#1778 round 31): the refresh-pairing dimension of the credential-
+# resolution matrix. Keys are (bearer_provenance, refresh_state); the
+# value is whether try_refresh() may spend the refresh token (True) or
+# must discard it and report the normal auth error with NO refresh
+# call made (False).
+#
+# "interactive" and "manual" both resolve to credential_provenance ==
+# "stored-bearer" (round 26 does not track HOW a stored bearer got
+# there) -- the pairing mechanism (round 31) is intentionally NOT a
+# provenance flag, only a fingerprint proving "this refresh token
+# belongs to the CURRENTLY stored bearer." (manual, paired) is
+# therefore a SYNTHETIC row: a real `login --token`/`--api-key` never
+# calls store_refresh_token() at all (the server does not issue a
+# refresh token for a manually-supplied credential), so this exact
+# state cannot arise from ordinary command usage -- it is included to
+# prove the mechanism is purely state-based, not provenance-based, and
+# it legitimately succeeds under that mechanism. (manual, unpaired-
+# legacy) and (manual, mismatched) ARE the realistic finding scenario:
+# a stale refresh token an earlier interactive login left behind,
+# surviving a later `login --token`/`--api-key` that never cleared it.
+# "env" never reaches try_refresh() at all (round 26 gates on
+# credential_provenance == "stored-bearer" before ever consulting a
+# refresh token), so every env row is False regardless of refresh_state.
+REFRESH_MATRIX = {
+    ("interactive", "absent"): False,
+    ("interactive", "paired"): True,
+    ("interactive", "unpaired-legacy"): False,
+    ("interactive", "mismatched"): False,
+    ("manual", "absent"): False,
+    ("manual", "paired"): True,
+    ("manual", "unpaired-legacy"): False,
+    ("manual", "mismatched"): False,
+    ("env", "absent"): False,
+    ("env", "paired"): False,
+    ("env", "unpaired-legacy"): False,
+    ("env", "mismatched"): False,
+}
+
+
+class TestRefreshPairingMatrix:
+    """fix(#1778 round 31): the class-closing test for the refresh-
+    pairing dimension, extending round 30's credential-resolution
+    matrix. 12 rows: refresh in {absent, paired, unpaired-legacy,
+    mismatched} x bearer provenance {interactive, manual, env}. Only
+    a stored bearer with a correctly PAIRED refresh token may refresh;
+    every other row ends in the normal auth error (EXIT_AUTH) with the
+    refresh endpoint never called."""
+
+    @pytest.mark.parametrize(
+        "provenance,refresh_state", sorted(REFRESH_MATRIX), ids=lambda v: str(v)
+    )
+    def test_refresh_pairing_row(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        provenance: str,
+        refresh_state: str,
+    ) -> None:
+        from geolens_cli import config as _config
+        from geolens_cli._sdk_helpers import EXIT_AUTH
+        from geolens_cli.main import app
+
+        current_bearer = _setup_bearer_provenance(mock_keyring, monkeypatch, provenance)
+        _setup_refresh_state(mock_keyring, current_bearer, refresh_state)
+        _config.write_default_instance(INSTANCE, username="alice")
+
+        refresh_calls = {"count": 0}
+
+        def refresh_endpoint(**kwargs):
+            refresh_calls["count"] += 1
+            return SimpleNamespace(
+                status_code=HTTPStatus.OK,
+                parsed=SimpleNamespace(
+                    access_token="rotated-access-token", refresh_token=None
+                ),
+            )
+
+        monkeypatch.setattr(
+            "geolens.api.auth.refresh_auth_refresh_post.sync_detailed",
+            refresh_endpoint,
+        )
+
+        calls = {"status": 0}
+
+        def status_endpoint(**kwargs):
+            calls["status"] += 1
+            if calls["status"] == 1:
+                return SimpleNamespace(status_code=HTTPStatus.UNAUTHORIZED, parsed=None)
+            return SimpleNamespace(
+                status_code=HTTPStatus.OK, parsed=TestDatasetStatus._dataset()
+            )
+
+        monkeypatch.setattr(
+            "geolens.api.datasets."
+            "get_single_dataset_datasets_dataset_id_get.sync_detailed",
+            status_endpoint,
+        )
+
+        result = runner.invoke(app, ["status", str(DATASET_ID)])
+
+        should_succeed = REFRESH_MATRIX[(provenance, refresh_state)]
+        if should_succeed:
+            assert result.exit_code == 0, result.output
+            assert refresh_calls["count"] == 1, (provenance, refresh_state)
+        else:
+            assert result.exit_code == EXIT_AUTH, result.output
+            assert refresh_calls["count"] == 0, (
+                provenance,
+                refresh_state,
+                "the refresh endpoint must never be called on this row",
+            )

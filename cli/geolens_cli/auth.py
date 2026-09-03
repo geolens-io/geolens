@@ -16,6 +16,7 @@ Storage backends:
 """
 from __future__ import annotations
 
+import hashlib
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -70,6 +71,20 @@ def _keyring_account_refresh(instance: str) -> str:
 
 def _keyring_account_api_key(instance: str) -> str:
     return f"{instance}:api_key"
+
+
+def _keyring_account_refresh_fingerprint(instance: str) -> str:
+    return f"{instance}:refresh_fp"
+
+
+def _fingerprint_bearer(bearer_token: str) -> str:
+    """A short, non-reversible pairing tag for a bearer token -- fix
+    (#1778 round 31). Never the token itself, never logged: proves a
+    stored refresh token actually belongs to the bearer it would
+    rotate, not just that both happen to be present in storage. sha256
+    truncated to 16 hex chars is plenty for this -- it only ever needs
+    to be compared against itself, never guessed."""
+    return hashlib.sha256(bearer_token.encode()).hexdigest()[:16]
 
 
 class CredentialsFileCorrupt(Exception):
@@ -198,14 +213,46 @@ def store_api_key(instance: str, api_key: str, *, no_keyring: bool = False) -> s
     return "file"
 
 
-def store_refresh_token(instance: str, refresh: str, *, no_keyring: bool = False) -> str:
+def store_refresh_token(
+    instance: str,
+    refresh: str,
+    *,
+    bearer_token: Optional[str] = None,
+    no_keyring: bool = False,
+) -> str:
+    """Store the refresh token. Returns 'keyring' or 'file'.
+
+    fix(#1778 round 31): ``bearer_token``, when given, pairs this
+    refresh token with the bearer it can rotate -- a fingerprint
+    (never the bearer itself) is written alongside it, in the SAME
+    backend, so try_refresh() can later prove the refresh token it is
+    about to spend actually belongs to the CURRENTLY stored bearer
+    before using it (see try_refresh()'s own docstring for the finding
+    this closes: an old interactive session's refresh token, left
+    behind by a later ``login --token``/``--api-key`` that never
+    cleared it, otherwise proves nothing about which principal it
+    would rotate). Every PRODUCTION call site in this package must
+    supply it -- enforced structurally by
+    tests/test_refresh_token_backend_derivation.py. Omitted only by
+    tests deliberately constructing a legacy/unpaired refresh token.
+    """
     if not no_keyring:
         try:
             keyring.set_password(SERVICE, _keyring_account_refresh(instance), refresh)
+            if bearer_token is not None:
+                keyring.set_password(
+                    SERVICE,
+                    _keyring_account_refresh_fingerprint(instance),
+                    _fingerprint_bearer(bearer_token),
+                )
             return "keyring"
         except KeyringError as exc:
             log.warning("keyring_unavailable_falling_back_to_file", error=str(exc))
     _set_credential_field(instance, "refresh_token", refresh)
+    if bearer_token is not None:
+        _set_credential_field(
+            instance, "refresh_fingerprint", _fingerprint_bearer(bearer_token)
+        )
     return "file"
 
 
@@ -332,6 +379,114 @@ def load_refresh_token(instance: str) -> Optional[str]:
         return keyring.get_password(SERVICE, _keyring_account_refresh(instance))
     except KeyringError:
         return None
+
+
+def _load_stored_bearer_value(instance: str) -> Optional[str]:
+    """Like ``load_bearer_token()``, but NEVER consults GEOLENS_TOKEN.
+
+    fix(#1778 round 31): try_refresh() must compare a refresh token's
+    pairing fingerprint against the STORED bearer specifically -- the
+    one it can actually rotate -- not whatever env override might
+    (even transiently) be set. ``call_sdk_with_reauth`` already gates
+    try_refresh() on ``credential_provenance == "stored-bearer"``
+    (round 26), so this should never actually diverge from
+    ``load_bearer_token()`` in practice; kept separate anyway so the
+    pairing check can never be fooled by that precedence rule even in
+    principle.
+    """
+    data = _read_credentials_section_tolerant(instance)
+    token = data.get("bearer_token")
+    if token:
+        return token
+    try:
+        return keyring.get_password(SERVICE, _keyring_account_token(instance))
+    except KeyringError:
+        return None
+
+
+def _load_refresh_fingerprint(instance: str) -> Optional[str]:
+    """The pairing fingerprint stored alongside the refresh token, or
+    ``None`` if there isn't one (a legacy profile predating round 31,
+    or a fingerprint write that failed independently of the refresh
+    token's own write)."""
+    data = _read_credentials_section_tolerant(instance)
+    fp = data.get("refresh_fingerprint")
+    if fp:
+        return fp
+    try:
+        return keyring.get_password(
+            SERVICE, _keyring_account_refresh_fingerprint(instance)
+        )
+    except KeyringError:
+        return None
+
+
+def _rewrite_refresh_fingerprint(
+    instance: str, bearer_token: str, *, no_keyring: bool
+) -> None:
+    """Rewrite ONLY the pairing fingerprint to match ``bearer_token``,
+    without touching the refresh token value itself.
+
+    fix(#1778 round 31): used by try_refresh() when a rotation renews
+    the access token but the server does NOT issue a new refresh
+    token -- the existing (unrotated) refresh token still needs its
+    fingerprint updated to the NEW bearer, or the next refresh attempt
+    would find it "mismatched" against the very rotation this call
+    just performed and discard a perfectly good, still-valid refresh
+    token as if it were stale.
+    """
+    fingerprint = _fingerprint_bearer(bearer_token)
+    if not no_keyring:
+        try:
+            keyring.set_password(
+                SERVICE, _keyring_account_refresh_fingerprint(instance), fingerprint
+            )
+            return
+        except KeyringError as exc:
+            log.warning("keyring_unavailable_falling_back_to_file", error=str(exc))
+    _set_credential_field(instance, "refresh_fingerprint", fingerprint)
+
+
+def _discard_unpaired_refresh_token(instance: str) -> None:
+    """Best-effort delete of the refresh token AND its fingerprint from
+    BOTH backends -- fix(#1778 round 31).
+
+    Called from try_refresh() when a stored refresh token cannot be
+    PROVEN to belong to the currently stored bearer (no fingerprint at
+    all -- a legacy profile; a fingerprint that doesn't match; or no
+    bearer to compare against). Never raises: this runs on a path that
+    is already reporting "no refresh available," and a delete failure
+    here must not turn that into a crash (mirrors ``delete_credentials()``'s
+    own best-effort, idempotent design).
+    """
+    for account_fn in (_keyring_account_refresh, _keyring_account_refresh_fingerprint):
+        try:
+            keyring.delete_password(SERVICE, account_fn(instance))
+        except Exception:
+            pass
+    try:
+        data = _read_credentials_file()
+    except CredentialsFileCorrupt:
+        return
+    section = data.get(instance)
+    if not section:
+        return
+    changed = False
+    for field in ("refresh_token", "refresh_fingerprint"):
+        if section.pop(field, None) is not None:
+            changed = True
+    if not changed:
+        return
+    if section:
+        data[instance] = section
+    else:
+        data.pop(instance, None)
+    if data:
+        _write_credentials_file(data)
+    else:
+        path = _config.credentials_path()
+        if path.exists():
+            path.unlink()
 
 
 #: fix(#1778 review round 10): the field name for the "active credential
@@ -567,7 +722,9 @@ def ensure_credentials_file_readable() -> None:
 # ---------- Delete ----------
 
 def delete_credentials(instance: str) -> None:
-    """Remove all three keyring entries AND the credentials.toml section.
+    """Remove all FOUR keyring entries (bearer, refresh, api_key, and
+    -- fix(#1778 round 31) -- the refresh token's pairing fingerprint)
+    AND the credentials.toml section.
 
     Missing entries are silently ignored — logout is idempotent.
     """
@@ -575,6 +732,7 @@ def delete_credentials(instance: str) -> None:
         _keyring_account_token(instance),
         _keyring_account_refresh(instance),
         _keyring_account_api_key(instance),
+        _keyring_account_refresh_fingerprint(instance),
     ):
         try:
             keyring.delete_password(SERVICE, account)
@@ -824,6 +982,21 @@ def _delete_stale_credentials(
         if exists:
             keyring.delete_password(SERVICE, account)
 
+    # fix(#1778 round 31): the refresh account above is never `keep`
+    # (`keep` is always "bearer" or "api_key"), so it is always a
+    # cleanup candidate here -- its pairing fingerprint must go with
+    # it whenever it does. Independent of the snapshot-gated loop
+    # above (an orphaned fingerprint with no matching refresh token is
+    # inert: try_refresh() bails on `if not refresh` before it would
+    # ever read one), so this is pure best-effort tidiness, not
+    # something a read/delete failure here should escalate.
+    try:
+        fp_account = _keyring_account_refresh_fingerprint(instance)
+        if keyring.get_password(SERVICE, fp_account) is not None:
+            keyring.delete_password(SERVICE, fp_account)
+    except Exception:
+        pass
+
     # fix(#1778 review round 22): unlike _set_credential_field's and
     # _clear_credential_section's writes, this cleanup is best-effort
     # tidiness (round 10's docstring above: "now tidiness, not the
@@ -849,7 +1022,8 @@ def _delete_stale_credentials(
     if not section:
         return
     keep_field = _FIELD_BY_KIND.get(keep)
-    for field in ("bearer_token", "api_key", "refresh_token"):
+    # fix(#1778 round 31): refresh_fingerprint travels with refresh_token.
+    for field in ("bearer_token", "api_key", "refresh_token", "refresh_fingerprint"):
         if field == keep_field and keep_backend == "file":
             continue
         section.pop(field, None)
@@ -1104,7 +1278,10 @@ def replace_credentials(
             # backend == "file" either way, so those cases are
             # unchanged.
             store_refresh_token(
-                instance, refresh_token, no_keyring=(backend != "keyring")
+                instance,
+                refresh_token,
+                bearer_token=value,
+                no_keyring=(backend != "keyring"),
             )
     except Exception:
         _restore_credentials(instance, snapshot)
@@ -1163,9 +1340,37 @@ def try_refresh(instance: str) -> Optional[str]:
     active_kind marker write keeps round 19's own separate, already-
     non-fatal handling unchanged -- a marker-only failure must NOT
     discard a rotation whose actual credentials already landed safely.
+
+    fix(#1778 round 31): a stored refresh token existing at all used to
+    be treated as proof it belongs to the currently stored bearer --
+    but ``credential_provenance == "stored-bearer"`` (the gate
+    ``call_sdk_with_reauth`` already applies before ever calling this)
+    only proves BOTH values are stored, not that they are paired. An
+    upgraded profile where an earlier interactive login's refresh
+    token survived a LATER ``login --token``/``--api-key`` (which
+    never clears it -- see the write-path enumeration in this round's
+    PR section) let this function rotate the OLD session and retry as
+    a DIFFERENT principal instead of reporting the rejected token. The
+    refresh token is now spent ONLY when its stored pairing
+    fingerprint (see ``_fingerprint_bearer()``) matches the CURRENTLY
+    stored bearer; on any mismatch -- or a legacy profile with no
+    fingerprint at all -- it is treated as absent, discarded from
+    storage (``_discard_unpaired_refresh_token()``), and this returns
+    ``None`` exactly as if there had never been a refresh token here.
     """
     refresh = load_refresh_token(instance)
     if not refresh:
+        return None
+
+    stored_bearer = _load_stored_bearer_value(instance)
+    fingerprint = _load_refresh_fingerprint(instance)
+    if (
+        stored_bearer is None
+        or fingerprint is None
+        or fingerprint != _fingerprint_bearer(stored_bearer)
+    ):
+        _discard_unpaired_refresh_token(instance)
+        log.warning("stale_refresh_token_discarded_unpaired_with_stored_bearer")
         return None
 
     # Detect the backend BEFORE the HTTP call so we know where to write back.
@@ -1221,7 +1426,22 @@ def try_refresh(instance: str) -> Optional[str]:
         new_refresh = getattr(parsed, "refresh_token", None)
         if new_refresh:
             store_refresh_token(
-                instance, new_refresh, no_keyring=(backend != "keyring")
+                instance,
+                new_refresh,
+                bearer_token=new_access,
+                no_keyring=(backend != "keyring"),
+            )
+        else:
+            # fix(#1778 round 31): the server renewed the access token
+            # but did not issue a new refresh token -- the EXISTING
+            # one is still valid and still gets used again, but its
+            # pairing fingerprint was computed against the OLD bearer
+            # a moment ago. Without rewriting it here, the very next
+            # refresh attempt would find this pairing "mismatched"
+            # against the rotation this call just performed, and
+            # wrongly discard a perfectly good refresh token as stale.
+            _rewrite_refresh_fingerprint(
+                instance, new_access, no_keyring=(backend != "keyring")
             )
     except Exception as exc:
         log.warning(

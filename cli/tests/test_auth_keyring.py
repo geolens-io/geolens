@@ -141,7 +141,7 @@ class TestTryRefreshBackendRouting:
         """Credential stored in FILE backend — refresh must stay in file."""
         # Store the initial credential in the FILE backend.
         _auth.store_bearer_token(INSTANCE, "old-access", no_keyring=True)
-        _auth.store_refresh_token(INSTANCE, "old-refresh", no_keyring=True)
+        _auth.store_refresh_token(INSTANCE, "old-refresh", bearer_token="old-access", no_keyring=True)
 
         self._patch_sdk_refresh(monkeypatch, "new-access", "new-refresh")
 
@@ -166,7 +166,7 @@ class TestTryRefreshBackendRouting:
     ) -> None:
         """Credential stored in KEYRING backend — refresh must stay in keyring."""
         _auth.store_bearer_token(INSTANCE, "old-access", no_keyring=False)
-        _auth.store_refresh_token(INSTANCE, "old-refresh", no_keyring=False)
+        _auth.store_refresh_token(INSTANCE, "old-refresh", bearer_token="old-access", no_keyring=False)
 
         self._patch_sdk_refresh(monkeypatch, "new-access-kr", "new-refresh-kr")
 
@@ -201,7 +201,7 @@ class TestTryRefreshBackendRouting:
 
         # Original session lives in the keyring.
         _auth.store_bearer_token(INSTANCE, "old-access", no_keyring=False)
-        _auth.store_refresh_token(INSTANCE, "old-refresh", no_keyring=False)
+        _auth.store_refresh_token(INSTANCE, "old-refresh", bearer_token="old-access", no_keyring=False)
         # A prior login already set the marker, as replace_credentials()
         # always does -- try_refresh must keep it consistent, not leave
         # it untouched by accident.
@@ -251,7 +251,7 @@ class TestTryRefreshBackendRouting:
         # so the marker write is actually ATTEMPTED, not skipped by
         # pin (b)'s short-circuit below.
         _auth.store_bearer_token(INSTANCE, "old-access", no_keyring=False)
-        _auth.store_refresh_token(INSTANCE, "old-refresh", no_keyring=False)
+        _auth.store_refresh_token(INSTANCE, "old-refresh", bearer_token="old-access", no_keyring=False)
         assert _auth.load_active_credential_kind(INSTANCE) is None
 
         self._patch_sdk_refresh(monkeypatch, "new-access", "new-refresh")
@@ -286,7 +286,7 @@ class TestTryRefreshBackendRouting:
         that raise (even though it's now non-fatal per pin (a)); this
         asserts the writer is never even CALLED."""
         _auth.store_bearer_token(INSTANCE, "old-access", no_keyring=False)
-        _auth.store_refresh_token(INSTANCE, "old-refresh", no_keyring=False)
+        _auth.store_refresh_token(INSTANCE, "old-refresh", bearer_token="old-access", no_keyring=False)
         _auth._set_credential_field(INSTANCE, _auth._ACTIVE_KIND_FIELD, "bearer")
         assert _auth.load_active_credential_kind(INSTANCE) == "bearer"
 
@@ -377,7 +377,7 @@ class TestCredentialsFileCorruption:
         """Pin: corrupt file + refresh -> tokens rotated, file
         unchanged, warning logged."""
         _auth.store_bearer_token(INSTANCE, "old-access", no_keyring=False)
-        _auth.store_refresh_token(INSTANCE, "old-refresh", no_keyring=False)
+        _auth.store_refresh_token(INSTANCE, "old-refresh", bearer_token="old-access", no_keyring=False)
 
         path = _write_corrupt_credentials_file(INSTANCE)
         original_bytes = path.read_bytes()

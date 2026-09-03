@@ -20,6 +20,16 @@ Uses ``ast`` rather than a text grep so the check is exact: a
 `no_keyring=backend != "keyring"`-shaped comparison referencing the
 backend-store call's own assigned variable passes; a bare name
 (whatever it's called) does not.
+
+fix(#1778 round 31): a second, independent structural gate below --
+every PRODUCTION store_refresh_token() call must also pass
+`bearer_token=`, pairing the refresh token to the bearer it can
+rotate (see auth.py's own docstrings on store_refresh_token()/
+try_refresh() for the finding this closes: an unpaired refresh token
+proves nothing about which principal it would rotate). `bearer_token`
+is optional on the function itself specifically so TESTS can keep
+constructing legacy/unpaired refresh tokens without this gate firing
+on them -- it only walks geolens_cli/, never tests/.
 """
 from __future__ import annotations
 
@@ -105,3 +115,40 @@ def test_refresh_token_write_derives_backend_from_the_actual_store_outcome() -> 
     # pass vacuously.
     assert functions_with_backend_var >= 2
     assert refresh_calls_checked >= 2
+
+
+def test_store_refresh_token_calls_pass_bearer_token_for_pairing() -> None:
+    offenders: list[str] = []
+    calls_checked = 0
+
+    for path in sorted(_PACKAGE_DIR.rglob("*.py")):
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "store_refresh_token"
+            ):
+                continue
+            # The definition itself (in auth.py) is a FunctionDef, not
+            # a Call to itself -- nothing to skip here, ast.walk only
+            # ever finds real call sites.
+            calls_checked += 1
+            bearer_kw = next(
+                (kw for kw in node.keywords if kw.arg == "bearer_token"), None
+            )
+            if bearer_kw is None:
+                offenders.append(f"{path.name}:{node.lineno}")
+
+    assert offenders == [], (
+        "A store_refresh_token() call in production code (cli/geolens_cli/) "
+        f"does not pass bearer_token= at: {offenders}. Every refresh token "
+        "this package stores must be paired with the bearer it can rotate "
+        "(round 31) -- an unpaired refresh token left the door open for "
+        "try_refresh() to rotate a DIFFERENT stored session than the one "
+        "that just got a 401. Pass bearer_token=<the bearer this refresh "
+        "token belongs to>."
+    )
+    # Positive control: if this drops to 0, the AST walk broke silently
+    # and the assertion above would pass vacuously.
+    assert calls_checked >= 2
