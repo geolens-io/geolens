@@ -1998,6 +1998,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # each branch here inverts, so the pair can be kept in step by reading
         # rather than by running the equivalence suite. Cap 372 -> 433, exact.
         "backend/app/platform/extensions/defaults_extensions.py": 433,
+        # fix(#1778): +16 over the 350 default -- _apply_common_filters'
+        # datetime block replaces two bare `.is_(None)` OR-arms (which
+        # unconditionally matched every null-temporal record for ANY
+        # datetime filter) with the same null_temporal & created_at
+        # fallback comparison the already-fixed STAC peer uses, while
+        # preserving the existing open-ended reading for records that do
+        # have one bound set. Cap 350 -> 366, exact.
+        "backend/app/modules/catalog/search/service_filters.py": 366,
     }
 
     files_to_check = list(facade_line_budgets)
@@ -4314,7 +4322,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `_legacy_keywords_body`, the `_LEGACY_FILTER_LANG_PARAM` fallback, and
     # the comments that only existed to explain them. Cap lowered
     # 1536 -> 1489, exact.
-    "backend/app/modules/catalog/search/router.py": 1489,
+    # fix(#1778): +4 -- deterministic ORDER BY tiebreaker on the paginated
+    # per-dataset OGC collections query. Cap 1489 -> 1493, exact.
+    "backend/app/modules/catalog/search/router.py": 1493,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.
@@ -4344,7 +4354,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # refactor(stac): -1 — the raster-asset reads go through CatalogPort, so
     # the DatasetAsset select and the deferred raster-queries import give way
     # to port calls. Cap 1855 -> 1854, still exact.
-    "backend/app/standards/stac/router.py": 1854,
+    # fix(#1778): +15 -- deterministic ORDER BY tiebreakers on the two
+    # paginated item queries, the open-ended interval-datetime fix, and
+    # replacing the four nested async_session() pool checkouts in
+    # get_collections with sequential reuse of the caller's own session.
+    # Cap 1854 -> 1869, exact.
+    "backend/app/standards/stac/router.py": 1869,
     # Central tenant-bound scope resolution replaced duplicated inline logic.
     # fix(#836): +1 — the RASTER_FAMILY_RECORD_TYPES import that replaces four
     # pasted family literals. Same +1 on the stac and search routers.
@@ -4484,7 +4499,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # it now generates.
     # feat(export/pmtiles): +9 — PMTiles joined `_DISTRIBUTION_TEMPLATES` the
     # same way, plus the row-count docstring update.
-    "backend/app/modules/catalog/records/service.py": 1026,
+    # fix(#1778): +3 -- RecordContact.id tiebreaker on the paginated contacts
+    # list, sort_order being a non-unique server-default. Cap 1026 -> 1029,
+    # exact.
+    "backend/app/modules/catalog/records/service.py": 1029,
     # fix(#1528): crossed the inclusion threshold, and this is the file the
     # inclusion rule's own comment named as one of the two "routers-by-role the
     # glob's filename match cannot see ... watched by nothing until they cross

@@ -243,9 +243,17 @@ async def get_collection_datasets(
     total = total_result.scalar_one()
 
     # Paginated results ordered by sort_order then added_at
+    # fix(#1778): sort_order server-defaults to 0 for every row and added_at
+    # is not unique either, so a batch of rows added in one INSERT ties on
+    # both columns and OFFSET/LIMIT paging over the tie has no defined
+    # order. dataset_id is unique within a single collection's rows.
     paginated_stmt = (
         filtered_stmt.options(joinedload(Dataset.record))
-        .order_by(CollectionDataset.sort_order, CollectionDataset.added_at)
+        .order_by(
+            CollectionDataset.sort_order,
+            CollectionDataset.added_at,
+            CollectionDataset.dataset_id,
+        )
         .offset(skip)
         .limit(limit)
     )

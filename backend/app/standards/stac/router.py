@@ -664,8 +664,17 @@ async def get_collections(
     coll_result = await db.execute(select(Collection))
     collections = coll_result.scalars().all()
 
-    # Four independent metadata queries -- run concurrently with separate
-    # sessions (async sessions are not safe to share across gather tasks).
+    # fix(#1778): these four aggregates used to asyncio.gather with each
+    # branch opening its own async_session() -- a nested pool checkout on
+    # top of the connection this request already holds via `db` (get_db
+    # never commits on the read path, so that connection stays checked out
+    # for the whole request). 5 checkouts per anonymous, uncached request
+    # exhausts the default 13-connection pool at 3 concurrent requests. Run
+    # them sequentially on the caller's own session instead, the same trade
+    # made in service_query.py's dataset-detail fetch (fix #1436 codex
+    # review): these are grouped-aggregate queries over the same joined
+    # set, so the wall-clock cost of sequencing them is negligible next to
+    # that risk, and unlike dataset-detail this endpoint is anonymous.
 
     async def _fetch_extents() -> dict[str, tuple]:
         extent_stmt = (
@@ -685,14 +694,11 @@ async def get_collections(
         extent_stmt = apply_visibility_filter(
             extent_stmt, user, user_roles, Record, DatasetGrant
         )
-        async with _db_module.async_session() as s:
-            rows = await s.execute(extent_stmt)
-            return {
-                (str(r[0]) if r[0] is not None else STAC_UNASSIGNED_COLLECTION_ID): r[
-                    1:
-                ]
-                for r in rows.all()
-            }
+        rows = await db.execute(extent_stmt)
+        return {
+            (str(r[0]) if r[0] is not None else STAC_UNASSIGNED_COLLECTION_ID): r[1:]
+            for r in rows.all()
+        }
 
     async def _fetch_keywords() -> dict[str, list[str]]:
         kw_stmt = (
@@ -710,19 +716,16 @@ async def get_collections(
         kw_stmt = apply_visibility_filter(
             kw_stmt, user, user_roles, Record, DatasetGrant
         )
-        async with _db_module.async_session() as s:
-            rows = await s.execute(kw_stmt)
-            result: dict[str, list[str]] = {}
-            for row in rows.all():
-                kws = row[1]
-                if kws:
-                    key = (
-                        str(row[0])
-                        if row[0] is not None
-                        else STAC_UNASSIGNED_COLLECTION_ID
-                    )
-                    result[key] = sorted([k for k in kws if k])
-            return result
+        rows = await db.execute(kw_stmt)
+        result: dict[str, list[str]] = {}
+        for row in rows.all():
+            kws = row[1]
+            if kws:
+                key = (
+                    str(row[0]) if row[0] is not None else STAC_UNASSIGNED_COLLECTION_ID
+                )
+                result[key] = sorted([k for k in kws if k])
+        return result
 
     async def _fetch_projection_codes() -> dict[str, list[str]]:
         RasterAsset = get_catalog_port().raster_asset_orm_class()
@@ -741,32 +744,24 @@ async def get_collections(
         epsg_stmt = apply_visibility_filter(
             epsg_stmt, user, user_roles, Record, DatasetGrant
         )
-        async with _db_module.async_session() as s:
-            rows = await s.execute(epsg_stmt)
-            result: dict[str, list[int]] = {}
-            for row in rows.all():
-                codes = row[1]
-                if codes:
-                    key = (
-                        str(row[0])
-                        if row[0] is not None
-                        else STAC_UNASSIGNED_COLLECTION_ID
-                    )
-                    result[key] = [
-                        f"EPSG:{code}" for code in sorted(c for c in codes if c)
-                    ]
-            return result
+        rows = await db.execute(epsg_stmt)
+        result: dict[str, list[int]] = {}
+        for row in rows.all():
+            codes = row[1]
+            if codes:
+                key = (
+                    str(row[0]) if row[0] is not None else STAC_UNASSIGNED_COLLECTION_ID
+                )
+                result[key] = [f"EPSG:{code}" for code in sorted(c for c in codes if c)]
+        return result
 
     async def _fetch_has_unassigned() -> bool:
-        async with _db_module.async_session() as s:
-            return await _has_unassigned_items(s, user, user_roles)
+        return await _has_unassigned_items(db, user, user_roles)
 
-    extent_map, keywords_map, projection_map, has_unassigned = await asyncio.gather(
-        _fetch_extents(),
-        _fetch_keywords(),
-        _fetch_projection_codes(),
-        _fetch_has_unassigned(),
-    )
+    extent_map = await _fetch_extents()
+    keywords_map = await _fetch_keywords()
+    projection_map = await _fetch_projection_codes()
+    has_unassigned = await _fetch_has_unassigned()
 
     stac_collections = []
     for coll in collections:
@@ -1047,6 +1042,12 @@ async def get_collection_items(
     total = (await db.execute(count_stmt)).scalar() or 0
 
     # Paginate
+    # fix(#1778): no ORDER BY meant OFFSET/LIMIT paging had no defined row
+    # order -- a plan change between page fetches could duplicate or drop
+    # items across the rel=next chain. Record.created_at is a non-unique
+    # server-default, so add Dataset.id as a tiebreaker, matching the
+    # convention _resolve_sort_order already uses for dataset listings.
+    stmt = stmt.order_by(Record.created_at.desc(), Dataset.id.desc())
     stmt = stmt.offset(offset).limit(limit)
     result = await db.execute(stmt)
     datasets = result.unique().scalars().all()
@@ -1521,6 +1522,9 @@ async def _execute_search(
     total = (await db.execute(count_stmt)).scalar() or 0
 
     # Apply pagination
+    # fix(#1778): same missing-ORDER-BY hazard as get_collection_items -- add
+    # a deterministic tiebreaker before paging.
+    stmt = stmt.order_by(Record.created_at.desc(), Dataset.id.desc())
     stmt = stmt.offset(offset).limit(limit)
     result = await db.execute(stmt)
     datasets = result.unique().scalars().all()
@@ -1823,6 +1827,17 @@ def _apply_datetime_filter(stmt, datetime_str: str):
         if start is not None:
             stmt = stmt.where(
                 (Record.temporal_end >= start)
+                # fix(#1778): a record with temporal_start set and
+                # temporal_end NULL (an open-ended/ongoing extent) fell
+                # through every arm here -- temporal_end >= start reads
+                # NULL, temporal_start >= start is false for any start in
+                # the past, and null_temporal is false since temporal_start
+                # IS set. The single-instant branch below already treats a
+                # NULL temporal_end as open (its range_contains OR-arm), so
+                # an interval query for a later instant matched fewer
+                # records than the instant alone. Mirror the end-bound
+                # clause's own open-start arm below, symmetrically.
+                | (Record.temporal_end.is_(None) & Record.temporal_start.isnot(None))
                 | (Record.temporal_start >= start)
                 | (null_temporal & (Record.created_at >= start))
             )

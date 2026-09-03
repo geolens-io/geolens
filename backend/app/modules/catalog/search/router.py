@@ -822,7 +822,11 @@ async def list_collections(
     count_stmt = select(func.count()).select_from(ds_base.subquery())
     total_datasets = (await db.execute(count_stmt)).scalar_one()
 
-    ds_stmt = ds_base.offset(offset).limit(limit)
+    # fix(#1778): no ORDER BY meant OFFSET/LIMIT paging had no defined row
+    # order -- add a deterministic tiebreaker before paging, matching the
+    # STAC peer routers.
+    ds_stmt = ds_base.order_by(Record.created_at.desc(), Dataset.id.desc())
+    ds_stmt = ds_stmt.offset(offset).limit(limit)
     ds_result = await db.execute(ds_stmt)
     datasets = ds_result.scalars().unique().all()
 
