@@ -74,3 +74,32 @@ def test_container_liveness_probes_target_the_liveness_route():
     compose = (_REPO_ROOT / "docker-compose.yml").read_text()
     assert "urlopen('http://localhost:8000/health/live')" in compose
     assert "urlopen('http://localhost:8000/health')" not in compose
+
+
+def test_the_runbook_sends_liveness_to_the_liveness_route():
+    """fix(#1778 codex r6): the docs were still the old contract.
+
+    RUNBOOK.md told operators "Uptime/liveness checks must target
+    `/api/health`" -- the endpoint this PR reclassified as readiness, which
+    fails on a degraded cache and answers 429 under a one-second probe. A
+    split the runbook contradicts is not a split.
+    """
+    runbook = (_REPO_ROOT / "RUNBOOK.md").read_text()
+
+    assert "/api/health/live" in runbook, "RUNBOOK.md never names the liveness endpoint"
+
+    # A line that mentions liveness and points at the readiness endpoint is an
+    # offender only if it never names the liveness one: prose contrasting the
+    # two ("liveness is X, readiness is Y") is exactly what this section is for.
+    # `/api/health/live` contains `/api/health`, so strip the longer form
+    # before looking for the shorter one.
+    offenders = [
+        line.strip()
+        for line in runbook.splitlines()
+        if "liveness" in line.lower()
+        and "/api/health" in line.replace("/api/health/live", "")
+        and "/api/health/live" not in line
+    ]
+    assert not offenders, (
+        f"RUNBOOK.md points a liveness check at the readiness endpoint: {offenders}"
+    )
