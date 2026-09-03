@@ -596,6 +596,7 @@ async def _fetch_ogcapi_collection_srid(
     except (
         httpx.HTTPError,
         ValueError,
+        RecursionError,
         SSRFError,
         EndpointCheckFailedError,
         TimeoutError,
@@ -607,6 +608,11 @@ async def _fetch_ogcapi_collection_srid(
         # service-chosen credential header — is one more way not to answer,
         # same as a body over the byte/decoded-size cap (EndpointCheckFailedError)
         # or a deadline that ran out (TimeoutError, from asyncio.timeout above).
+        # fix(#1770 round 44 P2): RecursionError joins them too -- a JSON
+        # depth bomb (900,000 nested `[`) is under every byte/token cap this
+        # module checks and raises RecursionError, not ValueError. See
+        # `service_endpoints.py::_parsed_json`'s docstring for the class this
+        # closes.
         logger.debug(
             "OGC API collection CRS fallback fetch failed",
             url=collection_url,
@@ -1199,7 +1205,19 @@ async def preview_service_layer(
                     "ArcGIS token and try again."
                 ),
             )
-        except (httpx.HTTPError, ValueError) as exc:
+        except (
+            httpx.HTTPError,
+            ValueError,
+            EndpointCheckFailedError,
+            TimeoutError,
+        ) as exc:
+            # fix(#1770 round 44 P1): fetch_arcgis_layer_preview's metadata
+            # read now goes through bounded_probe_read (see that function's
+            # own fix note), which can raise EndpointCheckFailedError for a
+            # bound violation, and the function's own asyncio.timeout can
+            # raise TimeoutError -- both join the pre-existing
+            # httpx.HTTPError/ValueError this preview path already degrades
+            # on rather than surfacing a 500.
             logger.warning(
                 "ArcGIS preview failed",
                 url=safe_url,

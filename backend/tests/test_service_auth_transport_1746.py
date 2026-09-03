@@ -2373,6 +2373,47 @@ class TestAnOgcApiCheckOnlyValidatesRelsSomethingDereferences:
         assert "collector.example" not in {r.url.host for r in recorded}
         assert list(tmp_path.iterdir()) == []
 
+    async def test_a_json_depth_bomb_on_an_items_page_is_a_coded_refusal(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """fix(#1770 round 44 P2, `service_items.py:451`).
+
+        Same bomb as `TestAnXmlDocumentIsBoundedByItsElements::
+        test_a_json_depth_bomb_is_a_coded_refusal_not_a_crash`, on the OTHER
+        JSON parse this module makes: an items page whose body is 900,000
+        nested `[` raises `RecursionError` from `json.loads`, not the
+        `ValueError` the local except clause used to name -- a worker's
+        OAPIF item-page walk would otherwise die unclassified instead of
+        raising this module's own `ItemFetchFailedError`.
+        """
+        from app.platform.service_items import (
+            ItemFetchFailedError,
+            materialise_oapif_items,
+        )
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/items"):
+                raw = b"[" * 900_000
+
+                async def _chunks():
+                    yield raw
+
+                return httpx.Response(200, content=_chunks())
+            return httpx.Response(200, json=_collection_doc(None))
+
+        self._transport(monkeypatch, handle)
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+
+        with pytest.raises(ItemFetchFailedError):
+            await materialise_oapif_items(
+                _SVC_OAPIF,
+                "c1",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                staging_dir=tmp_path,
+            )
+
     async def test_a_listing_next_that_leaves_the_origin_still_stops_not_refuses(
         self, monkeypatch
     ) -> None:
@@ -6073,6 +6114,33 @@ class TestAnXmlDocumentIsBoundedByItsElements:
         with pytest.raises(EndpointCheckFailedError):
             await self._check(service_format="ogcapi_features")
 
+    async def test_a_json_depth_bomb_is_a_coded_refusal_not_a_crash(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1770 round 44 P2, `service_endpoints.py:903` `_parsed_json`).
+
+        900,000 nested `[` is 1.8 bytes each -- comfortably under both
+        `MAX_DOCUMENT_BYTES` and `MAX_DOCUMENT_TOKENS` (`structural_tokens`
+        counts brackets, not nesting depth, so it cannot see this shape at
+        all) -- and makes `json.loads` raise `RecursionError`, not the
+        `ValueError` `_parsed_json`'s except clause used to name. Uncaught,
+        that would surface as a bare 500 rather than the coded
+        `endpoint_check_failed` every other unreadable description gets.
+        """
+        from app.platform import service_endpoints
+
+        raw = b"[" * 900_000
+        assert len(raw) < service_endpoints.MAX_DOCUMENT_BYTES
+        assert (
+            service_endpoints.structural_tokens(raw)
+            < service_endpoints.MAX_DOCUMENT_TOKENS
+        )
+
+        self._transport(monkeypatch, lambda request: httpx.Response(200, content=raw))
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check(service_format="ogcapi_features")
+
 
 class TestAnXmlStreamingPreflightCatchesWhatTheByteScanCannot:
     """fix(#1770 round 43 P1, `platform/service_endpoints.py:495`
@@ -6126,12 +6194,40 @@ class TestAnXmlStreamingPreflightCatchesWhatTheByteScanCannot:
             )
 
     def test_a_deep_nesting_bomb_is_refused_before_a_full_parse(self) -> None:
-        """One element nested inside another, far past any real document."""
-        from app.platform.service_endpoints import MAX_DOCUMENT_DEPTH
+        """One element nested inside another, far past any real document.
+
+        fix(#1770 round 44 P2): this used to pass for the wrong reason.
+        `_refuse`'s default `element_budget=1000` is smaller than
+        `MAX_DOCUMENT_ELEMENTS`, and `depth = MAX_DOCUMENT_DEPTH + 1` nested
+        elements is TWICE that many `<` (open and close tags both count),
+        so `structural_elements(raw) > element_budget` tripped
+        `require_decodable`'s cheap byte-scan on its own FIRST line -- before
+        `_xml_preflight` (where the depth counter actually lives) ever ran.
+        Deleting the depth counter entirely left this passing unchanged.
+        `element_budget=MAX_DOCUMENT_ELEMENTS` here is what makes the byte
+        scan pass the body through, so only the depth budget can trip.
+        """
+        from app.platform.service_endpoints import (
+            EndpointCheckFailedError,
+            MAX_DOCUMENT_DEPTH,
+            MAX_DOCUMENT_ELEMENTS,
+            require_decodable,
+        )
 
         depth = MAX_DOCUMENT_DEPTH + 1
         raw = b"<a>" * depth + b"</a>" * depth
-        self._refuse(raw)
+        # The premise: this is well under the ELEMENT budget (2x depth open
+        # tags is still far short of MAX_DOCUMENT_ELEMENTS), so only the
+        # depth budget below can be what refuses it.
+        assert raw.count(b"<") < MAX_DOCUMENT_ELEMENTS
+
+        with pytest.raises(EndpointCheckFailedError):
+            require_decodable(
+                raw,
+                accept=WFS_XML_ACCEPT,
+                token_budget=1000,
+                element_budget=MAX_DOCUMENT_ELEMENTS,
+            )
 
     def test_a_text_bomb_is_refused_before_a_full_parse(self) -> None:
         """One element, no attributes, and a text run past the byte budget."""
@@ -8068,13 +8164,6 @@ class TestAdapterProbeReadsAreBounded:
     sweep below enumerates the ones that stay unbounded and why each is a
     different, lower-severity case than the four named entry points:
 
-    - `arcgis.py`'s `enrich_arcgis_feature_counts`/`fetch_arcgis_feature_
-      count`/`fetch_arcgis_pagination_info`/`fetch_arcgis_layer_preview`
-      (2 sites) all run against a layer the caller has already selected,
-      after `assert_endpoints_stay_on_origin` has already run for that
-      specific target on the preview/commit path -- the credential is
-      already vetted for this endpoint by the time these run, unlike a
-      blind `detect_service_type` probe.
     - `stac.py`'s `list_stac_collections`/`search_stac_items`: STAC's own
       adapter carries no credential at all on this codepath (`_make_client`
       builds an anonymous client; `has_url_credentials` is what this module
@@ -8086,6 +8175,23 @@ class TestAdapterProbeReadsAreBounded:
     is or is not attached -- but it is a different, wider-scoped change than
     this finding's four named entry points, so it is named here rather than
     silently left for a future sweep to rediscover.
+
+    fix(#1770 round 44 P1): `arcgis.py`'s `_fetch_count`/
+    `fetch_arcgis_feature_count`/`fetch_arcgis_pagination_info`/
+    `fetch_arcgis_layer_preview` used to be listed above too, on the
+    reasoning that `assert_endpoints_stay_on_origin` had already vetted the
+    target by the time these run. That reasoning was wrong:
+    `assert_endpoints_stay_on_origin` returns immediately for any
+    `service_format` outside `HEADER_AUTH_SERVICE_FORMATS`
+    (`requires_header_token_policy` in `core/service_tokens.py`), and ArcGIS
+    is deliberately not a member -- its token travels in the URL, never a
+    header, so it never gets a header-carrying bound at all. No check of any
+    kind ran for these five reads (`fetch_arcgis_layer_preview` makes two)
+    before this round. All five now read through `bounded_probe_read` under
+    `DEFAULT_CHECK_TIMEOUT`, so they moved out of the Known-limits list
+    entirely rather than staying documented here as "different, lower
+    severity" -- they were the same severity as the finding's four named
+    entry points, just missed by the same sweep.
 
     fix(#1770 round 43 P1): `modules/catalog/sources/router.py`'s
     `_fetch_ogcapi_collection_srid` -- the CRS fallback for the localized
@@ -8201,22 +8307,21 @@ class TestAdapterProbeReadsAreBounded:
 
         expected = {
             # Known limits, documented in the class docstring above.
-            ("app.modules.catalog.sources.adapters.arcgis", "_fetch_count", "get"),
-            (
-                "app.modules.catalog.sources.adapters.arcgis",
-                "fetch_arcgis_feature_count",
-                "get",
-            ),
-            (
-                "app.modules.catalog.sources.adapters.arcgis",
-                "fetch_arcgis_pagination_info",
-                "get",
-            ),
-            (
-                "app.modules.catalog.sources.adapters.arcgis",
-                "fetch_arcgis_layer_preview",
-                "get",
-            ),
+            #
+            # fix(#1770 round 44 P1): the four arcgis.py entries that used to
+            # sit here (`_fetch_count`, `fetch_arcgis_feature_count`,
+            # `fetch_arcgis_pagination_info`, `fetch_arcgis_layer_preview`)
+            # are GONE from this set, not renamed into it: all four now read
+            # through `bounded_probe_read`, so they no longer show up as a
+            # raw `client.<verb>(` call at all. The justification that used
+            # to be here -- "already vetted for this endpoint by the time
+            # these run" -- was wrong for ArcGIS specifically:
+            # `assert_endpoints_stay_on_origin` returns immediately for any
+            # `service_format` outside `HEADER_AUTH_SERVICE_FORMATS`
+            # (`requires_header_token_policy`), and ArcGIS is deliberately
+            # not a member (its token travels in the URL, never a header;
+            # `ARCGIS_SERVICE_FORMAT` in this file). No bound of any kind ran
+            # for these four before this round.
             (
                 "app.modules.catalog.sources.adapters.stac",
                 "list_stac_collections",
@@ -8298,6 +8403,44 @@ class TestAdapterProbeReadsAreBounded:
 
         assert srid is None
         assert chunks_yielded <= (MAX_DOCUMENT_BYTES // chunk_size) + 2, chunks_yielded
+
+    async def test_the_crs_fallback_degrades_on_a_json_depth_bomb(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1770 round 44 P2, `sources/router.py:598`).
+
+        Same bomb as `_parsed_json`'s own pin: 900,000 nested `[` is under
+        every byte/token cap `_fetch_ogcapi_collection_srid` checks and
+        raises `RecursionError` from `json.loads(body)`, not the `ValueError`
+        the except clause used to name. Uncaught, this would have escaped
+        the whole `except (...)` tuple as an unhandled exception rather than
+        degrading to `None` the way every other unreadable collection
+        document does.
+        """
+        from app.modules.catalog.sources.router import _fetch_ogcapi_collection_srid
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            raw = b"[" * 900_000
+
+            async def _chunks():
+                yield raw
+
+            return httpx.Response(200, content=_chunks())
+
+        monkeypatch.setattr(
+            security,
+            "make_safe_transport",
+            lambda: httpx.MockTransport(handle),
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+
+        srid = await _fetch_ogcapi_collection_srid(
+            "https://services.example.test/oapif",
+            "parcels",
+            None,
+        )
+
+        assert srid is None
 
     async def test_a_body_over_the_byte_cap_is_refused_before_full_buffering(
         self,
@@ -8426,6 +8569,84 @@ class TestAdapterProbeReadsAreBounded:
         assert result is not None
         assert result["service_type"] == "OGC API Features"
         assert [layer["name"] for layer in result["layers"]] == ["c1"]
+
+
+_NON_DICT_JSON_BODIES = (b"[]", b"null", b'"x"')
+
+
+class TestANonDictDocumentIsNotACrash:
+    """fix(#1770 round 44 P2, `adapters/ogcapi.py:329`, `stac.py:274`,
+    `arcgis.py:204`).
+
+    A credentialed endpoint answering `200 []`, `200 null`, or `200 "x"` is
+    valid JSON but not a dict. `ogcapi.py`'s `/collections` fetch called
+    `col_data.get(...)` with no `isinstance` guard (the landing page has
+    one; `/collections` did not); `stac.py`'s landing-page read called
+    `data.get(...)` the same way; `arcgis.py`'s response check did `"error"
+    in data`, which raises `TypeError` on an int and does a silent (wrong,
+    but not crashing) substring check on a str. All three raised
+    `AttributeError`/`TypeError` that neither `_header_auth_probe`
+    (`probe.py`, `ValueError` only) nor the probe route's except chain
+    catches, so each surfaced as a bare 500 instead of the ordinary
+    "not this service type" `None` degrade.
+    """
+
+    @pytest.mark.parametrize("body", _NON_DICT_JSON_BODIES)
+    async def test_ogcapi_collections_response(self, monkeypatch, body) -> None:
+        from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
+
+        landing = {
+            "conformsTo": [
+                "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+            ]
+        }
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/collections"):
+                return httpx.Response(200, content=body)
+            return httpx.Response(200, json=landing)
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+            AsyncMock(),
+        )
+        transport = httpx.MockTransport(lambda r: _as_stream(handle(r)))
+        async with httpx.AsyncClient(transport=transport) as client:
+            result = await probe_ogcapi(f"{_SERVICE_ORIGIN}/oapif", client)
+
+        assert result is None
+
+    @pytest.mark.parametrize("body", _NON_DICT_JSON_BODIES)
+    async def test_stac_landing_page_response(self, monkeypatch, body) -> None:
+        from app.modules.catalog.sources.adapters.stac import connect_stac_api
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=body)
+
+        monkeypatch.setattr(
+            security,
+            "make_safe_transport",
+            lambda: httpx.MockTransport(lambda r: _as_stream(handle(r))),
+        )
+
+        result = await connect_stac_api(f"{_SERVICE_ORIGIN}/stac")
+
+        assert result is None
+
+    @pytest.mark.parametrize("body", _NON_DICT_JSON_BODIES)
+    async def test_arcgis_service_root_response(self, monkeypatch, body) -> None:
+        from app.modules.catalog.sources.adapters.arcgis import probe_arcgis_service
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=body)
+
+        transport = httpx.MockTransport(lambda r: _as_stream(handle(r)))
+        async with httpx.AsyncClient(transport=transport) as client:
+            result = await probe_arcgis_service(
+                f"{_SERVICE_ORIGIN}/FeatureServer", client
+            )
+
+        assert result is None
 
 
 class TestARegisteredCredentialIsScrubbedByExactValue:

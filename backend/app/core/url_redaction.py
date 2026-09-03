@@ -551,6 +551,43 @@ def scrub_secret_from_exception(exc: BaseException, secret: str | None) -> None:
                 pending.append((linked, depth + 1))
 
 
+def scrub_registered_credentials_from_exception(exc: BaseException) -> None:
+    """Scrub every credential secret registered so far in this request/job's
+    context out of *exc*, in place, over its whole chain.
+
+    fix(#1770 round 44 P2). ``scrub_registered_credentials`` (the string
+    form, used by ``redact_exception_text`` and the structlog processor)
+    reads ``registered_credential_secrets()`` from a plain ``ContextVar`` --
+    which only ever answers correctly for a caller in the SAME async task
+    that registered a secret via ``register_credential_secret``. Starlette's
+    ``BaseHTTPMiddleware.dispatch`` runs ``call_next`` (and everything it
+    calls, including the route handler) in a SEPARATE spawned task, so an
+    unhandled exception that escapes the handler is read back by
+    ``RequestLoggingMiddleware``'s own ``except`` clause, and by any
+    ``@app.exception_handler(Exception)``, in the ORIGINAL parent task --
+    where the registry is always the empty default, no matter what the
+    handler registered. Measured directly (a contextvar set inside a
+    ``BaseHTTPMiddleware``-wrapped route handler that raises reads back as
+    unset in both the middleware's own except clause and an app-level
+    ``Exception`` handler, which Starlette routes through
+    ``ServerErrorMiddleware`` -- outside even the user middleware stack).
+
+    This is what closes it instead: called from
+    ``CredentialScrubASGIMiddleware`` (``api/middleware/credential_scrub.py``),
+    a plain ASGI callable rather than a ``BaseHTTPMiddleware`` -- it spawns no
+    task of its own, so as long as it is registered as the INNERMOST
+    middleware (added first; see that module's own docstring), it shares the
+    route handler's exact task and can read the registry the handler
+    populated. Exact-value mutation, same as ``scrub_secret_from_exception``,
+    so the SAME exception object -- unwound normally up through every outer
+    context afterward -- already carries the scrubbed text by the time
+    anything outside this task reads it, independent of which context does
+    the reading.
+    """
+    for secret in registered_credential_secrets():
+        scrub_secret_from_exception(exc, secret)
+
+
 # A chain longer than this is a runaway rather than a diagnosis, and walking it
 # is work done while a job is already failing.
 _MAX_EXCEPTION_CHAIN_DEPTH = 50

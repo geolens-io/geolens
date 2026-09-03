@@ -316,6 +316,15 @@ async def _probe_ogcapi_within_deadline(
         )
         return None
 
+    # fix(#1770 round 44 P2): a credentialed `/collections` answering `200
+    # []`, `200 null`, or `200 "x"` is valid JSON but not a dict, and
+    # `.get(...)` on a list/None/str raises `AttributeError` -- uncaught by
+    # `_header_auth_probe` (`probe.py`, `ValueError` only) or the probe
+    # route, so it reached the caller as a bare 500 rather than the
+    # `ServiceNotRecognized`/`None` degrade every other unrecognised
+    # response gets.
+    if not isinstance(col_data, dict):
+        return None
     collections = col_data.get("collections", [])
     if not isinstance(collections, list):
         return None

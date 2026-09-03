@@ -901,9 +901,22 @@ async def _fetch(
 
 
 def _parsed_json(body: bytes) -> object:
+    """``json.loads(body)``, or a coded refusal rather than a raw crash.
+
+    fix(#1770 round 44 P2): a JSON depth bomb -- 900,000 nested `[` is 1.8
+    bytes each, well under both `MAX_DOCUMENT_BYTES` and
+    `MAX_DOCUMENT_TOKENS` (`structural_tokens` counts brackets, not nesting
+    depth, so it cannot see this shape at all) -- makes `json.loads` raise
+    `RecursionError`, not `ValueError`. Uncaught, that escaped `/probe`'s own
+    except chain as a bare 500 rather than the coded `endpoint_check_failed`
+    every other unreadable description gets, and in a worker OAPIF walk it
+    killed the job unclassified. `RecursionError` is a `RuntimeError`
+    subclass, not a `ValueError`, so it needed naming here explicitly rather
+    than falling out of the existing catch.
+    """
     try:
         return json.loads(body)
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         raise EndpointCheckFailedError(str(exc)) from None
 
 

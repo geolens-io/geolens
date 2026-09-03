@@ -449,7 +449,15 @@ async def _fetch_page(
     )
     try:
         return json.loads(body), len(body), final_url
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
+        # fix(#1770 round 44 P2): a JSON depth bomb (900,000 nested `[`, 1.8
+        # bytes each) is under both the byte cap and MAX_STRUCTURAL_TOKENS
+        # (which counts brackets, not nesting depth) and raises
+        # RecursionError rather than ValueError -- see
+        # `service_endpoints.py::_parsed_json`'s docstring for the same fix
+        # applied to the OGC API description path. Uncaught here, a worker's
+        # OAPIF item-page walk died unclassified instead of surfacing this
+        # module's own coded refusal.
         raise ItemFetchFailedError(str(exc)) from None
 
 

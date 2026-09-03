@@ -2541,7 +2541,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # replaced outright, and why the preflight has to refuse an entity
     # declaration itself (it runs on raw `expat`, before `defusedxml`'s own
     # `forbid_dtd` ever gets a turn).
-    "backend/app/platform/service_endpoints.py": 1042,
+    # fix(#1770 round 44 P2): +13. `_parsed_json` now also catches
+    # `RecursionError` (a JSON depth bomb raises that, not `ValueError`, and
+    # was escaping every except chain that named only the latter). Cap
+    # 1042 -> 1055, exact.
+    "backend/app/platform/service_endpoints.py": 1055,
     # fix(#1770 round 42): first entry, crossed _RATCHET_INCLUSION_LOC on the
     # completeness-predicate unification. `_page_proves_complete` is the one
     # function round 41's full-walk-only proof and round 42's sampled-preview
@@ -2551,7 +2555,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `_resolve_conformance` was pulled out of `probe_ogcapi` in #1746).
     # Most of the added lines are the docstrings recording the round 38-42
     # history so a future reader does not re-derive it from the diff.
-    "backend/app/platform/service_items.py": 1033,
+    # fix(#1770 round 44 P2): +8. The items-page JSON parse also catches
+    # `RecursionError` now, same reasoning as `service_endpoints.py::
+    # _parsed_json`. Cap 1033 -> 1041, exact.
+    "backend/app/platform/service_items.py": 1041,
     # fix(#1758): the ArcGIS sign-in protocol, which crossed 1000 lines over
     # nine review rounds. What the growth bought, in order: the two-phase
     # split that resolves WHERE a password would go before any lock or budget
@@ -2635,7 +2642,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `OGC_JSON_ACCEPT`), the query folded into the URL since the helper
     # takes no `params=`, the `asyncio.timeout` wrapper, and a widened except
     # clause plus its comment. Cap 1583 -> 1611, exact.
-    "backend/app/modules/catalog/sources/router.py": 1611,
+    # fix(#1770 round 44 P1/P2): +18. The ArcGIS layer-preview except clause
+    # widened for `EndpointCheckFailedError`/`TimeoutError` (P1, ArcGIS
+    # reads now bounded), the CRS-fallback except clause gained
+    # `RecursionError` (P2, JSON depth bomb), plus their comments. Cap
+    # 1611 -> 1629, exact.
+    "backend/app/modules/catalog/sources/router.py": 1629,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against
@@ -2803,7 +2815,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # reach a backup, while /tmp is a per-container 512m tmpfs. Re-baselined on
     # the rebase across #1753, which raised the same cap for the token purge.
     # Cap 1789 -> 1796, exact.
-    "backend/app/api/main.py": 1883,
+    # fix(#1770 round 44 P2): +14. `CredentialScrubASGIMiddleware` registered
+    # as the innermost middleware, plus the import and the comment on why it
+    # has to be registered first and be a plain ASGI callable. Cap
+    # 1883 -> 1897, exact.
+    "backend/app/api/main.py": 1897,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative

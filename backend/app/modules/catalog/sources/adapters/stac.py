@@ -270,6 +270,14 @@ async def _connect_stac_api_within_deadline(url: str) -> dict | None:
             logger.debug("STAC connect: non-JSON response", url=url)
             return None
 
+        # fix(#1770 round 44 P2): a `200 []`/`200 null`/`200 "x"` response is
+        # valid JSON but not a dict, and `.get(...)` on a list/None/str
+        # raises `AttributeError` rather than the ordinary "not a STAC API"
+        # degrade below.
+        if not isinstance(data, dict):
+            logger.debug("STAC connect: non-dict response", url=url)
+            return None
+
         # Must have stac_version or type == "Catalog"
         if not data.get("stac_version") and data.get("type") not in ("Catalog", "API"):
             logger.debug("STAC connect: not a STAC API", url=url)

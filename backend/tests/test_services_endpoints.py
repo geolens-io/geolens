@@ -691,18 +691,35 @@ class TestPreviewEndpoint:
             }
 
         # Mock the OGC API collection metadata response with URI-form CRS84.
-        mock_response = MagicMock()
-        mock_response.raise_for_status = MagicMock()
-        mock_response.json = MagicMock(
-            return_value={
+        #
+        # fix(#1770 round 44): `_fetch_ogcapi_collection_srid` reads through
+        # `bounded_probe_read` (round 43 P1), which calls `client.stream(...)`
+        # rather than `client.get(...)`. A bare `MagicMock` for the client and
+        # a `MagicMock` response (this test's shape before round 43) supports
+        # neither the async-context-manager protocol `.stream()` returns nor a
+        # real streaming read, so this is now a real `httpx.AsyncClient` over
+        # `httpx.MockTransport`, with the response body served from a
+        # generator so `aiter_raw()` can actually stream it rather than
+        # raising `StreamConsumed` on an already-read double (see
+        # `_as_stream`'s docstring in `test_service_auth_transport_1746.py`
+        # for the same fix applied there in round 41).
+        collection_body = httpx.Response(
+            200,
+            json={
                 "id": "lakes",
                 "crs": ["http://www.opengis.net/def/crs/OGC/1.3/CRS84"],
-            }
+            },
+        ).content
+
+        def _handle_collection_request(request: httpx.Request) -> httpx.Response:
+            async def _chunks():
+                yield collection_body
+
+            return httpx.Response(200, content=_chunks())
+
+        mock_client = httpx.AsyncClient(
+            transport=httpx.MockTransport(_handle_collection_request)
         )
-        mock_client = MagicMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
 
         with (
             patch(

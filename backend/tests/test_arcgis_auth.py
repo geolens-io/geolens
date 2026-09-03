@@ -1,6 +1,6 @@
 """Tests for ArcGIS auth fixes: no Bearer header, JSON error detection, objectIdField."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
@@ -115,19 +115,28 @@ async def test_enrich_arcgis_feature_counts_encodes_url_reserved_characters_in_t
 
     Same issue and same fix as the probe above, in
     ``enrich_arcgis_feature_counts()``'s per-layer count query.
+
+    fix(#1770 round 44 P1): this read now goes through `bounded_probe_read`
+    (`client.stream`), so `AsyncMock(spec=httpx.AsyncClient)` -- which cannot
+    fake the async-context-manager protocol `.stream()` returns -- is
+    replaced with a real client over `MockTransport`, per this file's own
+    `_mock_transport_client` helper.
     """
-    mock_client = AsyncMock(spec=httpx.AsyncClient)
-    mock_response = _make_mock_response({"count": 5})
-    mock_client.get.return_value = mock_response
+    recorded: list[httpx.Request] = []
 
-    await enrich_arcgis_feature_counts(
-        "https://services.arcgis.com/svc/FeatureServer",
-        [{"id": 0, "name": "layer0"}],
-        mock_client,
-        token="AA'#&ULTRASECRET",
-    )
+    def handle(request: httpx.Request) -> httpx.Response:
+        recorded.append(request)
+        return _streaming_json_response({"count": 5})
 
-    url_called = mock_client.get.call_args[0][0]
+    async with _mock_transport_client(handle) as client:
+        await enrich_arcgis_feature_counts(
+            "https://services.arcgis.com/svc/FeatureServer",
+            [{"id": 0, "name": "layer0"}],
+            client,
+            token="AA'#&ULTRASECRET",
+        )
+
+    url_called = str(recorded[0].url)
     assert "token=AA%27%23%26ULTRASECRET" in url_called
     assert "'" not in url_called
     assert "#" not in url_called
@@ -291,46 +300,55 @@ def test_build_gdal_source_arcgis_result_offset():
 
 @pytest.mark.asyncio
 async def test_fetch_arcgis_pagination_info_requires_explicit_support():
-    """Chunking must require ArcGIS supportsPagination, not just maxRecordCount."""
-    mock_client = AsyncMock(spec=httpx.AsyncClient)
-    mock_client.get.return_value = _make_mock_response(
+    """Chunking must require ArcGIS supportsPagination, not just maxRecordCount.
+
+    fix(#1770 round 44 P1): this read now goes through `bounded_probe_read`
+    (`client.stream`), so `AsyncMock(spec=httpx.AsyncClient)` -- which cannot
+    fake the async-context-manager protocol `.stream()` returns -- is
+    replaced with a real client over `MockTransport`. Two sequential calls in
+    this one test need two different bodies, so the handler serves from a
+    mutable one-item box rather than `AsyncMock`'s `return_value`.
+    """
+    next_body = [
         {
             "maxRecordCount": 1000,
             "advancedQueryCapabilities": {"supportsPagination": False},
         }
-    )
+    ]
 
-    (
-        max_record_count,
-        supports_pagination,
-        object_id_field,
-    ) = await fetch_arcgis_pagination_info(
-        "https://services.arcgis.com/svc/FeatureServer",
-        0,
-        mock_client,
-    )
+    def handle(request: httpx.Request) -> httpx.Response:
+        return _streaming_json_response(next_body[0])
 
-    assert max_record_count == 1000
-    assert supports_pagination is False
-    assert object_id_field is None
+    async with _mock_transport_client(handle) as client:
+        (
+            max_record_count,
+            supports_pagination,
+            object_id_field,
+        ) = await fetch_arcgis_pagination_info(
+            "https://services.arcgis.com/svc/FeatureServer",
+            0,
+            client,
+        )
 
-    mock_client.get.return_value = _make_mock_response(
-        {
+        assert max_record_count == 1000
+        assert supports_pagination is False
+        assert object_id_field is None
+
+        next_body[0] = {
             "maxRecordCount": 1000,
             "advancedQueryCapabilities": {"supportsPagination": True},
             "objectIdField": "FID",
         }
-    )
 
-    (
-        max_record_count,
-        supports_pagination,
-        object_id_field,
-    ) = await fetch_arcgis_pagination_info(
-        "https://services.arcgis.com/svc/FeatureServer",
-        0,
-        mock_client,
-    )
+        (
+            max_record_count,
+            supports_pagination,
+            object_id_field,
+        ) = await fetch_arcgis_pagination_info(
+            "https://services.arcgis.com/svc/FeatureServer",
+            0,
+            client,
+        )
 
     assert max_record_count == 1000
     assert supports_pagination is True
@@ -339,29 +357,226 @@ async def test_fetch_arcgis_pagination_info_requires_explicit_support():
 
 @pytest.mark.asyncio
 async def test_fetch_arcgis_pagination_info_uses_oid_field_fallback():
-    """Layer metadata can identify the stable order field via field type."""
-    mock_client = AsyncMock(spec=httpx.AsyncClient)
-    mock_client.get.return_value = _make_mock_response(
-        {
-            "maxRecordCount": 1000,
-            "advancedQueryCapabilities": {"supportsPagination": True},
-            "fields": [
-                {"name": "NAME", "type": "esriFieldTypeString"},
-                {"name": "OBJECTID_1", "type": "esriFieldTypeOID"},
-            ],
-        }
-    )
+    """Layer metadata can identify the stable order field via field type.
 
-    (
-        max_record_count,
-        supports_pagination,
-        object_id_field,
-    ) = await fetch_arcgis_pagination_info(
-        "https://services.arcgis.com/svc/FeatureServer",
-        0,
-        mock_client,
-    )
+    fix(#1770 round 44 P1): see the sibling test above for why this is a
+    real MockTransport client now rather than an `AsyncMock`.
+    """
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return _streaming_json_response(
+            {
+                "maxRecordCount": 1000,
+                "advancedQueryCapabilities": {"supportsPagination": True},
+                "fields": [
+                    {"name": "NAME", "type": "esriFieldTypeString"},
+                    {"name": "OBJECTID_1", "type": "esriFieldTypeOID"},
+                ],
+            }
+        )
+
+    async with _mock_transport_client(handle) as client:
+        (
+            max_record_count,
+            supports_pagination,
+            object_id_field,
+        ) = await fetch_arcgis_pagination_info(
+            "https://services.arcgis.com/svc/FeatureServer",
+            0,
+            client,
+        )
 
     assert max_record_count == 1000
     assert supports_pagination is True
     assert object_id_field == "OBJECTID_1"
+
+
+class TestArcGISReadsAreBounded:
+    """fix(#1770 round 44 P1, `adapters/arcgis.py:291,353,386,441,485`).
+
+    `enrich_arcgis_feature_counts`/`fetch_arcgis_feature_count`/
+    `fetch_arcgis_pagination_info`/`fetch_arcgis_layer_preview` (two sites)
+    all carry the request-scoped ArcGIS ``token=`` in the URL and used a
+    plain `client.get`. Round 41's own docstring justified leaving these out
+    of `bounded_probe_read`'s reach on the theory that
+    `assert_endpoints_stay_on_origin` had already vetted the target -- wrong
+    for ArcGIS specifically, since that function returns immediately for any
+    `service_format` outside `HEADER_AUTH_SERVICE_FORMATS`, which ArcGIS is
+    deliberately not a member of (its token travels in the URL, never a
+    header). No bound of any kind ran for these five reads before this
+    round. All five now read through `bounded_probe_read` under
+    `DEFAULT_CHECK_TIMEOUT`, matching the four service-type probes.
+    """
+
+    pytestmark = pytest.mark.asyncio
+
+    async def test_enrich_arcgis_feature_counts_stops_at_the_byte_cap(self) -> None:
+        from app.platform.service_endpoints import MAX_DOCUMENT_BYTES
+
+        chunk_size = 1024 * 1024
+        chunks_yielded = 0
+
+        async def _chunks():
+            nonlocal chunks_yielded
+            total = (MAX_DOCUMENT_BYTES // chunk_size) + 50
+            for _ in range(total):
+                chunks_yielded += 1
+                yield b"a" * chunk_size
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=_chunks())
+
+        async with _mock_transport_client(handle) as client:
+            result = await enrich_arcgis_feature_counts(
+                "https://services.arcgis.com/svc/FeatureServer",
+                [{"id": 0, "name": "layer0"}],
+                client,
+                token="tok",
+            )
+
+        assert result == [{"id": 0, "name": "layer0", "feature_count": None}]
+        assert chunks_yielded <= (MAX_DOCUMENT_BYTES // chunk_size) + 2, chunks_yielded
+
+    async def test_fetch_arcgis_feature_count_stops_at_the_byte_cap(self) -> None:
+        from app.modules.catalog.sources.adapters.arcgis import (
+            EndpointCheckFailedError,
+            fetch_arcgis_feature_count,
+        )
+        from app.platform.service_endpoints import MAX_DOCUMENT_BYTES
+
+        chunk_size = 1024 * 1024
+        chunks_yielded = 0
+
+        async def _chunks():
+            nonlocal chunks_yielded
+            total = (MAX_DOCUMENT_BYTES // chunk_size) + 50
+            for _ in range(total):
+                chunks_yielded += 1
+                yield b"a" * chunk_size
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=_chunks())
+
+        async with _mock_transport_client(handle) as client:
+            with pytest.raises(EndpointCheckFailedError):
+                await fetch_arcgis_feature_count(
+                    "https://services.arcgis.com/svc/FeatureServer", 0, client
+                )
+
+        assert chunks_yielded <= (MAX_DOCUMENT_BYTES // chunk_size) + 2, chunks_yielded
+
+    async def test_fetch_arcgis_pagination_info_stops_at_the_byte_cap(self) -> None:
+        from app.platform.service_endpoints import MAX_DOCUMENT_BYTES
+
+        chunk_size = 1024 * 1024
+        chunks_yielded = 0
+
+        async def _chunks():
+            nonlocal chunks_yielded
+            total = (MAX_DOCUMENT_BYTES // chunk_size) + 50
+            for _ in range(total):
+                chunks_yielded += 1
+                yield b"a" * chunk_size
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=_chunks())
+
+        async with _mock_transport_client(handle) as client:
+            result = await fetch_arcgis_pagination_info(
+                "https://services.arcgis.com/svc/FeatureServer", 0, client
+            )
+
+        assert result == (None, False, None)
+        assert chunks_yielded <= (MAX_DOCUMENT_BYTES // chunk_size) + 2, chunks_yielded
+
+    async def test_fetch_arcgis_layer_preview_metadata_stops_at_the_byte_cap(
+        self,
+    ) -> None:
+        from app.modules.catalog.sources.adapters.arcgis import (
+            EndpointCheckFailedError,
+            fetch_arcgis_layer_preview,
+        )
+        from app.platform.service_endpoints import MAX_DOCUMENT_BYTES
+
+        chunk_size = 1024 * 1024
+        chunks_yielded = 0
+
+        async def _chunks():
+            nonlocal chunks_yielded
+            total = (MAX_DOCUMENT_BYTES // chunk_size) + 50
+            for _ in range(total):
+                chunks_yielded += 1
+                yield b"a" * chunk_size
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=_chunks())
+
+        async with _mock_transport_client(handle) as client:
+            with pytest.raises(EndpointCheckFailedError):
+                await fetch_arcgis_layer_preview(
+                    "https://services.arcgis.com/svc/FeatureServer", 0, client
+                )
+
+        assert chunks_yielded <= (MAX_DOCUMENT_BYTES // chunk_size) + 2, chunks_yielded
+
+    async def test_fetch_arcgis_layer_preview_sample_query_degrades_at_the_byte_cap(
+        self,
+    ) -> None:
+        """The metadata call succeeds; the sample-row call is the one that
+        exceeds the cap and degrades, matching this function's own
+        best-effort local except clause rather than raising.
+
+        Also counts chunks yielded for the sample query specifically, so
+        this discriminates the fix from the old code: both degrade to the
+        same result (the old `client.get`'s eventual `JSONDecodeError` on
+        the un-parseable filler is caught by the same `except ValueError`
+        the new `EndpointCheckFailedError` is), but only the fix stops
+        reading anywhere near the cap rather than buffering the whole body
+        first.
+        """
+        from app.modules.catalog.sources.adapters.arcgis import (
+            fetch_arcgis_layer_preview,
+        )
+        from app.platform.service_endpoints import MAX_DOCUMENT_BYTES
+
+        meta = {
+            "name": "Parcels",
+            "geometryType": "esriGeometryPolygon",
+            "extent": {"spatialReference": {"wkid": 3857}},
+            "fields": [{"name": "OBJECTID", "type": "esriFieldTypeOID"}],
+        }
+        chunk_size = 1024 * 1024
+        calls = 0
+        sample_chunks_yielded = 0
+
+        async def _oversized_chunks():
+            nonlocal sample_chunks_yielded
+            total = (MAX_DOCUMENT_BYTES // chunk_size) + 50
+            for _ in range(total):
+                sample_chunks_yielded += 1
+                yield b"a" * chunk_size
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            # 1st call: metadata (succeeds). 2nd: the sample query -- the one
+            # under test, oversized. 3rd: fetch_arcgis_layer_preview's own
+            # unconditional feature-count read, which must stay isolated
+            # from the chunk count above or it silently doubles it.
+            if calls == 1:
+                return _streaming_json_response(meta)
+            if calls == 2:
+                return httpx.Response(200, content=_oversized_chunks())
+            return _streaming_json_response({"count": 5})
+
+        async with _mock_transport_client(handle) as client:
+            result = await fetch_arcgis_layer_preview(
+                "https://services.arcgis.com/svc/FeatureServer", 0, client
+            )
+
+        assert result["layer_name"] == "Parcels"
+        assert result["sample_rows"] == []
+        assert result["feature_count"] == 5
+        assert sample_chunks_yielded <= (MAX_DOCUMENT_BYTES // chunk_size) + 2, (
+            sample_chunks_yielded
+        )
