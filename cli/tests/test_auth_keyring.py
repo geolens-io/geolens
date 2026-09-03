@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import stat
+from pathlib import Path
 
 import pytest
 
@@ -309,3 +310,128 @@ class TestTryRefreshBackendRouting:
             "and tolerated"
         )
         assert _auth.load_active_credential_kind(INSTANCE) == "bearer"
+
+
+def _write_corrupt_credentials_file(instance: str = INSTANCE) -> Path:
+    """Write unparseable bytes to credentials.toml directly (bypassing
+    every write helper in auth.py, which would refuse) so tests can
+    exercise the round-22 corrupt-file handling. Returns the path."""
+    path = _config.credentials_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"this is not valid TOML [[[ = = =\n")
+    return path
+
+
+class TestCredentialsFileCorruption:
+    """fix(#1778 review round 22): _read_credentials_file() used to
+    degrade a TOML parse failure straight to `{}` -- indistinguishable
+    from "no file at all." A writer building on that empty dict (the
+    active_kind marker write after a keyring-backed login, chief among
+    them) would then overwrite the ACTUAL corrupt file with a fresh one
+    holding only the current instance's data, silently destroying
+    every OTHER instance's file-backed credentials sitting in the
+    unparseable file. _read_credentials_file() now raises
+    CredentialsFileCorrupt (naming the path and the parser's own
+    message); every WRITE path refuses to touch the file on it, while
+    READ-with-fallback paths (load_bearer_token and friends,
+    try_refresh's own backend detection) still degrade tolerantly so
+    an unrelated corrupt file cannot break a flow that does not
+    actually need to write it."""
+
+    def test_login_succeeds_via_keyring_with_a_corrupt_file_and_leaves_it_untouched(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Pin: corrupt file + keyring login -> login succeeds, file
+        bytes unchanged, stderr names the path."""
+        from geolens_cli.main import app
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com"
+        path = _write_corrupt_credentials_file(instance)
+        original_bytes = path.read_bytes()
+
+        result = runner.invoke(app, ["login", instance, "--token", "new-bearer-token"])
+
+        assert result.exit_code == 0, result.output
+        assert path.read_bytes() == original_bytes, "the corrupt file must not be rewritten"
+        assert str(path) in result.output
+        assert "corrupt" in result.output.lower()
+        # The primary credential still landed in the keyring, unaffected.
+        from geolens_cli import config as _cfg
+
+        canonical = _cfg.normalize_instance_url(instance)
+        loaded = _auth.load_bearer_token(canonical)
+        assert loaded is not None
+        assert loaded.value == "new-bearer-token"
+
+    def test_logout_refuses_with_a_corrupt_file_and_leaves_it_untouched(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Pin: corrupt file + logout -> refuses, file unchanged."""
+        from geolens_cli.main import app
+        from geolens_cli import config as _cfg
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com"
+        canonical = _cfg.normalize_instance_url(instance)
+        _auth.store_bearer_token(canonical, "old-bearer-token", no_keyring=False)
+
+        path = _write_corrupt_credentials_file(canonical)
+        original_bytes = path.read_bytes()
+
+        result = runner.invoke(app, ["--instance", instance, "logout"])
+
+        assert result.exit_code != 0, result.output
+        assert path.read_bytes() == original_bytes, "a refusal must not rewrite the file"
+        assert str(path) in result.output
+
+    def test_refresh_rotates_tokens_with_a_corrupt_file_and_logs_a_warning(
+        self, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """Pin: corrupt file + refresh -> tokens rotated, file
+        unchanged, warning logged."""
+        _auth.store_bearer_token(INSTANCE, "old-access", no_keyring=False)
+        _auth.store_refresh_token(INSTANCE, "old-refresh", no_keyring=False)
+
+        path = _write_corrupt_credentials_file(INSTANCE)
+        original_bytes = path.read_bytes()
+
+        warnings: list[tuple[str, dict]] = []
+        original_warning = _auth.log.warning
+
+        def spying_warning(event, **kwargs):
+            warnings.append((event, kwargs))
+            return original_warning(event, **kwargs)
+
+        monkeypatch.setattr(_auth.log, "warning", spying_warning)
+
+        # _patch_sdk_refresh lives on TestTryRefreshBackendRouting; reuse
+        # its exact patching shape inline since this is a different class.
+        from unittest.mock import MagicMock
+        import geolens
+        import geolens.api.auth.refresh_auth_refresh_post as _refresh_mod
+        import geolens.models.refresh_request as _refresh_req_mod
+
+        class FakeParsed:
+            pass
+
+        parsed = FakeParsed()
+        parsed.access_token = "new-access"
+        parsed.refresh_token = "new-refresh"
+
+        class FakeResp:
+            status_code = 200
+
+        FakeResp.parsed = parsed
+
+        monkeypatch.setattr(geolens, "GeolensClient", MagicMock())
+        monkeypatch.setattr(_refresh_mod, "sync_detailed", MagicMock(return_value=FakeResp()))
+        monkeypatch.setattr(_refresh_req_mod, "RefreshRequest", MagicMock())
+
+        new_tok = _auth.try_refresh(INSTANCE)
+
+        assert new_tok == "new-access"
+        assert path.read_bytes() == original_bytes, "a corrupt file must not be rewritten"
+        assert mock_keyring.get(("geolens", INSTANCE)) == "new-access"
+        assert mock_keyring.get(("geolens", f"{INSTANCE}:refresh")) == "new-refresh"
+        assert warnings, "a warning must be logged for the skipped marker write"

@@ -652,7 +652,20 @@ def logout(ctx: typer.Context) -> None:
     if not instance:
         state.output.error("No active instance — nothing to log out from.")
         raise typer.Exit(2)
-    _auth.delete_credentials(instance)
+    try:
+        _auth.delete_credentials(instance)
+    except _auth.CredentialsFileCorrupt as exc:
+        # fix(#1778 review round 22): delete_credentials() already
+        # cleared the keyring-side entries above this point (unaffected
+        # by the file) before its own file-section clear refused --
+        # logout genuinely CANNOT complete the file half safely without
+        # being able to read what is currently in it, so this reports a
+        # real failure rather than silently rewriting the file empty.
+        state.output.error(
+            f"{exc.path} is corrupt ({exc.detail}) — logout could not "
+            "update it. Fix or move the file, then try again."
+        )
+        raise typer.Exit(EXIT_GENERIC) from exc
     # BUG-032: only clear config.toml when we are logging out of the DEFAULT
     # instance it stores. With a --instance / GEOLENS_INSTANCE override active,
     # the resolved instance may differ from config.instance — unlinking then
@@ -666,6 +679,30 @@ def logout(ctx: typer.Context) -> None:
     state.output.success(f"Logged out of {instance}")
 
 
+def _ensure_credentials_file_readable_or_exit(state: "AppState") -> None:
+    """Surface a corrupt credentials.toml explicitly for a read-only
+    command (whoami/status), instead of letting the tolerant
+    load_bearer_token()/load_api_key()/load_active_credential_kind()
+    quietly treat it as "nothing here" and report a misleading
+    "not logged in" / EXIT_AUTH when the real problem is a local file
+    that needs repair.
+
+    fix(#1778 review round 22): every OTHER command's credential
+    resolution (AppState.sdk(), used well beyond just whoami/status)
+    deliberately keeps tolerating a corrupt file so it can still work
+    via keyring alone -- this check is specific to the two commands
+    whose entire job is reporting on the stored credential itself.
+    """
+    try:
+        _auth.ensure_credentials_file_readable()
+    except _auth.CredentialsFileCorrupt as exc:
+        state.output.error(
+            f"{exc.path} is corrupt ({exc.detail}). Fix or move the "
+            "file, then try again."
+        )
+        raise typer.Exit(EXIT_GENERIC) from exc
+
+
 @app.command()
 def whoami(ctx: typer.Context) -> None:
     """Print the current user/instance (calls /auth/me; refresh-retries once on 401)."""
@@ -674,6 +711,7 @@ def whoami(ctx: typer.Context) -> None:
     if not instance:
         state.output.error("No active instance. Run `geolens login <url>` first.")
         raise typer.Exit(EXIT_AUTH)
+    _ensure_credentials_file_readable_or_exit(state)
 
     from geolens.api.auth import me_auth_me_get
 
@@ -722,6 +760,7 @@ def status(
         raise typer.BadParameter(
             "Dataset id must be a UUID", param_hint="dataset_id"
         ) from exc
+    _ensure_credentials_file_readable_or_exit(state)
 
     sdk = state.sdk()
     # fix(#1778): refresh-retry once on 401 (D-13) rather than hard-

@@ -17,6 +17,7 @@ Storage backends:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, Union
 
 import keyring
@@ -55,14 +56,41 @@ def _keyring_account_api_key(instance: str) -> str:
     return f"{instance}:api_key"
 
 
+class CredentialsFileCorrupt(Exception):
+    """Raised by ``_read_credentials_file()`` when credentials.toml
+    exists but is not valid TOML.
+
+    fix(#1778 review round 22): the file previously degraded a parse
+    failure straight to ``{}`` -- indistinguishable from "no file at
+    all." A writer building on that empty dict (e.g. the active_kind
+    marker write after a keyring-backed login) would then overwrite
+    the ACTUAL corrupt file with a fresh one holding only the CURRENT
+    instance's data, silently destroying every OTHER instance's
+    file-backed credentials that happened to be sitting in the
+    unparseable file. Every write path must now be able to tell "empty"
+    apart from "corrupt" and refuse to touch the file in the latter
+    case; every read-with-fallback path (load_bearer_token and
+    friends, the snapshot/restore machinery, try_refresh's backend
+    detection) still degrades this to "nothing usable here, try the
+    other backend" internally, so an unrelated corrupt file cannot
+    break flows that do not actually need to write it. See each
+    catch site's own comment for which behavior applies where.
+    """
+
+    def __init__(self, path: Path, detail: str) -> None:
+        super().__init__(f"credentials file at {path} is corrupt: {detail}")
+        self.path = path
+        self.detail = detail
+
+
 def _read_credentials_file() -> dict:
     path = _config.credentials_path()
     if not path.is_file():
         return {}
     try:
         return tomllib.loads(path.read_text())
-    except tomllib.TOMLDecodeError:
-        return {}
+    except tomllib.TOMLDecodeError as exc:
+        raise CredentialsFileCorrupt(path, str(exc)) from exc
 
 
 def _write_credentials_file(data: dict) -> None:
@@ -74,13 +102,61 @@ def _write_credentials_file(data: dict) -> None:
     )
 
 
+def _warn_credentials_file_corrupt(exc: CredentialsFileCorrupt) -> None:
+    """Print a corrupt-credentials.toml warning directly to stderr.
+
+    fix(#1778 review round 22): this module has no access to the CLI's
+    Output formatter (data layer, not command layer -- see every other
+    function here, none of which print), and structlog's unconfigured
+    default PrintLogger (used by ``log.warning`` throughout this file)
+    writes to STDOUT, not stderr -- fine for a routine, best-effort
+    diagnostic, but wrong for a data-integrity warning a human needs to
+    actually see, and actively harmful in ``--json`` mode where it
+    would corrupt the JSON stream on stdout. Printed unconditionally
+    (independent of ``--json``) for the one case a login genuinely
+    needs a human to notice: the marker was NOT updated, and the file
+    needs fixing or moving before it can be trusted again.
+    """
+    import sys
+
+    print(
+        f"Warning: {exc.path} is corrupt ({exc.detail}) -- the active "
+        "credential marker was not updated there. Fix or move the file.",
+        file=sys.stderr,
+    )
+
+
 def _set_credential_field(instance: str, field: str, value: str) -> None:
+    # fix(#1778 review round 22): _read_credentials_file() propagates
+    # CredentialsFileCorrupt uncaught here too -- this is the SAME
+    # read-modify-write shape as _clear_credential_section, used both
+    # for the primary credential's file FALLBACK (store_bearer_token/
+    # store_api_key/store_refresh_token when the keyring is unusable or
+    # --no-keyring) and for the active_kind marker write. Refusing to
+    # merge new data into an unparseable file (rather than starting
+    # from an empty dict and silently discarding whatever was actually
+    # in there) is the same correctness requirement either way. Callers
+    # for whom this write is genuinely non-fatal -- replace_credentials
+    # ()'s marker write, try_refresh()'s -- catch CredentialsFileCorrupt
+    # at THEIR call site instead of here, since only they know whether
+    # the primary credential already landed safely elsewhere.
     data = _read_credentials_file()
     data.setdefault(instance, {})[field] = value
     _write_credentials_file(data)
 
 
 def _clear_credential_section(instance: str) -> None:
+    # fix(#1778 review round 22): _read_credentials_file() propagates
+    # CredentialsFileCorrupt uncaught here, deliberately -- logout's
+    # whole job is a read-modify-write of this file (drop this
+    # instance's section, rewrite the rest), and there is no safe
+    # interpretation of "modify" when the read itself failed. Refusing
+    # (the exception reaches delete_credentials()'s caller, main.py's
+    # logout command) is correct: the alternative, treating unreadable
+    # as empty, would rewrite the file with NOTHING in it, destroying
+    # every other instance's stored credentials the same way an
+    # unconditional marker write would have. The keyring-side cleanup
+    # in delete_credentials() runs BEFORE this and is unaffected.
     data = _read_credentials_file()
     data.pop(instance, None)
     if data:
@@ -131,13 +207,39 @@ def store_refresh_token(instance: str, refresh: str, *, no_keyring: bool = False
 
 # ---------- Load ----------
 
+def _read_credentials_section_tolerant(instance: str) -> dict:
+    """``_read_credentials_file()``'s section for ``instance``, or
+    ``{}`` if the file is missing, has no section for this instance,
+    OR is corrupt.
+
+    fix(#1778 review round 22): every READ-with-fallback caller below
+    (the ``load_*`` functions, ``_detect_credential_backend``) needs to
+    treat a corrupt file as "nothing usable here, fall back to the
+    other backend" rather than raise -- unlike a WRITE path, a read
+    that degrades gracefully cannot destroy anything, and several of
+    these are on hot paths (``try_refresh()``'s very first call,
+    ``AppState.sdk()`` for every authenticated command) that must keep
+    working via keyring even when the file is unrelated-and-broken.
+    Corruption is NOT silently invisible system-wide, though: write
+    paths (``_set_credential_field``, ``_clear_credential_section``)
+    still propagate ``CredentialsFileCorrupt`` and refuse to touch the
+    file, and ``ensure_credentials_file_readable()`` lets a read-only
+    command (whoami/status) surface the error explicitly instead of
+    silently reporting "not logged in."
+    """
+    try:
+        return _read_credentials_file().get(instance, {})
+    except CredentialsFileCorrupt:
+        return {}
+
+
 def load_bearer_token(instance: str) -> Optional[BearerToken]:
     """Return the active bearer token per the D-35 precedence."""
     env_token = _config.get_token_from_env()
     if env_token:
         return BearerToken(env_token)
     # credentials.toml > keyring (file is explicit; keyring is fallback)
-    data = _read_credentials_file().get(instance, {})
+    data = _read_credentials_section_tolerant(instance)
     token = data.get("bearer_token")
     if token:
         return BearerToken(token)
@@ -149,7 +251,7 @@ def load_bearer_token(instance: str) -> Optional[BearerToken]:
 
 
 def load_api_key(instance: str) -> Optional[ApiKey]:
-    data = _read_credentials_file().get(instance, {})
+    data = _read_credentials_section_tolerant(instance)
     key = data.get("api_key")
     if key:
         return ApiKey(key)
@@ -161,7 +263,7 @@ def load_api_key(instance: str) -> Optional[ApiKey]:
 
 
 def load_refresh_token(instance: str) -> Optional[str]:
-    data = _read_credentials_file().get(instance, {})
+    data = _read_credentials_section_tolerant(instance)
     refresh = data.get("refresh_token")
     if refresh:
         return refresh
@@ -196,9 +298,28 @@ def load_active_credential_kind(instance: str) -> Optional[str]:
     failing to evict a competing entry no longer matters for
     correctness, only for tidiness.
     """
-    data = _read_credentials_file().get(instance, {})
+    data = _read_credentials_section_tolerant(instance)
     kind = data.get(_ACTIVE_KIND_FIELD)
     return kind if kind in ("bearer", "api_key") else None
+
+
+def ensure_credentials_file_readable() -> None:
+    """Raise ``CredentialsFileCorrupt`` if credentials.toml exists but
+    is not valid TOML; a no-op otherwise (missing file, or valid TOML).
+
+    fix(#1778 review round 22): every credential LOOKUP in this module
+    (``load_bearer_token`` and friends, ``load_active_credential_kind``)
+    deliberately tolerates a corrupt file by treating it as "nothing
+    usable here" and falling back to keyring, so most commands never
+    notice the file is broken at all -- correct for them, since they
+    just want a working credential from wherever one is available. But
+    a read-ONLY command whose whole job IS to report on the stored
+    credential (``whoami``, ``status``) must not silently launder a
+    corrupt file into a misleading "not logged in" / EXIT_AUTH when the
+    real problem is a local file needing repair. Call this FIRST, before
+    resolving any credential, so that case is reported for what it is.
+    """
+    _read_credentials_file()
 
 
 # ---------- Delete ----------
@@ -280,7 +401,15 @@ def _snapshot_credentials(instance: str) -> _CredentialSnapshot:
         keyring_bearer=_kr(_keyring_account_token(instance)),
         keyring_api_key=_kr(_keyring_account_api_key(instance)),
         keyring_refresh=_kr(_keyring_account_refresh(instance)),
-        file_section=dict(_read_credentials_file().get(instance, {})),
+        # fix(#1778 review round 22): tolerant on a corrupt file --
+        # snapshotting "nothing" is safe even though it is not
+        # literally accurate, because every WRITE path that could act
+        # on this snapshot (_restore_credentials' own file section
+        # write) independently re-reads the file and hits the SAME
+        # CredentialsFileCorrupt itself, which it already treats as
+        # "log and skip" (best-effort restore). Nothing here ever
+        # blindly trusts this snapshot value to justify an overwrite.
+        file_section=dict(_read_credentials_section_tolerant(instance)),
     )
 
 
@@ -453,7 +582,27 @@ def _delete_stale_credentials(
         if exists:
             keyring.delete_password(SERVICE, account)
 
-    data = _read_credentials_file()
+    # fix(#1778 review round 22): unlike _set_credential_field's and
+    # _clear_credential_section's writes, this cleanup is best-effort
+    # tidiness (round 10's docstring above: "now tidiness, not the
+    # thing correctness depends on"), not something a failure here
+    # should turn into the whole login failing. Called from inside
+    # replace_credentials()'s rollback-protected try block -- letting
+    # CredentialsFileCorrupt propagate would trigger a snapshot
+    # rollback and re-raise, reporting a hard login failure over a step
+    # that was only ever cleaning up STALE data, for a file that was
+    # already broken before this login ever started. Log and skip the
+    # file-side cleanup instead; the keyring-side cleanup above already
+    # ran regardless.
+    try:
+        data = _read_credentials_file()
+    except CredentialsFileCorrupt as exc:
+        log.warning(
+            "stale_credential_file_cleanup_skipped_corrupt_file",
+            path=str(exc.path),
+            error=exc.detail,
+        )
+        return
     section = data.get(instance)
     if not section:
         return
@@ -630,7 +779,27 @@ def replace_credentials(
     # changed backends. Either way login reported failure with the
     # credential store left in a state nothing had rolled back.
     try:
-        _set_credential_field(instance, _ACTIVE_KIND_FIELD, kind)
+        try:
+            _set_credential_field(instance, _ACTIVE_KIND_FIELD, kind)
+        except CredentialsFileCorrupt as exc:
+            # fix(#1778 review round 22): a PRE-EXISTING corrupt
+            # credentials.toml is not something THIS login broke, and
+            # the primary credential already landed safely in
+            # `backend` a few lines up -- refusing to touch the file
+            # (not overwriting it with a marker-only "fresh" version
+            # that would destroy every OTHER instance's file-backed
+            # credentials sitting in that same unparseable file) is
+            # strictly safer than either silently overwriting it or
+            # failing the whole login over a marker round 10 already
+            # documented as tidiness, not correctness-bearing. Unlike
+            # an ORDINARY marker-write failure (round 11, which DOES
+            # roll back and fail the login -- the file was healthy a
+            # moment ago there and something just broke a write we
+            # could have trusted), this file was never trustworthy to
+            # begin with. Printed to stderr (not log.warning: structlog's
+            # unconfigured default writes to STDOUT, which would corrupt
+            # --json output) so the operator actually sees it.
+            _warn_credentials_file_corrupt(exc)
         _delete_stale_credentials(
             instance, keep=kind, keep_backend=backend, snapshot=snapshot
         )
@@ -690,8 +859,15 @@ def _detect_credential_backend(instance: str) -> bool:
     We check the credentials file first because load_refresh_token uses the
     same file-before-keyring precedence — if the file has a refresh token,
     the credential lives in the file backend.
+
+    fix(#1778 review round 22): tolerant on a corrupt file, same as
+    load_refresh_token() itself -- this runs as try_refresh()'s very
+    first step, before the refresh HTTP call. Assuming "not file-backed"
+    (False) is the safe default: it means try_refresh() proceeds
+    assuming keyring, which is exactly right when the refresh token
+    actually lives there and the file is merely unrelated-and-broken.
     """
-    file_data = _read_credentials_file().get(instance, {})
+    file_data = _read_credentials_section_tolerant(instance)
     return "refresh_token" in file_data
 
 

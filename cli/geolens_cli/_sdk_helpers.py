@@ -455,6 +455,22 @@ def call_sdk(
     ``reraise_timeout``: a caller supplying its own exception has
     already decided how it wants to handle a timeout and does not also
     want the raw httpx one.
+
+    fix(#1778 review round 22): ``on_timeout`` now fires ONLY for
+    ``httpx.ReadTimeout`` — the request was fully sent and this side
+    was waiting on the response, so the server MAY have already
+    accepted the work (manifest_apply.py's "the server keeps applying,
+    re-running may duplicate an in-flight entry" guidance is about
+    THIS case specifically). ``ConnectTimeout``, ``WriteTimeout``, and
+    ``PoolTimeout`` all happen BEFORE the server could have received
+    (let alone accepted) the request — a hung TCP handshake, a slow
+    local write, or waiting on this process's own connection pool tell
+    you nothing about server-side state, so a caller's "the operation
+    may have started" exception would be actively wrong for them. Every
+    other ``httpx.TimeoutException`` subtype falls through to the
+    ordinary network-failure path below (or ``reraise_timeout``, for a
+    poll loop) with its normal message and exit code, exactly as if
+    ``on_timeout`` had never been given.
     """
     import httpx  # lazy — only for exception types
 
@@ -463,7 +479,7 @@ def call_sdk(
     except httpx.TimeoutException as exc:
         if deadline_expired is not None and deadline_expired():
             raise DeadlineTimeout from None
-        if on_timeout is not None:
+        if on_timeout is not None and isinstance(exc, httpx.ReadTimeout):
             raise on_timeout() from exc
         if reraise_timeout:
             raise

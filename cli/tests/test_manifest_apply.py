@@ -7,7 +7,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
+import typer
 
 from geolens_cli._sdk_helpers import (
     EXIT_AUTH,
@@ -321,7 +323,14 @@ class TestManifestApplyTimeoutReporting:
         def raising_post(**kwargs: Any) -> Any:
             import httpx
 
-            raise httpx.TimeoutException("stalled")
+            # fix(#1778 review round 22): specifically ReadTimeout, not
+            # the bare TimeoutException base class -- the request was
+            # sent and this waited on the response, the only shape
+            # ManifestApplyTimeout's "server may have already accepted
+            # this" guidance is true for. See
+            # TestManifestApplyTimeoutDistinguishesReadTimeout for the
+            # other subtypes.
+            raise httpx.ReadTimeout("stalled")
 
         client.httpx_client.post = raising_post
         return client
@@ -648,6 +657,149 @@ def test_apply_dry_run_sends_dry_run_payload(
     assert "Dry run" in result.output
 
 
+class TestManifestApplyTimeoutDistinguishesReadTimeout:
+    """fix(#1778 review round 22) P2: the on_timeout hook fired for
+    EVERY httpx.TimeoutException, but ConnectTimeout, PoolTimeout, and
+    WriteTimeout all happen BEFORE the server could have accepted the
+    request -- a hung TCP handshake, a slow local write, or waiting on
+    this process's own connection pool say nothing about server-side
+    state, so ManifestApplyTimeout's "the server keeps applying, a
+    re-apply may duplicate an in-flight entry" guidance is simply wrong
+    for them. Only httpx.ReadTimeout (request sent, waiting on the
+    response) takes the manifest-continuation path; every other
+    subtype goes through the ordinary network-failure path with its
+    normal message and exit code, exactly as if on_timeout had never
+    been given."""
+
+    def _client_raising(self, exc_factory):
+        client = FakeSdkClient(FakeResponse(200, _apply_response()))
+
+        def raising_post(**kwargs: Any) -> Any:
+            raise exc_factory()
+
+        client.httpx_client.post = raising_post
+        return client
+
+    @pytest.mark.parametrize(
+        "exc_factory",
+        [
+            lambda: httpx.ConnectTimeout("connect stalled"),
+            lambda: httpx.PoolTimeout("pool exhausted"),
+            lambda: httpx.WriteTimeout("write stalled"),
+        ],
+        ids=["connect", "pool", "write"],
+    )
+    def test_call_sdk_does_not_invoke_on_timeout_for_non_read_subtypes(
+        self, exc_factory
+    ) -> None:
+        from geolens_cli._sdk_helpers import call_sdk
+
+        on_timeout_calls: list[bool] = []
+
+        def on_timeout():
+            on_timeout_calls.append(True)
+            return RuntimeError("should never be raised")
+
+        def raising_fn(**kwargs):
+            raise exc_factory()
+
+        with pytest.raises(typer.Exit) as exc_info:
+            call_sdk(raising_fn, on_timeout=on_timeout)
+
+        assert on_timeout_calls == [], "on_timeout must not fire for this subtype"
+        assert exc_info.value.exit_code == EXIT_NETWORK
+
+    def test_call_sdk_invokes_on_timeout_for_read_timeout(self) -> None:
+        from geolens_cli._sdk_helpers import call_sdk
+
+        def on_timeout():
+            return RuntimeError("custom exception")
+
+        def raising_fn(**kwargs):
+            raise httpx.ReadTimeout("stalled")
+
+        with pytest.raises(RuntimeError, match="custom exception"):
+            call_sdk(raising_fn, on_timeout=on_timeout)
+
+    @pytest.mark.parametrize(
+        "exc_factory",
+        [
+            lambda: httpx.ConnectTimeout("connect stalled"),
+            lambda: httpx.PoolTimeout("pool exhausted"),
+            lambda: httpx.WriteTimeout("write stalled"),
+        ],
+        ids=["connect", "pool", "write"],
+    )
+    def test_post_manifest_apply_falls_back_to_plain_network_failure(
+        self, exc_factory
+    ) -> None:
+        """post_manifest_apply() must NOT raise ManifestApplyTimeout for
+        a pre-acceptance timeout subtype -- it falls through call_sdk's
+        generic path (typer.Exit(EXIT_NETWORK)), same as any other
+        command's network failure."""
+        client = self._client_raising(exc_factory)
+        payload = build_apply_payload(load_manifest(_manifest_path()), dry_run=False)
+
+        with pytest.raises(typer.Exit) as exc_info:
+            post_manifest_apply(client, payload)
+
+        assert exc_info.value.exit_code == EXIT_NETWORK
+
+    def test_apply_command_reports_a_plain_network_failure_for_connect_timeout(
+        self, runner, tmp_xdg_home, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """CLI end-to-end: a ConnectTimeout during apply gets the
+        ORDINARY "Request timed out" message, not the manifest
+        continuation/idempotency guidance -- the server never had a
+        chance to accept anything."""
+        sdk = _install_fake_sdk(
+            monkeypatch, FakeResponse(200, _apply_response(dry_run=False))
+        )
+
+        def raising_post(**kwargs):
+            raise httpx.ConnectTimeout("connect stalled")
+
+        sdk.client.httpx_client.post = raising_post
+
+        result = runner.invoke(app, ["apply", str(_remote_manifest_path())])
+
+        assert result.exit_code == EXIT_NETWORK, result.output
+        assert "Request timed out" in result.output
+        assert "downloading" not in result.output.lower()
+        assert "twice" not in result.output.lower()
+        assert "dry-run" not in result.output.lower()
+
+    def test_apply_json_output_has_no_guidance_or_status_check_for_connect_timeout(
+        self, runner, tmp_xdg_home, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--json mode for a pre-acceptance timeout gets whatever the
+        ordinary (pre-round-18) network-failure path already produces
+        for every other command's timeout -- no guidance/status_check
+        fields, because post_manifest_apply() never even builds that
+        payload for this subtype."""
+        sdk = _install_fake_sdk(
+            monkeypatch, FakeResponse(200, _apply_response(dry_run=False))
+        )
+
+        def raising_post(**kwargs):
+            raise httpx.ConnectTimeout("connect stalled")
+
+        sdk.client.httpx_client.post = raising_post
+
+        result = runner.invoke(app, ["--json", "apply", str(_remote_manifest_path())])
+
+        assert result.exit_code == EXIT_NETWORK, result.output
+        json_lines = [
+            line
+            for line in result.output.strip().splitlines()
+            if line.strip().startswith("{")
+        ]
+        assert json_lines == [], (
+            "no JSON payload at all -- the ordinary network-failure path "
+            f"doesn't build one, got: {json_lines}"
+        )
+
+
 class TestApplyTimeoutFlagAndEnvOverride:
     """fix(#1778 review round 21) P1 end-to-end: --timeout and
     GEOLENS_MANIFEST_APPLY_TIMEOUT override the computed heuristic
@@ -798,7 +950,9 @@ def _flaky_then_ok_sdk(monkeypatch: pytest.MonkeyPatch, status_response: dict) -
         if calls["n"] == 1:
             import httpx
 
-            raise httpx.TimeoutException("stalled")
+            # fix(#1778 review round 22): ReadTimeout specifically -- see
+            # _timing_out_client's comment above.
+            raise httpx.ReadTimeout("stalled")
         return original_post(**kwargs)
 
     sdk.client.httpx_client.post = flaky_post
@@ -894,7 +1048,9 @@ def test_apply_json_output_survives_a_network_failure_in_the_status_check(
     def flaky_then_refusing_post(**kwargs):
         calls["n"] += 1
         if calls["n"] == 1:
-            raise httpx.TimeoutException("stalled")
+            # fix(#1778 review round 22): ReadTimeout specifically -- see
+            # _timing_out_client's comment above.
+            raise httpx.ReadTimeout("stalled")
         raise httpx.NetworkError("connection refused")
 
     sdk.client.httpx_client.post = flaky_then_refusing_post
