@@ -12,14 +12,25 @@ carried the escape for a long time. All three now share one rule.
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import inspect
+import time
 from pathlib import Path
 
 import pytest
 
 from app.core.csv_safety import escape_csv_formula
-from app.processing.export.ogr import _harden_csv_formulas, run_ogr2ogr_export
+from app.processing.export.ogr import (
+    ExportError,
+    _harden_csv_formulas,
+    run_ogr2ogr_export,
+)
+
+
+def _far_deadline() -> float:
+    """A budget no test pass can exhaust."""
+    return time.monotonic() + 3600
 
 
 @pytest.mark.parametrize(
@@ -70,7 +81,7 @@ def test_hardening_rewrites_a_csv_in_place(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    _harden_csv_formulas(str(target))
+    _harden_csv_formulas(str(target), _far_deadline())
 
     with open(target, newline="", encoding="utf-8") as fh:
         rows = list(csv.reader(fh))
@@ -85,12 +96,12 @@ def test_hardening_rewrites_a_csv_in_place(tmp_path: Path) -> None:
 def test_hardening_preserves_the_line_ending_gdal_chose(tmp_path: Path) -> None:
     crlf = tmp_path / "crlf.csv"
     crlf.write_bytes(b"a,b\r\n=1,2\r\n")
-    _harden_csv_formulas(str(crlf))
+    _harden_csv_formulas(str(crlf), _far_deadline())
     assert b"\r\n" in crlf.read_bytes()
 
     lf = tmp_path / "lf.csv"
     lf.write_bytes(b"a,b\n=1,2\n")
-    _harden_csv_formulas(str(lf))
+    _harden_csv_formulas(str(lf), _far_deadline())
     assert b"\r\n" not in lf.read_bytes()
 
 
@@ -105,7 +116,7 @@ def test_hardening_survives_a_wkt_cell_past_the_csv_default_limit(
         writer.writerow(["WKT", "note"])
         writer.writerow([huge, "=SUM(1,1)"])
 
-    _harden_csv_formulas(str(target))
+    _harden_csv_formulas(str(target), _far_deadline())
 
     with open(target, newline="", encoding="utf-8") as fh:
         rows = list(csv.reader(fh))
@@ -115,10 +126,23 @@ def test_hardening_survives_a_wkt_cell_past_the_csv_default_limit(
 
 def test_the_export_runs_the_pass_only_for_csv_and_only_on_success() -> None:
     src = inspect.getsource(run_ogr2ogr_export)
-    assert "_harden_csv_formulas(output_path)" in src
-    hardening_at = src.index("_harden_csv_formulas(output_path)")
+    assert "_harden_csv_formulas," in src
+    hardening_at = src.index("_harden_csv_formulas,")
     failure_raise_at = src.index("ogr2ogr export failed")
     assert failure_raise_at < hardening_at, "a failed run must not be post-processed"
+
+
+def test_the_export_runs_the_pass_off_the_event_loop_and_under_the_deadline() -> None:
+    """fix(#1778 codex r1): inline, this stalled every concurrent request."""
+    src = inspect.getsource(run_ogr2ogr_export)
+    assert "run_in_thread_draining(" in src, (
+        "the pass must go through the draining thread helper its sibling "
+        "post-processing steps use"
+    )
+    assert (
+        "export_subprocess_timeout_seconds(deadline)"
+        in src.split("_harden_csv_formulas,")[1]
+    ), "the pass must be given the request's remaining budget"
 
 
 def test_all_three_csv_writers_share_one_rule() -> None:
@@ -128,3 +152,59 @@ def test_all_three_csv_writers_share_one_rule() -> None:
 
     assert audit_router._safe_csv_cell is escape_csv_formula
     assert admin_router.escape_csv_formula is escape_csv_formula
+
+
+@pytest.mark.anyio
+async def test_a_large_pass_does_not_block_a_concurrent_request(tmp_path: Path) -> None:
+    """fix(#1778 codex r1): the loop stays responsive while the pass runs.
+
+    The pass is driven the way `run_ogr2ogr_export` drives it. A cooperating
+    task that only needs the loop to turn must complete while the rewrite is
+    still going; run inline on the loop it could not, because a blocking
+    read-and-rewrite yields to nothing until it is done.
+    """
+    from app.core.async_io import run_in_thread_draining
+
+    target = tmp_path / "big.csv"
+    with open(target, "w", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(["name", "value", "note"])
+        for i in range(200_000):
+            writer.writerow([f"row-{i}", f"-{i}", "=SUM(1,1)"])
+
+    loop_turns = 0
+
+    async def keep_turning() -> None:
+        nonlocal loop_turns
+        while True:
+            await asyncio.sleep(0)
+            loop_turns += 1
+
+    ticker = asyncio.create_task(keep_turning())
+    try:
+        await run_in_thread_draining(_harden_csv_formulas, str(target), _far_deadline())
+    finally:
+        ticker.cancel()
+        await asyncio.gather(ticker, return_exceptions=True)
+
+    assert loop_turns > 0, "the event loop never turned while the pass ran"
+
+    with open(target, newline="", encoding="utf-8") as fh:
+        rows = list(csv.reader(fh))
+    assert rows[1] == ["row-0", "-0", "\t=SUM(1,1)"]
+
+
+def test_an_expired_deadline_fails_the_export_instead_of_finishing_late(
+    tmp_path: Path,
+) -> None:
+    """fix(#1778 codex r1): the budget the subprocess had now covers the pass."""
+    target = tmp_path / "late.csv"
+    original = "a,b\n=1,2\n=3,4\n"
+    target.write_text(original, encoding="utf-8")
+
+    with pytest.raises(ExportError, match="request budget"):
+        _harden_csv_formulas(str(target), time.monotonic() - 1)
+
+    # The artifact is untouched and no half-rewritten sibling is left behind.
+    assert target.read_text(encoding="utf-8") == original
+    assert not (tmp_path / "late.csv.hardened").exists()
