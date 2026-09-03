@@ -6221,6 +6221,12 @@ export type MapStyleImportSummary = {
      * Warnings
      */
     warnings?: Array<MapStyleImportWarning>;
+    /**
+     * Warnings Truncated
+     *
+     * Warnings produced beyond the reported list
+     */
+    warnings_truncated?: number;
 };
 
 /**

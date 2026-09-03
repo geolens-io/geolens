@@ -313,7 +313,7 @@ def _restore_master_opacity(
     if layer_opacity is not None:
         number = finite_number(layer_opacity)
         if number is None:
-            summary.warnings.append(
+            summary.add_warning(
                 MapStyleImportWarning(
                     code="unsupported_layer_opacity",
                     message=(
@@ -394,7 +394,7 @@ def parse_maplibre_style_import(  # noqa: C901 - coordinates independent parsers
         dataset_id = _source_dataset_id(source)
         if dataset_id is None:
             summary.sources_unsupported += 1
-            summary.warnings.append(
+            summary.add_warning(
                 MapStyleImportWarning(
                     code="unsupported_source",
                     message="Source has no GeoLens dataset metadata and was not imported.",
@@ -426,7 +426,7 @@ def parse_maplibre_style_import(  # noqa: C901 - coordinates independent parsers
         dataset_id = matched_sources.get(str(source_id))
         if dataset_id is None:
             summary.layers_skipped += 1
-            summary.warnings.append(
+            summary.add_warning(
                 MapStyleImportWarning(
                     code="skipped_layer",
                     message="Layer source could not be matched to a GeoLens dataset.",

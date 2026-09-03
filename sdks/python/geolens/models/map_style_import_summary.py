@@ -25,6 +25,7 @@ class MapStyleImportSummary:
         layers_imported (int | Unset):  Default: 0.
         layers_skipped (int | Unset):  Default: 0.
         warnings (list[MapStyleImportWarning] | Unset):
+        warnings_truncated (int | Unset): Warnings produced beyond the reported list Default: 0.
     """
 
     sources_matched: int | Unset = 0
@@ -32,6 +33,7 @@ class MapStyleImportSummary:
     layers_imported: int | Unset = 0
     layers_skipped: int | Unset = 0
     warnings: list[MapStyleImportWarning] | Unset = UNSET
+    warnings_truncated: int | Unset = 0
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -50,6 +52,8 @@ class MapStyleImportSummary:
                 warnings_item = warnings_item_data.to_dict()
                 warnings.append(warnings_item)
 
+        warnings_truncated = self.warnings_truncated
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
@@ -63,6 +67,8 @@ class MapStyleImportSummary:
             field_dict["layers_skipped"] = layers_skipped
         if warnings is not UNSET:
             field_dict["warnings"] = warnings
+        if warnings_truncated is not UNSET:
+            field_dict["warnings_truncated"] = warnings_truncated
 
         return field_dict
 
@@ -88,12 +94,15 @@ class MapStyleImportSummary:
 
                 warnings.append(warnings_item)
 
+        warnings_truncated = d.pop("warnings_truncated", UNSET)
+
         map_style_import_summary = cls(
             sources_matched=sources_matched,
             sources_unsupported=sources_unsupported,
             layers_imported=layers_imported,
             layers_skipped=layers_skipped,
             warnings=warnings,
+            warnings_truncated=warnings_truncated,
         )
 
         map_style_import_summary.additional_properties = d

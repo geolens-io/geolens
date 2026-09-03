@@ -2678,7 +2678,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # nesting bound and has to run first, because `json.dumps` recurses and a
     # RecursionError is not something Pydantic turns into a 422.
     # Cap 1396 -> 1424, exact.
-    "backend/app/modules/catalog/maps/schemas.py": 1424,
+    # fix(#1778): +27 — the style-import door picks up `max_length=
+    # _MAX_LAYERS_PER_MAP` like its three siblings, with the comment saying
+    # what its absence cost (an over-cap imported map that apply_layer_diff
+    # then refused to save), and MapStyleImportSummary gains add_warning plus
+    # the truncation counter, because one warning per unmatched source over an
+    # unbounded `sources` object put the whole list in the 201 response.
+    # Cap 1424 -> 1451, exact.
+    "backend/app/modules/catalog/maps/schemas.py": 1451,
     # fix(#1042): decomposed. The file reached 2151 lines with five carve-outs
     # on this cap, each one a correctness fix that had to argue for its lines:
     # #888 (+117, shift a 0..360 source instead of clipping it, plus the clip

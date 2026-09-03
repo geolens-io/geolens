@@ -9904,6 +9904,12 @@ export interface components {
             layers_skipped: number;
             /** Warnings */
             warnings?: components["schemas"]["MapStyleImportWarning"][];
+            /**
+             * Warnings Truncated
+             * @description Warnings produced beyond the reported list
+             * @default 0
+             */
+            warnings_truncated: number;
         };
         /** MapStyleImportWarning */
         MapStyleImportWarning: {

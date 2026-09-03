@@ -155,6 +155,9 @@ _MAX_STYLE_DICT_BYTES = (
 )  # 64 KB serialized — generous for any real style override
 # MapUpdate.layers caps the per-map layer count. Real maps rarely exceed 50 layers.
 _MAX_LAYERS_PER_MAP = 200
+# How many style-import warnings the summary reports individually before it
+# starts counting instead (fix(#1778)).
+_MAX_IMPORT_WARNINGS = 100
 
 
 def _reject_oversize_json(value: object | None, label: str) -> None:
@@ -1079,6 +1082,24 @@ class MapStyleImportSummary(BaseModel):
     layers_imported: int = 0
     layers_skipped: int = 0
     warnings: list[MapStyleImportWarning] = Field(default_factory=list)
+    # fix(#1778): one warning per unmatched source, and `sources` carries no
+    # count bound of its own, so the list was as long as the document made it.
+    # Every entry is serialized into the 201 response and rendered as a DOM node
+    # by the import dialog. Keep the first _MAX_IMPORT_WARNINGS and count the
+    # rest: a reader who has seen 100 of these knows what is wrong with the
+    # document, and the count says how much was not listed.
+    warnings_truncated: int = Field(
+        default=0,
+        ge=0,
+        description="Warnings produced beyond the reported list",
+    )
+
+    def add_warning(self, warning: MapStyleImportWarning) -> None:
+        """Record a warning, or count it when the reported list is full."""
+        if len(self.warnings) >= _MAX_IMPORT_WARNINGS:
+            self.warnings_truncated += 1
+            return
+        self.warnings.append(warning)
 
 
 class MapStyleImportResponse(BaseModel):
@@ -1149,8 +1170,14 @@ class MapStyleImportRequest(BaseModel):
         default=None,
         description="MapLibre terrain config (source + exaggeration)",
     )
+    # fix(#1778): the same per-map layer cap the three sibling layer-carrying
+    # schemas already write. Without it this door created maps the builder's own
+    # save path then refused to edit, because apply_layer_diff raises once the
+    # resulting count passes _MAX_LAYERS_PER_MAP, so every ordinary edit of an
+    # over-cap imported map answered 400 until the owner bulk-deleted the excess.
     layers: list[dict] | None = Field(
         default=None,
+        max_length=_MAX_LAYERS_PER_MAP,
         description="MapLibre layer specifications",
     )
 
