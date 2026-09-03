@@ -169,17 +169,28 @@ def build_materialize_request(
 
 
 def run_preview(client: Any, dataset_id: str, request: Any) -> Any:
-    """POST the preview and return the parsed AnalysisPreviewResponse."""
+    """POST the preview and return the parsed AnalysisPreviewResponse.
+
+    fix(#1778 review round 11): the backend can run up to three
+    sequential sandbox queries before responding — a bbox-scoped source
+    count, the capped geometry query, and an uncapped match count, each
+    with its own 10s statement timeout (see the
+    ``LONG_RUNNING_SDK_FUNCTIONS`` docstring in ``_sdk_helpers.py`` for
+    the full accounting) — which can outlast AppState.sdk()'s plain 30s
+    bound for a valid, if slow, preview. Wrapped in
+    ``long_request_timeout()``.
+    """
     from geolens.api.datasets_analysis import (
         analysis_preview_endpoint_datasets_dataset_id_analysis_preview_post as _preview,
     )
 
-    resp = call_sdk(
-        _preview.sync_detailed,
-        dataset_id=dataset_id,
-        client=client,
-        body=request,
-    )
+    with long_request_timeout(client):
+        resp = call_sdk(
+            _preview.sync_detailed,
+            dataset_id=dataset_id,
+            client=client,
+            body=request,
+        )
     return unwrap(resp, expected=200)
 
 

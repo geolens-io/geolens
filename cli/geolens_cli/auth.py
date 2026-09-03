@@ -505,13 +505,22 @@ def replace_credentials(
     else:
         backend = store_api_key(instance, value, no_keyring=no_keyring)
 
-    # The marker lives in the file section the snapshot above already
-    # captured, so a subsequent restore (on a cleanup failure) correctly
-    # reverts it too, along with everything else — no separate rollback
-    # path is needed for it.
-    _set_credential_field(instance, _ACTIVE_KIND_FIELD, kind)
-
+    # fix(#1778 review round 11): the marker write must be INSIDE the
+    # rollback-protected block, not before it. It lives in the file
+    # section the snapshot above already captured, so a restore
+    # correctly reverts it too, along with everything else — but only
+    # if a failure writing it (a read-only or full filesystem, same as
+    # any other credentials.toml write) actually triggers that restore.
+    # Written outside the try, a failure here propagated straight past
+    # _restore_credentials: for a same-kind login the OLD keyring
+    # secret was already overwritten by store_bearer_token/
+    # store_api_key above, so there was nothing left to fall back to;
+    # for a kind switch, the marker write failing left the OLD kind's
+    # marker in place pointing at a value that had also already
+    # changed backends. Either way login reported failure with the
+    # credential store left in a state nothing had rolled back.
     try:
+        _set_credential_field(instance, _ACTIVE_KIND_FIELD, kind)
         _delete_stale_credentials(instance, keep=kind, keep_backend=backend)
     except Exception:
         _restore_credentials(instance, snapshot)

@@ -191,18 +191,60 @@ def long_request_timeout(client: Any) -> Iterator[Any]:
 #:   time validation/setup work), not a fire-and-forget 202 — already
 #:   covered since round 5, kept here so the registry is the single
 #:   list this test enumerates from.
+#: - ``analysis_preview`` (fix(#1778 review round 11)): the backend's
+#:   ``run_analysis_preview`` (backend/app/modules/catalog/datasets/
+#:   domain/service_analysis.py) can run up to three SEQUENTIAL
+#:   sandbox queries before responding — a bbox-scoped source count
+#:   (``_resolve_bbox_source_count``), the capped geometry query
+#:   (``execute_safe``), and an uncapped match/total count
+#:   (``_resolve_match_count``) — each on its own connection through
+#:   ``execute_safe``'s ``DEFAULT_TIMEOUT_MS = 10_000`` (backend/app/
+#:   platform/sandbox/executor.py). The two count queries degrade to
+#:   ``None`` on a ``SandboxError`` (including their own timeout) rather
+#:   than failing the preview, so a slow-but-valid preview legitimately
+#:   spends up to ~30s server-side (3 x 10s) before the geometry result
+#:   comes back — right at, or past, ``DEFAULT_HTTP_TIMEOUT_SECONDS``.
 #:
-#: Deliberately NOT included, with the backend fact that rules each
-#: out: commit/finalize (publish and reupload commit both queue a
-#: background job and return 202/202 immediately — CommitRequest/
-#: ReuploadCommitRequest handlers do no synchronous ingest work);
-#: refresh trigger (``refresh_dataset_...`` also returns 202 and queues
-#: — REFRESH_ACCEPTED_STATUS); service preview (``run_service_preview``,
-#: backend/app/modules/catalog/sources/preview.py, IS long-running
-#: server-side, but no CLI command calls
-#: ``preview_service_layer_services_preview_post`` today); any export/
-#: download (no CLI command streams a file response today). The
-#: manifest apply POST (manifest_apply.post_manifest_apply) is also
+#: Every other backend route with its own timeout budget was checked
+#: against the CLI's actual call sites and rejected, with the fact that
+#: rules each out:
+#:
+#: - commit/finalize: publish and reupload commit both queue a
+#:   background job and return 202/202 immediately — CommitRequest/
+#:   ReuploadCommitRequest handlers do no synchronous ingest work.
+#: - refresh trigger: ``refresh_dataset_...`` also returns 202 and
+#:   queues (``REFRESH_ACCEPTED_STATUS``) — geolens_cli/refresh.py's
+#:   ``start_refresh`` asserts exactly that status.
+#: - service preview (``run_service_preview``, backend/app/modules/
+#:   catalog/sources/preview.py) and every other ``/services`` connector
+#:   op (bounded by ``_CONNECTOR_OPERATION_TIMEOUT_SECONDS = 30.0``,
+#:   backend/app/modules/catalog/sources/router.py): IS long-running
+#:   server-side, but no CLI command calls any
+#:   ``.../services/...`` endpoint today — the CLI has no service-
+#:   connector surface at all.
+#: - dataset file export/download (backend/app/processing/export/
+#:   router.py, backed by ogr2ogr subprocess export bounded by
+#:   ``EDGE_PROXY_READ_TIMEOUT_SECONDS = 600``): the CLI's only
+#:   ``export`` subcommand is ``export stac``
+#:   (geolens_cli/export_stac.py), which calls the STAC item metadata
+#:   endpoint, not the file-download endpoint — no CLI command streams
+#:   a file response today.
+#: - VRT / COG raster creation (backend/app/processing/raster/vrt.py,
+#:   ``GDAL_SUBPROCESS_TIMEOUT_SECONDS = 3600``): only ever invoked from
+#:   the Procrastinate background worker (backend/app/processing/
+#:   ingest/tasks_vrt.py), never on a synchronous request path any CLI
+#:   command reaches.
+#: - backfills and bulk operations: the CLI has no backfill or bulk
+#:   command of any kind (nothing calls a backend route by that name),
+#:   so there is no call site to register regardless of the backend's
+#:   own timeout shape.
+#: - publish's keyword/collection-membership POSTs
+#:   (``_apply_tags``/``_apply_collection`` in geolens_cli/publish.py):
+#:   plain single-row ORM writes/lookups with no elevated backend
+#:   timeout budget documented anywhere — ordinary request-scoped work,
+#:   not "long-running" by this registry's definition.
+#:
+#: The manifest apply POST (manifest_apply.post_manifest_apply) is also
 #: long-running but is a raw ``httpx_client.post()`` call, not a
 #: generated SDK function — it has no name to register here and is
 #: covered by its own dedicated pin test instead
@@ -220,6 +262,11 @@ LONG_RUNNING_SDK_FUNCTIONS: dict[str, tuple[str, str]] = {
     "analysis_materialize": (
         "geolens.api.datasets_analysis."
         "analysis_materialize_endpoint_datasets_dataset_id_analysis_materialize_post",
+        "sync_detailed",
+    ),
+    "analysis_preview": (
+        "geolens.api.datasets_analysis."
+        "analysis_preview_endpoint_datasets_dataset_id_analysis_preview_post",
         "sync_detailed",
     ),
 }

@@ -524,6 +524,45 @@ class TestSnapshotUnknownStateNeverDeleted:
         assert loaded.value == "old-bearer-token"
 
 
+class TestActiveKindMarkerWriteIsRollbackProtected:
+    """fix(#1778 review round 11): the active_kind marker write sat
+    OUTSIDE replace_credentials()'s rollback-protected block. If the
+    keyring store succeeded but the marker write to credentials.toml
+    then failed (read-only or full filesystem), the exception
+    propagated straight past _restore_credentials -- for a same-kind
+    login, the OLD keyring secret had ALREADY been overwritten by the
+    new store call, so there was nothing left to fall back to; login
+    reported failure with no working credential at all."""
+
+    def test_a_marker_write_failure_restores_the_previous_credential(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli import auth as _auth
+        from geolens_cli import config as _config
+        from geolens_cli.main import app
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com"
+        canonical = _config.normalize_instance_url(instance)
+
+        _auth.store_bearer_token(canonical, "old-bearer-token")
+
+        def raising_write(*args, **kwargs):
+            raise OSError("read-only filesystem")
+
+        monkeypatch.setattr(_auth, "_write_credentials_file", raising_write)
+
+        # Same-kind login: the keyring store below succeeds and
+        # overwrites the old bearer with the new one BEFORE the marker
+        # write (also to the now-broken filesystem) fails.
+        result = runner.invoke(app, ["login", instance, "--token", "new-bearer-token"])
+
+        assert result.exit_code != 0, result.output
+        loaded = _auth.load_bearer_token(canonical)
+        assert loaded is not None
+        assert loaded.value == "old-bearer-token"
+
+
 class TestUnreadableKeyringDuringCleanup:
     """fix(#1778 review round 8): an unreadable keyring during the
     existence check (locked, backend down, ...) is not "no such

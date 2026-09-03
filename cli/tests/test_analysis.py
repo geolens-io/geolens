@@ -219,6 +219,48 @@ class TestRunMaterializeIsBounded:
 # ---------------------------------------------------------------------------
 
 
+class TestRunPreviewIsBounded:
+    """fix(#1778 review round 11): the backend's run_analysis_preview can
+    run up to three sequential sandbox queries before responding — a
+    bbox-scoped source count, the capped geometry query, and an uncapped
+    match count — each with its own 10s statement timeout, which can
+    outlast AppState.sdk()'s plain 30s bound for a valid, if slow,
+    preview. run_preview() must raise the bound for the POST and restore
+    it afterward."""
+
+    def test_raises_the_timeout_then_restores_it(self, monkeypatch) -> None:
+        from unittest.mock import MagicMock
+
+        from geolens_cli._sdk_helpers import EXTENDED_REQUEST_TIMEOUT_SECONDS
+        from geolens_cli.analysis import run_preview
+
+        seen_timeout_during_post = None
+
+        mock_httpx = MagicMock()
+        mock_httpx.timeout = 30.0  # AppState.sdk()'s default bound
+
+        client = MagicMock()
+        client.get_httpx_client.return_value = mock_httpx
+
+        def fake_sync_detailed(**kwargs):
+            nonlocal seen_timeout_during_post
+            seen_timeout_during_post = mock_httpx.timeout
+            return MagicMock(status_code=200, parsed=_FakePreview())
+
+        monkeypatch.setattr(
+            "geolens.api.datasets_analysis."
+            "analysis_preview_endpoint_datasets_dataset_id_analysis_preview_post"
+            ".sync_detailed",
+            fake_sync_detailed,
+        )
+
+        run_preview(client, "dataset-1", request=MagicMock())
+
+        assert seen_timeout_during_post == EXTENDED_REQUEST_TIMEOUT_SECONDS
+        assert seen_timeout_during_post != 30.0
+        assert mock_httpx.timeout == 30.0
+
+
 class TestOperationHelp:
     """fix(#1105): `--operation` help named three operations while the server
     took eight, so spatial_join and measure were invisible from the CLI.
