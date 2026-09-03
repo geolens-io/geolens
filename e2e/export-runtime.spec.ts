@@ -274,6 +274,50 @@ function serializeBBox(bbox: BBox): string {
   return bbox.map((value) => Number(value.toFixed(6))).join(',');
 }
 
+// fix(review #1792 round 5): a number string-interpolated directly (e.g.
+// `${threshold}` below) goes through JS's default Number-to-string
+// conversion, which switches to scientific notation below 1e-6 or at/above
+// 1e21 -- (1e-7).toString() === '1e-7', (1e21).toString() === '1e+21'. The
+// backend's -where clause parser (validate_where_clause) reads that `e` as
+// a bare SQL identifier, not part of a numeric literal, and rejects the
+// clause. Expand scientific notation back to a plain decimal string before
+// it reaches a clause. Pure string/digit manipulation on the exact digits
+// JS already chose -- never touches the value itself, so it can never round
+// (in particular, never rounds above the observed maximum the round-2 fix
+// depends on).
+function formatNumericLiteral(value: number): string {
+  const raw = String(value);
+  const match = raw.match(/^(-?)(\d+)(?:\.(\d+))?e([+-]\d+)$/i);
+  if (!match) {
+    return raw;
+  }
+
+  const [, sign, intDigits, fracDigits = '', expStr] = match;
+  const exponent = Number(expStr);
+  const digits = intDigits + fracDigits;
+  // Where the decimal point lands once the exponent shifts it, counted from
+  // the start of `digits` (intDigits followed directly by fracDigits).
+  const pointPos = intDigits.length + exponent;
+
+  let expanded: string;
+  if (pointPos <= 0) {
+    // |value| < 1: leading zeros after the point, then the digits.
+    expanded = `0.${'0'.repeat(-pointPos)}${digits}`;
+  } else if (pointPos >= digits.length) {
+    // Large integer: pad the digits out with trailing zeros.
+    expanded = digits + '0'.repeat(pointPos - digits.length);
+  } else {
+    // The point lands inside the digit string.
+    expanded = `${digits.slice(0, pointPos)}.${digits.slice(pointPos)}`;
+  }
+
+  if (expanded.includes('.')) {
+    expanded = expanded.replace(/0+$/, '').replace(/\.$/, '');
+  }
+
+  return sign + expanded;
+}
+
 function isSqlIdentifier(value: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
 }
@@ -354,7 +398,7 @@ function buildWherePredicate(
     const threshold = maxValue;
     const { columnName, propertyKey } = numericColumn;
     return {
-      clause: `${columnName} >= ${threshold}`,
+      clause: `${columnName} >= ${formatNumericLiteral(threshold)}`,
       propertyKey,
       evaluate: (candidate) => {
         const value = candidate[propertyKey];
@@ -622,6 +666,29 @@ async function resolveRuntimeDataset(
     `Runtime export dataset ${datasetId} did not satisfy format and target_crs semantic preconditions`,
   );
 }
+
+// fix(review #1792 round 5): pure-logic pin for formatNumericLiteral,
+// independent of any live request -- the two inputs are exactly where
+// JS's Number-to-string conversion switches to scientific notation (see
+// the function's own comment).
+test.describe('formatNumericLiteral', () => {
+  test('expands a value just below the small-number scientific-notation threshold', () => {
+    expect(String(1e-7)).toBe('1e-7'); // sanity: this is the input JS would otherwise emit as-is
+    expect(formatNumericLiteral(1e-7)).toBe('0.0000001');
+  });
+
+  test('expands a value at the large-number scientific-notation threshold', () => {
+    expect(String(1e21)).toBe('1e+21'); // sanity: this is the input JS would otherwise emit as-is
+    expect(formatNumericLiteral(1e21)).toBe('1000000000000000000000');
+  });
+
+  test('leaves values JS already renders as plain decimals untouched', () => {
+    expect(formatNumericLiteral(1e-6)).toBe('0.000001');
+    expect(formatNumericLiteral(1e20)).toBe('100000000000000000000');
+    expect(formatNumericLiteral(30)).toBe('30');
+    expect(formatNumericLiteral(-1e-7)).toBe('-0.0000001');
+  });
+});
 
 test.describe('Runtime export integrity', () => {
   test.describe.configure({ mode: 'serial' });
