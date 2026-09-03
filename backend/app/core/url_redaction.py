@@ -442,10 +442,72 @@ def scrub_secret_from_exception(exc: BaseException, secret: str | None) -> None:
     downstream reader of that exception — the persisted ``error_message``, the
     log record, the notification reason, and the re-raise the queue records —
     sees the scrubbed text, without each of them having to remember to scrub.
+
+    Covers the whole chain (fix(#1746 B2b review r32)): ``__context__``,
+    ``__cause__``, the members of a ``BaseExceptionGroup``, and ``__notes__``
+    on each. A traceback renders all of them, so scrubbing only the outermost
+    ``args`` left the secret visible in exactly the case that produces a chain
+    here — a WFS import that fails, retries unqualified, and fails again.
     """
-    if not secret or not exc.args:
+    if not secret:
         return
-    exc.args = tuple(
-        scrub_secret_value(arg, secret) if isinstance(arg, str) else arg
-        for arg in exc.args
-    )
+    # fix(#1746 B2b review r32): the WHOLE chain, not just the top. A
+    # namespace-qualified WFS import that fails twice leaves the first
+    # attempt's `IngestionError` as the retry's `__context__`, and the retry's
+    # `__cause__` when the auth hint replaces it. Scrubbing only the outermost
+    # `args` left a username or password the first GDAL attempt echoed sitting
+    # in the chained traceback that exception logging renders and the queue's
+    # bare re-raise records. Every reader of the outer exception is a reader of
+    # its chain.
+    #
+    # `id()` rather than the exception itself: `__eq__` is not defined for most
+    # exception types, and a set of them would compare by identity anyway, but
+    # saying so removes the question. A cycle is not hypothetical -- assigning
+    # `e.__context__ = e` is legal and `raise X from Y` inside a handler for Y
+    # builds a two-node one -- so the visited set is what terminates this, and
+    # the depth bound is a second floor under a chain that is merely long.
+    seen: set[int] = set()
+    pending: list[tuple[BaseException, int]] = [(exc, 0)]
+    while pending:
+        current, depth = pending.pop()
+        if id(current) in seen or depth > _MAX_EXCEPTION_CHAIN_DEPTH:
+            continue
+        seen.add(id(current))
+        _scrub_one_exception(current, secret)
+        for linked in (
+            current.__context__,
+            current.__cause__,
+            *(
+                # A group carries its members beside the chain rather than in
+                # it, so following only `__context__`/`__cause__` walks past
+                # them. `anyio` and `asyncio.TaskGroup` raise these, and this
+                # module's callers run under both.
+                getattr(current, "exceptions", None) or ()
+                if isinstance(current, BaseExceptionGroup)
+                else ()
+            ),
+        ):
+            if isinstance(linked, BaseException):
+                pending.append((linked, depth + 1))
+
+
+# A chain longer than this is a runaway rather than a diagnosis, and walking it
+# is work done while a job is already failing.
+_MAX_EXCEPTION_CHAIN_DEPTH = 50
+
+
+def _scrub_one_exception(exc: BaseException, secret: str) -> None:
+    """Scrub the two places an exception carries text of its own."""
+    if exc.args:
+        exc.args = tuple(
+            scrub_secret_value(arg, secret) if isinstance(arg, str) else arg
+            for arg in exc.args
+        )
+    # `add_note` text is rendered by the traceback machinery exactly like the
+    # message is, and nothing else scrubs it.
+    notes = getattr(exc, "__notes__", None)
+    if isinstance(notes, list):
+        exc.__notes__ = [
+            scrub_secret_value(note, secret) if isinstance(note, str) else note
+            for note in notes
+        ]

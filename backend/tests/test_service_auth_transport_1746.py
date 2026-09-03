@@ -64,7 +64,8 @@ from app.platform.service_items import (
     MaterialisedCollection,
     materialise_oapif_items,
 )
-from app.processing.ingest.ogr import run_ogr2ogr_service
+from app.core.url_redaction import scrub_secret_from_exception
+from app.processing.ingest.ogr import IngestionError, run_ogr2ogr_service
 
 # fix(#1746 codex r2): autouse where imported — the credential header lands in
 # gdal_header_dir(), so without this the suite writes into the real /tmp.
@@ -6514,3 +6515,215 @@ class TestASampleCanBeShorterButNeverLonger:
 
         assert extract.features == 5
         assert extract.total == 5
+
+
+class TestASecretDoesNotSurviveInTheChain:
+    """fix(#1746 B2b review r32): a traceback renders more than `args`.
+
+    A namespace-qualified WFS import that fails, retries unqualified, and fails
+    again leaves the FIRST attempt's error as the retry's `__context__`, and as
+    its `__cause__` when the auth hint replaces it. Scrubbing only the
+    outermost `args` left a username or password the first GDAL attempt echoed
+    sitting in the chained traceback that exception logging renders and the
+    queue's bare re-raise records.
+    """
+
+    @staticmethod
+    def _secret() -> str:
+        return "pw" + _value()
+
+    def test_a_context_chain_is_scrubbed_at_every_level(self) -> None:
+        secret = self._secret()
+        try:
+            try:
+                raise IngestionError(f"attempt one: bad password {secret}")
+            except IngestionError:
+                raise IngestionError(f"attempt two: bad password {secret}") from None
+        except IngestionError as outer:
+            scrub_secret_from_exception(outer, secret)
+
+            assert secret not in str(outer)
+            # `from None` suppresses the CAUSE and leaves the CONTEXT attached,
+            # so the first attempt's message is still reachable and still
+            # rendered by anything that walks the chain itself.
+            assert outer.__context__ is not None
+            assert secret not in str(outer.__context__)
+
+    def test_a_cause_chain_is_scrubbed_at_every_level(self) -> None:
+        """The shape `_run_service_import_with_wfs_fallback` builds."""
+        secret = self._secret()
+        try:
+            try:
+                raise IngestionError(f"gdal said {secret}")
+            except IngestionError as retry_exc:
+                raise IngestionError("This service requires a token.") from retry_exc
+        except IngestionError as outer:
+            scrub_secret_from_exception(outer, secret)
+
+            assert outer.__cause__ is not None
+            assert secret not in str(outer.__cause__)
+
+    def test_a_deep_chain_is_scrubbed_throughout(self) -> None:
+        secret = self._secret()
+        exc: BaseException = IngestionError(f"level 0 {secret}")
+        for level in range(1, 6):
+            outer = IngestionError(f"level {level} {secret}")
+            outer.__context__ = exc
+            exc = outer
+
+        scrub_secret_from_exception(exc, secret)
+
+        seen = 0
+        node: BaseException | None = exc
+        while node is not None:
+            assert secret not in str(node), seen
+            seen += 1
+            node = node.__context__
+        assert seen == 6
+
+    def test_a_cycle_terminates(self) -> None:
+        """`e.__context__ = e` is legal, and a handler for Y raising X from Y
+        builds a two-node one. The visited set is what ends the walk."""
+        secret = self._secret()
+        one = IngestionError(f"one {secret}")
+        two = IngestionError(f"two {secret}")
+        one.__context__ = two
+        two.__context__ = one
+        one.__cause__ = two
+
+        scrub_secret_from_exception(one, secret)
+
+        assert secret not in str(one)
+        assert secret not in str(two)
+
+    def test_a_self_referencing_exception_terminates(self) -> None:
+        secret = self._secret()
+        exc = IngestionError(f"alone {secret}")
+        exc.__context__ = exc
+        exc.__cause__ = exc
+
+        scrub_secret_from_exception(exc, secret)
+
+        assert secret not in str(exc)
+
+    def test_a_chain_longer_than_the_bound_still_returns(self) -> None:
+        """The depth bound is a floor under a chain that is merely long.
+
+        Whatever it does not reach it does not hang on, which is the property
+        that matters while a job is already failing.
+        """
+        from app.core.url_redaction import _MAX_EXCEPTION_CHAIN_DEPTH
+
+        secret = self._secret()
+        exc: BaseException = IngestionError(f"deep {secret}")
+        for _ in range(_MAX_EXCEPTION_CHAIN_DEPTH * 3):
+            outer = IngestionError(f"deep {secret}")
+            outer.__context__ = exc
+            exc = outer
+
+        scrub_secret_from_exception(exc, secret)
+
+        assert secret not in str(exc)
+
+    def test_exception_group_members_are_scrubbed(self) -> None:
+        """A group carries its members beside the chain, not in it.
+
+        `anyio` and `asyncio.TaskGroup` raise these, and the worker runs under
+        both, so following only `__context__` and `__cause__` walks straight
+        past the exception that actually holds the text.
+        """
+        secret = self._secret()
+        group = BaseExceptionGroup(
+            "task group failed",
+            [
+                IngestionError(f"member one {secret}"),
+                IngestionError(f"member two {secret}"),
+            ],
+        )
+
+        scrub_secret_from_exception(group, secret)
+
+        for member in group.exceptions:
+            assert secret not in str(member)
+
+    def test_a_nested_group_is_scrubbed(self) -> None:
+        secret = self._secret()
+        inner = BaseExceptionGroup("inner", [IngestionError(f"deep {secret}")])
+        outer = BaseExceptionGroup("outer", [inner])
+
+        scrub_secret_from_exception(outer, secret)
+
+        assert secret not in str(outer.exceptions[0].exceptions[0])
+
+    def test_notes_are_scrubbed(self) -> None:
+        """`add_note` text is rendered exactly like the message is."""
+        secret = self._secret()
+        exc = IngestionError("ogr2ogr failed")
+        exc.add_note(f"attempted with {secret}")
+        inner = IngestionError("first attempt")
+        inner.add_note(f"also {secret}")
+        exc.__context__ = inner
+
+        scrub_secret_from_exception(exc, secret)
+
+        assert secret not in "".join(exc.__notes__)
+        assert secret not in "".join(inner.__notes__)
+
+    def test_a_chain_of_mixed_types_is_scrubbed(self) -> None:
+        """The walk must not assume every link is an `IngestionError`."""
+        secret = self._secret()
+        try:
+            try:
+                raise OSError(f"connect failed for {secret}")
+            except OSError:
+                raise IngestionError(f"import failed {secret}") from None
+        except IngestionError as outer:
+            scrub_secret_from_exception(outer, secret)
+
+            assert secret not in str(outer)
+            assert secret not in str(outer.__context__)
+
+    def test_nothing_happens_without_a_secret(self) -> None:
+        """The no-credential path must not pay for any of this."""
+        exc = IngestionError("ogr2ogr failed (exit 1)")
+        inner = IngestionError("first attempt")
+        exc.__context__ = inner
+
+        scrub_secret_from_exception(exc, None)
+        scrub_secret_from_exception(exc, "")
+
+        assert str(exc) == "ogr2ogr failed (exit 1)"
+        assert str(inner) == "first attempt"
+
+    async def test_the_worker_scrubs_the_chain_it_produces(self, monkeypatch) -> None:
+        """End to end through the retry that builds the chain in production.
+
+        The first attempt fails with the password echoed, the unqualified retry
+        fails the same way, and what the task hands on must carry it at neither
+        level.
+        """
+        from app.processing.ingest.tasks_common import (
+            _run_service_import_with_wfs_fallback,
+        )
+
+        secret = self._secret()
+        attempts: list[str] = []
+
+        async def _import(layer_name: str) -> None:
+            attempts.append(layer_name)
+            raise IngestionError(
+                f"ogr2ogr failed (exit 1): authentication failed for {secret}"
+            )
+
+        with pytest.raises(IngestionError) as raised:
+            await _run_service_import_with_wfs_fallback(_import, "topp:parcels")
+
+        # Both attempts ran, so there is a chain to scrub.
+        assert attempts == ["topp:parcels", "parcels"]
+        assert raised.value.__context__ is not None
+        assert secret in str(raised.value.__context__)
+
+        scrub_secret_from_exception(raised.value, secret)
+
+        assert secret not in str(raised.value)
+        assert secret not in str(raised.value.__context__)
