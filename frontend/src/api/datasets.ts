@@ -405,7 +405,12 @@ export async function reuploadPresigned(
     return completePresignedReupload(datasetId, job_id);
   }
 
-  const etags = await uploadChunks(urls, file, part_size!);
+  const etags = await uploadChunks(urls, file, part_size!, undefined, {
+    // fix(review #1800 P2 round 3): tell the backend to abort the multipart
+    // upload if a part comes back with no ETag — otherwise S3 keeps it open
+    // (consuming storage) on every retry with nothing left to complete it.
+    onMissingEtag: () => completePresignedReupload(datasetId, job_id),
+  });
   const completedParts = etags.map((etag, i) => ({ etag, part_number: i + 1 }));
 
   return completePresignedReupload(datasetId, job_id, completedParts);

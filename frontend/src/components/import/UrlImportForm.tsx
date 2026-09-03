@@ -336,6 +336,16 @@ export function UrlImportForm() {
 
   const handleFetch = async (e: React.FormEvent) => {
     e.preventDefault();
+    // fix(review #1800 P2 round 3): a retained job id (transient preview
+    // failure) means the url/filename fields are still visually present
+    // next to the recovery actions — without this guard, editing them and
+    // submitting silently started a SECOND session, replacing the
+    // module-level `current` and orphaning the retained job's staged file
+    // with nothing left to reach it. The recovery panel's own two actions
+    // (Retry preview / Cancel and start over) are the only way forward
+    // while a job is retained; Cancel and start over clears jobId and
+    // re-enables ordinary submission.
+    if (jobId) return;
     const trimmed = url.trim();
     if (!trimmed) return;
     await runSession(startUrlImport(trimmed, filename.trim() || undefined));
@@ -546,11 +556,12 @@ export function UrlImportForm() {
               placeholder={t('urlImport.placeholder')}
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              className="flex-1 bg-transparent px-3.5 py-2.5 font-mono text-sm text-foreground outline-none placeholder:text-muted-foreground/50"
+              disabled={!!jobId}
+              className="flex-1 bg-transparent px-3.5 py-2.5 font-mono text-sm text-foreground outline-none placeholder:text-muted-foreground/50 disabled:opacity-60"
             />
             <button
               type="submit"
-              disabled={!url.trim()}
+              disabled={!url.trim() || !!jobId}
               className="bg-primary px-4 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
             >
               {t('urlImport.fetch')}
@@ -579,6 +590,7 @@ export function UrlImportForm() {
             placeholder={t('urlImport.filenamePlaceholder')}
             value={filename}
             onChange={(e) => setFilename(e.target.value)}
+            disabled={!!jobId}
             className="font-mono text-sm"
           />
           <p className="text-xs text-muted-foreground">{t('urlImport.filenameHelpText')}</p>

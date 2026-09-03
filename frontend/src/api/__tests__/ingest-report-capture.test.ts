@@ -62,9 +62,42 @@ class FakeXHR {
   }
 }
 
+// fix(review #1800 P2 round 3): uploadChunks' per-part PUT moved to XHR —
+// URL-aware so test (d) can drive two concurrent-in-flight-order parts by
+// which presigned URL each XHR instance was opened against.
+class PartXHR {
+  static instances: PartXHR[] = [];
+  static forUrl(url: string): PartXHR | undefined {
+    return PartXHR.instances.find((x) => x.url === url);
+  }
+
+  url = '';
+  status = 0;
+  upload: { onprogress: ((e: unknown) => void) | null } = { onprogress: null };
+  onload: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  private headers: Record<string, string> = {};
+
+  open(_method: string, url: string) {
+    this.url = url;
+    PartXHR.instances.push(this);
+  }
+  send() {}
+  abort() {}
+  getResponseHeader(name: string): string | null {
+    return this.headers[name] ?? null;
+  }
+  respond(status: number, headers: Record<string, string> = {}) {
+    this.status = status;
+    this.headers = headers;
+    this.onload?.();
+  }
+}
+
 describe('upload-path report capture', () => {
   beforeEach(() => {
     clearReportEntries();
+    PartXHR.instances = [];
   });
 
   afterEach(() => {
@@ -141,29 +174,36 @@ describe('upload-path report capture', () => {
     expect(entries[0].message).not.toContain('X-Amz-Signature');
   });
 
+  // fix(review #1800 P2 round 3): the per-part PUT moved from `fetch` to
+  // XHR (see _presignedUpload.ts) — the presign-request JSON call still
+  // goes through apiFetch/fetch, but each part PUT now needs an XHR mock.
   it('(d) captures a multipart presigned PUT failure with the failing part number', async () => {
     const part1 = 'https://storage.example.com/bucket/key?partNumber=1&X-Amz-Signature=SIG1';
     const part2 = 'https://storage.example.com/bucket/key?partNumber=2&X-Amz-Signature=SIG2';
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = typeof input === 'string' ? input : input.toString();
-        if (url === part1) return { ok: true, status: 200, headers: new Headers({ ETag: 'e1' }) } as Response;
-        // Non-retriable status — fails immediately, no backoff delay to wait out.
-        if (url === part2) return { ok: false, status: 403, headers: new Headers() } as Response;
-        return jsonResponse(200, {
+      vi.fn(async () =>
+        jsonResponse(200, {
           job_id: 'job-2',
           urls: [part1, part2],
           s3_key: 'k',
           upload_id: 'multipart-1',
           part_size: 5,
-        });
-      }),
+        }),
+      ),
     );
+    vi.stubGlobal('XMLHttpRequest', PartXHR);
 
-    await expect(
-      uploadPresigned(new File(['aaaaaaaaaa'], 'big.tif')),
-    ).rejects.toBeTruthy();
+    const promise = uploadPresigned(new File(['aaaaaaaaaa'], 'big.tif'));
+    promise.catch(() => {});
+
+    await vi.waitFor(() => expect(PartXHR.forUrl(part1)).toBeDefined());
+    PartXHR.forUrl(part1)!.respond(200, { ETag: 'e1' });
+    await vi.waitFor(() => expect(PartXHR.forUrl(part2)).toBeDefined());
+    // Non-retriable status — fails immediately, no backoff delay to wait out.
+    PartXHR.forUrl(part2)!.respond(403);
+
+    await expect(promise).rejects.toBeTruthy();
 
     const entries = getReportEntries();
     expect(entries).toHaveLength(1);
@@ -172,6 +212,49 @@ describe('upload-path report capture', () => {
     expect(entries[0].message).toContain('part 2/2');
     expect(entries[0].message).toContain('big.tif');
     expect(entries[0].message).not.toContain('SIG2');
+  });
+
+  // fix(review #1800 P2 round 3): S3 accepting a part with no ETag exposed
+  // (a bucket CORS misconfiguration) used to throw straight out of
+  // uploadPresigned, leaving the multipart upload open server-side on
+  // every retry — the completion endpoint's own abort-on-empty-parts path
+  // was never reached because uploadPresigned never called /complete at
+  // all in that case. uploadPresigned now wires uploadChunks'
+  // onMissingEtag hook to `completePresignedUpload(job_id)` (parts
+  // omitted, defaulting to `[]`), which is exactly the "failed
+  // completion" shape the backend already aborts on.
+  it('calls the presigned-complete endpoint with no parts (the abort path) exactly once when ETag is absent', async () => {
+    const part1 = 'https://storage.example.com/bucket/key?partNumber=1&X-Amz-Signature=SIG1';
+    const completeCalls: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.endsWith('/complete')) {
+          completeCalls.push(init?.body ? JSON.parse(init.body as string) : null);
+          // Mirrors the backend: no parts is a 400, not a success.
+          return jsonResponse(400, { detail: 'Multipart upload completion requires at least one uploaded part' });
+        }
+        return jsonResponse(200, {
+          job_id: 'job-3',
+          urls: [part1],
+          s3_key: 'k',
+          upload_id: 'multipart-2',
+          part_size: 5,
+        });
+      }),
+    );
+    vi.stubGlobal('XMLHttpRequest', PartXHR);
+
+    const promise = uploadPresigned(new File(['aaaaaaaaaa'], 'big.tif'));
+    promise.catch(() => {});
+
+    await vi.waitFor(() => expect(PartXHR.forUrl(part1)).toBeDefined());
+    // 2xx, but no ETag header — the CORS-misconfigured-bucket case.
+    PartXHR.forUrl(part1)!.respond(200);
+
+    await expect(promise).rejects.toThrow(/ETag/);
+    expect(completeCalls).toEqual([{ parts: [] }]);
   });
 
   it('(e) captures a preview/detection failure, dropping the job id from the reported path', async () => {

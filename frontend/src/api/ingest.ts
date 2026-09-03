@@ -448,7 +448,12 @@ export async function uploadPresigned(
 
   // Multipart upload — progress reported per completed chunk. uploadChunks
   // reports its own per-part failures.
-  const etags = await uploadChunks(urls, file, part_size!, onProgress);
+  const etags = await uploadChunks(urls, file, part_size!, onProgress, {
+    // fix(review #1800 P2 round 3): tell the backend to abort the multipart
+    // upload if a part comes back with no ETag — otherwise S3 keeps it open
+    // (consuming storage) on every retry with nothing left to complete it.
+    onMissingEtag: () => completePresignedUpload(job_id),
+  });
   const completedParts = etags.map((etag, i) => ({ etag, part_number: i + 1 }));
 
   try {
