@@ -44,6 +44,31 @@ class DeadlineTimeout(Exception):
     """An SDK request consumed the caller's operation deadline."""
 
 
+def make_client(
+    instance: str,
+    *,
+    bearer_token: str | None = None,
+    api_key: str | None = None,
+) -> Any:
+    """Construct a GeolensClient bound to DEFAULT_HTTP_TIMEOUT_SECONDS.
+
+    fix(#1778 review round 2): every construction of the SDK's generated
+    client in this package must go through here — AppState.sdk(), the
+    interactive login flow, auth.try_refresh(), and
+    call_sdk_with_reauth's retry client had each been given the timeout
+    bound (or missed it, in login's case) independently, so a new call
+    site could ship unbounded with nothing to catch it.
+    tests/test_client_construction.py greps the package for the
+    construction call and asserts the only occurrence is inside this
+    function's body.
+    """
+    from geolens import GeolensClient  # lazy: keep `geolens --help` snappy
+
+    client = GeolensClient(base_url=instance, bearer_token=bearer_token, api_key=api_key)
+    client.client.get_httpx_client().timeout = DEFAULT_HTTP_TIMEOUT_SECONDS
+    return client
+
+
 def unwrap(resp: Any, *, expected: int = 200) -> Any:
     """Translate an SDK Response into either parsed model or typer.Exit.
 
@@ -124,23 +149,26 @@ def call_sdk_with_reauth(
       expired token — refreshing on it let a legacy profile holding both
       an API key and a stale refresh token silently retry as a different
       (renewed-bearer) identity instead of surfacing the denial.
-    - The retry client is built from ``new_access`` directly
-      (``GeolensClient(base_url=instance, bearer_token=new_access)``)
-      rather than by re-resolving credentials (the previous
-      ``rebuild_client()`` parameter). Re-resolving picks GEOLENS_TOKEN
-      over a stored credential (D-35), so with an expired env token and a
-      valid stored refresh token, the retry kept resending the same
-      expired env token and burned the rotated refresh token for nothing.
+    - The retry client is built from ``new_access`` directly via
+      ``make_client(instance, bearer_token=new_access)`` rather than by
+      re-resolving credentials (the previous ``rebuild_client()``
+      parameter). Re-resolving picks GEOLENS_TOKEN over a stored
+      credential (D-35), so with an expired env token and a valid stored
+      refresh token, the retry kept resending the same expired env token
+      and burned the rotated refresh token for nothing.
+
+    fix(#1778 review round 2): the retry client above (and every other
+    client construction in this package) now goes through
+    ``make_client()`` so the timeout bound is structurally guaranteed
+    rather than repeated at each call site.
     """
     from . import auth as _auth  # lazy: avoid an import cycle with main.py
-    from geolens import GeolensClient  # lazy: keep `geolens --help` snappy
 
     resp = call_sdk(fn, deadline_expired=deadline_expired, **kwargs)
     if int(resp.status_code) == 401:
         new_access = _auth.try_refresh(instance)
         if new_access:
-            retry_sdk = GeolensClient(base_url=instance, bearer_token=new_access)
-            retry_sdk.client.get_httpx_client().timeout = DEFAULT_HTTP_TIMEOUT_SECONDS
+            retry_sdk = make_client(instance, bearer_token=new_access)
             kwargs[client_kwarg] = retry_sdk.client
             resp = call_sdk(fn, deadline_expired=deadline_expired, **kwargs)
     return resp

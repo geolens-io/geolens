@@ -156,6 +156,45 @@ class TestLoginStdinSecret:
         assert result.exit_code == 0, result.output
 
 
+class TestInteractiveLoginIsBounded:
+    """fix(#1778 review round 2): the interactive login flow built its own
+    GeolensClient directly with the SDK's default timeout=None
+    (unbounded), so `geolens login <url>` (no --token/--api-key) could
+    hang forever on a host that accepts a connection and then stalls,
+    despite AppState.sdk()'s bound added earlier in this PR. It now goes
+    through the same _sdk_helpers.make_client() every other client
+    construction in this package uses."""
+
+    def test_a_stalled_login_endpoint_exits_network_within_the_bound(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        import httpx
+
+        from geolens_cli._sdk_helpers import DEFAULT_HTTP_TIMEOUT_SECONDS
+
+        seen_timeout = None
+
+        def stalled_login(**kwargs):
+            nonlocal seen_timeout
+            seen_timeout = kwargs["client"].get_httpx_client().timeout
+            raise httpx.TimeoutException("login endpoint never responded")
+
+        monkeypatch.setattr(
+            "geolens.api.auth.login_auth_login_post.sync_detailed",
+            stalled_login,
+        )
+
+        result = runner.invoke(
+            app,
+            ["login", "https://x.example.com"],
+            input="alice\nsecret\n",
+        )
+
+        assert result.exit_code == EXIT_NETWORK, result.output
+        assert seen_timeout is not None
+        assert seen_timeout == httpx.Timeout(DEFAULT_HTTP_TIMEOUT_SECONDS)
+
+
 class TestLoginEvictsOtherCredentialType:
     """fix(#1778): AppState.sdk() prefers a stored bearer token over an API
     key. `login --api-key` used to store the key WITHOUT clearing a stale

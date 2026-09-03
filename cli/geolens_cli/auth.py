@@ -222,20 +222,20 @@ def try_refresh(instance: str) -> Optional[str]:
     # Detect the backend BEFORE the HTTP call so we know where to write back.
     no_keyring = _detect_credential_backend(instance)
 
-    from geolens import GeolensClient
     from geolens.api.auth import refresh_auth_refresh_post
     from geolens.models.refresh_request import RefreshRequest
 
-    from ._sdk_helpers import DEFAULT_HTTP_TIMEOUT_SECONDS
+    from ._sdk_helpers import make_client
 
     try:
-        sdk = GeolensClient(base_url=instance)
-        # fix(#1778 review): this used to build a client with the SDK's
-        # default timeout=None (unbounded), so a stalled refresh endpoint
-        # hung the calling command forever instead of falling back to
-        # "refresh failed" within a bounded time — the same class of bug
-        # AppState.sdk() was fixed for elsewhere in this PR.
-        sdk.client.get_httpx_client().timeout = DEFAULT_HTTP_TIMEOUT_SECONDS
+        # fix(#1778 review round 1): this used to build its own client
+        # with the SDK's default timeout=None (unbounded), so a stalled
+        # refresh endpoint hung the calling command forever instead of
+        # falling back to "refresh failed" within a bounded time.
+        # fix(#1778 review round 2): routed through make_client() (the
+        # single construction point for every GeolensClient in this
+        # package) rather than setting the bound here directly.
+        sdk = make_client(instance)
         body = RefreshRequest(refresh_token=refresh)
         resp = refresh_auth_refresh_post.sync_detailed(client=sdk.client, body=body)
     except Exception as exc:  # network or unexpected SDK error (incl. timeout)

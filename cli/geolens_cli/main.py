@@ -30,13 +30,13 @@ from . import refresh as _refresh
 from . import replace as _replace
 from . import scan as _scan
 from ._sdk_helpers import (
-    DEFAULT_HTTP_TIMEOUT_SECONDS,
     EXIT_AUTH,
     EXIT_GENERIC,
     EXIT_NETWORK,
     EXIT_USAGE,
     call_sdk,
     call_sdk_with_reauth,
+    make_client,
     unwrap,
 )
 
@@ -87,8 +87,6 @@ class AppState:
 
     def sdk(self):
         """Lazy-construct an authenticated SDK client for the active instance."""
-        from geolens import GeolensClient
-
         instance = self.active_instance()
         if not instance:
             raise typer.BadParameter(
@@ -96,19 +94,18 @@ class AppState:
             )
         bearer = _auth.load_bearer_token(instance)
         api_key = _auth.load_api_key(instance)
+        # fix(#1778, #1787): make_client() binds every request to
+        # DEFAULT_HTTP_TIMEOUT_SECONDS — the SDK's generated transport
+        # otherwise carries timeout=None (unbounded), so every command
+        # would hang forever against a black-holed host instead of
+        # exiting EXIT_NETWORK. Commands that poll (publish --wait,
+        # analysis materialize --wait) bound each individual request
+        # further still — see publish.resolve_dataset_id.
         if bearer:
-            client = GeolensClient(base_url=instance, bearer_token=bearer.value)
-        elif api_key:
-            client = GeolensClient(base_url=instance, api_key=api_key.value)
-        else:
-            client = GeolensClient(base_url=instance)
-        # fix(#1778, #1787): the SDK's generated transport otherwise carries
-        # timeout=None (unbounded), so every command hangs forever against a
-        # black-holed host instead of exiting EXIT_NETWORK. Commands that
-        # poll (publish --wait, analysis materialize --wait) bound each
-        # individual request further still — see publish.resolve_dataset_id.
-        client.client.get_httpx_client().timeout = DEFAULT_HTTP_TIMEOUT_SECONDS
-        return client
+            return make_client(instance, bearer_token=bearer.value)
+        if api_key:
+            return make_client(instance, api_key=api_key.value)
+        return make_client(instance)
 
 
 def _version_callback(value: bool) -> None:
@@ -448,13 +445,18 @@ def login(
         return
 
     # Interactive flow (D-08)
-    from geolens import GeolensClient
     from geolens.api.auth import login_auth_login_post
     from geolens.models.body_login_auth_login_post import BodyLoginAuthLoginPost
 
     username = typer.prompt("Username")
     password = getpass.getpass("Password: ")
-    sdk = GeolensClient(base_url=instance)
+    # fix(#1778 review round 2): this used to build its own GeolensClient
+    # directly with the SDK's default timeout=None (unbounded), so
+    # `geolens login` could still hang on a host that accepts a
+    # connection and then stalls, despite the bound added elsewhere in
+    # this PR. make_client() is the single construction point for every
+    # GeolensClient in this package (see _sdk_helpers.make_client).
+    sdk = make_client(instance)
     body = BodyLoginAuthLoginPost(username=username, password=password)
     resp = call_sdk(login_auth_login_post.sync_detailed, client=sdk.client, body=body)
     token_response = unwrap(resp, expected=200)

@@ -102,3 +102,35 @@ class TestSdkHasADefaultHttpTimeout:
         assert transport.timeout == httpx.Timeout(
             _sdk_helpers.DEFAULT_HTTP_TIMEOUT_SECONDS
         )
+
+
+class TestMakeClientBindsTheDefaultTimeout:
+    """fix(#1778 review round 2): _sdk_helpers.make_client() is the single
+    construction point for every GeolensClient in this package (see
+    tests/test_client_construction.py for the structural gate). This pins
+    what it actually does: bind the request to DEFAULT_HTTP_TIMEOUT_SECONDS."""
+
+    def test_make_client_sets_the_default_timeout(self) -> None:
+        import httpx
+
+        from geolens_cli import _sdk_helpers
+
+        client = _sdk_helpers.make_client("https://x.example.com/api")
+
+        transport = client.client.get_httpx_client()
+        assert transport.timeout == httpx.Timeout(
+            _sdk_helpers.DEFAULT_HTTP_TIMEOUT_SECONDS
+        )
+
+    def test_make_client_passes_through_bearer_and_api_key(self) -> None:
+        from geolens_cli import _sdk_helpers
+
+        bearer_client = _sdk_helpers.make_client(
+            "https://x.example.com/api", bearer_token="tok-abc"
+        )
+        assert bearer_client.client.token == "tok-abc"
+
+        api_key_client = _sdk_helpers.make_client(
+            "https://x.example.com/api", api_key="key-abc"
+        )
+        assert api_key_client.client.token == "key-abc"
