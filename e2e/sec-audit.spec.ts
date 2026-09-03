@@ -49,82 +49,121 @@ function adminHeaders(): Record<string, string> {
 }
 
 test.beforeAll(async () => {
+  // fix(review #1792 round 2): this hook used to seed five fixtures
+  // sequentially. The two ingest-backed ones alone (raster + private
+  // vector) can each poll for up to 60s (helpers/catalog.ts's
+  // seedFixtureDataset), so a slow worker could blow past Playwright's
+  // default 60s hook timeout before the public-dataset ingest even started.
+  // The five fixtures below are independent of each other, so run them
+  // concurrently -- real wall-clock is bounded by the single slowest chain,
+  // not the sum -- and set an explicit hook timeout as a margin on top of
+  // that for a loaded CI runner.
+  test.setTimeout(240_000);
+
   const headers = adminHeaders();
 
-  // S01: private, published raster. The STAC /stac/items/{id} endpoint uses
-  // Dataset.id as the item id (backend/tests/test_stac_visibility.py), and
-  // ingest defaults a new dataset to visibility=private, record_status=published.
-  const raster = await seedDemDataset();
-  privateRasterId = raster.id;
-  privateRasterTitle = raster.title;
+  const seedRaster = async () => {
+    // S01: private, published raster. The STAC /stac/items/{id} endpoint
+    // uses Dataset.id as the item id (backend/tests/test_stac_visibility.py),
+    // and ingest defaults a new dataset to visibility=private,
+    // record_status=published.
+    const raster = await seedDemDataset();
+    privateRasterId = raster.id;
+    privateRasterTitle = raster.title;
+  };
 
-  // S02/S03/S05: private vector dataset owned by the seeding admin account.
-  const priv = await seedDataset('Sec Audit Private');
-  privateDatasetId = priv.id;
-  privateDatasetTitle = priv.title;
+  const seedPrivate = async () => {
+    // S02/S03/S05: private vector dataset owned by the seeding admin account.
+    const priv = await seedDataset('Sec Audit Private');
+    privateDatasetId = priv.id;
+    privateDatasetTitle = priv.title;
+  };
 
-  // S09: public, published vector dataset.
-  const pub = await seedDataset('Sec Audit Public');
-  publicDatasetId = pub.id;
-  publicDatasetTitle = pub.title;
-  const publishRes = await fetch(`${apiBase}/datasets/${publicDatasetId}`, {
-    method: 'PATCH',
-    headers,
-    body: JSON.stringify({ visibility: 'public', record_status: 'published' }),
-  });
-  if (!publishRes.ok) {
-    throw new Error(`sec-audit: could not publish public dataset: ${publishRes.status}`);
-  }
+  const seedPublic = async () => {
+    // S09: public, published vector dataset.
+    const pub = await seedDataset('Sec Audit Public');
+    publicDatasetId = pub.id;
+    publicDatasetTitle = pub.title;
+    const publishRes = await fetch(`${apiBase}/datasets/${publicDatasetId}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ visibility: 'public', record_status: 'published' }),
+    });
+    if (!publishRes.ok) {
+      throw new Error(`sec-audit: could not publish public dataset: ${publishRes.status}`);
+    }
+  };
 
-  // S02/S03: a second, non-admin editor who owns neither dataset above.
-  const editorBUsername = `sec-audit-editor-b-${Date.now()}`;
-  const editorBPassword = 'Sec-Audit-Editor-B-42';
-  const createUserRes = await fetch(`${apiBase}/admin/users/`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ username: editorBUsername, password: editorBPassword, role: 'editor' }),
-  });
-  if (!createUserRes.ok) {
-    throw new Error(`sec-audit: could not create editor B: ${createUserRes.status}`);
-  }
-  editorBUserId = ((await createUserRes.json()) as { id: string }).id;
+  const seedEditorB = async () => {
+    // S02/S03: a second, non-admin editor who owns neither dataset above.
+    const editorBUsername = `sec-audit-editor-b-${Date.now()}`;
+    const editorBPassword = 'Sec-Audit-Editor-B-42';
+    const createUserRes = await fetch(`${apiBase}/admin/users/`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ username: editorBUsername, password: editorBPassword, role: 'editor' }),
+    });
+    if (!createUserRes.ok) {
+      throw new Error(`sec-audit: could not create editor B: ${createUserRes.status}`);
+    }
+    editorBUserId = ((await createUserRes.json()) as { id: string }).id;
 
-  const loginRes = await fetch(`${apiBase}/auth/login/`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ username: editorBUsername, password: editorBPassword }).toString(),
-  });
-  if (!loginRes.ok) {
-    throw new Error(`sec-audit: could not log in editor B: ${loginRes.status}`);
-  }
-  editorBToken = ((await loginRes.json()) as { access_token: string }).access_token;
+    const loginRes = await fetch(`${apiBase}/auth/login/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ username: editorBUsername, password: editorBPassword }).toString(),
+    });
+    if (!loginRes.ok) {
+      throw new Error(`sec-audit: could not log in editor B: ${loginRes.status}`);
+    }
+    editorBToken = ((await loginRes.json()) as { access_token: string }).access_token;
+  };
 
-  // S08: a public map with a share token.
-  const mapRes = await fetch(`${apiBase}/maps/`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ name: `Sec Audit Share Map ${Date.now()}` }),
-  });
-  if (!mapRes.ok) {
-    throw new Error(`sec-audit: could not create share map: ${mapRes.status}`);
-  }
-  shareMapId = ((await mapRes.json()) as { id: string }).id;
-  const mapPublishRes = await fetch(`${apiBase}/maps/${shareMapId}`, {
-    method: 'PUT',
-    headers,
-    body: JSON.stringify({ visibility: 'public' }),
-  });
-  if (!mapPublishRes.ok) {
-    throw new Error(`sec-audit: could not publish share map: ${mapPublishRes.status}`);
-  }
-  const shareRes = await fetch(`${apiBase}/maps/${shareMapId}/share/`, {
-    method: 'POST',
-    headers,
-  });
-  if (!shareRes.ok) {
-    throw new Error(`sec-audit: could not create share token: ${shareRes.status}`);
-  }
-  shareToken = ((await shareRes.json()) as { token: string }).token;
+  const seedShareMap = async () => {
+    // S08: a public map with a share token and one layer -- create_embed_token
+    // (embed_tokens/service.py) refuses to mint a token for a map with no
+    // layers ("Map has no layers to scope"), so this needs publicDatasetId
+    // from seedPublic() above. Sequenced after the concurrent batch below
+    // rather than folded into it: the map/layer/publish/share calls here are
+    // all sub-second, so waiting for the one ingest this chain actually
+    // depends on costs nothing worth parallelizing further.
+    const mapRes = await fetch(`${apiBase}/maps/`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ name: `Sec Audit Share Map ${Date.now()}` }),
+    });
+    if (!mapRes.ok) {
+      throw new Error(`sec-audit: could not create share map: ${mapRes.status}`);
+    }
+    shareMapId = ((await mapRes.json()) as { id: string }).id;
+    const layerRes = await fetch(`${apiBase}/maps/${shareMapId}/layers`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ dataset_id: publicDatasetId }),
+    });
+    if (!layerRes.ok) {
+      throw new Error(`sec-audit: could not add share map layer: ${layerRes.status}`);
+    }
+    const mapPublishRes = await fetch(`${apiBase}/maps/${shareMapId}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ visibility: 'public' }),
+    });
+    if (!mapPublishRes.ok) {
+      throw new Error(`sec-audit: could not publish share map: ${mapPublishRes.status}`);
+    }
+    const shareRes = await fetch(`${apiBase}/maps/${shareMapId}/share/`, {
+      method: 'POST',
+      headers,
+    });
+    if (!shareRes.ok) {
+      throw new Error(`sec-audit: could not create share token: ${shareRes.status}`);
+    }
+    shareToken = ((await shareRes.json()) as { token: string }).token;
+  };
+
+  await Promise.all([seedRaster(), seedPrivate(), seedPublic(), seedEditorB()]);
+  await seedShareMap();
 });
 
 test.afterAll(async () => {
@@ -346,22 +385,120 @@ test('S06 — admin user with known-public password "demodemo" cannot log in', a
 // S08 — Embed-token framing (after fix: per-token frame-ancestors CSP exists)
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('S08 — /m/<share_token> HTML response has frame-ancestors CSP (or is admin-restricted)', async ({ request }) => {
-  // The frontend host serves /m/* — derive from API base
-  const frontendBase = process.env.SEC_AUDIT_FRONTEND_URL || 'http://localhost:8080';
-  const res = await request.get(`${frontendBase}/m/${shareToken}?embed=true`, {
+test('S08 — embed frame-policy endpoint reflects the actual embed-token state', async ({ request }) => {
+  // fix(review #1792 round 2): the edge reads the embed token from the `et`
+  // query param, not the share token in the path (frontend/nginx.conf's
+  // `location ~ ^/m/` forwards $arg_et to /embed/frame-policy). Without
+  // `et`, embed_frame_policy (public_router.py) always emits NO
+  // frame-ancestors directive at all -- so the old assertion passed only
+  // because X-Frame-Options is intentionally omitted on this route (see the
+  // nginx SEC-S08 comment), never because a real per-token policy was
+  // exercised.
+  //
+  // Implementing that fix surfaced a further problem: the nginx `auth_request`
+  // wiring that injects this CSP onto /m/* is PRODUCTION-only (the root
+  // Dockerfile builds nginx + frontend/nginx.conf). docker-compose.yml's dev
+  // stack -- what E2E_ALLOW_WORKTREE runs against, and what CI's own
+  // e2e-test/e2e-smoke jobs run against -- serves the frontend straight off
+  // Vite's dev server (frontend/Dockerfile.dev), which has no auth_request
+  // wiring and emits no CSP for /m/* at all, for ANY token. Confirmed
+  // directly: `curl -D- 'http://localhost:8080/m/<token>?embed=true&et=<any
+  // value>'` returns 200 with no Content-Security-Policy header whatsoever,
+  // valid token, invalid token, or none. So a request against
+  // `${frontendBase}/m/...` can never exercise the real policy in this
+  // environment, no matter what fixtures this test creates.
+  //
+  // /api/embed/frame-policy (public_router.py) IS the actual policy logic,
+  // reachable directly regardless of which edge fronts it -- its own
+  // docstring says so: "correct when the API is hit without the edge in
+  // front". Test against it directly instead, so the token-validation and
+  // allowed-origins logic is genuinely exercised.
+  const headers = adminHeaders();
+
+  async function fetchFramePolicy(token?: string) {
+    const query = token ? `?token=${encodeURIComponent(token)}` : '';
+    return request.get(`${apiBase}/embed/frame-policy${query}`);
+  }
+
+  // No token: documented behavior (embed_frame_policy's `if not token:`
+  // branch) is open framing, no frame-ancestors directive emitted at all --
+  // assert exactly that, as its own case, rather than folding it into the
+  // token-present checks below.
+  const plainRes = await fetchFramePolicy();
+  expect(plainRes.status()).toBe(200);
+  expect(plainRes.headers()['content-security-policy'] || '').not.toContain('frame-ancestors');
+  expect(plainRes.headers()['x-embed-frame-ancestors'] ?? '').toBe('');
+
+  // A garbage token (present but not real): fail-closed 'none'. This is the
+  // strongest, edition-independent proof that the endpoint actually
+  // validates the token rather than always leaving framing open.
+  const garbageRes = await fetchFramePolicy('sec-audit-s08-not-a-real-token');
+  expect(garbageRes.status()).toBe(200);
+  expect(garbageRes.headers()['content-security-policy'] || '').toContain("frame-ancestors 'none'");
+  expect(garbageRes.headers()['x-embed-frame-ancestors']).toBe("frame-ancestors 'none'");
+
+  // A real, unrestricted embed token (the only kind a Community deployment
+  // can mint -- see the domain-restricted branch below) is VALID but has no
+  // allowed_origins, so it also produces open framing. Together with the
+  // garbage-token case above, this distinguishes "valid but unrestricted"
+  // from "invalid", which the CSP output alone cannot on its own.
+  const unrestrictedRes = await request.post(`${apiBase}/maps/${shareMapId}/embed-tokens/`, {
+    headers,
+    data: {},
+  });
+  expect(unrestrictedRes.ok()).toBeTruthy();
+  const unrestrictedToken = ((await unrestrictedRes.json()) as { raw_token: string }).raw_token;
+  const unrestrictedPolicyRes = await fetchFramePolicy(unrestrictedToken);
+  expect(unrestrictedPolicyRes.status()).toBe(200);
+  expect(
+    unrestrictedPolicyRes.headers()['content-security-policy'] || '',
+  ).not.toContain('frame-ancestors');
+  expect(unrestrictedPolicyRes.headers()['x-embed-frame-ancestors'] ?? '').toBe('');
+
+  // A domain-restricted embed token is an advanced-sharing capability gated
+  // by is_enterprise() (embed_tokens/service.py's create_embed_token). This
+  // dev stack runs Community edition (GET /api/settings/edition/), which
+  // cannot mint one at all -- test.skip()ing that case would reproduce
+  // exactly the "permanently skipped, never proven" pattern the rest of
+  // this file was rebuilt to eliminate. Instead: attempt the creation
+  // regardless of edition and branch on the actual response, so this
+  // assertion is meaningful either way and needs no skip.
+  const restrictedOrigin = 'https://sec-audit-allowed.example';
+  const restrictedRes = await request.post(`${apiBase}/maps/${shareMapId}/embed-tokens/`, {
+    headers,
+    data: { allowed_origins: [restrictedOrigin] },
+  });
+  if (restrictedRes.status() === 201) {
+    // Enterprise: the domain lock actually applies -- the allowed origin
+    // must be named in frame-ancestors.
+    const restrictedToken = ((await restrictedRes.json()) as { raw_token: string }).raw_token;
+    const restrictedPolicyRes = await fetchFramePolicy(restrictedToken);
+    expect(restrictedPolicyRes.status()).toBe(200);
+    expect(restrictedPolicyRes.headers()['content-security-policy'] || '').toContain(
+      `frame-ancestors 'self' ${restrictedOrigin}`,
+    );
+  } else {
+    // Community (this stack): the advanced-sharing capability gate is the
+    // thing under test here -- it must actively refuse a domain lock, not
+    // silently downgrade it to an unrestricted token. EmbedTokenCreate's own
+    // @model_validator (schemas.py) checks is_enterprise() before the
+    // handler body ever runs, so this is a Pydantic validation failure
+    // (422), not the service-layer ValueError->400 conversion in
+    // create_embed_token_endpoint -- confirmed against the live endpoint.
+    expect(restrictedRes.status()).toBe(422);
+    const body = (await restrictedRes.json()) as { detail?: string };
+    expect(body.detail).toContain('Advanced sharing controls');
+  }
+
+  // Smoke check only: the viewer shell itself still loads for a plain share
+  // in this environment (no CSP assertion here -- see the module comment
+  // above for why that specific header cannot be exercised via this route
+  // outside a production nginx deployment).
+  const frontendBase = process.env.SEC_AUDIT_FRONTEND_URL || BASE_URL;
+  const shellRes = await request.get(`${frontendBase}/m/${shareToken}?embed=true`, {
     headers: { Accept: 'text/html' },
   });
-  if (res.status() === 200) {
-    // After S08 fix: either CSP frame-ancestors carries the embed-token's allowed_origins,
-    // or the response is admin-only (no public embed). DENY/SAMEORIGIN with no CSP is the pre-fix state.
-    const csp = res.headers()['content-security-policy'] || '';
-    const xfo = res.headers()['x-frame-options'] || '';
-    const hasFrameAncestors = csp.includes('frame-ancestors');
-    const isRestrictive = ['DENY', 'SAMEORIGIN'].includes(xfo.toUpperCase());
-    // Fail only the pre-fix state: SAMEORIGIN+no CSP frame-ancestors (= product contradiction)
-    expect(hasFrameAncestors || !isRestrictive).toBe(true);
-  }
+  expect(shellRes.status()).toBe(200);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

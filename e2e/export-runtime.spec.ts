@@ -341,7 +341,17 @@ function buildWherePredicate(
   }
 
   if (numericColumn) {
-    const threshold = Number(maxValue.toFixed(6));
+    // fix(review #1792 round 2): Number(maxValue.toFixed(6)) can round the
+    // observed maximum UP (1.2345678 -> 1.234568), which would make
+    // `column >= threshold` exclude the very row that produced the maximum
+    // -- the clause would then match nothing. The auto-seeded runtime
+    // fixture's values (10/20/30) are integers, so toFixed(6) never
+    // triggered this, but the E2E_EXPORT_DATASET_ID escape hatch can point
+    // at a dataset with fractional column values. Use the exact observed
+    // maximum instead of a rounded one: `value >= value` is always true for
+    // the identical float, so the row that produced it can never be
+    // excluded by this comparison.
+    const threshold = maxValue;
     const { columnName, propertyKey } = numericColumn;
     return {
       clause: `${columnName} >= ${threshold}`,
