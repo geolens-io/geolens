@@ -415,7 +415,13 @@ async def test_cleanup_and_retention_reaper_delete_only_tenant_key(
     # fix(#1709 review r7): nine — the childless-`fanned_out` reconciliation
     # (a fan-out parent whose dispatch died before its first child
     # committed) runs between the running-jobs sweep and the VRT sweep.
-    empty_scalars = [MagicMock() for _ in range(9)]
+    # fix(#1778 codex r5/r7): ten — the retention purge reads its exempted
+    # rows first, the terminal rows that still name an unreaped artifact,
+    # which it refuses to delete so the record survives for the next sweep to
+    # retry. Missing it here shifted every later result by one: the purge's
+    # DELETE consumed the survivor SELECT's double, `deleted_paths` came back
+    # empty and the tenant-scoped delete this test exists for was never made.
+    empty_scalars = [MagicMock() for _ in range(10)]
     for result in empty_scalars:
         result.scalars.return_value = []
         result.all.return_value = []

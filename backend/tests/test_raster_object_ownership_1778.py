@@ -739,11 +739,12 @@ class TestRetentionPurgeIsTheLastOwner:
         from app.platform.jobs.sweep import fail_stale_jobs
 
         monkeypatch.setattr(settings, "ingest_jobs_retention_days", 30)
+        purged_job_id = uuid.uuid4()
         mock_db = _mock_db_for_fail_stale(
             running_rows=[],
             purged_rows=[
                 (
-                    uuid.uuid4(),
+                    purged_job_id,
                     None,
                     {
                         "unpublished_storage_keys": [self.KEY],
@@ -773,7 +774,8 @@ class TestRetentionPurgeIsTheLastOwner:
 
         assert outcome._unpublished_storage_keys == (self.KEY,)
         assert [call.args[0] for call in storage.delete.await_args_list] == [self.KEY]
-        analysis_reap.assert_awaited_once_with(("parcels_buffered",))
+        # fix(#1778 codex r7): (job, table), so the drop can verify ownership.
+        analysis_reap.assert_awaited_once_with(((purged_job_id, "parcels_buffered"),))
 
     @pytest.mark.asyncio
     async def test_a_purged_row_naming_a_live_key_deletes_nothing(
@@ -1155,7 +1157,11 @@ def _mock_db_for_fail_stale(
     # These fixtures drive the reaps through it rather than through the DELETE,
     # because a row that still names an artifact is deliberately NOT deleted.
     retained = MagicMock()
-    retained.scalars.return_value = [um for (_id, _fp, um) in (purged_rows or [])]
+    # fix(#1778 codex r7): (id, user_metadata), because the analysis reap is
+    # keyed on the owning job now rather than on a name two jobs could hold.
+    retained.all.return_value = [
+        (job_row_id, um) for (job_row_id, _fp, um) in (purged_rows or [])
+    ]
     results.append(retained)
 
     purge = MagicMock()

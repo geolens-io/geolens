@@ -1969,12 +1969,19 @@ class TestMaterializeWorker:
         fix(#692): generate_table_name now sidesteps live relations, so the
         lost race is simulated by pinning the generated name to the occupied
         one — exactly what happens when two jobs draw the same name in the
-        window between generation and CREATE."""
+        window between generation and CREATE.
+
+        fix(#1778 codex r7): the occupied table is created at the name this
+        JOB will derive, because the output name is scoped by the job now. The
+        race is the same one; only where the name comes from has changed."""
+        from app.processing.analysis.tasks import analysis_output_table_name
+
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_polygon_dataset(test_db_session, created_by=admin_id)
         job = await _create_job(test_db_session, admin_id)
         title = f"Collide {uuid.uuid4().hex[:6]}"
-        expected = f"collide_{uuid.uuid4().hex[:6]}"
+        base = f"collide_{uuid.uuid4().hex[:6]}"
+        expected = analysis_output_table_name(base, job.id)
         await test_db_session.execute(
             text(f'CREATE TABLE data."{expected}" (marker integer)')
         )
@@ -1982,7 +1989,7 @@ class TestMaterializeWorker:
 
         with patch(
             "app.processing.ingest.service.generate_table_name",
-            AsyncMock(return_value=(expected, None)),
+            AsyncMock(return_value=(base, None)),
         ):
             await _materialize(
                 job_id=str(job.id),
@@ -2023,7 +2030,14 @@ class TestMaterializeWorker:
         during registration) used to poison its title forever — the name
         generator collided only against the catalog, so every retry died on
         CREATE TABLE. It now probes information_schema too: the retry lands
-        on a _2 suffix and the orphan is left untouched for an operator."""
+        on a _2 suffix and the orphan is left untouched for an operator.
+
+        fix(#1778 codex r7): the output name carries a job scope now, so the
+        suffix walk is no longer what keeps the retry off the orphan. The walk
+        still runs and still lands on _2, and this keeps asserting it, but the
+        guarantee underneath is stronger: a name embedding a job id could not
+        have collided with the orphan even without it."""
+        from app.processing.analysis.tasks import analysis_output_table_name
         from app.processing.ingest.service import generate_table_name
 
         admin_id = await get_user_id(test_db_session, "admin")
@@ -2050,7 +2064,7 @@ class TestMaterializeWorker:
         from app.modules.catalog.datasets.domain.models import Dataset
 
         new_ds = await test_db_session.get(Dataset, job.dataset_id)
-        assert new_ds.table_name == f"{orphan}_2"
+        assert new_ds.table_name == analysis_output_table_name(f"{orphan}_2", job.id)
         cols = (
             (
                 await test_db_session.execute(

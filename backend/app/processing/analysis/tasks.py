@@ -335,7 +335,11 @@ async def _fail_cancelled_job(
             # prefer leaking the table to dropping a registered dataset's
             # storage.
             await drop_unadopted_analysis_output(
-                session, out_table=out_table, schema=schema, job_id=job_id
+                session,
+                out_table=out_table,
+                schema=schema,
+                job_id=job_id,
+                owner_job_uuid=uuid.UUID(job_id),
             )
             return
         await session.commit()
@@ -783,6 +787,60 @@ async def _output_table_adopted(session: AsyncSession, out_table: str) -> bool:
 # row that has one has the other.
 ANALYSIS_OUTPUT_TABLE_FIELD = "analysis_out_table"
 
+
+# The job scope an analysis output table carries. 16 hex characters of the job
+# id, the width `attempt_scoped_staging_table` uses for the same purpose on the
+# vector tails' staging tables.
+_ANALYSIS_JOB_SCOPE_CHARS = 16
+_ANALYSIS_TABLE_MAX_CHARS = 63
+
+
+def analysis_output_table_name(base: str, job_uuid: uuid.UUID) -> str:
+    """The physical name ONE analysis job's output may occupy.
+
+    fix(#1778 codex r7). The name used to be the bare slug of the title, which
+    two jobs could hold in sequence, and that is a name the durable reaper
+    cannot use safely. An old failed job keeps `analysis_out_table` on its row
+    until the reap succeeds; once its table is gone the name is free again
+    (nothing retires it, because an unregistered output never became a
+    dataset), so a new analysis with the same title is handed the same name.
+    Let the new job commit its CTAS between the sweep's adoption probe and its
+    DROP and the sweep destroys the NEW job's table, then the name-keyed record
+    clearing erases the new job's recovery pointer along with the old one's.
+
+    Scoping the name by the job closes that at the root rather than by
+    ordering: no two jobs can name one table, so there is no interleaving to
+    get wrong, the adoption probe cannot be raced, and the sweep can verify
+    ownership from the name itself with no marker, registry or lock. It is the
+    same convention `attempt_scoped_staging_table` applies to staging tables
+    and `attempt_scoped_raster_base_key` applies to replace object keys.
+
+    Scoped by JOB and not by attempt on purpose. A retry reuses the job row,
+    and therefore the single `analysis_out_table` field on it; an attempt-scoped
+    name would change under that field on every retry and strand the previous
+    attempt's orphan with nothing naming it. `generate_table_name` still runs
+    first and still walks its `_N` suffixes, so a retry whose predecessor left
+    an orphan lands on a different base and does not collide with itself.
+
+    The base is trimmed to leave room for the scope, which is what keeps the
+    result inside PostgreSQL's 63-byte identifier limit.
+    """
+    suffix = f"_{job_uuid.hex[:_ANALYSIS_JOB_SCOPE_CHARS]}"
+    return f"{base[: _ANALYSIS_TABLE_MAX_CHARS - len(suffix)]}{suffix}"
+
+
+def analysis_output_table_belongs_to(out_table: str, job_uuid: uuid.UUID) -> bool:
+    """Whether ``out_table`` is the output name ``job_uuid`` would have taken.
+
+    fix(#1778 codex r7): the ownership check the sweeps make before they drop
+    anything. The name embeds the job that created it, so this needs no catalog
+    read, no comment and no lock, and it cannot be raced by a name that has
+    been handed on: a table this returns True for was created by this job or by
+    nothing at all.
+    """
+    return out_table.endswith(f"_{job_uuid.hex[:_ANALYSIS_JOB_SCOPE_CHARS]}")
+
+
 # A generated analysis table name, as `generate_table_name` produces them. The
 # name reaches the sweeps through a schemaless JSONB blob and is interpolated
 # into DDL, so it is re-checked at every use rather than trusted for having
@@ -814,6 +872,7 @@ async def drop_unadopted_analysis_output(
     out_table: str | None,
     schema: str,
     job_id: str,
+    owner_job_uuid: uuid.UUID,
 ) -> AnalysisOutputOutcome:
     """Drop an analysis output table no dataset row has adopted.
 
@@ -826,6 +885,13 @@ async def drop_unadopted_analysis_output(
     The name is re-validated here because the sweeps read it out of
     ``user_metadata``, a JSONB blob with no schema, and it is interpolated into
     a DDL statement that takes no bind parameters.
+
+    fix(#1778 codex r7): ``owner_job_uuid`` is the job whose record is being
+    reaped, and a name that is not that job's is refused. It is required, with
+    no default. The in-worker handlers would pass their own id either way, so
+    an optional gate would have bought nothing but a way to forget it: the
+    caller that most needs the check is a sweep acting on a name read off a row
+    that may be older than the table now standing at it.
 
     fix(#1778 codex r6): it REPORTS, rather than returning the same ``None``
     whether it dropped the table or failed to. The two fence-miss handlers can
@@ -845,6 +911,15 @@ async def drop_unadopted_analysis_output(
         return "skipped"
     if not _ANALYSIS_TABLE_NAME_RE.match(out_table):
         logger.warning("analysis.output_table_name_rejected", job_id=job_id)
+        return "invalid"
+    # fix(#1778 codex r7): the ownership gate. A sweep reaping a job's record
+    # may only drop the table THAT job named, and the name says which job that
+    # is. Without this the sweep was free to drop a table a different job had
+    # since created under a reused name, between the adoption probe and the
+    # DROP. "invalid" rather than "failed": a name that is not this job's can
+    # never become this job's, so retrying it forever would pin the row.
+    if not analysis_output_table_belongs_to(out_table, owner_job_uuid):
+        logger.warning("analysis.output_table_not_owned", job_id=job_id)
         return "invalid"
     try:
         adopted = await _output_table_adopted(session, out_table)
@@ -910,7 +985,11 @@ async def _mark_job_failed(
         # errors, prefer leaking the table to dropping a registered
         # dataset's storage.
         await drop_unadopted_analysis_output(
-            session, out_table=out_table, schema=schema, job_id=job_id
+            session,
+            out_table=out_table,
+            schema=schema,
+            job_id=job_id,
+            owner_job_uuid=uuid.UUID(job_id),
         )
         return
     await session.commit()
@@ -1227,7 +1306,13 @@ async def _materialize(
                 mask_table_ref=mask_table_ref,
             )
 
-            out_table, collision_warning = await generate_table_name(title, session)
+            _base_table, collision_warning = await generate_table_name(title, session)
+            # fix(#1778 codex r7): scoped by this job, so no other job can ever
+            # be handed the same physical name. `generate_table_name` still
+            # chooses the readable half and still walks its `_N` suffixes
+            # against live relations, retired names and the catalog, so a retry
+            # whose predecessor left an orphan does not collide with itself.
+            out_table = analysis_output_table_name(_base_table, uuid.UUID(job_id))
             # fix(#1778): the name, on the durable row, in the same transaction
             # that creates the table (the commit after ANALYZE below). Without
             # it a hard kill after that commit left the table unreachable: the

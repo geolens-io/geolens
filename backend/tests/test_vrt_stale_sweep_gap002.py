@@ -235,7 +235,8 @@ def _make_mock_db_for_fail_stale(
     # fixtures carry one, so an empty scalars() keeps each test stating only
     # what it cares about.
     retained_result = MagicMock()
-    retained_result.scalars.return_value = []
+    # fix(#1778 codex r7): (id, user_metadata) pairs; none in these fixtures.
+    retained_result.all.return_value = []
     results.append(retained_result)
 
     normalized_candidates = [

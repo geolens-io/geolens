@@ -32,10 +32,13 @@ class TestUnadoptedAnalysisOutput:
         source = _source("processing/analysis/tasks.py")
         assert "ANALYSIS_OUTPUT_TABLE_FIELD: out_table," in source
         lines = source.splitlines()
+        # fix(#1778 codex r7): the name is scoped by the job after
+        # `generate_table_name` chooses its readable half, so the assignment
+        # this ordering hangs off is the scoping call.
         generated = next(
             i
             for i, line in enumerate(lines)
-            if "out_table, collision_warning = await generate_table_name(" in line
+            if "out_table = analysis_output_table_name(" in line
         )
         persisted = next(
             i
@@ -68,32 +71,42 @@ class TestUnadoptedAnalysisOutput:
     async def test_an_unadopted_table_is_dropped(self) -> None:
         from app.processing.analysis.tasks import drop_unadopted_analysis_output
 
+        job_uuid = uuid.uuid4()
+        owned = analysis_output_table_name_for_test("parcels_buffered", job_uuid)
         session = AsyncMock()
         probe = MagicMock()
         probe.first.return_value = None
         session.execute = AsyncMock(return_value=probe)
 
         await drop_unadopted_analysis_output(
-            session, out_table="parcels_buffered", schema="data", job_id="j"
+            session,
+            out_table=owned,
+            schema="data",
+            job_id="j",
+            owner_job_uuid=job_uuid,
         )
 
         statements = [str(call.args[0]) for call in session.execute.await_args_list]
         assert any(
-            'DROP TABLE IF EXISTS "data"."parcels_buffered"' in stmt
-            for stmt in statements
+            f'DROP TABLE IF EXISTS "data"."{owned}"' in stmt for stmt in statements
         )
 
     @pytest.mark.asyncio
     async def test_an_adopted_table_is_left_alone(self) -> None:
         from app.processing.analysis.tasks import drop_unadopted_analysis_output
 
+        job_uuid = uuid.uuid4()
         session = AsyncMock()
         probe = MagicMock()
         probe.first.return_value = (1,)
         session.execute = AsyncMock(return_value=probe)
 
         await drop_unadopted_analysis_output(
-            session, out_table="parcels_buffered", schema="data", job_id="j"
+            session,
+            out_table=analysis_output_table_name_for_test("parcels_buffered", job_uuid),
+            schema="data",
+            job_id="j",
+            owner_job_uuid=job_uuid,
         )
 
         statements = [str(call.args[0]) for call in session.execute.await_args_list]
@@ -112,6 +125,7 @@ class TestUnadoptedAnalysisOutput:
             out_table='parcels"; DROP TABLE catalog.datasets; --',
             schema="data",
             job_id="j",
+            owner_job_uuid=uuid.uuid4(),
         )
 
         session.execute.assert_not_awaited()
@@ -120,17 +134,19 @@ class TestUnadoptedAnalysisOutput:
     async def test_fail_stale_jobs_carries_the_table_out_of_a_running_row(self) -> None:
         from app.platform.jobs.sweep import fail_stale_jobs
 
+        job_uuid = uuid.uuid4()
         mock_db = _mock_db_for_fail_stale(
             running_rows=[
-                (uuid.uuid4(), {"analysis_out_table": "parcels_buffered"}, None),
+                (job_uuid, {"analysis_out_table": "parcels_buffered"}, None),
             ]
         )
         reap = AsyncMock()
         with patch("app.platform.jobs.sweep._reap_unadopted_analysis_outputs", reap):
             outcome = await fail_stale_jobs(mock_db, detailed=True)
 
-        assert outcome._unadopted_analysis_tables == ("parcels_buffered",)
-        reap.assert_awaited_once_with(("parcels_buffered",))
+        # fix(#1778 codex r7): (job, table), so the drop can verify ownership.
+        assert outcome._unadopted_analysis_tables == ((job_uuid, "parcels_buffered"),)
+        reap.assert_awaited_once_with(((job_uuid, "parcels_buffered"),))
 
 
 class TestOnlyASettledArtifactLosesItsRecord:
@@ -186,11 +202,13 @@ class TestOnlyASettledArtifactLosesItsRecord:
     ) -> None:
         from app.processing.analysis.tasks import drop_unadopted_analysis_output
 
+        job_uuid = uuid.uuid4()
         outcome = await drop_unadopted_analysis_output(
             self._session_double(adopted=adopted, drop_raises=drop_raises),
-            out_table=self.TABLE,
+            out_table=analysis_output_table_name_for_test(self.TABLE, job_uuid),
             schema="data",
             job_id="j",
+            owner_job_uuid=job_uuid,
         )
 
         assert outcome == expected
@@ -206,7 +224,11 @@ class TestOnlyASettledArtifactLosesItsRecord:
 
         session = AsyncMock()
         outcome = await drop_unadopted_analysis_output(
-            session, out_table='x"; DROP TABLE y; --', schema="data", job_id="j"
+            session,
+            out_table='x"; DROP TABLE y; --',
+            schema="data",
+            job_id="j",
+            owner_job_uuid=uuid.uuid4(),
         )
 
         assert outcome == "invalid"
@@ -230,6 +252,7 @@ class TestOnlyASettledArtifactLosesItsRecord:
         from app.platform.jobs.sweep import _reap_unadopted_analysis_outputs
 
         clear = AsyncMock()
+        job_uuid = uuid.uuid4()
         with (
             patch(
                 "app.processing.analysis.tasks.drop_unadopted_analysis_output",
@@ -237,10 +260,10 @@ class TestOnlyASettledArtifactLosesItsRecord:
             ),
             patch("app.platform.jobs.sweep._clear_settled_artifact_records", clear),
         ):
-            await _reap_unadopted_analysis_outputs((self.TABLE,))
+            await _reap_unadopted_analysis_outputs(((job_uuid, self.TABLE),))
 
         clear.assert_awaited_once_with(
-            analysis_tables={self.TABLE} if settles else set()
+            analysis_job_ids={job_uuid} if settles else set()
         )
 
     @pytest.mark.asyncio
@@ -256,9 +279,9 @@ class TestOnlyASettledArtifactLosesItsRecord:
             ),
             patch("app.platform.jobs.sweep._clear_settled_artifact_records", clear),
         ):
-            await _reap_unadopted_analysis_outputs((self.TABLE,))
+            await _reap_unadopted_analysis_outputs(((uuid.uuid4(), self.TABLE),))
 
-        clear.assert_awaited_once_with(analysis_tables=set())
+        clear.assert_awaited_once_with(analysis_job_ids=set())
 
     @pytest.mark.anyio
     async def test_a_failed_drop_leaves_the_job_row_naming_the_table(
@@ -289,7 +312,7 @@ class TestOnlyASettledArtifactLosesItsRecord:
             "app.processing.analysis.tasks.drop_unadopted_analysis_output",
             AsyncMock(return_value="failed"),
         ):
-            await _reap_unadopted_analysis_outputs((self.TABLE,))
+            await _reap_unadopted_analysis_outputs(((job_id, self.TABLE),))
 
         test_db_session.expire_all()
         row = (
@@ -373,6 +396,181 @@ class TestOnlyASettledArtifactLosesItsRecord:
             )
 
 
+def analysis_output_table_name_for_test(base: str, job_uuid) -> str:
+    from app.processing.analysis.tasks import analysis_output_table_name
+
+    return analysis_output_table_name(base, job_uuid)
+
+
+def _output_name_for(job_uuid) -> str:
+    from app.processing.analysis.tasks import analysis_output_table_name
+
+    return analysis_output_table_name("parcels_buffered", job_uuid)
+
+
+class TestAnalysisOutputNamesAreJobScoped:
+    """fix(#1778 codex r7): two jobs could hold one physical table name.
+
+    An old failed analysis keeps `analysis_out_table` on its row until the reap
+    succeeds. Once its table is gone the name is free again -- nothing retires
+    it, because an unregistered output never became a dataset -- so a new
+    analysis with the same title was handed the same name. Let the new job
+    commit its CTAS between the sweep's adoption probe and its DROP and the
+    sweep destroyed the NEW job's table, and the name-keyed record clearing
+    then erased the new job's recovery pointer along with the old one's.
+    """
+
+    def test_two_jobs_never_derive_the_same_name(self) -> None:
+        from app.processing.analysis.tasks import analysis_output_table_name
+
+        first = analysis_output_table_name("parcels_buffered", uuid.uuid4())
+        second = analysis_output_table_name("parcels_buffered", uuid.uuid4())
+        assert first != second
+        assert first.startswith("parcels_buffered_")
+        assert second.startswith("parcels_buffered_")
+
+    def test_one_job_derives_a_stable_name(self) -> None:
+        """A retry reuses the job row, and therefore the single field on it."""
+        from app.processing.analysis.tasks import analysis_output_table_name
+
+        job_uuid = uuid.uuid4()
+        assert analysis_output_table_name("x", job_uuid) == analysis_output_table_name(
+            "x", job_uuid
+        )
+
+    def test_the_name_stays_inside_the_identifier_limit(self) -> None:
+        from app.processing.analysis.tasks import (
+            _ANALYSIS_TABLE_NAME_RE,
+            analysis_output_table_name,
+        )
+
+        name = analysis_output_table_name("a" * 60, uuid.uuid4())
+        assert len(name) <= 63
+        assert _ANALYSIS_TABLE_NAME_RE.match(name)
+
+    def test_the_materialize_path_scopes_the_generated_name(self) -> None:
+        """`generate_table_name` still chooses the readable half."""
+        source = _source("processing/analysis/tasks.py")
+        assert (
+            "out_table = analysis_output_table_name(_base_table, uuid.UUID(job_id))"
+            in source
+        )
+        assert "out_table, collision_warning = await generate_table_name" not in source
+
+    @pytest.mark.asyncio
+    async def test_the_sweep_refuses_a_table_the_job_did_not_create(self) -> None:
+        """The ownership gate, stated as its own unit.
+
+        The name says which job created it, so this needs no catalog read, no
+        comment and no lock: a table the check passes was created by this job
+        or by nothing at all.
+        """
+        from app.processing.analysis.tasks import drop_unadopted_analysis_output
+
+        session = AsyncMock()
+        outcome = await drop_unadopted_analysis_output(
+            session,
+            out_table=_output_name_for(uuid.uuid4()),
+            schema="data",
+            job_id="j",
+            owner_job_uuid=uuid.uuid4(),
+        )
+
+        assert outcome == "invalid"
+        session.execute.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_the_sweep_accepts_the_table_the_job_did_create(self) -> None:
+        from app.processing.analysis.tasks import drop_unadopted_analysis_output
+
+        job_uuid = uuid.uuid4()
+        session = AsyncMock()
+        probe = MagicMock()
+        probe.first.return_value = None
+        session.execute = AsyncMock(return_value=probe)
+
+        outcome = await drop_unadopted_analysis_output(
+            session,
+            out_table=_output_name_for(job_uuid),
+            schema="data",
+            job_id="j",
+            owner_job_uuid=job_uuid,
+        )
+
+        assert outcome == "dropped"
+
+    @pytest.mark.anyio
+    async def test_a_new_jobs_table_and_record_survive_the_old_jobs_reap(
+        self, test_db_session
+    ) -> None:
+        """The interleaving, against real Postgres.
+
+        The old job row names its own table, which is already gone -- that is
+        what used to free the name. A new job creates its table and records it.
+        The sweep reaps the old row. The new job's table and its recovery
+        pointer both survive, and the old row's record clears so its row can
+        finally be purged.
+        """
+        from sqlalchemy import select, text
+
+        from app.platform.jobs.models import IngestJob
+        from app.platform.jobs.sweep import _reap_unadopted_analysis_outputs
+        from app.processing.analysis.tasks import analysis_output_table_name
+
+        base = f"parcels_{uuid.uuid4().hex[:6]}"
+        old_job = IngestJob(status="failed", file_path="")
+        new_job = IngestJob(status="failed", file_path="")
+        test_db_session.add_all([old_job, new_job])
+        await test_db_session.flush()
+        old_id, new_id = old_job.id, new_job.id
+        old_table = analysis_output_table_name(base, old_id)
+        new_table = analysis_output_table_name(base, new_id)
+        assert old_table != new_table, "the whole point of the scope"
+        old_job.user_metadata = {"analysis_out_table": old_table}
+        new_job.user_metadata = {"analysis_out_table": new_table}
+        # Only the NEW job's table exists: the old one's was already dropped,
+        # which is what freed the name in the first place.
+        await test_db_session.execute(
+            text(f'CREATE TABLE data."{new_table}" (marker integer)')
+        )
+        await test_db_session.commit()
+
+        try:
+            await _reap_unadopted_analysis_outputs(((old_id, old_table),))
+
+            still_there = (
+                await test_db_session.execute(
+                    text(
+                        "SELECT 1 FROM pg_catalog.pg_class c"
+                        " JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace"
+                        " WHERE n.nspname = 'data' AND c.relname = :t"
+                    ).bindparams(t=new_table)
+                )
+            ).first()
+            assert still_there, "the sweep dropped the new job's table"
+
+            test_db_session.expire_all()
+            rows = {
+                row.id: row.user_metadata
+                for row in (
+                    await test_db_session.execute(
+                        select(IngestJob).where(IngestJob.id.in_([old_id, new_id]))
+                    )
+                ).scalars()
+            }
+            assert rows[new_id].get("analysis_out_table") == new_table, (
+                "the sweep erased the new job's recovery pointer"
+            )
+            assert "analysis_out_table" not in rows[old_id], (
+                "the old job's record must clear so its row can be purged"
+            )
+        finally:
+            await test_db_session.execute(
+                text(f'DROP TABLE IF EXISTS data."{new_table}"')
+            )
+            await test_db_session.commit()
+
+
 def _mock_db_for_fail_stale(*, running_rows: list) -> AsyncMock:
     """A session double for ``fail_stale_jobs`` with real running-row metadata.
 
@@ -415,7 +613,8 @@ def _mock_db_for_fail_stale(*, running_rows: list) -> AsyncMock:
     # rows that still name an unreaped artifact, which it refuses to delete so
     # the record survives for the next sweep to retry. None here.
     retained = MagicMock()
-    retained.scalars.return_value = []
+    # fix(#1778 codex r7): (id, user_metadata) pairs; none in these fixtures.
+    retained.all.return_value = []
     results.append(retained)
 
     purge = MagicMock()

@@ -251,9 +251,11 @@ async def _recover_stale_jobs_for_current_scope() -> None:
             )
         )
         # fix(#1778): and the analysis peer, same pass, same ordering.
+        # fix(#1778 codex r7): (job, table) pairs, so the drop can refuse a
+        # table the job it is reaping did not create.
         await _reap_unadopted_analysis_outputs(
             tuple(
-                name
+                (job.id, name)
                 for job in stale_jobs
                 if (name := unadopted_analysis_table_from_metadata(job.user_metadata))
                 is not None

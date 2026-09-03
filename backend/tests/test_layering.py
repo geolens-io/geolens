@@ -3481,9 +3481,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its own probe and DROP failures, so a failed cleanup stripped the table's
     # last durable name and orphaned it; the storage arm was correct only by
     # where a statement sat inside a try block. `STORAGE_KEY_FINAL_OUTCOMES`
-    # and the try/else restructure are most of the growth. Cap 2252 -> 2288,
-    # exact.
-    "backend/app/platform/jobs/sweep.py": 2288,
+    # and the try/else restructure are most of the growth. Cap 2252 -> 2288.
+    # fix(#1778 codex r7): +14. The analysis reap is keyed on the owning JOB
+    # rather than on a table name two jobs could hold in sequence: it carries
+    # (job, table) pairs, hands the owner to the drop so it can refuse a table
+    # that job did not create, and clears the record by row id. Cap 2288 ->
+    # 2302, exact.
+    "backend/app/platform/jobs/sweep.py": 2302,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and
@@ -4509,8 +4513,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # call, and the name is the table's last durable pointer, so a swallowed
     # failure read as success orphaned the table permanently. The five outcomes
     # and the note on why a raised probe is "failed" and not "adopted" are the
-    # growth. Cap 1462 -> 1495, exact.
-    "backend/app/processing/analysis/tasks.py": 1495,
+    # growth. Cap 1462 -> 1495.
+    # fix(#1778 codex r7): +79. Output table names are scoped by the job that
+    # creates them, so two jobs can never hold one physical name and the sweep
+    # can verify ownership from the name alone, with no marker, registry or
+    # lock. `analysis_output_table_name` and `analysis_output_table_belongs_to`
+    # plus the ownership gate in the drop are the code; the docstring stating
+    # the interleaving that made a shared name unsafe, and why the scope is by
+    # job and not by attempt, is most of the growth. The gate is a REQUIRED
+    # keyword with no default: the in-worker handlers pass their own id either
+    # way, so an optional one would have bought nothing but a way to forget it.
+    # Cap 1495 -> 1580, exact.
+    "backend/app/processing/analysis/tasks.py": 1580,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

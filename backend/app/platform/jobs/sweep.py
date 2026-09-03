@@ -372,7 +372,7 @@ class StaleCleanupOutcome:
     )
     # fix(#1778): analysis output tables named on the job rows this pass
     # settled, dropped after the settling commit under the same rule.
-    _unadopted_analysis_tables: tuple[str, ...] = field(
+    _unadopted_analysis_tables: tuple[tuple[uuid.UUID, str], ...] = field(
         default=(), repr=False, compare=False
     )
 
@@ -869,7 +869,7 @@ STORAGE_KEY_FINAL_OUTCOMES = frozenset({"deleted", "refused"})
 async def _clear_settled_artifact_records(
     *,
     storage_keys: set[str] = frozenset(),  # type: ignore[assignment]
-    analysis_tables: set[str] = frozenset(),  # type: ignore[assignment]
+    analysis_job_ids: set[uuid.UUID] = frozenset(),  # type: ignore[assignment]
 ) -> None:
     """Drop the job-row record of artifacts that are now accounted for.
 
@@ -894,8 +894,8 @@ async def _clear_settled_artifact_records(
     row it may delete, and failing to do it costs one more sweep, not
     correctness.
     """
-    from sqlalchemy import Text, any_, bindparam, cast, literal
-    from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+    from sqlalchemy import Text, bindparam, cast, literal
+    from sqlalchemy.dialects.postgresql import JSONB
 
     from app.core.db import async_session
     from app.platform.jobs.models import IngestJob
@@ -904,7 +904,7 @@ async def _clear_settled_artifact_records(
         UNPUBLISHED_STORAGE_KEYS_FIELD,
     )
 
-    if not storage_keys and not analysis_tables:
+    if not storage_keys and not analysis_job_ids:
         return
     try:
         async with async_session() as session:
@@ -931,18 +931,19 @@ async def _clear_settled_artifact_records(
                         )
                     )
                 )
-            if analysis_tables:
+            if analysis_job_ids:
+                # fix(#1778 codex r7): addressed by row id, not by name. A name
+                # was never a safe key for this: two jobs could hold one, so
+                # settling the old job's table stripped the new job's recovery
+                # pointer with it. Names are job-scoped now and the id is the
+                # direct expression of what was settled either way.
                 await session.execute(
                     update(IngestJob)
                     .where(
-                        IngestJob.user_metadata[ANALYSIS_OUTPUT_TABLE_FIELD].astext
-                        == any_(
-                            bindparam(
-                                "settled_tables",
-                                value=sorted(analysis_tables),
-                                type_=ARRAY(Text),
-                            )
-                        )
+                        IngestJob.id.in_(sorted(analysis_job_ids)),
+                        IngestJob.user_metadata[
+                            ANALYSIS_OUTPUT_TABLE_FIELD
+                        ].astext.is_not(None),
                     )
                     .values(
                         user_metadata=IngestJob.user_metadata.op("-")(
@@ -955,7 +956,7 @@ async def _clear_settled_artifact_records(
         log.warning(
             "Failed to clear settled artifact records",
             key_count=len(storage_keys),
-            table_count=len(analysis_tables),
+            job_count=len(analysis_job_ids),
         )
 
 
@@ -1041,7 +1042,9 @@ async def reap_unpublished_storage_keys(
     return (reaped, skipped, failures)
 
 
-async def _reap_unadopted_analysis_outputs(out_tables: tuple[str, ...]) -> None:
+async def _reap_unadopted_analysis_outputs(
+    out_tables: tuple[tuple[uuid.UUID, str], ...],
+) -> None:
     """Drop the analysis outputs of jobs this pass just settled.
 
     fix(#1778). Its own session, opened after the settling commit, for the two
@@ -1079,24 +1082,32 @@ async def _reap_unadopted_analysis_outputs(out_tables: tuple[str, ...]) -> None:
     # permanently. Only a final outcome settles; "failed" is retryable and
     # keeps the record. The try/except stays for a failure the callee does not
     # catch at all, and it deliberately does not settle either.
-    settled: set[str] = set()
+    # fix(#1778 codex r7): keyed on the JOB, not on the name. The reap passes
+    # the owning job so the drop can refuse a table that job did not create,
+    # and the record clearing addresses rows by id so it cannot strip a
+    # different job's pointer that happens to share a name.
+    settled: set[uuid.UUID] = set()
     async with async_session() as session:
-        for out_table in set(out_tables):
+        for job_uuid, out_table in set(out_tables):
             try:
                 outcome = await drop_unadopted_analysis_output(
-                    session, out_table=out_table, schema=schema, job_id="stale_sweep"
+                    session,
+                    out_table=out_table,
+                    schema=schema,
+                    job_id=str(job_uuid),
+                    owner_job_uuid=job_uuid,
                 )
             except Exception:  # broad: best-effort cleanup of one orphan
                 log.warning("Failed to reap unadopted analysis output")
                 continue
             if outcome in ANALYSIS_OUTPUT_FINAL_OUTCOMES:
-                settled.add(out_table)
+                settled.add(job_uuid)
             else:
                 log.warning(
                     "Analysis output reap did not settle, retrying next sweep",
                     outcome=outcome,
                 )
-    await _clear_settled_artifact_records(analysis_tables=settled)
+    await _clear_settled_artifact_records(analysis_job_ids=settled)
 
 
 def _stale_generation_storage_keys(
@@ -1809,8 +1820,8 @@ async def fail_stale_jobs(
         for key in unpublished_storage_keys_from_metadata(user_metadata_)
     ]
     unadopted_analysis_tables = [
-        name
-        for _job_id, user_metadata_, _created_by in running_rows
+        (job_id_, name)
+        for job_id_, user_metadata_, _created_by in running_rows
         if (name := unadopted_analysis_table_from_metadata(user_metadata_)) is not None
     ]
 
@@ -2082,19 +2093,22 @@ async def fail_stale_jobs(
             IngestJob.user_metadata[UNPUBLISHED_STORAGE_KEYS_FIELD].is_not(None),
             IngestJob.user_metadata[ANALYSIS_OUTPUT_TABLE_FIELD].astext.is_not(None),
         )
+        # fix(#1778 codex r7): the id comes back with the metadata, because the
+        # analysis reap is keyed on the owning job now rather than on a name
+        # two jobs could hold.
         retained_for_reap = await db.execute(
-            select(IngestJob.user_metadata).where(
+            select(IngestJob.id, IngestJob.user_metadata).where(
                 *purge_clauses, carries_unreaped_artifacts
             )
         )
-        for retained_metadata in retained_for_reap.scalars():
+        for retained_id, retained_metadata in retained_for_reap.all():
             unpublished_storage_keys.extend(
                 unpublished_storage_keys_from_metadata(retained_metadata)
             )
             if (
                 name := unadopted_analysis_table_from_metadata(retained_metadata)
             ) is not None:
-                unadopted_analysis_tables.append(name)
+                unadopted_analysis_tables.append((retained_id, name))
 
         # Single DELETE .. RETURNING re-applies every predicate atomically at
         # delete time — a SELECT-then-DELETE-by-id pair let /jobs/{id}/retry
