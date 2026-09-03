@@ -322,9 +322,33 @@ function isSqlIdentifier(value: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
 }
 
+// fix(review #1792 round 6): JSON.parse loses precision above
+// Number.MAX_SAFE_INTEGER -- not just fractional rounding, the parsed
+// integer can differ from the true value entirely (9007199254740995
+// becomes 9007199254740996, a database value that may not even exist).
+// This recovers the EXACT digits the server actually returned for one
+// specific property key, straight from the raw response text, without a
+// general big-number-safe JSON parser: a targeted regex over the raw
+// bytes rather than a reviver over an already-lossy parse.
+function extractRawIntegerValues(rawText: string, propertyKey: string): bigint[] {
+  const escapedKey = propertyKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // `(?![\d.eE])` requires the digit run to end here -- excludes matching
+  // just the integer prefix of a larger float/exponential token (e.g. the
+  // "123" in "123.456" or "123e10"), which is not this function's problem
+  // to solve (see the floating-column branch in buildWherePredicate).
+  const pattern = new RegExp(`"${escapedKey}"\\s*:\\s*(-?\\d+)(?![\\d.eE])`, 'g');
+  const values: bigint[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(rawText)) !== null) {
+    values.push(BigInt(match[1]));
+  }
+  return values;
+}
+
 function buildWherePredicate(
   baseline: GeoJsonFeatureCollection,
   columnInfo: Array<{ name?: string }> | null | undefined,
+  baselineRawText?: string,
 ): WherePredicate | null {
   const allowedColumns = new Map<string, string>();
   let nonNullFallback:
@@ -394,15 +418,76 @@ function buildWherePredicate(
     // at a dataset with fractional column values. Use the exact observed
     // maximum instead of a rounded one: `value >= value` is always true for
     // the identical float, so the row that produced it can never be
-    // excluded by this comparison.
-    const threshold = maxValue;
+    // excluded by this comparison -- for a value JS's own JSON.parse
+    // rendered exactly, which is not guaranteed (see below).
     const { columnName, propertyKey } = numericColumn;
+
+    // fix(review #1792 round 6): `maxValue` came from JSON.parse, which for
+    // a BIGINT above Number.MAX_SAFE_INTEGER does not just lose fractional
+    // precision -- it can round to a DIFFERENT integer entirely (e.g.
+    // 9007199254740995 becomes 9007199254740996), so `maxValue` here may
+    // not be a value the database ever returned, and `column >= maxValue`
+    // could exclude the true maximal row. A high-precision NUMERIC/float
+    // has the same failure mode in miniature (small relative rounding in
+    // the low-order digits). Two different margins, because the two cases
+    // need different treatment: a BIGINT is a whole number with no value
+    // between v-1 and v, so once we know the TRUE integer maximum exactly
+    // (recovered from the raw response text, since JSON.parse already threw
+    // that away), subtracting exactly 1 is both necessary and sufficient.
+    // A float has no such gap to exploit, so a proportional margin below
+    // the (still only approximately correct) parsed value is used instead
+    // -- 1e-9 relative is far larger than a double's ~1e-15 relative
+    // rounding error, so it comfortably covers it without needing the raw
+    // text at all.
+    //
+    // `Number.isInteger` alone cannot tell a BIGINT column from a NUMERIC/
+    // float column that currently happens to hold a whole number -- a
+    // double this large has no fractional bits left to distinguish them
+    // with. Postgres's actual BIGINT range (+/-2^63-1) can, though: a
+    // magnitude beyond it cannot possibly be a real BIGINT value, so it is
+    // routed to the proportional-margin path instead (e.g. the
+    // 1.2345678901234567e20 pin below, which is a whole JS double but far
+    // past BIGINT's ~9.22e18 ceiling).
+    const BIGINT_MAX_MAGNITUDE = 9223372036854775807; // Postgres bigint upper bound, 2^63 - 1
+    let clauseValue: string;
+    let evaluateThreshold: number;
+
+    if (
+      Number.isInteger(maxValue) &&
+      !Number.isSafeInteger(maxValue) &&
+      Math.abs(maxValue) <= BIGINT_MAX_MAGNITUDE &&
+      baselineRawText
+    ) {
+      const rawValues = extractRawIntegerValues(baselineRawText, propertyKey);
+      if (rawValues.length > 0) {
+        const trueMax = rawValues.reduce((a, b) => (b > a ? b : a));
+        const thresholdBigInt = trueMax - 1n;
+        clauseValue = thresholdBigInt.toString();
+        evaluateThreshold = Number(thresholdBigInt);
+      } else {
+        // Raw text extraction found nothing for this property (unexpected
+        // given the parsed scan above found it) -- fall back to the parsed
+        // value rather than failing outright.
+        clauseValue = formatNumericLiteral(maxValue);
+        evaluateThreshold = maxValue;
+      }
+    } else if (Number.isSafeInteger(maxValue)) {
+      // A safe integer's JSON round-trip is exact; nothing to correct.
+      clauseValue = formatNumericLiteral(maxValue);
+      evaluateThreshold = maxValue;
+    } else {
+      const margin = Math.abs(maxValue) * 1e-9 + Number.EPSILON;
+      const safeThreshold = maxValue - margin;
+      clauseValue = formatNumericLiteral(safeThreshold);
+      evaluateThreshold = safeThreshold;
+    }
+
     return {
-      clause: `${columnName} >= ${formatNumericLiteral(threshold)}`,
+      clause: `${columnName} >= ${clauseValue}`,
       propertyKey,
       evaluate: (candidate) => {
         const value = candidate[propertyKey];
-        return typeof value === 'number' && Number.isFinite(value) && value >= threshold;
+        return typeof value === 'number' && Number.isFinite(value) && value >= evaluateThreshold;
       },
     };
   }
@@ -572,10 +657,10 @@ async function resolveRuntimeDataset(
   request: APIRequestContext,
   authHeader: Record<string, string>,
   datasetId: string,
-): Promise<{ dataset: DatasetDetail; baseline: GeoJsonFeatureCollection }> {
+): Promise<{ dataset: DatasetDetail; baseline: GeoJsonFeatureCollection; baselineRawText: string }> {
   async function resolveCandidate(
     datasetId: string,
-  ): Promise<{ dataset: DatasetDetail; baseline: GeoJsonFeatureCollection } | null> {
+  ): Promise<{ dataset: DatasetDetail; baseline: GeoJsonFeatureCollection; baselineRawText: string } | null> {
     const detailResponse = await request.get(`/api/datasets/${datasetId}`, {
       headers: authHeader,
     });
@@ -609,6 +694,10 @@ async function resolveRuntimeDataset(
     if (baseline.features.length === 0) {
       return null;
     }
+    // fix(review #1792 round 6): kept alongside the parsed `baseline` so
+    // buildWherePredicate can recover exact BIGINT digits JSON.parse
+    // already discarded -- see extractRawIntegerValues.
+    const baselineRawText = baselineBody.toString('utf8');
 
     const baselinePositions = collectFeatureCollectionPositions(baseline);
     if (
@@ -625,7 +714,7 @@ async function resolveRuntimeDataset(
       return null;
     }
 
-    if (!buildWherePredicate(baseline, detail.column_info)) {
+    if (!buildWherePredicate(baseline, detail.column_info, baselineRawText)) {
       return null;
     }
 
@@ -654,7 +743,7 @@ async function resolveRuntimeDataset(
       return null;
     }
 
-    return { dataset: detail, baseline };
+    return { dataset: detail, baseline, baselineRawText };
   }
 
   const resolved = await resolveCandidate(datasetId);
@@ -690,12 +779,83 @@ test.describe('formatNumericLiteral', () => {
   });
 });
 
+// fix(review #1792 round 6): pure-logic pin for buildWherePredicate's
+// threshold computation, independent of any live request. Covers the two
+// precision-loss shapes JSON.parse can introduce: a BIGINT above
+// Number.MAX_SAFE_INTEGER (parses to a DIFFERENT integer, not just a
+// rounded one) and a high-precision NUMERIC/float whose magnitude is
+// beyond even BIGINT's range (so it cannot be recovered exactly from raw
+// text the way a BIGINT can -- see buildWherePredicate's own comment for
+// why the two need different treatment).
+test.describe('buildWherePredicate precision', () => {
+  const columnInfo = [{ name: 'value' }];
+
+  function syntheticBaseline(propertyValue: number): GeoJsonFeatureCollection {
+    return {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          properties: { value: propertyValue },
+          geometry: null,
+        },
+      ],
+    };
+  }
+
+  test('an unsafe BIGINT-range integer gets a threshold strictly below the true value', () => {
+    // A string, not a number literal: 9007199254740995 written directly in
+    // this file's own source would be rounded by the SAME double-precision
+    // limit this test exists to work around, before the test ever ran.
+    const trueValueText = '9007199254740995';
+    const trueValueBigInt = BigInt(trueValueText);
+
+    // What a real response body parses to -- JSON.parse rounds this to a
+    // DIFFERENT integer (...996), which is what buildWherePredicate's own
+    // scan of `baseline.features` would observe as `maxValue`.
+    const parsedValue = JSON.parse(trueValueText) as number;
+    expect(Number.isSafeInteger(parsedValue)).toBe(false);
+    expect(BigInt(parsedValue)).not.toBe(trueValueBigInt);
+
+    const baselineRawText = `{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"value":${trueValueText}},"geometry":null}]}`;
+    const predicate = buildWherePredicate(
+      syntheticBaseline(parsedValue),
+      columnInfo,
+      baselineRawText,
+    );
+
+    expect(predicate).toBeTruthy();
+    const clauseValueText = predicate!.clause.split('>=')[1].trim();
+    // Exact BigInt comparison: this is the whole point of the raw-text
+    // recovery, so tolerate no float round-trip here either.
+    expect(BigInt(clauseValueText) < trueValueBigInt).toBe(true);
+  });
+
+  test('a NUMERIC-like value beyond BIGINT range gets a threshold strictly below the true value', () => {
+    const trueValue = 1.2345678901234567e20;
+    // Sanity: this is genuinely past what BIGINT (2^63-1 =~ 9.22e18) can
+    // hold, and a whole number as far as JS's own double precision can
+    // tell -- exactly the case that can't be told apart from a BIGINT by
+    // Number.isInteger alone, and needs the magnitude check to route to
+    // the proportional-margin path instead of the (inapplicable) BigInt one.
+    expect(Number.isInteger(trueValue)).toBe(true);
+    expect(Number.isSafeInteger(trueValue)).toBe(false);
+
+    const predicate = buildWherePredicate(syntheticBaseline(trueValue), columnInfo);
+
+    expect(predicate).toBeTruthy();
+    const clauseValue = Number(predicate!.clause.split('>=')[1].trim());
+    expect(clauseValue).toBeLessThan(trueValue);
+  });
+});
+
 test.describe('Runtime export integrity', () => {
   test.describe.configure({ mode: 'serial' });
 
   let authHeader: Record<string, string>;
   let dataset: DatasetDetail;
   let baseline: GeoJsonFeatureCollection;
+  let baselineRawText: string;
   let baselineExtent: BBox;
   let auditDateFrom: string;
   let lastBboxFilter: string | null = null;
@@ -730,6 +890,7 @@ test.describe('Runtime export integrity', () => {
     );
     dataset = runtimeContext.dataset;
     baseline = runtimeContext.baseline;
+    baselineRawText = runtimeContext.baselineRawText;
 
     const extentFromDataset = toBBox(dataset.extent_bbox);
     const extentFromFeatures = computeBBoxFromPositions(
@@ -877,7 +1038,7 @@ test.describe('Runtime export integrity', () => {
   });
 
   test('semantic where filter returns a property-matching subset', async ({ request }) => {
-    const predicate = buildWherePredicate(baseline, dataset.column_info);
+    const predicate = buildWherePredicate(baseline, dataset.column_info, baselineRawText);
     expect(predicate).toBeTruthy();
     const predicateValue = predicate as WherePredicate;
     lastWhereFilter = predicateValue.clause;
@@ -909,7 +1070,7 @@ test.describe('Runtime export integrity', () => {
     request,
   }) => {
     const auditBbox = lastBboxFilter ?? serializeBBox(buildInteriorBBox(baselineExtent));
-    const fallbackPredicate = buildWherePredicate(baseline, dataset.column_info);
+    const fallbackPredicate = buildWherePredicate(baseline, dataset.column_info, baselineRawText);
     expect(fallbackPredicate).toBeTruthy();
     const auditWhereClause =
       lastWhereFilter ?? (fallbackPredicate as WherePredicate).clause;
