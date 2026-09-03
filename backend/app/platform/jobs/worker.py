@@ -492,6 +492,39 @@ async def recover_stale_jobs() -> None:
             )
 
 
+async def count_completed_job(call_next, context, worker):
+    """Procrastinate worker middleware: count a job that ran to completion.
+
+    fix(#1778): ``geolens_jobs_completed_total`` used to be derived from a
+    ``SELECT status, COUNT(*) ... GROUP BY status`` over
+    ``catalog.procrastinate_jobs``. It could never move, because this worker
+    runs with ``delete_jobs="successful"``: ``procrastinate_finish_job_v1``
+    deletes the row while it is still ``doing``, so no ``succeeded`` row is
+    ever written for the poll to see. The events the trigger writes are
+    cascade-deleted with it, so they are not a source either. The only place
+    the transition is observable is inside the process that performs it.
+
+    ``call_next`` returning normally is exactly Procrastinate's own success
+    condition -- ``_process_job`` treats any exception, including a retry or an
+    abort, as a non-success -- so a retried job counts once, on the attempt
+    that finally works. A failure still reaches the counter through the
+    ``failed`` row count in observability/metrics/jobs.py, which works because
+    failed rows are not deleted.
+
+    Never let a metrics failure fail the job: the increment is after the task
+    result is in hand and is wrapped, so a Prometheus registry problem costs a
+    log line rather than a re-run of a completed ingest.
+    """
+    result = await call_next()
+    try:
+        from app.observability.metrics.jobs import jobs_completed_total
+
+        jobs_completed_total.labels(queue=context.job.queue or "default").inc()
+    except Exception:  # broad: a metrics failure must never fail a finished job
+        log.warning("Failed to count a completed job", exc_info=True)
+    return result
+
+
 async def run_health_server() -> None:
     """Run the worker health server on port 8001."""
     config = uvicorn.Config(
@@ -514,6 +547,8 @@ async def main() -> None:
     import app.processing.embeddings.models  # noqa: F401
 
     from app.observability.metrics.jobs import update_job_metrics
+    from app.observability.metrics.memory import update_memory_metrics
+    from app.observability.metrics.pool import update_pool_metrics
     from app.platform.refresh.credentials import renew_credentials_periodically
     from app.processing.ingest.tasks import task_app
 
@@ -578,6 +613,20 @@ async def main() -> None:
     # 5. Start job metrics collector as background task
     metrics_task = asyncio.create_task(update_job_metrics())
 
+    # fix(#1778): the same two collectors the API lifespan starts. This process
+    # is the one that most needs them -- it hosts GDAL/OGR and gets a 4 GB
+    # mem_limit against the API's 2 GB precisely because a large raster ingest
+    # is memory-hungry -- and it had neither. An OOM-killed worker left exactly
+    # the symptom #643 was filed for: nothing in `docker logs`, no gauge, only
+    # dmesg. update_memory_metrics also WARNs on crossing the watermark, so
+    # runaway growth is diagnosable without a Prometheus scrape.
+    #
+    # The worker runs its own engine and pool, so GeoLensDbPoolSaturated
+    # (infra/monitoring/alerts.yml) could never fire for it either. Both loops
+    # are no-ops off Linux and neither needs multiprocess mode.
+    memory_metrics_task = asyncio.create_task(update_memory_metrics())
+    pool_metrics_task = asyncio.create_task(update_pool_metrics())
+
     # fix(#1277 review round 4): the worker hosts credential renewal too. The
     # process whose liveness gates the CLAIM is this one, so renewing here
     # keeps a queued handoff alive exactly while a claim is still possible —
@@ -609,6 +658,11 @@ async def main() -> None:
                     listen_notify=not settings.db_use_external_pooler,
                     install_signal_handlers=True,
                     delete_jobs="successful",
+                    # fix(#1778): the only place a completed job is observable
+                    # -- delete_jobs="successful" removes the row (and its
+                    # events, by cascade) before any poll can see it. See
+                    # count_completed_job.
+                    worker_middleware=[count_completed_job],
                     shutdown_graceful_timeout=shutdown_timeout,
                     # fix(#624 codex P1): MUST match the sweep's own window.
                     # Procrastinate's Worker.run() prunes workers silent for
@@ -631,11 +685,15 @@ async def main() -> None:
     finally:
         # 7. Clean up background tasks after worker exits
         metrics_task.cancel()
+        memory_metrics_task.cancel()
+        pool_metrics_task.cancel()
         credential_renewal_task.cancel()
         health_task.cancel()
         try:
             await asyncio.gather(
                 metrics_task,
+                memory_metrics_task,
+                pool_metrics_task,
                 credential_renewal_task,
                 health_task,
                 return_exceptions=True,

@@ -98,13 +98,18 @@ async def _refresh_job_metrics() -> None:
             elif status == "doing":
                 jobs_active.labels(queue=q).set(count)
                 seen_doing.add(q)
-            elif status == "succeeded":
-                key = (q, "succeeded")
-                prev = _prev_counts.get(key, 0)
-                delta = count - prev
-                if delta > 0:
-                    jobs_completed_total.labels(queue=q).inc(delta)
-                _prev_counts[key] = count
+            # fix(#1778): there is deliberately no `succeeded` branch. The
+            # worker runs with delete_jobs="successful", which makes
+            # procrastinate_finish_job_v1 DELETE the row while it is still
+            # `doing`, so status='succeeded' is never written and this 15s poll
+            # could never observe it. geolens_jobs_completed_total read a flat
+            # zero from the day it was added, and the RUNBOOK entry and the
+            # "Job throughput" Grafana panel read zero with it -- a healthy
+            # ingest burst looked identical to a dead worker. The counter is
+            # now incremented at the terminal transition instead, by the
+            # worker middleware in platform/jobs/worker.py. The `failed`
+            # branch below stays a row count because failed rows are NOT
+            # deleted, which is what the GeoLensJobFailures alert depends on.
             elif status == "failed":
                 key = (q, "failed")
                 prev = _prev_counts.get(key, 0)
