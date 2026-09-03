@@ -22,6 +22,8 @@ from app.processing.ai.constants import tool_label
 from app.platform.extensions import get_ai_provider
 from app.processing.ai.llm_loop import (
     ToolLoopExhaustedError,
+    UserFacingAIError,
+    safe_stream_error_message,
     noop_tool_executor,
     resolve_provider,
 )
@@ -482,7 +484,7 @@ async def _repair_map_spec(
     try:
         return LLMMapSpec(**_parse_map_spec(result.text))
     except (ValueError, ValidationError) as e:
-        raise ValueError(
+        raise UserFacingAIError(
             "The AI couldn't produce a valid map for this prompt — try rephrasing it."
         ) from e
 
@@ -587,7 +589,9 @@ async def _validate_and_persist_map(
     requested_ids = [layer.dataset_id for layer in spec.layers]
     missing = [did for did in requested_ids if did not in ds_info]
     if missing:
-        raise ValueError(f"Datasets not found or not accessible: {', '.join(missing)}")
+        raise UserFacingAIError(
+            f"Datasets not found or not accessible: {', '.join(missing)}"
+        )
 
     # Validate viewport coords against union of dataset bboxes
     # If the LLM-generated center is far outside the data extent, snap to centroid
@@ -771,7 +775,7 @@ async def generate_map_from_prompt(
             session, exc, user_id=user.id, subsystem="map_generation", model=model
         )
         if isinstance(exc, ToolLoopExhaustedError):
-            raise ValueError(
+            raise UserFacingAIError(
                 "Map generation required too many steps. Try a simpler prompt."
             ) from exc
         raise
@@ -807,7 +811,7 @@ async def generate_map_from_prompt(
 
     # Check for error response
     if "error" in spec_dict:
-        raise ValueError(spec_dict["error"])
+        raise UserFacingAIError(spec_dict["error"])
 
     # Validate with pydantic, with one LLM repair round (fix #642)
     try:
@@ -824,7 +828,7 @@ async def generate_map_from_prompt(
         )
 
     if not spec.layers:
-        raise ValueError("LLM produced a map with no layers")
+        raise UserFacingAIError("LLM produced a map with no layers")
 
     return await _validate_and_persist_map(
         session, user, user_roles, spec, basemap_ids=basemap_ids, port=port
@@ -993,13 +997,12 @@ async def stream_generate_map(
         # anthropic/openai APIStatusError carries the provider response body and
         # request URL, and OpenAICredentialDestinationError names the configured
         # endpoint. This generator catches before the router's own sanitized
-        # event, so all of that reached any holder of use_ai_chat. Mirror
-        # stream_chat_edit: a fixed message, with the detail kept in the log.
-        # ValueError is the type this pipeline raises for its deliberate
-        # user-facing messages (the map-spec repair failure), so it still passes
-        # through.
+        # event, so all of that reached any holder of use_ai_chat.
+        #
+        # fix(#1778 round 1): the passthrough is a positive allowlist of ONE
+        # explicitly constructed type, not "any ValueError". That set is open,
+        # and OpenAICredentialDestinationError is in it: a ValueError that names
+        # the configured provider endpoint, so the round-0 shape emitted
+        # verbatim the deployment detail it meant to hide.
         logger.exception("Streaming map generation failed")
-        error_msg = "An unexpected error occurred. Please try again."
-        if isinstance(e, ValueError):
-            error_msg = str(e)
-        yield {"type": "error", "message": error_msg}
+        yield {"type": "error", "message": safe_stream_error_message(e)}

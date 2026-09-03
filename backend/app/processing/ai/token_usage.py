@@ -100,13 +100,18 @@ async def record_token_usage_from_error(
 ) -> None:
     """Persist what a failed tool loop had already spent (fix(#1778)).
 
-    Reads the counts ``attach_token_usage`` stamped onto the exception. Does
-    nothing when they are absent or zero, so a failure that never reached the
-    provider writes no row. Uses ``getattr`` rather than importing the loop
-    helpers, which keeps this module free of a processing/ai import cycle.
+    Reads the counts ``attach_token_usage`` stamped onto the exception, or onto
+    the exception that caused it: ``asyncio.wait_for`` raises ``TimeoutError``
+    ``from`` the ``CancelledError`` the coroutine actually saw, so the stamp
+    arrives one hop down the chain. Does nothing when they are absent or zero,
+    so a failure that never reached the provider writes no row.
+
+    The reader is imported lazily to keep this module free of a processing/ai
+    import cycle.
     """
-    input_tokens = int(getattr(exc, "input_tokens", 0) or 0)
-    output_tokens = int(getattr(exc, "output_tokens", 0) or 0)
+    from app.processing.ai.llm_loop import token_usage_from_error
+
+    input_tokens, output_tokens = token_usage_from_error(exc)
     if not input_tokens and not output_tokens:
         return
     logger.info(

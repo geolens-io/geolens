@@ -61,6 +61,7 @@ class DefaultOpenAICompatibleProvider:
         )
         from app.processing.ai.llm_loop import (
             ToolLoopExhaustedError,
+            attach_token_usage,
             ToolLoopResult,
             _LLM_TIMEOUT,
             build_history_messages,
@@ -115,129 +116,146 @@ class DefaultOpenAICompatibleProvider:
         # loop above — see that comment.
         deadline = time.monotonic() + MAX_STREAMING_WALL_CLOCK_SECONDS
 
-        for round_num in range(max_rounds):
-            if time.monotonic() > deadline:
-                raise ToolLoopExhaustedError(
-                    "LLM tool loop exceeded wall-clock budget",
-                    input_tokens=total_input,
-                    output_tokens=total_output,
+        # fix(#1778 round 1): EVERY exit from this loop carries the tokens it
+        # has already spent, not just the exhaustion raises. After round one
+        # the provider has been billed, so a later request failure, a tool
+        # executor that raises, or a cancellation must still reach the daily
+        # quota. One helper decides; nothing here enumerates exception types.
+        try:
+            for round_num in range(max_rounds):
+                if time.monotonic() > deadline:
+                    raise ToolLoopExhaustedError(
+                        "LLM tool loop exceeded wall-clock budget",
+                        input_tokens=total_input,
+                        output_tokens=total_output,
+                    )
+                if total_input + total_output > MAX_REQUEST_TOKEN_BUDGET:
+                    raise ToolLoopExhaustedError(
+                        "LLM tool loop exceeded request token budget",
+                        input_tokens=total_input,
+                        output_tokens=total_output,
+                    )
+                # OpenAI API rejects `tools=[]` similarly. Omit when empty so
+                # no-tools paths (sql_generator.generate_sql, _retry_parse_map_spec)
+                # work for OpenAI-compatible providers too. REVIEW.md CR-01.
+                create_kwargs: dict[str, object] = {
+                    "model": model,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "messages": messages,
+                }
+                if tools_openai:
+                    create_kwargs["tools"] = tools_openai
+                response = await client.chat.completions.create(**create_kwargs)
+
+                choice = response.choices[0]
+
+                # Track token usage
+                if response.usage:
+                    total_input += response.usage.prompt_tokens
+                    total_output += response.usage.completion_tokens
+
+                log.info(
+                    "LLM round",
+                    provider="openai",
+                    round=round_num + 1,
+                    finish_reason=choice.finish_reason,
+                    input_tokens=response.usage.prompt_tokens if response.usage else 0,
+                    output_tokens=response.usage.completion_tokens
+                    if response.usage
+                    else 0,
                 )
-            if total_input + total_output > MAX_REQUEST_TOKEN_BUDGET:
-                raise ToolLoopExhaustedError(
-                    "LLM tool loop exceeded request token budget",
-                    input_tokens=total_input,
-                    output_tokens=total_output,
-                )
-            # OpenAI API rejects `tools=[]` similarly. Omit when empty so
-            # no-tools paths (sql_generator.generate_sql, _retry_parse_map_spec)
-            # work for OpenAI-compatible providers too. REVIEW.md CR-01.
-            create_kwargs: dict[str, object] = {
-                "model": model,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "messages": messages,
-            }
-            if tools_openai:
-                create_kwargs["tools"] = tools_openai
-            response = await client.chat.completions.create(**create_kwargs)
 
-            choice = response.choices[0]
+                if choice.finish_reason == "stop":
+                    text = choice.message.content or ""
+                    parsed_calls, cleaned_text = parse_xml_tool_calls(text)
 
-            # Track token usage
-            if response.usage:
-                total_input += response.usage.prompt_tokens
-                total_output += response.usage.completion_tokens
+                    if parsed_calls:
+                        # Execute parsed XML tool calls
+                        for fn_name, fn_args in parsed_calls:
+                            log.info(
+                                "Parsed XML tool call", tool=fn_name, input=fn_args
+                            )
+                            result = await tool_executor(fn_name, fn_args)
+                            if action_collector:
+                                action = action_collector(fn_name, fn_args, result)
+                                if action:
+                                    collected_actions.append(action)
 
-            log.info(
-                "LLM round",
-                provider="openai",
-                round=round_num + 1,
-                finish_reason=choice.finish_reason,
-                input_tokens=response.usage.prompt_tokens if response.usage else 0,
-                output_tokens=response.usage.completion_tokens if response.usage else 0,
-            )
-
-            if choice.finish_reason == "stop":
-                text = choice.message.content or ""
-                parsed_calls, cleaned_text = parse_xml_tool_calls(text)
-
-                if parsed_calls:
-                    # Execute parsed XML tool calls
-                    for fn_name, fn_args in parsed_calls:
-                        log.info("Parsed XML tool call", tool=fn_name, input=fn_args)
-                        result = await tool_executor(fn_name, fn_args)
-                        if action_collector:
-                            action = action_collector(fn_name, fn_args, result)
-                            if action:
-                                collected_actions.append(action)
+                        return ToolLoopResult(
+                            text=cleaned_text,
+                            actions=collected_actions,
+                            input_tokens=total_input,
+                            output_tokens=total_output,
+                        )
 
                     return ToolLoopResult(
-                        text=cleaned_text,
+                        text=text,
                         actions=collected_actions,
                         input_tokens=total_input,
                         output_tokens=total_output,
                     )
 
+                if choice.finish_reason == "tool_calls":
+                    messages.append(choice.message)
+
+                    for tool_call in choice.message.tool_calls:
+                        fn_name = tool_call.function.name
+                        try:
+                            fn_args = json.loads(tool_call.function.arguments)
+                        except json.JSONDecodeError:
+                            try:
+                                fn_args, _ = json.JSONDecoder().raw_decode(
+                                    tool_call.function.arguments
+                                )
+                            except (json.JSONDecodeError, ValueError):
+                                log.warning(
+                                    "Unparseable tool arguments",
+                                    tool=fn_name,
+                                    args=tool_call.function.arguments,
+                                )
+                                continue
+                        log.info("Tool call", tool=fn_name, input=fn_args)
+
+                        result = await tool_executor(fn_name, fn_args)
+
+                        if action_collector:
+                            action = action_collector(fn_name, fn_args, result)
+                            if action:
+                                collected_actions.append(action)
+
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                # default=str: see the Anthropic tool_result path above.
+                                "content": json.dumps(
+                                    model_safe_tool_result(result), default=str
+                                ),
+                            }
+                        )
+                    continue
+
+                # Unexpected finish reason
                 return ToolLoopResult(
-                    text=text,
+                    text=choice.message.content or "",
                     actions=collected_actions,
                     input_tokens=total_input,
                     output_tokens=total_output,
                 )
 
-            if choice.finish_reason == "tool_calls":
-                messages.append(choice.message)
-
-                for tool_call in choice.message.tool_calls:
-                    fn_name = tool_call.function.name
-                    try:
-                        fn_args = json.loads(tool_call.function.arguments)
-                    except json.JSONDecodeError:
-                        try:
-                            fn_args, _ = json.JSONDecoder().raw_decode(
-                                tool_call.function.arguments
-                            )
-                        except (json.JSONDecodeError, ValueError):
-                            log.warning(
-                                "Unparseable tool arguments",
-                                tool=fn_name,
-                                args=tool_call.function.arguments,
-                            )
-                            continue
-                    log.info("Tool call", tool=fn_name, input=fn_args)
-
-                    result = await tool_executor(fn_name, fn_args)
-
-                    if action_collector:
-                        action = action_collector(fn_name, fn_args, result)
-                        if action:
-                            collected_actions.append(action)
-
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            # default=str: see the Anthropic tool_result path above.
-                            "content": json.dumps(
-                                model_safe_tool_result(result), default=str
-                            ),
-                        }
-                    )
-                continue
-
-            # Unexpected finish reason
-            return ToolLoopResult(
-                text=choice.message.content or "",
-                actions=collected_actions,
+            raise ToolLoopExhaustedError(
+                "Max tool rounds exceeded without final response",
                 input_tokens=total_input,
                 output_tokens=total_output,
             )
-
-        raise ToolLoopExhaustedError(
-            "Max tool rounds exceeded without final response",
-            input_tokens=total_input,
-            output_tokens=total_output,
-        )
+        except BaseException as exc:
+            # BaseException, not Exception: asyncio.CancelledError is the shape
+            # a client disconnect and the caller's wait_for timeout both take,
+            # and wait_for re-raises TimeoutError *from* it, so the stamp
+            # survives on __cause__ for token_usage_from_error to find.
+            attach_token_usage(exc, total_input, total_output)
+            raise
 
     # fix(#1590): explicit keyword-only signature instead of a bare
     # **kwargs shim, matching AIProviderExtension.stream exactly.

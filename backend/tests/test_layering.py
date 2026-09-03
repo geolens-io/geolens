@@ -1519,7 +1519,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # system prompt now scrubs column names and sample values and is fenced
         # in an explicit trust boundary the model is told to read as data.
         # Cap 485 -> 513, exact.
-        "backend/app/processing/ai/chat_service.py": 513,
+        # fix(#1778 round 1): +3 - the layer block is fenced by the shared
+        # helper instead of interpolating the marker tags here, so a layer id
+        # or a serialized filter cannot forge a closing tag either.
+        # Cap 513 -> 516, exact.
+        "backend/app/processing/ai/chat_service.py": 516,
         # fix(#836): defaults.py is the facade over the extensions-defaults
         # split (defaults_*.py sub-modules discovered below). Pure re-exports —
         # a new Default* class costs a few lines here.
@@ -1902,7 +1906,17 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # sites now carries the running token totals, so the caller can bill an
         # exhausted loop to the daily cap instead of losing it. Cap 492 -> 502,
         # exact.
-        "backend/app/platform/extensions/defaults_ai_openai.py": 502,
+        # fix(#1778 round 1): +18 - the loop is wrapped so EVERY exit stamps
+        # its running token totals, not only the three exhaustion raises. After
+        # round one the provider has been billed, so a later request failure, a
+        # tool executor that raises, or a cancellation must still reach the
+        # daily quota. Cap 502 -> 520, exact.
+        "backend/app/platform/extensions/defaults_ai_openai.py": 520,
+        # fix(#1778 round 1): first explicit cap, over the 350 default. The
+        # loop is wrapped so every exit stamps its running token totals, and
+        # _run_tool_use_blocks was split out of complete() because that wrapper
+        # pushed it over the complexity gate. Cap 350 -> 372, exact.
+        "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
         # fix(#1207): +15 — three delegations for the shared presigned-completion
         # helpers (lock/assemble-check/finalize) the reupload door reaches through
         # the port. Three lines each, matching the existing entries.
@@ -4502,7 +4516,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # is billed by the provider and used to record nothing), the fixed
     # error message replacing raw exception text in the SSE stream, and the
     # scrubbing of dataset content in the two catalog tool results.
-    "backend/app/processing/ai/service.py": 1005,
+    # fix(#1778 round 1): +3 - the SSE error branch passes only an explicitly
+    # constructed UserFacingAIError through, so the five deliberate refusals
+    # say so by type instead of every ValueError being trusted (
+    # OpenAICredentialDestinationError is one, and its message IS the endpoint).
+    "backend/app/processing/ai/service.py": 1008,
     # fix(#1463): crossed the inclusion threshold. The growth is the vector-tile
     # protocol constants and the stale-label repair in generate_distributions,
     # plus the comment recording why the repair has to exist at all: migration
