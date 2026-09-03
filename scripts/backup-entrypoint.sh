@@ -526,9 +526,24 @@ upload_to_s3() {
 # applies to both prefixes and to the orphaned-companion pass inside
 # prune_s3_prefix, which reuses the same listing rather than fetching again.
 #
-# Prints the listing to stdout on success (including the empty-prefix case,
-# where it prints nothing) and returns 0; returns 1 only for a genuine
-# failure, with the reason logged.
+# fix(#1778 review round 6, P2): switched from the human-oriented `aws s3
+# ls` text table (whitespace-separated date/time/size/key columns) to `aws
+# s3api list-objects-v2 --output json`. Every downstream key parser here
+# used to split that text table on whitespace to drop the date/time/size
+# columns — round 5 fixed the worst case (`awk '{print $NF}'` truncating a
+# key with a space to its last word) with a fixed-column `read`, but `read`
+# ALSO strips LEADING whitespace off the last field it assigns, so a key
+# like " geo_<ts>.dump" (POSTGRES_DB=" geo") still lost its leading space.
+# There is no whitespace-safe way to recover a key from a whitespace-column
+# text format when the key itself may contain arbitrary whitespace — the
+# fix is to stop using that format. The JSON API returns each key as one
+# already-delimited string; no column parsing of any kind happens below
+# this function, so round 5's per-caller `read -r _d _t _s name` parsing is
+# gone too (see s3_newest_complete_ts and prune_s3_prefix).
+#
+# Prints one object key per line to stdout on success (including the
+# empty-prefix case, where it prints nothing) and returns 0; returns 1 only
+# for a genuine failure, with the reason logged.
 s3_list_prefix() {
     local prefix="$1"
     shift
@@ -536,12 +551,47 @@ s3_list_prefix() {
     local out err rc=0
     out="$(mktemp)" || return 1
     err="$(mktemp)" || { rm -f "$out"; return 1; }
-    aws s3 ls "s3://${S3_BUCKET}/backups/${prefix}/" "$@" > "$out" 2> "$err" || rc=$?
+    aws s3api list-objects-v2 --bucket "$S3_BUCKET" \
+        --prefix "backups/${prefix}/" --output json "$@" \
+        > "$out" 2> "$err" || rc=$?
 
+    # The empty-prefix carve-out from round 3 was measured against `aws s3
+    # ls` specifically (exit 1, both streams empty, not a failure).
+    # `list-objects-v2` is a direct API call — a prefix with zero objects is
+    # an ordinary 200 response with no `Contents` key, not a nonzero exit —
+    # but the exact "exit 1, both streams empty" shape is kept as a
+    # defensive carve-out (unchanged from round 3, including the "unusual
+    # non-1 exit code with no output is still a failure" scoping) rather
+    # than assumed impossible across every awscli version this image might
+    # run.
     if [ "$rc" -eq 0 ] || { [ "$rc" -eq 1 ] && [ ! -s "$out" ] && [ ! -s "$err" ]; }; then
-        cat "$out"
+        # fix(#1778 review round 6, P2): the JSON tool actually available
+        # in this image — checked against the built backup stage
+        # (Dockerfile): no jq, but the `awscli` apt package pulls in
+        # python3 as a transitive dependency (verified present: `aws`
+        # itself is a python3 script). Prints each `.Contents[].Key`
+        # value with the "backups/<prefix>/" directory portion stripped
+        # (matching the bare filename `aws s3 ls` used to hand callers)
+        # and every remaining byte — including leading/internal spaces —
+        # untouched. An empty or Contents-less response prints nothing.
+        if python3 -c '
+import json, sys
+
+raw = sys.stdin.read()
+data = json.loads(raw) if raw.strip() else {}
+strip = "backups/" + sys.argv[1] + "/"
+for obj in data.get("Contents", []):
+    key = obj["Key"]
+    if key.startswith(strip):
+        key = key[len(strip):]
+    print(key)
+' "$prefix" < "$out"; then
+            rm -f "$out" "$err"
+            return 0
+        fi
+        log "ERROR: could not parse the S3 listing for s3://${S3_BUCKET}/backups/${prefix}/ (aws exited ${rc}, python3 JSON parse failed) — offsite objects were not pruned this cycle" >&2
         rm -f "$out" "$err"
-        return 0
+        return 1
     fi
 
     # fix(#1778 review round 3, P2): this function's caller captures stdout
@@ -586,22 +636,13 @@ s3_list_prefix() {
 # on a fresh cluster.
 s3_newest_complete_ts() {
     local listing="$1"
-    local names name ts best="" _d _t _s
-    # fix(#1778 review round 5, P2): `awk '{print $NF}'` returns only the
-    # LAST whitespace-separated field — a key containing a space
-    # (POSTGRES_DB="geo lens" produces geo lens_<ts>.dump) gets truncated to
-    # its final word, so the timestamp-completeness check below can compare
-    # against a name that was never actually in the bucket. `aws s3 ls`
-    # lines are `<date> <time> <size> <key>`: read the first three fields
-    # by name and let `key` (the LAST read variable) absorb everything
-    # after them verbatim, spaces included, the same fix applied to
-    # prune_s3_prefix below.
-    names="$(
-        while IFS=' ' read -r _d _t _s name; do
-            [ -n "$name" ] || continue
-            printf '%s\n' "$name"
-        done <<< "$listing"
-    )"
+    local names name ts best=""
+    # fix(#1778 review round 6, P2): $listing is now s3_list_prefix's JSON
+    # output already reduced to one bare key per line (see its comment) —
+    # there are no date/time/size columns left to strip, so round 5's
+    # fixed-column `read` (itself a fix for round 3's `awk '{print $NF}'`
+    # truncating a key with a space) is no longer needed at all.
+    names="$listing"
     while IFS= read -r name; do
         if [[ "$name" == globals-*.sql ]]; then
             ts="$(printf '%s' "$name" | sed -nE 's/^globals-([0-9]{8}_[0-9]{6})\.sql$/\1/p')"
@@ -661,18 +702,14 @@ prune_s3_prefix() {
     #     substitution AND contains its own nested `$( )` confuses bash's
     #     parser (measured on bash 5.2: "syntax error near unexpected token
     #     `newline'") — `[[ ]]` sidesteps it entirely.
-    local dumps name ts _d _t _s
-    # fix(#1778 review round 5, P2): read the first three fields (date,
-    # time, size) by name and let `name` — the last variable `read`
-    # assigns — absorb the rest of the line verbatim. `awk '{print $NF}'`
-    # (the prior approach) returns only the FINAL whitespace-separated
-    # token, so a key containing a space (POSTGRES_DB="geo lens" produces
-    # geo lens_<ts>.dump) was silently truncated to "lens_<ts>.dump" — a
-    # name retention pruning would never find in the bucket, so its `aws s3
-    # rm` deletes nothing, prune_s3_prefix still reports it pruned, and the
-    # real object accumulates forever.
+    local dumps name ts
+    # fix(#1778 review round 6, P2): $ls_output is now s3_list_prefix's
+    # JSON-derived output — one bare key per line, nothing else — so round
+    # 5's fixed-column `read -r _d _t _s name` (needed only to skip the
+    # date/time/size columns `aws s3 ls` used to print) is gone; there are
+    # no other columns left to skip.
     dumps="$(
-        while IFS=' ' read -r _d _t _s name; do
+        while IFS= read -r name; do
             [ -n "$name" ] || continue
             if [[ "$name" == *.dump ]]; then
                 ts="$(printf '%s' "$name" | sed -nE 's/^.*[_-]([0-9]{8}_[0-9]{6})\.dump$/\1/p')"
@@ -756,14 +793,15 @@ prune_s3_prefix() {
     local kept_ts
     kept_ts="$(printf '%s\n' "$dumps" | cut -f1)"
 
-    # fix(#1778 review round 5, P2): same fixed-column read as the dumps
-    # loop above, not `awk '{print $NF}'` — a companion whose key contains
-    # a space would otherwise be misparsed to its final word, comparing a
-    # timestamp extracted from a truncated name against $kept_ts and either
-    # deleting the wrong (nonexistent) object or leaving the real one
-    # behind indefinitely.
-    while IFS=' ' read -r _d _t _s name; do
-        [ -n "$name" ] || continue
+    # fix(#1778 review round 6, P2): same simplification as the dumps loop
+    # above — $ls_output is already one bare key per line (no date/time/
+    # size columns to skip), so round 5's fixed-column `read` is gone here
+    # too. It also could not have fully fixed this loop on its own: `read`
+    # strips LEADING whitespace off the field it assigns, so a key like
+    # " geo_<ts>.dump" (POSTGRES_DB=" geo") still lost its leading space
+    # even with the column-aware read. The JSON listing has no such gap —
+    # every byte of the key survives from `.Contents[].Key` to here.
+    while IFS= read -r name; do
         if [[ "$name" == *.sql || "$name" == *.tar.gz ]]; then
             ts="$(printf '%s' "$name" | sed -nE 's/^.*[_-]([0-9]{8}_[0-9]{6})\.(sql|tar\.gz)$/\1/p')"
             [ -n "$ts" ] || continue

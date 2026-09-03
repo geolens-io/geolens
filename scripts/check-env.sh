@@ -12,11 +12,24 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # restore.sh for why: Compose's `.env` parser accepts values (a space, a
 # backtick, `$(...)`) that `sh` does not, and shell-sourcing them under
 # `set -e` either aborts on an operator-typed value or executes it.
+#
+# fix(#1778 review round 6, P2): same guard restore.sh uses — assign only
+# when get_env_value reports the key is actually present in .env, so a
+# value supplied purely through the process environment (Compose supports
+# `POSTGRES_DB=production scripts/check-env.sh`) is not overwritten with an
+# empty string just because .env omits that key. See restore.sh's comment
+# on the same pattern for the full reasoning.
 if [ -f "$PROJECT_ROOT/.env" ]; then
-    POSTGRES_USER="$(get_env_value POSTGRES_USER "$PROJECT_ROOT/.env")"
-    # shellcheck disable=SC2034  # read via `${!var}` in the Section 1 loop below
-    POSTGRES_PASSWORD="$(get_env_value POSTGRES_PASSWORD "$PROJECT_ROOT/.env")"
-    POSTGRES_DB="$(get_env_value POSTGRES_DB "$PROJECT_ROOT/.env")"
+    if _v="$(get_env_value POSTGRES_USER "$PROJECT_ROOT/.env")"; then
+        POSTGRES_USER="$_v"
+    fi
+    if _v="$(get_env_value POSTGRES_PASSWORD "$PROJECT_ROOT/.env")"; then
+        # shellcheck disable=SC2034  # read via `${!var}` in the Section 1 loop below
+        POSTGRES_PASSWORD="$_v"
+    fi
+    if _v="$(get_env_value POSTGRES_DB "$PROJECT_ROOT/.env")"; then
+        POSTGRES_DB="$_v"
+    fi
 fi
 
 ERRORS=0

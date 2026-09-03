@@ -74,6 +74,10 @@ if [ "$1" = "compose" ]; then
   case "$1" in
     stop|start) exit 0 ;;
     exec)
+      # fix(#1778 review round 6, P2) test support: opt-in argv logging so
+      # a test can prove which POSTGRES_USER/POSTGRES_DB restore.sh
+      # actually invoked psql with, without restore.sh itself changing.
+      [ -n "${DOCKER_EXEC_LOG:-}" ] && printf '%s\n' "$*" >> "${DOCKER_EXEC_LOG}"
       cat > /dev/null 2>/dev/null
       # A single query result column is enough to satisfy every -tAc caller
       # (has_schema_privilege, the missing-roles check, etc.).
@@ -293,6 +297,108 @@ if [ ! -e "$PWNED_MARKER" ]; then
 else
   bad "interpolation executed a \$(...) payload"
   rm -f "$PWNED_MARKER"
+fi
+
+# ============================================================================
+# CASE 5 — fix(#1778 review round 6, P2): get_env_value distinguishes "key
+# absent from the file" (returns 1, prints nothing) from "key present with
+# an empty value" (returns 0, prints ""), and resolves a duplicate key to
+# its LAST definition (Compose's own rule) instead of its first.
+# ============================================================================
+GETENV_ENV="$WORK/.env.getenv"
+cat > "$GETENV_ENV" <<'EOF'
+PRESENT_EMPTY=
+DUPLICATE_KEY=first
+DUPLICATE_KEY=second
+EOF
+
+GETENV_DRIVER="$WORK/getenv_driver.sh"
+cat > "$GETENV_DRIVER" <<DRIVER
+#!/bin/sh
+set -eu
+. "$FAKE/scripts/lib/common.sh"
+
+if val="\$(get_env_value MISSING_KEY "$GETENV_ENV")"; then
+  echo "MISSING_KEY=FOUND:[\$val]"
+else
+  echo "MISSING_KEY=NOTFOUND:[\$val]"
+fi
+
+if val="\$(get_env_value PRESENT_EMPTY "$GETENV_ENV")"; then
+  echo "PRESENT_EMPTY=FOUND:[\$val]"
+else
+  echo "PRESENT_EMPTY=NOTFOUND:[\$val]"
+fi
+
+if val="\$(get_env_value DUPLICATE_KEY "$GETENV_ENV")"; then
+  echo "DUPLICATE_KEY=FOUND:[\$val]"
+else
+  echo "DUPLICATE_KEY=NOTFOUND:[\$val]"
+fi
+
+if val="\$(get_env_value NO_SUCH_KEY "$WORK/does-not-exist.env")"; then
+  echo "NO_SUCH_FILE=FOUND:[\$val]"
+else
+  echo "NO_SUCH_FILE=NOTFOUND:[\$val]"
+fi
+DRIVER
+GETENV_OUT="$(sh "$GETENV_DRIVER" 2>&1)"
+
+if printf '%s\n' "$GETENV_OUT" | grep -qxF 'MISSING_KEY=NOTFOUND:[]'; then
+  ok "get_env_value reports NOT FOUND (nonzero exit) for a key with no line in the file"
+else
+  bad "get_env_value did not report NOT FOUND for a missing key (got: $(printf '%s\n' "$GETENV_OUT" | grep '^MISSING_KEY=' || echo '<none>'))"
+fi
+
+if printf '%s\n' "$GETENV_OUT" | grep -qxF 'PRESENT_EMPTY=FOUND:[]'; then
+  ok "get_env_value reports FOUND (exit 0) for a key present with an empty value"
+else
+  bad "get_env_value did not report FOUND for a present-but-empty key (got: $(printf '%s\n' "$GETENV_OUT" | grep '^PRESENT_EMPTY=' || echo '<none>'))"
+fi
+
+if printf '%s\n' "$GETENV_OUT" | grep -qxF 'DUPLICATE_KEY=FOUND:[second]'; then
+  ok "get_env_value resolves a duplicate key to its LAST definition, matching Compose"
+else
+  bad "get_env_value did not return the last duplicate-key definition (got: $(printf '%s\n' "$GETENV_OUT" | grep '^DUPLICATE_KEY=' || echo '<none>'))"
+fi
+
+if printf '%s\n' "$GETENV_OUT" | grep -qxF 'NO_SUCH_FILE=NOTFOUND:[]'; then
+  ok "get_env_value reports NOT FOUND when the .env file itself does not exist"
+else
+  bad "get_env_value did not report NOT FOUND for a missing file (got: $(printf '%s\n' "$GETENV_OUT" | grep '^NO_SUCH_FILE=' || echo '<none>'))"
+fi
+
+# ============================================================================
+# CASE 6 — fix(#1778 review round 6, P2): a setting Compose supports
+# supplying purely through the process environment (`POSTGRES_DB=prod
+# scripts/restore.sh ...`), deliberately OMITTED from .env, must survive —
+# not be overwritten with "" and then masked by restore.sh's own
+# `${POSTGRES_DB:-geolens}` default. Runs the REAL restore.sh end to end
+# (same stubbed docker as CASE 1-4) and reads back which -d value the
+# stubbed docker actually received.
+# ============================================================================
+OVERRIDE_ENV="$FAKE/.env"
+cat > "$OVERRIDE_ENV" <<'EOF'
+COMPOSE_FILE=docker-compose.yml
+POSTGRES_USER=geolens
+EOF
+# POSTGRES_DB is deliberately NOT in this .env at all.
+
+DOCKER_EXEC_LOG="$WORK/docker-exec.log"
+rm -f "$DOCKER_EXEC_LOG"
+( cd "$WORK" && env "PATH=$SHIM:$PATH" DOCKER_EXEC_LOG="$DOCKER_EXEC_LOG" \
+    POSTGRES_DB=customdb \
+    bash "$FAKE/scripts/restore.sh" "$BACKUP_FILE" </dev/null > "$WORK/case6-out.txt" 2>&1 )
+
+if grep -qF -- '-d customdb' "$DOCKER_EXEC_LOG" 2>/dev/null; then
+  ok "restore.sh preserves a POSTGRES_DB supplied only via the process environment"
+else
+  bad "restore.sh did not use the process-environment POSTGRES_DB (exec log: $(cat "$DOCKER_EXEC_LOG" 2>/dev/null | head -3 || echo '<empty>'))"
+fi
+if ! grep -qF -- '-d geolens' "$DOCKER_EXEC_LOG" 2>/dev/null; then
+  ok "restore.sh did not fall back to the hardcoded 'geolens' default, masking the override"
+else
+  bad "restore.sh fell back to the 'geolens' default instead of the process-environment override"
 fi
 
 echo "1..$((PASS + FAIL))"

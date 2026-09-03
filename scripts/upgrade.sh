@@ -63,9 +63,17 @@ docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is required."
 REPO_URL="${GEOLENS_REPO_URL:-https://github.com/geolens-io/geolens.git}"
 
 # --- Step 1: read current install state -------------------------------------
-COMPOSE_FILE="$(get_env_value COMPOSE_FILE)"
+# fix(#1778 review round 6, P2): get_env_value now returns 1 (empty stdout)
+# when a key has no `key=` line in .env at all, distinct from a key present
+# with an empty value — `|| true` keeps that a no-op here, since every use
+# below already treats "" as "not set" via `[ -n "$X" ] || X=default` /
+# `${X:-...}`, and this script has no inherited-process-value case to
+# preserve the way restore.sh/check-env.sh do (nothing here reads these
+# vars before this point). Without the guard, a plain `.env` missing one of
+# these optional keys would abort the whole upgrade under `set -eu`.
+COMPOSE_FILE="$(get_env_value COMPOSE_FILE)" || true
 [ -n "$COMPOSE_FILE" ] || COMPOSE_FILE="docker-compose.yml"
-CURRENT_VERSION="$(get_env_value GEOLENS_VERSION)"
+CURRENT_VERSION="$(get_env_value GEOLENS_VERSION)" || true
 
 if [ "$COMPOSE_FILE" != "docker-compose.prod.yml" ]; then
   say "This install builds images from source (COMPOSE_FILE=$COMPOSE_FILE)."
@@ -129,8 +137,11 @@ fi
 say "Upgrading GeoLens: ${CURRENT_VERSION:-unknown} -> ${TARGET_VERSION}"
 say ""
 
-POSTGRES_USER="$(get_env_value POSTGRES_USER)"
-POSTGRES_DB="$(get_env_value POSTGRES_DB)"
+# fix(#1778 review round 6, P2): see the Step 1 comment above — `|| true`
+# keeps a missing key a no-op, since the next two lines already default an
+# empty result.
+POSTGRES_USER="$(get_env_value POSTGRES_USER)" || true
+POSTGRES_DB="$(get_env_value POSTGRES_DB)" || true
 [ -n "$POSTGRES_USER" ] || POSTGRES_USER="geolens"
 [ -n "$POSTGRES_DB" ] || POSTGRES_DB="geolens"
 
@@ -154,8 +165,11 @@ TARGET_TAG="v${TARGET_VERSION}"
 # A bundled install using the opt-in GEOLENS_RUNTIME_DB_ROLE also sets that
 # override, so distinguish it by the Compose-only `db` hostname rather than by
 # the role flag alone (fix(#1287 review)).
-DATABASE_URL_OVERRIDE_VALUE="$(get_env_value DATABASE_URL_OVERRIDE)"
-RUNTIME_DB_ROLE_VALUE="$(get_env_value GEOLENS_RUNTIME_DB_ROLE)"
+# fix(#1778 review round 6, P2): see the Step 1 comment above — both are
+# optional flags already tested with `[ -n "$X" ]` below, so `|| true`
+# keeps a missing key a no-op instead of aborting the upgrade.
+DATABASE_URL_OVERRIDE_VALUE="$(get_env_value DATABASE_URL_OVERRIDE)" || true
+RUNTIME_DB_ROLE_VALUE="$(get_env_value GEOLENS_RUNTIME_DB_ROLE)" || true
 override_targets_bundled_db() {
   _url="$1"
   _authority="${_url#*://}"

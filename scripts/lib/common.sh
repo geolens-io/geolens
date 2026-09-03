@@ -222,8 +222,39 @@ _env_interpolate() {
 }
 
 # Read a value from .env. Handles values containing `=` correctly (returns the
-# full remainder after the first `=`). Returns empty if the key is missing or
-# the value is empty. Reads from "$1" if given, else ./.env.
+# full remainder after the first `=`). Reads from "$1" if given, else ./.env.
+#
+# fix(#1778 review round 6, P2): returns 1 (and prints nothing) when the file
+# does not exist or the key has no `key=` line in it at all — DISTINCT from
+# printing an empty string with exit 0, which means the key IS defined with
+# an empty value. Before this, both shapes were indistinguishable: a key a
+# `.env` simply never mentions (relying on Compose's own
+# `POSTGRES_DB=prod scripts/restore.sh ...` process-environment override,
+# which Compose supports) came back as "" exit 0, same as `POSTGRES_DB=` on
+# its own line — so `POSTGRES_DB="$(get_env_value POSTGRES_DB .env)"`
+# unconditionally overwrote the inherited process value with an empty
+# string. Callers that want "fall back to whatever is already in the
+# environment" must guard the assignment on this exit status themselves,
+# e.g. `if _v="$(get_env_value POSTGRES_DB "$file")"; then POSTGRES_DB="$_v";
+# fi` — assigning only inside the `if` (never to the real target variable
+# on the failure path) is what actually preserves the inherited value; `if`
+# conditions are exempt from `set -e`, so this does not abort the caller
+# even though the function itself may `return 1`.
+#
+# fix(#1778 review round 6, P2): the top-level scan used to `exit` on the
+# FIRST `key=` line it found. Compose reads an env file top-to-bottom and
+# lets a later definition of the same key win — the interpolation helpers
+# above (_env_line_of, _env_raw_before) already implement that "last
+# definition wins" rule for resolving a ${VAR} reference, but this
+# function's own direct lookup disagreed with them on a file containing a
+# duplicate key. It now scans the whole file and keeps the LAST match,
+# consistent with both the interpolation helpers and Compose itself.
+#
+# Interpolation precedence inside a resolved value (earlier line in this
+# same file, then the process environment) is unchanged by either fix above
+# — see _env_interpolate's doc comment; this is only about whether the KEY
+# ITSELF appears in the file, not about resolving a ${VAR} reference nested
+# inside a value that does.
 #
 # fix(#1778 review, P2): the awk extraction returns everything after the
 # first `=` VERBATIM — but Docker Compose's own .env parser (the one
@@ -262,15 +293,25 @@ _env_interpolate() {
 get_env_value() {
   key="$1"
   file="${2:-.env}"
+
+  [ -f "$file" ] || return 1
+
+  # Last matching `key=` line wins (Compose's own duplicate-key rule); END
+  # reports "no such key" as its own failure so the caller can tell that
+  # apart from "key present, value empty" (found=1, empty val, exit 0).
   raw="$(awk -v k="$key" '
     {
       pat = "^" k "="
       if ($0 ~ pat) {
-        print substr($0, length(k) + 2)
-        exit
+        val = substr($0, length(k) + 2)
+        found = 1
       }
     }
-  ' "$file")"
+    END {
+      if (found) { print val; exit 0 }
+      exit 1
+    }
+  ' "$file")" || return 1
 
   case "$raw" in
     \"*)

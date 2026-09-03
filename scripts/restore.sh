@@ -16,11 +16,30 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # validated anything; a value containing backticks or $(...) is executed
 # with the operator's privileges. Sourcing also pulled in every OTHER secret
 # in the file as a side effect, when only these four are ever read below.
+#
+# fix(#1778 review round 6, P2): assign to each target ONLY when
+# get_env_value reports the key is actually present in .env (exit 0) — a
+# setting Compose supports supplying purely through the process environment
+# (`POSTGRES_DB=production scripts/restore.sh ...`, deliberately omitted
+# from .env) used to be overwritten with an empty string the instant the
+# key was simply absent, since get_env_value's old "" exit-0 result for
+# "missing" was indistinguishable from "present but empty". The `if` guard
+# is exempt from `set -e`, and assigning the real target only inside it
+# (never on the failure path) is what actually preserves the inherited
+# value; `_v` is a scratch var, reused across all four lookups.
 if [ -f "$PROJECT_ROOT/.env" ]; then
-    COMPOSE_FILE="$(get_env_value COMPOSE_FILE "$PROJECT_ROOT/.env")"
-    POSTGRES_USER="$(get_env_value POSTGRES_USER "$PROJECT_ROOT/.env")"
-    POSTGRES_DB="$(get_env_value POSTGRES_DB "$PROJECT_ROOT/.env")"
-    GEOLENS_RUNTIME_DB_ROLE="$(get_env_value GEOLENS_RUNTIME_DB_ROLE "$PROJECT_ROOT/.env")"
+    if _v="$(get_env_value COMPOSE_FILE "$PROJECT_ROOT/.env")"; then
+        COMPOSE_FILE="$_v"
+    fi
+    if _v="$(get_env_value POSTGRES_USER "$PROJECT_ROOT/.env")"; then
+        POSTGRES_USER="$_v"
+    fi
+    if _v="$(get_env_value POSTGRES_DB "$PROJECT_ROOT/.env")"; then
+        POSTGRES_DB="$_v"
+    fi
+    if _v="$(get_env_value GEOLENS_RUNTIME_DB_ROLE "$PROJECT_ROOT/.env")"; then
+        GEOLENS_RUNTIME_DB_ROLE="$_v"
+    fi
 fi
 COMPOSE=(docker compose -f "$PROJECT_ROOT/${COMPOSE_FILE:-docker-compose.yml}")
 

@@ -11,12 +11,14 @@ into (no new env var).
 
 These tests run the REAL prune_s3_prefix function — extracted from
 scripts/backup-entrypoint.sh at test time so the harness cannot drift —
-against a stub `aws` CLI that serves a canned `aws s3 ls` listing and records
+against a stub `aws` CLI that serves a canned `aws s3api list-objects-v2`
+JSON listing and records
 every `aws s3 rm` call.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -31,12 +33,18 @@ case "$1 $2" in
     "configure set")
         exit 0
         ;;
-    "s3 ls")
+    "s3api list-objects-v2")
+        # fix(#1778 review round 6, P2): the real script now calls this
+        # instead of `aws s3 ls` (see s3_list_prefix's comment) — the
+        # stub still ignores the actual --bucket/--prefix/--output args
+        # and always serves the canned response, same as the old `s3 ls`
+        # case did for the s3:// URI argument.
         if [ "${AWS_STUB_LS_EXIT:-0}" != "0" ]; then
-            # fix(#1778 review round 3): a real `aws s3 ls` failure writes
-            # to stderr; an empty-prefix exit 1 writes NOTHING to either
-            # stream. AWS_STUB_LS_STDERR lets each test choose which one it
-            # is driving, independent of the exit code value.
+            # fix(#1778 review round 3): a real listing failure writes to
+            # stderr; an empty-prefix "success with no objects" writes
+            # NOTHING to either stream. AWS_STUB_LS_STDERR lets each test
+            # choose which one it is driving, independent of the exit
+            # code value.
             [ -n "${AWS_STUB_LS_STDERR:-}" ] && printf '%s\n' "${AWS_STUB_LS_STDERR}" >&2
             exit "${AWS_STUB_LS_EXIT}"
         fi
@@ -78,15 +86,31 @@ esac
 # (should survive, a positive control that pruning doesn't over-delete).
 _LS_LISTING = "\n".join(
     [
-        "2026-08-01 02:00:00        100 geolens_20260801_020000.dump",
-        "2026-08-01 02:05:00         50 globals-20260801_020000.sql",
-        "2026-08-01 02:05:00         80 staging-20260801_020000.tar.gz",
-        "2026-08-02 02:00:00        100 geolens_20260802_020000.dump",
-        "2026-08-03 02:00:00        100 geolens_20260803_020000.dump",
-        "2026-08-04 02:00:00        100 geolens_20260804_020000.dump",
-        "2026-08-04 02:05:00         50 globals-20260804_020000.sql",
+        "geolens_20260801_020000.dump",
+        "globals-20260801_020000.sql",
+        "staging-20260801_020000.tar.gz",
+        "geolens_20260802_020000.dump",
+        "geolens_20260803_020000.dump",
+        "geolens_20260804_020000.dump",
+        "globals-20260804_020000.sql",
     ]
 )
+
+
+def _ls_json(listing: str | None) -> str:
+    """fix(#1778 review round 6, P2) test support: the real script now
+    calls `aws s3api list-objects-v2 --output json` instead of `aws s3
+    ls` — the stub's canned response is JSON, built here from the same
+    plain "one bare key per line" fixtures every test already used
+    (previously interpreted as `aws s3 ls`'s bare filename column).
+    Deliberately does NOT prefix each key with "backups/<prefix>/" the
+    way a real bucket listing would — s3_list_prefix's `key.startswith`
+    strip is then simply a no-op on these already-bare keys, which
+    still exercises exactly what these tests care about: that a key's
+    exact characters (including spaces) survive the round trip.
+    """
+    names = [line for line in (listing or "").splitlines() if line.strip()]
+    return json.dumps({"Contents": [{"Key": name} for name in names]})
 
 
 def _extract_function(name: str) -> str:
@@ -106,8 +130,9 @@ def _extract_prune_s3_prefix() -> str:
     # alongside it or the harness fails with "command not found":
     # s3_newest_complete_ts (fix(#1778 review round 2, P1) — the S3 analogue
     # of the local newest-complete-set protection) and s3_list_prefix
-    # (fix(#1778 review round 3) — distinguishes an empty-prefix `aws s3 ls`
-    # exit 1 from a genuine listing failure).
+    # (fix(#1778 review round 3, updated round 6 for the aws s3api
+    # list-objects-v2 switch) — distinguishes an empty prefix from a
+    # genuine listing failure).
     return (
         f"{_extract_function('s3_list_prefix')}\n"
         f"{_extract_function('s3_newest_complete_ts')}\n"
@@ -182,7 +207,7 @@ def _run(
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     ls_file = tmp_path / "ls_output.txt"
-    ls_file.write_text((ls_listing + "\n") if ls_listing else "")
+    ls_file.write_text(_ls_json(ls_listing))
     deleted_file = tmp_path / "deleted.txt"
     deleted_file.write_text("")
 
@@ -239,7 +264,7 @@ def _run_prune_s3_prefix_with_real_log(
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     ls_file = tmp_path / "ls_output.txt"
-    ls_file.write_text("")
+    ls_file.write_text(_ls_json(None))
     deleted_file = tmp_path / "deleted.txt"
     deleted_file.write_text("")
 
@@ -353,9 +378,9 @@ class TestPruneS3Prefix:
         pruning at all. Everything survives."""
         listing = "\n".join(
             [
-                "2026-08-01 02:00:00        100 geolens_20260801_020000.dump",
-                "2026-08-01 02:05:00         50 globals-20260801_020000.sql",
-                "2026-08-02 02:00:00        100 geolens_20260802_020000.dump",
+                "geolens_20260801_020000.dump",
+                "globals-20260801_020000.sql",
+                "geolens_20260802_020000.dump",
             ]
         )
         result, deleted = _run(tmp_path, keep="1", ls_listing=listing)
@@ -379,11 +404,11 @@ class TestPruneS3Prefix:
         08-01, is pruned — dump and its now-orphaned globals both."""
         listing = "\n".join(
             [
-                "2026-08-01 02:00:00        100 geolens_20260801_020000.dump",
-                "2026-08-01 02:05:00         50 globals-20260801_020000.sql",
-                "2026-08-02 02:00:00        100 geolens_20260802_020000.dump",
-                "2026-08-03 02:00:00        100 geolens_20260803_020000.dump",
-                "2026-08-03 02:05:00         50 globals-20260803_020000.sql",
+                "geolens_20260801_020000.dump",
+                "globals-20260801_020000.sql",
+                "geolens_20260802_020000.dump",
+                "geolens_20260803_020000.dump",
+                "globals-20260803_020000.sql",
             ]
         )
         result, deleted = _run(tmp_path, keep="1", ls_listing=listing)
@@ -525,9 +550,9 @@ class TestPruneS3Prefix:
         single prune candidate."""
         listing = "\n".join(
             [
-                "2026-08-01 02:00:00        100 geo lens_20260801_020000.dump",
-                "2026-08-02 02:00:00        100 geo lens_20260802_020000.dump",
-                "2026-08-03 02:00:00        100 geo lens_20260803_020000.dump",
+                "geo lens_20260801_020000.dump",
+                "geo lens_20260802_020000.dump",
+                "geo lens_20260803_020000.dump",
             ]
         )
         result, deleted = _run(tmp_path, keep="2", ls_listing=listing)
@@ -553,8 +578,8 @@ class TestPruneS3Prefix:
         regardless of the fix — only the rm TARGET should change."""
         listing = "\n".join(
             [
-                "2026-08-01 02:00:00        100 geolens_20260801_020000.dump",
-                "2026-08-05 02:05:00         50 globals extra-20260901_030000.sql",
+                "geolens_20260801_020000.dump",
+                "globals extra-20260901_030000.sql",
             ]
         )
         result, deleted = _run(tmp_path, keep="2", ls_listing=listing)
@@ -566,6 +591,36 @@ class TestPruneS3Prefix:
         assert (
             "s3://test-bucket/backups/daily/extra-20260901_030000.sql" not in deleted
         ), f"a truncated companion key was targeted instead: {deleted}"
+
+    def test_dump_key_with_leading_and_internal_spaces_is_pruned_by_its_real_name(
+        self, tmp_path: Path
+    ):
+        """fix(#1778 review round 6, P2): round 5's fixed-column `read -r
+        _d _t _s name` fixed INTERNAL spaces (it let the last variable
+        absorb the rest of the line) but `read` ALSO strips LEADING
+        whitespace off the field it assigns — POSTGRES_DB=" geo" produces
+        a dump named " geo_<ts>.dump" (leading space), which round 5's own
+        fix still silently turned into "geo_<ts>.dump". This is exactly
+        why round 6 replaced the whitespace-column listing with JSON
+        (s3_list_prefix now shells out to `aws s3api list-objects-v2`) —
+        there is no whitespace-splitting step left to lose the leading
+        space. With keep=2 and 3 dump-only entries, 08-01 is the single
+        prune candidate."""
+        listing = "\n".join(
+            [
+                " geo_20260801_020000.dump",
+                " geo_20260802_020000.dump",
+                " geo_20260803_020000.dump",
+            ]
+        )
+        result, deleted = _run(tmp_path, keep="2", ls_listing=listing)
+        assert result.returncode == 0, result.stderr
+        assert "s3://test-bucket/backups/daily/ geo_20260801_020000.dump" in deleted, (
+            f"the real (leading-space) key was never targeted: {deleted}"
+        )
+        assert (
+            "s3://test-bucket/backups/daily/geo_20260801_020000.dump" not in deleted
+        ), f"a leading-space-stripped key was targeted instead: {deleted}"
 
 
 def _run_full_cycle(
@@ -584,7 +639,7 @@ def _run_full_cycle(
     staging_dir = tmp_path / "no-such-staging-mount"  # never created: skips cleanly
 
     ls_file = tmp_path / "ls_output.txt"
-    ls_file.write_text(_LS_LISTING + "\n")
+    ls_file.write_text(_ls_json(_LS_LISTING))
     deleted_file = tmp_path / "deleted.txt"
     deleted_file.write_text("")
 
@@ -792,7 +847,7 @@ def _run_weekly_staging_globals_upload_cycle(
     (staging_dir / "object.bin").write_text("staged object bytes\n")
 
     ls_file = tmp_path / "ls_output.txt"
-    ls_file.write_text("")
+    ls_file.write_text(_ls_json(None))
     deleted_file = tmp_path / "deleted.txt"
     deleted_file.write_text("")
     uploaded_file = tmp_path / "uploaded.txt"
