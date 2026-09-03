@@ -538,10 +538,30 @@ test('S09 — dataset export -where rejects UNION / subqueries', async ({ reques
   // /datasets/{id}/export.csv (backend/openapi.json has no such path) — the
   // old URL always 404'd before the -where parser ever ran, which the
   // permanent skip guard hid.
+
+  // Positive control: the identical anonymous request, with no `where` at
+  // all, against the same public/published dataset. publicDatasetId is
+  // published by beforeAll (see the seedPublic PATCH above), and the
+  // export route resolves the caller through get_optional_user + a
+  // check_dataset_access_or_anonymous gate (processing/export/router.py),
+  // so a plain export of a public dataset must succeed anonymously. This
+  // proves any 403 below would come from validate_where_clause() rejecting
+  // the malicious clause -- not from an anonymous-export authorization
+  // regression that would 403 every request here regardless of `where`,
+  // silently satisfying this test without the parser ever running.
+  const controlRes = await request.get(`${apiBase}/datasets/${datasetId}/export?format=csv`);
+  expect(controlRes.ok(), 'positive control: anonymous export of a public dataset must succeed').toBeTruthy();
+
   const res = await request.get(
     `${apiBase}/datasets/${datasetId}/export?format=csv&where=${encodeURIComponent(malicious)}`,
   );
-  expect([400, 422, 403]).toContain(res.status());
+  // fix(review #1792 round 9): 403 dropped from the accepted set -- with the
+  // positive control above proving the route is reachable anonymously, a
+  // 403 here can only mean the malicious `where` never reached
+  // validate_where_clause() at all (e.g. an authorization regression that
+  // 403s the export before parsing), which is precisely the UNION/subquery
+  // defense this test exists to exercise.
+  expect([400, 422]).toContain(res.status());
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -568,38 +588,24 @@ test('S13 — /search/facets/ rejects q longer than 1000 chars', async ({ reques
 // /search/datasets/ route (malformed-bbox included -- same endpoint, a
 // `bbox` param rather than `q`), so their combined request count competes
 // for the same per-route bucket as every other test in this file that hits
-// it. Round 3 fixed this by moving the burst test (S11, now a single-request
-// smoke at the end of this file) after these so it could not exhaust the
-// bucket first; round 5 removes the remaining assumption that "S11 runs
-// last" makes 200 the only possible outcome here, since a deployment can
-// configure semantic_search_rate_limit low enough that these four requests
-// alone exceed it. Read the configured limit once, and treat a 429 whose
-// body names a per-minute limit as an equally valid outcome for these
-// specific requests whenever the limit cannot possibly cover all of them --
-// no pacing, no burst, no ceiling.
+// it.
+//
+// fix(review #1792 round 9): round 5's "accept a 429 only when the
+// configured limit is below this describe block's own request count" logic
+// assumed this describe block is the only source of traffic against the
+// bucket. It is not: in a full nightly run, search.spec.ts also hits
+// /search/datasets/ against the same server (and, if the limiter keys on
+// IP rather than per-user, the same bucket), so a configured limit that
+// comfortably covers these four requests ALONE can still be exhausted by
+// the time they run, and an unconditional `expect(200)` would then fail a
+// perfectly healthy rate limiter. There is no configured-limit threshold
+// that can rule this out, since it depends on traffic this suite doesn't
+// control -- so a 429 is accepted here unconditionally, gated only on it
+// actually looking like the per-route semantic-search limiter (a
+// `Retry-After` header, per _rate_limit_handler in api/main.py, plus a
+// detail naming a per-minute limit) rather than some other failure mode.
+// No pacing, no burst, no settings lookup, no ceiling.
 test.describe('Hygiene — /search/datasets/ requests', () => {
-  const HYGIENE_REQUEST_COUNT = 4;
-  let configuredLimit: number;
-
-  test.beforeAll(async ({ request }) => {
-    const settingsRes = await request.get(`${apiBase}/settings/all/`, {
-      headers: { Authorization: `Bearer ${getAuthToken()}` },
-    });
-    expect(settingsRes.ok()).toBeTruthy();
-    const settingsBody = (await settingsRes.json()) as {
-      tabs: Record<string, Array<{ key: string; value: unknown }>>;
-    };
-    const rateLimitItem = Object.values(settingsBody.tabs)
-      .flat()
-      .find((item) => item.key === 'semantic_search_rate_limit');
-    expect(
-      rateLimitItem,
-      'semantic_search_rate_limit setting not found in /settings/all/',
-    ).toBeTruthy();
-    configuredLimit = Number(rateLimitItem?.value);
-    expect(Number.isFinite(configuredLimit) && configuredLimit > 0).toBe(true);
-  });
-
   // Returns the parsed body when the request is accepted (200), or null when
   // it was rejected by the rate limiter in a way this suite has decided is
   // an acceptable outcome for these specific requests (see the describe-level
@@ -607,7 +613,8 @@ test.describe('Hygiene — /search/datasets/ requests', () => {
   async function expectAcceptedOrRateLimited(
     res: Awaited<ReturnType<import('@playwright/test').APIRequestContext['get']>>,
   ): Promise<Record<string, unknown> | null> {
-    if (res.status() === 429 && configuredLimit < HYGIENE_REQUEST_COUNT + 1) {
+    if (res.status() === 429) {
+      expect(res.headers()['retry-after']).toBeTruthy();
       const body = (await res.json()) as { detail?: string };
       expect(body.detail).toMatch(/ per 1 minute$/);
       return null;
@@ -656,7 +663,8 @@ test.describe('Hygiene — /search/datasets/ requests', () => {
 
   test('malformed bbox is rejected', async ({ request }) => {
     const res = await request.get(`${apiBase}/search/datasets/?bbox=0,0,1`);
-    if (res.status() === 429 && configuredLimit < HYGIENE_REQUEST_COUNT + 1) {
+    if (res.status() === 429) {
+      expect(res.headers()['retry-after']).toBeTruthy();
       const body = (await res.json()) as { detail?: string };
       expect(body.detail).toMatch(/ per 1 minute$/);
       return;
