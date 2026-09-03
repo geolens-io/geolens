@@ -50,6 +50,7 @@ from app.processing.ai.chat_actions import (
 )
 from app.processing.ai.chat_constants import (
     _EDIT_TOOLS,
+    TOOL_RESULT_PROTOCOL,
     _MAX_COLUMNS_PER_LAYER,
     _MAX_SAMPLE_COLS,
     _MAX_SYSTEM_PROMPT_LAYERS,
@@ -97,7 +98,7 @@ from app.processing.ai.sql_generator import (
 )  # re-exported (test patch target)
 from app.processing.ai.token_usage import (
     record_token_usage,
-    record_token_usage_from_error,
+    usage_accounting,
 )
 from app.processing.ai.tools import select_chat_tools
 
@@ -298,6 +299,7 @@ You are a map editing assistant. The user has a map with these layers:
 
 {fenced_layers}{readonly_note}
 
+{TOOL_RESULT_PROTOCOL}
 ## Instructions
 - Modify the map based on the user's instructions using the available tools.
 - Always reference layers by their id (UUID).
@@ -460,7 +462,13 @@ async def chat_edit_map(
             return None
         return _collect_chat_action(tool_name, tool_input, tool_result)
 
-    try:
+    # fix(#1778 round 2): one accounting shape at every provider call site.
+    # The tokens are spent the moment the provider answers, so any way out of
+    # the loop must still bill the daily cap: an exhaustion, a later request
+    # failure, a tool executor that raises, or a client that disconnects.
+    async with usage_accounting(
+        session, user_id=user.id, subsystem="chat", model=model
+    ):
         result = await provider_ext.complete(
             model=model,
             system_prompt=system_prompt,
@@ -472,14 +480,6 @@ async def chat_edit_map(
             base_url=runtime_config.get("base_url"),
             temperature=0.3,
         )
-    except Exception as exc:  # broad: any provider failure may still have spent tokens
-        # fix(#1778): the tokens are spent the moment the provider answers, so
-        # a loop that exhausts must still be billed to the daily cap. No-op
-        # when the failure carries no counts (it never reached the provider).
-        await record_token_usage_from_error(
-            session, exc, user_id=user.id, subsystem="chat", model=model
-        )
-        raise
 
     logger.info(
         "Chat edit complete",

@@ -14,6 +14,7 @@ from sqlalchemy.orm import joinedload
 from collections.abc import AsyncGenerator, Awaitable, Callable
 
 from app.processing.ai.chat_constants import (
+    TOOL_RESULT_PROTOCOL,
     sanitize_column_info,
     sanitize_dataset_value,
     sanitize_sample_values,
@@ -40,7 +41,7 @@ from app.core.geo import extent_to_bbox, merge_bboxes, wrap_longitude
 from app.core.identity import Identity
 from app.processing.ai.token_usage import (
     record_token_usage,
-    record_token_usage_from_error,
+    usage_accounting,
 )
 
 if TYPE_CHECKING:
@@ -220,6 +221,10 @@ def _build_map_system_prompt(
 
     basemap_instruction = _build_basemap_instruction(basemap_ids)
     prompt = SYSTEM_PROMPT.format(basemap_instruction=basemap_instruction)
+
+    # This path has no layer block, so a catalog tool result is the only
+    # untrusted text it ever sees. fix(#1778 round 2).
+    prompt += "\n" + TOOL_RESULT_PROTOCOL
 
     lang = lang_name(language)
     prompt += f"""
@@ -403,17 +408,23 @@ async def _retry_parse_map_spec(
     # covers the no-tools single-round retry case naturally.
     provider_ext = get_ai_provider(provider)
 
-    result = await provider_ext.complete(
-        model=model,
-        system_prompt="",
-        user_message=extraction_prompt,
-        tools=[],
-        # max_rounds=1 exits before any tool call; executor never runs.
-        tool_executor=noop_tool_executor,
-        max_rounds=1,
-        max_tokens=1024,
-        base_url=runtime_config.get("base_url"),
-    )
+    # fix(#1778 round 2): a single-round call still spends a round. Same
+    # accounting shape as the tool loops, so the structural gate does not
+    # have to carve out an exception it would then have to justify.
+    async with usage_accounting(
+        session, user_id=user_id, subsystem="map_generation", model=model
+    ):
+        result = await provider_ext.complete(
+            model=model,
+            system_prompt="",
+            user_message=extraction_prompt,
+            tools=[],
+            # max_rounds=1 exits before any tool call; executor never runs.
+            tool_executor=noop_tool_executor,
+            max_rounds=1,
+            max_tokens=1024,
+            base_url=runtime_config.get("base_url"),
+        )
     # codex P2 on #646/#648: retry/repair rounds spend real provider tokens —
     # record them or they bypass the daily AI budget.
     await record_token_usage(
@@ -461,17 +472,23 @@ async def _repair_map_spec(
     )
     provider_ext = get_ai_provider(provider)
 
-    result = await provider_ext.complete(
-        model=model,
-        system_prompt="",
-        user_message=repair_prompt,
-        tools=[],
-        # max_rounds=1 exits before any tool call; executor never runs.
-        tool_executor=noop_tool_executor,
-        max_rounds=1,
-        max_tokens=1024,
-        base_url=runtime_config.get("base_url"),
-    )
+    # fix(#1778 round 2): a single-round call still spends a round. Same
+    # accounting shape as the tool loops, so the structural gate does not
+    # have to carve out an exception it would then have to justify.
+    async with usage_accounting(
+        session, user_id=user_id, subsystem="map_generation", model=model
+    ):
+        result = await provider_ext.complete(
+            model=model,
+            system_prompt="",
+            user_message=repair_prompt,
+            tools=[],
+            # max_rounds=1 exits before any tool call; executor never runs.
+            tool_executor=noop_tool_executor,
+            max_rounds=1,
+            max_tokens=1024,
+            base_url=runtime_config.get("base_url"),
+        )
     # codex P2 on #648: repair-round tokens must count toward the daily cap.
     await record_token_usage(
         session,
@@ -756,29 +773,26 @@ async def generate_map_from_prompt(
     tool_executor = _build_tool_executor(session, user, user_roles, send_samples, port)
 
     try:
-        result = await provider_ext.complete(
-            model=model,
-            system_prompt=system_prompt,
-            user_message=prompt,
-            tools=ANTHROPIC_TOOLS,
-            tool_executor=tool_executor,
-            base_url=runtime_config.get("base_url"),
-            temperature=0.3,
-            max_tokens=1024,
-            max_rounds=8,
-        )
-    except Exception as exc:  # broad: any provider failure may still have spent tokens
-        # fix(#1778): record what the loop had already spent before turning an
-        # exhaustion into the user-facing message below. No-op when the failure
-        # carries no counts.
-        await record_token_usage_from_error(
-            session, exc, user_id=user.id, subsystem="map_generation", model=model
-        )
-        if isinstance(exc, ToolLoopExhaustedError):
-            raise UserFacingAIError(
-                "Map generation required too many steps. Try a simpler prompt."
-            ) from exc
-        raise
+        async with usage_accounting(
+            session, user_id=user.id, subsystem="map_generation", model=model
+        ):
+            result = await provider_ext.complete(
+                model=model,
+                system_prompt=system_prompt,
+                user_message=prompt,
+                tools=ANTHROPIC_TOOLS,
+                tool_executor=tool_executor,
+                base_url=runtime_config.get("base_url"),
+                temperature=0.3,
+                max_tokens=1024,
+                max_rounds=8,
+            )
+    except ToolLoopExhaustedError as exc:
+        # Accounting already happened inside the context manager; this only
+        # translates the failure for the caller.
+        raise UserFacingAIError(
+            "Map generation required too many steps. Try a simpler prompt."
+        ) from exc
 
     logger.info(
         "Map generation complete",
@@ -883,7 +897,17 @@ async def stream_generate_map(
             )
             return result
 
-        try:
+        # fix(#1778 round 2): this generator's own handlers below turn an
+        # exhaustion or a timeout into an SSE error event and return, and a
+        # browser that goes away cancels the whole task, so without the
+        # context manager the provider had already billed the round and
+        # nothing reached catalog.ai_token_usage. It covers all three: the
+        # wait_for timeout arrives with its counts on __cause__, and the
+        # disconnect arrives as a CancelledError that an `except Exception`
+        # would have missed entirely.
+        async with usage_accounting(
+            session, user_id=user.id, subsystem="map_generation", model=model
+        ):
             result = await asyncio.wait_for(
                 provider_ext.complete(
                     model=model,
@@ -898,19 +922,6 @@ async def stream_generate_map(
                 ),
                 timeout=300.0,  # 5-minute hard cap on LLM tool loop
             )
-        except (
-            Exception
-        ) as exc:  # broad: any provider failure may still have spent tokens
-            # fix(#1778): this generator's own handlers below turn an
-            # exhaustion or a timeout into an SSE error event and return, so
-            # without this the provider had already billed the round and
-            # nothing reached catalog.ai_token_usage. The 300 s wait_for
-            # cancels the loop and cannot recover its counts; the provider's
-            # own 90 s wall clock fires first in practice and does carry them.
-            await record_token_usage_from_error(
-                session, exc, user_id=user.id, subsystem="map_generation", model=model
-            )
-            raise
 
         logger.info(
             "Map generation complete (streaming)",

@@ -7,7 +7,7 @@ owns ``DefaultAnthropicProvider``. Import it via the
 
 from __future__ import annotations
 
-from app.platform.ai_tool_payloads import model_safe_tool_result
+from app.platform.ai_tool_payloads import tool_result_content
 
 
 async def _run_tool_use_blocks(
@@ -25,8 +25,6 @@ async def _run_tool_use_blocks(
     and this block is self-contained. ``collected_actions`` is appended in
     place, matching what the caller did inline.
     """
-    import json  # deferred import (Phase 214 discipline)
-
     tool_results: list[dict] = []
     for block in content:
         if block.type != "tool_use":
@@ -41,9 +39,9 @@ async def _run_tool_use_blocks(
             {
                 "type": "tool_result",
                 "tool_use_id": block.id,
-                # default=str: query_data rows can carry Decimal / datetime
-                # values straight from PostGIS.
-                "content": json.dumps(model_safe_tool_result(result), default=str),
+                # fix(#1778 round 2): fenced, not bare JSON. See
+                # tool_result_content for why every result and not a subset.
+                "content": tool_result_content(result),
             }
         )
     return tool_results

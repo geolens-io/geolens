@@ -6,6 +6,7 @@ callers import ``build_dataset_chat_system_prompt`` via
 """
 
 from app.processing.ai.chat_constants import (
+    TOOL_RESULT_PROTOCOL,
     _MAX_COLUMNS_PER_LAYER,
     _MAX_SAMPLE_COLS,
     QUERY_RESULT_SANITY_PROMPT,
@@ -68,6 +69,7 @@ You are a data analysis assistant. The user is exploring this dataset:
 Dataset "{safe_title}" (table: {layer.dataset_table_name}){geom_str}{feat_str}
 Columns: {cols_str}{sample_str}
 
+{TOOL_RESULT_PROTOCOL}
 ## Instructions
 - When the user asks a question about the data (counts, statistics, spatial
   relationships, distances, areas, finding features), use the query_data tool.

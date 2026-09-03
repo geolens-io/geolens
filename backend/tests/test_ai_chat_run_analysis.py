@@ -882,8 +882,15 @@ class TestToolResultSerializationSites:
 
     The rule: any dict literal carrying a provider tool-result id
     (``tool_use_id`` for Anthropic, ``tool_call_id`` for OpenAI) alongside a
-    ``content`` key must set that content to
-    ``json.dumps(model_safe_tool_result(...), ...)``.
+    ``content`` key must set that content to ``tool_result_content(...)``.
+
+    fix(#1778 round 2): that used to read ``json.dumps(model_safe_tool_result
+    (...), ...)``, spelled out at each site. The sites now share one helper,
+    which trims the map-only payload AND wraps the result in the untrusted
+    trust fence, so the property this gate protects got strictly stronger and
+    the shape it matches got simpler: one name, called once, at every site.
+    Hand-rolling the old two-call form no longer passes, which is the point:
+    a site that built its own JSON would be trimmed but unfenced.
 
     fix(#699 codex P2): the walk covers all of ``backend/app/``, not a fixed
     list of the modules that happen to build these messages today, following
@@ -943,18 +950,12 @@ class TestToolResultSerializationSites:
 
     @staticmethod
     def _is_trimmed_dumps(value: ast.expr) -> bool:
-        if not isinstance(value, ast.Call):
-            return False
-        func = value.func
-        if not (isinstance(func, ast.Attribute) and func.attr == "dumps"):
-            return False
-        if not value.args:
-            return False
-        inner = value.args[0]
+        """True when the content comes from the one shared serializer."""
         return (
-            isinstance(inner, ast.Call)
-            and isinstance(inner.func, ast.Name)
-            and inner.func.id == "model_safe_tool_result"
+            isinstance(value, ast.Call)
+            and isinstance(value.func, ast.Name)
+            and value.func.id == "tool_result_content"
+            and bool(value.args)
         )
 
     def test_every_provider_tool_result_is_trimmed_before_serialization(self) -> None:
@@ -988,6 +989,7 @@ class TestToolResultSerializationSites:
             if not self._is_trimmed_dumps(value)
         ]
         assert not unwrapped, (
-            "these tool-result sites serialize the raw result, so the whole "
-            f"GeoJSON payload reaches the model: {unwrapped}"
+            "these tool-result sites do not go through tool_result_content, so "
+            "the whole GeoJSON payload reaches the model and the result is not "
+            f"inside the untrusted-content fence: {unwrapped}"
         )

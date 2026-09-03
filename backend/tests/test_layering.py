@@ -4520,7 +4520,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # constructed UserFacingAIError through, so the five deliberate refusals
     # say so by type instead of every ValueError being trusted (
     # OpenAICredentialDestinationError is one, and its message IS the endpoint).
-    "backend/app/processing/ai/service.py": 1008,
+    # fix(#1778 round 2): +11 - every provider call site moved to the shared
+    # usage_accounting context manager, including the two single-round repair
+    # calls that had no failure accounting at all, and the map prompt gained
+    # the tool-result protocol that says what the fence markers mean.
+    "backend/app/processing/ai/service.py": 1019,
     # fix(#1463): crossed the inclusion threshold. The growth is the vector-tile
     # protocol constants and the stale-label repair in generate_distributions,
     # plus the comment recording why the repair has to exist at all: migration

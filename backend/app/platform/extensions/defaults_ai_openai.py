@@ -8,7 +8,7 @@ owns ``DefaultOpenAICompatibleProvider`` (Phase 226 D-17) and
 
 from __future__ import annotations
 
-from app.platform.ai_tool_payloads import model_safe_tool_result
+from app.platform.ai_tool_payloads import tool_result_content
 
 
 class DefaultOpenAICompatibleProvider:
@@ -228,10 +228,8 @@ class DefaultOpenAICompatibleProvider:
                             {
                                 "role": "tool",
                                 "tool_call_id": tool_call.id,
-                                # default=str: see the Anthropic tool_result path above.
-                                "content": json.dumps(
-                                    model_safe_tool_result(result), default=str
-                                ),
+                                # fix(#1778 round 2): fenced, not bare JSON.
+                                "content": tool_result_content(result),
                             }
                         )
                     continue

@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.persistent_config import MAX_AI_TOKENS_PER_USER_PER_DAY
-from app.platform.ai_tool_payloads import model_safe_tool_result
+from app.platform.ai_tool_payloads import tool_result_content
 
 from app.processing.ai.chat_service import (
     _build_chat_actions,
@@ -350,13 +350,9 @@ async def _stream_anthropic_chat(
                         {
                             "type": "tool_result",
                             "tool_use_id": block.id,
-                            # default=str: query_data rows can carry Decimal /
-                            # datetime values straight from PostGIS.
-                            "content": json.dumps(
-                                model_safe_tool_result(
-                                    raw_results[0] if raw_results else {}
-                                ),
-                                default=str,
+                            # fix(#1778 round 2): fenced, not bare JSON.
+                            "content": tool_result_content(
+                                raw_results[0] if raw_results else {}
                             ),
                         }
                     )
@@ -663,10 +659,8 @@ async def _stream_openai_chat(
                     {
                         "role": "tool",
                         "tool_call_id": call_id,
-                        # default=str: see the Anthropic tool_result path above.
-                        "content": json.dumps(
-                            model_safe_tool_result(result), default=str
-                        ),
+                        # fix(#1778 round 2): fenced, not bare JSON.
+                        "content": tool_result_content(result),
                     }
                 )
             continue
