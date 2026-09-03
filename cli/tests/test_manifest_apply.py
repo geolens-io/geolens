@@ -262,6 +262,42 @@ class TestComputeManifestApplyTimeout:
         assert compute_manifest_apply_timeout(-5) == compute_manifest_apply_timeout(1)
 
 
+class TestResolveApplyTimeout:
+    """fix(#1778 review round 21) P1: the computed formula is only ever
+    a heuristic lower bound -- MANIFEST_SOURCE_DOWNLOAD_TIMEOUT_SECONDS
+    (60s) is the backend's per-chunk INACTIVITY timeout on a source
+    download, not a total download deadline, so a large source served
+    slowly but steadily can legitimately outlast it while the apply is
+    still succeeding. resolve_apply_timeout() translates the already-
+    parsed --timeout/GEOLENS_MANIFEST_APPLY_TIMEOUT value (click's own
+    flag > envvar > default precedence already resolved which source
+    won) into post_manifest_apply()'s timeout= kwarg shape."""
+
+    def test_nothing_given_falls_back_to_the_formula(self) -> None:
+        from geolens_cli.manifest_apply import _UNSET, resolve_apply_timeout
+
+        assert resolve_apply_timeout(None) is _UNSET
+
+    def test_zero_means_no_client_side_read_timeout(self) -> None:
+        from geolens_cli.manifest_apply import resolve_apply_timeout
+
+        assert resolve_apply_timeout(0.0) is None
+
+    def test_a_positive_value_overrides_the_formula_outright(self) -> None:
+        from geolens_cli.manifest_apply import resolve_apply_timeout
+
+        assert resolve_apply_timeout(120.0) == 120.0
+
+    def test_a_negative_value_is_rejected(self) -> None:
+        from geolens_cli.manifest_apply import (
+            ManifestApplyTimeoutValueError,
+            resolve_apply_timeout,
+        )
+
+        with pytest.raises(ManifestApplyTimeoutValueError):
+            resolve_apply_timeout(-1.0)
+
+
 class TestManifestApplyTimeoutReporting:
     """fix(#1778 review round 18) parts (b)/(c), corrected by round 19:
     the timeout path must be unambiguous -- the server keeps applying
@@ -467,6 +503,74 @@ class TestManifestApplyTimeoutReporting:
         assert "is safe" not in warnings[0].lower()
         assert "safely" not in warnings[0].lower()
 
+    def test_status_check_absorbs_a_plain_network_failure_not_just_timeout(
+        self,
+    ) -> None:
+        """fix(#1778 review round 21) P2: attempt_apply_timeout_status_
+        check() only caught ManifestApplyTimeout/ManifestApplyRequestError
+        -- a plain connection failure never raises either. call_sdk()
+        maps httpx.NetworkError straight to typer.Exit(EXIT_NETWORK) on
+        its own, which propagated uncaught and could blow up the
+        --json branch in main.py before it ever emitted the promised
+        structured payload. Must degrade to None like every other
+        follow-up failure."""
+        import httpx
+
+        from geolens_cli.manifest_apply import attempt_apply_timeout_status_check
+
+        client = FakeSdkClient(FakeResponse(200, _apply_response()))
+
+        def refusing_post(**kwargs: Any) -> Any:
+            raise httpx.NetworkError("connection refused")
+
+        client.httpx_client.post = refusing_post
+
+        payload = build_apply_payload(load_manifest(_manifest_path()), dry_run=False)
+
+        result = attempt_apply_timeout_status_check(client, payload)
+
+        assert result is None
+
+    def test_report_apply_timeout_warns_when_the_follow_up_hits_a_network_failure(
+        self,
+    ) -> None:
+        """fix(#1778 review round 21) P2, at the report_apply_timeout()
+        level: the original timeout's explanation must still print even
+        though the best-effort follow-up hit an unrelated network
+        failure, not just a second timeout."""
+        import httpx
+
+        from geolens_cli.manifest_apply import (
+            ManifestApplyTimeout,
+            report_apply_timeout,
+        )
+
+        errors: list[str] = []
+        warnings: list[str] = []
+
+        class FakeOutput:
+            def error(self, message: str) -> None:
+                errors.append(message)
+
+            def warn(self, message: str) -> None:
+                warnings.append(message)
+
+        client = FakeSdkClient(FakeResponse(200, _apply_response()))
+
+        def refusing_post(**kwargs: Any) -> Any:
+            raise httpx.NetworkError("connection refused")
+
+        client.httpx_client.post = refusing_post
+
+        payload = build_apply_payload(load_manifest(_manifest_path()), dry_run=False)
+        exc = ManifestApplyTimeout(entry_count=1, budget=670.0)
+
+        result = report_apply_timeout(client, payload, exc, FakeOutput())
+
+        assert result is None
+        assert errors and "670s" in errors[0]
+        assert warnings and "could not" in warnings[0].lower()
+
 
 @pytest.mark.parametrize(
     ("status_code", "expected_exit"),
@@ -542,6 +646,141 @@ def test_apply_dry_run_sends_dry_run_payload(
     assert result.exit_code == 0, result.output
     assert sdk.client.httpx_client.calls[0]["json"]["dry_run"] is True
     assert "Dry run" in result.output
+
+
+class TestApplyTimeoutFlagAndEnvOverride:
+    """fix(#1778 review round 21) P1 end-to-end: --timeout and
+    GEOLENS_MANIFEST_APPLY_TIMEOUT override the computed heuristic
+    outright, with the flag winning when both are given."""
+
+    def _spying_sdk(self, monkeypatch: pytest.MonkeyPatch) -> tuple[FakeSdk, list]:
+        sdk = _install_fake_sdk(
+            monkeypatch, FakeResponse(200, _apply_response(dry_run=False))
+        )
+        httpx_client = sdk.client.httpx_client
+        seen: list = []
+        original_post = httpx_client.post
+
+        def spying_post(**kwargs):
+            seen.append(httpx_client.timeout)
+            return original_post(**kwargs)
+
+        httpx_client.post = spying_post
+        return sdk, seen
+
+    def test_the_flag_overrides_the_formula(
+        self, runner, tmp_xdg_home, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from geolens_cli.manifest_apply import compute_manifest_apply_timeout
+
+        _sdk, seen = self._spying_sdk(monkeypatch)
+
+        result = runner.invoke(
+            app, ["apply", "--timeout", "55", str(_remote_manifest_path())]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert seen == [55.0]
+        assert seen[0] != compute_manifest_apply_timeout(1)
+
+    def test_the_env_var_overrides_the_formula(
+        self, runner, tmp_xdg_home, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _sdk, seen = self._spying_sdk(monkeypatch)
+
+        result = runner.invoke(
+            app,
+            ["apply", str(_remote_manifest_path())],
+            env={"GEOLENS_MANIFEST_APPLY_TIMEOUT": "77"},
+        )
+
+        assert result.exit_code == 0, result.output
+        assert seen == [77.0]
+
+    def test_the_flag_wins_over_the_env_var(
+        self, runner, tmp_xdg_home, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _sdk, seen = self._spying_sdk(monkeypatch)
+
+        result = runner.invoke(
+            app,
+            ["apply", "--timeout", "55", str(_remote_manifest_path())],
+            env={"GEOLENS_MANIFEST_APPLY_TIMEOUT": "77"},
+        )
+
+        assert result.exit_code == 0, result.output
+        assert seen == [55.0]
+
+    def test_timeout_zero_produces_a_client_with_no_read_timeout(
+        self, runner, tmp_xdg_home, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """fix(#1778 review round 21): --timeout 0 removes the
+        client-side READ timeout entirely (an httpx.Timeout with
+        read/write/pool all None) while keeping the connect phase
+        bounded -- not a bare float 0, which httpx would treat as
+        "time out immediately"."""
+        import httpx
+
+        from geolens_cli._sdk_helpers import DEFAULT_HTTP_TIMEOUT_SECONDS
+
+        _sdk, seen = self._spying_sdk(monkeypatch)
+
+        result = runner.invoke(
+            app, ["apply", "--timeout", "0", str(_remote_manifest_path())]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert len(seen) == 1
+        used = seen[0]
+        assert isinstance(used, httpx.Timeout)
+        assert used.connect == DEFAULT_HTTP_TIMEOUT_SECONDS
+        assert used.read is None
+        assert used.write is None
+        assert used.pool is None
+
+    def test_a_negative_timeout_is_a_usage_error(
+        self, runner, tmp_xdg_home, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from geolens_cli._sdk_helpers import EXIT_USAGE
+
+        _sdk, seen = self._spying_sdk(monkeypatch)
+
+        result = runner.invoke(
+            app, ["apply", "--timeout", "-5", str(_remote_manifest_path())]
+        )
+
+        assert result.exit_code == EXIT_USAGE, result.output
+        assert seen == [], "must be rejected before any network call"
+
+    def test_a_non_numeric_timeout_is_a_usage_error(
+        self, runner, tmp_xdg_home, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from geolens_cli._sdk_helpers import EXIT_USAGE
+
+        _sdk, seen = self._spying_sdk(monkeypatch)
+
+        result = runner.invoke(
+            app, ["apply", "--timeout", "not-a-number", str(_remote_manifest_path())]
+        )
+
+        assert result.exit_code == EXIT_USAGE, result.output
+        assert seen == [], "must be rejected before any network call"
+
+    def test_a_non_numeric_env_var_is_a_usage_error(
+        self, runner, tmp_xdg_home, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from geolens_cli._sdk_helpers import EXIT_USAGE
+
+        _sdk, seen = self._spying_sdk(monkeypatch)
+
+        result = runner.invoke(
+            app,
+            ["apply", str(_remote_manifest_path())],
+            env={"GEOLENS_MANIFEST_APPLY_TIMEOUT": "not-a-number"},
+        )
+
+        assert result.exit_code == EXIT_USAGE, result.output
+        assert seen == [], "must be rejected before any network call"
 
 
 def _flaky_then_ok_sdk(monkeypatch: pytest.MonkeyPatch, status_response: dict) -> FakeSdk:
@@ -632,6 +871,55 @@ def test_apply_json_output_reports_timeout_as_one_structured_payload(
     assert "twice" in payload["guidance"].lower()
     assert "idempotent" not in payload["guidance"].lower()
     assert payload["status_check"]["counts"]["skip"] == 1
+
+
+def test_apply_json_output_survives_a_network_failure_in_the_status_check(
+    runner,
+    tmp_xdg_home,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """fix(#1778 review round 21) P2 end-to-end: the ORIGINAL apply
+    times out, and the best-effort dry-run follow-up hits a plain
+    network failure (not a second timeout) -- --json mode must still
+    emit exactly the one promised structured payload, with
+    status_check: null, instead of blowing up on the follow-up's
+    uncaught typer.Exit before reaching state.output.json() at all."""
+    import httpx
+
+    sdk = FakeSdk(FakeResponse(200, _apply_response()))
+    monkeypatch.setattr(AppState, "sdk", lambda _self: sdk)
+
+    calls = {"n": 0}
+
+    def flaky_then_refusing_post(**kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.TimeoutException("stalled")
+        raise httpx.NetworkError("connection refused")
+
+    sdk.client.httpx_client.post = flaky_then_refusing_post
+
+    result = runner.invoke(app, ["--json", "apply", str(_remote_manifest_path())])
+
+    assert result.exit_code == EXIT_NETWORK, result.output
+    # The absorbed NetworkError's own call_sdk() diagnostic
+    # ("Network error: ...") goes to STDERR regardless of --json (that
+    # side effect is unrelated to this fix and pre-dates it); CliRunner
+    # merges stdout+stderr into .output, so filter for the JSON-shaped
+    # line specifically rather than asserting the merged stream has
+    # exactly one line -- a real --json consumer only reads stdout,
+    # where there IS exactly one line.
+    json_lines = [
+        line
+        for line in result.output.strip().splitlines()
+        if line.strip().startswith("{")
+    ]
+    assert len(json_lines) == 1, f"expected exactly one JSON object, got: {json_lines}"
+    payload = json.loads(json_lines[0])
+    assert payload["ok"] is False
+    assert payload["status_check"] is None
+    assert "670s" in payload["error"]
+    assert calls["n"] == 2, "the original POST, then the failed follow-up"
 
 
 def test_apply_json_output_is_deterministic(

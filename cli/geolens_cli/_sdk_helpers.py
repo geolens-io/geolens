@@ -171,7 +171,7 @@ def poll_until(
 
 @contextmanager
 def long_request_timeout(
-    client: Any, *, timeout: float = EXTENDED_REQUEST_TIMEOUT_SECONDS
+    client: Any, *, timeout: float | None = EXTENDED_REQUEST_TIMEOUT_SECONDS
 ) -> Iterator[Any]:
     """Temporarily raise ``client``'s httpx transport timeout to
     ``timeout`` (default EXTENDED_REQUEST_TIMEOUT_SECONDS), restoring
@@ -184,6 +184,18 @@ def long_request_timeout(
     would otherwise have no way to ask for one. Every other call site
     keeps relying on the unchanged default, so this is additive, not a
     behavior change for them.
+
+    fix(#1778 review round 21): ``timeout=None`` means NO client-side
+    READ timeout at all -- an explicit operator opt-out (manifest
+    apply's ``--timeout 0``) for "wait for the server, however long it
+    takes to respond." Unlike a bare float (applied uniformly to every
+    httpx phase via a single number), ``None`` is constructed as an
+    ``httpx.Timeout`` with ``read``/``write``/``pool`` all ``None`` but
+    ``connect`` still bound to ``DEFAULT_HTTP_TIMEOUT_SECONDS`` -- a
+    hung TCP handshake is a real network failure ("the server isn't
+    there"), not "the server is slow to respond," and an operator
+    asking to wait longer for a slow response is not asking to wait
+    forever for a server that never answers the connection at all.
 
     fix(#1778 review round 5): every CLI request that carries a file
     body must go through this — previously each call site open-coded
@@ -215,7 +227,14 @@ def long_request_timeout(
     """
     httpx_client = client.get_httpx_client()
     original_timeout = httpx_client.timeout
-    httpx_client.timeout = timeout
+    if timeout is None:
+        import httpx  # lazy -- only for this Timeout value construction
+
+        httpx_client.timeout = httpx.Timeout(
+            connect=DEFAULT_HTTP_TIMEOUT_SECONDS, read=None, write=None, pool=None
+        )
+    else:
+        httpx_client.timeout = timeout
     try:
         yield httpx_client
     finally:

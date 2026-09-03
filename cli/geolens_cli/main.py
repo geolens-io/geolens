@@ -300,6 +300,24 @@ def apply_manifest_command(
         bool,
         typer.Option("--dry-run", help="Preview backend apply outcomes without writes"),
     ] = False,
+    timeout: Annotated[
+        Optional[float],
+        typer.Option(
+            "--timeout",
+            envvar="GEOLENS_MANIFEST_APPLY_TIMEOUT",
+            help=(
+                "Override the apply request's timeout, in seconds. Without "
+                "this, the timeout is a HEURISTIC LOWER BOUND computed from "
+                "the manifest's entry count and the API's per-request "
+                "inactivity timeout for a source download -- not a "
+                "guarantee a slow-but-active source finishes within it. "
+                "0 removes the client-side timeout entirely and waits for "
+                "the server. Can also be set via "
+                "GEOLENS_MANIFEST_APPLY_TIMEOUT; this flag wins if both "
+                "are given."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Apply a geolens.yaml manifest through the configured GeoLens API.
 
@@ -308,7 +326,24 @@ def apply_manifest_command(
     reach (http(s)/s3/gs/az/abfs URIs, or files pre-staged server-side). To
     publish a LOCAL file, use `geolens publish <file>` instead. apply errors
     early (GAP-020) if any source URI is a local path.
+
+    Without --timeout, the request's timeout is a heuristic lower bound
+    computed from the manifest's own entry count -- not a guarantee a
+    slow-but-active source finishes within it. --timeout 0 waits for the
+    server indefinitely instead of guessing.
     """
+    # fix(#1778 review round 21): the DEFAULT timeout is a heuristic
+    # lower bound, not a guarantee -- MANIFEST_SOURCE_DOWNLOAD_TIMEOUT_
+    # SECONDS (60s per entry) is the backend's per-chunk INACTIVITY
+    # timeout on a source download, not a total download deadline, so a
+    # large source served slowly but steadily can legitimately outlast
+    # the computed budget while the apply is still succeeding
+    # server-side. --timeout (or GEOLENS_MANIFEST_APPLY_TIMEOUT)
+    # overrides the computed budget outright; --timeout 0 removes the
+    # client-side read timeout and waits for the server indefinitely
+    # (the connect phase stays bounded). See manifest_apply.py's
+    # compute_manifest_apply_timeout()/resolve_apply_timeout() for the
+    # full rationale and the backend facts this mirrors.
     from .manifest.reporting import (
         format_validation_error_lines,
         validation_report_payload,
@@ -359,10 +394,22 @@ def apply_manifest_command(
             "first or use a remote URL (http(s)/s3/gs/az/abfs)."
         )
 
+    # fix(#1778 review round 21): resolved BEFORE the network call so an
+    # invalid --timeout/GEOLENS_MANIFEST_APPLY_TIMEOUT value (negative --
+    # click's own float coercion already rejects non-numeric) is a usage
+    # error, not something discovered mid-request.
+    try:
+        resolved_timeout = _manifest_apply.resolve_apply_timeout(timeout)
+    except _manifest_apply.ManifestApplyTimeoutValueError as exc:
+        state.output.error(str(exc))
+        raise typer.Exit(EXIT_USAGE)
+
     sdk = state.sdk()
     payload = _manifest_apply.build_apply_payload(document, dry_run=dry_run)
     try:
-        response = _manifest_apply.post_manifest_apply(sdk.client, payload)
+        response = _manifest_apply.post_manifest_apply(
+            sdk.client, payload, timeout=resolved_timeout
+        )
     except _manifest_apply.ManifestApplyTimeout as exc:
         # fix(#1778 review round 18): a batch-aware POST timeout is
         # reported distinctly from a plain request failure -- the
@@ -396,6 +443,13 @@ def apply_manifest_command(
                     "guidance": _manifest_apply.build_apply_timeout_message(exc),
                     "ok": False,
                     "path": str(path),
+                    # fix(#1778 review round 21): the effective timeout
+                    # ACTUALLY in effect when this fired -- the computed
+                    # heuristic, or whatever --timeout/
+                    # GEOLENS_MANIFEST_APPLY_TIMEOUT overrode it to.
+                    # None means --timeout 0 (no client-side read
+                    # timeout) was in effect.
+                    "timeout_seconds": exc.budget,
                     "status_check": (
                         _manifest_apply.apply_report_payload(path, status)
                         if status is not None

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+import typer
 from rich.console import Console
 from rich.table import Table
 
@@ -45,11 +46,26 @@ _COUNT_KEYS = ("create", "update", "skip", "error")
 # 60s) sources can therefore legitimately take well past 600s even though every
 # entry eventually succeeds — the bound must scale with how many entries THIS
 # request is asking the server to resolve, not stay fixed.
+#
+# fix(#1778 review round 21): that 60s figure is httpx's INACTIVITY (read)
+# timeout on the download's streaming loop -- the time allowed between
+# individual chunks arriving, reset on every chunk -- not a total download
+# deadline. A large source served slowly but steadily (never idle long enough
+# to trip the 60s inactivity bound on any single chunk) can legitimately run
+# far longer than 60s in total while still actively succeeding. The formula
+# below is therefore only ever a HEURISTIC LOWER BOUND, not a guarantee the
+# apply finishes within it -- `--timeout`/`GEOLENS_MANIFEST_APPLY_TIMEOUT`
+# (see `resolve_apply_timeout` and the `apply` command in main.py) let an
+# operator override it outright, including removing the client-side timeout
+# entirely (`--timeout 0`) to just wait for the server.
 
-#: Mirrors the backend's own per-source HTTP download timeout (see the module
-#: docstring above) — the dominant synchronous cost per manifest entry. NOT
-#: OGRINFO_TIMEOUT_SECONDS (300s): that bounds a DIFFERENT synchronous path,
-#: the ingest/reupload PREVIEW probe, already covered by
+#: Mirrors the backend's own per-source HTTP download INACTIVITY (read)
+#: timeout (see the module docstring above) — the dominant synchronous cost
+#: per manifest entry, and only a HEURISTIC lower bound, not a deadline (round
+#: 21: a steadily-but-slowly-served large source can legitimately exceed this
+#: many times over while still actively succeeding). NOT OGRINFO_TIMEOUT_
+#: SECONDS (300s): that bounds a DIFFERENT synchronous path, the ingest/
+#: reupload PREVIEW probe, already covered by
 #: `_sdk_helpers.LONG_RUNNING_SDK_FUNCTIONS`'s `ingest_preview`/
 #: `reupload_preview` entries — manifest apply's own entries never run ogrinfo
 #: inline.
@@ -82,7 +98,8 @@ MANIFEST_APPLY_STATUS_CHECK_TIMEOUT_SECONDS: float = 30.0
 
 def compute_manifest_apply_timeout(entry_count: int) -> float:
     """Batch-aware timeout budget, in seconds, for an apply POST sending
-    ``entry_count`` dataset entries.
+    ``entry_count`` dataset entries -- a HEURISTIC LOWER BOUND, not a
+    guarantee the apply finishes within it (see below).
 
     ``budget = MANIFEST_APPLY_BASE_TIMEOUT_SECONDS + entry_count *
     (MANIFEST_SOURCE_DOWNLOAD_TIMEOUT_SECONDS +
@@ -110,12 +127,25 @@ def compute_manifest_apply_timeout(entry_count: int) -> float:
     on that assignment), so the bound this function computes is the
     bound the request actually gets.
 
+    fix(#1778 review round 21): ``MANIFEST_SOURCE_DOWNLOAD_TIMEOUT_
+    SECONDS`` (60s) is the backend's per-chunk INACTIVITY timeout on
+    the download's streaming loop, not a total download deadline — a
+    large source served slowly but steadily can legitimately take far
+    longer than 70s (60 + the processing margin) per entry while never
+    tripping that inactivity bound and never failing. This formula
+    therefore cannot be a guarantee for every valid manifest, only a
+    reasonable default for the common case; ``resolve_apply_timeout``
+    (used by the ``apply`` command's ``--timeout``/
+    ``GEOLENS_MANIFEST_APPLY_TIMEOUT``) lets an operator override it
+    outright, including removing the client-side timeout entirely.
+
     If a caller somehow passes more than 100, the formula still
     computes linearly rather than pretending — the backend will reject
     the request on its own schema validation regardless; this
     function's job is only to not be the reason a VALID request times
-    out. Coerced to at least 1 so a malformed/empty count still
-    returns the base budget rather than a smaller-than-intended one.
+    out sooner than it has to. Coerced to at least 1 so a malformed/
+    empty count still returns the base budget rather than a smaller-
+    than-intended one.
     """
     entry_count = max(1, entry_count)
     per_entry = (
@@ -135,6 +165,53 @@ def _entry_count(payload: Mapping[str, Any]) -> int:
     if isinstance(datasets, Sequence) and not isinstance(datasets, (str, bytes)):
         return max(1, len(datasets))
     return 1
+
+
+class ManifestApplyTimeoutValueError(ValueError):
+    """Raised by ``resolve_apply_timeout`` for an out-of-range
+    ``--timeout``/``GEOLENS_MANIFEST_APPLY_TIMEOUT`` value (negative).
+    A distinct type (not a bare ``ValueError``) so ``main.py`` can
+    catch exactly this and map it to ``EXIT_USAGE`` without also
+    swallowing an unrelated ``ValueError`` from somewhere else in the
+    same ``try`` block."""
+
+
+def resolve_apply_timeout(raw: float | None) -> float | None | Any:
+    """Translate an already-parsed ``--timeout``/
+    ``GEOLENS_MANIFEST_APPLY_TIMEOUT`` value into
+    ``post_manifest_apply()``'s ``timeout=`` kwarg shape.
+
+    fix(#1778 review round 21): ``raw`` is whatever ``typer``/``click``
+    resolved from CLI flag vs. env var vs. "neither given" -- click's
+    own ``envvar=`` precedence on the Option already implements "flag
+    wins over env" and rejects a non-numeric value from EITHER source
+    with its own usage error before this function ever runs (float
+    type coercion on the Option). This function only handles the
+    domain-specific translation:
+
+    - ``raw is None``: neither the flag nor the env var was given —
+      returns ``_UNSET`` so ``post_manifest_apply`` falls back to
+      ``compute_manifest_apply_timeout``'s heuristic.
+    - ``raw == 0``: an explicit operator request for NO client-side
+      read timeout — returns ``None`` (forwarded to
+      ``long_request_timeout()``, which keeps the connect phase
+      bounded — see its docstring).
+    - any other non-negative value: returned as-is, overriding the
+      formula outright.
+    - negative: raises ``ManifestApplyTimeoutValueError`` — a
+      negative timeout has no meaning here, and click's own type
+      coercion cannot express "float, but only the non-negative
+      ones."
+    """
+    if raw is None:
+        return _UNSET
+    if raw < 0:
+        raise ManifestApplyTimeoutValueError(
+            f"--timeout must be 0 or a positive number of seconds, got {raw!r}."
+        )
+    if raw == 0:
+        return None
+    return raw
 
 #: URI schemes the backend manifest-apply path fetches server-side. Anything
 #: without one of these schemes is a LOCAL relative path that must already
@@ -186,6 +263,20 @@ class ManifestApplyRequestError(Exception):
         self.exit_code = exit_code
 
 
+class _Unset:
+    """Sentinel distinguishing "no timeout override given" (compute the
+    heuristic formula) from an explicit ``None`` (fix(#1778 review
+    round 21): --timeout 0 -- no client-side read timeout at all). A
+    bare ``None`` default cannot carry that distinction since ``None``
+    IS one of the two meaningful values here."""
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid only
+        return "<unset>"
+
+
+_UNSET = _Unset()
+
+
 class ManifestApplyTimeout(Exception):
     """Raised when the apply POST itself times out — no response body
     ever arrived, unlike ``ManifestApplyRequestError`` (a response DID
@@ -194,11 +285,22 @@ class ManifestApplyTimeout(Exception):
     fix(#1778 review round 18): carries ``entry_count``/``budget`` so
     the caller (``report_apply_timeout``) can build an informative
     message without recomputing them, and so a test can assert on the
-    values without re-deriving the formula."""
+    values without re-deriving the formula.
 
-    def __init__(self, *, entry_count: int, budget: float) -> None:
+    fix(#1778 review round 21): ``budget`` may be ``None`` -- an
+    operator explicitly asked for no client-side read timeout
+    (``--timeout 0``) and a CONNECT-phase (or write/pool) timeout still
+    fired; the message below says so instead of formatting ``None`` as
+    a number.
+    """
+
+    def __init__(self, *, entry_count: int, budget: float | None) -> None:
+        if budget is None:
+            budget_text = "with no client-side read timeout (--timeout 0)"
+        else:
+            budget_text = f"after {budget:.0f}s"
         super().__init__(
-            f"Manifest apply request timed out after {budget:.0f}s "
+            f"Manifest apply request timed out {budget_text} "
             f"({entry_count} dataset(s) submitted)."
         )
         self.entry_count = entry_count
@@ -250,7 +352,10 @@ def _exit_code_for_status(status_code: int) -> int:
 
 
 def post_manifest_apply(
-    client: Any, payload: Mapping[str, Any], *, timeout: float | None = None
+    client: Any,
+    payload: Mapping[str, Any],
+    *,
+    timeout: float | None | _Unset = _UNSET,
 ) -> dict[str, Any]:
     """POST a validated manifest through the SDK-owned HTTP client.
 
@@ -277,12 +382,28 @@ def post_manifest_apply(
     how many entries the manifest has — dry_run does no download/queue
     work, so its cost does not scale with entry count the way the real
     apply's does.
+
+    fix(#1778 review round 21): ``timeout`` is now three-state, not
+    two -- the computed heuristic is only ever a LOWER BOUND (see
+    ``compute_manifest_apply_timeout``'s docstring), so an operator
+    override must be able to ask for something the formula itself
+    cannot express: no timeout at all.
+
+    - omitted (the default, ``_UNSET``): compute the batch-aware
+      formula, as before.
+    - ``None``: NO client-side read timeout (``--timeout 0`` /
+      ``GEOLENS_MANIFEST_APPLY_TIMEOUT=0`` at the CLI layer) — forwarded
+      to ``long_request_timeout()``, which keeps the connect phase
+      bounded but waits indefinitely for the server's response.
+    - a ``float``: exactly that many seconds, overriding the formula
+      (an explicit operator value, or the status check's own fixed
+      bound).
     """
     entry_count = _entry_count(payload)
-    if timeout is not None:
-        budget = timeout
+    if timeout is _UNSET:
+        budget: float | None = compute_manifest_apply_timeout(entry_count)
     else:
-        budget = compute_manifest_apply_timeout(entry_count)
+        budget = timeout
     with long_request_timeout(client, timeout=budget) as httpx_client:
         response = call_sdk(
             httpx_client.post,
@@ -346,9 +467,24 @@ def build_apply_timeout_message(exc: ManifestApplyTimeout) -> str:
     is to say so, not to promise blanket idempotency the server does
     not yet provide for an entry that was mid-download at the exact
     moment this request gave up.
+
+    fix(#1778 review round 21): the ``budget`` this timeout used is
+    only ever a HEURISTIC LOWER BOUND (see
+    ``compute_manifest_apply_timeout``'s docstring) derived from the
+    API's documented per-request inactivity (read) timeout on a
+    source download — not a download deadline. A slow-but-still-active
+    large source can legitimately outlast it while the apply is still
+    succeeding server-side, so the message now names the escape hatch:
+    ``--timeout 0`` (or a larger explicit value) waits for the server
+    instead of guessing again with a bigger heuristic.
     """
+    budget_phrase = (
+        "with no client-side timeout"
+        if exc.budget is None
+        else f"after {exc.budget:.0f}s"
+    )
     return (
-        f"Manifest apply timed out after {exc.budget:.0f}s "
+        f"Manifest apply timed out {budget_phrase} "
         f"({exc.entry_count} dataset(s) submitted). The server does "
         "NOT stop applying when this request does -- it keeps "
         "processing the manifest sequentially, and entries it has "
@@ -359,7 +495,9 @@ def build_apply_timeout_message(exc: ManifestApplyTimeout) -> str:
         "immediately can queue that entry twice. Check the catalog for "
         "datasets still pending, or run `geolens apply --dry-run "
         "<path>` to see which entries the server has already settled, "
-        "before re-running this exact command."
+        "before re-running this exact command. Or re-run with "
+        "`--timeout 0` to wait for the server, or a larger value, if "
+        "the manifest's own sources are just legitimately slow."
     )
 
 
@@ -400,6 +538,26 @@ def attempt_apply_timeout_status_check(
     can build one clean structured payload from the result instead of
     inheriting rich-console/stderr writes meant for a human — see
     ``report_apply_timeout`` for that human-mode convenience wrapper.
+
+    fix(#1778 review round 21): only caught ``ManifestApplyTimeout``/
+    ``ManifestApplyRequestError`` -- both raised by
+    ``post_manifest_apply`` itself once it has a response (or a clean
+    timeout) to reason about. A plain network failure (connection
+    refused/reset) never reaches either: ``call_sdk()`` maps
+    ``httpx.NetworkError`` straight to ``typer.Exit(EXIT_NETWORK)``
+    on its own, which propagated uncaught here and blew up the whole
+    ``--json`` branch in main.py before it could ever emit the
+    promised single structured payload -- the ORIGINAL timeout's
+    result never reached the caller at all. This is best-effort
+    by design (see the module docstring above); ANY failure during the
+    follow-up must degrade to "status unavailable," not crash the
+    command that is already in its error-reporting path. Catches
+    ``typer.Exit`` explicitly (even though it is technically also an
+    ``Exception`` — ``click.exceptions.Exit`` subclasses
+    ``RuntimeError``) for clarity at the call site about exactly which
+    shape this is guarding against, alongside the deliberately broad
+    ``Exception`` catch-all for anything else the follow-up could
+    raise.
     """
     status_payload = dict(payload)
     status_payload["dry_run"] = True
@@ -409,7 +567,7 @@ def attempt_apply_timeout_status_check(
             status_payload,
             timeout=MANIFEST_APPLY_STATUS_CHECK_TIMEOUT_SECONDS,
         )
-    except (ManifestApplyTimeout, ManifestApplyRequestError):
+    except (ManifestApplyTimeout, ManifestApplyRequestError, typer.Exit, Exception):
         return None
 
 
