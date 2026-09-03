@@ -9,17 +9,25 @@ const { mockUseJobStatus, mockRetry, mockCancel } = vi.hoisted(() => ({
   mockCancel: vi.fn(),
 }));
 
-vi.mock('@/components/import/hooks/use-ingest', () => ({
-  useJobStatus: (...args: unknown[]) => mockUseJobStatus(...args),
-  useRetryJob: () => ({
-    mutateAsync: mockRetry,
-    isPending: false,
-  }),
-  useCancelJob: () => ({
-    mutate: mockCancel,
-    isPending: false,
-  }),
-}));
+vi.mock('@/components/import/hooks/use-ingest', async (importOriginal) => {
+  // fix(review #1800 P2 round 2): isDefinitiveJobError/isTerminalJobStatus
+  // are plain predicates JobProgress now imports directly (not through a
+  // hook) — keep the REAL implementations rather than re-stubbing them, so
+  // this file tests the actual guard logic, not a hand-rolled copy of it.
+  const actual = await importOriginal<typeof import('@/components/import/hooks/use-ingest')>();
+  return {
+    ...actual,
+    useJobStatus: (...args: unknown[]) => mockUseJobStatus(...args),
+    useRetryJob: () => ({
+      mutateAsync: mockRetry,
+      isPending: false,
+    }),
+    useCancelJob: () => ({
+      mutate: mockCancel,
+      isPending: false,
+    }),
+  };
+});
 
 vi.mock('sonner', () => ({
   toast: {
@@ -173,5 +181,45 @@ describe('JobProgress error branch', () => {
     expect(screen.queryByText('Loading job status...')).not.toBeInTheDocument();
     expect(screen.getByText('Job not found')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start Over' })).toBeInTheDocument();
+  });
+
+  // fix(review #1800 P2 round 2): a successful pending/running fetch leaves
+  // TanStack's stale `data` in place once a LATER poll errors — `isError`
+  // is set but `data` (and so `job`) is not cleared. The old `isError &&
+  // !job` guard skipped entirely, and the main render kept showing the
+  // stale in-flight job (Cancel included) even though refetchInterval had
+  // already stopped polling it for good on the definitive error.
+  it('renders the failure card over stale in-flight data once a poll returns a definitive error', () => {
+    mockUseJobStatus.mockReturnValue({
+      data: runningJob(),
+      isLoading: false,
+      isError: true,
+      error: new ApiError('Job not found', 404),
+    });
+
+    render(<JobProgress jobId="job-1" onReset={vi.fn()} />);
+
+    expect(screen.getByText('Job not found')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start Over' })).toBeInTheDocument();
+  });
+
+  // Control: a terminal (already-correct) cached job must NOT be overridden
+  // by a LATER definitive error — e.g. a 404 on a forced refetch that races
+  // a retention sweep right after the job already completed. The complete
+  // render owns this case; isTerminalJobStatus(job.status) is what tells
+  // the guard the cached data is not the stale-in-flight case it exists for.
+  it('does not override a terminal cached job with the failure card', () => {
+    mockUseJobStatus.mockReturnValue({
+      data: failedJob({ status: 'complete', dataset_id: 'ds-1', error_message: null }),
+      isLoading: false,
+      isError: true,
+      error: new ApiError('Job not found', 404),
+    });
+
+    render(<JobProgress jobId="job-1" onReset={vi.fn()} />);
+
+    expect(screen.queryByText('Job not found')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'View Dataset' })).toBeInTheDocument();
   });
 });

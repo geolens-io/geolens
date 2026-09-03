@@ -1,7 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { useJobStatus, useRetryJob, useCancelJob } from '@/components/import/hooks/use-ingest';
+import {
+  useJobStatus,
+  useRetryJob,
+  useCancelJob,
+  isDefinitiveJobError,
+  isTerminalJobStatus,
+} from '@/components/import/hooks/use-ingest';
 import { toast } from 'sonner';
 import { Copy, Download, Link2, Map } from 'lucide-react';
 import { jobStatusColors } from '@/lib/status-colors';
@@ -121,12 +127,24 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
     }
   }, [job?.status, job?.warning_message]);
 
-  // fix(#1778): a failing GET /jobs/{id} (401/403/404, or a retry-exhausted
-  // 5xx) used to leave `job` undefined forever, so this fell into the
-  // isLoading/!job branch and rendered an indefinite "Loading status…"
-  // spinner. Give it its own terminal render, same as the failed-job branch
-  // below, so the user sees a real message and onReset instead.
-  if (isError && !job) {
+  // fix(#1778): a failing GET /jobs/{id} used to leave `job` undefined
+  // forever whenever there was no data yet, falling into the isLoading/!job
+  // branch below and rendering an indefinite "Loading status…" spinner.
+  //
+  // fix(review #1800 P2 round 2): `!job` alone missed a second case — a
+  // successful pending/running fetch leaves TanStack's stale `data` in
+  // place, so a LATER poll returning 401/403/404 sets `isError` without
+  // clearing `data`. That skipped this guard AND `isLoading || !job` below
+  // (job is truthy), so the main render kept showing the stale in-flight
+  // job — Cancel button included — even though refetchInterval had already
+  // stopped polling it for good. Render this error state whenever `job` is
+  // missing (any error — a 5xx with no data yet must not spin forever
+  // either) OR polling has definitively stopped due to the error while the
+  // cached job is still in-flight. A terminal `job`
+  // (complete/failed/cancelled/fanned_out) is left alone: a later transient
+  // failure on a forced refetch does not make an already-correct terminal
+  // render wrong, so its own block below still owns that case.
+  if (isError && (!job || (isDefinitiveJobError(error) && !isTerminalJobStatus(job.status)))) {
     const msg = error instanceof ApiError ? error.message : t('jobProgress.statusError');
     return (
       <Card>

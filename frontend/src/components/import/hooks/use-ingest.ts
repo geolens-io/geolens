@@ -35,6 +35,17 @@ export function isTerminalJobStatus(status: string | undefined): boolean {
   );
 }
 
+/**
+ * fix(review #1800 P2 round 2): a definitive job error is one retrying
+ * cannot fix — the job is gone (404) or the caller's identity no longer has
+ * access to it (401/403). Exported so JobProgress's render guard checks
+ * EXACTLY the signal that stops the poll below, rather than a second copy
+ * of the status list that could drift from it.
+ */
+export function isDefinitiveJobError(error: unknown): boolean {
+  return error instanceof ApiError && [401, 403, 404].includes(error.status);
+}
+
 export function useJobStatus(jobId: string | null) {
   // fix(#762): AnalysisJobWatcher mounts in RootLayout with a persist-backed
   // job id, so without this gate a stale tracked job made an anonymous
@@ -52,8 +63,7 @@ export function useJobStatus(jobId: string | null) {
     // rather than hammering the endpoint every 2s for the life of the tab.
     refetchInterval: (query) => {
       if (isTerminalJobStatus(query.state.data?.status)) return false;
-      const error = query.state.error;
-      if (error instanceof ApiError && [401, 403, 404].includes(error.status)) return false;
+      if (isDefinitiveJobError(query.state.error)) return false;
       return 2000;
     },
   });

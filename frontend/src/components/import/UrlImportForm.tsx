@@ -230,21 +230,48 @@ export function UrlImportForm() {
 
   // fix(review #1800 P2): the explicit escape hatch from a kept
   // preview-failed session — cancel the staged job through the existing
-  // cancel endpoint (best-effort; the job may already be gone or settled on
-  // its own), then release the session and reset to a fresh idle form.
+  // cancel endpoint, then release the session and reset to a fresh idle
+  // form.
+  //
+  // fix(review #1800 P2 round 2): a failed (or ambiguous) cancel does NOT
+  // mean the job is gone — resetting unconditionally on ANY outcome
+  // cleared the only client-side copy of a job that might still be pending
+  // server-side with its staged file. Reset only when the job is
+  // CONFIRMED gone: the cancel call's own 404/410, or (for anything less
+  // clear-cut) a follow-up status check that comes back gone or terminal.
+  // Any other failure (500, network blip) keeps the recovery state —
+  // session, job id, both actions — and shows the error, so the user sees
+  // what happened instead of the job silently vanishing from the tab.
   const handleCancelAndStartOver = async () => {
     if (!jobId) return;
     setIsCancelling(true);
     try {
       await cancelJob(jobId);
+      if (!mountedRef.current) return;
+      reset();
+      return;
     } catch (err) {
+      if (!mountedRef.current) return;
+      let gone = isGoneError(err);
+      if (!gone) {
+        try {
+          const status = await getJobStatus(jobId);
+          gone = isTerminalJobStatus(status.status);
+        } catch (statusErr) {
+          gone = isGoneError(statusErr);
+        }
+      }
+      if (!mountedRef.current) return;
+      if (gone) {
+        reset();
+        return;
+      }
       const msg = err instanceof ApiError ? err.message : t('urlImport.cancelFailed');
+      setError(msg);
       toast.error(msg);
     } finally {
       if (mountedRef.current) setIsCancelling(false);
     }
-    if (!mountedRef.current) return;
-    reset();
   };
 
   // Shares JobProgress's query key, so this is the same cached poll rather

@@ -238,6 +238,62 @@ describe('UrlImportForm', () => {
     expect(peekUrlImport()).toBeNull();
   });
 
+  // fix(review #1800 P2 round 2): the cancel handler used to reset
+  // UNCONDITIONALLY once cancelJob settled, success or failure — a failed
+  // cancel (job still pending server-side with its staged file) cleared
+  // the only client-side copy of the job id anyway, orphaning it with no
+  // way back short of the sweep. A 500 is not confirmation the job is
+  // gone: keep the recovery state and show the error instead.
+  test('a failed cancel (500) keeps the job id and the recovery actions, and shows the error', async () => {
+    mockUploadFromUrl.mockResolvedValue({ job_id: 'job-1', status: 'pending' });
+    mockPreviewFile.mockRejectedValue(new ApiError('Preview timed out', 0));
+    mockGetJobStatus.mockResolvedValue({ job_id: 'job-1', status: 'pending' });
+    mockCancelJob.mockRejectedValue(new ApiError('Server error', 500));
+
+    render(<UrlImportForm />);
+    const user = await fetchUrl('https://files.example.test/roads.geojson');
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'urlImport.cancelAndStartOver' }),
+      ).toBeInTheDocument(),
+    );
+    await user.click(screen.getByRole('button', { name: 'urlImport.cancelAndStartOver' }));
+
+    await waitFor(() => expect(screen.getByText('Server error')).toBeInTheDocument());
+    expect(
+      screen.getByRole('button', { name: 'urlImport.cancelAndStartOver' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'urlImport.retryPreview' })).toBeInTheDocument();
+    expect(peekUrlImport()?.jobId).toBe('job-1');
+  });
+
+  // Pin: when the cancel call itself reports the job already gone (404),
+  // there is nothing left to keep — start over.
+  test('a cancel that reports the job already gone (404) resets the form', async () => {
+    mockUploadFromUrl.mockResolvedValue({ job_id: 'job-1', status: 'pending' });
+    mockPreviewFile.mockRejectedValue(new ApiError('Preview timed out', 0));
+    mockGetJobStatus.mockResolvedValue({ job_id: 'job-1', status: 'pending' });
+    mockCancelJob.mockRejectedValue(new ApiError('Job not found', 404));
+
+    render(<UrlImportForm />);
+    const user = await fetchUrl('https://files.example.test/roads.geojson');
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'urlImport.cancelAndStartOver' }),
+      ).toBeInTheDocument(),
+    );
+    await user.click(screen.getByRole('button', { name: 'urlImport.cancelAndStartOver' }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: 'urlImport.cancelAndStartOver' }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(peekUrlImport()).toBeNull();
+  });
+
   test('multi-layer preview shows the layer picker and threads layer_name', async () => {
     mockUploadFromUrl.mockResolvedValue({ job_id: 'job-3', status: 'pending' });
     mockPreviewFile.mockResolvedValue({
