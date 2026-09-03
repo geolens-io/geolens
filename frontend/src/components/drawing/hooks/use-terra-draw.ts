@@ -259,6 +259,12 @@ export function isMultiPartGeometry(geometry: Geometry): boolean {
  *   geometry is once again whatever was there when the ring started, so
  *   there is nothing pending to confirm away on Cancel/Done/mode-switch. A
  *   subsequent edit re-dirties normally via onEditFinish.
+ * @param onSelectionLost - fix(round4 #1795): callback invoked when undo()
+ *   restores a snapshot that no longer contains the feature that was
+ *   selected before the undo (the rebuilt canvas has nothing left to
+ *   re-select). The editing layer uses this to clear its own selection
+ *   state, so it does not keep showing a feature as selected that Terra
+ *   Draw no longer has.
  * @returns setMode, stop, isReady, and feature manipulation methods
  */
 export function useTerraDraw(
@@ -266,6 +272,7 @@ export function useTerraDraw(
   onFinish: (feature: Feature) => void,
   onEditFinish: ((tdId: string, feature: Feature) => void) | null = null,
   onHistoryBaseline?: () => void,
+  onSelectionLost?: (id: string | number) => void,
 ): {
   setMode: (mode: string) => void;
   stop: () => void;
@@ -292,6 +299,9 @@ export function useTerraDraw(
   const onHistoryBaselineRef = useRef(onHistoryBaseline);
   onHistoryBaselineRef.current = onHistoryBaseline;
 
+  const onSelectionLostRef = useRef(onSelectionLost);
+  onSelectionLostRef.current = onSelectionLost;
+
   // Track the current Terra Draw instance
   const drawRef = useRef<TerraDraw | null>(null);
 
@@ -303,6 +313,12 @@ export function useTerraDraw(
   // this session" — undo() must never report reaching baseline in that
   // case (see undo() below).
   const baselineRef = useRef<GeoJSONStoreFeatures<GeoJSONStoreGeometries>[] | null>(null);
+  // fix(round4 #1795): the id of whatever feature the app most recently
+  // selected via selectFeature() below. Restoring a snapshot in undo()
+  // calls draw.clear() first, which drops Terra Draw's own select-mode
+  // state and edit handles — this ref is how undo() knows what to
+  // re-select afterward. null means "nothing selected for this session."
+  const selectedFeatureIdRef = useRef<string | number | null>(null);
   const isRestoringRef = useRef(false);
   const [canUndo, setCanUndo] = useState(false);
 
@@ -369,6 +385,9 @@ export function useTerraDraw(
         // fix(round3 #1795): the committed feature's session is over — its
         // baseline snapshot is no longer meaningful.
         baselineRef.current = null;
+        // fix(round4 #1795): a fresh-draw session has no "selected existing
+        // feature" concept in the first place, but clear defensively.
+        selectedFeatureIdRef.current = null;
       } else if (
         context.action === 'dragFeature' ||
         context.action === 'dragCoordinate' ||
@@ -428,6 +447,8 @@ export function useTerraDraw(
       // capture its baseline (the canvas as setMode left it) OUTSIDE the
       // bounded ring so it survives eviction later in this session.
       baselineRef.current = filteredSnapshot(draw);
+      // fix(round4 #1795): a mode switch ends whatever selection preceded it.
+      selectedFeatureIdRef.current = null;
     },
     [draw],
   );
@@ -462,6 +483,10 @@ export function useTerraDraw(
       // bounded ring, so a long drag that later evicts the ring's oldest
       // entries can still undo all the way back to it.
       baselineRef.current = filteredSnapshot(draw);
+      // fix(round4 #1795): remember what's selected so undo()'s restoring
+      // draw.clear() (which drops Terra Draw's select-mode state and edit
+      // handles) can re-select it afterward.
+      selectedFeatureIdRef.current = id;
     },
     [draw],
   );
@@ -487,15 +512,39 @@ export function useTerraDraw(
     // already have been evicted by the MAX_UNDO_HISTORY cap — so the
     // correct "one step further back" state is the TRUE pre-edit baseline
     // captured outside the ring, not an assumption that the ring's start
-    // IS the baseline.
+    // IS the baseline. Both the ring-internal step and this baseline
+    // fallback flow through the SAME restoration below, so the re-select
+    // fix(round4 #1795) just below covers both.
     const prev = historyRef.current.length > 0
       ? historyRef.current[historyRef.current.length - 1]
       : baselineRef.current;
+
+    // fix(round4 #1795): preserve the selected feature's id BEFORE
+    // draw.clear() below drops Terra Draw's select-mode state and edit
+    // handles — otherwise the app's own selection store still shows the
+    // feature selected, but Terra Draw no longer has it selected and the
+    // user has to click the geometry again before dragging or editing
+    // vertices.
+    const selectedId = selectedFeatureIdRef.current;
 
     isRestoringRef.current = true;
     draw.clear();
     if (prev && prev.length > 0) {
       draw.addFeatures(prev);
+    }
+    // fix(round4 #1795): re-select only if that id is still present in the
+    // restored features. Call draw.selectFeature() directly (not this
+    // hook's own selectFeature() wrapper above) — that wrapper also
+    // captures a NEW baseline and would overwrite the one this undo just
+    // fell back to.
+    if (selectedId != null && prev?.some((f) => f.id === selectedId)) {
+      draw.selectFeature(selectedId);
+    } else if (selectedId != null) {
+      // The previously selected feature no longer exists in the restored
+      // snapshot — clear our own record and tell the editing layer so its
+      // selection store agrees with what Terra Draw actually has.
+      selectedFeatureIdRef.current = null;
+      onSelectionLostRef.current?.(selectedId);
     }
     // Defer flag reset so any synchronous or microtask change events are still suppressed
     queueMicrotask(() => {
@@ -525,6 +574,8 @@ export function useTerraDraw(
     setCanUndo(false);
     // fix(round3 #1795): the session this baseline belonged to is over.
     baselineRef.current = null;
+    // fix(round4 #1795): draw.clear() above already removed it from the canvas.
+    selectedFeatureIdRef.current = null;
   }, [draw]);
 
   // fix(round1 #1795): the undo ring reset a caller asks for WITHOUT
@@ -537,6 +588,10 @@ export function useTerraDraw(
     // fix(round3 #1795): the session this baseline belonged to has settled
     // (save/cancel/deselection) — clear it alongside the ring.
     baselineRef.current = null;
+    // fix(round4 #1795): the caller (save/cancel/deselection) already owns
+    // clearing its own selection store — this just keeps our own record in
+    // sync so a stale id never survives into a later session.
+    selectedFeatureIdRef.current = null;
   }, []);
 
   return {

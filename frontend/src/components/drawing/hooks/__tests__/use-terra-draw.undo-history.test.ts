@@ -336,3 +336,117 @@ describe('useTerraDraw — onHistoryBaseline (fix round2/round3 #1795)', () => {
     expect(result.current.canUndo).toBe(false);
   });
 });
+
+// fix(round4 #1795, P2): undo()'s restoring draw.clear() drops Terra Draw's
+// own select-mode state and edit handles. Without re-selecting afterward,
+// the app's selection store still shows the feature selected, but Terra
+// Draw does not — the user has to click the geometry again before dragging
+// or editing vertices.
+describe('useTerraDraw — undo() re-selects the previously selected feature (fix round4 #1795)', () => {
+  it('re-selects after restoring an intermediate ring snapshot, in the correct order (clear, addFeatures, THEN selectFeature)', () => {
+    const map = fakeMap();
+    const { result } = renderHook(() => useTerraDraw(map, vi.fn(), null));
+    const td = lastInstance!;
+
+    const callLog: string[] = [];
+    td.clear.mockImplementation(() => { callLog.push('clear'); });
+    td.addFeatures.mockImplementation((f: unknown) => { callLog.push(`addFeatures:${JSON.stringify(f)}`); });
+    td.selectFeature.mockImplementation((id: string | number) => { callLog.push(`selectFeature:${id}`); });
+
+    const withFeature = (tag: string) => [{ id: 'feat-1', properties: { mode: 'point', tag } }] as unknown[];
+
+    td.getSnapshot.mockReturnValue(withFeature('baseline'));
+    act(() => {
+      result.current.selectFeature('feat-1');
+    });
+    expect(td.selectFeature).toHaveBeenCalledWith('feat-1');
+    callLog.length = 0;
+
+    td.getSnapshot.mockReturnValue(withFeature('change-1'));
+    act(() => { td.emit('change'); });
+    td.getSnapshot.mockReturnValue(withFeature('change-2'));
+    act(() => { td.emit('change'); });
+
+    act(() => {
+      result.current.undo();
+    });
+
+    expect(td.addFeatures).toHaveBeenCalledWith(withFeature('change-1'));
+    expect(td.selectFeature).toHaveBeenCalledWith('feat-1');
+    // Terra Draw's own select state/edit handles only exist AFTER the
+    // feature is back on the canvas — selectFeature must run after
+    // addFeatures, both of which run after clear().
+    expect(callLog).toEqual([
+      'clear',
+      `addFeatures:${JSON.stringify(withFeature('change-1'))}`,
+      'selectFeature:feat-1',
+    ]);
+  });
+
+  // fix(round4 #1795): the round3 baseline-fallback undo (ring exhausted,
+  // restoring baselineRef) shares the SAME restoration code path as a
+  // ring-internal undo — this pins that the re-select fix covers it too.
+  it('re-selects after falling back to the true baseline (round3 baseline-fallback path)', () => {
+    const map = fakeMap();
+    const { result } = renderHook(() => useTerraDraw(map, vi.fn(), null));
+    const td = lastInstance!;
+
+    const withFeature = (tag: string) => [{ id: 'feat-1', properties: { mode: 'point', tag } }] as unknown[];
+
+    td.getSnapshot.mockReturnValue(withFeature('baseline'));
+    act(() => {
+      result.current.selectFeature('feat-1');
+    });
+    (td.selectFeature as ReturnType<typeof vi.fn>).mockClear();
+
+    td.getSnapshot.mockReturnValue(withFeature('change-1'));
+    act(() => { td.emit('change'); });
+
+    // One change only — ring length 1. This undo pops the ring to empty and
+    // falls back to the TRUE baseline (fix round3 #1795), not a ring entry.
+    act(() => {
+      result.current.undo();
+    });
+
+    expect(td.addFeatures).toHaveBeenCalledWith(withFeature('baseline'));
+    expect(td.selectFeature).toHaveBeenCalledWith('feat-1');
+    expect(result.current.canUndo).toBe(false);
+  });
+
+  it('clears the selection record and reports onSelectionLost when the restored snapshot no longer has that feature', () => {
+    const map = fakeMap();
+    const onSelectionLost = vi.fn();
+    const { result } = renderHook(() => useTerraDraw(map, vi.fn(), null, undefined, onSelectionLost));
+    const td = lastInstance!;
+
+    td.getSnapshot.mockReturnValue([{ id: 'feat-1', properties: { mode: 'point', tag: 'baseline' } }] as unknown[]);
+    act(() => {
+      result.current.selectFeature('feat-1');
+    });
+    (td.selectFeature as ReturnType<typeof vi.fn>).mockClear();
+
+    // The restored ring entries never contain feat-1 (only a different feature).
+    td.getSnapshot.mockReturnValue([{ id: 'other-feat', properties: { mode: 'point', tag: 'change-1' } }] as unknown[]);
+    act(() => { td.emit('change'); });
+    td.getSnapshot.mockReturnValue([{ id: 'other-feat', properties: { mode: 'point', tag: 'change-2' } }] as unknown[]);
+    act(() => { td.emit('change'); });
+
+    act(() => {
+      result.current.undo();
+    });
+
+    expect(td.selectFeature).not.toHaveBeenCalled();
+    expect(onSelectionLost).toHaveBeenCalledTimes(1);
+    expect(onSelectionLost).toHaveBeenCalledWith('feat-1');
+
+    // A second undo (falling back to the true baseline, which DOES have
+    // feat-1) must not still think feat-1 is selected from a stale record —
+    // it was cleared, so onSelectionLost is not reported a second time and
+    // selectFeature is not spuriously called either.
+    act(() => {
+      result.current.undo();
+    });
+    expect(td.selectFeature).not.toHaveBeenCalled();
+    expect(onSelectionLost).toHaveBeenCalledTimes(1);
+  });
+});

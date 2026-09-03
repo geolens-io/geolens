@@ -290,6 +290,12 @@ export const DatasetMap = memo(function DatasetMap({
   const stableHistoryBaseline = useCallback(() => {
     historyBaselineRef.current();
   }, []);
+  // fix(round4 #1795): onSelectionLost needs handleSelectionLost, same
+  // circular-dep break as onEditFinish/onHistoryBaseline above.
+  const selectionLostRef = useRef<(id: string | number) => void>(() => {});
+  const stableSelectionLost = useCallback((id: string | number) => {
+    selectionLostRef.current(id);
+  }, []);
 
   const handleDrawFinish = useCallback(
     (feature: Feature<Geometry, GeoJsonProperties>) => {
@@ -316,7 +322,7 @@ export const DatasetMap = memo(function DatasetMap({
     undo,
     canUndo,
     resetHistory,
-  } = useTerraDraw(mapInstance, handleDrawFinish, stableEditFinish, stableHistoryBaseline);
+  } = useTerraDraw(mapInstance, handleDrawFinish, stableEditFinish, stableHistoryBaseline, stableSelectionLost);
 
   // --- Feature editing hook (all CRUD logic) ---
   const {
@@ -326,6 +332,7 @@ export const DatasetMap = memo(function DatasetMap({
     handleDeleteFeature,
     handleEditFinish,
     handleHistoryBaseline,
+    handleSelectionLost,
     handleEditAttributeSubmit,
     selectFeatureFromMap,
     cleanupOverlayListener,
@@ -348,6 +355,7 @@ export const DatasetMap = memo(function DatasetMap({
   saveAndRefreshRef.current = saveAndRefresh;
   editFinishRef.current = handleEditFinish;
   historyBaselineRef.current = handleHistoryBaseline;
+  selectionLostRef.current = handleSelectionLost;
 
   // Clean up overlay listeners on unmount
   useEffect(() => {

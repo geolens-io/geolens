@@ -527,6 +527,56 @@ describe('useFeatureEditing — handleHistoryBaseline clears isEditDirty (fix ro
   });
 });
 
+// fix(round4 #1795, P2): undo() restored a snapshot that no longer contains
+// the feature that was selected before the undo — Terra Draw's own select
+// state has nothing left to re-select. handleSelectionLost clears our
+// selection store too, so it agrees with what Terra Draw actually has.
+describe('useFeatureEditing — handleSelectionLost clears the selection store (fix round4 #1795)', () => {
+  const baseAuth = useDrawingStore.getState();
+
+  beforeEach(() => {
+    useDrawingStore.setState(baseAuth, true);
+  });
+
+  it('clears selectedFeature (and isEditDirty) when the lost id matches the current selection', () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} }, isEditDirty: true });
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map);
+
+    act(() => {
+      result.current.handleSelectionLost('td-7');
+    });
+
+    expect(useDrawingStore.getState().selectedFeature).toBeNull();
+    expect(useDrawingStore.getState().isEditDirty).toBe(false);
+  });
+
+  it('does nothing when the lost id does not match the current selection (a newer selection has since replaced it)', () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 9, tdId: 'td-9', properties: {} }, isEditDirty: true });
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map);
+
+    act(() => {
+      result.current.handleSelectionLost('td-7');
+    });
+
+    expect(useDrawingStore.getState().selectedFeature).toEqual({ gid: 9, tdId: 'td-9', properties: {} });
+    expect(useDrawingStore.getState().isEditDirty).toBe(true);
+  });
+
+  it('does nothing when nothing is currently selected', () => {
+    useDrawingStore.setState({ selectedFeature: null });
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map);
+
+    act(() => {
+      result.current.handleSelectionLost('td-7');
+    });
+
+    expect(useDrawingStore.getState().selectedFeature).toBeNull();
+  });
+});
+
 // fix(#1761 review round 4): the epoch-change cleanup (DatasetMap's
 // finishDrawingSession) clears Terra Draw but, before this, not the overlay
 // ref/source that saveAndRefresh populates for instant visibility while a

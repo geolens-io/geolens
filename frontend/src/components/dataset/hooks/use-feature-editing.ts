@@ -422,6 +422,25 @@ export function useFeatureEditing({
     setEditDirty(false);
   }, [setEditDirty]);
 
+  /**
+   * fix(round4 #1795): undo() restored a snapshot that no longer contains
+   * the feature that was selected before the undo — Terra Draw's own
+   * select state has nothing left to re-select. Clear our selection store
+   * too, so it agrees with what Terra Draw actually has (a stale selection
+   * here would keep showing the action bar for a feature that no longer
+   * exists on the canvas). Guarded on the CURRENT selection matching the id
+   * this fired for, in case a newer selection has since replaced it.
+   */
+  const handleSelectionLost = useCallback(
+    (id: string | number) => {
+      const sf = useDrawingStore.getState().selectedFeature;
+      if (sf && sf.tdId === String(id)) {
+        clearSelectedFeature();
+      }
+    },
+    [clearSelectedFeature],
+  );
+
   /** Select a feature from the map by clicking on it. */
   const selectFeatureFromMap = useCallback(
     async (map: MaplibreMap, point: Point) => {
@@ -507,6 +526,7 @@ export function useFeatureEditing({
     handleDeleteFeature,
     handleEditFinish,
     handleHistoryBaseline,
+    handleSelectionLost,
     handleEditAttributeSubmit,
     selectFeatureFromMap,
     reloadTiles,
