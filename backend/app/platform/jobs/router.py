@@ -66,6 +66,7 @@ from app.platform.jobs.sweep import (
     unadopted_analysis_table_from_metadata,  # noqa: F401 -- re-exported, see __all__
     unpublished_storage_keys_from_metadata,  # noqa: F401 -- re-exported, see __all__
     _reap_unadopted_analysis_outputs,  # noqa: F401 -- re-exported, see __all__
+    reap_unpublished_storage_keys,  # noqa: F401 -- re-exported, see __all__
 )
 from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.standards.ogc.errors import CONFLICT_RESPONSE, ERROR_RESPONSES_AUTH
@@ -1262,6 +1263,7 @@ __all__ = [
     # objects and analysis outputs the periodic sweep does, through the same
     # façade.
     "_reap_unadopted_analysis_outputs",
+    "reap_unpublished_storage_keys",
     "unadopted_analysis_table_from_metadata",
     "unpublished_storage_keys_from_metadata",
 ]

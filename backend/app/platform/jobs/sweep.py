@@ -737,23 +737,13 @@ async def _reap_committed_staged_paths(
 
     # fix(#1778): a killed raster ingest or replace's own pre-commit objects,
     # named on the job row before the puts and withheld from deletion until
-    # this point for the reason `_reap_stale_generation_storage` gives. Safe
-    # without a survivor query: every one of those tails stamps the job's
-    # terminal status in the SAME transaction as the pointer it publishes, so a
-    # row this pass just moved off `running` cannot have a durable publish
-    # behind it, and the keys it names are therefore referenced by nothing.
-    for unpublished_key in outcome._unpublished_storage_keys:
-        try:
-            from app.platform.storage import get_storage
-
-            await get_storage().delete(resolve_current_storage_key(unpublished_key))
-            storage_objects_reaped += 1
-        except Exception:  # broad: best-effort staging cleanup
-            staged_cleanup_failures += 1
-            log.warning(
-                "Failed to reap unpublished raster object for stale job",
-                storage_key=unpublished_key,
-            )
+    # this point for the reason `_reap_stale_generation_storage` gives.
+    reaped, skipped, failures = await reap_unpublished_storage_keys(
+        outcome._unpublished_storage_keys
+    )
+    storage_objects_reaped += reaped
+    staged_paths_skipped += skipped
+    staged_cleanup_failures += failures
 
     # fix(#1778): the analysis peer of the loop above. Same rule, same reason:
     # the table is dropped only once the row that stopped owning it is durable.
@@ -818,6 +808,102 @@ def unadopted_analysis_table_from_metadata(user_metadata: object) -> str | None:
         return None
     name = user_metadata.get(ANALYSIS_OUTPUT_TABLE_FIELD)
     return name if isinstance(name, str) and name else None
+
+
+async def _live_referenced_storage_keys(keys: tuple[str, ...]) -> set[str]:
+    """Which of ``keys`` a live catalog row still points at.
+
+    fix(#1778 codex r1). Catalog rows hold LOGICAL keys, which is the form the
+    job row records and the form this sweep carries, so the comparison is a
+    plain match with no tenant resolution on either side.
+
+    Three columns on ``raster_assets`` (the published COG or VRT and its two
+    quicklooks) plus ``dataset_assets.href`` (the kept pre-conversion original,
+    and every other counted asset). Together those are every column in the
+    schema that names an object under `rasters/` or `originals/`.
+    """
+    from sqlalchemy import union_all
+
+    from app.core.db import async_session
+    from app.platform.extensions import get_catalog_port
+    from app.processing.raster.models import RasterAsset
+
+    DatasetAsset = get_catalog_port().dataset_asset_orm_class()
+    key_list = list(keys)
+    async with async_session() as session:
+        stmt = union_all(
+            select(RasterAsset.asset_uri.label("key")).where(
+                RasterAsset.asset_uri.in_(key_list)
+            ),
+            select(RasterAsset.quicklook_256_uri.label("key")).where(
+                RasterAsset.quicklook_256_uri.in_(key_list)
+            ),
+            select(RasterAsset.quicklook_512_uri.label("key")).where(
+                RasterAsset.quicklook_512_uri.in_(key_list)
+            ),
+            select(DatasetAsset.href.label("key")).where(
+                DatasetAsset.href.in_(key_list)
+            ),
+        )
+        return {row[0] for row in (await session.execute(stmt)).all() if row[0]}
+
+
+async def reap_unpublished_storage_keys(
+    keys: tuple[str, ...],
+) -> tuple[int, int, int]:
+    """Delete a dead attempt's pre-commit objects, but never a live one.
+
+    Returns ``(reaped, skipped, failures)``.
+
+    fix(#1778 codex r1): the survivor check lives HERE, in the only function
+    that deletes these keys, rather than only at the two sites that record
+    them. A raster replace whose conversion reproduces the published COG byte
+    for byte derives the same content hash, so the keys it intends to write are
+    the keys the dataset is serving. The recording sites now subtract what the
+    live asset names, but that is a promise each writer has to keep; this is
+    the one that holds whatever the job row says, including for a job row
+    written by a version of this code that did not know to subtract.
+
+    A survivor query that fails deletes NOTHING. The asymmetry is the one every
+    reaper in this module makes: leaving objects behind is recoverable by the
+    next pass or an operator, and deleting the raster a dataset is serving is
+    not.
+    """
+    if not keys:
+        return (0, 0, 0)
+
+    try:
+        live = await _live_referenced_storage_keys(keys)
+    except Exception:  # broad: an unreadable catalog must not license a delete
+        log.warning(
+            "Skipped unpublished raster reap, survivor query failed",
+            key_count=len(keys),
+        )
+        return (0, len(keys), 0)
+
+    reaped = 0
+    skipped = 0
+    failures = 0
+    for key in keys:
+        if key in live:
+            skipped += 1
+            log.warning(
+                "Refused to reap a raster object a live row still names",
+                storage_key=key,
+            )
+            continue
+        try:
+            from app.platform.storage import get_storage
+
+            await get_storage().delete(resolve_current_storage_key(key))
+            reaped += 1
+        except Exception:  # broad: best-effort staging cleanup
+            failures += 1
+            log.warning(
+                "Failed to reap unpublished raster object for stale job",
+                storage_key=key,
+            )
+    return (reaped, skipped, failures)
 
 
 async def _reap_unadopted_analysis_outputs(out_tables: tuple[str, ...]) -> None:

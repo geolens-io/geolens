@@ -16,6 +16,7 @@ import asyncio
 import os
 import uuid
 from datetime import datetime, timezone
+from collections.abc import Iterable
 from typing import Any
 
 import structlog
@@ -519,6 +520,7 @@ async def record_unpublished_storage_keys(
     attempt_uuid: uuid.UUID,
     *,
     keys: list[str],
+    already_published: "Iterable[str]",
     job_id: str,
     task: str,
 ) -> None:
@@ -529,6 +531,22 @@ async def record_unpublished_storage_keys(
     the process is gone. Logical keys (never tenant-resolved) so the sweep
     resolves them in its own tenant context, the way it already does for
     ``_staged_presigned_keys``.
+
+    fix(#1778 codex r1): ``already_published`` is what the LIVE asset names,
+    and it is subtracted here rather than at either call site. A replace whose
+    conversion reproduces the published COG byte for byte (re-uploading the
+    same file) derives the same ``asset_sha256``, so the three keys this
+    attempt intends ARE the three keys the dataset is currently serving. A
+    crash any time after this write, even before the first put, then handed the
+    stale-job reaper permission to delete the live COG and both quicklooks. The
+    in-process failure cleanup has always excluded ``prior_physical_keys``; the
+    durable record has to carry the same exclusion, because the process that
+    knows it is the one that may not be there. Subtracting inside this function
+    rather than at the call sites means a future writer of intended keys gets
+    the exclusion by having to answer the question.
+
+    The reaper carries the second half of this: it refuses to delete a key a
+    live row still references, whatever the job row says.
 
     Ordering is the whole mechanism and it is narrow. This must run BEFORE the
     phase-2 session takes the ``ingest_jobs`` row lock (phase 2's first
@@ -552,7 +570,9 @@ async def record_unpublished_storage_keys(
 
     from app.platform.jobs.models import IngestJob
 
-    if not keys:
+    published = set(already_published)
+    unpublished = [key for key in keys if key not in published]
+    if not unpublished:
         return
     try:
         async with db_module.async_session() as session:
@@ -568,7 +588,7 @@ async def record_unpublished_storage_keys(
                     ).op("||")(
                         bindparam(
                             "unpublished_patch",
-                            value={UNPUBLISHED_STORAGE_KEYS_FIELD: list(keys)},
+                            value={UNPUBLISHED_STORAGE_KEYS_FIELD: unpublished},
                             type_=JSONB,
                         )
                     )

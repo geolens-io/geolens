@@ -324,6 +324,21 @@ async def reupload_raster(
                 quicklook_256_uri=raster_asset.quicklook_256_uri,
                 quicklook_512_uri=raster_asset.quicklook_512_uri,
             )
+            # fix(#1778 codex r1): the same three objects in LOGICAL form. The
+            # durable reaper works in logical keys (it resolves them in its own
+            # tenant context), so comparing against the physical list above
+            # would silently match nothing on a hosted deployment and leave the
+            # live asset reapable. Same reason `_prior_asset_keys_to_reap`
+            # gives for keeping its own two lists in one form.
+            prior_logical_keys = [
+                key
+                for key in (
+                    raster_asset.asset_uri,
+                    raster_asset.quicklook_256_uri,
+                    raster_asset.quicklook_512_uri,
+                )
+                if key
+            ]
 
             # feat(#1219): pending -> running on the run row this job's commit
             # door already reserved. Raster reuses that admission gate rather
@@ -468,8 +483,15 @@ async def reupload_raster(
         # SIGKILL between the puts and the terminal `finally` leaves them with
         # no reference anywhere: the swap rolled back, so the live asset still
         # names the OLD keys and `delete_dataset`'s prefix reap only runs when
-        # the dataset is deleted. The content hash makes this prefix this
-        # attempt's alone, so the sweep can never reach what is still serving.
+        # the dataset is deleted.
+        #
+        # fix(#1778 codex r1): the content hash does NOT make this prefix this
+        # attempt's alone, which an earlier revision of this comment claimed.
+        # Re-uploading the file the dataset already serves converts to the same
+        # COG and hashes to the same `asset_sha256`, so all three keys below
+        # are the ones currently being served. `already_published` is what
+        # keeps them out of the durable record; the reaper's own survivor check
+        # is the second half.
         #
         # The kept original is deliberately NOT registered here. Its key is
         # derived from the SOURCE hash, so re-uploading bytes this dataset has
@@ -486,6 +508,7 @@ async def reupload_raster(
                 f"{_replace_base_key}/quicklook_256.png",
                 f"{_replace_base_key}/quicklook_512.png",
             ],
+            already_published=prior_logical_keys,
             job_id=job_id,
             task="reupload_raster",
         )

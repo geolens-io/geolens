@@ -134,7 +134,13 @@ class TestUnpublishedStorageKeys:
         )
         storage = MagicMock()
         storage.delete = AsyncMock()
-        with patch("app.platform.storage.get_storage", return_value=storage):
+        with (
+            patch("app.platform.storage.get_storage", return_value=storage),
+            patch(
+                "app.platform.jobs.sweep._live_referenced_storage_keys",
+                AsyncMock(return_value=set()),
+            ),
+        ):
             result = await _reap_committed_staged_paths(outcome)
 
         assert result.storage_objects_reaped == 2
@@ -156,7 +162,13 @@ class TestUnpublishedStorageKeys:
         )
         storage = MagicMock()
         storage.delete = AsyncMock()
-        with patch("app.platform.storage.get_storage", return_value=storage):
+        with (
+            patch("app.platform.storage.get_storage", return_value=storage),
+            patch(
+                "app.platform.jobs.sweep._live_referenced_storage_keys",
+                AsyncMock(return_value=set()),
+            ),
+        ):
             outcome = await fail_stale_jobs(mock_db, detailed=True)
 
         assert outcome._unpublished_storage_keys == tuple(keys)
@@ -185,6 +197,212 @@ class TestUnpublishedStorageKeys:
             await fail_stale_jobs(mock_db, detailed=True)
 
         storage.delete.assert_not_awaited()
+
+
+class TestIdenticalReplacementKeepsTheLiveAsset:
+    """fix(#1778 codex r1): a re-upload of the file the dataset already serves.
+
+    The replacement converts to the same COG and hashes to the same
+    ``asset_sha256``, so the three keys the replace tail intends to write are
+    the three keys the live ``RasterAsset`` names. Before this, recording them
+    as unpublished handed both stale-job passes permission to delete the served
+    COG and its quicklooks after a crash, even one before the first put.
+    """
+
+    LIVE = [
+        "rasters/dataset-1/samehash/source.cog.tif",
+        "rasters/dataset-1/samehash/quicklook_256.png",
+        "rasters/dataset-1/samehash/quicklook_512.png",
+    ]
+
+    @staticmethod
+    def _session_double() -> tuple:
+        session = AsyncMock()
+        maker = MagicMock()
+        maker.return_value.__aenter__ = AsyncMock(return_value=session)
+        maker.return_value.__aexit__ = AsyncMock(return_value=False)
+        return session, maker
+
+    @pytest.mark.asyncio
+    async def test_the_live_keys_are_never_recorded_as_unpublished(self) -> None:
+        from app.processing.ingest.tasks_raster_common import (
+            record_unpublished_storage_keys,
+        )
+
+        session, maker = self._session_double()
+        with patch("app.core.db.async_session", maker):
+            await record_unpublished_storage_keys(
+                uuid.uuid4(),
+                uuid.uuid4(),
+                keys=list(self.LIVE),
+                already_published=self.LIVE,
+                job_id="j",
+                task="reupload_raster",
+            )
+
+        # Nothing left to record, so no write at all.
+        session.execute.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_genuinely_new_key_is_still_recorded(self) -> None:
+        from app.processing.ingest.tasks_raster_common import (
+            UNPUBLISHED_STORAGE_KEYS_FIELD,
+            record_unpublished_storage_keys,
+        )
+
+        session, maker = self._session_double()
+        fresh = "rasters/dataset-1/newhash/source.cog.tif"
+        with patch("app.core.db.async_session", maker):
+            await record_unpublished_storage_keys(
+                uuid.uuid4(),
+                uuid.uuid4(),
+                keys=[fresh, *self.LIVE],
+                already_published=self.LIVE,
+                job_id="j",
+                task="reupload_raster",
+            )
+
+        session.execute.assert_awaited_once()
+        stmt = session.execute.await_args.args[0]
+        recorded = stmt.compile().params["unpublished_patch"]
+        assert recorded == {UNPUBLISHED_STORAGE_KEYS_FIELD: [fresh]}
+
+    @pytest.mark.asyncio
+    async def test_the_reaper_refuses_a_key_a_live_row_names(self) -> None:
+        """The second half: it holds whatever the job row says.
+
+        A job row written before the exclusion existed still names the live
+        keys, and this is the pass that has to refuse them.
+        """
+        from app.platform.jobs.sweep import reap_unpublished_storage_keys
+
+        orphan = "rasters/dataset-1/deadhash/source.cog.tif"
+        storage = MagicMock()
+        storage.delete = AsyncMock()
+        with (
+            patch("app.platform.storage.get_storage", return_value=storage),
+            patch(
+                "app.platform.jobs.sweep._live_referenced_storage_keys",
+                AsyncMock(return_value=set(self.LIVE)),
+            ),
+        ):
+            reaped, skipped, failures = await reap_unpublished_storage_keys(
+                (*self.LIVE, orphan)
+            )
+
+        assert (reaped, skipped, failures) == (1, 3, 0)
+        assert [call.args[0] for call in storage.delete.await_args_list] == [orphan]
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_catalog_deletes_nothing(self) -> None:
+        """Leaking an object is recoverable; deleting a served raster is not."""
+        from app.platform.jobs.sweep import reap_unpublished_storage_keys
+
+        storage = MagicMock()
+        storage.delete = AsyncMock()
+        with (
+            patch("app.platform.storage.get_storage", return_value=storage),
+            patch(
+                "app.platform.jobs.sweep._live_referenced_storage_keys",
+                AsyncMock(side_effect=RuntimeError("catalog unreadable")),
+            ),
+        ):
+            reaped, skipped, failures = await reap_unpublished_storage_keys(
+                tuple(self.LIVE)
+            )
+
+        assert (reaped, skipped, failures) == (0, 3, 0)
+        storage.delete.assert_not_awaited()
+
+    def test_every_site_that_records_intended_keys_states_the_exclusion(self) -> None:
+        """Enumerated rather than assumed: two writers, both answering."""
+        found = set()
+        for module in sorted((APP / "processing").rglob("*.py")):
+            text = module.read_text()
+            if "await record_unpublished_storage_keys(" not in text:
+                continue
+            rel = str(module.relative_to(APP))
+            found.add(rel)
+            assert text.count("await record_unpublished_storage_keys(") == text.count(
+                "already_published="
+            ), rel
+        assert found == {
+            "processing/ingest/tasks_raster.py",
+            "processing/ingest/tasks_raster_replace.py",
+        }, found
+
+
+class TestLiveReferenceQuery:
+    """The survivor check against a real catalog, not a double.
+
+    The reaper's refusal is only as good as this query, and it spans four
+    columns across two tables, so it is worth running rather than mocking.
+    """
+
+    @pytest.mark.anyio
+    async def test_it_finds_every_column_that_names_an_object(
+        self, test_db_session
+    ) -> None:
+        from app.modules.catalog.datasets.domain.models import Dataset, Record
+        from app.platform.jobs.sweep import _live_referenced_storage_keys
+        from app.processing.raster.models import DatasetAsset, RasterAsset
+
+        record = Record(
+            title="live raster",
+            visibility="private",
+            record_status="published",
+            record_type="raster_dataset",
+        )
+        test_db_session.add(record)
+        await test_db_session.flush()
+        dataset = Dataset(
+            record_id=record.id,
+            table_name=f"ds_{uuid.uuid4().hex[:12]}",
+            srid=4326,
+            source_format="geotiff",
+        )
+        test_db_session.add(dataset)
+        await test_db_session.flush()
+        base = f"rasters/{dataset.id}/livehash"
+        original = f"originals/{dataset.id}/livehash"
+        test_db_session.add(
+            RasterAsset(
+                dataset_id=dataset.id,
+                asset_uri=f"{base}/source.cog.tif",
+                quicklook_256_uri=f"{base}/quicklook_256.png",
+                quicklook_512_uri=f"{base}/quicklook_512.png",
+                storage_backend="local",
+            )
+        )
+        test_db_session.add(
+            DatasetAsset(
+                dataset_id=dataset.id,
+                key="archived_original:livehash",
+                href=original,
+                media_type="image/tiff",
+                roles=["archive"],
+            )
+        )
+        await test_db_session.commit()
+
+        orphan = f"rasters/{dataset.id}/deadhash/source.cog.tif"
+        live = await _live_referenced_storage_keys(
+            (
+                f"{base}/source.cog.tif",
+                f"{base}/quicklook_256.png",
+                f"{base}/quicklook_512.png",
+                original,
+                orphan,
+            )
+        )
+
+        assert live == {
+            f"{base}/source.cog.tif",
+            f"{base}/quicklook_256.png",
+            f"{base}/quicklook_512.png",
+            original,
+        }
+        assert orphan not in live
 
 
 def _mock_db_for_fail_stale(*, running_rows: list) -> AsyncMock:

@@ -406,6 +406,12 @@ async def ingest_raster(
             job_uuid,
             attempt_uuid,
             keys=_unpublished_keys,
+            # fix(#1778 codex r1): empty, and provably so. Every key above is
+            # under a dataset id generated three lines up, so no row can name
+            # one. The replace tail passes the live asset's keys here, because
+            # an identical re-upload derives the same content hash and would
+            # otherwise register the objects the dataset is serving.
+            already_published=(),
             job_id=job_id,
             task="ingest_raster",
         )

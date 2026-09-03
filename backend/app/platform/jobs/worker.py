@@ -215,11 +215,11 @@ async def _recover_stale_jobs_for_current_scope() -> None:
         from app.platform.jobs.router import (
             _reap_stale_generation_storage,
             _reap_unadopted_analysis_outputs,
+            reap_unpublished_storage_keys,
             sweep_stale_vrt_assets,
             unadopted_analysis_table_from_metadata,
             unpublished_storage_keys_from_metadata,
         )
-        from app.platform.storage.titiler_url import resolve_current_storage_key
 
         (
             vrt_assets_recovered,
@@ -238,12 +238,14 @@ async def _recover_stale_jobs_for_current_scope() -> None:
         # periodic sweep for that class: an OOM-killed worker is restarted, and
         # the restart runs this before any lifespan sweeper gets there, so
         # without it the keys are settled `failed` here and never seen again.
-        # Resolved from the rows this pass just moved off `running`, and
-        # deleted only after the commit above, for the reason the line above
-        # gives.
-        await _reap_stale_generation_storage(
+        # Read off the rows this pass just moved off `running`, and deleted
+        # only after the commit above, for the reason the line above gives.
+        # fix(#1778 codex r1): through the shared reaper, which carries the
+        # survivor check and the tenant resolution, so this pass cannot delete
+        # a key a live row still names either.
+        await reap_unpublished_storage_keys(
             tuple(
-                resolve_current_storage_key(key)
+                key
                 for job in stale_jobs
                 for key in unpublished_storage_keys_from_metadata(job.user_metadata)
             )

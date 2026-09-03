@@ -3449,9 +3449,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `_reap_unadopted_analysis_outputs` do the same for an analysis output
     # table; both are collected in `fail_stale_jobs` and deleted only after its
     # commit, alongside the existing stale-generation keys. Roughly half of it
-    # is the docstrings stating why neither reap needs a survivor query and why
-    # the analysis one takes its own session. Cap 1857 -> 1991, exact.
-    "backend/app/platform/jobs/sweep.py": 1991,
+    # is the docstrings stating why the analysis reap takes its own session.
+    # Cap 1857 -> 1991.
+    # fix(#1778 codex r1): +86. The raster reap gained a survivor check that an
+    # earlier revision argued it did not need: an identical re-upload derives
+    # the same content hash, so a replace's intended keys can BE the live
+    # asset's, and a crash then licensed deleting the raster the dataset was
+    # serving. `_live_referenced_storage_keys` asks the four columns that name
+    # an object, `reap_unpublished_storage_keys` refuses what they return and
+    # deletes nothing at all when the query fails, and both stale-job passes
+    # go through it. Cap 1991 -> 2077, exact.
+    "backend/app/platform/jobs/sweep.py": 2077,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and
