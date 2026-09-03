@@ -6,7 +6,12 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/components/theme-provider';
 import { useBasemaps } from '@/hooks/use-settings';
-import { getThemeBasemap, toMaplibreStyle } from '@/lib/basemap-utils';
+import {
+  getThemeBasemap,
+  toMaplibreStyle,
+  FALLBACK_BASEMAP_STYLE_URL,
+  FALLBACK_BASEMAP_STYLE_URL_DARK,
+} from '@/lib/basemap-utils';
 import { MAP_COLORS } from '@/lib/map-colors';
 import 'maplibre-gl/dist/maplibre-gl.css';
 // feat(#846): wires maplibre v6's worker URL. Side-effect import, kept out of
@@ -29,9 +34,7 @@ export function BboxMapPicker({ onBboxSelected }: BboxMapPickerProps) {
     const themeBasemap = getThemeBasemap(basemaps ?? [], resolvedTheme);
     if (themeBasemap) return toMaplibreStyle(themeBasemap.url, themeBasemap.attribution);
     return toMaplibreStyle(
-      resolvedTheme === 'dark'
-        ? 'https://tiles.openfreemap.org/styles/dark'
-        : 'https://tiles.openfreemap.org/styles/positron',
+      resolvedTheme === 'dark' ? FALLBACK_BASEMAP_STYLE_URL_DARK : FALLBACK_BASEMAP_STYLE_URL,
     );
   }, [basemaps, resolvedTheme]);
 

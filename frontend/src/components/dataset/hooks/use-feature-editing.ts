@@ -82,6 +82,9 @@ interface UseFeatureEditingOptions {
   addFeatures: (features: Feature[]) => { id?: string | number; valid: boolean }[];
   selectFeature: (id: string) => void;
   clear: () => void;
+  /** fix(round1 #1795): reset the undo ring once a pending edit settles
+   *  (save, cancel, or deselection) — NOT on every drag/vertex finish. */
+  resetHistory: () => void;
 }
 
 /**
@@ -109,6 +112,7 @@ export function useFeatureEditing({
   addFeatures,
   selectFeature: tdSelectFeature,
   clear,
+  resetHistory,
 }: UseFeatureEditingOptions) {
   const { t } = useTranslation('dataset');
   const createFeature = useCreateFeature();
@@ -260,7 +264,11 @@ export function useFeatureEditing({
     const map = mapRef.current;
     if (map) showAllFeaturesInTiles(map);
     clearSelectedFeature();
-  }, [mapRef, removeFeatures, clearSelectedFeature]);
+    // fix(round1 #1795): deselection (also used for Cancel — see
+    // DatasetMap's handleDeselect) discards any pending, un-saved undo
+    // history for the edit just abandoned.
+    resetHistory();
+  }, [mapRef, removeFeatures, clearSelectedFeature, resetHistory]);
 
   /** Save edited geometry for the selected feature. */
   const handleSaveEdit = useCallback(async () => {
@@ -296,6 +304,9 @@ export function useFeatureEditing({
       const map = mapRef.current;
       if (map) showAllFeaturesInTiles(map);
       clearSelectedFeature();
+      // fix(round1 #1795): the edit just landed server-side — the pending
+      // undo history it belonged to is no longer meaningful.
+      resetHistory();
     } catch (err) {
       // fix(#1761 review round 7): mirror the success branch's recheck —
       // a failed update is feedback for whoever issued it, not whoever is
@@ -304,7 +315,7 @@ export function useFeatureEditing({
       // fix(#458 E-36): keep the backend detail.
       toast.error(formatMutationError('dataset:map.featureUpdateFailed', err));
     }
-  }, [datasetId, tableName, mapRef, getSnapshotFeature, updateFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, t]);
+  }, [datasetId, tableName, mapRef, getSnapshotFeature, updateFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, resetHistory, t]);
 
   /** Delete the selected feature. */
   const handleDeleteFeature = useCallback(async () => {
@@ -326,6 +337,10 @@ export function useFeatureEditing({
       const map = mapRef.current;
       if (map) showAllFeaturesInTiles(map);
       clearSelectedFeature();
+      // fix(round2 #1795): the deleted feature no longer exists — its
+      // pending undo history (which would restore it as a client-side
+      // ghost) is no longer meaningful. Same point handleSaveEdit resets at.
+      resetHistory();
     } catch (err) {
       // fix(#1761 review round 7): mirror the success branch's recheck —
       // a failed delete is feedback for whoever issued it, not whoever is
@@ -334,7 +349,7 @@ export function useFeatureEditing({
       // fix(#458 E-36): keep the backend detail.
       toast.error(formatMutationError('dataset:map.featureDeleteFailed', err));
     }
-  }, [datasetId, tableName, mapRef, deleteFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, t]);
+  }, [datasetId, tableName, mapRef, deleteFeatureMutation, removeFeatures, clearSelectedFeature, reloadTiles, resetHistory, t]);
 
   /** Update attributes of the selected feature. */
   // fix(#1761 review round 4): returns whether the caller may treat this
@@ -394,6 +409,36 @@ export function useFeatureEditing({
       setEditDirty(true);
     },
     [setEditDirty],
+  );
+
+  /**
+   * fix(round2 #1795): Terra Draw's undo() popped the ring back to its
+   * earliest recorded snapshot — the displayed geometry is once again
+   * whatever was there when the ring started, so there is no longer a
+   * pending edit to confirm away on Cancel/Done/mode-switch. A subsequent
+   * drag/vertex edit re-dirties normally via handleEditFinish above.
+   */
+  const handleHistoryBaseline = useCallback(() => {
+    setEditDirty(false);
+  }, [setEditDirty]);
+
+  /**
+   * fix(round4 #1795): undo() restored a snapshot that no longer contains
+   * the feature that was selected before the undo — Terra Draw's own
+   * select state has nothing left to re-select. Clear our selection store
+   * too, so it agrees with what Terra Draw actually has (a stale selection
+   * here would keep showing the action bar for a feature that no longer
+   * exists on the canvas). Guarded on the CURRENT selection matching the id
+   * this fired for, in case a newer selection has since replaced it.
+   */
+  const handleSelectionLost = useCallback(
+    (id: string | number) => {
+      const sf = useDrawingStore.getState().selectedFeature;
+      if (sf && sf.tdId === String(id)) {
+        clearSelectedFeature();
+      }
+    },
+    [clearSelectedFeature],
   );
 
   /** Select a feature from the map by clicking on it. */
@@ -480,6 +525,8 @@ export function useFeatureEditing({
     handleSaveEdit,
     handleDeleteFeature,
     handleEditFinish,
+    handleHistoryBaseline,
+    handleSelectionLost,
     handleEditAttributeSubmit,
     selectFeatureFromMap,
     reloadTiles,

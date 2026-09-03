@@ -34,6 +34,45 @@ function ensureStopIds(
   }));
 }
 
+/**
+ * fix(round1 #1795, P2): count adjacent pairs that are NOT strictly
+ * ascending (`next <= prev`) — the same condition maplibre-gl's
+ * `interpolate` parser rejects. Used to compare a proposed stop list
+ * against the one it replaces, so commitStops can block a commit that makes
+ * ordering WORSE without also blocking incremental repair of an
+ * already-invalid legacy list (e.g. one saved by the old repeated-Add bug).
+ */
+function countOrderViolations(stops: ReadonlyArray<{ position: number }>): number {
+  let count = 0;
+  for (let i = 1; i < stops.length; i++) {
+    if (stops[i].position <= stops[i - 1].position) count++;
+  }
+  return count;
+}
+
+/**
+ * fix(round5 #1795, P2): comparing total violation counts alone lets a
+ * position edit SWAP one violation for a different one at the same total
+ * count — e.g. [0, 0.5, 0.5, 1] -> [0, 0.5, 0.4, 1] keeps the count at 1
+ * (the duplicate at (1,2) becomes a descending pair at (1,2) instead) but
+ * still commits a list maplibre-gl rejects. Returns the indices (into
+ * `next`) whose POSITION differs from `prev` at the same array index —
+ * only meaningful when `prev` and `next` are the same length (an add/remove
+ * changes the shape entirely and is governed by the total-count check
+ * alone, same as a colour-only or removal edit).
+ */
+function editedPositionIndices(
+  prev: ReadonlyArray<{ position: number }> | null,
+  next: ReadonlyArray<{ position: number }>,
+): number[] {
+  if (!prev || prev.length !== next.length) return [];
+  const indices: number[] = [];
+  for (let i = 0; i < next.length; i++) {
+    if (next[i].position !== prev[i].position) indices.push(i);
+  }
+  return indices;
+}
+
 // Permissive allowlist for the raw-expression structural validator. The goal
 // is to reject obvious garbage (random strings, plain objects, unknown ops)
 // before commit; full MapLibre semantic validation happens at runtime.
@@ -183,6 +222,36 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
   const isCustomExpression = paintExpr != null && parsedFromPaint == null;
 
   function commitStops(nextStops: WorkingStop[]) {
+    // fix(#1778, round1 #1795 P2): refuse a commit that makes stop
+    // ordering WORSE, not any commit that leaves some violation in place.
+    // A blanket "any non-ascending pair refuses" rule blocked incremental
+    // repair of a legacy list saved by the old repeated-Add bug (e.g.
+    // [0, 1, 1, 1]) — removing one duplicate, moving one stop, or even
+    // just recoloring one became a no-op, because the repaired list still
+    // had a violation somewhere else. Comparing violation COUNTS lets any
+    // commit that holds steady or improves through, and still blocks a
+    // commit that newly introduces or worsens non-ascending positions —
+    // maplibre-gl's `interpolate` parser rejects the whole expression when
+    // adjacent positions are not STRICTLY ascending (`stops[i][0] >= label`
+    // is an error, so equal positions violate too). Leave
+    // pendingPositionEdits untouched here so a typed duplicate value still
+    // surfaces the duplicatePosition warning below.
+    const previousViolations = liveStops ? countOrderViolations(liveStops) : 0;
+    if (countOrderViolations(nextStops) > previousViolations) return;
+    // fix(round5 #1795 P2): the total-count check above is not enough on
+    // its own — it lets a position edit SWAP one violation for a different
+    // one at the same count (e.g. [0, 0.5, 0.5, 1] -> [0, 0.5, 0.4, 1]: the
+    // duplicate at (1,2) becomes a descending pair at (1,2) instead, count
+    // stays 1, but the result is still a list maplibre-gl rejects). For
+    // every index whose POSITION actually changed (colour-only and
+    // add/remove edits touch none), both pairs it participates in — (i-1,i)
+    // and (i,i+1) — must be strictly ascending after the edit. A colour-only
+    // change or a structural add/remove has no edited index here, so it
+    // stays governed by the total-count check alone.
+    for (const i of editedPositionIndices(liveStops, nextStops)) {
+      if (i > 0 && nextStops[i - 1].position >= nextStops[i].position) return;
+      if (i < nextStops.length - 1 && nextStops[i].position >= nextStops[i + 1].position) return;
+    }
     // Compose the next paint snapshot once and pass it to both callbacks so the
     // upstream save sees a single consistent state. Without `nextPaint`,
     // `onBuilderChange` would resolve `paint` from a stale closure and shadow
@@ -244,17 +313,33 @@ export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilde
 
   function addStop() {
     if (!liveStops || liveStops.length < 2) return;
-    const last = liveStops[liveStops.length - 1];
-    const prev = liveStops[liveStops.length - 2];
-    const newPosition = Math.round(((prev.position + last.position) / 2) * 100) / 100;
+    // fix(#1778): bisect the WIDEST gap, not always the last pair. Bisecting
+    // the last pair repeatedly (0.5, 0.75, 0.88, ...) converges on the final
+    // stop's position — the 7th click used to duplicate it outright, and
+    // every click after that kept doing so.
+    const sorted = [...liveStops].sort((a, b) => a.position - b.position);
+    let gapIndex = 1;
+    let gapSize = -Infinity;
+    for (let i = 1; i < sorted.length; i++) {
+      const size = sorted[i].position - sorted[i - 1].position;
+      if (size > gapSize) {
+        gapSize = size;
+        gapIndex = i;
+      }
+    }
+    // Refuse when no gap has room for a new, distinct rounded position — with
+    // the 0.01 UI rounding step, a narrower gap collapses onto a neighbor and
+    // commitStops's ascending-order guard would refuse it anyway.
+    if (gapSize < 0.02) return;
+    const before = sorted[gapIndex - 1];
+    const after = sorted[gapIndex];
+    const newPosition = Math.round(((before.position + after.position) / 2) * 100) / 100;
     // Keep stops in sorted (monotonically increasing position) order so the
     // canonical interpolate-linear-line-progress expression renders correctly.
     const next: WorkingStop[] = [
-      ...liveStops,
-      { position: newPosition, color: last.color, id: crypto.randomUUID() },
-    ]
-      .slice()
-      .sort((a, b) => a.position - b.position);
+      ...sorted,
+      { position: newPosition, color: after.color, id: crypto.randomUUID() },
+    ].sort((a, b) => a.position - b.position);
     commitStops(next);
   }
 

@@ -121,6 +121,7 @@ const terraDrawState = vi.hoisted(() => ({
   clear: vi.fn(),
   undo: vi.fn(),
   canUndo: false,
+  resetHistory: vi.fn(),
 }));
 
 vi.mock('@/components/drawing/hooks/use-terra-draw', () => ({

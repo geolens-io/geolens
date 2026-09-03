@@ -345,6 +345,26 @@ describe('buildTileTransformRequest', () => {
     });
   });
 
+  it('sends no Bearer header for raster tiles on the embed viewer surface, even with no embedToken (fix #1778)', () => {
+    useAuthStore.setState({ token: 'jwt-abc' });
+    const originalLocation = window.location;
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...originalLocation, pathname: '/m/share-123', search: '?embed=true' },
+    });
+    try {
+      const transform = buildTileTransformRequest();
+      expect(transform('/raster-tiles/ds-1/tiles/1/2/3.png')).toEqual({
+        url: `${window.location.origin}/raster-tiles/ds-1/tiles/1/2/3.png`,
+      });
+    } finally {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: originalLocation,
+      });
+    }
+  });
+
   it('honors a late-arriving CDN config through getTileConfig', () => {
     const config: { cdn_base_url: string | null } = { cdn_base_url: null };
     const transform = buildTileTransformRequest({

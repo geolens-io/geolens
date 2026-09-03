@@ -3,7 +3,14 @@ import { useTranslation } from 'react-i18next';
 import { Map as MapGL, Source, Layer, NavigationControl } from '@vis.gl/react-maplibre';
 import { useTheme } from '@/components/theme-provider';
 import { useBasemaps, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
-import { getThemeBasemap, makeStyleImageMissingResolver, toMaplibreStyle, findBasemapById } from '@/lib/basemap-utils';
+import {
+  getThemeBasemap,
+  makeStyleImageMissingResolver,
+  toMaplibreStyle,
+  findBasemapById,
+  FALLBACK_BASEMAP_STYLE_URL,
+  FALLBACK_BASEMAP_STYLE_URL_DARK,
+} from '@/lib/basemap-utils';
 import { BasemapToggle } from '@/components/map/BasemapToggle';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { useTerraDraw } from '@/components/drawing/hooks/use-terra-draw';
@@ -164,9 +171,7 @@ export const DatasetMap = memo(function DatasetMap({
     initialBasemapStyle.current = bm
       ? toMaplibreStyle(bm.url, bm.attribution)
       : toMaplibreStyle(
-          resolvedTheme === 'dark'
-            ? 'https://tiles.openfreemap.org/styles/dark'
-            : 'https://tiles.openfreemap.org/styles/positron',
+          resolvedTheme === 'dark' ? FALLBACK_BASEMAP_STYLE_URL_DARK : FALLBACK_BASEMAP_STYLE_URL,
         );
   }
 
@@ -278,6 +283,19 @@ export const DatasetMap = memo(function DatasetMap({
   const stableEditFinish = useCallback((tdId: string, feature: Feature) => {
     editFinishRef.current(tdId, feature);
   }, []);
+  // fix(round2 #1795): onHistoryBaseline needs handleHistoryBaseline, which
+  // also comes from useFeatureEditing (needs TerraDraw) — same circular-dep
+  // break as onEditFinish above.
+  const historyBaselineRef = useRef<() => void>(() => {});
+  const stableHistoryBaseline = useCallback(() => {
+    historyBaselineRef.current();
+  }, []);
+  // fix(round4 #1795): onSelectionLost needs handleSelectionLost, same
+  // circular-dep break as onEditFinish/onHistoryBaseline above.
+  const selectionLostRef = useRef<(id: string | number) => void>(() => {});
+  const stableSelectionLost = useCallback((id: string | number) => {
+    selectionLostRef.current(id);
+  }, []);
 
   const handleDrawFinish = useCallback(
     (feature: Feature<Geometry, GeoJsonProperties>) => {
@@ -303,7 +321,8 @@ export const DatasetMap = memo(function DatasetMap({
     clear,
     undo,
     canUndo,
-  } = useTerraDraw(mapInstance, handleDrawFinish, stableEditFinish);
+    resetHistory,
+  } = useTerraDraw(mapInstance, handleDrawFinish, stableEditFinish, stableHistoryBaseline, stableSelectionLost);
 
   // --- Feature editing hook (all CRUD logic) ---
   const {
@@ -312,6 +331,8 @@ export const DatasetMap = memo(function DatasetMap({
     handleSaveEdit,
     handleDeleteFeature,
     handleEditFinish,
+    handleHistoryBaseline,
+    handleSelectionLost,
     handleEditAttributeSubmit,
     selectFeatureFromMap,
     cleanupOverlayListener,
@@ -327,11 +348,14 @@ export const DatasetMap = memo(function DatasetMap({
     addFeatures,
     selectFeature: tdSelectFeature,
     clear,
+    resetHistory,
   });
 
   // Keep refs current for callbacks that break circular deps
   saveAndRefreshRef.current = saveAndRefresh;
   editFinishRef.current = handleEditFinish;
+  historyBaselineRef.current = handleHistoryBaseline;
+  selectionLostRef.current = handleSelectionLost;
 
   // Clean up overlay listeners on unmount
   useEffect(() => {

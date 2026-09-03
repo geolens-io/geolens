@@ -1,4 +1,5 @@
 import { getEnvConfig } from '@/lib/env';
+import { isEmbedViewer } from '@/lib/embed-context';
 import { useAuthStore } from '@/stores/auth-store';
 
 /**
@@ -67,7 +68,10 @@ export interface TileTransformRequestOptions {
  *   (fix(#394) SH-02/B-022: the header is a credential — never send it to
  *   third-party basemap sprite/glyph/tile CDNs),
  * - otherwise `Authorization: Bearer <jwt>` on first-party `/raster-tiles/`
- *   requests (raster tiles carry no signed URL, unlike vector tiles — #819).
+ *   requests (raster tiles carry no signed URL, unlike vector tiles — #819),
+ *   except on the embed viewer surface (fix(#1778): `isEmbedViewer()` stays
+ *   out of the signed-in session entirely, so a raster tile must never carry
+ *   the viewer's own JWT even when no `embedToken` was supplied).
  *
  * NOTE (react-maplibre v8): the `transformRequest` PROP is ignored after
  * mount — each map must wire this via `onLoad` + `map.setTransformRequest()`.
@@ -87,7 +91,11 @@ export function buildTileTransformRequest(
     const headers: Record<string, string> = {};
     if (options.embedToken && !isThirdPartyTileUrl(url, tileConfig)) {
       headers['X-Embed-Token'] = options.embedToken;
-    } else if (absUrl.includes('/raster-tiles/') && !isThirdPartyTileUrl(url, tileConfig)) {
+    } else if (
+      absUrl.includes('/raster-tiles/') &&
+      !isThirdPartyTileUrl(url, tileConfig) &&
+      !isEmbedViewer()
+    ) {
       const token = useAuthStore.getState().token;
       if (token) headers.Authorization = `Bearer ${token}`;
     }

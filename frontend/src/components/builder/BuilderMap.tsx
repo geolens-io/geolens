@@ -10,6 +10,7 @@ import {
   makeStyleImageMissingResolver,
   toMaplibreStyle,
   BLANK_BASEMAP_ID,
+  FALLBACK_BASEMAP_STYLE_URL,
 } from '@/lib/basemap-utils';
 import { buildClusterTileUrl, buildSignedTileUrl, buildTileTransformRequest, isMvtSourceLayerConfigReady, refreshRasterTileSources } from '@/lib/tile-utils';
 import { toMapLibreAttribution } from '@/lib/attribution-safety';
@@ -356,12 +357,12 @@ export const BuilderMap = memo(function BuilderMap({
   );
   const isBlank = basemapStyle === BLANK_BASEMAP_ID;
   const basemapEntry = isBlank ? undefined : findBasemapById(basemaps ?? [], basemapStyle);
-  const fallbackUrl = 'https://tiles.openfreemap.org/styles/positron';
+  const fallbackUrl = FALLBACK_BASEMAP_STYLE_URL;
   const styleValue = useMemo(
     () => isBlank
       ? toMaplibreStyle(BLANK_BASEMAP_ID)
       : toMaplibreStyle(basemapEntry?.url ?? fallbackUrl, basemapEntry?.attribution),
-    [isBlank, basemapEntry?.url, basemapEntry?.attribution],
+    [isBlank, basemapEntry?.url, basemapEntry?.attribution, fallbackUrl],
   );
   // chore(#835): shared fetch-and-sanitize path (see use-remote-basemap-style).
   // Builder-specific behavior rides the callbacks: reset the SF-08 first-load
