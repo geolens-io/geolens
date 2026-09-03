@@ -219,6 +219,14 @@ function intersectsBBox(a: BBox, b: BBox): boolean {
   return !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[1] > b[3]);
 }
 
+// fix(review #1792): pads a bbox (or a degenerate single-point bbox) out by
+// `epsilon` on every side, guaranteeing a non-degenerate span (the API
+// rejects a zero-width/height bbox, per buildInteriorBBox's own comment)
+// while staying tight enough to exclude sibling features in a small fixture.
+function padBBox(bbox: BBox, epsilon: number): BBox {
+  return [bbox[0] - epsilon, bbox[1] - epsilon, bbox[2] + epsilon, bbox[3] + epsilon];
+}
+
 function hasProjectedCoordinateSemantics(
   coordinates: Array<[number, number]>,
 ): boolean {
@@ -723,8 +731,27 @@ test.describe('Runtime export integrity', () => {
   });
 
   test('semantic bbox filter returns an intersecting subset', async ({ request }) => {
-    const interiorBBox = buildInteriorBBox(baselineExtent);
-    lastBboxFilter = serializeBBox(interiorBBox);
+    // fix(review #1792): shrinking the dataset's OWN reported extent by 20%
+    // does not guarantee any feature falls inside the shrunk box. For an
+    // externally supplied dataset (the E2E_EXPORT_DATASET_ID escape hatch
+    // above) with a sparse or corner-clustered distribution, the interior
+    // inset can legitimately contain nothing, and the toBeGreaterThan(0)
+    // assertion below would then flag a healthy filter as broken. Build the
+    // bbox around one OBSERVED feature's own coordinates instead -- taken
+    // from `baseline`, the already-fetched unfiltered export -- padded by a
+    // small epsilon, so the request is guaranteed to intersect at least that
+    // feature regardless of dataset topology. This works identically for
+    // `ownedDataset` and for E2E_EXPORT_DATASET_ID.
+    const observedFeature = baseline.features[0];
+    expect(
+      observedFeature,
+      'baseline export returned no features to build a bbox around',
+    ).toBeTruthy();
+    const observedBBox = computeFeatureBBox(observedFeature);
+    expect(observedBBox, 'observed feature has no computable geometry').toBeTruthy();
+    const targetBBox = padBBox(observedBBox as BBox, 0.0001);
+
+    lastBboxFilter = serializeBBox(targetBBox);
     const bboxParam = encodeURIComponent(lastBboxFilter);
     const filtered = await exportGeoJson(request, authHeader, dataset.id, [
       `bbox=${bboxParam}`,
@@ -733,15 +760,26 @@ test.describe('Runtime export integrity', () => {
     // fix(#1778): neither assertion below required a non-empty result, so a
     // regression that made the bbox filter match nothing (inverted operator,
     // wrong column, an SRID mismatch) passed this test — the `for` loop
-    // simply never ran. `toBeGreaterThan(0)` holds generally: the interior
-    // bbox keeps the central 60% of the extent on each axis, which excludes
-    // some geometry only when it also contains some.
+    // simply never ran. `toBeGreaterThan(0)` now holds unconditionally: the
+    // bbox above is built to contain the observed feature.
     expect(filtered.features.length).toBeGreaterThan(0);
     expect(filtered.features.length).toBeLessThanOrEqual(baseline.features.length);
+
+    // The observed feature itself must come back. Matched by geometry
+    // rather than an id: both this call and `baseline` come from the same
+    // GeoJSON export endpoint with no reprojection, so coordinates are
+    // byte-identical, and the export response does not carry a stable
+    // feature id to match on instead.
+    const observedGeometryJson = JSON.stringify(observedFeature.geometry);
+    const containsObserved = filtered.features.some(
+      (feature) => JSON.stringify(feature.geometry) === observedGeometryJson,
+    );
+    expect(containsObserved).toBe(true);
+
     if (ownedDataset) {
-      // Against the auto-seeded runtime fixture (west/center/east, evenly
-      // spaced) the 20% inset on each axis excludes west and east and keeps
-      // only center — pin the exact count rather than just "fewer than all".
+      // Against the auto-seeded runtime fixture (west/center/east, spaced
+      // ~5 degrees apart) a 0.0001-degree pad around one point never reaches
+      // its neighbors -- pin the exact count rather than just "at least 1".
       expect(filtered.features.length).toBe(1);
     }
 
@@ -749,7 +787,7 @@ test.describe('Runtime export integrity', () => {
       const featureBBox = computeFeatureBBox(feature);
       expect(featureBBox).toBeTruthy();
       if (featureBBox) {
-        expect(intersectsBBox(featureBBox, interiorBBox)).toBeTruthy();
+        expect(intersectsBBox(featureBBox, targetBBox)).toBeTruthy();
       }
     }
   });

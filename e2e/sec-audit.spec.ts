@@ -15,14 +15,20 @@
 // backend/tests/test_ssrf_redirect.py, so the test is removed below rather
 // than left permanently skipped — see the comment where it used to be.
 //
-//   SEC_AUDIT_API_URL         override the API base (default /api)
 //   SEC_AUDIT_FRONTEND_URL    override the frontend base for S08 (default E2E_BASE_URL)
 
 import { test, expect } from '@playwright/test';
 import { getAuthToken, seedDataset, seedDemDataset, deleteDataset } from './helpers/catalog';
 
-const API = process.env.SEC_AUDIT_API_URL || '/api';
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
+// fix(review #1792): SEC_AUDIT_API_URL used to let audit requests target a
+// different host than the one fixtures were seeded on -- nothing in CI or
+// any playwright*.config.ts ever set it, but if it had been, every
+// IDOR/visibility assertion below would have passed vacuously (a foreign id
+// 404s against the wrong host regardless of authorization). Removed the
+// override; one apiBase feeds seeding, publishing, and auditing alike, so
+// they cannot drift apart.
+const apiBase = `${BASE_URL}/api`;
 
 let privateDatasetId = '';
 let privateDatasetTitle = '';
@@ -61,7 +67,7 @@ test.beforeAll(async () => {
   const pub = await seedDataset('Sec Audit Public');
   publicDatasetId = pub.id;
   publicDatasetTitle = pub.title;
-  const publishRes = await fetch(`${BASE_URL}/api/datasets/${publicDatasetId}`, {
+  const publishRes = await fetch(`${apiBase}/datasets/${publicDatasetId}`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify({ visibility: 'public', record_status: 'published' }),
@@ -73,7 +79,7 @@ test.beforeAll(async () => {
   // S02/S03: a second, non-admin editor who owns neither dataset above.
   const editorBUsername = `sec-audit-editor-b-${Date.now()}`;
   const editorBPassword = 'Sec-Audit-Editor-B-42';
-  const createUserRes = await fetch(`${BASE_URL}/api/admin/users/`, {
+  const createUserRes = await fetch(`${apiBase}/admin/users/`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ username: editorBUsername, password: editorBPassword, role: 'editor' }),
@@ -83,7 +89,7 @@ test.beforeAll(async () => {
   }
   editorBUserId = ((await createUserRes.json()) as { id: string }).id;
 
-  const loginRes = await fetch(`${BASE_URL}/api/auth/login/`, {
+  const loginRes = await fetch(`${apiBase}/auth/login/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ username: editorBUsername, password: editorBPassword }).toString(),
@@ -94,7 +100,7 @@ test.beforeAll(async () => {
   editorBToken = ((await loginRes.json()) as { access_token: string }).access_token;
 
   // S08: a public map with a share token.
-  const mapRes = await fetch(`${BASE_URL}/api/maps/`, {
+  const mapRes = await fetch(`${apiBase}/maps/`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ name: `Sec Audit Share Map ${Date.now()}` }),
@@ -103,7 +109,7 @@ test.beforeAll(async () => {
     throw new Error(`sec-audit: could not create share map: ${mapRes.status}`);
   }
   shareMapId = ((await mapRes.json()) as { id: string }).id;
-  const mapPublishRes = await fetch(`${BASE_URL}/api/maps/${shareMapId}`, {
+  const mapPublishRes = await fetch(`${apiBase}/maps/${shareMapId}`, {
     method: 'PUT',
     headers,
     body: JSON.stringify({ visibility: 'public' }),
@@ -111,7 +117,7 @@ test.beforeAll(async () => {
   if (!mapPublishRes.ok) {
     throw new Error(`sec-audit: could not publish share map: ${mapPublishRes.status}`);
   }
-  const shareRes = await fetch(`${BASE_URL}/api/maps/${shareMapId}/share/`, {
+  const shareRes = await fetch(`${apiBase}/maps/${shareMapId}/share/`, {
     method: 'POST',
     headers,
   });
@@ -124,10 +130,10 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   const headers = adminHeaders();
   if (shareMapId) {
-    await fetch(`${BASE_URL}/api/maps/${shareMapId}`, { method: 'DELETE', headers }).catch(() => {});
+    await fetch(`${apiBase}/maps/${shareMapId}`, { method: 'DELETE', headers }).catch(() => {});
   }
   if (editorBUserId) {
-    await fetch(`${BASE_URL}/api/admin/users/${editorBUserId}`, { method: 'DELETE', headers }).catch(() => {});
+    await fetch(`${apiBase}/admin/users/${editorBUserId}`, { method: 'DELETE', headers }).catch(() => {});
   }
   if (privateDatasetId) await deleteDataset(privateDatasetId, privateDatasetTitle);
   if (publicDatasetId) await deleteDataset(publicDatasetId, publicDatasetTitle);
@@ -140,13 +146,13 @@ test.afterAll(async () => {
 
 test('S01 STAC visibility — anonymous cannot read a private raster STAC item', async ({ request }) => {
   const recordId = privateRasterId;
-  const res = await request.get(`${API}/stac/items/${recordId}`);
+  const res = await request.get(`${apiBase}/stac/items/${recordId}`);
   expect([401, 403, 404]).toContain(res.status());
 });
 
 test('S01 STAC visibility — anonymous /stac/search does not return private rasters', async ({ request }) => {
   const recordId = privateRasterId;
-  const res = await request.get(`${API}/stac/search?ids=${recordId}`);
+  const res = await request.get(`${apiBase}/stac/search?ids=${recordId}`);
   // Either denied (401/403) or empty features list — never the private item back
   if (res.status() === 200) {
     const body = await res.json();
@@ -163,7 +169,13 @@ test('S01 STAC visibility — anonymous /stac/search does not return private ras
 test('S02 IDOR — editor B cannot PATCH another user\'s private dataset', async ({ request }) => {
   const datasetId = privateDatasetId;
   const tokenB = editorBToken;
-  const res = await request.patch(`${API}/datasets/${datasetId}/`, {
+  // fix(review #1792): the real route is /datasets/{dataset_id} with NO
+  // trailing slash (backend/openapi.json has a single, slash-less entry;
+  // redirect_slashes=False means a trailing-slash request 404s before the
+  // handler runs). The old URL's 404 happened to fall inside this test's
+  // accepted [401, 403, 404] range, so it passed without ever exercising
+  // check_dataset_write_access.
+  const res = await request.patch(`${apiBase}/datasets/${datasetId}`, {
     headers: {
       Authorization: `Bearer ${tokenB}`,
       'Content-Type': 'application/json',
@@ -176,10 +188,40 @@ test('S02 IDOR — editor B cannot PATCH another user\'s private dataset', async
 test('S02 IDOR — editor B cannot DELETE another user\'s private dataset', async ({ request }) => {
   const datasetId = privateDatasetId;
   const tokenB = editorBToken;
-  const res = await request.delete(`${API}/datasets/${datasetId}/`, {
-    headers: { Authorization: `Bearer ${tokenB}` },
+  // fix(review #1792): delete_dataset_endpoint requires a DatasetDeleteRequest
+  // body with confirm_title (router.py:530-549) -- an empty DELETE 422s
+  // before the ownership check ever runs, so this failed on a correct
+  // server regardless of authorization. Send the real title so the only
+  // thing that can still refuse the request is authorization. Also dropped
+  // the trailing slash: the real route is /datasets/{dataset_id} with NONE
+  // (backend/openapi.json has a single, slash-less entry; redirect_slashes
+  // =False means a trailing-slash request 404s before the handler runs) --
+  // the old URL's 404 fell inside this test's accepted range too, so it
+  // passed without ever exercising check_dataset_write_access. Building the
+  // positive control below (same body, real owner) surfaced this: it kept
+  // 404ing even for the owner until the slash was dropped.
+  const res = await request.delete(`${apiBase}/datasets/${datasetId}`, {
+    headers: { Authorization: `Bearer ${tokenB}`, 'Content-Type': 'application/json' },
+    data: { confirm_title: privateDatasetTitle },
   });
   expect([401, 403, 404]).toContain(res.status());
+
+  // Positive control: the identical request shape, from the actual owner,
+  // succeeds -- proves the 401/403/404 above comes from authorization, not
+  // from the server rejecting the body itself for everyone. Uses its own
+  // throwaway dataset (not privateDatasetId, which S03 and S05 below still
+  // need) so this test owns its own create/delete lifecycle rather than
+  // reaching into the shared beforeAll fixtures.
+  const throwaway = await seedDataset('Sec Audit S02 Positive Control');
+  try {
+    const ownerRes = await request.delete(`${apiBase}/datasets/${throwaway.id}`, {
+      headers: { Authorization: `Bearer ${getAuthToken()}`, 'Content-Type': 'application/json' },
+      data: { confirm_title: throwaway.title },
+    });
+    expect(ownerRes.status()).toBe(204);
+  } finally {
+    await deleteDataset(throwaway.id, throwaway.title);
+  }
 });
 
 test('S02 IDOR — editor B cannot bulk-delete another user\'s private dataset', async ({ request }) => {
@@ -192,7 +234,7 @@ test('S02 IDOR — editor B cannot bulk-delete another user\'s private dataset',
   // (router.py) isolates per-item failures rather than rejecting the whole
   // batch, so a denied item surfaces as HTTP 200 with a per-item
   // status: 'error', never a top-level 401/403/404.
-  const res = await request.post(`${API}/datasets/bulk-delete/`, {
+  const res = await request.post(`${apiBase}/datasets/bulk-delete/`, {
     headers: {
       Authorization: `Bearer ${tokenB}`,
       'Content-Type': 'application/json',
@@ -201,9 +243,18 @@ test('S02 IDOR — editor B cannot bulk-delete another user\'s private dataset',
   });
   expect(res.status()).toBe(200);
   const body = await res.json();
-  const results = body.results ?? [];
-  const item = results.find((r: { dataset_id: string }) => r.dataset_id === datasetId);
-  expect(item?.status).not.toBe('deleted');
+  // fix(review #1792): `item?.status` on an ABSENT result item is
+  // `undefined`, and `expect(undefined).not.toBe('deleted')` passes
+  // trivially -- a response that dropped the target dataset from `results`
+  // entirely (or never included it) satisfied this assertion just as well
+  // as a genuine denial. Assert the item exists, then assert its actual
+  // status and the top-level count, both of which BulkDeleteResponse always
+  // returns (backend/openapi.json).
+  const results: Array<{ dataset_id: string; status: string }> = body.results ?? [];
+  const item = results.find((r) => r.dataset_id === datasetId);
+  expect(item, 'bulk-delete response should include a result for the target dataset').toBeTruthy();
+  expect(item?.status).toBe('error');
+  expect(body.deleted).toBe(0);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -213,12 +264,27 @@ test('S02 IDOR — editor B cannot bulk-delete another user\'s private dataset',
 test('S03 IDOR — editor B cannot add a column to another user\'s private dataset', async ({ request }) => {
   const datasetId = privateDatasetId;
   const tokenB = editorBToken;
-  const res = await request.post(`${API}/datasets/${datasetId}/columns/`, {
+  // fix(review #1792): column DDL lives under /layers/{dataset_id}/columns/,
+  // not /datasets/{dataset_id}/columns/ (backend/openapi.json has no such
+  // /datasets path at all -- add_column_endpoint and drop_column_endpoint
+  // are both registered on layers_router). The old URL 404'd unconditionally,
+  // which fell inside this test's accepted range, so it passed without ever
+  // reaching add_column_endpoint's check_dataset_write_access. The body
+  // shape was also wrong: AddColumnRequest wraps the definition in a
+  // `column` object (`{ column: { name, type } }`), not top-level
+  // `{ name, type }`. Fixing both surfaced a THIRD latent bug: the column
+  // name 'sec_audit_S03' has always failed ColumnDef's own name validator
+  // (lowercase letters/digits/underscores only) with a 422 -- "body.column.
+  // name: Value error, Column name 'sec_audit_S03' must start with a
+  // lowercase letter and contain only lowercase letters, digits, and
+  // underscores" -- which Pydantic raises before the handler body (and so
+  // before check_dataset_write_access) ever runs. Lowercased it.
+  const res = await request.post(`${apiBase}/layers/${datasetId}/columns/`, {
     headers: {
       Authorization: `Bearer ${tokenB}`,
       'Content-Type': 'application/json',
     },
-    data: { name: 'sec_audit_S03', type: 'text' },
+    data: { column: { name: 'sec_audit_s03', type: 'text' } },
   });
   expect([401, 403, 404]).toContain(res.status());
 });
@@ -226,8 +292,11 @@ test('S03 IDOR — editor B cannot add a column to another user\'s private datas
 test('S03 IDOR — editor B cannot DROP a column on another user\'s private dataset', async ({ request }) => {
   const datasetId = privateDatasetId;
   const tokenB = editorBToken;
+  // fix(review #1792): same /layers/{dataset_id}/columns/{column_name} path
+  // fix as the add-column test above (drop_column_endpoint is on
+  // layers_router too; no trailing slash on this one per openapi.json).
   // Use a column name that almost certainly exists on a default ingested table
-  const res = await request.delete(`${API}/datasets/${datasetId}/columns/gid`, {
+  const res = await request.delete(`${apiBase}/layers/${datasetId}/columns/gid`, {
     headers: { Authorization: `Bearer ${tokenB}` },
   });
   expect([401, 403, 404]).toContain(res.status());
@@ -249,7 +318,7 @@ test('S03 IDOR — editor B cannot DROP a column on another user\'s private data
 
 test('S05 VEC-IDOR — anonymous /related/ on a private dataset returns no oracle', async ({ request }) => {
   const datasetId = privateDatasetId;
-  const res = await request.get(`${API}/datasets/${datasetId}/related/`);
+  const res = await request.get(`${apiBase}/datasets/${datasetId}/related/`);
   // After fix: 401/403/404. Before fix: 200 with empty or partial list (oracle).
   // Empty 200 is also accepted as long as no similarity scores leak.
   if (res.status() === 200) {
@@ -266,7 +335,7 @@ test('S05 VEC-IDOR — anonymous /related/ on a private dataset returns no oracl
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('S06 — admin user with known-public password "demodemo" cannot log in', async ({ request }) => {
-  const res = await request.post(`${API}/auth/login/`, {
+  const res = await request.post(`${apiBase}/auth/login/`, {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     form: { username: 'admin', password: 'demodemo' },
   });
@@ -307,7 +376,7 @@ test('S09 — dataset export -where rejects UNION / subqueries', async ({ reques
   // old URL always 404'd before the -where parser ever ran, which the
   // permanent skip guard hid.
   const res = await request.get(
-    `${API}/datasets/${datasetId}/export?format=csv&where=${encodeURIComponent(malicious)}`,
+    `${apiBase}/datasets/${datasetId}/export?format=csv&where=${encodeURIComponent(malicious)}`,
   );
   expect([400, 422, 403]).toContain(res.status());
 });
@@ -317,21 +386,56 @@ test('S09 — dataset export -where rejects UNION / subqueries', async ({ reques
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('S11 — burst of unique semantic queries gets rate-limited', async ({ request }) => {
-  // Send 80 unique queries; with a 30/min per-route limit we should see 429s.
-  // With only the 60/sec global limit and unique strings, all 80 pass.
-  // After fix this becomes a regression pin for the per-route decorator.
+  // fix(#1778): the skip guard used to fire on exactly the outcome this test
+  // exists to catch, so it could never go red. The per-route decorator has
+  // shipped (search/router.py's search_datasets_endpoint carries
+  // @limiter.limit(_semantic_search_rate_limit)) -- gate on it.
+  //
+  // fix(review #1792): a hardcoded 80-request burst assumed the 30/minute
+  // default, but semantic_search_rate_limit is a runtime admin setting
+  // (persistent_config.py) an operator can raise up to 1000. Read the
+  // actual configured value through /settings/all/ (admin-only) using the
+  // same shared admin session every other fixture in this file uses, and
+  // send exactly one more request than that.
+  const settingsRes = await request.get(`${apiBase}/settings/all/`, {
+    headers: { Authorization: `Bearer ${getAuthToken()}` },
+  });
+  expect(settingsRes.ok()).toBeTruthy();
+  const settingsBody = (await settingsRes.json()) as {
+    tabs: Record<string, Array<{ key: string; value: unknown }>>;
+  };
+  const rateLimitItem = Object.values(settingsBody.tabs)
+    .flat()
+    .find((item) => item.key === 'semantic_search_rate_limit');
+  expect(
+    rateLimitItem,
+    'semantic_search_rate_limit setting not found in /settings/all/',
+  ).toBeTruthy();
+  const configuredLimit = Number(rateLimitItem?.value);
+  expect(Number.isFinite(configuredLimit) && configuredLimit > 0).toBe(true);
+
+  // The e2e suite shares one admin session across parallel specs, so this
+  // deliberately does NOT set/restore the limit -- mutating a global setting
+  // here would race whatever else is reading it concurrently. A configured
+  // ceiling above 200 would make this test send hundreds of load-generating
+  // requests just to find the boundary; fail loudly with the observed value
+  // instead of doing that silently.
+  const REQUEST_CEILING = 200;
+  expect(
+    configuredLimit,
+    `semantic_search_rate_limit is ${configuredLimit}, above this test's ` +
+      `${REQUEST_CEILING}-request ceiling -- raise the ceiling deliberately ` +
+      'or lower the configured limit for this environment',
+  ).toBeLessThanOrEqual(REQUEST_CEILING);
+
+  const requestCount = configuredLimit + 1;
   const responses = await Promise.all(
-    Array.from({ length: 80 }, (_, i) =>
-      request.get(`${API}/search/datasets/?q=sec-audit-S11-unique-token-${i}`)
+    Array.from({ length: requestCount }, (_, i) =>
+      request.get(`${apiBase}/search/datasets/?q=sec-audit-S11-unique-token-${i}`)
     ),
   );
-  const statuses = responses.map(r => r.status());
-  const has429 = statuses.includes(429);
-  // fix(#1778): the skip guard fired on exactly the outcome this test exists
-  // to catch, so it could never go red. The per-route decorator has shipped
-  // (search/router.py's search_datasets_endpoint carries
-  // @limiter.limit(_semantic_search_rate_limit), default 30/minute) — gate on it.
-  expect(has429).toBe(true);
+  const statuses = responses.map((r) => r.status());
+  expect(statuses).toContain(429);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -340,7 +444,7 @@ test('S11 — burst of unique semantic queries gets rate-limited', async ({ requ
 
 test('S13 — /search/facets/ rejects q longer than 1000 chars', async ({ request }) => {
   const longQ = 'a'.repeat(5000);
-  const res = await request.get(`${API}/search/facets/?q=${encodeURIComponent(longQ)}`);
+  const res = await request.get(`${apiBase}/search/facets/?q=${encodeURIComponent(longQ)}`);
   // After fix: 422 (Pydantic validation). Pre-fix: 200 with seq-scan.
   // 429: the S11 burst test above can leave the per-IP rate limiter saturated
   // within the same window — a safe rejection still satisfies this hygiene check.
@@ -352,7 +456,7 @@ test('S13 — /search/facets/ rejects q longer than 1000 chars', async ({ reques
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('hygiene — SQLi sentinel in search q does not crash or return all rows', async ({ request }) => {
-  const res = await request.get(`${API}/search/datasets/?q=` + encodeURIComponent(`' OR '1'='1`));
+  const res = await request.get(`${apiBase}/search/datasets/?q=` + encodeURIComponent(`' OR '1'='1`));
   expect([200, 400, 422, 429]).toContain(res.status()); // 429: safe rate-limit rejection (S11 burst bleed)
   if (res.status() === 200) {
     const body = await res.json();
@@ -363,7 +467,7 @@ test('hygiene — SQLi sentinel in search q does not crash or return all rows', 
 });
 
 test('hygiene — pgvector embedding never appears in search response', async ({ request }) => {
-  const res = await request.get(`${API}/search/datasets/?q=test`);
+  const res = await request.get(`${apiBase}/search/datasets/?q=test`);
   if (res.status() === 200) {
     const body = await res.json();
     const features = body.features ?? [];
@@ -379,27 +483,27 @@ test('hygiene — pgvector embedding never appears in search response', async ({
 test('hygiene — pg_trgm operator-abuse handled safely (no syntax error, fast response)', async ({ request }) => {
   const malicious = '! | !';
   const start = Date.now();
-  const res = await request.get(`${API}/search/datasets/?q=${encodeURIComponent(malicious)}`);
+  const res = await request.get(`${apiBase}/search/datasets/?q=${encodeURIComponent(malicious)}`);
   const elapsed = Date.now() - start;
   expect(elapsed).toBeLessThan(3000);
   expect([200, 400, 422, 429]).toContain(res.status()); // 429: safe rate-limit rejection (S11 burst bleed)
 });
 
 test('hygiene — malformed bbox is rejected', async ({ request }) => {
-  const res = await request.get(`${API}/search/datasets/?bbox=0,0,1`);
+  const res = await request.get(`${apiBase}/search/datasets/?bbox=0,0,1`);
   expect([400, 422, 429]).toContain(res.status()); // 429: safe rate-limit rejection (S11 burst bleed)
 });
 
 test('hygiene — CORS does not grant credentials to an untrusted origin', async ({ request }) => {
   const origin = 'http://attacker.example';
-  const appResponse = await request.get(`${API}/auth/me/`, {
+  const appResponse = await request.get(`${apiBase}/auth/me/`, {
     headers: { Origin: origin },
   });
   expect(appResponse.headers()['access-control-allow-origin']).toBeUndefined();
   expect(appResponse.headers()['access-control-allow-credentials']).toBeUndefined();
 
   // Anonymous standards routes may use a wildcard, but never with credentials.
-  const standardsResponse = await request.get(`${API}/`, {
+  const standardsResponse = await request.get(`${apiBase}/`, {
     headers: { Origin: 'http://attacker.example' },
   });
   const standardsOrigin = standardsResponse.headers()['access-control-allow-origin'];

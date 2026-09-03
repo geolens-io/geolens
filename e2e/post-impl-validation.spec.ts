@@ -70,8 +70,14 @@ test.describe.serial('Post-impl validation', () => {
     await page.waitForLoadState('networkidle');
     // fix(#1778): same swallow as test 2 above — the error-boundary check
     // could never fail.
+    //
+    // fix(review #1792): `toHaveText` normalizes and compares the WHOLE
+    // element text, so `body` (header/nav/footer chrome plus page content)
+    // never equals exactly 'Page error' even when an error boundary IS
+    // rendering it -- this assertion passed in exactly the failure state.
+    // `toContainText` checks substring containment instead.
     // Should see maps page content
-    await expect(page.locator('body')).not.toHaveText('Page error', { timeout: 10000 });
+    await expect(page.locator('body')).not.toContainText('Page error', { timeout: 10000 });
     expect(page.url()).toContain('/maps');
   });
 
