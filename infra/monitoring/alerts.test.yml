@@ -657,6 +657,50 @@ tests:
               description:
                 "15 jobs failed in the 'ingest' queue in the last 15 minutes."
 
+  # fix(#1778): the regression the aggregation closes. Two worker replicas each
+  # export their own geolens_jobs_failed_total for the same queue, because the
+  # counter is incremented in the process that performed the terminal
+  # transition. Each replica is at 3 over the window, under the threshold of 5;
+  # summed by queue the queue is at 6 and the alert fires. Under the bare
+  # increase() this rule used to carry, PromQL evaluated each series on its own
+  # and nothing fired while the queue was visibly failing.
+  - interval: 1m
+    name: "job failures split across worker replicas"
+    input_series:
+      - series: 'geolens_jobs_failed_total{queue="ingest", instance="worker-1:8001"}'
+        values: "0 0 0 0 0 1 1 1 1 1 2 2 2 2 2 3 3 3 3 3 4"
+      - series: 'geolens_jobs_failed_total{queue="ingest", instance="worker-2:8001"}'
+        values: "0 0 0 0 0 1 1 1 1 1 2 2 2 2 2 3 3 3 3 3 4"
+    promql_expr_test:
+      # The half that makes the case a case: each replica on its own is at 3,
+      # under the threshold of 5. Before the aggregation this is exactly what
+      # PromQL compared, one series at a time, and nothing fired.
+      - expr: increase(geolens_jobs_failed_total{instance="worker-1:8001"}[15m])
+        eval_time: 18m
+        exp_samples:
+          - labels: '{instance="worker-1:8001", queue="ingest"}'
+            value: 3
+      - expr: increase(geolens_jobs_failed_total{instance="worker-2:8001"}[15m])
+        eval_time: 18m
+        exp_samples:
+          - labels: '{instance="worker-2:8001", queue="ingest"}'
+            value: 3
+    alert_rule_test:
+      - eval_time: 18m
+        alertname: GeoLensJobFailures
+        exp_alerts:
+          # `instance` is gone: sum by (queue) is what an operator means by
+          # "this queue is failing", and it is exact once every replica is
+          # scraped -- which is why the worker job in prometheus.yml discovers
+          # them rather than naming one.
+          - exp_labels:
+              severity: warning
+              queue: ingest
+            exp_annotations:
+              summary: "Jobs failing in queue 'ingest'"
+              description:
+                "6 jobs failed in the 'ingest' queue in the last 15 minutes."
+
   - interval: 1m
     name: "db pool overflow in sustained use"
     input_series:

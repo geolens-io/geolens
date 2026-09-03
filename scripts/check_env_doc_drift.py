@@ -325,6 +325,50 @@ def compose_contract_errors(compose_files: tuple[Path, ...]) -> list[str]:
     return errors
 
 
+# fix(#1778 codex r1): DB_* Settings fields that are deliberately not passed to
+# the containers. Empty on purpose -- every entry here is a documented knob an
+# operator can set and the app will never see, so each one needs a reason.
+DB_KNOBS_NOT_PASSED_TO_CONTAINERS: frozenset[str] = frozenset()
+
+
+def db_knobs_absent_from_services(
+    compose_files: tuple[Path, ...],
+    documented: set[str],
+    settings_keys: set[str],
+) -> list[str]:
+    """Documented DB_* knobs that never reach the api or worker container.
+
+    fix(#1778 codex r1): the gate had no way to catch this. A new Settings
+    field documented in `.env.example` satisfied the two checks that already
+    existed -- it is documented, and it has a consumer (the Settings field
+    itself) -- while neither manifest listed it and neither uses `env_file`,
+    so the container never received it and the documented default was the only
+    value anyone could ever get. `DB_STATEMENT_TIMEOUT_SECONDS` shipped exactly
+    that way.
+
+    Scoped to the `DB_` prefix rather than to every Settings field: the whole
+    group is pool and query behaviour that an operator tunes per deployment,
+    they all belong on the same `x-db-ssl-env` anchor, and a prefix rule is one
+    a reviewer can check by eye. Widening it further would need an allowlist
+    entry for every key a service legitimately does not take.
+    """
+    candidates = {
+        key
+        for key in documented & settings_keys
+        if key.startswith("DB_") and key not in DB_KNOBS_NOT_PASSED_TO_CONTAINERS
+    }
+    errors: list[str] = []
+    for path in compose_files:
+        service_keys = _service_environment_keys(path.read_text())
+        for service in ("api", "worker"):
+            missing = sorted(candidates - service_keys.get(service, set()))
+            if missing:
+                errors.append(
+                    f"{path.name}:{service} never receives {', '.join(missing)}"
+                )
+    return errors
+
+
 def raw_environment_keys() -> set[str]:
     """Find non-Settings env reads needed to identify stale example entries."""
     keys: set[str] = set()
@@ -404,6 +448,14 @@ def main() -> int:
     contract_errors = compose_contract_errors(COMPOSE_FILES)
     if contract_errors:
         failures.append(("Compose service capability contract drift", contract_errors))
+
+    inert_db_knobs = db_knobs_absent_from_services(
+        COMPOSE_FILES, documented, settings_keys
+    )
+    if inert_db_knobs:
+        failures.append(
+            ("documented DB_* knobs that no container receives", inert_db_knobs)
+        )
 
     phantom_scripts = unresolvable_doc_script_refs()
     if phantom_scripts:

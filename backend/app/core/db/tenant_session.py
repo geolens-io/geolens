@@ -335,8 +335,37 @@ def _on_begin(conn: Connection) -> None:
     immediately before the first statement in a BEGIN/COMMIT block).
 
     In ``single_tenant`` (default): one boolean check, zero SQL → hard no-op.
-    In ``multi_tenant`` + var set: executes ``set_config`` with a bound param.
+    In ``multi_tenant`` + var set: issues ``SET LOCAL app.current_tenant``.
     In ``multi_tenant`` + var None: no-op (RLS fail-closes the unscoped query).
+
+    fix(#1778 codex r5): a ``SET LOCAL`` utility statement, not
+    ``SELECT set_config(..., true)``. Both set the same GUC for the same
+    transaction, but the SELECT form is a query, so it takes the transaction's
+    first snapshot and Postgres then refuses ``SET TRANSACTION ISOLATION
+    LEVEL`` and ``SET TRANSACTION [NOT] DEFERRABLE`` with "must be called
+    before any query" (25001). ``processing/ingest/tasks_postgis_refresh.py``
+    records having been bitten by precisely this hook: the in-transaction
+    spelling of REPEATABLE READ worked in single_tenant, where this function is
+    a hard no-op, and would have failed every registered-table refresh on a
+    multi-tenant deployment. That workaround stays where it is; this removes
+    the cause.
+
+    MEASURED, because the shape of the exposure is easy to get wrong:
+    ``SET TRANSACTION READ ONLY`` is unaffected by either form. Postgres
+    applies the first-query restriction to ``transaction_read_only`` only when
+    going read-only → read-write, so the sandbox executor's write backstop
+    (``platform/sandbox/executor.py``) held under the SELECT form too.
+    ISOLATION LEVEL and DEFERRABLE are the two that break.
+
+    T-1208-01 required a bound parameter here so a tenant id could never be
+    f-stringed into SQL. ``SET`` takes no bind parameter, so the guard moves to
+    the value instead: ``_normalize_context_tenant_id`` rejects anything that
+    is not a UUID and returns Python's own canonical rendering of it, which is
+    36 characters of hex and hyphens and cannot carry a quote. That is the same
+    guard ``tenant_data_schema`` and ``tenant_reader_role`` already rely on to
+    interpolate this value into an identifier (T-1209-14). It runs here as well
+    as at the two ``current_tenant_var.set`` sites, so the check sits at the
+    sink rather than only at the source.
 
     Parameters
     ----------
@@ -354,11 +383,16 @@ def _on_begin(conn: Connection) -> None:
         # Var unset in multi_tenant — leave GUC unset so RLS fail-closes.
         return
 
-    # T-1208-01: bound param — never f-string the tenant id into SQL.
-    stmt = text("SELECT set_config('app.current_tenant', :tid, true)").bindparams(
-        tid=tid
-    )
-    conn.execute(stmt)
+    try:
+        canonical = _normalize_context_tenant_id(tid, operation="_on_begin")
+    except ValueError:
+        # Fail closed rather than interpolating something unvalidated: leaving
+        # the GUC unset is the same state as the `tid is None` branch above,
+        # and RLS refuses the unscoped query. Logged without the value.
+        logger.warning("tenant_guc_skipped_invalid_tenant_id")
+        return
+
+    conn.execute(text(f"SET LOCAL app.current_tenant = '{canonical}'"))
 
 
 def install_tenant_session_hook(engine: object) -> None:

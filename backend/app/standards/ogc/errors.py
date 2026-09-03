@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.core.logging_config import safe_access_log_path
 from app.core.url_redaction import redact_query_credentials
 from app.standards.ogc.utils import standards_api_path
 
@@ -348,7 +349,10 @@ def register_error_handlers(app: FastAPI) -> None:
 
         logger.exception(
             "Unhandled error",
-            path=request.url.path,
+            # fix(#1778): same capability-in-the-path rule the access log has
+            # followed since #821 -- a 500 on /api/maps/shared/{token} used to
+            # write the token verbatim.
+            path=safe_access_log_path(request.url.path),
             method=request.method,
             query=redact_query_credentials(str(request.url.query))
             if request.url.query

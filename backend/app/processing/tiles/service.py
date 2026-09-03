@@ -46,7 +46,8 @@ _COLUMN_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # default is deliberately left unchanged. It is NOT all-or-nothing: callers opt
 # specific columns back in at every zoom via `additional_columns` (the runtime
 # `cols=` query param) — see `_select_tile_columns`, which UNIONs them in
-# regardless of this zoom budget. The frontend already opts in data-driven
+# regardless of this zoom budget (but never past an explicit `tile_columns`
+# allowlist, fix(#1778)). The frontend already opts in data-driven
 # styling columns this way; non-styling popup/identify reads at z<10 are the
 # residual tradeoff (export/runtime `cols=` emission is handled separately).
 _DEFAULT_NO_ATTR_BELOW_ZOOM = 10
@@ -247,18 +248,26 @@ def _select_tile_columns(
     requesting client knows it needs — typically data-driven styling
     columns (e.g. `style_config.column`) that must be present at every
     zoom to drive categorical / graduated paint expressions. These are
-    UNIONED into the result regardless of the zoom budget or allowlist,
-    but still validated against `columns` so callers cannot project
-    arbitrary attributes that don't exist on the table. Names that fail
-    `_COLUMN_NAME_RE` or aren't in `columns` are silently dropped.
+    UNIONED into the result regardless of the zoom budget, and validated
+    against `columns` so callers cannot project attributes that don't exist
+    on the table. Names that fail `_COLUMN_NAME_RE` or aren't in `columns`
+    are silently dropped.
+
+    fix(#1778): when `tile_columns` is set, `additional_columns` is also
+    intersected with it, so the three rules above hold for a `cols=` request
+    too. The zoom budget is a default the caller may override; the allowlist
+    is not.
     """
+    allowlist: set[str] | None = None
     if tile_columns is not None:
-        if not tile_columns:
+        # Validated once and reused below: the allowlist bounds the base
+        # selection AND the `cols=` opt-in, so both have to read the same set.
+        allowlist = {name for name in tile_columns if _COLUMN_NAME_RE.match(name)}
+        if not allowlist:
             base = []
         else:
             # Filter `columns` by the allowlist while preserving column
-            # order and dict shape (dtype, etc.) — also re-validate names.
-            allowlist = {name for name in tile_columns if _COLUMN_NAME_RE.match(name)}
+            # order and dict shape (dtype, etc.).
             base = [c for c in columns if c.get("name") in allowlist]
     elif z < _DEFAULT_NO_ATTR_BELOW_ZOOM:
         base = []
@@ -275,6 +284,18 @@ def _select_tile_columns(
             for name in additional_columns
             if isinstance(name, str) and _COLUMN_NAME_RE.match(name)
         }
+        if allowlist is not None:
+            # fix(#1778): `cols=` overrides the ZOOM budget, never the admin
+            # allowlist. It used to union past `tile_columns` as well, which
+            # made the one per-dataset attribute-exposure control on the tile
+            # surface advisory: an operator who set `tile_columns` to [] or to
+            # a narrow list still shipped every other column to any client
+            # that appended `cols=`, including an anonymous holder of a signed
+            # tile template for a non-public dataset, who has no REST route to
+            # those attributes. The published contract on DatasetResponse and
+            # the metadata PATCH schema calls the list absolute; this is the
+            # code agreeing with it.
+            valid_extra &= allowlist
         if valid_extra:
             already = {c.get("name") for c in base}
             for col in columns:
@@ -368,6 +389,12 @@ mvtgeom AS (
     t.gid{attr_columns}
     FROM {qualified_table} t, bounds
     WHERE t.geom_4326 && bounds.geom_4326
+    -- fix(#1778): deterministic under the feature cap, matching the cluster
+    -- query's candidate CTE. Without an ordering a tile whose bbox selects
+    -- more than {_TILE_FEATURE_LIMIT} rows returns an arbitrary subset, so
+    -- successive rebuilds flip the content-hash ETag and each uvicorn worker
+    -- can hold a different rendering of the same tile in its own cache.
+    ORDER BY t.gid
     LIMIT {_TILE_FEATURE_LIMIT}
 )
 SELECT ST_AsMVT(mvtgeom.*, $4::text, 4096, 'geom', 'gid')
@@ -637,6 +664,9 @@ grouped AS (
         OR ($3::integer = 0 AND anchored.anchor_y <= ST_YMax(bounds.geom))
       )
     GROUP BY bucket_x, bucket_y
+    -- fix(#1778): same determinism rule as the vector query above -- the cap
+    -- has to pick the same cells every rebuild.
+    ORDER BY bucket_x, bucket_y
     LIMIT {_TILE_FEATURE_LIMIT}
 ),
 features AS (

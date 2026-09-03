@@ -49,6 +49,7 @@ from app.modules.auth.schemas import UserResponse
 from app.processing.export.service import safe_content_disposition
 from app.core.config import settings as app_settings
 from app.core.db.tenant_session import defer_async_with_tenant, tenant_job_context
+from app.core.csv_safety import escape_csv_formula
 from app.core.dependencies import get_client_ip, get_db
 from app.modules.admin.router_operations import router as operations_router
 from app.platform.extensions import get_catalog_port
@@ -290,12 +291,6 @@ async def export_users_csv(
     Cells starting with =, +, -, or @ are tab-prefixed (CSV injection hardening).
     """
 
-    def _safe(val: str) -> str:
-        """Prefix formula-injection trigger characters with a tab."""
-        if val and val[0] in ("=", "+", "-", "@"):
-            return "\t" + val
-        return val
-
     operation_id = uuid.uuid4()
     actor_id = current_user.id
     ip_address = get_client_ip(request)
@@ -375,10 +370,10 @@ async def export_users_csv(
                     async for (user,) in result:
                         writer.writerow(
                             [
-                                _safe(user.email or ""),
-                                _safe(user.username or ""),
-                                _safe(user.auth_provider or ""),
-                                _safe(user.status or ""),
+                                escape_csv_formula(user.email or ""),
+                                escape_csv_formula(user.username or ""),
+                                escape_csv_formula(user.auth_provider or ""),
+                                escape_csv_formula(user.status or ""),
                                 user.created_at.isoformat() if user.created_at else "",
                             ]
                         )

@@ -58,7 +58,7 @@ from app.platform.ratelimit import limiter
 from app.processing.ingest.tasks import task_app
 from app.api.middleware.body_limit import RequestBodyLimitMiddleware
 from app.api.middleware.cors import DynamicCORSMiddleware
-from app.api.middleware.logging import RequestLoggingMiddleware
+from app.api.middleware.logging import RequestLoggingMiddleware, safe_access_log_path
 from app.api.middleware.security import SecurityHeadersMiddleware
 from app.api.middleware.tenant_context import TenantContextMiddleware
 from app.processing.tiles.pool import close_tile_pool, init_tile_pool
@@ -372,9 +372,46 @@ async def _sweep_orphaned_exports_and_log(exports_dir: Path, log) -> None:
         log.info("Swept orphaned exports", deleted=deleted)
 
 
+def install_api_query_deadline() -> None:
+    """Put the API's statement deadline on the engine this process uses.
+
+    fix(#1778 codex r2): on the engine rather than on one dependency. Handlers
+    open request-scoped sessions directly through ``async_session()`` in more
+    than twenty modules -- ``GET /stac/collections`` runs three aggregates that
+    way -- so binding it inside ``get_db`` left every one of those pinning a
+    pool slot with no deadline.
+
+    Called at import of this module, and not only from the lifespan, because
+    the listener fires for transactions begun after it is registered and the
+    lifespan's own boot probe opens one. Called AGAIN from the lifespan so a
+    test fixture that has rebound ``app.core.db.engine`` to the test engine
+    gets it too; the installer is idempotent.
+
+    The engine is late-bound per fix(#909) -- the client fixture reassigns
+    ``db_module.engine``, and a module-scope binding here would snapshot the
+    dev engine past that patch.
+
+    The worker entrypoint never imports this module, so its engine keeps no
+    deadline. That is the point: it runs single statements for minutes while
+    building a spatial index over a freshly ingested table.
+    """
+    from app.core.db import engine
+    from app.core.statement_timeout import install_api_statement_timeout
+
+    install_api_statement_timeout(engine)
+
+
+install_api_query_deadline()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.core.db import engine  # fix(#909): late-bind for tests
+
+    # fix(#1778 codex r2): again, against whatever `app.core.db.engine` is NOW.
+    # Import time covers the real process; this covers a test fixture that has
+    # rebound the attribute to the test engine since. Idempotent.
+    install_api_query_deadline()
 
     for attempt in range(1, 4):
         try:
@@ -859,8 +896,23 @@ register_error_handlers(app)
 app.state.limiter = limiter
 
 
-async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
     # fix(#315): advertise the retry window (exc.limit.limit.get_expiry(), seconds).
+    #
+    # fix(#1778): a plain def, not a coroutine, and it must stay one. slowapi's
+    # SlowAPIMiddleware enforces the GLOBAL default limit inside a synchronous
+    # BaseHTTPMiddleware dispatch and resolves this handler through
+    # `sync_check_limits`, which silently swaps a coroutine handler for
+    # slowapi's own `_rate_limit_exceeded_handler` ("cannot execute
+    # asynchronous code in a synchronous middleware"). That fallback returns a
+    # bare {"error": ...} in application/json with no Retry-After, because the
+    # Limiter is not built with headers_enabled. Only routes carrying an
+    # explicit @limiter.limit decorator take the exception-handler path
+    # instead, which is why every test of this contract passed while the
+    # majority of routes -- the undecorated ones -- answered a rate-limit
+    # rejection with a shape no SDK, CLI or apiFetch caller can parse. Nothing
+    # here awaits, so a sync handler serves both paths identically; Starlette
+    # runs it in a threadpool on the exception-handler path.
     headers = {}
     try:
         headers["Retry-After"] = str(int(exc.limit.limit.get_expiry()))
@@ -941,7 +993,10 @@ async def _database_error_handler(request: Request, exc: DBAPIError) -> JSONResp
         raise exc
     logger.exception(
         "Operational database error",
-        path=request.url.path,
+        # fix(#1778): the path can be /api/maps/shared/{token}; the access-log
+        # line for the same request has been redacted since #821 and this one
+        # was not, so a 503 here published a replayable share capability.
+        path=safe_access_log_path(request.url.path),
         sqlstate=sqlstate(exc),
     )
     return JSONResponse(
@@ -1682,6 +1737,38 @@ _last_health_status: str = "healthy"
 # low-noise requirement).  Docker healthcheck polls every 10 s → at most
 # one alert per 30 polls while the system remains degraded.
 _HEALTH_ALERT_COOLDOWN_SECS: float = 300.0
+
+
+# fix(#1778): liveness, split out from readiness. `/health` probes the database,
+# the object store AND the cache, and 503s if any of them is down -- but the
+# cache path is explicitly engineered to survive a Valkey outage (it falls back
+# to an in-memory cache behind a circuit breaker), so a dependency the API can
+# serve straight through still marked the container unhealthy. That is the
+# Docker healthcheck AND the gate on `frontend: depends_on: api:
+# service_healthy`, so a restart during a Valkey or MinIO outage left the whole
+# UI down because the cache was down; under an orchestrator with an HTTP
+# liveness probe on `/health` the pod is killed and restarted in a loop while
+# the API is perfectly able to serve catalog reads.
+#
+# `/health` keeps its meaning (readiness: every dependency answered). This route
+# answers only "the process is up and the event loop is turning", mirroring the
+# worker's own split in observability/health/worker.py, and is what the
+# container healthcheck and any liveness probe should target.
+#
+# `include_in_schema=False` for the same reason the worker's probes are absent
+# from the contract: it is infrastructure surface, not API surface, and no SDK
+# or CLI caller has a use for it.
+#
+# Exempt from the limiter rather than capped at 60/min like `/health`: a
+# kubelet probing every second from one source address is already at that cap
+# before any other traffic, and a liveness probe that answers 429 gets the pod
+# killed. GAP-016 capped `/health` because it probes dependencies on every
+# call; this handler touches nothing and allocates one dict.
+@app.get("/health/live", include_in_schema=False, tags=["Health"])
+@limiter.exempt
+async def health_live(request: Request):
+    """Liveness probe: process is up, no dependency checks."""
+    return {"status": "ok"}
 
 
 # GAP-016: /health is rate-limited (60/min per IP) rather than fully exempt, to

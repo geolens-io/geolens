@@ -24,7 +24,12 @@ from app.platform.jobs.worker import (
 )
 
 
-def _job(job_id, ingest_job_id: str | None = None, task_name: str = "t"):
+def _job(
+    job_id,
+    ingest_job_id: str | None = None,
+    task_name: str = "t",
+    queue: str = "ingest",
+):
     """A stand-in for procrastinate's Job.
 
     The payload attribute is ``task_kwargs``, NOT ``args`` — the DB column is
@@ -35,6 +40,11 @@ def _job(job_id, ingest_job_id: str | None = None, task_name: str = "t"):
         id=job_id,
         task_name=task_name,
         task_kwargs={"job_id": ingest_job_id} if ingest_job_id else {},
+        # fix(#1778): `queue` is a required field on procrastinate's Job, and
+        # the sweep labels its failure counter with it. Leaving it off is the
+        # same class of drift this docstring already warns about for
+        # `task_kwargs` -- the stub passed while the real Job carried more.
+        queue=queue,
     )
 
 

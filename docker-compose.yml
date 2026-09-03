@@ -44,6 +44,14 @@ x-db-ssl-env: &db-ssl-env
   DB_MAX_OVERFLOW: "${DB_MAX_OVERFLOW:-3}"  # see README §"Connection Pool Budget"
   DB_POOL_TIMEOUT: "${DB_POOL_TIMEOUT:-30}"
   DB_POOL_RECYCLE: "${DB_POOL_RECYCLE:-1800}"
+  # fix(#1778 codex r1): the per-request query deadline. Documented in
+  # .env.example but passed nowhere, so the knob was inert -- neither manifest
+  # uses env_file, so a variable reaches the app only by being listed here.
+  # It belongs on this anchor rather than on the api service alone because the
+  # setting is read from app.core.config, which the migrate and worker images
+  # boot as well; only get_db applies it, so the worker is unaffected in
+  # behaviour and consistent in configuration.
+  DB_STATEMENT_TIMEOUT_SECONDS: "${DB_STATEMENT_TIMEOUT_SECONDS:-300}"
 
 x-storage-env: &storage-env
   STORAGE_PROVIDER: "${STORAGE_PROVIDER:-local}"
@@ -422,7 +430,11 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      # fix(#1778): liveness, not readiness -- see the HEALTHCHECK comment in
+      # Dockerfile. /health also probes the cache and the object store, both of
+      # which the API is engineered to survive, and this probe gates
+      # `frontend: depends_on: api: service_healthy`.
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')\""]
       interval: 10s
       timeout: 5s
       retries: 3

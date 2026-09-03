@@ -7,6 +7,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from app.api.middleware.liveness import is_liveness_request
 from app.standards.ogc.utils import standards_api_path
 
 # In-memory cache to avoid a DB pool checkout on every CORS request.
@@ -111,6 +112,17 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         return response
 
     async def _dispatch(self, request: Request, call_next) -> Response:
+        # fix(#1778 codex r7): the liveness probe gets no CORS policy and, more
+        # to the point, triggers no policy LOOKUP. `_is_origin_allowed` reads
+        # CORS_ALLOWED_ORIGINS out of the database whenever its 60s cache has
+        # expired, so a probe that happens to carry an Origin header would
+        # block on the database on the one request that must not depend on it.
+        # A probe is not a browser resource; it needs no Access-Control header,
+        # and this middleware already returns without one whenever the origin
+        # is not permitted.
+        if is_liveness_request(request.scope):
+            return await call_next(request)
+
         origin = request.headers.get("origin")
 
         # No origin header -- not a CORS request, pass through

@@ -844,6 +844,14 @@ async def _resolve_download_user(
                     detail="Invalid or expired download token",
                 )
 
+        # fix(#1778): remember the credential's own deadline. The last hop of
+        # this route hands the caller a presigned bucket URL, and that URL has
+        # to expire with the capability that authorized it rather than on a
+        # flat hour of its own. Stashed rather than returned because the
+        # dependency's contract is Identity | None and a no-sub token resolves
+        # to None -- the anonymous public-dataset case still has a deadline.
+        request.state.download_token_exp = payload.get("exp")
+
         # Per SEC-04: enforce typ='download' on the query-param lane.
         if payload.get("typ") != "download":
             raise HTTPException(
@@ -1188,6 +1196,77 @@ def _managed_key(raster_asset) -> str:
     )
 
 
+# fix(#1778): the presigned redirect used a flat 3600 seconds. That exchanged a
+# 120-second, dataset-scoped, revocable capability (IA-P0-01 / SEC-04, minted by
+# POST /auth/download-token/{id}) for an hour-long bearer URL that authenticates
+# nobody: the SigV4 signature is in the query string and is bound to neither the
+# caller, the session, nor the dataset grant. Revoking the grant, flipping the
+# record to private, disabling the account or discarding the token does not
+# invalidate it, because the bucket has never heard of any of those. The access
+# gate above this is the full RBAC path, so the branch is reached for PRIVATE
+# and INTERNAL datasets too, and the URL lands in browser history and in every
+# proxy or CDN access log on the way.
+#
+# The ceiling is on the same order as the mint TTL rather than 30x it.
+#
+# fix(#1778 codex r8): and there is NO floor. The first version floored the
+# window at 60 seconds to absorb clock skew, which meant a token with one
+# second left still bought a minute of access to a private COG -- the same
+# defect this block was written to remove, one order of magnitude smaller.
+#
+# `require_signable_job_lifetime` in processing/ingest/presigned.py already
+# settled this for the upload doors, and says why: "`ExpiresIn` is relative to
+# SIGNING time, so flooring at 1 mints a URL that is USABLE for one more
+# second -- past the deadline this whole change exists to enforce. There is no
+# `ExpiresIn` value that means 'already dead': the only way to avoid handing
+# out a live URL is to not sign one." A 60-second floor is that argument
+# ignored 60 times over. The download door now refuses on the same principle.
+#
+# The minimum is SigV4's own: `X-Amz-Expires` accepts 1..604800, so one second
+# is the shortest signature that exists. Below that there is nothing to mint
+# and the answer is 401 -- the authorizing credential expired between the
+# dependency that verified it and this redirect.
+_COG_PRESIGN_CEILING_SECONDS = 300
+# The SigV4 lower bound on X-Amz-Expires. Not a policy knob: there is no
+# shorter signature to hand out.
+_COG_PRESIGN_MINIMUM_SECONDS = 1
+
+
+def _cog_presign_seconds(request: Request) -> int:
+    """How long the redirected bucket URL may stay valid.
+
+    Capped at the remaining lifetime of the caller's download token when there
+    is one, the way `sign_url_with_deadline` expires an ingest presign with its
+    job rather than an hour from now. A caller who reached this route on a
+    session JWT, an API key, or anonymously against a public dataset has no
+    such deadline and gets the ceiling.
+
+    Raises 401 when the token has less than one second left. fix(#1778 codex
+    r8): rounding up instead would mint a URL that outlives the credential
+    authorizing it, which is what the constants above now refuse to do.
+    """
+    import time
+
+    deadline = getattr(request.state, "download_token_exp", None)
+    if deadline is None:
+        return _COG_PRESIGN_CEILING_SECONDS
+    try:
+        remaining_exact = float(deadline) - time.time()
+    except (TypeError, ValueError):
+        return _COG_PRESIGN_CEILING_SECONDS
+
+    # int() truncates toward zero, which is the direction that matters: 1.9
+    # seconds of token left signs a 1-second URL, never a 2-second one. The
+    # signature can only ever expire before the credential does.
+    remaining = int(remaining_exact)
+    if remaining < _COG_PRESIGN_MINIMUM_SECONDS:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Download token expired",
+        )
+    return min(_COG_PRESIGN_CEILING_SECONDS, remaining)
+
+
 async def _s3_cog_response(
     request: Request,
     storage,
@@ -1266,7 +1345,9 @@ async def _s3_cog_response(
             },
         )
 
-    url = storage.generate_presigned_get_url(physical_asset_key, expiration=3600)
+    url = storage.generate_presigned_get_url(
+        physical_asset_key, expiration=_cog_presign_seconds(request)
+    )
     return RedirectResponse(url=url, status_code=302)
 
 

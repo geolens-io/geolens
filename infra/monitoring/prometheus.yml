@@ -1,7 +1,7 @@
 # GeoLens reference Prometheus scrape config.
 # Usage and the batteries-included quickstart are in RUNBOOK.md §4 (Monitoring).
 #
-# Two scrape targets — the API and the worker expose SEPARATE /metrics endpoints:
+# Two scrape jobs — the API and the worker expose SEPARATE /metrics endpoints:
 #   api:8000     HTTP request metrics (rate/latency/errors) + DB connection-pool
 #                gauges + tile-cache hit/miss counters
 #   worker:8001  Procrastinate job-queue metrics (queue depth, active, completed,
@@ -12,6 +12,14 @@
 # Running Prometheus outside that network? Replace them with reachable host:port
 # (e.g. the API's host mapping is 127.0.0.1:8001 -> api:8000; the worker port is
 # internal-only, so join the Compose network or publish it).
+#
+# fix(#1778): the worker job DISCOVERS its targets rather than naming one. The
+# job counters (geolens_jobs_completed_total, geolens_jobs_failed_total) are
+# incremented in whichever worker process performed the terminal transition, so
+# each replica exports its own series and an unscraped replica's work is simply
+# invisible — its failures never reach GeoLensJobFailures, which sums by queue
+# and is only exact when every replica is scraped. A single static target was
+# correct at one replica and silently lossy at two.
 
 global:
   scrape_interval: 15s # matches the 15s gauge-refresh loop in the app
@@ -30,7 +38,28 @@ scrape_configs:
 
   - job_name: geolens-worker
     metrics_path: /metrics
-    static_configs:
-      - targets: ["worker:8001"]
-        labels:
-          service: worker
+    # Docker's embedded DNS returns one A record per running container of a
+    # Compose service, so this resolves to every replica of `worker` and
+    # re-resolves on each discovery cycle — scaling up or down needs no edit
+    # here. `type: A` and an explicit `port` because the plain service name has
+    # no SRV record to carry one.
+    dns_sd_configs:
+      - names: ["worker"]
+        type: A
+        port: 8001
+        refresh_interval: 30s
+    relabel_configs:
+      # Discovery leaves __address__ as an IP, which changes every restart and
+      # makes a target's history unreadable. Keep it as `instance` (it is what
+      # distinguishes the per-replica series) but label the job by service the
+      # way the api job does.
+      - target_label: service
+        replacement: worker
+    # Not on a Compose network? Replace the block above with the per-replica
+    # list, one entry per worker container — NOT one entry, or the job metrics
+    # of every other replica are lost:
+    #
+    #   static_configs:
+    #     - targets: ["worker-1:8001", "worker-2:8001"]
+    #       labels:
+    #         service: worker

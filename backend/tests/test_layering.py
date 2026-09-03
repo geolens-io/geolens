@@ -2296,6 +2296,26 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     empty-tile Cache-Control (#430 V-03). NOTE: `_check_cold_rehydrate` is pinned to
 #     this module by the overlay's 1214-05 static AST proof, so the tile_seams.py split
 #     must update the overlay in lockstep.
+#   api/main.py 1846 -> 1883. fix(#1778 codex r2): +37 for
+#     `install_api_query_deadline` and the note under it. The query deadline
+#     moved off the `get_db` dependency onto the engine this process owns,
+#     because handlers open request-scoped sessions directly through
+#     `async_session()` in more than twenty modules -- `GET /stac/collections`
+#     runs three aggregates that way -- and a per-dependency binding covered
+#     none of them. Most of the addition is why it runs at import rather than
+#     in the lifespan (`do_connect` only fires for connections opened after
+#     registration), why the engine is late-bound (fix(#909)), and why the
+#     worker, which never imports this module, must stay excluded.
+#   api/main.py 1796 -> 1846. fix(#1778): +50 across two audit findings. The
+#     /health/live route (liveness, no dependency probes) and the paragraph
+#     saying why the container healthcheck and the frontend's depends_on had to
+#     stop targeting /health: it probes the cache, which the API is built to
+#     survive, so a Valkey outage marked the container unhealthy and took the
+#     UI down with it. The rest is the note on _rate_limit_handler explaining
+#     why it must stay a plain def -- slowapi's synchronous middleware silently
+#     discards a coroutine handler and answers the global rate limit with a
+#     bare {"error": ...} and no Retry-After, which is unreachable from any
+#     test that drives a decorated route.
 #   api/main.py 1635 -> 1750. fix(#1666): +115 for three OpenAPI post-processing
 #     passes, joining the four already here. `_normalize_validation_error_contract`
 #     replaces FastAPI's `HTTPValidationError` at every 422 with the problem+json
@@ -2601,7 +2621,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # reach a backup, while /tmp is a per-container 512m tmpfs. Re-baselined on
     # the rebase across #1753, which raised the same cap for the token purge.
     # Cap 1789 -> 1796, exact.
-    "backend/app/api/main.py": 1796,
+    "backend/app/api/main.py": 1883,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -3556,7 +3576,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # literal `pass%20word` while the API path (SQLAlchemy, which decodes)
     # authenticated fine — fixed with unquote() on user/password.
     # Cap 1423 -> 1501, exact.
-    "backend/app/core/config.py": 1501,
+    # fix(#1778): 1501 -> 1509 -> 1511 -> 1513. +12 for
+    # DB_STATEMENT_TIMEOUT_SECONDS and the note saying why the deadline is
+    # applied to the API process's engine rather than as a session default in
+    # database_connect_args: the worker imports the same engine module and runs
+    # single statements for minutes while indexing or reprojecting a freshly
+    # ingested table. Two came from the codex r2 round, which moved it off the
+    # get_db dependency because handlers open request-scoped sessions directly
+    # in more than twenty modules and none of those were covered. The last two
+    # are the r3 round: it is issued as SET LOCAL rather than as a startup
+    # parameter, because standard PgBouncer rejects an unknown one and
+    # DB_USE_EXTERNAL_POOLER=true is a supported topology.
+    "backend/app/core/config.py": 1513,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of
@@ -4800,7 +4831,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1778): +3 lines — download_cog documents the
     # 412 its If-Match branch raises, closing a gap the repaired
     # OpenAPI-contract gate surfaced. Cap 1548 -> 1551, exact.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1551,
+    # fix(#1778): 1551 -> 1602 -> 1632. +81 for `_cog_presign_seconds` and the
+    # note above it. The s3 branch signed the redirect for a flat 3600 seconds,
+    # which exchanged the 120-second, dataset-scoped, revocable download token
+    # SEC-04 mints for an hour-long bearer URL the bucket will honour after the
+    # grant is revoked. The last 30 are the codex r8 round, which removed the
+    # 60-second floor the first pass had put under the window: a token with one
+    # second left still bought a minute of access to a private COG. Those lines
+    # are the refusal that replaced it and the reason it has to be a refusal,
+    # quoting `require_signable_job_lifetime`, which settled the same question
+    # for the upload doors under #1235.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1632,
     # fix(#1532 review r29): first entry — crossed _RATCHET_INCLUSION_LOC. The
     # export artifact cache: everything is in the key (stamp, size, digest,
     # nonce), freshness and reclamation read one publication bound that is a

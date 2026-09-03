@@ -46,6 +46,7 @@ from starlette.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.db.tenant_session import current_tenant_var
+from app.api.middleware.liveness import is_liveness_request
 from app.core.tenancy import is_multi_tenant
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -244,6 +245,21 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         # TSEAM-04 fast path: single_tenant is the default and the vast
         # majority of deployments. One boolean check, zero state mutation.
         if not is_multi_tenant():
+            return await call_next(request)
+
+        # fix(#1778 codex r7): the liveness probe resolves no tenant. A probe
+        # sent to a tenant hostname reaches `_resolve_tenant_uuid` below, which
+        # reads the public host registry out of the database; with the database
+        # unreachable that returns None and this middleware answers 403. The
+        # orchestrator then restarts an API that is alive and would have served
+        # catalog reads, which is the restart loop `/health/live` exists to
+        # prevent. The handler returns a fixed payload and reads no tenant
+        # state, so there is nothing to resolve for it.
+        #
+        # Deliberately BEFORE the Host checks as well, not just before the
+        # registry lookup: `_classify_tenant_host` rejects an untrusted Host
+        # with a 400, and a kubelet probing by pod IP sends exactly that.
+        if is_liveness_request(request.scope):
             return await call_next(request)
 
         # Resolve host and verified bearer signals independently. A host may

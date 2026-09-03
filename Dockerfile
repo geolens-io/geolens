@@ -165,8 +165,15 @@ LABEL org.opencontainers.image.description="PostGIS-native GIS data catalog API"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL org.opencontainers.image.source="https://github.com/geolens-io/geolens"
 
+# fix(#1778): liveness, not readiness. /health probes the database, the object
+# store and the cache and 503s if any of them is degraded, but the cache path
+# falls back to an in-memory cache by design, so a Valkey outage the API can
+# serve straight through used to mark this container unhealthy -- and the
+# frontend's `depends_on: api: service_healthy` then refused to start the UI at
+# all. /health is still the readiness view; point orchestrator readiness probes
+# and dashboards at it.
 HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"
 
 USER appuser
 

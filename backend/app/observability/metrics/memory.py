@@ -10,6 +10,13 @@ worker crosses the memory watermark, so runaway growth is diagnosable from
 Reads /proc directly (Linux containers; no psutil dependency). On platforms
 without /proc (macOS dev) the loop idles silently.
 
+fix(#1778): the Procrastinate worker starts this loop too. It hosts GDAL/OGR
+and carries a 4 GB mem_limit against the API's 2 GB precisely because a large
+raster ingest is memory-hungry, so it is the process most likely to reproduce
+#643 -- and it published no gauge and no watermark warning at all. The prose
+below says "api worker" because that is where the finding came from; both
+services run it now.
+
 fix(#1240, #651): the api service runs in prometheus_client multiprocess
 mode, so a scrape reports every live worker's gauge in one response instead
 of whichever single worker answered. The gauge's own `pid` label plus
@@ -31,7 +38,7 @@ logger = structlog.stdlib.get_logger(__name__)
 
 worker_rss_bytes = Gauge(
     "geolens_worker_rss_bytes",
-    "Resident set size of an API worker process",
+    "Resident set size of an API uvicorn worker or the job worker process",
     ["pid"],
     multiprocess_mode="liveall",
 )

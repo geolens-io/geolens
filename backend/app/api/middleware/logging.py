@@ -1,6 +1,5 @@
 """Request logging middleware with structured output and request ID tracking."""
 
-import re
 import time
 import uuid
 
@@ -9,14 +8,16 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+# fix(#1778): one redactor for every log line that carries a request path. It
+# moved to core/ so the two 5xx handlers can use it too -- they logged the raw
+# path, so a 500 or an operational-DB 503 on a shared-map request wrote the
+# capability the access-log line beside it had just redacted. Re-exported here
+# because this is where callers and tests have always imported it from.
+from app.core.logging_config import safe_access_log_path
+
+__all__ = ["RequestLoggingMiddleware", "access_logger", "safe_access_log_path"]
+
 access_logger = structlog.stdlib.get_logger("api.access")
-
-_SHARED_MAP_PATH = re.compile(r"^(?P<prefix>/(?:api/)?maps/shared/)[^/]+")
-
-
-def safe_access_log_path(path: str) -> str:
-    """Remove bearer capability segments from paths written to access logs."""
-    return _SHARED_MAP_PATH.sub(r"\g<prefix>[REDACTED]", path, count=1)
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):

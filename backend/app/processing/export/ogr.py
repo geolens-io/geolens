@@ -1,13 +1,17 @@
 """Async ogr2ogr export subprocess wrapper for PostGIS-to-file conversion."""
 
 import asyncio
+import contextlib
+import csv
 import math
 import os
 import time
 
 import structlog
 
+from app.core.async_io import run_in_thread_draining
 from app.core.config import settings
+from app.core.csv_safety import escape_csv_formula
 
 # fix(#909): build_pg_conn_str is deliberately NOT imported at module scope.
 # The test fixture redirects app.processing.ingest.ogr.build_pg_conn_str at
@@ -288,6 +292,123 @@ def bbox_where_sql(bbox: list[float], *, literal: bool = False) -> str:
     return envelope(minx, maxx)
 
 
+# fix(#1778): ogr2ogr writes every attribute value verbatim and there is no
+# validation on the writer side either -- features/service.py regex-checks the
+# column NAME and binds the value straight through. The export route is
+# anonymous-reachable for a public dataset and records/service.py publishes
+# `?format=csv` as a first-class DCAT distribution ("CSV Download"), so an
+# editor on one public dataset writes a cell and any visitor who opens the
+# advertised download executes it. The two sibling CSV writers in this
+# repository have carried the escape for a long time; this one is the exposed
+# CSV in the product and had none.
+#
+# A post-pass rather than a driver option: ogr2ogr has no layer-creation option
+# for this, and the export already writes to a temp file it hashes for the
+# artifact cache, so a rewrite fits where the hash is not yet taken.
+_CSV_FIELD_SIZE_LIMIT = 2**31 - 1
+
+# fix(#1778 codex r1): how often the pass looks at the clock. A row at a time
+# would put a monotonic() read against every cell batch; 512 rows is small
+# enough that a deadline is honoured within milliseconds on any row width and
+# large enough that the check is noise next to the csv parse.
+_CSV_DEADLINE_CHECK_ROWS = 512
+
+
+def _harden_csv_formulas(
+    output_path: str,
+    hard_deadline: float,
+    numeric_columns: frozenset[str] = frozenset(),
+) -> None:
+    """Rewrite a just-written CSV with every formula-triggering cell escaped.
+
+    Blocking. Call it through ``run_in_thread_draining`` -- fix(#1778 codex
+    r1): read-and-rewrite of a multi-million-row artifact is not something to
+    run inline on the event loop, where it would stall every concurrent
+    request in the process for the whole pass. The draining helper is the one
+    the sibling post-processing steps already use (the shapefile ZIP, the
+    GeoPackage timestamp normalization, the artifact hash), and it matters for
+    the same reason here: a cancellation must not free the paths out from
+    under a thread that still holds them open.
+
+    Row at a time, so memory is bounded by the widest row rather than by the
+    file. The rewrite costs one extra read and write of the artifact and a
+    transient second copy on disk.
+
+    ``hard_deadline`` is a ``time.monotonic()`` stamp. Passing it means the
+    pass shares the request's budget rather than running unbounded after the
+    subprocess that budget used to be the only thing bounding: an export that
+    would finish after the edge proxy has hung up fails here with an
+    ExportError instead of spending the bytes. The check is cooperative
+    because a thread cannot be killed; the partial rewrite is removed on the
+    way out so the artifact the caller sees is either fully hardened or
+    untouched.
+
+    The reader's field-size limit is raised and never lowered: a WKT geometry
+    for a detailed polygon passes csv's 128 KiB default easily, and lowering it
+    again would be a process-global change racing any concurrent export.
+
+    fix(#1778 codex r2): ``numeric_columns`` names the columns whose declared
+    SQL type is numeric, and only those get the number exemption. In an
+    ``integer`` or ``double precision`` column ``-12`` is a measurement and the
+    tab would turn it into text for pandas and QGIS as much as for Excel; in a
+    text column the same characters are a string a user typed, and it keeps the
+    tab. The decision is by column type, never by the shape of the value, and
+    the header row is always escaped strictly. A name ogr2ogr did not emit --
+    the geometry column it writes as ``WKT``, or a column the driver renamed --
+    simply does not match, which fails toward escaping.
+    """
+    if csv.field_size_limit() < _CSV_FIELD_SIZE_LIMIT:
+        csv.field_size_limit(_CSV_FIELD_SIZE_LIMIT)
+
+    # Preserve the line ending GDAL chose rather than imposing csv's CRLF
+    # default on a file a client may diff or checksum.
+    with open(output_path, "rb") as probe:
+        head = probe.read(8192)
+    terminator = "\r\n" if b"\r\n" in head else "\n"
+
+    hardened_path = output_path + ".hardened"
+    try:
+        with (
+            open(output_path, newline="", encoding="utf-8") as src,
+            open(hardened_path, "w", newline="", encoding="utf-8") as dst,
+        ):
+            writer = csv.writer(dst, lineterminator=terminator)
+            numeric_at: frozenset[int] = frozenset()
+            for index, row in enumerate(csv.reader(src)):
+                if (
+                    index % _CSV_DEADLINE_CHECK_ROWS == 0
+                    and time.monotonic() >= hard_deadline
+                ):
+                    raise ExportError(
+                        "CSV export exceeded the request budget while applying "
+                        "spreadsheet-formula hardening"
+                    )
+                if index == 0:
+                    # The header names the columns; escape it strictly and use
+                    # it to place the exemption by position for every row after.
+                    numeric_at = frozenset(
+                        position
+                        for position, name in enumerate(row)
+                        if name in numeric_columns
+                    )
+                    writer.writerow([escape_csv_formula(cell) for cell in row])
+                    continue
+                writer.writerow(
+                    [
+                        escape_csv_formula(cell, allow_numeric=position in numeric_at)
+                        for position, cell in enumerate(row)
+                    ]
+                )
+    except BaseException:
+        # Never leave a half-rewritten sibling next to the artifact: the export
+        # temp dir is swept by age, and a partial file here would outlive the
+        # request that made it.
+        with contextlib.suppress(OSError):
+            os.unlink(hardened_path)
+        raise
+    os.replace(hardened_path, output_path)
+
+
 async def run_ogr2ogr_export(
     table_name: str,
     output_path: str,
@@ -300,6 +421,7 @@ async def run_ogr2ogr_export(
     format_key: str = "",
     pmtiles_maxzoom: int | None = None,
     deadline: float | None = None,
+    numeric_columns: frozenset[str] = frozenset(),
 ) -> None:
     """Run ogr2ogr to export a PostGIS table to a file.
 
@@ -320,6 +442,10 @@ async def run_ogr2ogr_export(
             be answered, from the route's entry. Bounds both this subprocess
             and its server-side query. ``None`` for a caller outside a
             request; see ``export_subprocess_timeout_seconds``.
+        numeric_columns: names of the columns whose declared SQL type is
+            numeric, from ``numeric_column_names(column_info)``. CSV only, and
+            only to decide which cells may keep a leading sign unescaped; see
+            ``_harden_csv_formulas``. An empty set escapes every one.
 
     Raises:
         ExportError: If ogr2ogr exits with non-zero code.
@@ -436,4 +562,20 @@ async def run_ogr2ogr_export(
     if proc.returncode != 0:
         raise ExportError(
             f"ogr2ogr export failed (exit {proc.returncode}): {stderr.decode().strip()}"
+        )
+
+    # fix(#1778): see _harden_csv_formulas. Only after a clean exit -- there is
+    # nothing to harden on a failed run, and a partial file is discarded.
+    #
+    # fix(#1778 codex r1): off the event loop, and under the request's clock.
+    # The budget is re-read here rather than reused from above, so the pass
+    # gets what the subprocess left rather than what the subprocess was
+    # offered, and the post-work reserve stays intact for the hash and the
+    # upload that follow.
+    if format_key == "csv":
+        await run_in_thread_draining(
+            _harden_csv_formulas,
+            output_path,
+            time.monotonic() + export_subprocess_timeout_seconds(deadline),
+            numeric_columns,
         )

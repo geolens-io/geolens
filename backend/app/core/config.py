@@ -669,6 +669,18 @@ class Settings(BaseSettings):
     # 0 disables the purge (keep history forever).
     ingest_jobs_retention_days: int = Field(default=30, ge=0)
 
+    # fix(#1778): statement deadline for the API, in seconds. 0 disables it.
+    # fix(#1778 codex r2): applied to every transaction the API process opens,
+    # not just the get_db dependency -- handlers open request-scoped sessions
+    # directly in more than twenty modules. fix(#1778 codex r3): as SET LOCAL,
+    # never as a startup parameter, so DB_USE_EXTERNAL_POOLER=true still
+    # connects. The worker is a separate process and is excluded; see
+    # app/core/statement_timeout.py. 300 sits well inside
+    # the edge proxy's 600s read timeout, so a query that would trip it has
+    # already lost its client; before this, nothing bounded execution on the
+    # main engine at any layer, and the query outlived the request.
+    db_statement_timeout_seconds: int = Field(default=300, ge=0)
+
     # fix(#1249): how old an object under the `staging/` prefix must be before
     # the reconciliation sweep will delete it for having no ingest_jobs row.
     # Not a guess at how long an upload takes — the row check is what decides

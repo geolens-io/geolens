@@ -1440,10 +1440,41 @@ GeoLens exports Prometheus metrics out of the box. Reference scrape config, aler
 rules, and a Grafana dashboard ship in [`infra/monitoring/`](infra/monitoring/) —
 point your monitoring stack at them, or use them as a base for an existing one.
 
-**Uptime/liveness checks must target `/api/health`** (JSON `status`, `version`,
-`build`). Behind the bundled Nginx, a bare `/health` is not an API route — the
-frontend SPA catch-all answers it with HTML `200`, which an uptime monitor will
-happily (and wrongly) accept.
+**Liveness checks must target `/api/health/live`; `/api/health` is readiness.**
+The two answer different questions and are not interchangeable:
+
+| Probe | Endpoint | Answers | Fails when |
+|---|---|---|---|
+| Liveness | `/api/health/live` | Is the process up and its event loop turning? | The API process is wedged or gone |
+| Readiness | `/api/health` | Did every dependency answer? (JSON `status`, `version`, `build`, per-provider latencies) | The database, object store **or cache** is degraded |
+
+Point an orchestrator's `livenessProbe`, an uptime monitor, and any
+restart-on-failure check at `/api/health/live`. Pointing them at `/api/health`
+restarts a container that is serving catalog reads perfectly well because
+Valkey is down — the cache path is built to survive that, falling back to an
+in-memory cache. Use `/api/health` for a `readinessProbe`, for a load
+balancer's backend check, and for a dashboard, where knowing a dependency is
+degraded is the point.
+
+Two practical differences on top of that:
+
+- `/api/health` is rate-limited to 60 requests/minute per IP (it probes
+  dependencies on every call), which a one-second liveness probe exhausts on
+  its own before any other traffic — and a probe answered `429` reads as a
+  dead process. `/api/health/live` is exempt from the limiter: it touches
+  nothing.
+- `/api/health/live` is deliberately absent from the OpenAPI schema and the
+  generated SDKs, like the worker's own probes. It is infrastructure surface,
+  not API surface; call it with `curl`, not through a client.
+
+Behind the bundled Nginx both live under `/api/`. A bare `/health` or
+`/health/live` is not an API route there — the frontend SPA catch-all answers
+it with HTML `200`, which an uptime monitor will happily (and wrongly) accept.
+
+The bundled Compose stack already follows this split: the api service's
+healthcheck (and the `frontend` service's `depends_on: api: condition:
+service_healthy`) probe `/health/live` inside the container, so a cache or
+object-store outage no longer stops the UI from starting.
 
 ### Metrics & alerting (Prometheus / Grafana)
 

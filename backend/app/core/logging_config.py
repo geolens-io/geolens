@@ -112,6 +112,26 @@ _SENSITIVE_FIELDS: frozenset[str] = frozenset(
 # most; this only exists so a caller-supplied cyclic structure terminates.
 _MAX_REDACT_DEPTH = 8
 
+# fix(#1778): share-link and embed paths carry a bearer capability as a PATH
+# segment, so no keyed-field redactor can reach it -- `_redact_sensitive_fields`
+# is key-based and the value is inside a string. The access-log middleware has
+# scrubbed these since #821; the two 5xx handlers (api/main.py's operational-DB
+# 503 and standards/ogc/errors.py's unhandled-error 500) logged
+# `request.url.path` raw, so any server error on a shared-map request wrote the
+# full token into the application log where it stays replayable. The helper
+# lives here rather than in api/middleware/ so `standards/` can import it
+# without reaching up into the API layer.
+#
+# `/m/` joins the two `maps/shared/` shapes because frontend/nginx.conf already
+# redacts all three at the edge; the Python side had only the API ones.
+_CAPABILITY_PATH_RE = re.compile(r"^(?P<prefix>/(?:api/)?maps/shared/|/m/)[^/]+")
+
+
+def safe_access_log_path(path: str) -> str:
+    """Remove bearer capability segments from paths written to logs."""
+    return _CAPABILITY_PATH_RE.sub(r"\g<prefix>[REDACTED]", path, count=1)
+
+
 # fix(#1746): catches a token value rendered either as a Python dict repr
 # (`{'token': 'abc', ...}`) or as `key=value!r` keyword arguments — the shape
 # `Job.call_string` actually produces, e.g.

@@ -18,8 +18,13 @@ from app.api.middleware.logging import safe_access_log_path
             "/api/maps/shared/SYNTHETIC_SENTINEL/card",
             "/api/maps/shared/[REDACTED]/card",
         ),
+        # fix(#1778): the embed shell, which frontend/nginx.conf has always
+        # redacted at the edge and the Python regex did not.
+        ("/m/SYNTHETIC_SENTINEL", "/m/[REDACTED]"),
+        ("/m/SYNTHETIC_SENTINEL/anything", "/m/[REDACTED]/anything"),
         ("/maps/ordinary-map-id", "/maps/ordinary-map-id"),
         ("/maps/shared", "/maps/shared"),
+        ("/m/", "/m/"),
     ],
 )
 def test_safe_access_log_path(path: str, expected: str) -> None:
@@ -67,3 +72,26 @@ async def test_access_log_never_contains_query_credentials(monkeypatch) -> None:
     assert "SYNTHETIC_KEY_SENTINEL" not in logged
     assert "api_key" not in logged
     assert events[0][1]["path"] == "/things"
+
+
+def test_the_two_5xx_handlers_redact_the_path_they_log() -> None:
+    """fix(#1778): a 500 or a 503 must not publish a share capability.
+
+    Both handlers logged ``request.url.path`` raw, so the access-log line for
+    a failing ``/api/maps/shared/{token}`` request was redacted while the
+    error line beside it carried the token in full. Asserted on the source so
+    the check does not depend on provoking a DB failure inside a request.
+    """
+    import inspect
+
+    from app.api.main import _database_error_handler
+    from app.standards.ogc.errors import register_error_handlers
+
+    for fn in (_database_error_handler, register_error_handlers):
+        src = inspect.getsource(fn)
+        assert "path=request.url.path," not in src, (
+            f"{fn.__qualname__} logs an unredacted request path"
+        )
+        assert "safe_access_log_path(request.url.path)" in src, (
+            f"{fn.__qualname__} must route its logged path through the redactor"
+        )

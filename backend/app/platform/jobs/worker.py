@@ -415,6 +415,21 @@ async def fail_stalled_queue_jobs() -> int:
         await manager.finish_job_by_id_async(
             job_id=job.id, status=Status.FAILED, delete_job=False
         )
+        # fix(#1778 codex r1): the second site that writes a terminal failed
+        # row. The metrics poll used to see it on its next pass; a transition
+        # count has to be told. fix(#1778 codex r2): after the await, so a
+        # persistence failure raises above this line and counts nothing --
+        # matching the manager wrapper's ordering. This path calls
+        # `finish_job_by_id_async` directly and so never passes through that
+        # wrapper, which is why the increment is written out here.
+        #
+        # fix(#1778 codex r5): `getattr`, not `job.queue`. count_failed_job
+        # guards the registry call, but the attribute read happened at the call
+        # site and outside that guard, so a job object without the attribute
+        # raised here -- mid-loop, after some rows had already been failed, and
+        # aborting the rest of the sweep. Metrics bookkeeping must never be the
+        # thing that stops a sweep; an unlabelled failure counts as "default".
+        count_failed_job(getattr(job, "queue", None))
         failed += 1
         log.warning(
             "Failed stalled queue job — its worker stopped heartbeating",
@@ -492,6 +507,180 @@ async def recover_stale_jobs() -> None:
             )
 
 
+_OUTCOME_COUNTERS_ATTR = "_geolens_job_outcome_counters_installed"
+
+
+def install_job_outcome_counters(task_app) -> None:
+    """Count a job's outcome once its terminal row is written, not before.
+
+    fix(#1778): ``geolens_jobs_completed_total`` used to be derived from a
+    ``SELECT status, COUNT(*) ... GROUP BY status`` over
+    ``catalog.procrastinate_jobs``. It could never move, because this worker
+    runs with ``delete_jobs="successful"``: ``procrastinate_finish_job_v1``
+    deletes the row while it is still ``doing``, so no ``succeeded`` row is
+    ever written for the poll to see. The events the trigger writes are
+    cascade-deleted with it, so they are not a source either. The only place
+    the transition is observable is inside the process that performs it.
+
+    fix(#1778 codex r1): ``geolens_jobs_failed_total`` is counted here too, and
+    the poll's ``failed`` delta is gone. That delta was snapshot arithmetic
+    over a row count, and ``purge_expired_terminal_jobs`` makes a queue's
+    failed group shrink, so ``_prev_counts`` kept the pre-purge figure and the
+    next burst produced a non-positive delta the counter never saw --
+    ``GeoLensJobFailures`` with it.
+
+    fix(#1778 codex r2): and it hangs off the JOB MANAGER, not off a worker
+    middleware. Procrastinate runs worker middleware inside
+    ``Worker._process_job``'s ``try``, which is before ``_persist_job_status``,
+    so a middleware that counted there reported a completion for a job whose
+    terminal row had not been written and might never be -- and the failure
+    branch had the same ordering. ``_persist_job_status`` reaches the database
+    through ``job_manager.finish_job``, so wrapping that method counts strictly
+    after the row lands, and an exception on the way through leaves both
+    counters untouched.
+
+    Wrapping ``finish_job`` also removes the need to re-derive Procrastinate's
+    own outcome decision. A retry goes through ``retry_job`` instead and never
+    arrives here, so a retried attempt is not a failure; an abort arrives with
+    ``Status.ABORTED`` and is counted as neither. The status is the one
+    Procrastinate computed, not one this module inferred.
+
+    Idempotent via a sentinel on the manager, mirroring the other install
+    helpers, so a re-entrant call cannot stack wrappers and double count.
+    """
+    from procrastinate.jobs import Status
+
+    manager = task_app.job_manager
+    # `is True`, not truthiness: the sentinel is one this function sets, and an
+    # object that answers every attribute (a test double, a proxy) would
+    # otherwise report itself already installed and silently count nothing.
+    if getattr(manager, _OUTCOME_COUNTERS_ATTR, False) is True:
+        return
+    original_finish_job = manager.finish_job
+
+    async def _finish_job_and_count(*args, **kwargs):
+        await original_finish_job(*args, **kwargs)
+        # Only after the await: a persistence failure raises above this line
+        # and neither counter moves.
+        try:
+            job = kwargs.get("job") if "job" in kwargs else (args[0] if args else None)
+            status = (
+                kwargs.get("status")
+                if "status" in kwargs
+                else (args[1] if len(args) > 1 else None)
+            )
+            queue = getattr(job, "queue", None)
+            if status == Status.SUCCEEDED:
+                count_completed_job(queue)
+            elif status == Status.FAILED:
+                count_failed_job(queue)
+        except Exception:  # broad: the terminal row is already written
+            # Reading the job or the status must not undo a persisted outcome.
+            # The count_* helpers guard the registry call; this guards
+            # everything before it.
+            log.warning("Failed to count a job outcome", exc_info=True)
+
+    manager.finish_job = _finish_job_and_count
+    setattr(manager, _OUTCOME_COUNTERS_ATTR, True)
+
+
+def count_completed_job(queue: str | None) -> None:
+    """Record one completed job on *queue*.
+
+    Never let a metrics failure change a job's outcome: a Prometheus registry
+    problem costs a log line rather than a re-run of a finished ingest.
+    """
+    try:
+        from app.observability.metrics.jobs import jobs_completed_total
+
+        jobs_completed_total.labels(queue=queue or "default").inc()
+    except Exception:  # broad: a metrics failure must never change an outcome
+        log.warning("Failed to count a completed job", exc_info=True)
+
+
+def count_failed_job(queue: str | None) -> None:
+    """Record one terminal failure on *queue*.
+
+    fix(#1778 codex r1): the single place the failed counter moves, so the
+    manager wrapper and the stalled-job sweep cannot drift apart.
+    """
+    try:
+        from app.observability.metrics.jobs import jobs_failed_total
+
+        jobs_failed_total.labels(queue=queue or "default").inc()
+    except Exception:  # broad: a metrics failure must never change an outcome
+        log.warning("Failed to count a failed job", exc_info=True)
+
+
+# fix(#1778): how often to age out terminal queue rows. Six hours is a long way
+# under the shortest sensible INGEST_JOBS_RETENTION_DAYS and keeps the delete's
+# cost off the hot path; the window itself is the retention setting, not this.
+TERMINAL_JOB_PURGE_INTERVAL_SECONDS = 6 * 3600
+
+
+async def purge_expired_terminal_jobs() -> None:
+    """Age out failed, cancelled and aborted queue rows and their events.
+
+    fix(#1778): nothing in the repository ever deleted these. Procrastinate's
+    ``delete_old_jobs`` is never called, there is no pg_cron, no CronJob, no
+    scheduled workflow and no periodic Procrastinate task, and
+    ``POST /jobs/cleanup/stale/`` sweeps only the ``ingest_jobs`` MIRROR. So a
+    successful job left nothing behind (``delete_jobs="successful"`` plus the
+    ON DELETE CASCADE on the events fkey) while every failure, cancellation and
+    abort left one job row plus three event rows forever. Meanwhile
+    ``INGEST_JOBS_RETENTION_DAYS`` deleted the mirror row after 30 days, so
+    what remained was also unattributable.
+
+    The clearest sign it was an oversight rather than a decision is inside
+    ``fail_stalled_queue_jobs``: it writes a permanent FAILED row and then,
+    eight lines later, prunes ``procrastinate_workers`` so the heartbeat table
+    "doesn't grow one tombstone per killed worker".
+
+    Keyed to the same ``INGEST_JOBS_RETENTION_DAYS`` the mirror uses, so the
+    queue row and the row that explains it age out together. 0 disables it,
+    matching the mirror sweep.
+
+    One unfiltered call rather than one per queue: the vendored query builds
+    ``SELECT DISTINCT ON (job.id) job.*, event.at FROM procrastinate_jobs job
+    JOIN procrastinate_events event ...`` as an inline view BEFORE applying the
+    status and age predicate, so the join and sort happen whatever the queue
+    filter is -- N per-queue calls would pay for it N times.
+
+    Caller must hold an open connector (``task_app.open_async()``).
+    """
+    from app.processing.ingest.tasks import task_app
+
+    days = settings.ingest_jobs_retention_days
+    if days <= 0:
+        return
+    await task_app.job_manager.delete_old_jobs(
+        nb_hours=days * 24,
+        include_failed=True,
+        include_cancelled=True,
+        include_aborted=True,
+    )
+    log.info("Purged expired terminal queue jobs", retention_days=days)
+
+
+async def _purge_terminal_jobs_safely() -> None:
+    """Run one purge; never let a failure kill the loop or block startup."""
+    try:
+        await purge_expired_terminal_jobs()
+    except Exception:  # broad: best-effort housekeeping, never fatal to the worker
+        log.warning("Terminal queue job purge failed", exc_info=True)
+
+
+async def run_terminal_job_purges() -> None:
+    """Purge terminal queue rows on an interval for the life of the worker.
+
+    Sleeps first, like ``run_stalled_queue_sweeps``: the caller runs the
+    startup pass itself.
+    """
+    while True:
+        await asyncio.sleep(TERMINAL_JOB_PURGE_INTERVAL_SECONDS)
+        await _purge_terminal_jobs_safely()
+
+
 async def run_health_server() -> None:
     """Run the worker health server on port 8001."""
     config = uvicorn.Config(
@@ -514,6 +703,8 @@ async def main() -> None:
     import app.processing.embeddings.models  # noqa: F401
 
     from app.observability.metrics.jobs import update_job_metrics
+    from app.observability.metrics.memory import update_memory_metrics
+    from app.observability.metrics.pool import update_pool_metrics
     from app.platform.refresh.credentials import renew_credentials_periodically
     from app.processing.ingest.tasks import task_app
 
@@ -578,6 +769,20 @@ async def main() -> None:
     # 5. Start job metrics collector as background task
     metrics_task = asyncio.create_task(update_job_metrics())
 
+    # fix(#1778): the same two collectors the API lifespan starts. This process
+    # is the one that most needs them -- it hosts GDAL/OGR and gets a 4 GB
+    # mem_limit against the API's 2 GB precisely because a large raster ingest
+    # is memory-hungry -- and it had neither. An OOM-killed worker left exactly
+    # the symptom #643 was filed for: nothing in `docker logs`, no gauge, only
+    # dmesg. update_memory_metrics also WARNs on crossing the watermark, so
+    # runaway growth is diagnosable without a Prometheus scrape.
+    #
+    # The worker runs its own engine and pool, so GeoLensDbPoolSaturated
+    # (infra/monitoring/alerts.yml) could never fire for it either. Both loops
+    # are no-ops off Linux and neither needs multiprocess mode.
+    memory_metrics_task = asyncio.create_task(update_memory_metrics())
+    pool_metrics_task = asyncio.create_task(update_pool_metrics())
+
     # fix(#1277 review round 4): the worker hosts credential renewal too. The
     # process whose liveness gates the CLAIM is this one, so renewing here
     # keeps a queued handoff alive exactly while a claim is still possible —
@@ -595,13 +800,25 @@ async def main() -> None:
         # worker service can pin WORKER_QUEUES=raster on multi-core hosts.
         queues = [q.strip() for q in settings.worker_queues.split(",") if q.strip()]
         async with task_app.open_async():
+            # fix(#1778): the only place a job outcome is observable --
+            # delete_jobs="successful" removes a succeeded row (and its events,
+            # by cascade) before any poll can see it, and the failed count is a
+            # transition too now that terminal rows are purged. Installed
+            # before the worker starts and after the connector is open, so no
+            # job can finish outside the wrapper. See
+            # install_job_outcome_counters.
+            install_job_outcome_counters(task_app)
             # fix(#624): inside the connector context (it needs an open pool) and
             # before the worker registers itself, so this process's own heartbeat
             # can never be in the window it sweeps. This pass clears rows stranded
             # before this process existed; the loop below owns the ones that go
             # stale while it runs.
             await _sweep_stalled_queue_safely()
+            # fix(#1778): early, before the jobs-by-events join this query
+            # builds has a large table to sort.
+            await _purge_terminal_jobs_safely()
             sweep_task = asyncio.create_task(run_stalled_queue_sweeps())
+            purge_task = asyncio.create_task(run_terminal_job_purges())
             try:
                 await task_app.run_worker_async(
                     queues=queues,
@@ -627,15 +844,20 @@ async def main() -> None:
                 # Cancel inside the connector context — a sweep mid-query when
                 # the pool closes would raise on the way out.
                 sweep_task.cancel()
-                await asyncio.gather(sweep_task, return_exceptions=True)
+                purge_task.cancel()
+                await asyncio.gather(sweep_task, purge_task, return_exceptions=True)
     finally:
         # 7. Clean up background tasks after worker exits
         metrics_task.cancel()
+        memory_metrics_task.cancel()
+        pool_metrics_task.cancel()
         credential_renewal_task.cancel()
         health_task.cancel()
         try:
             await asyncio.gather(
                 metrics_task,
+                memory_metrics_task,
+                pool_metrics_task,
                 credential_renewal_task,
                 health_task,
                 return_exceptions=True,
