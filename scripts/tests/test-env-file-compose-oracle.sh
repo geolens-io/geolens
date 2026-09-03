@@ -95,6 +95,24 @@ _our_value() {
   ( . "$REPO_ROOT/lib/common.sh" && get_env_value "$1" "$2" )
 }
 
+# fix(#1798 review round 15, P2, review 5104520795): the interface real
+# callers (restore.sh/check-env.sh/upgrade.sh) now use is env_value_into,
+# not get_env_value's own stdout return -- a plain `VAR="$(get_env_value
+# ...)"` at the CALL SITE stripped a trailing decoded newline all over
+# again even after get_env_value's own round-13 fix started preserving
+# one internally, since ordinary command substitution always strips a
+# trailing newline regardless of what the command inside it does.
+# Exercises that ACTUAL caller path (source common.sh, call
+# env_value_into into a scratch variable, THEN read the variable) rather
+# than get_env_value directly, so a regression in env_value_into itself
+# -- not just in get_env_value -- would be caught here.
+_our_value_via_env_value_into() {
+  # shellcheck disable=SC2154  # _test_target is assigned by env_value_into's
+  # own `eval` (scripts/lib/common.sh), which shellcheck cannot trace
+  # through a dynamically sourced file.
+  ( . "$REPO_ROOT/lib/common.sh" && env_value_into _test_target "$1" "$2" && printf '%s' "$_test_target" )
+}
+
 # Compares get_env_value's resolution of KEY in FILE against Compose's own.
 # Both captures are sentinel-protected so neither side loses a real
 # trailing newline before the comparison even runs.
@@ -585,6 +603,177 @@ USESVAL='${SETVAR}'
 EOF
 _assert_matches_compose_dollar USESVAL "$SINGLEQ_ENV" \
   "a single-quoted value is never interpolated, even when it looks exactly like a reference to a SET variable"
+
+
+# ============================================================================
+# Round 15 (review 5104520795) P2 #1 -- the caller-side trailing-newline
+# gap: get_env_value preserves a trailing decoded newline internally
+# (round 13), but every ACTUAL caller assigned via
+# `_v="$(get_env_value ...)"`, and plain command substitution strips a
+# trailing newline regardless of what get_env_value itself does. Fixed at
+# the interface (env_value_into, scripts/lib/common.sh) rather than per
+# caller. This corpus case exercises that real interface end to end, not
+# get_env_value directly -- POSTGRES_DB is the exact key restore.sh reads
+# through it.
+# ============================================================================
+CALLER_NL_ENV="$WORK/.env.caller_nl"
+printf 'POSTGRES_DB="geo\\n"\n' > "$CALLER_NL_ENV"
+
+CALLER_NL_OURS="$(_our_value_via_env_value_into POSTGRES_DB "$CALLER_NL_ENV" && printf x)"
+CALLER_NL_OURS_RC=$?
+CALLER_NL_OURS="${CALLER_NL_OURS%x}"
+
+if [ "$CALLER_NL_OURS_RC" -ne 0 ]; then
+  bad "POSTGRES_DB with a trailing decoded newline, resolved through env_value_into (env_value_into itself failed unexpectedly, rc=$CALLER_NL_OURS_RC)"
+else
+  CALLER_NL_THEIRS="$(_compose_value POSTGRES_DB "$CALLER_NL_ENV" && printf x)" || {
+    bad "POSTGRES_DB with a trailing decoded newline, resolved through env_value_into (docker compose config itself failed to resolve POSTGRES_DB)"
+  }
+  CALLER_NL_THEIRS="${CALLER_NL_THEIRS%x}"
+
+  if [ "$CALLER_NL_OURS" = "$CALLER_NL_THEIRS" ]; then
+    ok "POSTGRES_DB with a trailing decoded newline, resolved through env_value_into (the ACTUAL caller path restore.sh uses), equals the oracle byte for byte"
+  else
+    bad "POSTGRES_DB with a trailing decoded newline, resolved through env_value_into (ours=[$CALLER_NL_OURS] Compose=[$CALLER_NL_THEIRS])"
+  fi
+fi
+
+
+# ============================================================================
+# Round 15 (review 5104520795) P2 #2 -- the fixed recursion cap (5) used
+# to truncate a valid ACYCLIC chain longer than that, and did not actually
+# protect against the one case that genuinely can loop forever: a value
+# sourced from the PROCESS ENVIRONMENT, which has no file line number to
+# bound recursion against. Replaced with real cycle detection (a
+# space-delimited chain of names currently being expanded, threaded
+# through _env_interp_resolve/_env_resolve_name) -- a chain now resolves
+# to any depth, and only an ACTUAL name recurring in its own resolution
+# stops it.
+# ============================================================================
+
+# A chain of 8 hops, all acyclic -- the old fixed cap of 5 truncated this
+# and returned the literal, unresolved ${C7} instead of the real value.
+CHAIN8_ENV="$WORK/.env.chain8"
+cat > "$CHAIN8_ENV" <<'EOF'
+C1=leafval
+C2=${C1}
+C3=${C2}
+C4=${C3}
+C5=${C4}
+C6=${C5}
+C7=${C6}
+POSTGRES_DB=${C7}
+EOF
+_assert_matches_compose POSTGRES_DB "$CHAIN8_ENV" \
+  "a chain of 8 acyclic hops (C1..C7 -> POSTGRES_DB) resolves fully, not truncated by a fixed pass count"
+
+# Same shape, but the chain ends in a ${VAR:-default} whose VAR is unset --
+# the default itself has to survive all 8 hops back out too.
+CHAIN8_DEFAULT_ENV="$WORK/.env.chain8default"
+cat > "$CHAIN8_DEFAULT_ENV" <<'EOF'
+C2=${CHAIN8_UNSET_XYZ:-defaultatend}
+C3=${C2}
+C4=${C3}
+C5=${C4}
+C6=${C5}
+C7=${C6}
+C8=${C7}
+POSTGRES_DB=${C8}
+EOF
+_assert_matches_compose POSTGRES_DB "$CHAIN8_DEFAULT_ENV" \
+  "a chain of 8 hops ending in a \${VAR:-default} resolves the default all the way back out"
+
+# A diamond (A=${B}${C}, B=${D}, C=${D}) is NOT a cycle -- D is referenced
+# via two INDEPENDENT sibling paths, not nested inside itself. Cycle
+# detection must not confuse "the same name resolved twice, at different
+# points" with "the same name resolved from inside its own resolution".
+DIAMOND_ENV="$WORK/.env.diamond"
+cat > "$DIAMOND_ENV" <<'EOF'
+D=leafval
+B=${D}
+C=${D}
+A=${B}${C}
+EOF
+_assert_matches_compose A "$DIAMOND_ENV" \
+  "a diamond reference (A=\${B}\${C}, B=\${D}, C=\${D}) is not a cycle and resolves fully"
+
+# A self-cycle with an operator that has its own "not found" fallback
+# ALREADY matches Compose exactly -- verified via the oracle, a cycle is
+# NOT an error there; Compose treats a cyclic reference exactly like an
+# ordinary never-defined one (a stderr warning, "the X variable is not
+# set"), so whatever that operator already does for "not found" is what
+# it does for a cycle too.
+SELF_DEFAULT_ENV="$WORK/.env.selfdefault"
+printf 'A=${A:-fallback}\n' > "$SELF_DEFAULT_ENV"
+_assert_matches_compose A "$SELF_DEFAULT_ENV" \
+  "a direct self-cycle \${A:-fallback} resolves to the default, matching Compose exactly (a cycle is treated as unset, not an error)"
+
+SELF_REQUIRED_ENV="$WORK/.env.selfrequired"
+printf 'A=${A:?required message}\n' > "$SELF_REQUIRED_ENV"
+_assert_errors_like_compose A "$SELF_REQUIRED_ENV" \
+  "a direct self-cycle \${A:?msg} fails closed, matching Compose exactly (treated as required-and-unset)"
+
+# A BARE (no-operator) cycle is the ONE place this parser's own
+# already-established, deliberate divergence from Compose applies (see
+# the top-of-file doc comment on _env_interp_resolve): Compose itself
+# resolves an unresolved bare ${VAR} to an EMPTY string with a stderr
+# warning; this parser leaves it as the literal, greppable token instead,
+# since a caller has no channel to see that warning and a config value
+# silently collapsing to empty is a worse failure mode. A cycle is just
+# one more way a name can be "not found" via the SAME bare-form handling
+# -- verified directly against get_env_value rather than the oracle,
+# since the oracle's own answer here is the KNOWN, intentional
+# divergence, not a target to match.
+SELF_BARE_ENV="$WORK/.env.selfbare"
+printf 'A=${A}\n' > "$SELF_BARE_ENV"
+SELF_BARE_VAL="$(_our_value A "$SELF_BARE_ENV" && printf x)"
+SELF_BARE_RC=$?
+SELF_BARE_VAL="${SELF_BARE_VAL%x}"
+if [ "$SELF_BARE_RC" -eq 0 ] && [ "$SELF_BARE_VAL" = '${A}' ]; then
+  ok "a direct self-cycle \${A} (bare, no operator) leaves the literal token unchanged, this parser's own already-documented divergence from Compose's empty-string-with-warning"
+else
+  bad "a direct self-cycle \${A} (bare, no operator) regressed (rc=$SELF_BARE_RC val=[$SELF_BARE_VAL], want rc=0 val=[\${A}])"
+fi
+
+# A two-node file cycle (A=${B}, B=${A}) -- querying B is the direction
+# that actually exercises the NEW chain-based cycle check (querying A
+# alone was already safe before this round: B has no earlier-line
+# definition relative to A's own line, so the existing bound-narrowing
+# rule stops it without any help from cycle detection at all -- querying
+# B is what needed the fix, since A DOES have an earlier definition
+# relative to B, and resolving THAT exposes B again).
+TWOCYCLE_ENV="$WORK/.env.twocycle"
+cat > "$TWOCYCLE_ENV" <<'EOF'
+A=${B}
+B=${A}
+EOF
+TWOCYCLE_VAL="$(_our_value B "$TWOCYCLE_ENV" && printf x)"
+TWOCYCLE_RC=$?
+TWOCYCLE_VAL="${TWOCYCLE_VAL%x}"
+if [ "$TWOCYCLE_RC" -eq 0 ] && [ "$TWOCYCLE_VAL" = '${B}' ]; then
+  ok "a two-node file cycle (A=\${B}, B=\${A}), querying B, terminates instead of recursing forever"
+else
+  bad "a two-node file cycle, querying B, regressed (rc=$TWOCYCLE_RC val=[$TWOCYCLE_VAL], want rc=0 val=[\${B}])"
+fi
+
+# The one case a fixed depth cap actually protected against: a cycle
+# sourced entirely from the PROCESS ENVIRONMENT, which has no file line
+# number to bound recursion against at all. Two exported variables whose
+# literal text values reference each other never terminated on bound
+# alone before this round's real cycle detection.
+ENVCYCLE_ENV="$WORK/.env.envcycle"
+printf 'USES="${ENVCYCLE_A_XYZ}"\n' > "$ENVCYCLE_ENV"
+export ENVCYCLE_A_XYZ='${ENVCYCLE_B_XYZ}'
+export ENVCYCLE_B_XYZ='${ENVCYCLE_A_XYZ}'
+ENVCYCLE_VAL="$(_our_value USES "$ENVCYCLE_ENV" && printf x)"
+ENVCYCLE_RC=$?
+ENVCYCLE_VAL="${ENVCYCLE_VAL%x}"
+unset ENVCYCLE_A_XYZ ENVCYCLE_B_XYZ
+if [ "$ENVCYCLE_RC" -eq 0 ] && [ "$ENVCYCLE_VAL" = '${ENVCYCLE_A_XYZ}' ]; then
+  ok "a two-node cycle sourced entirely from the process environment terminates instead of recursing forever"
+else
+  bad "a process-environment-sourced cycle regressed (rc=$ENVCYCLE_RC val=[$ENVCYCLE_VAL])"
+fi
 
 echo "1..$((PASS + FAIL))"
 echo "# ${PASS} passed, ${FAIL} failed"

@@ -71,9 +71,24 @@ REPO_URL="${GEOLENS_REPO_URL:-https://github.com/geolens-io/geolens.git}"
 # preserve the way restore.sh/check-env.sh do (nothing here reads these
 # vars before this point). Without the guard, a plain `.env` missing one of
 # these optional keys would abort the whole upgrade under `set -eu`.
-COMPOSE_FILE="$(get_env_value COMPOSE_FILE)" || true
+#
+# fix(#1798 review round 15, P2, review 5104520795): assigns straight into
+# each target via env_value_into rather than `VAR="$(get_env_value ...)"` —
+# see restore.sh's own round 15 comment on the same pattern for why plain
+# command substitution is not enough on its own (it strips a trailing
+# decoded newline regardless of what get_env_value itself preserves).
+env_value_into COMPOSE_FILE COMPOSE_FILE .env || true
+# fix(#1798 review round 15, P2, review 5104520795): env_value_into
+# leaves the target COMPLETELY unset on failure (unlike the old
+# `VAR="$(get_env_value ...)" || true`, which always assigned SOMETHING,
+# even ""). Every use of these vars below is already `${VAR:-...}`-
+# guarded EXCEPT the bare `[ -n "$VAR" ]` checks a few lines down —
+# restore this script's prior "always at least empty" invariant with
+# `:=` so a genuinely unset var never trips `set -u` there.
+: "${COMPOSE_FILE:=}"
 [ -n "$COMPOSE_FILE" ] || COMPOSE_FILE="docker-compose.yml"
-CURRENT_VERSION="$(get_env_value GEOLENS_VERSION)" || true
+env_value_into CURRENT_VERSION GEOLENS_VERSION .env || true
+: "${CURRENT_VERSION:=}"
 
 if [ "$COMPOSE_FILE" != "docker-compose.prod.yml" ]; then
   say "This install builds images from source (COMPOSE_FILE=$COMPOSE_FILE)."
@@ -140,8 +155,10 @@ say ""
 # fix(#1778 review round 6, P2): see the Step 1 comment above — `|| true`
 # keeps a missing key a no-op, since the next two lines already default an
 # empty result.
-POSTGRES_USER="$(get_env_value POSTGRES_USER)" || true
-POSTGRES_DB="$(get_env_value POSTGRES_DB)" || true
+env_value_into POSTGRES_USER POSTGRES_USER .env || true
+env_value_into POSTGRES_DB POSTGRES_DB .env || true
+: "${POSTGRES_USER:=}"
+: "${POSTGRES_DB:=}"
 [ -n "$POSTGRES_USER" ] || POSTGRES_USER="geolens"
 [ -n "$POSTGRES_DB" ] || POSTGRES_DB="geolens"
 
@@ -168,8 +185,10 @@ TARGET_TAG="v${TARGET_VERSION}"
 # fix(#1778 review round 6, P2): see the Step 1 comment above — both are
 # optional flags already tested with `[ -n "$X" ]` below, so `|| true`
 # keeps a missing key a no-op instead of aborting the upgrade.
-DATABASE_URL_OVERRIDE_VALUE="$(get_env_value DATABASE_URL_OVERRIDE)" || true
-RUNTIME_DB_ROLE_VALUE="$(get_env_value GEOLENS_RUNTIME_DB_ROLE)" || true
+env_value_into DATABASE_URL_OVERRIDE_VALUE DATABASE_URL_OVERRIDE .env || true
+env_value_into RUNTIME_DB_ROLE_VALUE GEOLENS_RUNTIME_DB_ROLE .env || true
+: "${DATABASE_URL_OVERRIDE_VALUE:=}"
+: "${RUNTIME_DB_ROLE_VALUE:=}"
 override_targets_bundled_db() {
   _url="$1"
   _authority="${_url#*://}"

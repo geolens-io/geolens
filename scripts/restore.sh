@@ -26,20 +26,20 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # "missing" was indistinguishable from "present but empty". The `if` guard
 # is exempt from `set -e`, and assigning the real target only inside it
 # (never on the failure path) is what actually preserves the inherited
-# value; `_v` is a scratch var, reused across all four lookups.
+# value.
+#
+# fix(#1798 review round 15, P2, review 5104520795): assigns straight into
+# each target via env_value_into instead of `_v="$(get_env_value ...)"` —
+# plain command substitution strips a trailing newline regardless of
+# anything get_env_value itself preserves (a decoded POSTGRES_DB with a
+# trailing \n escape would lose that trailing byte at THIS assignment,
+# one layer outside get_env_value's own control, even though
+# get_env_value's own return value is correct since round 13).
 if [ -f "$PROJECT_ROOT/.env" ]; then
-    if _v="$(get_env_value COMPOSE_FILE "$PROJECT_ROOT/.env")"; then
-        COMPOSE_FILE="$_v"
-    fi
-    if _v="$(get_env_value POSTGRES_USER "$PROJECT_ROOT/.env")"; then
-        POSTGRES_USER="$_v"
-    fi
-    if _v="$(get_env_value POSTGRES_DB "$PROJECT_ROOT/.env")"; then
-        POSTGRES_DB="$_v"
-    fi
-    if _v="$(get_env_value GEOLENS_RUNTIME_DB_ROLE "$PROJECT_ROOT/.env")"; then
-        GEOLENS_RUNTIME_DB_ROLE="$_v"
-    fi
+    env_value_into COMPOSE_FILE COMPOSE_FILE "$PROJECT_ROOT/.env" || true
+    env_value_into POSTGRES_USER POSTGRES_USER "$PROJECT_ROOT/.env" || true
+    env_value_into POSTGRES_DB POSTGRES_DB "$PROJECT_ROOT/.env" || true
+    env_value_into GEOLENS_RUNTIME_DB_ROLE GEOLENS_RUNTIME_DB_ROLE "$PROJECT_ROOT/.env" || true
 fi
 COMPOSE=(docker compose -f "$PROJECT_ROOT/${COMPOSE_FILE:-docker-compose.yml}")
 

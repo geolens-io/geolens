@@ -45,12 +45,14 @@ need_command() {
 # literally — `${DEPLOY_FILE}` and all — instead of the value real Compose
 # would resolve there.
 #
-# Supports ${VAR}, $VAR, ${VAR:-default}, ${VAR-default}, and ${VAR:?msg}.
+# Supports ${VAR}, $VAR, ${VAR:-default}, ${VAR-default}, ${VAR:?msg},
+# ${VAR?msg}, ${VAR:+alt}, and ${VAR+alt} (round 14, review 5104197320) —
+# see _env_interp_resolve's own doc comment for the full grammar and how
+# each form was verified against real `docker compose config`.
+#
 # Resolution precedence per reference, matching a top-to-bottom read of the
 # file: a value already parsed from an EARLIER line in the SAME .env file,
-# then the process environment. Bounded to a few passes so a chain
-# (A references B references C) resolves without looping forever on a
-# genuinely circular or unresolvable reference.
+# then the process environment.
 #
 # A reference unresolved in both sources is left COMPLETELY UNCHANGED in the
 # output. Real Compose expands an unresolved reference to empty, with a
@@ -61,11 +63,9 @@ need_command() {
 # unreadable compose invocation, or a compose call against the wrong file)
 # than leaving the operator's literal, greppable `${TYPO}` in the value read
 # back — the same "don't guess at malformed input" policy the quote parsing
-# above already follows. `${VAR:?msg}` is resolved the same way as
-# `${VAR:-}` when VAR is unresolved (substituted with nothing) rather than
-# reproducing Compose's "abort the whole file load with `msg`" behavior —
-# that behavior has no meaning for a function that reads ONE key at a time,
-# and none of the keys these scripts read plausibly use this form.
+# above already follows. `${VAR:?msg}`/`${VAR?msg}` do NOT follow this
+# policy (round 14): Compose itself hard-fails loading a file shaped like
+# that, so get_env_value fails closed too — see _env_interp_resolve.
 #
 # fix(#1798 review round 13, P2, review 5103870781): _env_interpolate used to
 # be a FLAT multi-pass loop over a single mutable `before_line`, re-derived
@@ -82,11 +82,45 @@ need_command() {
 # bound for the RECURSIVE resolution of that token's OWN substituted value
 # (to X's own defining line) — sibling tokens elsewhere in the SAME `text`
 # keep scanning against the outer, unnarrowed `bound`, because they were
-# never introduced by any substitution. `_ENV_INTERP_MAX_PASSES` now caps
-# recursion DEPTH (chain length: A -> B -> C -> ...) rather than a flat pass
-# count; a value with many sibling references costs no extra depth, only a
-# chain of substitutions-within-substitutions does.
-_ENV_INTERP_MAX_PASSES=5
+# never introduced by any substitution.
+#
+# fix(#1798 review round 15, P2, review 5104520795): a reference CHAIN
+# (A references B references C ...) used to be bounded by a fixed
+# `_ENV_INTERP_MAX_PASSES` pass count (5) — which silently truncated a
+# perfectly valid, ACYCLIC chain longer than that (a chain of 8 returned
+# the literal, unresolved `${A}` for a POSTGRES_DB eight hops away from its
+# real definition). A chain sourced purely from FILE lines can never
+# actually loop forever on its own — every hop's bound strictly narrows to
+# a line number strictly earlier than the one before it, and a file has
+# finitely many lines — so no depth cap was ever needed to protect against
+# a FILE-only cycle: `_env_resolve_name` already reports "not found" for
+# `A=${A}` (nothing defined before A's own line) or a two-key
+# `A=${B}`/`B=${A}` file (querying either one runs out of earlier lines to
+# search and stops) without any help from a pass counter. The one place a
+# depth cap earned its keep was a value sourced from the PROCESS
+# ENVIRONMENT, which has no line number to narrow against at all
+# (`_ern_ref_bound=0`, unbounded) — two exported variables whose literal
+# text values reference each other (`export A='${B}'; export B='${A}'`)
+# genuinely never terminates on bound alone.
+#
+# Replaced with real cycle detection instead of an arbitrary cap: a
+# space-delimited CHAIN of the names currently being expanded is threaded
+# through every recursive call (see _env_resolve_name), seeded with the
+# top-level key's own name. A name already in CHAIN is reported as
+# unresolved (`_ern_have_value=0`) without even attempting to look it up —
+# breaking both the file- and environment-sourced cases the same way —
+# and every existing per-operator "not found" handler downstream (literal
+# passthrough for a bare `${VAR}`, a `:-`/`-` fallback, `:+`/`+`'s "not
+# set", `:?`/`?`'s hard failure) already does the right thing with that,
+# with no special-casing needed for "this one's a cycle" versus "this one
+# was simply never defined". Verified against real `docker compose
+# config`: a cycle is not an error there either — `A=${A}` warns and
+# resolves to "" as a bare form (this parser diverges the same documented
+# way it already does for an ordinary unresolved bare reference — see
+# above); `A=${A:-fallback}` resolves to "fallback"; `A=${A:?msg}` fails
+# closed — exactly the outcomes have_value=0 already produces for each
+# form. A chain has no fixed length limit now — it resolves to any depth,
+# the way a genuinely acyclic reference chain always should.
 
 # fix(#1798 CI on round 11, P2): the raw 3-byte UTF-8 BOM (EF BB BF),
 # computed ONCE here via a shell printf octal escape — always exactly
@@ -316,13 +350,35 @@ _env_split_on_token() {
 # failure — that is _ern_have_value=0, a normal outcome the caller decides
 # how to handle (literal token, a fallback, or its own hard error for
 # `:?`/`?`).
+#
+# fix(#1798 review round 15, P2, review 5104520795): CHAIN is the
+# space-delimited list of names whose value is CURRENTLY being expanded
+# somewhere up the call stack (seeded with the top-level key itself — see
+# _env_interpolate). If NAME is already in CHAIN, this is a cycle
+# (`A=${A}`, or `A=${B}` / `B=${A}`) — reported as _ern_have_value=0
+# WITHOUT even attempting the env/file lookup, exactly as if NAME did not
+# exist anywhere. Verified against real `docker compose config`: a cycle
+# is NOT a hard failure there — Compose warns ("the X variable is not
+# set") and resolves it exactly like any other genuinely unset variable,
+# so `${A:-fallback}` on a self-cycle returns "fallback" and `${A:?msg}`
+# on one fails closed, the SAME outcomes an ordinary never-defined NAME
+# already produces through the existing per-operator handling in
+# _env_interp_resolve below — cycle detection only needs to make THIS
+# function stop early; every operator already knows what to do with
+# have_value=0.
 _env_resolve_name() {
   _ern_name="$1"
   _ern_file="$2"
   _ern_bound="$3"
+  _ern_chain="$4"
   _ern_have_value=0
   _ern_resolved=""
   _ern_ref_bound=0
+
+  case " ${_ern_chain} " in
+    *" ${_ern_name} "*) return 0 ;;
+  esac
+
   if eval "[ \"\${${_ern_name}+set}\" = set ]" 2>/dev/null; then
     eval "_ern_resolved=\"\${${_ern_name}}\""
     _ern_have_value=1
@@ -422,13 +478,15 @@ _env_brace_match() {
 # Recursively resolves Compose's full interpolation grammar in `text` —
 # $VAR, ${VAR}, ${VAR:-d}, ${VAR-d}, ${VAR:?m}, ${VAR?m}, ${VAR:+a},
 # ${VAR+a}, and the `$$` literal-dollar escape — per the precedence and
-# unresolved-reference policy documented on _ENV_INTERP_MAX_PASSES above.
+# unresolved-reference policy documented above `_env_resolve_name`.
 # `bound` is the line strictly before which a reference may resolve
 # against THIS file (the referencing key's own line, from _env_line_of, so
 # a key can never resolve a reference against itself or a later line);
-# `depth` counts the chain length so far and is capped by
-# _ENV_INTERP_MAX_PASSES to guarantee termination on a cyclic or
-# pathologically long reference chain.
+# `chain` (round 15, review 5104520795, replacing a fixed depth cap — see
+# the doc comment near the top of this file) is the space-delimited list
+# of names currently being expanded, threaded down so _env_resolve_name
+# can detect a name recurring in its own resolution and treat that as
+# unresolved instead of looping forever.
 #
 # fix(#1798 review round 13, P2, review 5103870781): resolves each token IN
 # PLACE by scanning `text` left to right, rather than a flat loop that
@@ -482,12 +540,7 @@ _env_interp_resolve() {
   _eir_text="$1"
   _eir_file="$2"
   _eir_bound="$3"
-  _eir_depth="$4"
-
-  if [ "$_eir_depth" -ge "$_ENV_INTERP_MAX_PASSES" ]; then
-    printf '%s' "$_eir_text"
-    return 0
-  fi
+  _eir_chain="$4"
 
   _eir_result=""
   _eir_remaining="$_eir_text"
@@ -576,7 +629,7 @@ _env_interp_resolve() {
           return 1
         fi
 
-        _env_resolve_name "$_eir_iname" "$_eir_file" "$_eir_bound" || return 1
+        _env_resolve_name "$_eir_iname" "$_eir_file" "$_eir_bound" "$_eir_chain" || return 1
 
         case "$_eir_op" in
           "")
@@ -644,7 +697,14 @@ _env_interp_resolve() {
             ;;
         esac
 
-        _eir_sub="$(_env_interp_resolve "$_eir_replacement" "$_eir_file" "$_eir_rep_bound" "$((_eir_depth + 1))" && printf x)" || return 1
+        # fix(#1798 review round 15, P2, review 5104520795): extends a
+        # SEPARATE chain variable for the recursive call — never mutates
+        # `_eir_chain` itself, which stays the OUTER call's own chain for
+        # every remaining SIBLING token in this same `while` loop (the
+        # same "never mutate the shared parameter outward" rule `bound`
+        # already follows — see the round 13 doc comment above).
+        _eir_sub_chain="${_eir_chain} ${_eir_iname}"
+        _eir_sub="$(_env_interp_resolve "$_eir_replacement" "$_eir_file" "$_eir_rep_bound" "$_eir_sub_chain" && printf x)" || return 1
         _eir_sub="${_eir_sub%x}"
         _eir_result="${_eir_result}${_eir_sub}"
         continue
@@ -661,9 +721,10 @@ _env_interp_resolve() {
         done
         _eir_remaining="$_eir_scan"
 
-        _env_resolve_name "$_eir_name" "$_eir_file" "$_eir_bound" || return 1
+        _env_resolve_name "$_eir_name" "$_eir_file" "$_eir_bound" "$_eir_chain" || return 1
         if [ "$_ern_have_value" -eq 1 ]; then
-          _eir_sub="$(_env_interp_resolve "$_ern_resolved" "$_eir_file" "$_ern_ref_bound" "$((_eir_depth + 1))" && printf x)" || return 1
+          _eir_sub_chain="${_eir_chain} ${_eir_name}"
+          _eir_sub="$(_env_interp_resolve "$_ern_resolved" "$_eir_file" "$_ern_ref_bound" "$_eir_sub_chain" && printf x)" || return 1
           _eir_sub="${_eir_sub%x}"
           _eir_result="${_eir_result}${_eir_sub}"
         else
@@ -685,8 +746,13 @@ _env_interp_resolve() {
   printf '%s' "$_eir_result"
 }
 
+# fix(#1798 review round 15, P2, review 5104520795): $4 seeds the
+# cycle-detection chain with the TOP-LEVEL key's own name (get_env_value's
+# `$key`) — so a value that references its own key directly
+# (`POSTGRES_DB="${POSTGRES_DB}_suffix"`) is caught as a cycle from the
+# very first token, not just a cycle reached a few hops in.
 _env_interpolate() {
-  _env_interp_resolve "$1" "$2" "$3" 0
+  _env_interp_resolve "$1" "$2" "$3" "$4"
 }
 
 # Read a value from .env. Handles values containing `=` correctly (returns the
@@ -814,7 +880,7 @@ get_env_value() {
         # fix(#1778 review round 3, P2): double-quoted values interpolate
         # ${VAR}/$VAR references, matching Compose (only single-quoted
         # values are literal there).
-        _env_interpolate "$_env_value" "$file" "$(_env_line_of "$key" "$file")"
+        _env_interpolate "$_env_value" "$file" "$(_env_line_of "$key" "$file")" "$key"
       else
         printf '%s' "$raw"
       fi
@@ -841,9 +907,69 @@ get_env_value() {
         printf '%s' "$raw" | sed -E -e 's/ #.*$//' -e 's/[[:space:]]+$//' -e 's/^[[:space:]]+//'
       )"
       # fix(#1778 review round 3, P2): unquoted values interpolate too.
-      _env_interpolate "$_env_value" "$file" "$(_env_line_of "$key" "$file")"
+      _env_interpolate "$_env_value" "$file" "$(_env_line_of "$key" "$file")" "$key"
       ;;
   esac
+}
+
+# fix(#1798 review round 15, P2, review 5104520795): get_env_value's own
+# doc comment above already notes callers "assign only inside the `if`",
+# but every existing caller does that assignment via
+# `_v="$(get_env_value KEY FILE)"` — and PLAIN command substitution
+# ALWAYS strips a trailing newline, independent of anything get_env_value
+# itself does. Since round 13's P2 fix, get_env_value correctly PRESERVES
+# a trailing decoded newline (`POSTGRES_DB="geo\n"`) all the way to its
+# own return — but every caller's `$(...)` assignment silently threw it
+# away again, one layer up, outside get_env_value's own control. That
+# fix was real but incomplete: it moved the loss from inside
+# get_env_value to just outside every caller of it.
+#
+# env_value_into resolves KEY the same way (fails closed the same way —
+# see get_env_value's own doc comment for the found/absent/error
+# contract) but assigns the result DIRECTLY into the variable named by
+# $1, never crossing a `$(...)` boundary at the call site at all. `$1` is
+# validated against `^[A-Za-z_][A-Za-z0-9_]*$` FIRST and unconditionally
+# — this uses `eval` for the indirect assignment (common.sh is sourced
+# by both `#!/bin/sh` and `#!/usr/bin/env bash` scripts — see the file
+# header — so this has to stay POSIX-sh compatible; bash's own `printf
+# -v` is not an option), and an unvalidated target name handed to `eval`
+# is an injection primitive, not just a bug. The validated name is never
+# a caller-controlled/untrusted string in any of this repo's own call
+# sites (it is always a literal identifier written by the script's own
+# author), but the check costs nothing and turns "used it wrong" into a
+# loud `fail`/exit 1 instead of a silent, exploitable no-op.
+#
+# On success (get_env_value found the key) the target variable is set
+# and this returns 0. On "absent" (rc=1, matching get_env_value) the
+# target variable is left COMPLETELY UNTOUCHED — never assigned, not
+# even to empty — so a caller preserving an inherited value only has to
+# guard the CALL itself (`if env_value_into VAR KEY FILE; then ...`),
+# exactly like every existing get_env_value caller already does; it does
+# not also have to remember to avoid clobbering VAR on the failure path.
+env_value_into() {
+  _evi_var="$1"
+  _evi_key="$2"
+  _evi_file="$3"
+
+  case "$_evi_var" in
+    [A-Za-z_]*) : ;;
+    *) fail "env_value_into: invalid target variable name: '$_evi_var'" ;;
+  esac
+  case "$_evi_var" in
+    *[!A-Za-z0-9_]*) fail "env_value_into: invalid target variable name: '$_evi_var'" ;;
+  esac
+
+  # Sentinel-protected for the SAME reason every decode capture in this
+  # file is (see _env_dequote's callers, get_env_value's own quoted-value
+  # path): a bare `$(...)` here would strip the very trailing newline
+  # this function exists to preserve, before eval ever sees it. `&&` (not
+  # `;`) between get_env_value and the marker means get_env_value's own
+  # failure is never masked as success with an empty value — it aborts
+  # the marker too, and this function's `|| return 1` below fails closed
+  # on it, same as get_env_value's own contract.
+  _evi_val="$(get_env_value "$_evi_key" "$_evi_file" && printf x)" || return 1
+  _evi_val="${_evi_val%x}"
+  eval "$_evi_var=\$_evi_val"
 }
 
 # Replace `KEY=...` in .env (or append if missing). Pass the value via ENVIRON

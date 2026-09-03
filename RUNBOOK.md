@@ -399,7 +399,17 @@ dedicated login.
 Load the needed values into the verification shell and query through the
 runtime login. `scripts/env-value.sh` reads `.env` through the same
 get_env_value parser `restore.sh`/`check-env.sh` use, never by sourcing it —
-an operator-typed value can legally contain characters `.` would execute:
+an operator-typed value can legally contain characters `.` would execute.
+`scripts/env-value.sh` is a subprocess a copy-pasted snippet like this one
+invokes and captures via `$(...)`, so it stays stdout-based — the
+`env_value_into` interface `restore.sh`/`check-env.sh`/`upgrade.sh` use
+internally only works within the SAME shell process that sourced
+`scripts/lib/common.sh`, which a subprocess call from a snippet like this
+one is not. Command substitution here strips a trailing newline from the
+captured value the same way it always does; that only matters if one of
+these specific values were ever deliberately set to end in one (unlikely
+for a password, role name, or database name, but worth knowing if a value
+here ever looks truncated by exactly one trailing character):
 
 ```bash
 GEOLENS_RUNTIME_DB_PASSWORD="$(scripts/env-value.sh GEOLENS_RUNTIME_DB_PASSWORD)"
@@ -531,7 +541,8 @@ extracts all three artifacts together), then replay it **before** `pg_restore`:
 
 ```bash
 # Load $POSTGRES_USER / $POSTGRES_DB via get_env_value (not shell-sourcing
-# .env — see the runtime-role verification note above for why).
+# .env — see the runtime-role verification note above for why, including
+# the trailing-newline caveat on command substitution here).
 POSTGRES_USER="$(scripts/env-value.sh POSTGRES_USER)"
 POSTGRES_DB="$(scripts/env-value.sh POSTGRES_DB)"
 

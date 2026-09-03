@@ -16,6 +16,20 @@
 # empty, if the key is present but blank) when the key was found; 1 with no
 # output when the key has no line in the file at all, or the file itself
 # does not exist.
+#
+# fix(#1798 review round 15, P2, review 5104520795): this is deliberately
+# still stdout-based, unlike scripts/lib/common.sh's own env_value_into
+# (which restore.sh/check-env.sh/upgrade.sh now call internally instead of
+# capturing get_env_value's stdout, so a trailing decoded newline in a
+# value survives). env_value_into only works within the SAME shell process
+# that sourced common.sh; this script is invoked as a SEPARATE subprocess
+# (RUNBOOK.md's copy-pasted snippets run `$(scripts/env-value.sh KEY)` in
+# an operator's own shell), so there is no caller-side variable for it to
+# assign into across that boundary — a caller here still needs to capture
+# via command substitution, which strips a trailing newline the same way
+# it always has. This only matters for a value deliberately ending in one;
+# every value RUNBOOK.md actually reads through this wrapper (passwords,
+# role names, database names) is not expected to.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

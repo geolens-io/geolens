@@ -19,17 +19,17 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # `POSTGRES_DB=production scripts/check-env.sh`) is not overwritten with an
 # empty string just because .env omits that key. See restore.sh's comment
 # on the same pattern for the full reasoning.
+#
+# fix(#1798 review round 15, P2, review 5104520795): assigns straight into
+# each target via env_value_into — see restore.sh's own round 15 comment
+# on the same pattern for why a plain `_v="$(get_env_value ...)"` capture
+# is not enough on its own (it strips a trailing decoded newline
+# regardless of what get_env_value itself preserves).
 if [ -f "$PROJECT_ROOT/.env" ]; then
-    if _v="$(get_env_value POSTGRES_USER "$PROJECT_ROOT/.env")"; then
-        POSTGRES_USER="$_v"
-    fi
-    if _v="$(get_env_value POSTGRES_PASSWORD "$PROJECT_ROOT/.env")"; then
-        # shellcheck disable=SC2034  # read via `${!var}` in the Section 1 loop below
-        POSTGRES_PASSWORD="$_v"
-    fi
-    if _v="$(get_env_value POSTGRES_DB "$PROJECT_ROOT/.env")"; then
-        POSTGRES_DB="$_v"
-    fi
+    env_value_into POSTGRES_USER POSTGRES_USER "$PROJECT_ROOT/.env" || true
+    # shellcheck disable=SC2034  # read via `${!var}` in the Section 1 loop below
+    env_value_into POSTGRES_PASSWORD POSTGRES_PASSWORD "$PROJECT_ROOT/.env" || true
+    env_value_into POSTGRES_DB POSTGRES_DB "$PROJECT_ROOT/.env" || true
 fi
 
 ERRORS=0
