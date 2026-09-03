@@ -17,6 +17,14 @@ vi.mock('@/components/import/hooks/use-ingest', () => ({
     mutateAsync: vi.fn(),
     isPending: false,
   }),
+  // fix(review #1800 CI): JobProgress (rendered by VrtCreatorForm's tracking
+  // step) calls useCancelJob unconditionally since #1778 — an incomplete
+  // mock here throws "No useCancelJob export is defined on the mock" as an
+  // unhandled error even though every assertion in this file still passes.
+  useCancelJob: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+  }),
 }));
 
 vi.mock('@/api/search', () => ({

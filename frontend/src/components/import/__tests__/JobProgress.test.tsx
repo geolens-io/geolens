@@ -1,19 +1,33 @@
 import { render, screen } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { JobProgress } from '../JobProgress';
+import { ApiError } from '@/api/client';
 
-const { mockUseJobStatus, mockRetry } = vi.hoisted(() => ({
+const { mockUseJobStatus, mockRetry, mockCancel } = vi.hoisted(() => ({
   mockUseJobStatus: vi.fn(),
   mockRetry: vi.fn(),
+  mockCancel: vi.fn(),
 }));
 
-vi.mock('@/components/import/hooks/use-ingest', () => ({
-  useJobStatus: (...args: unknown[]) => mockUseJobStatus(...args),
-  useRetryJob: () => ({
-    mutateAsync: mockRetry,
-    isPending: false,
-  }),
-}));
+vi.mock('@/components/import/hooks/use-ingest', async (importOriginal) => {
+  // fix(review #1800 P2 round 2): isDefinitiveJobError/isTerminalJobStatus
+  // are plain predicates JobProgress now imports directly (not through a
+  // hook) — keep the REAL implementations rather than re-stubbing them, so
+  // this file tests the actual guard logic, not a hand-rolled copy of it.
+  const actual = await importOriginal<typeof import('@/components/import/hooks/use-ingest')>();
+  return {
+    ...actual,
+    useJobStatus: (...args: unknown[]) => mockUseJobStatus(...args),
+    useRetryJob: () => ({
+      mutateAsync: mockRetry,
+      isPending: false,
+    }),
+    useCancelJob: () => ({
+      mutate: mockCancel,
+      isPending: false,
+    }),
+  };
+});
 
 vi.mock('sonner', () => ({
   toast: {
@@ -42,6 +56,20 @@ function failedJob(overrides: Record<string, unknown> = {}) {
     started_at: '2026-07-12T12:00:00Z',
     completed_at: '2026-07-12T12:01:00Z',
     created_at: '2026-07-12T11:59:00Z',
+    ...overrides,
+  };
+}
+
+function runningJob(overrides: Record<string, unknown> = {}) {
+  return {
+    ...failedJob({ status: 'running', error_message: null, started_at: null, completed_at: null }),
+    ...overrides,
+  };
+}
+
+function cancelledJob(overrides: Record<string, unknown> = {}) {
+  return {
+    ...failedJob({ status: 'cancelled', error_message: null, retry_reason: null }),
     ...overrides,
   };
 }
@@ -77,5 +105,166 @@ describe('JobProgress retry capability', () => {
     expect(screen.getByText('Fresh service credentials are required.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start Over' })).toBeInTheDocument();
+  });
+});
+
+// fix(#1778): #1709 granted job-creator cancel server-side, but JobProgress —
+// the terminal render for every import path — offered no way to reach it.
+describe('JobProgress owner cancel', () => {
+  beforeEach(() => {
+    mockUseJobStatus.mockReset();
+    mockCancel.mockReset();
+  });
+
+  it('shows Cancel on a running job and calls the cancel mutation with the job id', async () => {
+    mockUseJobStatus.mockReturnValue({ data: runningJob(), isLoading: false });
+    const user = userEvent.setup();
+
+    render(<JobProgress jobId="job-1" onReset={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(mockCancel).toHaveBeenCalledWith('job-1', expect.anything());
+  });
+
+  it('hides Cancel once the job is terminal', () => {
+    mockUseJobStatus.mockReturnValue({ data: failedJob(), isLoading: false });
+
+    render(<JobProgress jobId="job-1" onReset={vi.fn()} />);
+
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+  });
+});
+
+// fix(review #1800 P2): a successful Cancel drives the job to `cancelled`,
+// hiding the Cancel button — but the terminal blocks below only covered
+// `complete` and `failed`, so JobProgress then rendered no action at all.
+// ServiceUrlForm and VrtCreatorForm render bare <JobProgress> with no other
+// escape hatch, so this stranded them on a dead job with nothing to click.
+describe('JobProgress cancelled state', () => {
+  beforeEach(() => {
+    mockUseJobStatus.mockReset();
+  });
+
+  it('renders a status line and the reset action for a cancelled job', async () => {
+    const onReset = vi.fn();
+    mockUseJobStatus.mockReturnValue({ data: cancelledJob(), isLoading: false });
+    const user = userEvent.setup();
+
+    render(<JobProgress jobId="job-1" onReset={onReset} />);
+
+    expect(screen.getByText('This job was cancelled.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Start Over' }));
+
+    expect(onReset).toHaveBeenCalledTimes(1);
+  });
+});
+
+// fix(#1778): a failing GET /jobs/{id} used to fall into the isLoading/!job
+// branch (undefined data, isLoading false after retries exhaust), rendering
+// "Loading job status..." forever instead of a real error state.
+describe('JobProgress error branch', () => {
+  beforeEach(() => {
+    mockUseJobStatus.mockReset();
+    mockRetry.mockReset();
+  });
+
+  it('renders a failure card instead of an indefinite spinner when the status read errors', () => {
+    mockUseJobStatus.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new ApiError('Job not found', 404),
+    });
+
+    render(<JobProgress jobId="job-1" onReset={vi.fn()} />);
+
+    expect(screen.queryByText('Loading job status...')).not.toBeInTheDocument();
+    expect(screen.getByText('Job not found')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start Over' })).toBeInTheDocument();
+  });
+
+  // fix(review #1800 P2 round 2): a successful pending/running fetch leaves
+  // TanStack's stale `data` in place once a LATER poll errors — `isError`
+  // is set but `data` (and so `job`) is not cleared. The old `isError &&
+  // !job` guard skipped entirely, and the main render kept showing the
+  // stale in-flight job (Cancel included) even though refetchInterval had
+  // already stopped polling it for good on the definitive error.
+  it('renders the failure card over stale in-flight data once a poll returns a definitive error', () => {
+    mockUseJobStatus.mockReturnValue({
+      data: runningJob(),
+      isLoading: false,
+      isError: true,
+      error: new ApiError('Job not found', 404),
+    });
+
+    render(<JobProgress jobId="job-1" onReset={vi.fn()} />);
+
+    expect(screen.getByText('Job not found')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start Over' })).toBeInTheDocument();
+  });
+
+  // Control: a terminal (already-correct) cached job must NOT be overridden
+  // by a LATER definitive error — e.g. a 404 on a forced refetch that races
+  // a retention sweep right after the job already completed. The complete
+  // render owns this case; isTerminalJobStatus(job.status) is what tells
+  // the guard the cached data is not the stale-in-flight case it exists for.
+  it('does not override a terminal cached job with the failure card', () => {
+    mockUseJobStatus.mockReturnValue({
+      data: failedJob({ status: 'complete', dataset_id: 'ds-1', error_message: null }),
+      isLoading: false,
+      isError: true,
+      error: new ApiError('Job not found', 404),
+    });
+
+    render(<JobProgress jobId="job-1" onReset={vi.fn()} />);
+
+    expect(screen.queryByText('Job not found')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'View Dataset' })).toBeInTheDocument();
+  });
+
+  // fix(review #1800 P2 round 4): a transient error (network blip, 5xx)
+  // that strikes before the FIRST fetch ever succeeds also fell into the
+  // `!job` case, but offering Start Over there drops the only tracked job
+  // id (and, in BulkTrackingList, resets the whole batch) while the server
+  // may still be processing it. Only a DEFINITIVE error (401/403/404)
+  // means there is nothing left to track.
+  it('offers Retry (not Start Over) for a non-definitive error on the first fetch', async () => {
+    const mockRefetch = vi.fn().mockResolvedValue({});
+    mockUseJobStatus.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      isFetching: false,
+      error: new ApiError('Server error', 503),
+      refetch: mockRefetch,
+    });
+    const user = userEvent.setup();
+
+    render(<JobProgress jobId="job-1" onReset={vi.fn()} />);
+
+    expect(screen.getByText('Server error')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Start Over' })).not.toBeInTheDocument();
+    const retryButton = screen.getByRole('button', { name: 'Retry' });
+    await user.click(retryButton);
+
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  // Pin: a definitive error still renders Start Over, not Retry.
+  it('offers Start Over (not Retry) for a definitive 404 on the first fetch', () => {
+    mockUseJobStatus.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      isFetching: false,
+      error: new ApiError('Job not found', 404),
+      refetch: vi.fn(),
+    });
+
+    render(<JobProgress jobId="job-1" onReset={vi.fn()} />);
+
+    expect(screen.getByRole('button', { name: 'Start Over' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
   });
 });

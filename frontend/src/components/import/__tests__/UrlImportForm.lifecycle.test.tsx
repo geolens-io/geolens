@@ -34,11 +34,17 @@ const mockUploadFromUrl = vi.fn();
 const mockPreviewFile = vi.fn();
 const mockCommitImport = vi.fn();
 const mockUseJobStatus = vi.fn();
+const mockGetJobStatus = vi.fn();
+const mockCancelJob = vi.fn();
 
 vi.mock('@/api/ingest', () => ({
   uploadFromUrl: (...a: unknown[]) => mockUploadFromUrl(...a),
   previewFile: (...a: unknown[]) => mockPreviewFile(...a),
   commitImport: (...a: unknown[]) => mockCommitImport(...a),
+  // fix(review #1800 P2): UrlImportForm's preview-failure handling now
+  // calls these to decide whether the failed job is still retryable.
+  getJobStatus: (...a: unknown[]) => mockGetJobStatus(...a),
+  cancelJob: (...a: unknown[]) => mockCancelJob(...a),
 }));
 
 vi.mock('@/components/import/hooks/use-ingest', () => ({

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Link as LinkIcon } from 'lucide-react';
 import { ApiError } from '@/api/client';
-import { previewFile, commitImport } from '@/api/ingest';
+import { previewFile, commitImport, getJobStatus, cancelJob } from '@/api/ingest';
 import {
   clearUrlImport,
   attachUrlImportCommit,
@@ -58,6 +58,16 @@ function isTerminalJobStatus(status: string | undefined): boolean {
 }
 
 /**
+ * fix(review #1800 P2): the job itself is gone — 404 (not found / no
+ * longer visible) or 410 (expired/removed). Distinct from
+ * `isTerminalJobStatus`: that reads a fetched job's `status` field, this
+ * reads the HTTP status of a call that referenced the job at all.
+ */
+function isGoneError(err: unknown): boolean {
+  return err instanceof ApiError && [404, 410].includes(err.status);
+}
+
+/**
  * feat(#1705): import a dataset straight from an HTTP(S) file URL.
  *
  * The URL variant of the Upload tab: the backend fetches the file
@@ -78,6 +88,9 @@ export function UrlImportForm() {
   const [error, setError] = useState<string | null>(null);
   // fix(#1708 codex r22): survives a resume, where previewData does not.
   const [isRaster, setIsRaster] = useState(false);
+  // fix(review #1800 P2): disables "Cancel and start over" for the duration
+  // of the cancel call, so a double-click cannot fire two cancels.
+  const [isCancelling, setIsCancelling] = useState(false);
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -115,6 +128,42 @@ export function UrlImportForm() {
     setError(null);
   };
 
+  // fix(review #1800 P2 on #1778): a preview failure does not mean the
+  // staged job is gone — a GDAL timeout or a transient network blip leaves
+  // it exactly where it was (`pending`). Clearing the session there threw
+  // away the only client-side copy of its id: resubmitting the SAME url
+  // then re-downloaded server-side (startUrlImport can no longer recognize
+  // the stale key) and the original staged job was orphaned for the
+  // sweeper. Auto-clear only when the job itself is confirmed gone or
+  // terminal: 404/410 straight from the failed call, or a live status
+  // check that comes back terminal (failed/cancelled/complete/fanned_out —
+  // the job moved on without us, e.g. an admin cancel or the stale-pending
+  // sweep). Anything else keeps BOTH the session and the `jobId` state, so
+  // the idle render below can offer an explicit retry or an explicit
+  // cancel — and the still-visible url field lets a same-url resubmit keep
+  // working exactly as it did before #1778 (`startUrlImport` reuses the
+  // fulfilled same-key session and only the preview re-runs).
+  const settlePreviewFailure = useCallback(async (id: string, err: unknown) => {
+    let terminal = isGoneError(err);
+    if (!terminal) {
+      try {
+        const status = await getJobStatus(id);
+        terminal = isTerminalJobStatus(status.status);
+      } catch (statusErr) {
+        // Fail toward KEEPING the session: a status-check failure is not
+        // evidence the job is gone (a 5xx, a network blip), except a 404/410
+        // on the status read itself, which is.
+        terminal = isGoneError(statusErr);
+      }
+    }
+    if (!mountedRef.current) return;
+    setStep('idle');
+    if (terminal) {
+      setJobId(null);
+      clearUrlImport();
+    }
+  }, []);
+
   // fix(#1708 codex r19): the session is owned by the module, so a tab
   // switch mid-import cannot strand the job. Everything below only decides
   // what THIS mount displays.
@@ -151,12 +200,79 @@ export function UrlImportForm() {
         if (!mountedRef.current) return;
         const msg = err instanceof ApiError ? err.message : t('urlImport.previewFailed');
         setError(msg);
-        setStep('idle');
         toast.error(msg);
+        await settlePreviewFailure(fetchedJobId, err);
       }
     },
-    [t],
+    [t, settlePreviewFailure],
   );
+
+  // fix(review #1800 P2): re-run the preview for the SAME job id — no
+  // re-download, no new staged file. Uses the same terminal check as the
+  // initial failure so a second miss on an actually-dead job still clears.
+  const handleRetryPreview = async () => {
+    if (!jobId) return;
+    setStep('previewing');
+    setError(null);
+    try {
+      const preview = await previewFile(jobId);
+      if (!mountedRef.current) return;
+      setPreviewData(preview);
+      setStep('review');
+    } catch (err) {
+      if (!mountedRef.current) return;
+      const msg = err instanceof ApiError ? err.message : t('urlImport.previewFailed');
+      setError(msg);
+      toast.error(msg);
+      await settlePreviewFailure(jobId, err);
+    }
+  };
+
+  // fix(review #1800 P2): the explicit escape hatch from a kept
+  // preview-failed session — cancel the staged job through the existing
+  // cancel endpoint, then release the session and reset to a fresh idle
+  // form.
+  //
+  // fix(review #1800 P2 round 2): a failed (or ambiguous) cancel does NOT
+  // mean the job is gone — resetting unconditionally on ANY outcome
+  // cleared the only client-side copy of a job that might still be pending
+  // server-side with its staged file. Reset only when the job is
+  // CONFIRMED gone: the cancel call's own 404/410, or (for anything less
+  // clear-cut) a follow-up status check that comes back gone or terminal.
+  // Any other failure (500, network blip) keeps the recovery state —
+  // session, job id, both actions — and shows the error, so the user sees
+  // what happened instead of the job silently vanishing from the tab.
+  const handleCancelAndStartOver = async () => {
+    if (!jobId) return;
+    setIsCancelling(true);
+    try {
+      await cancelJob(jobId);
+      if (!mountedRef.current) return;
+      reset();
+      return;
+    } catch (err) {
+      if (!mountedRef.current) return;
+      let gone = isGoneError(err);
+      if (!gone) {
+        try {
+          const status = await getJobStatus(jobId);
+          gone = isTerminalJobStatus(status.status);
+        } catch (statusErr) {
+          gone = isGoneError(statusErr);
+        }
+      }
+      if (!mountedRef.current) return;
+      if (gone) {
+        reset();
+        return;
+      }
+      const msg = err instanceof ApiError ? err.message : t('urlImport.cancelFailed');
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      if (mountedRef.current) setIsCancelling(false);
+    }
+  };
 
   // Shares JobProgress's query key, so this is the same cached poll rather
   // than a second one. Only used to decide which controls to offer.
@@ -220,6 +336,16 @@ export function UrlImportForm() {
 
   const handleFetch = async (e: React.FormEvent) => {
     e.preventDefault();
+    // fix(review #1800 P2 round 3): a retained job id (transient preview
+    // failure) means the url/filename fields are still visually present
+    // next to the recovery actions — without this guard, editing them and
+    // submitting silently started a SECOND session, replacing the
+    // module-level `current` and orphaning the retained job's staged file
+    // with nothing left to reach it. The recovery panel's own two actions
+    // (Retry preview / Cancel and start over) are the only way forward
+    // while a job is retained; Cancel and start over clears jobId and
+    // re-enables ordinary submission.
+    if (jobId) return;
     const trimmed = url.trim();
     if (!trimmed) return;
     await runSession(startUrlImport(trimmed, filename.trim() || undefined));
@@ -389,6 +515,31 @@ export function UrlImportForm() {
   // ── Idle — URL input form ──
   return (
     <div className="rounded-xl border border-border bg-card p-5">
+      {/* fix(review #1800 P2 on #1778): a transient preview failure keeps
+          the staged job (`jobId` stays set) rather than clearing the
+          session — offer an explicit retry against the SAME job (no
+          re-download) and an explicit cancel, without hiding the url field
+          below: resubmitting the same url still works exactly as it did
+          before #1778 (startUrlImport reuses the fulfilled same-key
+          session, so only the preview re-runs). */}
+      {jobId && (
+        <div className="mb-4 space-y-3 rounded-lg border border-border bg-surface-1 p-3.5">
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={handleRetryPreview}>
+              {t('urlImport.retryPreview')}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCancelAndStartOver}
+              disabled={isCancelling}
+            >
+              {isCancelling ? t('urlImport.cancelling') : t('urlImport.cancelAndStartOver')}
+            </Button>
+          </div>
+        </div>
+      )}
       <form onSubmit={handleFetch} className="space-y-5">
         <div>
           <label className="eyebrow mb-2.5 block" htmlFor="file-url-input">
@@ -405,11 +556,12 @@ export function UrlImportForm() {
               placeholder={t('urlImport.placeholder')}
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              className="flex-1 bg-transparent px-3.5 py-2.5 font-mono text-sm text-foreground outline-none placeholder:text-muted-foreground/50"
+              disabled={!!jobId}
+              className="flex-1 bg-transparent px-3.5 py-2.5 font-mono text-sm text-foreground outline-none placeholder:text-muted-foreground/50 disabled:opacity-60"
             />
             <button
               type="submit"
-              disabled={!url.trim()}
+              disabled={!url.trim() || !!jobId}
               className="bg-primary px-4 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
             >
               {t('urlImport.fetch')}
@@ -438,12 +590,15 @@ export function UrlImportForm() {
             placeholder={t('urlImport.filenamePlaceholder')}
             value={filename}
             onChange={(e) => setFilename(e.target.value)}
+            disabled={!!jobId}
             className="font-mono text-sm"
           />
           <p className="text-xs text-muted-foreground">{t('urlImport.filenameHelpText')}</p>
         </div>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {/* A lingering job's error already renders in the recovery panel
+            above; avoid showing it twice. */}
+        {!jobId && error && <p className="text-sm text-destructive">{error}</p>}
       </form>
     </div>
   );

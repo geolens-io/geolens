@@ -283,6 +283,7 @@
     "storageUploadFailed": "Storage upload failed (HTTP {{status}}).",
     "storageUploadPartFailed": "Upload part {{part}} failed (HTTP {{status}}).",
     "storageUploadPartRetriesFailed": "Upload part {{part}} failed after {{attempts}} attempts.",
+    "storageUploadMissingEtag": "Upload part {{part}} completed but the storage bucket did not return an ETag. The bucket's CORS policy must expose the ETag header.",
     "storageQuotaExceeded": "Storage quota exceeded: {{used}} of {{limit}} bytes used (adding {{adding}} bytes).",
     "datasetQuotaExceeded": "Dataset quota exceeded: {{used}} of {{limit}} datasets used.",
     "analysisSourceTooLarge": "This layer is too large for that analysis (limit {{limit}} features). Filter it to a smaller dataset first.",

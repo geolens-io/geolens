@@ -158,6 +158,7 @@
     "storageUploadFailed": "Échec de l'envoi vers le stockage (HTTP {{status}}).",
     "storageUploadPartFailed": "Échec de l'envoi de la partie {{part}} (HTTP {{status}}).",
     "storageUploadPartRetriesFailed": "Échec de l'envoi de la partie {{part}} après {{attempts}} tentatives.",
+    "storageUploadMissingEtag": "La partie {{part}} a été envoyée, mais le bucket de stockage n'a pas renvoyé d'ETag. La politique CORS du bucket doit exposer l'en-tête ETag.",
     "storageQuotaExceeded": "Quota de stockage dépassé : {{used}} octets utilisés sur {{limit}} (ajout de {{adding}} octets).",
     "datasetQuotaExceeded": "Quota de jeux de données dépassé : {{used}} utilisés sur {{limit}}.",
     "analysisSourceTooLarge": "Cette couche est trop volumineuse pour cette analyse (limite : {{limit}} entités). Il faut d'abord la filtrer vers un jeu de données plus petit.",

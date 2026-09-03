@@ -1,7 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { useJobStatus, useRetryJob } from '@/components/import/hooks/use-ingest';
+import {
+  useJobStatus,
+  useRetryJob,
+  useCancelJob,
+  isDefinitiveJobError,
+  isTerminalJobStatus,
+} from '@/components/import/hooks/use-ingest';
 import { toast } from 'sonner';
 import { Copy, Download, Link2, Map } from 'lucide-react';
 import { jobStatusColors } from '@/lib/status-colors';
@@ -89,8 +95,9 @@ function StatusBadge({ status }: { status: string }) {
 
 export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgressProps) {
   const { t } = useTranslation('import');
-  const { data: job, isLoading } = useJobStatus(jobId);
+  const { data: job, isLoading, isError, error, refetch, isFetching } = useJobStatus(jobId);
   const retryMutation = useRetryJob();
+  const cancelMutation = useCancelJob();
   const warningShownRef = useRef(false);
 
   // Warn before tab close / refresh while an import is still running —
@@ -120,6 +127,64 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
     }
   }, [job?.status, job?.warning_message]);
 
+  // fix(#1778): a failing GET /jobs/{id} used to leave `job` undefined
+  // forever whenever there was no data yet, falling into the isLoading/!job
+  // branch below and rendering an indefinite "Loading status…" spinner.
+  //
+  // fix(review #1800 P2 round 2): `!job` alone missed a second case — a
+  // successful pending/running fetch leaves TanStack's stale `data` in
+  // place, so a LATER poll returning 401/403/404 sets `isError` without
+  // clearing `data`. That skipped this guard AND `isLoading || !job` below
+  // (job is truthy), so the main render kept showing the stale in-flight
+  // job — Cancel button included — even though refetchInterval had already
+  // stopped polling it for good. Render this error state whenever `job` is
+  // missing (any error — a 5xx with no data yet must not spin forever
+  // either) OR polling has definitively stopped due to the error while the
+  // cached job is still in-flight. A terminal `job`
+  // (complete/failed/cancelled/fanned_out) is left alone: a later transient
+  // failure on a forced refetch does not make an already-correct terminal
+  // render wrong, so its own block below still owns that case.
+  if (isError && (!job || (isDefinitiveJobError(error) && !isTerminalJobStatus(job.status)))) {
+    const msg = error instanceof ApiError ? error.message : t('jobProgress.statusError');
+
+    // fix(review #1800 P2 round 4): `!job` covers BOTH a definitive error
+    // (401/403/404 — the job is genuinely gone or no longer ours) AND a
+    // transient one (network blip, 5xx, retries exhausted) that happened
+    // to strike before the FIRST fetch ever succeeded. Only the former
+    // means there is nothing left to track — offering Start Over there was
+    // right. The latter does not: the server may still be processing the
+    // job, and Start Over there drops the only tracked job id (and, in
+    // BulkTrackingList, resets the whole batch) out from under it for no
+    // reason better than "the status read glitched once." Every consumer
+    // of this component (JobProgress itself, BulkTrackingList's per-row
+    // render, ServiceUrlForm, VrtCreatorForm) routes through this one
+    // branch, so splitting it here is enough — none of them has its own
+    // parallel error-driven reset path.
+    if (!isDefinitiveJobError(error)) {
+      return (
+        <Card>
+          <CardContent className="space-y-3 py-6">
+            <p className="text-sm text-destructive">{msg}</p>
+            <Button variant="outline" onClick={() => void refetch()} disabled={isFetching}>
+              {isFetching ? t('jobProgress.retrying') : t('jobProgress.retryStatus')}
+            </Button>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    return (
+      <Card>
+        <CardContent className="space-y-3 py-6">
+          <p className="text-sm text-destructive">{msg}</p>
+          <Button variant="outline" onClick={onReset}>
+            {t('jobProgress.startOver')}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (isLoading || !job) {
     return (
       <Card>
@@ -144,6 +209,16 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
     }
   };
 
+  // fix(#1778): the backend already grants cancel to the job's creator
+  // (#1709) — this is the only client caller that reaches it from an import
+  // surface. One-click, matching the admin job list and the refresh-run
+  // history's cancel (feat #1677): no confirm dialog, a toast on rejection.
+  const handleCancel = () => {
+    cancelMutation.mutate(jobId, {
+      onError: () => toast.error(t('jobProgress.cancelFailed')),
+    });
+  };
+
   return (
     <Card>
       <CardContent className="space-y-4">
@@ -154,9 +229,21 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
             )}
             <StatusBadge status={job.status} />
           </div>
-          {job.source_filename && (
-            <span className="text-sm text-muted-foreground">{job.source_filename}</span>
-          )}
+          <div className="flex items-center gap-2">
+            {job.source_filename && (
+              <span className="text-sm text-muted-foreground">{job.source_filename}</span>
+            )}
+            {isPolling && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCancel}
+                disabled={cancelMutation.isPending}
+              >
+                {cancelMutation.isPending ? t('jobProgress.cancelling') : t('jobProgress.cancel')}
+              </Button>
+            )}
+          </div>
         </div>
 
         {hasDeterminateProgress && (
@@ -258,6 +345,22 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
                 {t('jobProgress.startOver')}
               </Button>
             </div>
+          </div>
+        )}
+
+        {/* fix(review #1800 P2): the new Cancel button (#1778) drives a job
+            to `cancelled`, but the terminal blocks below only covered
+            `complete` and `failed` — a cancelled job rendered no action at
+            all. That strands any consumer with no OTHER escape hatch of its
+            own; ServiceUrlForm and VrtCreatorForm render bare <JobProgress>
+            with nothing else, unlike UrlImportForm's own terminal-status
+            "Import another" button. */}
+        {job.status === 'cancelled' && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">{t('jobProgress.cancelledMessage')}</p>
+            <Button variant="outline" onClick={onReset}>
+              {t('jobProgress.startOver')}
+            </Button>
           </div>
         )}
       </CardContent>

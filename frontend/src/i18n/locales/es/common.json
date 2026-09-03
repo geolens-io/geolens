@@ -158,6 +158,7 @@
     "storageUploadFailed": "Falló la subida al almacenamiento (HTTP {{status}}).",
     "storageUploadPartFailed": "Falló la subida de la parte {{part}} (HTTP {{status}}).",
     "storageUploadPartRetriesFailed": "Falló la subida de la parte {{part}} tras {{attempts}} intentos.",
+    "storageUploadMissingEtag": "La parte {{part}} se subió, pero el bucket de almacenamiento no devolvió un ETag. La política CORS del bucket debe exponer el encabezado ETag.",
     "storageQuotaExceeded": "Cuota de almacenamiento superada: se han usado {{used}} de {{limit}} bytes (se añadirían {{adding}} bytes).",
     "datasetQuotaExceeded": "Cuota de conjuntos de datos superada: se han usado {{used}} de {{limit}}.",
     "analysisSourceTooLarge": "Esta capa es demasiado grande para ese análisis (límite: {{limit}} entidades). Es necesario filtrarla primero a un conjunto de datos más pequeño.",

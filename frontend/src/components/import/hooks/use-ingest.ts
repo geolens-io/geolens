@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
-import { uploadFile, getJobStatus, getJobStatusByDataset, retryJob, discoverTables, bulkRegisterTables, getUploadConfig, createVrt } from '@/api/ingest';
+import { uploadFile, getJobStatus, getJobStatusByDataset, retryJob, cancelJob, discoverTables, bulkRegisterTables, getUploadConfig, createVrt } from '@/api/ingest';
 import { ApiError, apiFetch } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
 import type { BulkRegisterRequest, VrtCreateRequest, SearchResponse } from '@/types/api';
@@ -35,6 +35,17 @@ export function isTerminalJobStatus(status: string | undefined): boolean {
   );
 }
 
+/**
+ * fix(review #1800 P2 round 2): a definitive job error is one retrying
+ * cannot fix — the job is gone (404) or the caller's identity no longer has
+ * access to it (401/403). Exported so JobProgress's render guard checks
+ * EXACTLY the signal that stops the poll below, rather than a second copy
+ * of the status list that could drift from it.
+ */
+export function isDefinitiveJobError(error: unknown): boolean {
+  return error instanceof ApiError && [401, 403, 404].includes(error.status);
+}
+
 export function useJobStatus(jobId: string | null) {
   // fix(#762): AnalysisJobWatcher mounts in RootLayout with a persist-backed
   // job id, so without this gate a stale tracked job made an anonymous
@@ -47,7 +58,14 @@ export function useJobStatus(jobId: string | null) {
     queryFn: () => getJobStatus(jobId!),
     enabled: !!jobId && hasToken,
     staleTime: 2000,
-    refetchInterval: (query) => (isTerminalJobStatus(query.state.data?.status) ? false : 2000),
+    // fix(#1778): a 401/403/404 on the status read is definitive (gone or no
+    // longer ours), matching AnalysisJobWatcher's `gone` check — stop polling
+    // rather than hammering the endpoint every 2s for the life of the tab.
+    refetchInterval: (query) => {
+      if (isTerminalJobStatus(query.state.data?.status)) return false;
+      if (isDefinitiveJobError(query.state.error)) return false;
+      return 2000;
+    },
   });
 }
 
@@ -95,6 +113,21 @@ export function useRetryJob() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: retryJob,
+    onSuccess: (_data, jobId) => {
+      qc.invalidateQueries({ queryKey: queryKeys.ingest.jobStatus(jobId) });
+    },
+  });
+}
+
+// fix(#1778): #1709 granted job-creator cancel server-side but shipped no
+// caller for it on the import surfaces the creator actually uses (JobProgress
+// terminates every import path) — only the admin job list and the refresh-run
+// history reached /jobs/{id}/cancel. Same shape as useCancelAdminJob
+// (hooks/use-admin.ts), scoped to the ingest job-status query import owns.
+export function useCancelJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId: string) => cancelJob(jobId),
     onSuccess: (_data, jobId) => {
       qc.invalidateQueries({ queryKey: queryKeys.ingest.jobStatus(jobId) });
     },
