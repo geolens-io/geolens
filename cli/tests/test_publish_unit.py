@@ -1881,6 +1881,76 @@ class TestResolveDatasetIdNetworkError:
         assert exc_info.value.exit_code == EXIT_NETWORK
 
 
+class TestResolveDatasetIdRetriesOnPerRequestTimeout:
+    """fix(#1778 review round 7): the per-request 5s snapshot bound
+    (_SNAPSHOT_REQUEST_TIMEOUT_SECONDS) used to turn one slow
+    GET /jobs/{job_id} (a busy DB pool, say) into an immediate
+    typer.Exit(EXIT_NETWORK) via call_sdk, aborting --wait even though
+    the operation's own deadline still had time left. A per-request
+    httpx.TimeoutException is now retried (logged, slept past) until
+    the deadline itself is reached; only then does it exit
+    EXIT_NETWORK. A genuine network failure (TestResolveDatasetIdNetworkError
+    above) is unaffected."""
+
+    def test_two_timeouts_then_success_still_resolves(self, monkeypatch) -> None:
+        import httpx
+
+        from geolens_cli import publish as _publish
+
+        calls = {"n": 0}
+
+        def flaky(**kwargs):
+            calls["n"] += 1
+            if calls["n"] <= 2:
+                raise httpx.ReadTimeout("db pool busy")
+            return _ok_job_status(dataset_id="00000000-0000-0000-0000-000000000099")
+
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            flaky,
+        )
+
+        outcome = _publish.resolve_dataset_id(
+            MagicMock(),
+            "00000000-0000-0000-0000-000000000001",
+            timeout=120.0,
+            sleep=lambda *_: None,
+            monotonic=iter([0.0, 1.0, 2.0, 3.0, 4.0, 5.0]).__next__,
+        )
+
+        assert calls["n"] == 3
+        assert outcome.dataset_id == "00000000-0000-0000-0000-000000000099"
+        assert outcome.stopped_because is None
+
+    def test_always_timing_out_exits_network_at_the_deadline(
+        self, monkeypatch
+    ) -> None:
+        import httpx
+        import typer
+
+        from geolens_cli import publish as _publish
+        from geolens_cli._sdk_helpers import EXIT_NETWORK
+
+        def always_slow(**kwargs):
+            raise httpx.ReadTimeout("db pool busy")
+
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            always_slow,
+        )
+
+        with pytest.raises(typer.Exit) as exc_info:
+            _publish.resolve_dataset_id(
+                MagicMock(),
+                "00000000-0000-0000-0000-000000000001",
+                timeout=10.0,
+                sleep=lambda *_: None,
+                monotonic=iter([0.0, 1.0, 11.0]).__next__,
+            )
+
+        assert exc_info.value.exit_code == EXIT_NETWORK
+
+
 class TestResolveDatasetIdBoundsEachRequest:
     """fix(#1778, #1787): resolve_dataset_id's own poll requests inherited
     the client's default timeout=None (unbounded) — the deadline computed

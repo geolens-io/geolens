@@ -283,20 +283,42 @@ def _delete_stale_credentials(instance: str, *, keep: str, keep_backend: str) ->
       keyring — so a stale file value kept winning over a freshly-stored
       keyring value even though login reported the new one stored.
 
-    The keyring half mirrors ``delete_credentials()`` — missing entries
-    and backend errors are swallowed, matching D-13's existing
-    best-effort delete semantics. The credentials.toml write is allowed
-    to raise: ``replace_credentials`` is the one that needs to know, so
-    it can restore the pre-swap snapshot instead of leaving the file in
-    whatever partial state the failed write left it in.
+    fix(#1778 review round 7): the keyring half used to swallow EVERY
+    delete failure with a blanket ``except Exception: pass``, matching
+    ``delete_credentials()``'s best-effort semantics. But
+    ``keyring.errors.PasswordDeleteError`` is raised for BOTH "no such
+    entry" (expected and fine — this cleanup is idempotent by design)
+    AND a genuine backend refusal (a locked keychain, permission
+    denied, ...), with no reliable way to tell the two apart from the
+    exception alone. Swallowing both meant a real refusal was silently
+    ignored: ``replace_credentials()`` reported success while the old
+    credential stayed live in the OTHER backend, and
+    ``load_bearer_token``/``load_api_key`` kept resolving it — a stale
+    BEARER token in particular keeps outranking a freshly-stored API
+    key under the stored-credential precedence.
+
+    Checking existence FIRST (rather than pattern-matching the
+    exception) resolves the ambiguity: an already-absent entry is
+    skipped without ever calling delete (nothing to fail), so a delete
+    that IS attempted was for an entry that existed, and its failure is
+    real — it propagates. The credentials.toml write below is allowed
+    to raise for the same reason: ``replace_credentials`` is the one
+    that needs to know, so it can restore the pre-swap snapshot instead
+    of leaving either backend in a half-cleaned state.
     """
     for name, account_fn in _ACCOUNT_FN_BY_KIND.items():
         if name == keep and keep_backend == "keyring":
             continue
+        account = account_fn(instance)
         try:
-            keyring.delete_password(SERVICE, account_fn(instance))
-        except Exception:
-            pass
+            exists = keyring.get_password(SERVICE, account) is not None
+        except KeyringError:
+            # Can't even read this backend right now — nothing we can
+            # actively delete, and this isn't the delete-refusal case
+            # the check-first split exists to surface.
+            continue
+        if exists:
+            keyring.delete_password(SERVICE, account)
 
     data = _read_credentials_file()
     section = data.get(instance)

@@ -418,6 +418,65 @@ class TestLoginCrossBackendStaleCredential:
         )
 
 
+class TestDeleteStaleCredentialsSurfacesGenuineFailures:
+    """fix(#1778 review round 7): _delete_stale_credentials() used to
+    swallow EVERY keyring delete failure with a blanket
+    `except Exception: pass`, matching keyring.errors.PasswordDeleteError
+    raised for both "no such entry" (expected) and a genuine backend
+    refusal (locked keychain, permission denied, ...) — with no way to
+    tell them apart from the exception alone. It now checks existence
+    first, so a refusal on an entry that DID exist propagates and
+    replace_credentials() restores the pre-swap snapshot instead of
+    reporting success."""
+
+    def test_a_delete_refusal_restores_the_snapshot_and_exits_nonzero(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        import keyring
+
+        from geolens_cli import auth as _auth
+        from geolens_cli import config as _config
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com"
+        canonical = _config.normalize_instance_url(instance)
+
+        # Old bearer token lives in the keyring (an earlier plain login).
+        _auth.store_bearer_token(canonical, "old-bearer-token")
+        bearer_account = canonical  # _keyring_account_token(instance)
+
+        original_delete = keyring.delete_password  # mock_keyring's dict-backed one
+
+        def refusing_delete(service, username):
+            if username == bearer_account:
+                raise RuntimeError("keychain is locked")
+            return original_delete(service, username)
+
+        monkeypatch.setattr("keyring.delete_password", refusing_delete)
+
+        # A --api-key login must evict the competing bearer kind, which
+        # is exactly the delete this test makes fail.
+        result = runner.invoke(app, ["login", instance, "--api-key", "new-key"])
+
+        assert result.exit_code != 0, result.output
+        # Snapshot restored: the old bearer survives, and the api_key
+        # that had briefly been stored is rolled back too.
+        loaded_bearer = _auth.load_bearer_token(canonical)
+        assert loaded_bearer is not None
+        assert loaded_bearer.value == "old-bearer-token"
+        assert _auth.load_api_key(canonical) is None
+
+    def test_a_missing_entry_is_still_tolerated(
+        self, tmp_xdg_home, mock_keyring
+    ) -> None:
+        from geolens_cli import auth as _auth
+
+        instance = "https://x.example.com/api"
+        # Nothing stored for this instance in either backend — every
+        # account in _delete_stale_credentials' loop is absent.
+        _auth._delete_stale_credentials(instance, keep="bearer", keep_backend="keyring")
+
+
 class TestManifestCommandExitCodes:
     """Offline manifest commands use usage errors for local input problems."""
 

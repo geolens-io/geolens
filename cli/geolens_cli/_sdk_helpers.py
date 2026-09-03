@@ -237,9 +237,22 @@ def call_sdk(
     fn: Callable[..., Any],
     *,
     deadline_expired: Callable[[], bool] | None = None,
+    reraise_timeout: bool = False,
     **kwargs: Any,
 ) -> Any:
-    """Run a sync_detailed call, mapping httpx exceptions to exit codes."""
+    """Run a sync_detailed call, mapping httpx exceptions to exit codes.
+
+    fix(#1778 review round 7): ``reraise_timeout=True`` re-raises the
+    plain ``httpx.TimeoutException`` to the caller instead of mapping it
+    to ``typer.Exit(EXIT_NETWORK)``, for a poll loop that wants to treat
+    one slow request as retryable rather than immediately fatal, as long
+    as the operation's own deadline hasn't passed — see
+    ``publish.resolve_dataset_id``. ``deadline_expired`` is unrelated
+    and still checked first: a caller that wants call_sdk itself to
+    distinguish "the deadline already passed" (``DeadlineTimeout``) from
+    a plain hard-exit keeps that behavior regardless of
+    ``reraise_timeout``.
+    """
     import httpx  # lazy — only for exception types
 
     try:
@@ -247,6 +260,8 @@ def call_sdk(
     except httpx.TimeoutException:
         if deadline_expired is not None and deadline_expired():
             raise DeadlineTimeout from None
+        if reraise_timeout:
+            raise
         typer.secho("Request timed out", fg="red", err=True)
         raise typer.Exit(EXIT_NETWORK)
     except httpx.NetworkError as exc:
