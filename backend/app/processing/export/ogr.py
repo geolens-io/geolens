@@ -2,12 +2,14 @@
 
 import asyncio
 import math
+import csv
 import os
 import time
 
 import structlog
 
 from app.core.config import settings
+from app.core.csv_safety import escape_csv_formula
 
 # fix(#909): build_pg_conn_str is deliberately NOT imported at module scope.
 # The test fixture redirects app.processing.ingest.ogr.build_pg_conn_str at
@@ -288,6 +290,54 @@ def bbox_where_sql(bbox: list[float], *, literal: bool = False) -> str:
     return envelope(minx, maxx)
 
 
+# fix(#1778): ogr2ogr writes every attribute value verbatim and there is no
+# validation on the writer side either -- features/service.py regex-checks the
+# column NAME and binds the value straight through. The export route is
+# anonymous-reachable for a public dataset and records/service.py publishes
+# `?format=csv` as a first-class DCAT distribution ("CSV Download"), so an
+# editor on one public dataset writes a cell and any visitor who opens the
+# advertised download executes it. The two sibling CSV writers in this
+# repository have carried the escape for a long time; this one is the exposed
+# CSV in the product and had none.
+#
+# A post-pass rather than a driver option: ogr2ogr has no layer-creation option
+# for this, and the export already writes to a temp file it hashes for the
+# artifact cache, so a rewrite fits where the hash is not yet taken.
+_CSV_FIELD_SIZE_LIMIT = 2**31 - 1
+
+
+def _harden_csv_formulas(output_path: str) -> None:
+    """Rewrite a just-written CSV with every formula-triggering cell escaped.
+
+    Row at a time, so memory is bounded by the widest row rather than by the
+    file. The rewrite costs one extra read and write of the artifact and a
+    transient second copy on disk; both are small beside the ogr2ogr run and
+    the object-store upload that follows.
+
+    The reader's field-size limit is raised and never lowered: a WKT geometry
+    for a detailed polygon passes csv's 128 KiB default easily, and lowering it
+    again would be a process-global change racing any concurrent export.
+    """
+    if csv.field_size_limit() < _CSV_FIELD_SIZE_LIMIT:
+        csv.field_size_limit(_CSV_FIELD_SIZE_LIMIT)
+
+    # Preserve the line ending GDAL chose rather than imposing csv's CRLF
+    # default on a file a client may diff or checksum.
+    with open(output_path, "rb") as probe:
+        head = probe.read(8192)
+    terminator = "\r\n" if b"\r\n" in head else "\n"
+
+    hardened_path = output_path + ".hardened"
+    with (
+        open(output_path, newline="", encoding="utf-8") as src,
+        open(hardened_path, "w", newline="", encoding="utf-8") as dst,
+    ):
+        writer = csv.writer(dst, lineterminator=terminator)
+        for row in csv.reader(src):
+            writer.writerow([escape_csv_formula(cell) for cell in row])
+    os.replace(hardened_path, output_path)
+
+
 async def run_ogr2ogr_export(
     table_name: str,
     output_path: str,
@@ -437,3 +487,8 @@ async def run_ogr2ogr_export(
         raise ExportError(
             f"ogr2ogr export failed (exit {proc.returncode}): {stderr.decode().strip()}"
         )
+
+    # fix(#1778): see _harden_csv_formulas. Only after a clean exit -- there is
+    # nothing to harden on a failed run, and a partial file is discarded.
+    if format_key == "csv":
+        _harden_csv_formulas(output_path)

@@ -52,6 +52,7 @@ from app.modules.audit.service import (
 )
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user, require_permission
+from app.core.csv_safety import escape_csv_formula
 from app.core.dependencies import get_client_ip, get_db
 from app.processing.export.service import safe_content_disposition
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH
@@ -80,11 +81,11 @@ _EXPORT_OUTCOME_TIMEOUT_SECONDS = 5
 _EXPORT_NAME_CHUNK_ROWS = 500
 
 
-def _safe_csv_cell(value: str) -> str:
-    """Prevent spreadsheet formula execution for user-controlled CSV cells."""
-    if value and value[0] in ("=", "+", "-", "@"):
-        return "\t" + value
-    return value
+# fix(#1778): one rule, in core/csv_safety.py, shared with the admin user export
+# and the dataset CSV export. The third writer had no hardening at all, which is
+# what a private copy per writer costs. Re-exported under the name this module's
+# callers and tests already use.
+_safe_csv_cell = escape_csv_formula
 
 
 @dataclass(frozen=True)
