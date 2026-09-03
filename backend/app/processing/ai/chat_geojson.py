@@ -298,6 +298,23 @@ def _safe_value(v: object) -> object:
     return str(v)
 
 
+def safe_rows(rows: list[list]) -> list[list]:
+    """Normalize a tabular result's cells for the browser (fix(#1778 round 3)).
+
+    ``_safe_value`` reached only the GeoJSON property copy, so a NaN or an
+    Infinity in an ordinary column still travelled in ``show_query_result``'s
+    ``rows``: the SSE frame carried a bare ``NaN`` token, ``JSON.parse``
+    rejected it and ``parseSSEBody`` dropped the whole frame silently, and the
+    non-streaming endpoint returned 500 because Starlette renders with
+    ``allow_nan=False``. The same normalization now runs on both halves of the
+    payload, at the one point the rows are handed to a frame.
+
+    Call this on the way OUT, never before ``_extract_geojson``: geometry is
+    detected by value, and stringifying a cell first would hide it.
+    """
+    return [[_safe_value(cell) for cell in row] for row in rows]
+
+
 def _parse_row_geometry(raw: object) -> tuple[object, dict] | None:
     """Parse one row's geometry cell into (shapely geometry, GeoJSON dict).
 

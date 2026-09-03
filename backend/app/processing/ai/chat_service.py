@@ -14,6 +14,7 @@ service.py, and tests:
         _is_geom_value,
         _detect_geom_column,
         _safe_value,
+        safe_rows,
         _extract_geojson,
         ERROR_MESSAGES,
         lang_name,
@@ -71,6 +72,7 @@ from app.processing.ai.chat_geojson import (
     _extract_geojson,
     _is_geom_value,
     _safe_value,
+    safe_rows,
     ensure_geometry_selected,
     strip_geometry_columns,
 )
@@ -129,6 +131,7 @@ __all__ = [
     "_is_geom_value",
     "_detect_geom_column",
     "_safe_value",
+    "safe_rows",
     "_extract_geojson",
     "ensure_geometry_selected",
     "strip_geometry_columns",

@@ -28,6 +28,7 @@ from app.processing.ai.chat_analysis import (
 from app.processing.ai.chat_constants import _EDIT_TOOLS, ERROR_MESSAGES
 from app.processing.ai.chat_geojson import (
     _extract_geojson,
+    safe_rows,
     ensure_geometry_selected,
     strip_geometry_columns,
 )
@@ -313,9 +314,14 @@ async def _handle_query_data(
 
     # Limit rows in tool result for token economy
     # Note: raw SQL intentionally excluded to prevent info disclosure via LLM leakage
+    # fix(#1778 round 3): the rows are normalized HERE, on the way out, and not
+    # a line earlier: _extract_geojson detects the geometry column by value, so
+    # stringifying a cell before it runs would hide the geometry. This is the
+    # single point where a tabular result is handed to a frame; the collector
+    # below re-reads this dict rather than touching result.rows again.
     out: dict = {
         "columns": columns,
-        "rows": rows,
+        "rows": safe_rows(rows),
         "row_count": result.row_count,
         "truncated": result.truncated,
     }

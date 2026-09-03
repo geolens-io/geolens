@@ -1523,7 +1523,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # helper instead of interpolating the marker tags here, so a layer id
         # or a serialized filter cannot forge a closing tag either.
         # Cap 513 -> 516, exact.
-        "backend/app/processing/ai/chat_service.py": 516,
+        # fix(#1778 round 3): +3 - safe_rows re-exported through the facade
+        # alongside _safe_value, per the module's import contract.
+        # Cap 516 -> 519, exact.
+        "backend/app/processing/ai/chat_service.py": 519,
         # fix(#836): defaults.py is the facade over the extensions-defaults
         # split (defaults_*.py sub-modules discovered below). Pure re-exports —
         # a new Default* class costs a few lines here.
@@ -1877,7 +1880,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # deliberately does not. Both surfaces sit behind the same
         # use_ai_chat permission, so the omissions were opt-out by asking the
         # chatbot. Cap 550 -> 581, exact.
-        "backend/app/processing/ai/chat_actions.py": 581,
+        # fix(#1778 round 3): +6 - safe_rows on the tabular half of the
+        # query_data payload, at the one point it is handed to a frame, plus
+        # the note saying why it runs after geometry detection and not before.
+        # Cap 581 -> 587, exact.
+        "backend/app/processing/ai/chat_actions.py": 587,
         # feat(#1241): +18 over the 350 default — _safe_value now emits
         # integers outside JavaScript's safe range as strings (constant, the
         # int branch, and the docstring explaining why), so a bigint id
@@ -1892,7 +1899,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # _parse_row_geometry (the per-row parse) and _row_properties (the
         # property build plus its non-finite count, which feeds one warning per
         # result rather than one per cell). Cap 370 -> 420, exact.
-        "backend/app/processing/ai/chat_geojson.py": 420,
+        # fix(#1778 round 3): +17 - safe_rows, the tabular sibling of
+        # _safe_value. Round 0 normalized only the GeoJSON property copy, so a
+        # NaN in an ordinary column still reached the SSE frame as a bare token
+        # and the browser dropped the whole frame. Cap 420 -> 437, exact.
+        "backend/app/processing/ai/chat_geojson.py": 437,
         # fix(#836): extensions-defaults sub-modules over the 350 default at
         # split time. Caps exact (zero headroom): each class moved verbatim
         # from the 1815-LOC defaults.py, and regrowth toward another god
