@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.async_io import run_in_thread_draining
 from app.modules.catalog.maps.models import MapIconAsset
+from app.modules.catalog.maps.service import MapAssetPublication
 from app.modules.catalog.maps.schemas import MapIconResponse
 from app.platform.storage import get_storage
 
@@ -302,7 +303,22 @@ async def create_icon_asset(
     content_type: str | None,
     content: bytes,
     created_by: uuid.UUID | None,
+    publication: MapAssetPublication | None = None,
 ) -> MapIconAsset:
+    """Store one uploaded icon and the row that names it.
+
+    fix(#1778 round 4): ``publication`` is the rollback ledger from
+    ``map_asset_publication``. This is the third write-object-then-commit-row
+    site in the package, and the one whose commit is not here: the row is only
+    flushed below, and the route commits afterwards, so a failure in either step
+    would leave the icon bytes behind with no row naming them. The caller opens
+    the publication and this function records the key it wrote, because the key
+    is derived here and the commit happens there.
+
+    The key recorded is the physical one, which for icons is the logical one:
+    they are deliberately global rather than tenant-resolved, for the reasons
+    the comment below the slug gives.
+    """
     base_slug, media_type, sanitized_content = validate_icon_upload(
         filename, content_type, content
     )
@@ -329,6 +345,13 @@ async def create_icon_asset(
     storage_key = f"maps/icons/{icon_id}{extension}"
     # Persist the sanitized form so the bytes on disk match what validation
     # accepted (SEC-09). For PNG this is the original bytes unchanged.
+    # fix(#1778 round 7): recorded before the write, like the two image
+    # handlers. Object storage can durably accept a PUT and still fail the
+    # client, so a raise from the put says nothing about whether the bytes
+    # landed; the key is freshly generated and never reused, so a rollback
+    # delete is either a real cleanup or a no-op on a key nothing wrote.
+    if publication is not None:
+        publication.record(storage_key)
     await get_storage().put(storage_key, sanitized_content)
     asset = MapIconAsset(
         id=icon_id,

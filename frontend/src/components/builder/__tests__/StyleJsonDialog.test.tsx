@@ -75,5 +75,60 @@ describe('StyleJsonDialog', () => {
     }));
     expect(screen.getByText('Imported 2 layers')).toBeInTheDocument();
     expect(screen.getByText('External source skipped.')).toBeInTheDocument();
+    expect(screen.queryByText(/more warnings omitted/)).not.toBeInTheDocument();
+  });
+
+  // fix(#1778): the backend stops listing warnings after 100, so a document
+  // with thousands of unmatched sources used to look like it had exactly 100
+  // problems.
+  it('reports how many warnings the backend stopped listing', async () => {
+    importMutateAsync.mockResolvedValueOnce({
+      map: { id: 'new-map' },
+      summary: {
+        sources_matched: 1,
+        sources_unsupported: 900,
+        layers_imported: 2,
+        layers_skipped: 1,
+        warnings: [{ code: 'unsupported_source', message: 'External source skipped.' }],
+        warnings_truncated: 800,
+      },
+    });
+
+    render(<StyleJsonDialog mapId="map-1" mapName="Transit Map" open onOpenChange={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Import' }));
+    fireEvent.change(screen.getByTestId('style-json-input'), {
+      target: { value: '{"version":8,"sources":{},"layers":[]}' },
+    });
+    await userEvent.click(screen.getByRole('button', { name: /import json/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText('800 more warnings omitted.')).toBeInTheDocument(),
+    );
+  });
+
+  it('says nothing about omitted warnings when none were dropped', async () => {
+    importMutateAsync.mockResolvedValueOnce({
+      map: { id: 'new-map' },
+      summary: {
+        sources_matched: 1,
+        sources_unsupported: 0,
+        layers_imported: 2,
+        layers_skipped: 0,
+        warnings: [],
+        warnings_truncated: 0,
+      },
+    });
+
+    render(<StyleJsonDialog mapId="map-1" mapName="Transit Map" open onOpenChange={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Import' }));
+    fireEvent.change(screen.getByTestId('style-json-input'), {
+      target: { value: '{"version":8,"sources":{},"layers":[]}' },
+    });
+    await userEvent.click(screen.getByRole('button', { name: /import json/i }));
+
+    await waitFor(() => expect(screen.getByText('Imported 2 layers')).toBeInTheDocument());
+    expect(screen.queryByText(/omitted/)).not.toBeInTheDocument();
   });
 });

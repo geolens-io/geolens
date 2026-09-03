@@ -1247,6 +1247,8 @@
       "matched_other": "{{count}} sources correspondantes",
       "skipped_one": "{{count}} couche ignorée.",
       "skipped_other": "{{count}} couches ignorées.",
+      "warningsTruncated_one": "{{count}} avertissement supplémentaire non affiché.",
+      "warningsTruncated_other": "{{count}} avertissements supplémentaires non affichés.",
       "newMap": "Nouvelle carte « {{name}} » créée."
     }
   },

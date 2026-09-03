@@ -10635,6 +10635,7 @@
                   "additionalProperties": true,
                   "type": "object"
                 },
+                "maxItems": 1000,
                 "type": "array"
               },
               {
@@ -10692,6 +10693,13 @@
             },
             "title": "Warnings",
             "type": "array"
+          },
+          "warnings_truncated": {
+            "default": 0,
+            "description": "Warnings produced beyond the reported list",
+            "minimum": 0.0,
+            "title": "Warnings Truncated",
+            "type": "integer"
           }
         },
         "title": "MapStyleImportSummary",

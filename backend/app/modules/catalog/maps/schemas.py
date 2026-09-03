@@ -155,18 +155,59 @@ _MAX_STYLE_DICT_BYTES = (
 )  # 64 KB serialized — generous for any real style override
 # MapUpdate.layers caps the per-map layer count. Real maps rarely exceed 50 layers.
 _MAX_LAYERS_PER_MAP = 200
+# How many style-import warnings the summary reports individually before it
+# starts counting instead (fix(#1778)).
+_MAX_IMPORT_WARNINGS = 100
+# The raw `layers` array of an imported style document is NOT the logical layer
+# count, and the two must not share a bound (fix(#1778 round 1)). A GeoLens
+# export emits companions beside every primary: a polygon emits an outline
+# always, a 3D polygon adds an extrusion, and any layer with a label column adds
+# a label symbol, which is four style layers for one logical layer (measured on
+# build_maplibre_style, and it is the worst case: the line arrow and the DEM
+# color relief are alternatives to those branches, not additions to them). So
+# 200 logical layers can legitimately arrive as 800 style layers, and a 101
+# polygon export was 303. This bound is 4 * _MAX_LAYERS_PER_MAP plus 200 of
+# headroom for the layers an import skips entirely, since a document pasted from
+# another tool carries that tool's basemap layers along with the GeoLens ones.
+# It is a resource bound on the document, not the per-map layer limit: that one
+# is enforced on the logical list after companion classification.
+_MAX_STYLE_DOCUMENT_LAYERS = 4 * _MAX_LAYERS_PER_MAP + 200
+
+
+def _reject_oversize_json(value: object | None, label: str) -> None:
+    """Raise when a JSON value serializes past ``_MAX_STYLE_DICT_BYTES``."""
+    if value is None:
+        return
+    serialized = json.dumps(value, separators=(",", ":"))
+    if len(serialized.encode("utf-8")) > _MAX_STYLE_DICT_BYTES:
+        raise ValueError(
+            f"{label} too large (>{_MAX_STYLE_DICT_BYTES} bytes serialized)"
+        )
 
 
 def _validate_style_dict(v: dict | None) -> dict | None:
     """Reject style-override dicts whose JSON serialization exceeds the cap."""
-    if v is None:
-        return v
-    serialized = json.dumps(v, separators=(",", ":"))
-    if len(serialized.encode("utf-8")) > _MAX_STYLE_DICT_BYTES:
-        raise ValueError(
-            f"Style configuration too large (>{_MAX_STYLE_DICT_BYTES} bytes serialized)"
-        )
+    _reject_oversize_json(v, "Style configuration")
     return v
+
+
+def _validate_filter_field(v: list | None) -> list | None:
+    """Bound a layer filter's nesting and size, then normalize its grammar.
+
+    fix(#1778): ``filter`` was the one open JSONB layer column with no size
+    cap. The cap above enumerates the open containers by name, and every one it
+    names is a dict, so the single open column that is a list was missed. A
+    20000-clause filter was accepted and stored 2.5 MB of JSONB per layer,
+    which every later style export and every builder load re-serialized.
+
+    ``validate_filter`` runs first because it carries the nesting bound and
+    ``json.dumps`` recurses: size-checking an unbounded filter first would
+    raise RecursionError, which is not a ValueError, so Pydantic would not turn
+    it into a 422.
+    """
+    normalized = validate_filter(v)
+    _reject_oversize_json(normalized, "Filter expression")
+    return normalized
 
 
 def _validate_maplibre_style_dict(v: dict | None) -> dict | None:
@@ -706,7 +747,9 @@ class MapLayerInput(BaseModel):
     _validate_style_config = field_validator("style_config")(_validate_style_dict)
     # builder-audit #338 P1-04: validate/normalize the editable MapLibre filter subset
     # (shared with style import/export and AI set_filter via filter_grammar).
-    _validate_filter = field_validator("filter")(validate_filter)
+    # fix(#1778): through _validate_filter_field, which adds the size cap the
+    # other open columns already carry on top of the shared grammar.
+    _validate_filter = field_validator("filter")(_validate_filter_field)
     layer_type: str | None = Field(
         default=None,
         pattern=r"^(vector_geolens|raster_geolens|geojson)$",
@@ -766,7 +809,9 @@ class MapLayerPatch(BaseModel):
     _validate_style_config = field_validator("style_config")(_validate_style_dict)
     # builder-audit #338 P1-04: validate/normalize the editable MapLibre filter subset
     # (shared with style import/export and AI set_filter via filter_grammar).
-    _validate_filter = field_validator("filter")(validate_filter)
+    # fix(#1778): through _validate_filter_field, which adds the size cap the
+    # other open columns already carry on top of the shared grammar.
+    _validate_filter = field_validator("filter")(_validate_filter_field)
 
     @model_validator(mode="before")
     @classmethod
@@ -1051,6 +1096,24 @@ class MapStyleImportSummary(BaseModel):
     layers_imported: int = 0
     layers_skipped: int = 0
     warnings: list[MapStyleImportWarning] = Field(default_factory=list)
+    # fix(#1778): one warning per unmatched source, and `sources` carries no
+    # count bound of its own, so the list was as long as the document made it.
+    # Every entry is serialized into the 201 response and rendered as a DOM node
+    # by the import dialog. Keep the first _MAX_IMPORT_WARNINGS and count the
+    # rest: a reader who has seen 100 of these knows what is wrong with the
+    # document, and the count says how much was not listed.
+    warnings_truncated: int = Field(
+        default=0,
+        ge=0,
+        description="Warnings produced beyond the reported list",
+    )
+
+    def add_warning(self, warning: MapStyleImportWarning) -> None:
+        """Record a warning, or count it when the reported list is full."""
+        if len(self.warnings) >= _MAX_IMPORT_WARNINGS:
+            self.warnings_truncated += 1
+            return
+        self.warnings.append(warning)
 
 
 class MapStyleImportResponse(BaseModel):
@@ -1121,8 +1184,14 @@ class MapStyleImportRequest(BaseModel):
         default=None,
         description="MapLibre terrain config (source + exaggeration)",
     )
+    # fix(#1778): a bound on the raw document, so a body of unbounded length is
+    # refused before anything walks it. The per-map layer limit this door was
+    # missing is enforced separately, on the logical layers that survive
+    # companion classification, because _MAX_LAYERS_PER_MAP here would have
+    # refused any GeoLens export of more than ~50 polygons (fix(#1778 round 1)).
     layers: list[dict] | None = Field(
         default=None,
+        max_length=_MAX_STYLE_DOCUMENT_LAYERS,
         description="MapLibre layer specifications",
     )
 

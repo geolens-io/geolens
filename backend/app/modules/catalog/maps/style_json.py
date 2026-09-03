@@ -19,6 +19,8 @@ from app.modules.catalog.maps.schemas import (
 )
 from app.modules.catalog.maps.style_import import (
     BUILDER_FEATURE_OPACITY_DEFAULTS,
+    BUILDER_MAX_ZOOM,
+    BUILDER_MIN_ZOOM,
     DEFAULT_ARROW_BASE_SIZE,
     FOLDED_OPACITY_KEYS,
     GEOLENS_SPRITE_ID,
@@ -595,6 +597,13 @@ def _layer_metadata(layer: MapLayerResponse) -> dict[str, Any]:
             "show_in_legend": layer.show_in_legend,
             "style_config": _clean_style_metadata(layer.style_config),
             "label_config": _clean_label_metadata(layer.label_config),
+            # fix(#1778): popup_config had no export at all, so a map's popup
+            # configuration was dropped by any export/import cycle without a
+            # warning. It is a plain settings model (enabled + title template +
+            # visible-field allowlist), so it round-trips as its JSON dump.
+            "popup_config": layer.popup_config.model_dump(mode="json")
+            if layer.popup_config is not None
+            else None,
             "layer_type": layer.layer_type,
         }
     }
@@ -1152,12 +1161,19 @@ def _style_layer_for_map_layer(
     # left companions visible outside the range. Merge rather than clobber:
     # the 3D extrusion companion emits its own (tighter) minzoom.
     emitted = [*below_companions, base, *above_companions]
-    if isinstance(export_minzoom, (int, float)) and export_minzoom > 0:
+    # fix(#1778 round 3): 0 and 22 are the builder's substituted range, so they
+    # are the values that make a key a no-op here. Named rather than repeated as
+    # literals, and shared with the import that reads them back.
+    if isinstance(export_minzoom, (int, float)) and export_minzoom > BUILDER_MIN_ZOOM:
         for style_layer in emitted:
-            style_layer["minzoom"] = max(style_layer.get("minzoom", 0), export_minzoom)
-    if isinstance(export_maxzoom, (int, float)) and export_maxzoom < 22:
+            style_layer["minzoom"] = max(
+                style_layer.get("minzoom", BUILDER_MIN_ZOOM), export_minzoom
+            )
+    if isinstance(export_maxzoom, (int, float)) and export_maxzoom < BUILDER_MAX_ZOOM:
         for style_layer in emitted:
-            style_layer["maxzoom"] = min(style_layer.get("maxzoom", 22), export_maxzoom)
+            style_layer["maxzoom"] = min(
+                style_layer.get("maxzoom", BUILDER_MAX_ZOOM), export_maxzoom
+            )
     return emitted
 
 

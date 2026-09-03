@@ -1609,7 +1609,64 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # remaining place a bbox-scoped source_feature_count was paired
         # with a whole-dataset match_count). Budget 610 -> 612, exact.
         "backend/app/modules/catalog/datasets/domain/service_analysis.py": 612,
-        "backend/app/modules/catalog/maps/service_crud.py": 550,
+        # fix(#1778): +56 over the reviewed 550. The gallery listing's
+        # page-scoped layer counts, and the asset-object lifecycle the maps
+        # module had none of: the row lock that serializes one map's thumbnail
+        # and OG-image replacements, the post-commit re-read that refuses to
+        # delete a key the row still points at, and the best-effort discard the
+        # delete endpoint and both upload handlers share. Most of the growth is
+        # the two docstrings, which carry the part a later reader would
+        # otherwise simplify away: a row lock cannot outlive the commit that
+        # releases it, so the lock and the re-read are two halves of one fix and
+        # neither is redundant. Cap 550 -> 606, exact.
+        # fix(#1778 round 3): +44. new_map_asset_key, whose docstring is the
+        # argument for it: the row lock ends at the commit, so the cleanup that
+        # follows re-reads the row and can still be descheduled between that
+        # read and the delete. A key that is never reused closes that window by
+        # construction rather than by timing. The locked read also moved from
+        # the Map entity to its two columns, and the reason is recorded because
+        # it is easy to undo: every caller has already loaded the map, so an
+        # entity select returns the identity-mapped instance and reads back the
+        # keys from before the wait on the lock. Cap 606 -> 650, exact.
+        # fix(#1778 round 4): +58. The post-commit liveness read moved inside
+        # the best-effort boundary, because it is a database call made after the
+        # caller already committed and a blip in it was turning a durable delete
+        # into a 500. And map_asset_publication, the rollback scope the three
+        # object writers in this package share. Most of it is the two rationales
+        # a later reader would otherwise undo: why skipping the deletes is the
+        # safe side of a failed liveness read, and why the ledger records
+        # physical keys rather than logical ones (map images resolve into the
+        # tenant prefix, sprite icons are deliberately global).
+        # Cap 650 -> 708, exact.
+        # fix(#1778 round 5): +33 — the ledger became MapAssetPublication, whose
+        # settled() moves the rollback boundary onto the commit. Keying it on
+        # "did the block raise" answered a different question from "did the row
+        # commit", so the icon route's post-commit refresh could delete an
+        # object the committed row referenced. The class docstring carries that,
+        # and record() carries the physical-vs-logical rule the two writers
+        # depend on. Cap 708 -> 741, exact.
+        # fix(#1778 round 6): +42 — committing() and outcome_unknown, the mark
+        # that makes an indeterminate commit non-destructive. A connection lost
+        # between PostgreSQL making the commit durable and the acknowledgement
+        # arriving raises for a transaction that DID commit, so the rollback
+        # would delete an object the committed row references. Most of the lines
+        # are the docstring recording the trade, and why the alternative of
+        # verifying from an independent session before deleting was refused: it
+        # is a database call on an error path, over a connection that has just
+        # proven unreliable, to decide a deletion. Cap 741 -> 783, exact.
+        # fix(#1778 round 7): +11 — record()'s docstring now states the ordering
+        # as a rule rather than an aside, including the provider evidence that
+        # deleting a never-written key is a no-op everywhere (local, S3, Azure),
+        # which is what makes recording before the write free.
+        # Cap 783 -> 794, exact.
+        # fix(#1778 round 8): +56 — lock_map_for_asset_write now runs
+        # under SET LOCAL lock_timeout = '2s' and maps a lost race (55P03) to a
+        # 409 instead of hanging, plus the _is_lock_timeout_error helper that
+        # detects it across asyncpg and SQLAlchemy wrapping. Most of the growth
+        # is the docstring addition explaining why an unbounded wait here was a
+        # real problem once the row lock started spanning an object-storage
+        # PUT with minute-scale S3 timeouts. Cap 794 -> 850, exact.
+        "backend/app/modules/catalog/maps/service_crud.py": 850,
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the
         # carve-out exact so further growth requires another review.
@@ -2187,14 +2244,42 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # allowlist note saying the two keys are left out on purpose, and (#1631
     # review) the note on the pre-existing absent-at-master-1 divergence the
     # fold deliberately leaves alone. Cap 1641 -> 1703.
-    "backend/app/modules/catalog/maps/style_json.py": 1703,
+    # fix(#1778): +7 — `_layer_metadata` emits popup_config, which had no export
+    # at all, so a map's popup configuration was dropped by any export/import
+    # cycle and the import side had nothing to read. Cap 1703 -> 1710.
+    # fix(#1778 round 3): +9 — the export's zoom no-op conditions read the
+    # shared BUILDER_MIN_ZOOM / BUILDER_MAX_ZOOM instead of repeating 0 and 22,
+    # so the two directions of the round trip cannot drift. Cap 1710 -> 1719.
+    "backend/app/modules/catalog/maps/style_json.py": 1719,
     # fix(#1626): +50 — `_restore_master_opacity` undoes the export fold from
     # `metadata.geolens.feature_opacity` and maps a v6 `-layer-opacity` key onto
     # `layer.opacity` (number) or drops it with a warning (expression); plus
     # (#1631 review) BUILDER_FEATURE_OPACITY_DEFAULTS, the mirror of the
     # frontend's OPACITY_DEFAULTS the fold starts from when paint has none.
     # Cap 450 -> 500.
-    "backend/app/modules/catalog/maps/style_import.py": 500,
+    # fix(#1778): +6 — the master-opacity read goes through finite_number so a
+    # stored 0.0 survives import, plus the comment saying what the truthiness
+    # read cost (the folded paint key was popped in the same pass, so the
+    # document's own record of the 0 went with it). Cap 500 -> 506.
+    # fix(#1778): +49 — `_restore_zoom_range` reads the spec minzoom/maxzoom the
+    # export promotes from the builder-private layout keys, and
+    # `_popup_config_from_import` reads back the popup settings the export half
+    # of this fix started emitting. Most of it is the two docstrings: why the
+    # 0/22 no-ops must not be written back as explicit keys, and why a
+    # malformed popup config is dropped rather than raised on (MapLayerInput
+    # would 400 the whole document over one layer). Cap 506 -> 555.
+    # fix(#1778 round 1): +25 — MapStyleImportLayerLimitError and the per-map
+    # limit applied to the layers that will become rows, which is the count
+    # apply_layer_diff later compares against, so the import door and the save
+    # path refuse at the same number. Cap 555 -> 580, exact.
+    # fix(#1778 round 3): +57 — BUILDER_MIN_ZOOM / BUILDER_MAX_ZOOM mirrored
+    # from map-sync.ts and shared with the export, plus the clamp that keeps a
+    # restored minimum below the maximum the builder can render. Most of it is
+    # the docstring: MapLibre hides a layer at zoom >= maxzoom, so a minimum at
+    # or above the substituted 22 imported cleanly into a layer that could never
+    # be drawn, and clamping is the only repair the builder can honour.
+    # Cap 580 -> 637, exact.
+    "backend/app/modules/catalog/maps/style_import.py": 637,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
     # fix(getgeolens.com#86 review): +6 — the icon-asset and sprite-index GETs
     # gained per-route `responses={403: FORBIDDEN_RESPONSE}` overrides; they
@@ -2211,7 +2296,17 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # `sprites_router`, mounted with ERROR_RESPONSES_PUBLIC directly on
     # api_router (api/router.py) as a sibling of the maps router rather than
     # a descendant. Cap 132 -> 142, exact.
-    "backend/app/modules/catalog/maps/router_assets.py": 142,
+    # fix(#1778 round 4): +7 — the icon upload publishes the object and its row
+    # inside one rollback scope. It is the third write-object-then-commit-row
+    # site in the package and the only one whose write and commit sit in
+    # different functions, so the comment records why the ledger is threaded
+    # through create_icon_asset. Cap 142 -> 149.
+    # fix(#1778 round 5): +4 — the publication settles on the commit and the
+    # refresh moved below the scope, which is the case that found the boundary
+    # bug. Cap 149 -> 153.
+    # fix(#1778 round 6): +3 — the icon commit is marked before it is awaited,
+    # the same as the two image handlers. Cap 153 -> 156.
+    "backend/app/modules/catalog/maps/router_assets.py": 156,
     # fix(#526 B-048): the card-route SPA-redirect fallback shell.
     # fix(#819): visibility-check owner-or-admin gate + rationale docstring.
     # fix(#1518 codex P2 round 3): 398 -> 404. +6 to apply the rule once, ahead
@@ -2657,7 +2752,27 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # (str | list[MapSpriteEntry]), so exported styles (which always emit the
     # array form) round-trip through /maps/import instead of 422ing.
     # Cap 1377 -> 1396, exact.
-    "backend/app/modules/catalog/maps/schemas.py": 1396,
+    # fix(#1778): +28 — `filter` picks up the byte cap the other open JSONB
+    # columns carry. The byte check moved into `_reject_oversize_json` so the
+    # dict and list callers share one policy, and `_validate_filter_field`
+    # records the ordering that matters: the grammar validator carries the
+    # nesting bound and has to run first, because `json.dumps` recurses and a
+    # RecursionError is not something Pydantic turns into a 422.
+    # Cap 1396 -> 1424, exact.
+    # fix(#1778): +27 — the style-import door picks up `max_length=
+    # _MAX_LAYERS_PER_MAP` like its three siblings, with the comment saying
+    # what its absence cost (an over-cap imported map that apply_layer_diff
+    # then refused to save), and MapStyleImportSummary gains add_warning plus
+    # the truncation counter, because one warning per unmatched source over an
+    # unbounded `sources` object put the whole list in the 201 response.
+    # Cap 1424 -> 1451, exact.
+    # fix(#1778 round 1): +14 — _MAX_STYLE_DOCUMENT_LAYERS replaces the per-map
+    # cap on the raw `layers` array, which counted the companions an export
+    # emits and so refused valid GeoLens documents from about 50 polygons up.
+    # The lines are the derivation: four style layers per logical layer, worst
+    # case, measured, times the per-map cap, plus headroom for the layers an
+    # import skips. Cap 1451 -> 1465, exact.
+    "backend/app/modules/catalog/maps/schemas.py": 1465,
     # fix(#1042): decomposed. The file reached 2151 lines with five carve-outs
     # on this cap, each one a correctness fix that had to argue for its lines:
     # #888 (+117, shift a 0..360 source instead of clipping it, plus the clip
@@ -4696,7 +4811,50 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # feat(#1691): +9 — the check_public_visibility_allowed gate on the map
     # update route (a non-admin may not move a map TO public when
     # restrict_public_visibility is on). Cap 1460 -> 1469, exact.
-    "backend/app/modules/catalog/maps/router.py": 1469,
+    # fix(#1778): +19 — the three call sites that discard a map's stored
+    # thumbnail / OG-image objects, plus the comments recording why each key is
+    # snapshotted before the write commits (after it, every attribute on
+    # map_obj is expired and a lazy refresh would raise) and why the extension
+    # flip strands a key at all. Cap 1469 -> 1488, exact.
+    # fix(#1778 round 1): +9 — the import route answers 422 for the per-map
+    # layer limit, above the generic ValueError arm it subclasses, with the
+    # comment saying why that order is load-bearing. Cap 1488 -> 1497, exact.
+    # fix(#1778 round 2): +12 — the three asset call sites take the row lock
+    # that serializes a map's thumbnail and OG-image replacements, plus the
+    # comments recording what the race produced (a committed URI pointing at an
+    # object the other request had already deleted, both requests 204, the
+    # endpoint 404 from then on) and why the lock is taken after payload
+    # validation rather than at the top of each handler. The 404 for a
+    # concurrently deleted map lives in the helper, not repeated three times.
+    # This crosses the 1500 glob default the allowlist overrides, which is what
+    # this entry is for. The seam if it grows again is the asset surface: the
+    # thumbnail and OG-image routes move to router_assets.py, which already
+    # exists and holds 142 lines. Cap 1497 -> 1509, exact.
+    # fix(#1778 round 3): +1 — the two image keys come from new_map_asset_key,
+    # which never returns a name twice. Cap 1509 -> 1510, exact.
+    # fix(#1778 round 4): +16 — both upload handlers publish the object and the
+    # row that names it inside one rollback scope, so a failure between the put
+    # and the commit does not leave an undiscoverable object under maps/.
+    # Cap 1510 -> 1526, exact.
+    # fix(#1778 round 5): +8 — both handlers settle the publication on the
+    # commit inside _record_image_capture, so a failure after it cannot roll
+    # back an object the committed row names. Cap 1526 -> 1534, exact.
+    # fix(#1778 round 6): +11 — the commit moved out of _record_image_capture so
+    # each handler can mark its publication immediately before awaiting it, and
+    # a commit that made the row durable but never acknowledged it deletes
+    # nothing. Cap 1534 -> 1545, exact.
+    # fix(#1778 round 7): +9 — the ledger entry moved above the write it covers,
+    # with the comment saying why that is free: object storage can durably
+    # accept a PUT and still fail the client, and the key is never reused, so a
+    # rollback delete either cleans up or no-ops. Cap 1545 -> 1554, exact.
+    # fix(#1778 round 9): +18 — lock_map_for_asset_write moved to after storage.put
+    # in both image handlers, so a stalled write no longer holds the map row
+    # locked; previous_key is now read under the lock, after the write, so two
+    # concurrent uploads reap each other's key correctly instead of racing on
+    # a stale read. Most of the growth is the docstring explaining why the
+    # lock has to move rather than just gaining a shorter timeout of its own.
+    # Cap 1554 -> 1572, exact.
+    "backend/app/modules/catalog/maps/router.py": 1572,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.

@@ -2,10 +2,14 @@
 
 import re
 import uuid
+from collections.abc import AsyncIterator, Iterable
+from contextlib import asynccontextmanager
 from typing import cast
 
+import structlog
 from fastapi import HTTPException, status
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Row, Select, func, or_, select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -23,8 +27,362 @@ from app.modules.catalog.maps.service_shared import (
     _resolve_save_response_metadata,
 )
 
+logger = structlog.stdlib.get_logger(__name__)
+
 _COPY_SUFFIX_RE = re.compile(r"\s*\(copy(?:\s+(\d+))?\)\s*$")
 _UNSET = object()
+
+
+def new_map_asset_key(prefix: str, map_id: uuid.UUID, ext: str) -> str:
+    """A storage key for one map image that no later upload can reuse.
+
+    fix(#1778 round 3): the keys used to be ``{prefix}/{map_id}.{ext}``, one of
+    two names per map, chosen by the payload's encoding. Reusing them left a
+    window the row lock cannot close, because the lock is released by the commit
+    that records the URI and the cleanup runs after that: request A re-reads the
+    committed row, decides its old key is dead, and is then descheduled;
+    request B takes the lock, writes that same name again and commits the row
+    back onto it; A's delete lands on the object B just published. The row then
+    names a key with nothing behind it and the image endpoint answers 404.
+
+    A fresh random component per write removes it by construction rather than by
+    timing. A key is written once and named by the row once, so once the row
+    moves off a key nothing can move it back, and a delete decided against a
+    stale read can only ever remove an object nothing points at.
+
+    The extension stays last: ``get_thumbnail`` and ``get_og_image`` pick the
+    response media type with ``endswith(".jpg")``. Keys already stored in the
+    unversioned shape keep working, since the row holds the key verbatim and the
+    first replacement deletes the old one, so nothing has to be migrated.
+    """
+    return f"{prefix}/{map_id}-{uuid.uuid4().hex}.{ext}"
+
+
+def _is_lock_timeout_error(exc: BaseException) -> bool:
+    """True for PostgreSQL 55P03 (lock_timeout exceeded), asyncpg or wrapped.
+
+    fix(#1778 round 8): asyncpg raises ``LockNotAvailableError``
+    directly; ``AsyncSession.execute`` wraps it in SQLAlchemy's ``DBAPIError``
+    with ``.orig`` pointing at that same exception. Check both shapes, the way
+    a sibling helper on the ingest side and ``app.platform.jobs.router``'s
+    ``_is_lock_conflict`` already do for their own callers. This module keeps
+    its own copy rather than importing either: the ingest one sits behind the
+    CatalogPort boundary this domain is not allowed to reach past directly, and
+    the platform one is a private, unexported name. Neither is worth a shared
+    cross-domain dependency for four lines of SQLSTATE matching.
+    """
+    try:
+        from asyncpg.exceptions import LockNotAvailableError
+
+        if isinstance(exc, LockNotAvailableError):
+            return True
+    except ImportError:
+        pass
+
+    orig = getattr(exc, "orig", None)
+    return orig is not None and getattr(orig, "sqlstate", None) == "55P03"
+
+
+async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> Row:
+    """Take the row lock that serializes one map's asset replacements.
+
+    fix(#1778 round 2): the thumbnail and OG-image keys end in ``.jpg`` or
+    ``.png`` after the payload's encoding, so two overlapping uploads of one map
+    write two different objects and then race each other's cleanup. The losing
+    interleave: A puts ``.jpg``; B reads ``.jpg`` as the previous key, commits
+    its URI at ``.png`` and deletes ``.jpg``; A then commits its URI at ``.jpg``,
+    pointing the row at the object B just deleted. Both requests answer 204 and
+    the thumbnail endpoint answers 404 from then on.
+
+    Held from here to the caller's commit, which is where PostgreSQL releases a
+    row lock, so the read of the previous key, the object write and the URI
+    update are one serialized unit per map. Callers take it AFTER validating the
+    payload, so no decode or image verification happens under the lock.
+
+    This is one half of the fix. A row lock cannot outlive the commit that
+    releases it, so the cleanup that follows the commit is guarded separately,
+    by ``discard_map_asset_objects`` re-reading the committed row. Both halves
+    are needed: the lock stops the bad interleave from being produced, the
+    re-read stops a cleanup that was queued before it from acting on it.
+
+    Raises 404 when the map is gone, because a concurrent delete may have
+    committed while this request waited here. The raise lives in this helper
+    rather than at each of the three call sites so the three cannot drift, the
+    way ``check_map_ownership`` above owns the 403 for the same reason.
+
+    Selects the two columns rather than the ``Map`` entity, and that is
+    load-bearing rather than a matter of taste. Every caller has already loaded
+    the map through ``get_map`` for its 404 and ownership check, so the entity
+    is in the session's identity map; a ``select(Map)`` returns that same
+    instance with the attributes it was loaded with, and the keys read back
+    would be the ones from BEFORE the wait on the lock. Whatever the other
+    request committed while this one waited is exactly what this read exists to
+    see. A column select never consults the identity map, so it cannot go stale.
+
+    fix(#1778 round 8): a ``SET LOCAL lock_timeout`` bounds the wait.
+    The lock used to be held from here through the caller's commit with no
+    engine-side timeout, which is fine for the lock's own purpose (serializing
+    replacements) but not for what got layered on top later: the write this
+    lock guards awaits ``storage.put`` before the commit, and the S3 provider's
+    connect/read timeouts plus its adaptive retries can take on the order of a
+    minute (``app/platform/storage/s3.py``). A degraded backend held every
+    other writer to the same map (the other image upload, a rename, a delete)
+    queued behind it with no bound, instead of failing fast. ``'2s'`` matches
+    the budget ``lock_map_for_asset_write``'s callers can already spend before
+    they answer (a row lock that is still contended after two seconds is
+    contended by another live request, not by network latency inside this one),
+    and matches the timeout the same pattern already uses in
+    ``app.platform.jobs.router`` (``SET LOCAL lock_timeout = '2s'`` there too).
+    A losing wait raises 55P03, mapped below to 409 rather than 500: nothing
+    was written, and the client's retry is the correct next action.
+    """
+    await session.execute(text("SET LOCAL lock_timeout = '2s'"))
+    try:
+        result = await session.execute(
+            select(Map.thumbnail_uri, Map.og_image_uri)
+            .where(Map.id == map_id)
+            .with_for_update()
+        )
+    except DBAPIError as exc:
+        if not _is_lock_timeout_error(exc):
+            raise
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "map_asset_write_locked",
+                "message": "Another write to this map's assets is in progress. Retry shortly.",
+            },
+        ) from exc
+    row = result.one_or_none()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Map not found",
+        )
+    return row
+
+
+async def _live_map_asset_keys(
+    session: AsyncSession, map_id: uuid.UUID
+) -> frozenset[str]:
+    """The asset keys the map row points at right now, as committed.
+
+    Read after the caller's commit, so it starts a fresh transaction and sees
+    whatever another request committed in the meantime. An empty set is the
+    right answer for a deleted map: nothing references its objects any more.
+    """
+    result = await session.execute(
+        select(Map.thumbnail_uri, Map.og_image_uri).where(Map.id == map_id)
+    )
+    row = result.one_or_none()
+    return frozenset(key for key in (row or ()) if key)
+
+
+async def discard_map_asset_objects(
+    session: AsyncSession,
+    map_id: uuid.UUID,
+    storage_keys: Iterable[str | None],
+) -> None:
+    """Best-effort removal of a map's stored thumbnail / OG-image objects.
+
+    fix(#1778): nothing in the backend ever called ``storage.delete`` for a
+    ``maps/`` key. Deleting a map dropped the row and left both images behind,
+    and because no code enumerates that prefix the orphan was undiscoverable
+    rather than merely unreclaimed. The builder captures a thumbnail and an OG
+    image on first open of every map, so essentially every map that has been
+    opened owns two objects.
+
+    Three callers share this, and all three hold
+    ``lock_map_for_asset_write`` from before their write until their commit:
+    ``delete_map_endpoint``, ``upload_thumbnail`` and ``upload_og_image``. The
+    two upload handlers reach it because a re-upload in the other encoding
+    writes ``.png`` beside the stored ``.jpg``, repoints the column, and strands
+    the old key in place.
+
+    fix(#1778 round 2): a key still named by the committed row is never
+    deleted. The lock is released by the commit that precedes this call, so a
+    request that read its previous key before another request committed can
+    arrive here holding a key that is live again. Re-reading the row is what
+    makes the outcome consistent with whatever committed last, rather than with
+    what this request saw on the way in.
+
+    fix(#1778 round 3): that re-read is not atomic with the delete below, and
+    making it atomic would mean holding a second row lock across a storage call.
+    ``new_map_asset_key`` closes the window at the other end instead: keys are
+    never reused, so a candidate here can never become live again between the
+    re-read and the delete. The re-read stays as the cheap invariant that says
+    what this function will not do, and it is what makes a key still named by an
+    older row shape safe during the changeover.
+
+    Always best effort. The object is a cached picture; a storage backend that
+    is refusing calls must not be able to stop an owner deleting their map, and
+    a delete that already committed cannot be undone by raising here. Failures
+    are logged with the key, which is derived from the map id and carries
+    nothing secret.
+
+    The provider import stays function-local, matching ``_reap_managed_storage``
+    in the dataset lifecycle, so tests keep patching the provider attribute.
+    """
+    from app.platform.storage.provider import get_storage
+    from app.platform.storage.titiler_url import resolve_current_storage_key
+
+    candidates = {key for key in storage_keys if key}
+    if not candidates:
+        return
+    try:
+        live = await _live_map_asset_keys(session, map_id)
+    except Exception:  # broad: any failure of the post-commit read
+        # fix(#1778 round 4): the liveness read is a database call made after the
+        # caller has already committed, so a transient failure here used to
+        # escape as a 500 for a delete or an upload that had durably succeeded,
+        # and the client would retry a thing that already happened. It is part
+        # of the best-effort cleanup, not part of the request's outcome. Without
+        # the read there is no way to tell a dead key from a live one, so the
+        # deletes are skipped: an object nothing points at costs storage, while
+        # deleting one the row still names costs the image.
+        logger.warning(
+            "map_asset_liveness_read_failed", map_id=str(map_id), exc_info=True
+        )
+        return
+
+    for key in sorted(candidates - live):
+        try:
+            await get_storage().delete(resolve_current_storage_key(key))
+        except Exception:  # broad: storage backends raise varied SDK/I/O errors
+            logger.warning(
+                "map_asset_object_delete_failed", storage_key=key, exc_info=True
+            )
+    for key in sorted(candidates & live):
+        logger.info("map_asset_object_delete_skipped_still_referenced", storage_key=key)
+
+
+class MapAssetPublication:
+    """The objects written for a row that has not committed yet.
+
+    fix(#1778 round 5): the rollback used to be keyed on "did the block raise",
+    which is not the same question as "did the row commit". Anything after a
+    successful commit but still inside the scope, such as the icon route's
+    ``session.refresh``, would fail and take an object the committed row
+    references. Settling is what ends the tracking, so the boundary is the
+    commit itself rather than the last statement someone happened to leave in
+    the block.
+    """
+
+    def __init__(self) -> None:
+        self._pending: list[str] = []
+        self._outcome_known = True
+
+    def record(self, physical_key: str) -> None:
+        """Note an object that exists but is not named by a committed row yet.
+
+        PHYSICAL, not logical: the writers resolve their keys differently (map
+        images cross ``resolve_current_storage_key`` into the tenant prefix,
+        sprite icons are deliberately global), and the rollback deletes what it
+        is given rather than resolving anything itself.
+
+        fix(#1778 round 7): call this BEFORE awaiting the write, not after.
+        Object storage can durably accept a PUT and still fail the client with a
+        timeout or a dropped connection, so a raise from the write says nothing
+        about whether the bytes landed; recording afterwards left the ledger
+        empty and the object unreferenced and unreclaimed, one more per retry.
+        Recording first costs nothing, because the key is freshly generated and
+        never reused: the rollback either deletes an object this request wrote,
+        or no-ops on a key nothing ever wrote, which every provider treats as
+        success (local "no error if missing", S3 silently ignores, Azure catches
+        ResourceNotFoundError).
+        ``test_every_object_write_records_before_putting_1778`` fails the build
+        if a writer puts before it records.
+        """
+        self._pending.append(physical_key)
+
+    def committing(self) -> None:
+        """A commit is about to be awaited, so its outcome stops being knowable.
+
+        fix(#1778 round 6): a lost connection between PostgreSQL making the
+        commit durable and the acknowledgement arriving raises out of the await
+        for a transaction that DID commit. Settling never runs, the exception
+        path treats the write as unpublished, and the object a committed row now
+        references is deleted. From this mark until ``settled``, an exception
+        says nothing about whether the row landed, so nothing is deleted.
+
+        The cost of that is one object left behind when the commit genuinely
+        failed, on a path that is already rare. The alternative, verifying from
+        an independent session before deleting, buys back that object at the
+        price of a database call on an error path, on a connection that has just
+        proven unreliable, to decide a deletion. This module already answers
+        that trade the same way twice (the liveness read in
+        ``discard_map_asset_objects``, and skipping rather than guessing): an
+        orphan costs storage, a wrongly deleted object costs the image.
+
+        Call it as the statement immediately before the commit:
+        ``test_every_publication_marks_before_committing_1778`` fails the build
+        otherwise.
+        """
+        self._outcome_known = False
+
+    def settled(self) -> None:
+        """The row naming every recorded object is committed. Stop tracking.
+
+        Call this as the next statement after the commit, and as the last
+        statement of the block: ``test_every_publication_settles_at_the_commit``
+        fails the build otherwise.
+        """
+        self._pending.clear()
+        self._outcome_known = True
+
+    @property
+    def pending(self) -> tuple[str, ...]:
+        return tuple(self._pending)
+
+    @property
+    def outcome_unknown(self) -> bool:
+        """True between ``committing`` and ``settled``: nothing may be deleted."""
+        return not self._outcome_known
+
+
+@asynccontextmanager
+async def map_asset_publication() -> AsyncIterator[MapAssetPublication]:
+    """Undo object writes when the row that would name them never commits.
+
+    fix(#1778 round 4): the upload handlers write the image and then record its
+    key on the map row. A failure between those two, in the update or in the
+    commit, left the object behind with nothing pointing at it, and since keys
+    stopped being reused every retry added another. Nothing in the backend
+    enumerates the ``maps/`` prefix, so those are not merely unreclaimed, they
+    are undiscoverable.
+
+    Cleanup runs on any exception, including an HTTPException the handler raises
+    itself, and never replaces it: a failure to tidy up is logged and dropped so
+    the caller still sees what actually went wrong. It runs only on what is
+    still pending, so a settled publication rolls nothing back, and it does not
+    run at all while a commit's outcome is indeterminate (see ``committing``).
+    """
+    from app.platform.storage.provider import get_storage
+
+    publication = MapAssetPublication()
+    try:
+        yield publication
+    except BaseException:
+        if publication.outcome_unknown:
+            # fix(#1778 round 6): the exception arrived while a commit was in
+            # flight, so it does not say whether the row landed. Deleting here
+            # is the one irreversible option available.
+            logger.warning(
+                "map_asset_publication_rollback_skipped_indeterminate_commit",
+                storage_keys=list(publication.pending),
+            )
+            raise
+        for physical_key in publication.pending:
+            try:
+                await get_storage().delete(physical_key)
+            except Exception:  # broad: storage backends raise varied errors
+                logger.warning(
+                    "map_asset_publication_rollback_failed",
+                    storage_key=physical_key,
+                    exc_info=True,
+                )
+        raise
 
 
 async def check_map_ownership(map_obj: Map, user: Identity, db: AsyncSession) -> None:
@@ -105,6 +463,36 @@ async def get_map_with_layers(
     return map_obj, layer_rows, forked_from_name, owner_username
 
 
+async def _layer_counts_for_maps(
+    session: AsyncSession, map_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, int]:
+    """Layer counts for exactly the maps on one page of the gallery listing.
+
+    fix(#1778): the listing used to read its counts from an uncorrelated
+    ``GROUP BY map_id`` subquery LEFT JOINed onto the page. PostgreSQL has no
+    limit-pushdown through a left join, so every gallery request aggregated
+    every row of ``catalog.map_layers`` to produce at most ``limit`` numbers,
+    and the cost grew with the total layer count rather than with the page.
+
+    A correlated scalar subquery fixes the common case but not the general one:
+    measured on 5000 maps x 8 layers, the subplan ran 50 times at OFFSET 0
+    (2.5 ms against 12.3 ms for the join) but 4050 times at OFFSET 4000, where
+    it lost to the thing it replaced. OFFSET discards rows above the
+    projection, so the only form that is bounded by the page at every offset is
+    a second query keyed on the ids the page actually returned. That one plans
+    as a bitmap index scan on ``map_layers.map_id`` and measured 0.5-1.0 ms at
+    both offsets.
+    """
+    if not map_ids:
+        return {}
+    result = await session.execute(
+        select(MapLayer.map_id, func.count(MapLayer.id))
+        .where(MapLayer.map_id.in_(map_ids))
+        .group_by(MapLayer.map_id)
+    )
+    return {map_id: count for map_id, count in result.all()}
+
+
 async def list_maps(
     session: AsyncSession,
     skip: int = 0,
@@ -173,16 +561,6 @@ async def list_maps(
     col = sort_column_map.get(sort_by, Map.updated_at)
     order_clause = col.asc() if sort_dir == "asc" else col.desc()
 
-    # Subquery for layer count
-    layer_count_sq = (
-        select(
-            MapLayer.map_id,
-            func.count(MapLayer.id).label("layer_count"),
-        )
-        .group_by(MapLayer.map_id)
-        .subquery()
-    )
-
     # Total count (with RBAC + search/visibility filters)
     count_base = select(func.count()).select_from(Map)
     count_base = _apply_vis_filter(count_base)
@@ -190,14 +568,13 @@ async def list_maps(
     total_result = await session.execute(count_base)
     total = total_result.scalar_one()
 
-    # Paginated maps with layer count and author username
+    # Paginated maps with author username. The layer counts are fetched
+    # separately, scoped to this page — see _layer_counts_for_maps.
     stmt = (
         select(
             Map,
-            func.coalesce(layer_count_sq.c.layer_count, 0).label("layer_count"),
             User.username.label("created_by_username"),
         )
-        .outerjoin(layer_count_sq, Map.id == layer_count_sq.c.map_id)
         .outerjoin(User, Map.created_by == User.id)
         # fix(#430 BA-19): batch-seeded rows share a server-default timestamp; add a
         # unique tiebreaker so pagination is stable.
@@ -210,6 +587,7 @@ async def list_maps(
 
     result = await session.execute(stmt)
     rows = result.all()
+    layer_counts = await _layer_counts_for_maps(session, [row[0].id for row in rows])
 
     maps = []
     for row in rows:
@@ -224,8 +602,8 @@ async def list_maps(
                 if map_obj.thumbnail_uri
                 else None,
                 "thumbnail_updated_at": map_obj.thumbnail_updated_at,
-                "layer_count": row[1],
-                "created_by_username": row[2],
+                "layer_count": layer_counts.get(map_obj.id, 0),
+                "created_by_username": row[1],
                 "created_at": map_obj.created_at,
                 "updated_at": map_obj.updated_at,
             }

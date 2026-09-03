@@ -6,13 +6,18 @@ embed-token, ProcessingPort, and test callers.
 """
 
 from app.modules.catalog.maps.service_crud import (
+    MapAssetPublication,
     check_map_ownership,
     create_map,
     delete_map,
+    discard_map_asset_objects,
     duplicate_map,
     get_map,
     get_map_with_layers,
     list_maps,
+    lock_map_for_asset_write,
+    map_asset_publication,
+    new_map_asset_key,
     update_map,
 )
 from app.modules.catalog.maps.service_diff import apply_layer_diff
@@ -52,6 +57,7 @@ from app.modules.catalog.maps.service_shared import (
 )
 
 __all__ = [
+    "MapAssetPublication",
     "DatasetMeta",
     "LayerRow",
     "check_map_ownership",
@@ -63,6 +69,10 @@ __all__ = [
     "list_maps",
     "update_map",
     "delete_map",
+    "discard_map_asset_objects",
+    "lock_map_for_asset_write",
+    "map_asset_publication",
+    "new_map_asset_key",
     "record_map_history_event",
     "list_map_history",
     "bulk_check_dataset_access",

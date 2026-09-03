@@ -9,9 +9,11 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.modules.catalog.maps.schemas import (
+    _MAX_LAYERS_PER_MAP,
     MapLayerInput,
     MapStyleImportSummary,
     MapStyleImportWarning,
+    PopupConfig,
     TerrainConfig,
 )
 from app.modules.catalog.maps.style_sanitizers import (
@@ -39,6 +41,25 @@ FOLDED_OPACITY_KEYS: dict[str, str] = {"fill": "fill-opacity", "line": "line-opa
 # default of 1, so the export fold has to start from the same number or the
 # exported document renders brighter than the app. Keep the two in step.
 BUILDER_FEATURE_OPACITY_DEFAULTS: dict[str, float] = {"fill": 0.3, "line": 1.0}
+# fix(#1778 round 3): the zoom range the builder substitutes when a layer's
+# layout carries no explicit one. Mirrored from map-sync.ts, which reads
+# `layout['_minzoom'] ?? 0` and `layout['_maxzoom'] ?? 22` at both of its
+# setLayerZoomRange call sites. Kept beside the opacity mirror above, and
+# imported by style_json for the export conditions, so the two directions of the
+# round trip cannot drift from each other or from the app.
+BUILDER_MIN_ZOOM = 0
+BUILDER_MAX_ZOOM = 22
+
+
+class MapStyleImportLayerLimitError(ValueError):
+    """A style document that resolves to more layers than one map may hold.
+
+    fix(#1778 round 1): a ValueError subclass so the existing broad
+    ``except ValueError`` in the import route keeps working, and a distinct type
+    so that route can answer 422 for it, matching the status the sibling
+    layer-carrying schemas produce for the same limit, rather than the generic
+    400 it gives a malformed document.
+    """
 
 
 @dataclass
@@ -291,7 +312,13 @@ def _restore_master_opacity(
     composed with any metadata opacity; an expression has no scalar home and is
     dropped with a warning rather than stored as paint the builder would ignore.
     """
-    opacity = float(geolens.get("opacity", 1) or 1)
+    # fix(#1778): read the master the way the two per-feature reads below read
+    # theirs. `float(x or 1)` turned a legitimate 0.0 into 1.0, so a layer the
+    # user had made fully transparent came back fully opaque, and for fill and
+    # line the pop below discarded the exported document's own record of the 0
+    # in the same pass.
+    master = finite_number(geolens.get("opacity", 1))
+    opacity = 1.0 if master is None else master
     layer_type = style_layer.get("type")
     feature_key = FOLDED_OPACITY_KEYS.get(str(layer_type))
     if feature_key is None:
@@ -306,7 +333,7 @@ def _restore_master_opacity(
     if layer_opacity is not None:
         number = finite_number(layer_opacity)
         if number is None:
-            summary.warnings.append(
+            summary.add_warning(
                 MapStyleImportWarning(
                     code="unsupported_layer_opacity",
                     message=(
@@ -321,6 +348,100 @@ def _restore_master_opacity(
         else:
             opacity *= number
     return clamp_number(opacity, 0.0, 1.0)
+
+
+def _zoom_text(value: float) -> str:
+    """Render a zoom for a warning without a trailing ``.0`` on whole numbers."""
+    return str(int(value)) if value.is_integer() else str(value)
+
+
+def _restore_zoom_range(
+    style_layer: dict[str, Any],
+    layout: dict[str, Any],
+    summary: MapStyleImportSummary,
+) -> None:
+    """Put a primary layer's spec ``minzoom``/``maxzoom`` back into the layout.
+
+    fix(#1778): the builder stores the per-layer zoom range as the private
+    layout keys ``_minzoom``/``_maxzoom``, and fix(#526 B-044) taught the export
+    to promote them to the spec-level ``minzoom``/``maxzoom`` because
+    ``clean_layout`` strips every underscore key. Import read only the layout,
+    so a zoom-limited map exported and re-imported drew every layer at all
+    zooms, with ``layers_imported`` reporting success and no warning. That is
+    the regression #526 closed, reintroduced from the other direction.
+
+    Mirrors the export's conditions: ``BUILDER_MIN_ZOOM`` and
+    ``BUILDER_MAX_ZOOM`` are the range's own defaults and the export omits them
+    as no-ops, so reading them back would write two keys the builder treats as
+    unset. The raw value is kept rather than the parsed float so an integer zoom
+    stays an integer in JSONB.
+
+    fix(#1778 round 3): a restored minimum at or above the effective maximum is
+    clamped, with a warning. MapLibre hides a layer at zoom levels equal to or
+    greater than ``maxzoom``, so the visible band is ``[minzoom, maxzoom)`` and
+    an inverted or empty one draws nothing at all. The spec allows a minzoom up
+    to 24 while the builder substitutes ``BUILDER_MAX_ZOOM`` for an absent
+    maximum, so a document carrying ``minzoom: 23`` and no maximum imported
+    cleanly into a layer that could never be seen. One rule covers both shapes
+    that produce it, the substituted maximum and an explicitly inverted pair,
+    because the failure and the repair are the same in each: clamping is the
+    only option that keeps the layer visible, since the builder cannot render
+    past ``BUILDER_MAX_ZOOM`` and so cannot honour the minimum as written.
+    """
+    for spec_key, layout_key, is_meaningful in (
+        ("minzoom", "_minzoom", lambda z: BUILDER_MIN_ZOOM < z <= 24),
+        ("maxzoom", "_maxzoom", lambda z: BUILDER_MIN_ZOOM <= z < BUILDER_MAX_ZOOM),
+    ):
+        raw = style_layer.get(spec_key)
+        number = finite_number(raw)
+        if number is not None and is_meaningful(number):
+            layout[layout_key] = raw
+
+    minimum = finite_number(layout.get("_minzoom"))
+    if minimum is None:
+        return
+    effective_max = finite_number(layout.get("_maxzoom"))
+    if effective_max is None:
+        effective_max = float(BUILDER_MAX_ZOOM)
+    if minimum < effective_max:
+        return
+
+    clamped = int(max(BUILDER_MIN_ZOOM, effective_max - 1))
+    if clamped > BUILDER_MIN_ZOOM:
+        layout["_minzoom"] = clamped
+    else:
+        layout.pop("_minzoom", None)
+    summary.add_warning(
+        MapStyleImportWarning(
+            code="clamped_zoom_range",
+            message=(
+                f"Layer minzoom {_zoom_text(minimum)} is not below the "
+                f"maximum zoom the map builder renders "
+                f"({_zoom_text(effective_max)}), which would hide the layer "
+                f"at every zoom; the minimum was lowered to {clamped}."
+            ),
+            layer_id=str(style_layer.get("id")) if style_layer.get("id") else None,
+        )
+    )
+
+
+def _popup_config_from_import(geolens: dict[str, Any]) -> dict[str, Any] | None:
+    """Recover ``popup_config`` from the layer's GeoLens metadata.
+
+    fix(#1778): the export half is new too (``_layer_metadata`` never emitted
+    this), so nothing has to be tolerated for compatibility beyond a document
+    someone hand-edited. A malformed value is dropped rather than raised on:
+    ``MapLayerInput`` would turn it into a ValidationError, which the import
+    route answers as a 400 for the whole document, and losing one layer's popup
+    settings is not worth refusing the import.
+    """
+    raw = geolens.get("popup_config")
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return PopupConfig.model_validate(raw).model_dump(mode="json")
+    except ValidationError:
+        return None
 
 
 def parse_maplibre_style_import(  # noqa: C901 - coordinates independent parsers
@@ -342,7 +463,7 @@ def parse_maplibre_style_import(  # noqa: C901 - coordinates independent parsers
         dataset_id = _source_dataset_id(source)
         if dataset_id is None:
             summary.sources_unsupported += 1
-            summary.warnings.append(
+            summary.add_warning(
                 MapStyleImportWarning(
                     code="unsupported_source",
                     message="Source has no GeoLens dataset metadata and was not imported.",
@@ -374,7 +495,7 @@ def parse_maplibre_style_import(  # noqa: C901 - coordinates independent parsers
         dataset_id = matched_sources.get(str(source_id))
         if dataset_id is None:
             summary.layers_skipped += 1
-            summary.warnings.append(
+            summary.add_warning(
                 MapStyleImportWarning(
                     code="skipped_layer",
                     message="Layer source could not be matched to a GeoLens dataset.",
@@ -422,6 +543,12 @@ def parse_maplibre_style_import(  # noqa: C901 - coordinates independent parsers
             else {}
         )
         opacity = _restore_master_opacity(style_layer, geolens, paint, summary)
+        layout = clean_layout(
+            style_layer.get("layout")
+            if isinstance(style_layer.get("layout"), dict)
+            else {}
+        )
+        _restore_zoom_range(style_layer, layout, summary)
         imported_layers.append(
             MapLayerInput(
                 dataset_id=dataset_id,
@@ -431,11 +558,8 @@ def parse_maplibre_style_import(  # noqa: C901 - coordinates independent parsers
                 else True,
                 opacity=opacity,
                 paint=paint,
-                layout=clean_layout(
-                    style_layer.get("layout")
-                    if isinstance(style_layer.get("layout"), dict)
-                    else {}
-                ),
+                layout=layout,
+                popup_config=_popup_config_from_import(geolens),
                 display_name=geolens.get("display_name") or style_layer.get("id"),
                 filter=style_layer.get("filter")
                 if isinstance(style_layer.get("filter"), list)
@@ -450,6 +574,19 @@ def parse_maplibre_style_import(  # noqa: C901 - coordinates independent parsers
             )
         )
         summary.layers_imported += 1
+
+    # fix(#1778 round 1): the per-map layer limit belongs here, on the layers
+    # that will become rows, and not on the raw `layers` array. A GeoLens export
+    # emits companions beside every primary (outline, extrusion, label), so the
+    # document carries several style layers per logical one and the raw array
+    # crosses 200 at around 50 polygons. This count is the one apply_layer_diff
+    # will later compare against, so the import door and the save path refuse at
+    # exactly the same number rather than at two different ones.
+    if len(imported_layers) > _MAX_LAYERS_PER_MAP:
+        raise MapStyleImportLayerLimitError(
+            f"Style imports at most {_MAX_LAYERS_PER_MAP} layers per map; "
+            f"this document resolves to {len(imported_layers)}"
+        )
 
     terrain_config: dict[str, Any] | None = None
     raw_terrain = style.get("terrain")

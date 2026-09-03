@@ -1247,6 +1247,8 @@
       "matched_other": "{{count}} fuentes coincidentes",
       "skipped_one": "{{count}} capa omitida.",
       "skipped_other": "{{count}} capas omitidas.",
+      "warningsTruncated_one": "Se omitió {{count}} advertencia más.",
+      "warningsTruncated_other": "Se omitieron {{count}} advertencias más.",
       "newMap": "Se creó el mapa nuevo «{{name}}»."
     }
   },

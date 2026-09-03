@@ -56,6 +56,7 @@ from app.modules.catalog.maps.schemas import (
 )
 from app.modules.catalog.maps.router_assets import router as assets_router
 from app.modules.catalog.maps.router_sharing import router as sharing_router
+from app.modules.catalog.maps.style_import import MapStyleImportLayerLimitError
 from app.modules.catalog.maps.style_json import parse_maplibre_style_import
 from app.modules.catalog.maps.service import (
     bulk_check_dataset_access,
@@ -64,6 +65,7 @@ from app.modules.catalog.maps.service import (
     check_map_ownership,
     create_map,
     delete_map,
+    discard_map_asset_objects,
     filter_layer_rows_by_dataset_visibility,
     get_dataset_meta,
     duplicate_map,
@@ -71,6 +73,9 @@ from app.modules.catalog.maps.service import (
     get_map_with_layers,
     list_map_history,
     list_maps,
+    lock_map_for_asset_write,
+    map_asset_publication,
+    new_map_asset_key,
     record_map_history_event,
     remove_layer,
     revoke_share_token_by_map,
@@ -256,6 +261,14 @@ async def import_map_style_endpoint(
     style = body.model_dump(exclude_none=True)
     try:
         imported = parse_maplibre_style_import(style)
+    # fix(#1778 round 1): the per-map layer limit answers 422, the status the
+    # sibling layer-carrying schemas already produce for it, so the two doors
+    # report the same limit the same way. Must precede the ValueError arm below,
+    # which it subclasses.
+    except MapStyleImportLayerLimitError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
@@ -834,6 +847,16 @@ async def delete_map_endpoint(
         )
     await check_map_ownership(map_obj, user, db)
 
+    # fix(#1778): read the asset keys off the row before it goes, and delete the
+    # objects only once the row delete has committed. Snapshotting first also
+    # keeps the reads out of the post-commit window, where every attribute on
+    # map_obj is expired and a lazy refresh would raise.
+    # fix(#1778 round 2): under the same row lock the two upload handlers take,
+    # so a delete cannot interleave with an in-flight replacement and read a key
+    # that is about to be superseded.
+    locked = await lock_map_for_asset_write(db, map_id)
+    asset_keys = [locked.thumbnail_uri, locked.og_image_uri]
+
     map_name = await delete_map(db, map_id)
     await audit_emit(
         db,
@@ -847,6 +870,7 @@ async def delete_map_endpoint(
         ),
     )
     await db.commit()
+    await discard_map_asset_objects(db, map_id, asset_keys)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -929,6 +953,10 @@ async def _record_image_capture(
 
     ``synchronize_session=False`` because both callers return 204 and never read
     the ORM object back.
+
+    fix(#1778 round 6): does NOT commit. The commit moved out to the callers so
+    each one can mark its publication immediately before awaiting it, which is
+    what makes an indeterminate commit outcome non-destructive.
     """
     await db.execute(
         update(Map)
@@ -940,7 +968,6 @@ async def _record_image_capture(
         )
         .execution_options(synchronize_session=False)
     )
-    await db.commit()
 
 
 @router.put(
@@ -1024,19 +1051,69 @@ async def upload_thumbnail(
 
     # Determine extension from MIME type
     ext = "jpg" if "jpeg" in header else "png"
-    storage_key = f"maps/thumbnails/{map_id}.{ext}"
+    # fix(#1778 round 3): a fresh key per write, never one of two names per map.
+    storage_key = new_map_asset_key("maps/thumbnails", map_id, ext)
 
     storage = get_storage()
-    try:
-        await storage.put(_map_asset_storage_key(storage_key), image_bytes)
-    except Exception:  # broad: storage backend (S3/MinIO/local) can throw varied SDK/I/O errors; map to 502
-        logger.exception("thumbnail_upload_failed", map_id=str(map_id))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Thumbnail storage unavailable",
-        )
+    # fix(#1778 round 4): the object and the row that names it are published
+    # together. A failure in the update or the commit below would otherwise
+    # leave the image behind with nothing pointing at it, and since keys stopped
+    # being reused every retry would add another.
+    async with map_asset_publication() as publication:
+        physical_key = _map_asset_storage_key(storage_key)
+        # fix(#1778 round 7): recorded BEFORE the write is awaited. Object
+        # storage can durably accept a PUT and still fail the client with a
+        # timeout or a dropped connection, so a raise here says nothing about
+        # whether the bytes landed. Recording first is free: the key is freshly
+        # generated and never reused, so the rollback's delete either removes an
+        # object this request wrote or is a no-op on a key that was never
+        # written, which every provider treats as success. This does not need
+        # the row lock below: the key is physical and freshly generated, so
+        # nothing else can race to record or reap it before the row exists.
+        publication.record(physical_key)
+        try:
+            await storage.put(physical_key, image_bytes)
+        except Exception:  # broad: storage backend (S3/MinIO/local) can throw varied SDK/I/O errors; map to 502
+            logger.exception("thumbnail_upload_failed", map_id=str(map_id))
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Thumbnail storage unavailable",
+            )
 
-    await _record_image_capture(db, map_id, thumbnail_uri=storage_key)
+        # fix(#1778 round 2): serialize the read of the previous key and the
+        # write of the new one under the row lock, so two overlapping uploads
+        # of one map cannot each delete the object the other is about to point
+        # the row at.
+        # fix(#1778 round 9): taken AFTER the storage write, not before it. The lock
+        # used to be held from before the PUT through the commit, which made it
+        # span an object-storage write with no bound of its own; a stalled PUT
+        # against a degraded backend held the row lock for as long as the PUT
+        # took, and every other writer to the same map (a rename, a delete, the
+        # other image upload) queued behind it. The 2s lock_timeout inside
+        # lock_map_for_asset_write only bounds THIS request's own wait for the
+        # lock, not another request's wait for a lock this request is holding,
+        # so the fix has to be shortening what the lock spans, not just timing
+        # out faster once it is held. Reading previous_key here, after the
+        # lock, rather than before the PUT, matters for the same reason the
+        # round-2 comment above does: two concurrent uploads must not each read
+        # the same stale previous key and either both try to reap it or leave
+        # it unreaped, and only a read taken under the lock, after whichever
+        # upload gets there first has already committed, is current.
+        locked = await lock_map_for_asset_write(db, map_id)
+        previous_key = locked.thumbnail_uri
+
+        await _record_image_capture(db, map_id, thumbnail_uri=storage_key)
+        # fix(#1778 round 5): the commit is the boundary, not the end of this
+        # block. Settling on it means anything that runs after cannot roll back
+        # an object the committed row names. fix(#1778 round 6): and marking
+        # before it means a commit whose outcome never came back deletes
+        # nothing, because it does not say whether the row landed.
+        publication.committing()
+        await db.commit()
+        publication.settled()
+
+    if previous_key and previous_key != storage_key:
+        await discard_map_asset_objects(db, map_id, [previous_key])
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -1161,19 +1238,45 @@ async def upload_og_image(
         )
 
     ext = "jpg" if "jpeg" in header else "png"
-    storage_key = f"maps/og-images/{map_id}.{ext}"
+    storage_key = new_map_asset_key("maps/og-images", map_id, ext)
 
     storage = get_storage()
-    try:
-        await storage.put(_map_asset_storage_key(storage_key), image_bytes)
-    except Exception:  # broad: S3/MinIO/local storage can throw varied errors -> 502
-        logger.exception("og_image_upload_failed", map_id=str(map_id))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="OG image storage unavailable",
-        )
+    # fix(#1778 round 4): same publication guard as the thumbnail PUT above.
+    async with map_asset_publication() as publication:
+        physical_key = _map_asset_storage_key(storage_key)
+        # fix(#1778 round 7): recorded before the write, same as the thumbnail
+        # PUT above and for the same reason. Does not need the row lock below,
+        # same as the thumbnail PUT above.
+        publication.record(physical_key)
+        try:
+            await storage.put(physical_key, image_bytes)
+        except (
+            Exception
+        ):  # broad: S3/MinIO/local storage can throw varied errors -> 502
+            logger.exception("og_image_upload_failed", map_id=str(map_id))
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="OG image storage unavailable",
+            )
 
-    await _record_image_capture(db, map_id, og_image_uri=storage_key)
+        # fix(#1778 round 2) / fix(#1778 round 9): same row lock, taken after the
+        # storage write and with the previous key re-read under it, for the
+        # same reason as the thumbnail PUT above.
+        locked = await lock_map_for_asset_write(db, map_id)
+        previous_key = locked.og_image_uri
+
+        await _record_image_capture(db, map_id, og_image_uri=storage_key)
+        # fix(#1778 round 5): the commit is the boundary, not the end of this
+        # block. Settling on it means anything that runs after cannot roll back
+        # an object the committed row names. fix(#1778 round 6): and marking
+        # before it means a commit whose outcome never came back deletes
+        # nothing, because it does not say whether the row landed.
+        publication.committing()
+        await db.commit()
+        publication.settled()
+
+    if previous_key and previous_key != storage_key:
+        await discard_map_asset_objects(db, map_id, [previous_key])
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

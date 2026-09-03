@@ -43,6 +43,15 @@ _COMBINATORS = {"all", "any"}
 # Legacy MapLibre feature-filter pseudo-fields resolved by the renderer itself,
 # NOT read from feature properties — they must NOT be rewritten to ["get", ...].
 _LEGACY_PSEUDO_FIELDS = {"$type", "$id"}
+# fix(#1778): how many nested array levels a filter may carry. The structured
+# editor emits ``["all", <clause>, ...]`` with clauses one level below that, and
+# ``!`` adds one more, so real filters live in single digits. The bound exists
+# because everything downstream of here recurses: ``_normalize_node`` walks
+# ``all``/``any``/``!`` children and ``json.dumps`` walks the whole value when
+# the layer schema size-caps it. Past Python's own recursion limit both raise
+# RecursionError, which is NOT a ValueError, so Pydantic does not convert it to
+# a 422 and the layer routes answer 500 instead.
+_MAX_FILTER_DEPTH = 32
 
 
 class FilterValidationError(ValueError):
@@ -157,12 +166,41 @@ def _normalize_node(node: Any) -> list:
     return node
 
 
+def _assert_depth_within_bound(value: Any) -> None:
+    """Raise ``FilterValidationError`` past ``_MAX_FILTER_DEPTH`` array levels.
+
+    Iterative on purpose: a recursive depth check blows the recursion limit on
+    exactly the input it exists to refuse. It walks dicts as well as lists,
+    because below the operator a filter is arbitrary JSON and the size cap's
+    ``json.dumps`` recurses through both. Opaque operators are covered too,
+    since ``_normalize_node`` returns those without recursing but ``json.dumps``
+    still descends the whole value.
+    """
+    stack: list[tuple[Any, int]] = [(value, 0)]
+    while stack:
+        node, depth = stack.pop()
+        if isinstance(node, list):
+            children: list[Any] = node
+        elif isinstance(node, dict):
+            children = list(node.values())
+        else:
+            continue
+        if depth >= _MAX_FILTER_DEPTH:
+            raise FilterValidationError(
+                f"filter expression nests deeper than {_MAX_FILTER_DEPTH} levels"
+            )
+        stack.extend((child, depth + 1) for child in children)
+
+
 def validate_filter(value: list | None) -> list | None:
     """Validate + normalize a MapLibre layer filter (builder-audit #338 P1-04).
 
     ``None`` and ``[]`` both clear the filter (return ``None``). A recognized
     form with invalid arity raises ``FilterValidationError``; opaque
-    unsupported filters are preserved verbatim.
+    unsupported filters are preserved verbatim. A filter nested past
+    ``_MAX_FILTER_DEPTH`` raises ``FilterValidationError`` too, so every caller
+    of this validator gets a 422 (or, on the AI path, a dropped action) instead
+    of the RecursionError the walk below used to raise.
     """
     if value is None:
         return None
@@ -171,4 +209,5 @@ def validate_filter(value: list | None) -> list | None:
     if len(value) == 0:
         # EDIT-03: an empty array is not a valid MapLibre filter; treat as clear.
         return None
+    _assert_depth_within_bound(value)
     return _normalize_node(value)

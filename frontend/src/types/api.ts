@@ -1484,6 +1484,11 @@ export interface MapStyleImportSummary {
   layers_imported: number;
   layers_skipped: number;
   warnings: MapStyleImportWarning[];
+  /** fix(#1778): warnings produced beyond the reported list. The backend caps
+   *  `warnings` at 100 because a document with unbounded sources produces one
+   *  warning per unmatched source; this is how many it stopped listing.
+   *  Optional so a response from an older backend still types. */
+  warnings_truncated?: number;
 }
 
 export interface MapStyleImportResponse {
