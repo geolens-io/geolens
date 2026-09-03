@@ -1084,7 +1084,7 @@ async def upload_thumbnail(
         # write of the new one under the row lock, so two overlapping uploads
         # of one map cannot each delete the object the other is about to point
         # the row at.
-        # fix(round 9): taken AFTER the storage write, not before it. The lock
+        # fix(#1778 round 9): taken AFTER the storage write, not before it. The lock
         # used to be held from before the PUT through the commit, which made it
         # span an object-storage write with no bound of its own; a stalled PUT
         # against a degraded backend held the row lock for as long as the PUT
@@ -1259,7 +1259,7 @@ async def upload_og_image(
                 detail="OG image storage unavailable",
             )
 
-        # fix(#1778 round 2) / fix(round 9): same row lock, taken after the
+        # fix(#1778 round 2) / fix(#1778 round 9): same row lock, taken after the
         # storage write and with the previous key re-read under it, for the
         # same reason as the thumbnail PUT above.
         locked = await lock_map_for_asset_write(db, map_id)

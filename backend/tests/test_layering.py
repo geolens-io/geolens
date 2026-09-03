@@ -1659,7 +1659,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # deleting a never-written key is a no-op everywhere (local, S3, Azure),
         # which is what makes recording before the write free.
         # Cap 783 -> 794, exact.
-        # fix(audit finding, round 8): +56 — lock_map_for_asset_write now runs
+        # fix(#1778 round 8): +56 — lock_map_for_asset_write now runs
         # under SET LOCAL lock_timeout = '2s' and maps a lost race (55P03) to a
         # 409 instead of hanging, plus the _is_lock_timeout_error helper that
         # detects it across asyncpg and SQLAlchemy wrapping. Most of the growth
@@ -4847,7 +4847,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # with the comment saying why that is free: object storage can durably
     # accept a PUT and still fail the client, and the key is never reused, so a
     # rollback delete either cleans up or no-ops. Cap 1545 -> 1554, exact.
-    # fix(round 9): +18 — lock_map_for_asset_write moved to after storage.put
+    # fix(#1778 round 9): +18 — lock_map_for_asset_write moved to after storage.put
     # in both image handlers, so a stalled write no longer holds the map row
     # locked; previous_key is now read under the lock, after the write, so two
     # concurrent uploads reap each other's key correctly instead of racing on

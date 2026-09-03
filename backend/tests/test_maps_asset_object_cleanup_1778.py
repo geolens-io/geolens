@@ -212,7 +212,7 @@ class TestOverlappingReplacements:
     `.jpg`, then A commits its URI at `.jpg`, pointing the row at the object B
     just deleted. Both answer 204 and the thumbnail endpoint answers 404.
 
-    fix(round 9): the block point moved from inside ``storage.put`` to inside
+    fix(#1778 round 9): the block point moved from inside ``storage.put`` to inside
     ``lock_map_for_asset_write``. Before round 9 the row lock was taken before
     the PUT, so blocking a request after its bytes landed but before it
     returned from ``put`` was also blocking it before it could reach the lock,
@@ -360,7 +360,7 @@ class TestOverlappingReplacements:
 
 
 # ---------------------------------------------------------------------------
-# fix(round 9): a stalled storage write must not hold the map row locked
+# fix(#1778 round 9): a stalled storage write must not hold the map row locked
 # ---------------------------------------------------------------------------
 
 
@@ -1658,7 +1658,7 @@ class TestAnAmbiguousWriteIsRolledBack:
 
 
 # ---------------------------------------------------------------------------
-# fix(audit finding, round 8): a contended map row fails fast, not slow
+# fix(#1778 round 8): a contended map row fails fast, not slow
 # ---------------------------------------------------------------------------
 
 

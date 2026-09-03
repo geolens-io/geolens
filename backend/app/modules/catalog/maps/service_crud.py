@@ -61,7 +61,7 @@ def new_map_asset_key(prefix: str, map_id: uuid.UUID, ext: str) -> str:
 def _is_lock_timeout_error(exc: BaseException) -> bool:
     """True for PostgreSQL 55P03 (lock_timeout exceeded), asyncpg or wrapped.
 
-    fix(audit finding, round 8): asyncpg raises ``LockNotAvailableError``
+    fix(#1778 round 8): asyncpg raises ``LockNotAvailableError``
     directly; ``AsyncSession.execute`` wraps it in SQLAlchemy's ``DBAPIError``
     with ``.orig`` pointing at that same exception. Check both shapes, the way
     a sibling helper on the ingest side and ``app.platform.jobs.router``'s
@@ -119,7 +119,7 @@ async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> 
     request committed while this one waited is exactly what this read exists to
     see. A column select never consults the identity map, so it cannot go stale.
 
-    fix(audit finding, round 8): a ``SET LOCAL lock_timeout`` bounds the wait.
+    fix(#1778 round 8): a ``SET LOCAL lock_timeout`` bounds the wait.
     The lock used to be held from here through the caller's commit with no
     engine-side timeout, which is fine for the lock's own purpose (serializing
     replacements) but not for what got layered on top later: the write this
