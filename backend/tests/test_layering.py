@@ -1701,7 +1701,16 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # client-side grid-alignment check can compare each axis
         # independently, matching the backend's _check_grid_alignment.
         # Cap 539 -> 548, exact.
-        "backend/app/modules/catalog/search/service_records.py": 548,
+        # fix(#1778): +11, rebased onto the above rather than the 526 baseline
+        # it was originally measured against. The band array now builds
+        # through the shared `app.core.raster_bands` normalisers, so this
+        # representation stops dropping the colour-interpretation name of
+        # every locally ingested raster (it read a `name` key no producer
+        # writes) and stops emitting empty band entries for a remotely
+        # described COG, while keeping the round-4-P2 explicit-null case
+        # above (moved to sit beside the normaliser call it now depends on).
+        # Cap 548 -> 559, exact.
+        "backend/app/modules/catalog/search/service_records.py": 559,
         # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
         # wrapper) + the gated/approximated vector-only match COUNT in
         # _run_rrf_merge (perf audit 2026-07-10 §2d). Cap 350 → 390
