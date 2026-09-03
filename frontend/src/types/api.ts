@@ -964,7 +964,7 @@ export interface SchemaDiff {
   type_changes: Array<{ name: string; old_type: string; new_type: string }>;
   row_count_old: number | null;
   row_count_new: number | null;
-  row_count_delta: number;
+  row_count_delta: number | null;
 }
 
 export interface ReuploadResponse {

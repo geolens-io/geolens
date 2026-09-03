@@ -740,7 +740,15 @@ class SchemaDiff(BaseModel):
     )
     row_count_old: int | None
     row_count_new: int | None
-    row_count_delta: int = Field(description="row_count_new minus row_count_old")
+    # fix(#1746 B2b review r24): nullable, but still REQUIRED. `None` is the
+    # answer when either count is unknown; making a client distinguish
+    # "absent" from "unknown" as well would be a wider contract change than
+    # the finding needs.
+    row_count_delta: int | None = Field(
+        description=(
+            "row_count_new minus row_count_old, or null when either side is unknown"
+        ),
+    )
 
 
 class ReuploadResponse(BaseModel):

@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import time
+from typing import NamedTuple
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import structlog
@@ -53,13 +54,31 @@ def _encode_url_for_gdal(url: str) -> str:
 _GDAL_SOURCE_FORMATS = {"WFS:": "wfs", "OAPIF:": "ogcapi_features"}
 
 
+class _Localised(NamedTuple):
+    """What to run ogrinfo against, and what to report regardless of it.
+
+    fix(#1746 B2b review r24): ``reported_name`` and ``total`` do not come from
+    ogrinfo and must not. Pointed at a scratch file with no layer argument, the
+    GeoJSON driver answers with the temp file's name and with the number of
+    features in the sample, so the user saw `oapif_items_xxxx` where their
+    collection should be and a row count of `sample_limit`.
+    """
+
+    gdal_source: str
+    layer_name: str
+    credential: "ServiceCredential | None"
+    items_path: str | None
+    reported_name: str | None
+    total: int | None
+
+
 async def _localise_protected_oapif(
     gdal_source: str,
     layer_name: str,
     credential: "ServiceCredential | None",
     sample_limit: int,
     deadline: float,
-) -> tuple[str, str, "ServiceCredential | None", str | None]:
+) -> _Localised:
     """Read a protected OGC API collection locally, and describe the file.
 
     fix(#1746 B2b review r16): its pages choose the next one, GDAL follows that
@@ -75,13 +94,14 @@ async def _localise_protected_oapif(
     against the endpoint the capabilities advertise, which is the endpoint the
     description check validates, and it ignores a `next` attribute outright.
 
-    Returns the source, layer and credential to use from here, plus the file to
-    delete afterwards.
+    Returns the source, layer and credential to use from here, the file to
+    delete afterwards, and the two things the caller must report from here
+    rather than from ogrinfo.
     """
     if credential is None or not gdal_source.startswith("OAPIF:"):
-        return gdal_source, layer_name, credential, None
+        return _Localised(gdal_source, layer_name, credential, None, None, None)
     try:
-        path = await materialise_oapif_items(
+        extract = await materialise_oapif_items(
             _service_url(gdal_source),
             layer_name,
             credential_line=credential_header_line(
@@ -103,8 +123,10 @@ async def _localise_protected_oapif(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": exc.code, "message": exc.policy, "field": exc.field},
         ) from None
-    # A local file, with no credential anywhere in what follows.
-    return path, "", None, path
+    # A local file, with no credential anywhere in what follows. The layer
+    # argument is dropped because the GeoJSON driver has exactly one layer, but
+    # the collection the caller asked for is what gets reported.
+    return _Localised(extract.path, "", None, extract.path, layer_name, extract.total)
 
 
 def _remove_quietly(path: str | None) -> None:
@@ -241,9 +263,13 @@ async def run_service_preview(
     # driver pages by startIndex against the endpoint the capabilities
     # advertise, which the description check validates.
     deadline = time.monotonic() + timeout
-    gdal_source, layer_name, credential, items_path = await _localise_protected_oapif(
+    localised = await _localise_protected_oapif(
         gdal_source, layer_name, credential, sample_limit, deadline
     )
+    gdal_source = localised.gdal_source
+    layer_name = localised.layer_name
+    credential = localised.credential
+    items_path = localised.items_path
     cmd = [
         "ogrinfo",
         "-json",
@@ -510,8 +536,16 @@ async def run_service_preview(
     result = {
         "srid": srid,
         "geometry_type": geometry_type,
-        "layer_name": layer.get("name", layer_name),
-        "feature_count": layer.get("featureCount"),
+        # fix(#1746 B2b review r24): for a localised collection both of these
+        # come from the request and the service rather than from ogrinfo, which
+        # is describing a scratch file it was handed. Everywhere else they come
+        # from ogrinfo exactly as before.
+        "layer_name": localised.reported_name or layer.get("name", layer_name),
+        "feature_count": (
+            localised.total
+            if localised.reported_name is not None
+            else layer.get("featureCount")
+        ),
         "columns": columns,
         "sample_rows": sample_rows,
     }

@@ -14956,9 +14956,16 @@
             "title": "Row Count New"
           },
           "row_count_delta": {
-            "description": "row_count_new minus row_count_old",
-            "title": "Row Count Delta",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "row_count_new minus row_count_old, or null when either side is unknown",
+            "title": "Row Count Delta"
           }
         },
         "required": [

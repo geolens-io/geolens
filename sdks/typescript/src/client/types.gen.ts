@@ -8782,9 +8782,9 @@ export type SchemaDiff = {
     /**
      * Row Count Delta
      *
-     * row_count_new minus row_count_old
+     * row_count_new minus row_count_old, or null when either side is unknown
      */
-    row_count_delta: number;
+    row_count_delta: number | null;
 };
 
 /**

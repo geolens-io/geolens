@@ -57,6 +57,7 @@ import os
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx
@@ -142,6 +143,26 @@ MAX_STRUCTURAL_TOKENS = 2_000_000
 
 # What a page fetch asks for. The service may answer with fewer.
 PAGE_SIZE = 1000
+
+
+class MaterialisedCollection(NamedTuple):
+    """A local extract, and what is known about the collection behind it.
+
+    fix(#1746 B2b review r24): the path alone was not enough. A preview asks
+    for a handful of features and gets a file holding exactly that many, so
+    everything downstream read the sample size as the collection's row count:
+    the import preview showed it, and re-upload's schema diff turned it into a
+    row-count delta against the real dataset.
+
+    ``total`` is the collection's own size when it can be known: the service's
+    ``numberMatched`` if it published one, otherwise the features written when
+    the walk ran to the end. ``None`` when the walk stopped at a sample limit
+    and the service said nothing, which is the case that was being guessed at.
+    """
+
+    path: str
+    features: int
+    total: int | None
 
 
 class ItemFetchFailedError(EndpointCheckFailedError):
@@ -359,11 +380,18 @@ async def _walk_pages(
     headers: dict,
     feature_limit: int | None,
     on_first_request: Callable[[], None] | None,
-) -> tuple[int, int]:
-    """Follow the chain, writing features. Returns pages read and features written."""
+) -> tuple[int, int, int | None]:
+    """Follow the chain, writing features.
+
+    Returns pages read, features written, and what the service said the whole
+    collection holds (fix(#1746 B2b review r24): a preview writes
+    ``feature_limit`` features and nothing downstream could tell that apart
+    from a collection that small).
+    """
     written = 0
     pages = 0
     on_disk = 0
+    number_matched: int | None = None
     # fix(#1746 B2b review r17, moved r20, made once-ness r23): the origin is
     # contacted HERE, not by the subprocess, so this is the moment a caller
     # that dates origin contacts has to hear about. `fire_once` means the
@@ -389,6 +417,14 @@ async def _walk_pages(
         # site, so a malformed page cannot mean different things depending on
         # where in the chain it arrived.
         features = _require_feature_page(document)
+        if pages == 1:
+            # OGC API Features part 1: the number of features the whole query
+            # matches, as opposed to the number this page returned. Optional,
+            # and only trusted as a non-negative integer, because it is a
+            # number chosen by the service like everything else here.
+            candidate = document.get("numberMatched")
+            if isinstance(candidate, int) and not isinstance(candidate, bool):
+                number_matched = candidate if candidate >= 0 else None
         for feature in features:
             # fix(#1746 B2b review r19): `ensure_ascii=False`, and the file
             # opened in binary. The default escapes every non-ASCII character
@@ -435,7 +471,7 @@ async def _walk_pages(
         # `page_url` to None, so this only fires on a genuinely short read.
         raise ItemFetchFailedError("collection exceeds the page cap")
     out.write(b"]}")
-    return pages, written
+    return pages, written, number_matched
 
 
 async def materialise_oapif_items(
@@ -447,8 +483,8 @@ async def materialise_oapif_items(
     feature_limit: int | None = None,
     deadline: float | None = None,
     on_first_request: Callable[[], None] | None = None,
-) -> str:
-    """Write a protected collection to a local GeoJSON file and return its path.
+) -> MaterialisedCollection:
+    """Write a protected collection to a local GeoJSON file and describe it.
 
     The caller hands the returned path to GDAL INSTEAD of the OAPIF source, and
     writes no header file at all, which is what removes the credential from
@@ -506,7 +542,7 @@ async def materialise_oapif_items(
                 # Binary: the features are encoded once, and the count that
                 # bounds the file is then the count that is written.
                 with open(path, "wb") as out:
-                    pages, written = await _walk_pages(
+                    pages, written, number_matched = await _walk_pages(
                         client,
                         out,
                         url=url,
@@ -529,4 +565,14 @@ async def materialise_oapif_items(
         pages=pages,
         features=written,
     )
-    return path
+    sample_limited = feature_limit is not None and written >= feature_limit
+    if number_matched is None and sample_limited:
+        # fix(#1746 B2b review r24): the walk stopped at the sample size and
+        # the service did not say how many features there are, so the only
+        # honest answer is that the total is unknown. `written` would be the
+        # sample size, which a preview then showed as the collection's row
+        # count and re-upload turned into a delta against the real dataset.
+        total: int | None = None
+    else:
+        total = number_matched if number_matched is not None else written
+    return MaterialisedCollection(path=path, features=written, total=total)

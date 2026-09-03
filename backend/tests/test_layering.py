@@ -1863,7 +1863,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # is all the PATCH needs: the field is a plain scalar on the record, so
         # _apply_simple_field_assignments already gives it PATCH semantics and
         # explicit-null clearing. Cap 478 -> 479, exact.
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 479,
+        # fix(#1746 B2b review r24): +9. `row_count_delta` is null when either
+        # count is unknown rather than a subtraction against a coerced zero,
+        # which invented a delta the size of whichever side was known. The
+        # case that reaches it is a service preview whose collection size the
+        # service never published.
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 488,
         # fix(#435 codex r1): +6 LOC in get_dataset_rows to probe schema existence
         # before degrading a 42P01 to an empty page. Postgres reports a missing
         # tenant data schema with the same code as a raster dataset's synthetic
@@ -2587,7 +2592,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # anonymously learned nothing and approved it. The rest is the second
     # refusal code on the same handler and the note on why the log line reads
     # `origin` defensively. Cap 1528 -> 1561, exact.
-    "backend/app/modules/catalog/sources/router.py": 1561,
+    # fix(#1746 B2b review r24): +9. `/probe` passes a monotonic deadline to
+    # the endpoint check. It had omitted one, so the check ran unbounded and a
+    # description delivered slowly but steadily across up to twenty listing
+    # pages held an API request open for as long as the service liked.
+    "backend/app/modules/catalog/sources/router.py": 1570,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against
@@ -4417,7 +4426,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fired it, and the remaining-budget arithmetic moved to just before the
     # spawn where it accounts for both preflights.
     # Cap 1314 -> 1340, exact.
-    "backend/app/processing/ingest/ogr.py": 1340,
+    # fix(#1746 B2b review r24): +2. The materialiser returns a described
+    # extract rather than a bare path, so the preview can report the
+    # collection's own size instead of the sample it was handed.
+    # Cap 1340 -> 1342, exact.
+    "backend/app/processing/ingest/ogr.py": 1342,
     # fix(#1778): +157 for two audit findings that both land in JIT
     # provisioning. One is the REGISTRATION_ENABLED gate plus its exception
     # class, so enabling a provider stops being a way to reopen signup while
@@ -4781,7 +4794,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # it out because no transport composed a header for the methods it adds;
     # with one in place, leaving it out would mean a basic-protected service
     # could be re-uploaded but not previewed first. Cap 1499 -> 1516, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1516,
+    # fix(#1746 B2b review r24): +8. `row_count_delta` is nullable (and still
+    # required), with the reason recorded where the field is declared.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1524,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

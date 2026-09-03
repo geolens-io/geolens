@@ -36,15 +36,28 @@ export function SchemaDiffView({ schemaDiff }: SchemaDiffViewProps) {
         </div>
         <div>
           <p className="text-xs text-muted-foreground">{t('schemaDiff.delta')}</p>
+          {/* fix(#1746): null is UNKNOWN, not zero. A service preview whose
+              collection size the service never published has no delta to
+              show, and rendering one as 0 read as "no change". */}
           <p
             className={cn(
               'text-lg font-semibold',
-              schemaDiff.row_count_delta > 0 && 'text-success',
-              schemaDiff.row_count_delta < 0 && 'text-destructive',
+              schemaDiff.row_count_delta !== null &&
+                schemaDiff.row_count_delta > 0 &&
+                'text-success',
+              schemaDiff.row_count_delta !== null &&
+                schemaDiff.row_count_delta < 0 &&
+                'text-destructive',
             )}
           >
-            {schemaDiff.row_count_delta > 0 ? '+' : ''}
-            {formatNumber(schemaDiff.row_count_delta)}
+            {schemaDiff.row_count_delta === null ? (
+              t('common:notAvailable')
+            ) : (
+              <>
+                {schemaDiff.row_count_delta > 0 ? '+' : ''}
+                {formatNumber(schemaDiff.row_count_delta)}
+              </>
+            )}
           </p>
         </div>
       </div>
@@ -112,7 +125,7 @@ export function SchemaDiffView({ schemaDiff }: SchemaDiffViewProps) {
       )}
 
       {/* No changes message */}
-      {!hasChanges && schemaDiff.row_count_delta === 0 && (
+      {!hasChanges && (schemaDiff.row_count_delta ?? 0) === 0 && (
         <p className="text-sm text-muted-foreground">
           {t('schemaDiff.noChanges')}
         </p>

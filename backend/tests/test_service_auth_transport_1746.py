@@ -58,7 +58,11 @@ from app.processing.ingest import ogr as ogr_mod
 from app.platform import service_endpoints as service_endpoints_mod
 from app.platform import service_items as service_items_mod
 from app.platform.service_endpoints import EndpointCheckFailedError
-from app.platform.service_items import ItemFetchFailedError, materialise_oapif_items
+from app.platform.service_items import (
+    ItemFetchFailedError,
+    MaterialisedCollection,
+    materialise_oapif_items,
+)
 from app.processing.ingest.ogr import run_ogr2ogr_service
 
 # fix(#1746 codex r2): autouse where imported — the credential header lands in
@@ -1008,7 +1012,7 @@ class TestALegacyQueuedTokenStillImports:
             seen.update(url=url, collection=collection, **kwargs)
             local = tmp_path / "items.geojson"
             local.write_text('{"type": "FeatureCollection", "features": []}')
-            return str(local)
+            return MaterialisedCollection(path=str(local), features=0, total=0)
 
         monkeypatch.setattr(
             "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
@@ -2372,6 +2376,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
                 _SVC_WFS,
                 service_format="wfs",
                 credential_line=f"{pair[0]}: {pair[1]}",
+                deadline=None,
             )
 
         assert "[" not in raised.value.policy
@@ -2422,6 +2427,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
             _SVC_OAPIF,
             service_format="ogcapi_features",
             credential_line=f"{pair[0]}: {pair[1]}",
+            deadline=None,
         )
 
     async def test_the_worker_refuses_a_cross_origin_items_link(
@@ -2520,6 +2526,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
                 _SVC_WFS,
                 service_format="wfs",
                 credential_line=f"X-Api-Key: {_value()}",
+                deadline=None,
             )
 
         assert raised.value.code == "endpoint_check_failed"
@@ -2540,6 +2547,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
                 _SVC_WFS,
                 service_format="wfs",
                 credential_line=f"X-Api-Key: {_value()}",
+                deadline=None,
             )
 
     async def test_an_arcgis_source_is_not_checked(self, monkeypatch) -> None:
@@ -2552,6 +2560,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
             _SVC_WFS,
             service_format="arcgis_featureserver",
             credential_line=f"Authorization: Bearer tok{_value()}",
+            deadline=None,
         )
 
         assert recorded == []
@@ -2562,7 +2571,10 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
         recorded = self._transport(monkeypatch, self._wfs_handler(f"{_FOREIGN}/wfs"))
 
         await assert_endpoints_stay_on_origin(
-            _SVC_WFS, service_format="wfs", credential_line=None
+            _SVC_WFS,
+            service_format="wfs",
+            credential_line=None,
+            deadline=None,
         )
 
         assert recorded == []
@@ -2780,12 +2792,14 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
             monkeypatch, self._pages(f"{base}?page=1", f"{base}?page=2", None)
         )
 
-        path = await materialise_oapif_items(
-            _SVC_OAPIF,
-            "c1",
-            credential_line=f"{pair[0]}: {pair[1]}",
-            staging_dir=tmp_path,
-        )
+        path = (
+            await materialise_oapif_items(
+                _SVC_OAPIF,
+                "c1",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                staging_dir=tmp_path,
+            )
+        ).path
 
         document = json.loads(pathlib.Path(path).read_text())
         assert [f["properties"]["page"] for f in document["features"]] == [0, 1, 2]
@@ -2860,7 +2874,7 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
             monkeypatch, self._pages(*[f"{base}?page={n}" for n in range(1, 20)])
         )
 
-        path = await materialise_oapif_items(
+        extract = await materialise_oapif_items(
             _SVC_OAPIF,
             "c1",
             credential_line=f"{pair[0]}: {pair[1]}",
@@ -2868,8 +2882,13 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
             feature_limit=2,
         )
 
-        document = json.loads(pathlib.Path(path).read_text())
+        document = json.loads(pathlib.Path(extract.path).read_text())
         assert len(document["features"]) == 2
+        # fix(#1746 B2b review r24): the sample size is not the collection.
+        # These pages publish no `numberMatched`, so the total is unknown
+        # rather than two.
+        assert extract.features == 2
+        assert extract.total is None
         # Two pages, plus the collection document.
         assert len(recorded) == 3
 
@@ -2964,7 +2983,7 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
         self._transport(monkeypatch, self._endless(features_per_page=2))
         monkeypatch.setattr("app.platform.service_items.MAX_PAGES", 4)
 
-        path = await self._materialise(tmp_path, feature_limit=5)
+        path = (await self._materialise(tmp_path, feature_limit=5)).path
 
         document = json.loads(pathlib.Path(path).read_text())
         assert len(document["features"]) == 5
@@ -3212,7 +3231,7 @@ class TestOnePageCannotCostTheWholeProcess:
                 )
             ),
         )
-        path = await self._materialise(tmp_path)
+        path = (await self._materialise(tmp_path)).path
 
         raw = pathlib.Path(path).read_bytes()
         assert b"\\u" not in raw
@@ -3379,7 +3398,7 @@ class TestTheCallersClockCoversTheDownload:
             await asyncio.sleep(0.05)
             local = tmp_path / "items.geojson"
             local.write_text('{"type": "FeatureCollection", "features": []}')
-            return str(local)
+            return MaterialisedCollection(path=str(local), features=0, total=0)
 
         async def _fake_exec(*cmd, **kwargs):
             proc = MagicMock()
@@ -3519,7 +3538,7 @@ class TestAFailedMaterialisationStillDatesTheContact:
             kwargs["on_first_request"]()
             local = tmp_path / "items.geojson"
             local.write_text('{"type": "FeatureCollection", "features": []}')
-            return str(local)
+            return MaterialisedCollection(path=str(local), features=0, total=0)
 
         async def _fake_exec(*cmd, **kwargs):
             proc = MagicMock()
@@ -3620,6 +3639,7 @@ class TestOneDescriptionCannotCostTheWholeProcess:
             service_format=service_format,
             credential_line=f"{pair[0]}: {pair[1]}",
             collection=collection,
+            deadline=None,
         )
 
     async def test_the_read_stops_at_the_bound_and_never_reaches_the_parser(
@@ -3787,12 +3807,14 @@ class TestARelativeLinkIsResolvedAgainstTheDocument:
 
         recorded = self._transport(monkeypatch, handle)
 
-        path = await materialise_oapif_items(
-            _SVC_OAPIF,
-            "c1",
-            credential_line=f"{pair[0]}: {pair[1]}",
-            staging_dir=tmp_path,
-        )
+        path = (
+            await materialise_oapif_items(
+                _SVC_OAPIF,
+                "c1",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                staging_dir=tmp_path,
+            )
+        ).path
 
         # `page2` relative to `/collections/c1/items/`, not to `/collections/c1/`.
         assert [r.url.path for r in recorded] == [
@@ -3843,6 +3865,7 @@ class TestARelativeLinkIsResolvedAgainstTheDocument:
             _SVC_WFS,
             service_format="wfs",
             credential_line=f"{pair[0]}: {pair[1]}",
+            deadline=None,
         )
 
         # `deeper` resolved against the redirected document, not against the
@@ -3926,7 +3949,7 @@ class TestTheItemsLinkTheCollectionAdvertises:
             ),
         )
 
-        path = await self._materialise(tmp_path)
+        path = (await self._materialise(tmp_path)).path
 
         assert [r.url.path for r in recorded] == [
             "/oapif/collections/c1",
@@ -4123,7 +4146,7 @@ class TestAPageThatIsNotAPageIsNotAnEmptyPage:
             self._serving({"type": "FeatureCollection", "features": [], "links": []}),
         )
 
-        path = await self._materialise(tmp_path)
+        path = (await self._materialise(tmp_path)).path
 
         assert json.loads(pathlib.Path(path).read_text()) == {
             "type": "FeatureCollection",
@@ -4340,7 +4363,7 @@ class TestAPageCannotCostMoreDecodedThanItDidOnTheWire:
 
         self._transport(monkeypatch, self._serving(raw))
 
-        path = await self._materialise(tmp_path)
+        path = (await self._materialise(tmp_path)).path
 
         document = json.loads(pathlib.Path(path).read_text())
         assert len(document["features"]) == service_items_mod.PAGE_SIZE
@@ -4482,7 +4505,7 @@ class TestTheDescriptionReadHasTheItemsPathsProtections:
         )
         return recorded
 
-    async def _check(self, **kwargs):
+    async def _check(self, *, deadline=None, **kwargs):
         from app.platform.service_endpoints import assert_endpoints_stay_on_origin
 
         credential, _value_ = _header_key()
@@ -4492,6 +4515,7 @@ class TestTheDescriptionReadHasTheItemsPathsProtections:
             _SVC_WFS,
             service_format="wfs",
             credential_line=f"{pair[0]}: {pair[1]}",
+            deadline=deadline,
             **kwargs,
         )
 
@@ -4611,6 +4635,7 @@ class TestTheDescriptionReadHasTheItemsPathsProtections:
                 _SVC_OAPIF,
                 service_format="ogcapi_features",
                 credential_line=f"{pair[0]}: {pair[1]}",
+                deadline=None,
             )
 
         assert parsed == []
@@ -4742,3 +4767,303 @@ class TestAWfsPreflightDatesTheOriginContact:
         await self._import(monkeypatch, contacted, spawn_allowed=True)
 
         assert contacted == [1]
+
+
+class TestEveryCallerNamesItsClock:
+    """fix(#1746 B2b review r24): `/probe` had omitted the deadline.
+
+    It ran under `asyncio.timeout(None)`, and since the client bounds
+    inactivity rather than the operation, and the OGC API check reads up to
+    twenty listing pages, a description delivered slowly but steadily held an
+    API request open for as long as the service liked.
+
+    The keyword has no default now, so omitting it is a `TypeError` at the call
+    rather than an unbounded read at run time.
+    """
+
+    # The route test drives the real check; without this the conftest fixture
+    # no-ops it and the test would pass against a stub.
+    uses_the_real_endpoint_check = True
+
+    def test_the_keyword_has_no_default(self) -> None:
+        import inspect as _inspect
+
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        parameter = _inspect.signature(assert_endpoints_stay_on_origin).parameters[
+            "deadline"
+        ]
+        assert parameter.kind is _inspect.Parameter.KEYWORD_ONLY
+        assert parameter.default is _inspect.Parameter.empty
+
+    def test_no_production_call_site_omits_it(self) -> None:
+        """Every caller in `app/` says what clock it runs under."""
+        import ast
+        import pathlib as _pathlib
+
+        root = _pathlib.Path(__file__).resolve().parents[1] / "app"
+        sites: list[str] = []
+        for path in root.rglob("*.py"):
+            tree = ast.parse(path.read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                name = getattr(node.func, "id", None) or getattr(
+                    node.func, "attr", None
+                )
+                if name != "assert_endpoints_stay_on_origin":
+                    continue
+                keywords = {k.arg for k in node.keywords}
+                sites.append(f"{path.name}:{node.lineno}")
+                assert "deadline" in keywords, f"{path}:{node.lineno}"
+
+        # The three that spend the credential: probe, preview, worker.
+        assert len(sites) == 3, sites
+
+    async def test_the_probe_route_is_bounded(
+        self, client, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        """The route answers the coded refusal rather than hanging.
+
+        A service that trickles a valid description forever is refused inside
+        the shared budget, which is shortened here so the test is not.
+        """
+        from app.platform import service_endpoints
+
+        recorded: list[httpx.Request] = []
+        raw = _capabilities(_SVC_WFS).encode()
+        reads: list[int] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            if "GetCapabilities" not in str(request.url):
+                return httpx.Response(404)
+            reads.append(1)
+            if len(reads) == 1:
+                # Detection answers at once, as a real service would. The
+                # endpoint check's own read is the one that trickles, and it
+                # is the read that had no clock over it.
+                return httpx.Response(200, content=raw)
+
+            async def _chunks():
+                for start in range(0, len(raw), 4):
+                    await asyncio.sleep(0.05)
+                    yield raw[start : start + 4]
+
+            return httpx.Response(200, content=_chunks())
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.router.validate_url_for_ssrf", AsyncMock()
+        )
+        monkeypatch.setattr(service_endpoints, "DEFAULT_CHECK_TIMEOUT", 0.2)
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.router.DEFAULT_CHECK_TIMEOUT", 0.2
+        )
+
+        started = time.monotonic()
+        response = await client.post(
+            "/services/probe",
+            json={
+                "url": _SVC_WFS,
+                "auth": {
+                    "method": "header",
+                    "header_name": "X-Api-Key",
+                    "header_value": _value(),
+                },
+            },
+            headers=admin_auth_header,
+        )
+        elapsed = time.monotonic() - started
+
+        assert response.status_code == 422, response.text
+        assert response.json()["detail"]["code"] == "endpoint_check_failed"
+        # Stopped by the clock, well short of the ~4 s the service would have
+        # taken to finish, and nowhere near the twenty pages it could have run.
+        assert elapsed < 3.0, elapsed
+        assert recorded
+
+
+class TestAPreviewReportsTheCollectionNotTheScratchFile:
+    """fix(#1746 B2b review r24): two things ogrinfo cannot know.
+
+    Pointed at a scratch file with no layer argument, the GeoJSON driver
+    answers with the temp file's name and with the number of features in the
+    sample. Users saw `oapif_items_xxxx` where their collection should be, and
+    a row count of `sample_limit` that the import preview showed and
+    re-upload's schema diff turned into a delta against the real dataset.
+    """
+
+    def _transport(self, monkeypatch, *, number_matched: int | None, total: int):
+        recorded: list[httpx.Request] = []
+        base = f"{_SVC_OAPIF}/collections/roads/items"
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            if not request.url.path.endswith("/items"):
+                return _as_stream(
+                    httpx.Response(200, json={"id": "roads", "links": []})
+                )
+            page = int(request.url.params.get("page", 0))
+            body: dict = {
+                "type": "FeatureCollection",
+                "features": [_point(f"f{page}-{n}") for n in range(10)],
+                "links": [{"rel": "next", "href": f"{base}?page={page + 1}"}]
+                if (page + 1) * 10 < total
+                else [],
+            }
+            if number_matched is not None:
+                body["numberMatched"] = number_matched
+            return _streamed(body)
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    def _ogrinfo(self, monkeypatch):
+        """ogrinfo describing the scratch file, as it really does."""
+
+        async def _fake_exec(*cmd, **kwargs):
+            proc = MagicMock()
+            proc.returncode = 0
+
+            async def _communicate():
+                return (
+                    json.dumps(
+                        {
+                            "layers": [
+                                {
+                                    # The driver's answer: the temp file, and
+                                    # what is in it.
+                                    "name": "oapif_items_scratch",
+                                    "featureCount": 5,
+                                    "fields": [{"name": "id", "type": "String"}],
+                                    "features": [],
+                                    "geometryFields": [],
+                                }
+                            ]
+                        }
+                    ).encode(),
+                    b"",
+                )
+
+            proc.communicate = _communicate
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+    async def test_the_layer_name_is_the_collection(self, monkeypatch) -> None:
+        credential, _value_ = _header_key()
+        self._transport(monkeypatch, number_matched=500, total=500)
+        self._ogrinfo(monkeypatch)
+
+        result = await preview_mod.run_service_preview(
+            f"OAPIF:{_SVC_OAPIF}", "roads", sample_limit=5, credential=credential
+        )
+
+        assert result["layer_name"] == "roads"
+        assert "oapif_items" not in result["layer_name"]
+
+    async def test_the_count_is_number_matched_not_the_sample(
+        self, monkeypatch
+    ) -> None:
+        credential, _value_ = _header_key()
+        self._transport(monkeypatch, number_matched=500, total=500)
+        self._ogrinfo(monkeypatch)
+
+        result = await preview_mod.run_service_preview(
+            f"OAPIF:{_SVC_OAPIF}", "roads", sample_limit=5, credential=credential
+        )
+
+        assert result["feature_count"] == 500
+
+    async def test_the_count_is_unknown_when_the_service_says_nothing(
+        self, monkeypatch
+    ) -> None:
+        """Unknown rather than five. Five is the lie this closes."""
+        credential, _value_ = _header_key()
+        self._transport(monkeypatch, number_matched=None, total=500)
+        self._ogrinfo(monkeypatch)
+
+        result = await preview_mod.run_service_preview(
+            f"OAPIF:{_SVC_OAPIF}", "roads", sample_limit=5, credential=credential
+        )
+
+        assert result["feature_count"] is None
+
+    async def test_a_collection_smaller_than_the_sample_counts_exactly(
+        self, monkeypatch
+    ) -> None:
+        """The walk ran to the end, so what it wrote IS the collection."""
+        credential, _value_ = _header_key()
+        self._transport(monkeypatch, number_matched=None, total=10)
+        self._ogrinfo(monkeypatch)
+
+        result = await preview_mod.run_service_preview(
+            f"OAPIF:{_SVC_OAPIF}", "roads", sample_limit=50, credential=credential
+        )
+
+        assert result["feature_count"] == 10
+
+    async def test_an_unprotected_preview_still_reports_ogrinfos_answer(
+        self, monkeypatch
+    ) -> None:
+        """Nothing is localised without a credential, so nothing changes."""
+        self._ogrinfo(monkeypatch)
+
+        result = await preview_mod.run_service_preview(
+            f"WFS:{_SVC_WFS}", "topp:parcels", sample_limit=5
+        )
+
+        assert result["layer_name"] == "oapif_items_scratch"
+        assert result["feature_count"] == 5
+
+
+class TestAnUnknownRowCountIsNotADelta:
+    """fix(#1746 B2b review r24): `None` meant zero in the schema diff.
+
+    `(new or 0) - (old or 0)` turned an unknown count into a delta the size of
+    whichever side was known, and the case that reaches it most often is a
+    service preview whose collection size the service never published.
+    """
+
+    def test_an_unknown_new_count_has_no_delta(self) -> None:
+        from app.modules.catalog.datasets.domain.service_metadata import (
+            compute_schema_diff,
+        )
+
+        diff = compute_schema_diff(
+            [], [], old_feature_count=1200, new_feature_count=None
+        )
+
+        assert diff["row_count_old"] == 1200
+        assert diff["row_count_new"] is None
+        assert diff["row_count_delta"] is None
+
+    def test_an_unknown_old_count_has_no_delta(self) -> None:
+        from app.modules.catalog.datasets.domain.service_metadata import (
+            compute_schema_diff,
+        )
+
+        diff = compute_schema_diff([], [], old_feature_count=None, new_feature_count=7)
+
+        assert diff["row_count_delta"] is None
+
+    def test_two_known_counts_still_subtract(self) -> None:
+        from app.modules.catalog.datasets.domain.service_metadata import (
+            compute_schema_diff,
+        )
+
+        diff = compute_schema_diff([], [], old_feature_count=10, new_feature_count=4)
+
+        assert diff["row_count_delta"] == -6

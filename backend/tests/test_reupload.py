@@ -1170,11 +1170,18 @@ class TestSchemaDiffComputation:
         assert result["row_count_delta"] == 0
 
     def test_schema_diff_null_counts(self):
-        """Null feature counts handled gracefully."""
+        """Null feature counts are UNKNOWN, and the delta says so.
+
+        fix(#1746 B2b review r24): this asserted a delta of 0, which is what
+        `(new or 0) - (old or 0)` produced and what the review called out: an
+        unknown count coerced to zero invents a delta the size of whichever
+        side is known, and two unknowns read as "no change" rather than as
+        "not known". The field is nullable now, and still required.
+        """
         result = compute_schema_diff([], [], None, None)
         assert result["row_count_old"] is None
         assert result["row_count_new"] is None
-        assert result["row_count_delta"] == 0
+        assert result["row_count_delta"] is None
 
     def test_schema_diff_case_insensitive(self):
         """Column matching is case-insensitive (ogr2ogr lowercases on import)."""

@@ -89,7 +89,16 @@ def compute_schema_diff(
         ],
         "row_count_old": old_feature_count,
         "row_count_new": new_feature_count,
-        "row_count_delta": (new_feature_count or 0) - (old_feature_count or 0),
+        # fix(#1746 B2b review r24): `None` on either side is UNKNOWN, not
+        # zero. Coercing it invented a delta the size of whichever count was
+        # known, and the case that reaches this most often is a service preview
+        # whose collection size the service never published. An unknown
+        # difference is reported as unknown.
+        "row_count_delta": (
+            None
+            if old_feature_count is None or new_feature_count is None
+            else new_feature_count - old_feature_count
+        ),
     }
 
 

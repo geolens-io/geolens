@@ -615,7 +615,7 @@ async def assert_endpoints_stay_on_origin(
     service_format: str | None,
     credential_line: str | None,
     collection: str | None = None,
-    deadline: float | None = None,
+    deadline: float | None,
     on_first_request: "Callable[[], None] | None" = None,
 ) -> None:
     """Refuse a credentialed source that advertises a foreign operation endpoint.
@@ -634,6 +634,15 @@ async def assert_endpoints_stay_on_origin(
 
     ``deadline`` is a :func:`time.monotonic` stamp by which the whole check
     must be done, covering every read rather than the gaps between them.
+
+    fix(#1746 B2b review r24): it has NO default. `/probe` omitted it and ran
+    under `asyncio.timeout(None)`, and since the client bounds only inactivity
+    and the OGC API check reads up to twenty listing pages, a slow-trickling
+    authenticated description held an API request open for as long as it liked.
+    A keyword with no default is the difference between forgetting it and not
+    being able to. ``None`` is still accepted and still means no clock, but a
+    caller has to say so; `DEFAULT_CHECK_TIMEOUT` is what a caller with no
+    budget of its own should use.
     ``on_first_request`` fires once, before the first request, for a caller
     that dates origin contacts. fix(#1746 B2b review r23) for both.
     """

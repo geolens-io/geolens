@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import time
 import uuid
 from dataclasses import replace
 from typing import NoReturn
@@ -80,6 +81,7 @@ from app.platform.service_auth import (
     url_query_token,
 )
 from app.platform.service_endpoints import (
+    DEFAULT_CHECK_TIMEOUT,
     CrossOriginEndpointError,
     EndpointCheckFailedError,
     assert_endpoints_stay_on_origin,
@@ -801,6 +803,13 @@ async def probe_service_url(
                 credential_line=_probe_credential_line(
                     service_credential, detected_format
                 ),
+                # fix(#1746 B2b review r24): the probe has no budget of its
+                # own, so it takes the shared one. Without it this ran under
+                # `asyncio.timeout(None)`, and the client bounds inactivity
+                # rather than the operation, so a description delivered slowly
+                # but steadily across up to twenty listing pages held the
+                # request open indefinitely.
+                deadline=time.monotonic() + DEFAULT_CHECK_TIMEOUT,
             )
 
     except (CrossOriginEndpointError, EndpointCheckFailedError) as exc:

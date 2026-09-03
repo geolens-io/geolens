@@ -11833,9 +11833,9 @@ export interface components {
             row_count_new: number | null;
             /**
              * Row Count Delta
-             * @description row_count_new minus row_count_old
+             * @description row_count_new minus row_count_old, or null when either side is unknown
              */
-            row_count_delta: number;
+            row_count_delta: number | null;
         };
         /**
          * ServiceAuthRequest

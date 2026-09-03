@@ -1082,22 +1082,24 @@ async def run_ogr2ogr_service(
     # stubbed) would silently lose the contact date.
     arm_origin_contact = fire_once(on_spawn)
     if token and service_type == "ogcapi_features":
-        items_path = await materialise_oapif_items(
-            gdal_source.split(":", 1)[1],
-            layer_name,
-            credential_line=_sanitize_authorization_token(
-                token, service_format=service_type
+        items_path = (
+            await materialise_oapif_items(
+                gdal_source.split(":", 1)[1],
+                layer_name,
+                credential_line=_sanitize_authorization_token(
+                    token, service_format=service_type
+                )
+                or "",
+                staging_dir=ensure_staging_ready(settings.upload_staging_dir),
+                deadline=deadline,
+                # fix(#1746 B2b review r17): the origin is contacted by the walk
+                # now rather than by the subprocess, so a materialisation that
+                # fails on its first page has still reached the service and the
+                # caller that dates contacts has to hear about it. Fired at most
+                # once: the spawn below skips it when the walk already did.
+                on_first_request=arm_origin_contact,
             )
-            or "",
-            staging_dir=ensure_staging_ready(settings.upload_staging_dir),
-            deadline=deadline,
-            # fix(#1746 B2b review r17): the origin is contacted by the walk
-            # now rather than by the subprocess, so a materialisation that
-            # fails on its first page has still reached the service and the
-            # caller that dates contacts has to hear about it. Fired at most
-            # once: the spawn below skips it when the walk already did.
-            on_first_request=arm_origin_contact,
-        )
+        ).path
         gdal_source, layer_name, token = items_path, "", None
 
     if layer_name:
