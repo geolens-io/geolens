@@ -58,7 +58,7 @@ from app.platform.ratelimit import limiter
 from app.processing.ingest.tasks import task_app
 from app.api.middleware.body_limit import RequestBodyLimitMiddleware
 from app.api.middleware.cors import DynamicCORSMiddleware
-from app.api.middleware.logging import RequestLoggingMiddleware
+from app.api.middleware.logging import RequestLoggingMiddleware, safe_access_log_path
 from app.api.middleware.security import SecurityHeadersMiddleware
 from app.api.middleware.tenant_context import TenantContextMiddleware
 from app.processing.tiles.pool import close_tile_pool, init_tile_pool
@@ -941,7 +941,10 @@ async def _database_error_handler(request: Request, exc: DBAPIError) -> JSONResp
         raise exc
     logger.exception(
         "Operational database error",
-        path=request.url.path,
+        # fix(#1778): the path can be /api/maps/shared/{token}; the access-log
+        # line for the same request has been redacted since #821 and this one
+        # was not, so a 503 here published a replayable share capability.
+        path=safe_access_log_path(request.url.path),
         sqlstate=sqlstate(exc),
     )
     return JSONResponse(
