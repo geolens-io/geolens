@@ -4836,8 +4836,18 @@ class TestAPageCannotCostMoreDecodedThanItDidOnTheWire:
             }
             for n in range(service_items_mod.PAGE_SIZE)
         ]
+        # fix(#1770 round 38): `numberMatched` equal to the page, so a page
+        # this size with an empty `links` list is PROVABLY the whole
+        # collection -- what this test exercises is the byte/token cap, not
+        # completeness, and a page this large with no proof of completeness
+        # is now exactly what round 38 refuses.
         raw = json.dumps(
-            {"type": "FeatureCollection", "features": features, "links": []}
+            {
+                "type": "FeatureCollection",
+                "features": features,
+                "numberMatched": service_items_mod.PAGE_SIZE,
+                "links": [],
+            }
         ).encode()
         tokens = service_endpoints_mod.structural_tokens(raw)
         # Measured rather than asserted vaguely: a full page of 1,000 polygon
@@ -7104,6 +7114,302 @@ class TestASampleCanBeShorterButNeverLonger:
 
         assert extract.features == 5
         assert extract.total == 5
+
+
+class TestAFullPageWithoutLinksMustProveItIsTheLastOne:
+    """fix(#1770 round 38 P1, `service_items.py:278`).
+
+    A first page with no `links` at all is accepted as a well-formed shape
+    (`_require_links` tolerates it -- nothing was followed to get here, so
+    nothing was decided from a link). `_walk_pages` used to read that shape
+    the same way it reads a genuine last page: no `next` found, stop, done.
+    On a FULL walk (`feature_limit=None`, a refresh or re-upload, never a
+    preview) that let a server which returns exactly the page size but omits
+    pagination metadata entirely replace an existing dataset with page one.
+
+    Provably complete now means one of two things, checked once the page has
+    already passed `_require_links`/`_require_counts`: `numberMatched` equals
+    what the walk has actually totalled across every page it read, or -- only
+    on the FIRST page, where this module pins `limit=PAGE_SIZE` itself -- the
+    page returned fewer features than that limit, which a server with more to
+    give could not have done. A preview is unaffected either way: it was
+    never claiming to be the whole collection.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    def _first_page_no_links(
+        self, monkeypatch, *, feature_count: int, number_matched: int | None
+    ):
+        """A single page with no `links` member at all, optionally no
+        `numberMatched` either. `feature_count` PAGE_SIZE is the shape round
+        38 fixed; anything under it is a page a server could not have padded
+        out further."""
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            body: dict = {
+                "type": "FeatureCollection",
+                "features": [_point(f"f{n}") for n in range(feature_count)],
+            }
+            if number_matched is not None:
+                body["numberMatched"] = number_matched
+            return _streamed(body)
+
+        return self._transport(monkeypatch, handle)
+
+    async def test_full_walk_page_at_the_limit_no_links_no_total_refuses(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Pin (a). Exactly the shape round 38 closes: a page as large as the
+        limit this module asked for, no `numberMatched`, no `links` at all --
+        indistinguishable from a server that had more and never said so."""
+        from app.platform.service_items import PAGE_SIZE
+
+        self._first_page_no_links(
+            monkeypatch, feature_count=PAGE_SIZE, number_matched=None
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_full_walk_page_under_the_limit_no_links_accepts(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Pin (b). Fewer features than `limit=PAGE_SIZE` proves it on its
+        own: a server that had more to give would have filled the page."""
+        self._first_page_no_links(monkeypatch, feature_count=3, number_matched=None)
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 3
+        assert extract.total == 3
+
+    async def test_full_walk_page_at_the_limit_matching_total_accepts(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Pin (c). `numberMatched == observed` proves it even at the limit,
+        no `links` needed."""
+        from app.platform.service_items import PAGE_SIZE
+
+        self._first_page_no_links(
+            monkeypatch, feature_count=PAGE_SIZE, number_matched=PAGE_SIZE
+        )
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == PAGE_SIZE
+        assert extract.total == PAGE_SIZE
+
+    async def test_preview_page_at_the_limit_no_links_no_total_accepts(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Pin (d). A preview never claimed to be the whole collection, so
+        this round's proof requirement does not apply to it -- unchanged from
+        before round 38. Sample size one under the page, so the sample
+        genuinely stops mid-page (`truncated`) rather than landing on the
+        boundary case where a short sample is also a complete read."""
+        from app.platform.service_items import PAGE_SIZE
+
+        self._first_page_no_links(
+            monkeypatch, feature_count=PAGE_SIZE, number_matched=None
+        )
+
+        extract = await self._materialise(tmp_path, feature_limit=PAGE_SIZE - 1)
+
+        assert extract.features == PAGE_SIZE - 1
+        assert extract.total is None
+
+
+class TestAResponseProvidedUrlNeverReachesALogUnredacted:
+    """fix(#1770 round 38 P2, `adapters/ogcapi.py:131`).
+
+    `_resolve_conformance` logged the landing page's advertised `conformance`
+    href verbatim in three places: the cross-origin refusal, the SSRF-blocked
+    branch, and the fetch-failed branch. That href names a document the
+    SERVICE chose, so a hostile or compromised one can shape it into
+    something that looks like `?token=<value>` -- not necessarily OUR
+    credential, but a live demonstration that whatever this function is about
+    to send can come straight back out through a log line, the exact leak
+    the GDAL-header-file design (never a subprocess env, never argv) exists
+    to prevent everywhere else.
+
+    Fixed by redacting at each log call with the existing
+    `redact_url_credentials` (`core/url_redaction.py`), never at the point
+    `abs_href` is bound: `same_origin`, `validate_url_for_ssrf` and the
+    actual GET all need the real value.
+    """
+
+    async def test_a_reflected_token_in_the_conformance_href_is_not_logged(
+        self, monkeypatch
+    ) -> None:
+        """A landing page whose `conformance` link is cross-origin AND carries
+        a `?token=<secret>` -- exactly the shape a hostile or compromised
+        service uses to try to get whatever we are about to send it echoed
+        back into our own logs. Hits the first of the three fixed sites: the
+        cross-origin refusal, which fires because a credential is present."""
+        import structlog
+
+        from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
+
+        credential, _value_ = _header_key()
+        secret = "reflect-" + _value()
+        landing = {
+            "links": [
+                {"rel": "data", "href": f"{_SERVICE_ORIGIN}/oapif/collections"},
+                {
+                    "rel": "conformance",
+                    "href": f"{_OTHER_ORIGIN}/conformance?token={secret}",
+                },
+            ]
+        }
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/collections"):
+                return httpx.Response(200, json={"collections": [{"id": "c1"}]})
+            return httpx.Response(200, json=landing)
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+            AsyncMock(),
+        )
+
+        with structlog.testing.capture_logs() as captured:
+            async with httpx.AsyncClient(
+                transport=httpx.MockTransport(handle)
+            ) as client:
+                await probe_ogcapi(
+                    f"{_SERVICE_ORIGIN}/oapif",
+                    client,
+                    credential=replace(credential, service_format="ogcapi_features"),
+                )
+
+        rendered = str(captured)
+        assert secret not in rendered
+        # Not vacuous: the branch this is pinning actually ran.
+        assert "conformance link is on another origin" in rendered
+
+    def test_the_conformance_log_sites_redact_the_href_they_carry(self) -> None:
+        """Source-enumeration, closed set (fix(#1770 round 38 P2)).
+
+        Keyed on the literal helper name, not on data flow: a keyword
+        argument named `href`/`url`/`link` (case-insensitive) whose value is
+        a bare variable reference must either be that variable wrapped in
+        `redact_url_credentials(...)`, or be a name this list has been
+        audited and pinned as never response-derived. Known limits, on
+        purpose rather than by oversight: this walks structlog-style
+        `logger.warning(msg, key=value)` calls only -- the old-style
+        `logger.debug("... %s", value)` calls in `arcgis.py`/`wfs.py` are a
+        different shape this AST pattern does not match at all, audited by
+        hand instead (every value logged there is the function's own
+        caller-supplied URL parameter or a deterministic string built from
+        it, never anything read out of a response body). Anyone adding a new
+        entry to either list, safe or not, is required to look at this test
+        and decide which bucket it belongs in -- that is what a closed list
+        buys over an open-ended one.
+        """
+        import ast
+        import inspect
+
+        from app.modules.catalog.sources.adapters import ogcapi as ogcapi_adapter
+        from app.modules.catalog.sources.adapters import stac as stac_adapter
+
+        log_methods = {"debug", "info", "warning", "error", "exception", "critical"}
+        name_patterns = ("href", "url", "link")
+
+        def _find_calls(module) -> set[tuple[str, str, str]]:
+            """(function, kwarg, value-description) for every URL-shaped kwarg."""
+            tree = ast.parse(inspect.getsource(module))
+            found: set[tuple[str, str, str]] = set()
+            func_stack: list[str] = []
+
+            class _Visitor(ast.NodeVisitor):
+                def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+                    self._enter(node)
+
+                def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+                    self._enter(node)
+
+                def _enter(self, node) -> None:
+                    func_stack.append(node.name)
+                    self.generic_visit(node)
+                    func_stack.pop()
+
+                def visit_Call(self, node: ast.Call) -> None:
+                    func = node.func
+                    is_log = (
+                        isinstance(func, ast.Attribute)
+                        and isinstance(func.value, ast.Name)
+                        and func.value.id in ("logger", "log")
+                        and func.attr in log_methods
+                    )
+                    if is_log:
+                        for kw in node.keywords:
+                            if kw.arg and any(
+                                p in kw.arg.lower() for p in name_patterns
+                            ):
+                                fname = func_stack[-1] if func_stack else "<module>"
+                                if (
+                                    isinstance(kw.value, ast.Call)
+                                    and isinstance(kw.value.func, ast.Name)
+                                    and kw.value.func.id == "redact_url_credentials"
+                                ):
+                                    value = "redacted"
+                                elif isinstance(kw.value, ast.Name):
+                                    value = kw.value.id
+                                else:
+                                    value = ast.dump(kw.value)
+                                found.add((fname, kw.arg, value))
+                    self.generic_visit(node)
+
+            _Visitor().visit(tree)
+            return found
+
+        # Every URL-shaped kwarg found today, in the two files that have any.
+        # A bare (unwrapped) entry is only here because it was audited and
+        # confirmed to be the function's own caller-supplied parameter (or,
+        # for `collections_url`, a deterministic string built from it) --
+        # never a value read out of a parsed response body.
+        expected_ogcapi = {
+            ("_resolve_conformance", "href", "redacted"),
+            ("probe_ogcapi", "url", "url"),
+            ("probe_ogcapi", "url", "collections_url"),
+            ("probe_ogcapi", "collections_url", "collections_url"),
+        }
+        expected_stac = {
+            ("connect_stac_api", "url", "url"),
+        }
+
+        assert _find_calls(ogcapi_adapter) == expected_ogcapi
+        assert _find_calls(stac_adapter) == expected_stac
 
 
 class TestASecretDoesNotSurviveInTheChain:

@@ -35,6 +35,7 @@ import httpx
 import structlog
 
 from app.core.service_tokens import ServiceCredential, build_credential_header
+from app.core.url_redaction import redact_url_credentials
 from app.modules.catalog.sources.classify import classify_layer_kind
 from app.platform.security import SSRFError, same_origin, validate_url_for_ssrf
 
@@ -101,7 +102,15 @@ async def _resolve_conformance(
 
     # Bound before the guard so the two log sites below always have something
     # to name: the resolved form when there is one, the raw href when
-    # resolution is what failed. Neither is a credential.
+    # resolution is what failed. Never logged verbatim (fix(#1770 round 38
+    # P2)): `abs_href` names a document THIS SERVICE chose, so a hostile or
+    # compromised one can put a query string shaped like ours into it and get
+    # the credential this function is about to send reflected straight into
+    # our own logs -- the exact leak the GDAL-header-file design exists to
+    # avoid elsewhere. `redact_url_credentials` is applied at each log call
+    # below, never to `abs_href` itself: the unredacted value is what
+    # `same_origin`, `validate_url_for_ssrf` and the actual GET must keep
+    # using.
     abs_href = conformance_href
     try:
         # fix(#1746 B2b review r19): resolution itself is inside the guard now.
@@ -128,7 +137,7 @@ async def _resolve_conformance(
             logger.warning(
                 "OGC API probe: conformance link is on another origin, "
                 "not following it with a credential",
-                href=abs_href,
+                href=redact_url_credentials(abs_href),
             )
             return conforms_to, has_data_link
         await validate_url_for_ssrf(abs_href)
@@ -147,12 +156,12 @@ async def _resolve_conformance(
     except SSRFError:
         logger.warning(
             "OGC API probe: conformance link blocked by SSRF check",
-            href=abs_href,
+            href=redact_url_credentials(abs_href),
         )
     except Exception as exc:  # broad: conformance fetch — httpx/JSON parse can throw varied errors; degrade gracefully
         logger.debug(
             "OGC API probe: conformance fetch failed",
-            href=abs_href,
+            href=redact_url_credentials(abs_href),
             error=str(exc),
         )
     return conforms_to, has_data_link
