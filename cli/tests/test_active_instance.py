@@ -134,3 +134,85 @@ class TestMakeClientBindsTheDefaultTimeout:
             "https://x.example.com/api", api_key="key-abc"
         )
         assert api_key_client.client.token == "key-abc"
+
+
+class TestActiveCredentialKindMarkerPrecedence:
+    """fix(#1778 review round 10): AppState.sdk() now consults the
+    active-credential-kind marker login writes unconditionally (see
+    auth.load_active_credential_kind), so a stale competing credential
+    surviving in the OTHER backend can never outrank the credential
+    that was actually just stored -- cleanup at login time is
+    best-effort tidiness, not what this decision depends on."""
+
+    def test_api_key_login_wins_over_a_stale_bearer_once_the_keyring_is_readable_again(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """The regression this round fixes: an API-key login that fell
+        back to the file while the keyring was unavailable (round 9
+        tolerates that rather than failing the login) leaves an old
+        bearer token untouched in the keyring. Once the keyring is
+        readable again, the marker -- not the old bearer-first
+        precedence -- decides."""
+        import keyring
+        from keyring.errors import KeyringError
+
+        from geolens_cli.main import app
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com"
+        canonical = _config.normalize_instance_url(instance)
+
+        original_set = keyring.set_password
+        original_get = keyring.get_password
+
+        _auth.store_bearer_token(canonical, "old-bearer-token")
+
+        def locked(*args, **kwargs):
+            raise KeyringError("keychain is locked")
+
+        monkeypatch.setattr("keyring.set_password", locked)
+        monkeypatch.setattr("keyring.get_password", locked)
+
+        result = runner.invoke(app, ["login", instance, "--api-key", "new-key"])
+        assert result.exit_code == 0, result.output
+
+        # The keyring becomes readable again -- the stale bearer token
+        # is still sitting there, untouched (cleanup never ran, per
+        # round 9's tolerance for an unreadable keyring).
+        monkeypatch.setattr("keyring.set_password", original_set)
+        monkeypatch.setattr("keyring.get_password", original_get)
+        assert _auth.load_bearer_token(canonical) is not None
+
+        state = _make_state(config_instance=canonical)
+        sdk = state.sdk()
+
+        assert sdk.credential_kind == "api_key"
+        assert sdk.client.token == "new-key"
+
+    def test_bearer_login_wins_over_a_stale_api_key_in_the_file(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """The mirror case: a stale api_key left in credentials.toml
+        (from an earlier --no-keyring login, say) must not outrank a
+        freshly-stored bearer token either."""
+        from geolens_cli.main import app
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        instance = "https://x.example.com"
+        canonical = _config.normalize_instance_url(instance)
+
+        result = runner.invoke(app, ["login", instance, "--token", "new-bearer"])
+        assert result.exit_code == 0, result.output
+
+        # A stale api_key sitting in the file, however it got there --
+        # the marker must defend against it regardless of cleanup's
+        # own outcome.
+        file_data = _auth._read_credentials_file()
+        file_data.setdefault(canonical, {})["api_key"] = "stale-file-api-key"
+        _auth._write_credentials_file(file_data)
+
+        state = _make_state(config_instance=canonical)
+        sdk = state.sdk()
+
+        assert sdk.credential_kind == "bearer"
+        assert sdk.client.token == "new-bearer"

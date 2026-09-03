@@ -171,6 +171,36 @@ def load_refresh_token(instance: str) -> Optional[str]:
         return None
 
 
+#: fix(#1778 review round 10): the field name for the "active credential
+#: kind" marker in credentials.toml — see load_active_credential_kind().
+_ACTIVE_KIND_FIELD = "active_kind"
+
+
+def load_active_credential_kind(instance: str) -> Optional[str]:
+    """Return ``"bearer"`` or ``"api_key"`` — whichever kind ``login``
+    most recently stored for ``instance`` — or ``None`` if never set.
+
+    fix(#1778 review round 10): a stale competing credential surviving
+    in EITHER backend (keyring or credentials.toml) after a swap could
+    always outrank the one that was actually just stored, because
+    ``load_bearer_token``/``load_api_key`` are independent reads and
+    ``AppState.sdk()``'s precedence unconditionally preferred bearer —
+    rounds 5 through 9 chased that by making cleanup of the OTHER
+    backend more and more careful, but cleanup can only ever be
+    best-effort (keyring and credentials.toml are separate backends
+    with no shared transaction). This marker is written unconditionally
+    by ``replace_credentials()`` in the SAME file section regardless of
+    which backend the secret itself landed in, so it survives even a
+    ``--no-keyring`` login or a keyring that was unavailable at store
+    time. Readers (``AppState.sdk()``) consult it FIRST: cleanup
+    failing to evict a competing entry no longer matters for
+    correctness, only for tidiness.
+    """
+    data = _read_credentials_file().get(instance, {})
+    kind = data.get(_ACTIVE_KIND_FIELD)
+    return kind if kind in ("bearer", "api_key") else None
+
+
 # ---------- Delete ----------
 
 def delete_credentials(instance: str) -> None:
@@ -445,6 +475,23 @@ def replace_credentials(
     ``load_bearer_token``'s file-over-keyring precedence kept resolving
     the stale one.
 
+    fix(#1778 review round 10): rounds 5-9 tried to make that cleanup
+    step correctness-bearing (deleting the stale competing entry
+    reliably enough that it could never be read back), but cleanup can
+    only ever be best-effort — keyring and credentials.toml are
+    separate backends with no shared transaction, and an API-key login
+    that fell back to the file while the keyring was temporarily
+    unavailable had NOTHING it could safely do about a stale bearer
+    token sitting in that unreachable keyring. This now also writes an
+    explicit "active credential kind" marker (see
+    ``load_active_credential_kind``) into the SAME file section the
+    snapshot/restore machinery already covers, unconditionally —
+    regardless of which backend ``value`` itself landed in. Readers
+    consult that marker first, so a stale competing entry surviving in
+    the other backend can no longer outrank the credential that was
+    just stored; ``_delete_stale_credentials`` below is now tidiness,
+    not the thing correctness depends on.
+
     ``kind`` is ``"bearer"`` or ``"api_key"``. Returns ``'keyring'`` or
     ``'file'`` (where the new credential landed).
     """
@@ -457,6 +504,12 @@ def replace_credentials(
         backend = store_bearer_token(instance, value, no_keyring=no_keyring)
     else:
         backend = store_api_key(instance, value, no_keyring=no_keyring)
+
+    # The marker lives in the file section the snapshot above already
+    # captured, so a subsequent restore (on a cleanup failure) correctly
+    # reverts it too, along with everything else — no separate rollback
+    # path is needed for it.
+    _set_credential_field(instance, _ACTIVE_KIND_FIELD, kind)
 
     try:
         _delete_stale_credentials(instance, keep=kind, keep_backend=backend)

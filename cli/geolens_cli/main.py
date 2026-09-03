@@ -93,6 +93,14 @@ class AppState:
             raise typer.BadParameter(
                 "No instance configured. Run `geolens login <url>` first or pass --instance.",
             )
+        # fix(#1778 review round 10): GEOLENS_TOKEN is an explicit,
+        # session-scoped override (D-35's top precedence) and wins
+        # outright, independent of the stored active-credential marker
+        # below.
+        env_token = _config.get_token_from_env()
+        if env_token:
+            return make_client(instance, bearer_token=env_token)
+
         bearer = _auth.load_bearer_token(instance)
         api_key = _auth.load_api_key(instance)
         # fix(#1778, #1787): make_client() binds every request to
@@ -102,6 +110,22 @@ class AppState:
         # exiting EXIT_NETWORK. Commands that poll (publish --wait,
         # analysis materialize --wait) bound each individual request
         # further still — see publish.resolve_dataset_id.
+        #
+        # fix(#1778 review round 10): consult the active-credential-kind
+        # marker login writes unconditionally (auth.py's
+        # load_active_credential_kind) so a stale competing credential
+        # surviving in EITHER backend — keyring or credentials.toml —
+        # can never outrank the credential that was actually just
+        # stored; cleanup at login time is best-effort tidiness, not
+        # what this decision depends on. Falls back to the old
+        # bearer-first precedence when there's no marker (a
+        # pre-round-10 credentials.toml) or the marked kind's own value
+        # is missing.
+        active_kind = _auth.load_active_credential_kind(instance)
+        if active_kind == "api_key" and api_key:
+            return make_client(instance, api_key=api_key.value)
+        if active_kind == "bearer" and bearer:
+            return make_client(instance, bearer_token=bearer.value)
         if bearer:
             return make_client(instance, bearer_token=bearer.value)
         if api_key:
