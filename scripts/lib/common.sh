@@ -66,6 +66,26 @@ need_command() {
 # reproducing Compose's "abort the whole file load with `msg`" behavior —
 # that behavior has no meaning for a function that reads ONE key at a time,
 # and none of the keys these scripts read plausibly use this form.
+#
+# fix(#1798 review round 13, P2, review 5103870781): _env_interpolate used to
+# be a FLAT multi-pass loop over a single mutable `before_line`, re-derived
+# after each substitution from whichever key was substituted LAST. That
+# meant a SIBLING token later in the same value inherited a bound narrowed
+# by an EARLIER token's own resolution instead of the value's own original
+# bound: `A=alpha` / `B=beta` / `POSTGRES_DB="${A}_${B}"` resolved `${A}` to
+# "alpha" first, narrowed the shared `before_line` to A's own line, and then
+# looked up `${B}` as if it could only see definitions before THAT line —
+# `${B}` is on the SAME line as `${A}` in the source value, so this is
+# wrong; the fix returned "alpha_${B}" instead of "alpha_beta". The
+# resolver is now recursive instead of flat: `_env_interp_resolve(text,
+# bound)` scans `text` for each `${X}` token in turn, and ONLY narrows the
+# bound for the RECURSIVE resolution of that token's OWN substituted value
+# (to X's own defining line) — sibling tokens elsewhere in the SAME `text`
+# keep scanning against the outer, unnarrowed `bound`, because they were
+# never introduced by any substitution. `_ENV_INTERP_MAX_PASSES` now caps
+# recursion DEPTH (chain length: A -> B -> C -> ...) rather than a flat pass
+# count; a value with many sibling references costs no extra depth, only a
+# chain of substitutions-within-substitutions does.
 _ENV_INTERP_MAX_PASSES=5
 
 # fix(#1798 CI on round 11, P2): the raw 3-byte UTF-8 BOM (EF BB BF),
@@ -85,18 +105,6 @@ _ENV_INTERP_MAX_PASSES=5
 # forcing `LC_ALL=C` on awk sidesteps any awk implementation's own
 # locale-aware `%c`/string handling entirely.
 _ENV_BOM="$(printf '\357\273\277')"
-
-# Escapes a literal string for use as a sed BRE search pattern with `/` as
-# the delimiter.
-_env_sed_escape_pattern() {
-  printf '%s' "$1" | sed -e 's/[.[\*^$\/]/\\&/g'
-}
-
-# Escapes a literal string for use as a sed replacement with `/` as the
-# delimiter.
-_env_sed_escape_replacement() {
-  printf '%s' "$1" | sed -e 's/[&\/\\]/\\&/g'
-}
 
 # fix(#1798 review round 10, P2): decodes the escape sequences Compose's
 # own env-file reference documents for a double-quoted value —
@@ -260,96 +268,171 @@ _env_dequote() {
   esac
 }
 
-# Resolves ${VAR...}/$VAR references in value per the precedence and the
-# unresolved-reference policy documented above. `file`/`before_line` scope
-# the "earlier lines in this file" half of that precedence — before_line is
-# the referencing key's OWN line, from _env_line_of, so a key can never
-# resolve a reference against itself or a later line.
-_env_interpolate() {
-  value="$1"
-  file="$2"
-  before_line="$3"
-  pass=0
-  while [ "$pass" -lt "$_ENV_INTERP_MAX_PASSES" ]; do
-    token="$(printf '%s' "$value" | grep -oE '\$\{[A-Za-z_][A-Za-z0-9_]*(:?[-?][^}]*)?\}|\$[A-Za-z_][A-Za-z0-9_]*' | head -n 1)"
-    [ -n "$token" ] || break
+# fix(#1798 review round 13, P2, review 5103870781): substitution used to be
+# built as a sed program from DATA (`_env_sed_escape_pattern`/
+# `_env_sed_escape_replacement` escaping the token/replacement for use
+# inside `sed "s/${pat}/${rep}/"`). A REPLACEMENT containing a literal
+# newline — reachable once a double-quoted value's `\n` escape has already
+# been decoded, e.g. `DB_NAME="prod\narchive"` referenced elsewhere as
+# `${DB_NAME}` — breaks that sed PROGRAM itself (a `s///` expression cannot
+# contain a raw embedded newline on a single logical line), so `sed` errored
+# out; because callers invoke this through `get_env_value` inside an `if
+# _v="$(get_env_value ...)"` assignment, that failure surfaced as SUCCESS
+# with an EMPTY value, and `restore.sh` silently fell back to its hardcoded
+# `geolens` default instead of the operator's real database name. Splitting
+# `remaining` around a literal `$token` via shell parameter expansion
+# (`${remaining%%"$token"*}` / `${remaining#*"$token"}`) never builds a
+# regex or a sed program from data at all — it is plain substring matching,
+# and both forms are byte-for-byte safe with an embedded newline in either
+# the text being scanned or the token itself (`%%pattern`/`#pattern`
+# quoting a parameter inside the pattern matches it LITERALLY, not as a
+# glob, per POSIX quote-removal-before-matching rules).
+#
+# Splits `remaining` on the FIRST occurrence of the literal string `token`.
+# Returns via two globals instead of a single stdout stream, because the
+# text either side of `token` may itself contain a real embedded newline
+# (a decoded `\n`) that a single delimited stdout format could not encode
+# unambiguously: `_env_split_before`/`_env_split_after`. Not reentrant
+# across a single call site, which is fine — every caller consumes both
+# immediately.
+_env_split_on_token() {
+  _est_text="$1"
+  _est_token="$2"
+  _env_split_before="${_est_text%%"$_est_token"*}"
+  _env_split_after="${_est_text#*"$_est_token"}"
+}
 
-    body="${token#\$}"
-    case "$body" in
+# Recursively resolves ${VAR...}/$VAR references in `text` per the
+# precedence and unresolved-reference policy documented on
+# _ENV_INTERP_MAX_PASSES above. `bound` is the line strictly before which a
+# reference may resolve against THIS file (the referencing key's own line,
+# from _env_line_of, so a key can never resolve a reference against itself
+# or a later line); `depth` counts the chain length so far and is capped by
+# _ENV_INTERP_MAX_PASSES to guarantee termination on a cyclic or
+# pathologically long reference chain.
+#
+# fix(#1798 review round 13, P2, review 5103870781): resolves each token IN
+# PLACE by scanning `text` left to right, rather than a flat loop that
+# re-scanned the WHOLE value for "the first token" after every single
+# substitution. Critically, `bound` is passed UNCHANGED to every sibling
+# token found in the SAME `text` — it is narrowed ONLY for the recursive
+# call that resolves a substituted token's OWN value (to that token's own
+# defining line), never for tokens that were already sitting in `text`
+# before this call started. That is what makes
+# `POSTGRES_DB="${A}_${B}"` resolve `${B}` against the SAME outer bound
+# `${A}` used, instead of the narrower bound left over from resolving `${A}`
+# first.
+_env_interp_resolve() {
+  _eir_text="$1"
+  _eir_file="$2"
+  _eir_bound="$3"
+  _eir_depth="$4"
+
+  if [ "$_eir_depth" -ge "$_ENV_INTERP_MAX_PASSES" ]; then
+    printf '%s' "$_eir_text"
+    return 0
+  fi
+
+  _eir_result=""
+  _eir_remaining="$_eir_text"
+  while :; do
+    _eir_token="$(printf '%s' "$_eir_remaining" | grep -oE '\$\{[A-Za-z_][A-Za-z0-9_]*(:?[-?][^}]*)?\}|\$[A-Za-z_][A-Za-z0-9_]*' | head -n 1)"
+    if [ -z "$_eir_token" ]; then
+      _eir_result="${_eir_result}${_eir_remaining}"
+      break
+    fi
+
+    _env_split_on_token "$_eir_remaining" "$_eir_token"
+    _eir_prefix="$_env_split_before"
+    _eir_after="$_env_split_after"
+
+    _eir_body="${_eir_token#\$}"
+    case "$_eir_body" in
       "{"*"}")
-        body="${body#\{}"
-        body="${body%\}}"
+        _eir_body="${_eir_body#\{}"
+        _eir_body="${_eir_body%\}}"
         ;;
     esac
-    case "$body" in
-      *:-*) name="${body%%:-*}"; op=":-"; fallback="${body#*:-}" ;;
-      *:\?*) name="${body%%:\?*}"; op=":?"; fallback="${body#*:\?}" ;;
-      *-*) name="${body%%-*}"; op="-"; fallback="${body#*-}" ;;
-      *) name="$body"; op=""; fallback="" ;;
+    case "$_eir_body" in
+      *:-*) _eir_name="${_eir_body%%:-*}"; _eir_op=":-"; _eir_fallback="${_eir_body#*:-}" ;;
+      *:\?*) _eir_name="${_eir_body%%:\?*}"; _eir_op=":?"; _eir_fallback="${_eir_body#*:\?}" ;;
+      *-*) _eir_name="${_eir_body%%-*}"; _eir_op="-"; _eir_fallback="${_eir_body#*-}" ;;
+      *) _eir_name="$_eir_body"; _eir_op=""; _eir_fallback="" ;;
     esac
 
-    have_value=0
-    resolved=""
-    # fix(#1798 review round 11 audit, P2): defaults to the CURRENT
-    # before_line (unchanged) unless this pass's resolution narrows it —
-    # see below.
-    next_before_line="$before_line"
-    if earlier="$(_env_raw_before "$name" "$file" "$before_line")"; then
-      resolved="$(_env_dequote "$earlier")"
-      have_value=1
-      # fix(#1798 review round 11 audit, P2): the multi-pass loop below
-      # re-scans $value for a NEW ${VAR} token after every substitution —
-      # including one exposed by substituting IN "$name"'s own value,
-      # which used to be resolved against the OUTER key's before_line
-      # unconditionally. With C=orig / B="${C}" / C=updated / A="${B}":
-      # resolving B directly correctly bounds the ${C} it exposes to
-      # "before B's own line" and gets "orig" — but resolving A reused
-      # A's OWN (later) before_line for that same ${C} token, so it saw
-      # C's redefinition on the intervening line too and returned
-      # "updated" — two different answers for what is meant to be the
-      # same reference. Re-deriving the bound to "before name's own
-      # winning line" here makes every subsequent pass see exactly what a
-      # direct lookup of "$name" would have seen.
-      next_before_line="$(_env_line_of_before "$name" "$file" "$before_line")"
-    elif eval "[ \"\${${name}+set}\" = set ]" 2>/dev/null; then
-      eval "resolved=\"\${${name}}\""
-      have_value=1
+    _eir_have_value=0
+    _eir_resolved=""
+    _eir_ref_bound="$_eir_bound"
+    if _eir_earlier="$(_env_raw_before "$_eir_name" "$_eir_file" "$_eir_bound")"; then
+      # fix(#1798 review round 13, P2, review 5103870781): a value decoded
+      # from a double-quoted `\n`/`\r`/`\t` escape can end in a real,
+      # trailing control byte — `$(...)` unconditionally strips trailing
+      # newlines, so capturing _env_dequote's output directly would
+      # silently truncate exactly that byte before it ever reaches the
+      # substitution. Sentinel-protect the capture: append a marker byte
+      # inside the SAME command substitution (so it rides along with
+      # whatever trailing bytes the real value has) and strip only the
+      # marker back off afterward. `&&` (not `;`) between the decode and
+      # the marker means a failure inside _env_dequote is never masked as
+      # success with an empty value — it aborts the marker, the
+      # substitution's own exit status reflects the failure, and this
+      # function fails closed via `|| return 1` instead of quietly
+      # returning less text than the input actually had.
+      _eir_resolved="$(_env_dequote "$_eir_earlier" && printf x)" || return 1
+      _eir_resolved="${_eir_resolved%x}"
+      _eir_have_value=1
+      _eir_ref_bound="$(_env_line_of_before "$_eir_name" "$_eir_file" "$_eir_bound")"
+    elif eval "[ \"\${${_eir_name}+set}\" = set ]" 2>/dev/null; then
+      eval "_eir_resolved=\"\${${_eir_name}}\""
+      _eir_have_value=1
       # A process-environment value has no defining line in this file at
       # all — a ${VAR} reference it happens to contain is not scoped to
       # any point in the file, so no bound applies to what it can see.
-      next_before_line=0
+      _eir_ref_bound=0
     fi
 
-    if [ "$have_value" -eq 1 ]; then
+    if [ "$_eir_have_value" -eq 1 ]; then
       # ${VAR:-default}: fall back only when VAR is set but EMPTY.
-      if [ "$op" = ":-" ] && [ -z "$resolved" ]; then
-        resolved="$fallback"
+      if [ "$_eir_op" = ":-" ] && [ -z "$_eir_resolved" ]; then
+        _eir_resolved="$_eir_fallback"
       fi
       # ${VAR-default} and ${VAR:?msg}: VAR is set (possibly to ""), so its
       # value is used as-is — Compose's ${VAR-default} falls back only when
       # VAR is UNSET, and ${VAR:?msg} only errors when VAR is unset/empty,
       # neither of which applies once a value was actually found.
-      replacement="$resolved"
+      _eir_replacement="$_eir_resolved"
     else
-      case "$op" in
-        ":-" | "-") replacement="$fallback" ;;
-        *) replacement="$token" ;; # bare ${VAR}/$VAR or ${VAR:?msg}: see policy above
+      case "$_eir_op" in
+        ":-" | "-") _eir_replacement="$_eir_fallback" ;;
+        *) _eir_replacement="$_eir_token" ;; # bare ${VAR}/$VAR or ${VAR:?msg}: see policy above
       esac
     fi
 
-    if [ "$replacement" = "$token" ]; then
-      # Nothing left to substitute for this occurrence — stop instead of
-      # re-matching the same unresolved token every remaining pass.
-      break
+    if [ "$_eir_replacement" = "$_eir_token" ]; then
+      # Nothing to substitute for this occurrence — keep the literal token
+      # and move on to the REST of the text under the SAME (outer) bound;
+      # unlike the old flat loop this does not abandon later siblings.
+      _eir_result="${_eir_result}${_eir_prefix}${_eir_token}"
+      _eir_remaining="$_eir_after"
+      continue
     fi
 
-    pat="$(_env_sed_escape_pattern "$token")"
-    rep="$(_env_sed_escape_replacement "$replacement")"
-    value="$(printf '%s' "$value" | sed "s/${pat}/${rep}/")"
-    before_line="$next_before_line"
-    pass=$((pass + 1))
+    # Recurse into the substituted value ALONE, bounded to its own
+    # defining line — never into `_eir_after`, which stays scoped to this
+    # call's own `_eir_bound`. Same sentinel-capture rationale as above:
+    # the resolved value may itself end in a real trailing control byte.
+    _eir_sub="$(_env_interp_resolve "$_eir_replacement" "$_eir_file" "$_eir_ref_bound" "$((_eir_depth + 1))" && printf x)" || return 1
+    _eir_sub="${_eir_sub%x}"
+
+    _eir_result="${_eir_result}${_eir_prefix}${_eir_sub}"
+    _eir_remaining="$_eir_after"
   done
-  printf '%s' "$value"
+
+  printf '%s' "$_eir_result"
+}
+
+_env_interpolate() {
+  _env_interp_resolve "$1" "$2" "$3" 0
 }
 
 # Read a value from .env. Handles values containing `=` correctly (returns the
@@ -462,7 +545,18 @@ get_env_value() {
       # second, unrelated quoted chunk) is left alone as malformed.
       if printf '%s' "$raw" | grep -qE '^"([^"\\]|\\.)*"[[:space:]]*(#.*)?$'; then
         _env_quoted_content="$(printf '%s' "$raw" | sed -E 's/^"(([^"\\]|\\.)*)".*$/\1/')"
-        _env_value="$(_env_unescape_double_quoted "$_env_quoted_content")"
+        # fix(#1798 review round 13, P2, review 5103870781): a value whose
+        # `\n`/`\r`/`\t` escape decodes to a TRAILING control byte (e.g.
+        # `DB_NAME="prod\n"`) would silently lose that byte here — plain
+        # `$(...)` always strips trailing newlines regardless of whether
+        # they were literal in the file or produced by decoding an escape.
+        # Sentinel-protect the capture (append a marker inside the SAME
+        # substitution, strip only the marker back off) so a real trailing
+        # byte from the decoder survives; `&&` (not `;`) means a failure
+        # inside the decoder is never masked as success with an empty
+        # value — this function fails closed via `|| return 1` instead.
+        _env_value="$(_env_unescape_double_quoted "$_env_quoted_content" && printf x)" || return 1
+        _env_value="${_env_value%x}"
         # fix(#1778 review round 3, P2): double-quoted values interpolate
         # ${VAR}/$VAR references, matching Compose (only single-quoted
         # values are literal there).

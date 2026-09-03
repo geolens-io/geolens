@@ -375,6 +375,7 @@ jobs:
               - 'scripts/tests/test-backup-s3-signature.sh'
               - 'scripts/tests/test-restore-trap-safety.sh'
               - 'scripts/tests/test-restore-env-sourcing-safety.sh'
+              - 'scripts/tests/test-env-file-compose-oracle.sh'
               - 'scripts/check_env_doc_drift.py'
               # check_env_doc_drift.py parses the Settings class out of this
               # file — a new Settings field must re-run the drift gate.
@@ -553,6 +554,14 @@ jobs:
 
       - name: restore.sh/check-env.sh .env sourcing safety regression test
         run: sh scripts/tests/test-restore-env-sourcing-safety.sh
+
+      # fix(#1798 review round 13, P2, review 5103870781): get_env_value's
+      # .env interpolation/decoding checked against REAL `docker compose`
+      # (not just our own understanding of its grammar) for the full corpus
+      # of rounds 6-12 findings. `docker compose config` needs no daemon,
+      # image pull, or network — ubuntu-latest ships docker compose.
+      - name: get_env_value vs real Docker Compose oracle test
+        run: sh scripts/tests/test-env-file-compose-oracle.sh
 
       - name: Environment contract drift gate
         run: python3 scripts/check_env_doc_drift.py

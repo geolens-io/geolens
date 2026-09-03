@@ -577,6 +577,110 @@ else
   bad "a chained \${VAR} reference resolved inconsistently: A=[$A_VAL] B=[$B_VAL] (expected both to equal B's own resolution)"
 fi
 
+# ============================================================================
+# CASE 9 — fix(#1798 review round 13, P2, review 5103870781): three findings
+# in the SAME interpolation/decoding core CASE 8 already covers, all fixed
+# by replacing the old flat multi-pass loop + sed-built substitution with a
+# recursive, newline-safe resolver (see scripts/lib/common.sh,
+# _env_interp_resolve):
+#
+#   1. SIBLING scoping — resolving one ${VAR} token used to narrow the
+#      bound seen by every OTHER token in the same value, not just the ones
+#      it introduced.
+#   2. A substitution's REPLACEMENT text containing a literal newline (from
+#      an already-decoded \n escape) used to be built into a sed program —
+#      sed cannot parse an embedded raw newline mid-expression, so it
+#      errored, and because callers read this through `if _v="$(...)"`, the
+#      failure surfaced as SUCCESS with an EMPTY value.
+#   3. `$(...)` unconditionally strips a trailing newline — decoding a
+#      value that legitimately ENDS in one (`"geo\n"`) used to lose that
+#      byte inside common.sh's own internal capture, before it ever reached
+#      the caller.
+# ============================================================================
+SIBLING_ENV="$WORK/.env.sibling"
+cat > "$SIBLING_ENV" <<'EOF'
+A=alpha
+B=beta
+POSTGRES_DB="${A}_${B}"
+EOF
+
+SIBLING_DRIVER="$WORK/sibling_driver.sh"
+cat > "$SIBLING_DRIVER" <<DRIVER
+#!/bin/sh
+set -eu
+. "$FAKE/scripts/lib/common.sh"
+get_env_value POSTGRES_DB "$SIBLING_ENV"
+DRIVER
+SIBLING_OUT="$(sh "$SIBLING_DRIVER" 2>&1)"
+
+if [ "$SIBLING_OUT" = "alpha_beta" ]; then
+  ok "sibling \${A} and \${B} tokens in the same value both resolve against the value's own outer bound"
+else
+  bad "sibling token resolution regressed: got [$SIBLING_OUT], want [alpha_beta] (a prior fix narrowed \${B}'s bound to \${A}'s own line)"
+fi
+
+# A double-quoted value's \n decodes to a real newline BEFORE this key is
+# referenced elsewhere as ${DB_NAME} — the referencing value's substitution
+# must carry that literal newline through without building a sed program
+# out of it, and get_env_value must not report success with an empty value
+# if it ever fails to.
+NLREF_ENV="$WORK/.env.nlref"
+printf 'DB_NAME="prod\\narchive"\nPOSTGRES_DB="${DB_NAME}_suffix"\n' > "$NLREF_ENV"
+
+NLREF_DRIVER="$WORK/nlref_driver.sh"
+cat > "$NLREF_DRIVER" <<DRIVER
+#!/bin/sh
+set -eu
+. "$FAKE/scripts/lib/common.sh"
+if val="\$(get_env_value POSTGRES_DB "$NLREF_ENV" && printf x)"; then
+  val="\${val%x}"
+  printf 'FOUND:[%s]' "\$val"
+else
+  printf 'NOTFOUND'
+fi
+DRIVER
+NLREF_OUT="$(sh "$NLREF_DRIVER" 2>&1)"
+NLREF_EXPECTED="$(printf 'FOUND:[prod\narchive_suffix]')"
+
+if [ "$NLREF_OUT" = "$NLREF_EXPECTED" ]; then
+  ok "a referenced value containing a decoded literal newline substitutes correctly instead of breaking a sed-built program"
+else
+  bad "newline-in-replacement handling regressed (got: $(printf '%s' "$NLREF_OUT" | od -An -c | tr -s ' ' | tr '\n' ' '))"
+fi
+
+# A value that decodes to end in a real trailing newline must not lose that
+# byte inside get_env_value's own internal capture (independent of whatever
+# the caller's own $(...) does afterward, which is a separate, unavoidable
+# shell characteristic outside this parser's control).
+TRAILING_ENV="$WORK/.env.trailing"
+printf 'TRAILING_NL="geo\\n"\n' > "$TRAILING_ENV"
+
+TRAILING_DRIVER="$WORK/trailing_driver.sh"
+cat > "$TRAILING_DRIVER" <<DRIVER
+#!/bin/sh
+set -eu
+. "$FAKE/scripts/lib/common.sh"
+val="\$(get_env_value TRAILING_NL "$TRAILING_ENV" && printf x)"
+val="\${val%x}"
+printf '%s' "\$val"
+# fix(#1798 review round 13, P2, review 5103870781): sentinel-terminate
+# the DRIVER's own stdout too — the driver correctly reconstructs "geo\n"
+# above via its own sentinel-protected capture, but that trailing newline
+# would be stripped ALL OVER AGAIN by the plain \$(sh "\$TRAILING_DRIVER")
+# capture below if this script's output ended in it undecorated.
+printf x
+DRIVER
+TRAILING_OUT="$(sh "$TRAILING_DRIVER" 2>&1)"
+TRAILING_OUT="${TRAILING_OUT%x}"
+TRAILING_EXPECTED="$(printf 'geo\n' && printf x)"
+TRAILING_EXPECTED="${TRAILING_EXPECTED%x}"
+
+if [ "$TRAILING_OUT" = "$TRAILING_EXPECTED" ]; then
+  ok "a decoded value ending in a real trailing newline is not truncated inside get_env_value's own capture"
+else
+  bad "trailing-newline preservation regressed (got: $(printf '%s' "$TRAILING_OUT" | od -An -c | tr -s ' ' | tr '\n' ' '))"
+fi
+
 echo "1..$((PASS + FAIL))"
 echo "# ${PASS} passed, ${FAIL} failed"
 [ "$FAIL" -eq 0 ]
