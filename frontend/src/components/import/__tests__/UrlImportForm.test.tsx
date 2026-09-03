@@ -11,15 +11,20 @@ import userEvent from '@testing-library/user-event';
 import { UrlImportForm } from '../UrlImportForm';
 import type { CommitImportRequest } from '@/types/api';
 import { clearUrlImport, peekUrlImport } from '@/api/url-import-session';
+import { ApiError } from '@/api/client';
 
 const mockUploadFromUrl = vi.fn();
 const mockPreviewFile = vi.fn();
 const mockCommitImport = vi.fn();
+const mockGetJobStatus = vi.fn();
+const mockCancelJob = vi.fn();
 
 vi.mock('@/api/ingest', () => ({
   uploadFromUrl: (...args: unknown[]) => mockUploadFromUrl(...args),
   previewFile: (...args: unknown[]) => mockPreviewFile(...args),
   commitImport: (...args: unknown[]) => mockCommitImport(...args),
+  getJobStatus: (...args: unknown[]) => mockGetJobStatus(...args),
+  cancelJob: (...args: unknown[]) => mockCancelJob(...args),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -154,19 +159,81 @@ describe('UrlImportForm', () => {
     expect(mockPreviewFile).not.toHaveBeenCalled();
   });
 
-  // fix(#1778): the fetch-failure branch releases the module session
-  // (clearUrlImport); the preview-failure branch did not, so a later mount's
-  // peekUrlImport() re-adopted the dead job and replayed the same failing
-  // preview POST every time the URL tab was revisited.
-  test('preview failure releases the module session like fetch failure does', async () => {
+  // fix(review #1800 P2 on #1778): a preview failure whose job is confirmed
+  // gone (404/410 on the preview call itself) is genuinely terminal — clear
+  // the session, same as a fetch failure.
+  test('a preview failure that is 404 on the job releases the module session', async () => {
     mockUploadFromUrl.mockResolvedValue({ job_id: 'job-1', status: 'pending' });
-    mockPreviewFile.mockRejectedValue(new Error('bad file'));
+    mockPreviewFile.mockRejectedValue(new ApiError('Job not found', 404));
 
     render(<UrlImportForm />);
     await fetchUrl('https://files.example.test/roads.geojson');
 
     await waitFor(() =>
-      expect(screen.getByText('urlImport.previewFailed')).toBeInTheDocument(),
+      expect(screen.getByText('Job not found')).toBeInTheDocument(),
+    );
+    expect(peekUrlImport()).toBeNull();
+  });
+
+  // fix(review #1800 P2 on #1778): #1778's original fix cleared the session
+  // unconditionally on ANY preview failure, which threw away the only
+  // client-side copy of the staged job id — a transient failure (GDAL
+  // timeout, network blip) leaves the job right where it was (`pending`).
+  // Clearing then made a same-URL resubmit re-download server-side and
+  // orphaned the original staged job for the sweeper. A non-terminal
+  // failure must keep the session and offer explicit Retry/Cancel actions
+  // instead.
+  test('a transient preview failure (job still pending) keeps the session and blocks a re-download on resubmit', async () => {
+    mockUploadFromUrl.mockResolvedValue({ job_id: 'job-1', status: 'pending' });
+    mockPreviewFile.mockRejectedValueOnce(new ApiError('Preview timed out', 0));
+    mockGetJobStatus.mockResolvedValue({ job_id: 'job-1', status: 'pending' });
+
+    render(<UrlImportForm />);
+    const user = await fetchUrl('https://files.example.test/roads.geojson');
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'urlImport.retryPreview' })).toBeInTheDocument(),
+    );
+    expect(peekUrlImport()?.jobId).toBe('job-1');
+    expect(mockUploadFromUrl).toHaveBeenCalledTimes(1);
+
+    // Pin: resubmitting the SAME url does not call the download endpoint
+    // again (startUrlImport reuses the fulfilled same-key session). The
+    // url field still holds the original value (it survives a preview
+    // failure), so clicking Fetch again resubmits it unchanged.
+    mockPreviewFile.mockResolvedValueOnce(VECTOR_PREVIEW);
+    expect(screen.getByLabelText('urlImport.label')).toHaveValue(
+      'https://files.example.test/roads.geojson',
+    );
+    await user.click(screen.getByRole('button', { name: 'urlImport.fetch' }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('import-preview')).toBeInTheDocument(),
+    );
+    expect(mockUploadFromUrl).toHaveBeenCalledTimes(1);
+  });
+
+  // Pin: "Cancel and start over" cancels the staged job through the
+  // existing cancel endpoint, then clears the session.
+  test('Cancel and start over cancels the staged job and clears the session', async () => {
+    mockUploadFromUrl.mockResolvedValue({ job_id: 'job-1', status: 'pending' });
+    mockPreviewFile.mockRejectedValue(new ApiError('Preview timed out', 0));
+    mockGetJobStatus.mockResolvedValue({ job_id: 'job-1', status: 'pending' });
+    mockCancelJob.mockResolvedValue({ status: 'cancelled' });
+
+    render(<UrlImportForm />);
+    const user = await fetchUrl('https://files.example.test/roads.geojson');
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'urlImport.cancelAndStartOver' }),
+      ).toBeInTheDocument(),
+    );
+    await user.click(screen.getByRole('button', { name: 'urlImport.cancelAndStartOver' }));
+
+    await waitFor(() => expect(mockCancelJob).toHaveBeenCalledWith('job-1'));
+    await waitFor(() =>
+      expect(screen.getByLabelText('urlImport.label')).toBeInTheDocument(),
     );
     expect(peekUrlImport()).toBeNull();
   });

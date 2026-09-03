@@ -59,6 +59,13 @@ function runningJob(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function cancelledJob(overrides: Record<string, unknown> = {}) {
+  return {
+    ...failedJob({ status: 'cancelled', error_message: null, retry_reason: null }),
+    ...overrides,
+  };
+}
+
 describe('JobProgress retry capability', () => {
   beforeEach(() => {
     mockUseJobStatus.mockReset();
@@ -117,6 +124,30 @@ describe('JobProgress owner cancel', () => {
     render(<JobProgress jobId="job-1" onReset={vi.fn()} />);
 
     expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+  });
+});
+
+// fix(review #1800 P2): a successful Cancel drives the job to `cancelled`,
+// hiding the Cancel button — but the terminal blocks below only covered
+// `complete` and `failed`, so JobProgress then rendered no action at all.
+// ServiceUrlForm and VrtCreatorForm render bare <JobProgress> with no other
+// escape hatch, so this stranded them on a dead job with nothing to click.
+describe('JobProgress cancelled state', () => {
+  beforeEach(() => {
+    mockUseJobStatus.mockReset();
+  });
+
+  it('renders a status line and the reset action for a cancelled job', async () => {
+    const onReset = vi.fn();
+    mockUseJobStatus.mockReturnValue({ data: cancelledJob(), isLoading: false });
+    const user = userEvent.setup();
+
+    render(<JobProgress jobId="job-1" onReset={onReset} />);
+
+    expect(screen.getByText('This job was cancelled.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Start Over' }));
+
+    expect(onReset).toHaveBeenCalledTimes(1);
   });
 });
 

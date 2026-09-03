@@ -240,7 +240,11 @@
     "importStarted": "Importation lancée",
     "startOver": "Recommencer",
     "importAnother": "Importer un autre",
-    "layerLabel": "Couche"
+    "layerLabel": "Couche",
+    "retryPreview": "Réessayer l'analyse",
+    "cancelAndStartOver": "Annuler et recommencer",
+    "cancelling": "Annulation...",
+    "cancelFailed": "Échec de l'annulation de la tâche"
   },
   "register": {
     "helpText": "Cataloguez des tables PostGIS existantes de votre base de données en tant que jeux de données dans GeoLens. Utilisez cette option lorsque vous avez des données géographiques déjà dans la base de données qui n'ont pas été importées via GeoLens. Les tables sélectionnées seront ajoutées au catalogue avec détection automatique des métadonnées.",
@@ -380,6 +384,7 @@
     "cancel": "Annuler",
     "cancelling": "Annulation...",
     "cancelFailed": "Échec de l'annulation de la tâche",
+    "cancelledMessage": "Cette tâche a été annulée.",
     "copiedCogUrl": "URL COG copiée",
     "copiedXyzUrl": "URL tuile XYZ copiée",
     "copyCogUrl": "Copier l'URL COG",

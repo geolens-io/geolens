@@ -302,6 +302,22 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
             </div>
           </div>
         )}
+
+        {/* fix(review #1800 P2): the new Cancel button (#1778) drives a job
+            to `cancelled`, but the terminal blocks below only covered
+            `complete` and `failed` — a cancelled job rendered no action at
+            all. That strands any consumer with no OTHER escape hatch of its
+            own; ServiceUrlForm and VrtCreatorForm render bare <JobProgress>
+            with nothing else, unlike UrlImportForm's own terminal-status
+            "Import another" button. */}
+        {job.status === 'cancelled' && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">{t('jobProgress.cancelledMessage')}</p>
+            <Button variant="outline" onClick={onReset}>
+              {t('jobProgress.startOver')}
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
