@@ -452,6 +452,18 @@ function buildWherePredicate(
     let clauseValue: string;
     let evaluateThreshold: number;
 
+    // fix(review #1792 round 7): a raw token that fails the regex's
+    // `(?![\d.eE])` lookahead -- e.g. a NUMERIC maximum serialized as
+    // "9007199254740995.1", which JSON.parse rounds to the unsafe integer
+    // 9007199254740996 -- used to fall through to the `rawValues.length ===
+    // 0` branch below and emit that rounded-UP parsed value verbatim. That
+    // value can be strictly GREATER than the true maximum, so
+    // `column >= clauseValue` could exclude the very row that produced it.
+    // Exact BigInt recovery failing means the value was never an exact
+    // integer literal in the response text at all, which is exactly the
+    // condition the proportional-margin (epsilon) path below exists to
+    // handle -- so route there instead of using the unchanged parsed value.
+    let exactBigIntThreshold: bigint | null = null;
     if (
       Number.isInteger(maxValue) &&
       !Number.isSafeInteger(maxValue) &&
@@ -461,16 +473,13 @@ function buildWherePredicate(
       const rawValues = extractRawIntegerValues(baselineRawText, propertyKey);
       if (rawValues.length > 0) {
         const trueMax = rawValues.reduce((a, b) => (b > a ? b : a));
-        const thresholdBigInt = trueMax - 1n;
-        clauseValue = thresholdBigInt.toString();
-        evaluateThreshold = Number(thresholdBigInt);
-      } else {
-        // Raw text extraction found nothing for this property (unexpected
-        // given the parsed scan above found it) -- fall back to the parsed
-        // value rather than failing outright.
-        clauseValue = formatNumericLiteral(maxValue);
-        evaluateThreshold = maxValue;
+        exactBigIntThreshold = trueMax - 1n;
       }
+    }
+
+    if (exactBigIntThreshold !== null) {
+      clauseValue = exactBigIntThreshold.toString();
+      evaluateThreshold = Number(exactBigIntThreshold);
     } else if (Number.isSafeInteger(maxValue)) {
       // A safe integer's JSON round-trip is exact; nothing to correct.
       clauseValue = formatNumericLiteral(maxValue);
@@ -847,6 +856,42 @@ test.describe('buildWherePredicate precision', () => {
     const clauseValue = Number(predicate!.clause.split('>=')[1].trim());
     expect(clauseValue).toBeLessThan(trueValue);
   });
+
+  test('a raw decimal token past MAX_SAFE_INTEGER falls back to the epsilon margin, not the rounded parse', () => {
+    // fix(review #1792 round 7): a NUMERIC column can genuinely hold a
+    // fractional value out here, e.g. "9007199254740995.1" -- the regex in
+    // extractRawIntegerValues deliberately excludes this token (its
+    // `(?![\d.eE])` lookahead requires the digit run to end cleanly, not
+    // run into a `.`), so raw-text recovery finds nothing for it. What
+    // JSON.parse itself does to it is the trap: at this magnitude doubles
+    // are spaced 2 apart, so parsing silently ROUNDS UP to the next whole
+    // double (9007199254740996), which is strictly GREATER than the true
+    // value. Emitting that rounded value unchanged as the threshold would
+    // make `column >= threshold` exclude the very row that produced it.
+    const trueValueText = '9007199254740995.1';
+    const trueValue = Number(trueValueText);
+    expect(Number.isInteger(trueValue)).toBe(true);
+    expect(Number.isSafeInteger(trueValue)).toBe(false);
+    // Confirms the rounding actually happened, i.e. this pin exercises the
+    // failure mode it claims to: the parsed double is NOT the true value.
+    // Comparing as Number would compare two equally-rounded doubles (the
+    // ".1" literal and its own truncated integer part land on the SAME
+    // double at this magnitude) -- BigInt on the integer-valued `trueValue`
+    // is exact, so it correctly shows the parse rounded past the true
+    // integer part rather than merely dropping the fraction.
+    expect(BigInt(trueValue) > BigInt(trueValueText.split('.')[0])).toBe(true);
+
+    const baselineRawText = `{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"value":${trueValueText}},"geometry":null}]}`;
+    const predicate = buildWherePredicate(
+      syntheticBaseline(trueValue),
+      columnInfo,
+      baselineRawText,
+    );
+
+    expect(predicate).toBeTruthy();
+    const clauseValue = Number(predicate!.clause.split('>=')[1].trim());
+    expect(clauseValue).toBeLessThan(trueValue);
+  });
 });
 
 test.describe('Runtime export integrity', () => {
@@ -987,14 +1032,23 @@ test.describe('Runtime export integrity', () => {
     // small epsilon, so the request is guaranteed to intersect at least that
     // feature regardless of dataset topology. This works identically for
     // `ownedDataset` and for E2E_EXPORT_DATASET_ID.
-    const observedFeature = baseline.features[0];
+    // fix(review #1792 round 7): `baseline.features[0]` assumed the FIRST
+    // feature has computable geometry, but resolveCandidate only checks
+    // that SOME feature across the whole collection contributes a position
+    // (collectFeatureCollectionPositions skips null/empty geometry per
+    // feature without failing the collection) -- a custom dataset via
+    // E2E_EXPORT_DATASET_ID can have a null-geometry row first and still
+    // pass that check. Select the first feature computeFeatureBBox()
+    // actually succeeds on instead of assuming index 0 is it.
+    const observedFeature = baseline.features.find(
+      (feature) => computeFeatureBBox(feature) !== null,
+    );
     expect(
       observedFeature,
-      'baseline export returned no features to build a bbox around',
+      'no feature in the baseline export has a computable geometry to build a bbox around',
     ).toBeTruthy();
-    const observedBBox = computeFeatureBBox(observedFeature);
-    expect(observedBBox, 'observed feature has no computable geometry').toBeTruthy();
-    const targetBBox = padBBox(observedBBox as BBox, 0.0001);
+    const observedBBox = computeFeatureBBox(observedFeature!) as BBox;
+    const targetBBox = padBBox(observedBBox, 0.0001);
 
     lastBboxFilter = serializeBBox(targetBBox);
     const bboxParam = encodeURIComponent(lastBboxFilter);
