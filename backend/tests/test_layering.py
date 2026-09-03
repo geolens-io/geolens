@@ -2217,6 +2217,16 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     empty-tile Cache-Control (#430 V-03). NOTE: `_check_cold_rehydrate` is pinned to
 #     this module by the overlay's 1214-05 static AST proof, so the tile_seams.py split
 #     must update the overlay in lockstep.
+#   api/main.py 1796 -> 1846. fix(#1778): +50 across two audit findings. The
+#     /health/live route (liveness, no dependency probes) and the paragraph
+#     saying why the container healthcheck and the frontend's depends_on had to
+#     stop targeting /health: it probes the cache, which the API is built to
+#     survive, so a Valkey outage marked the container unhealthy and took the
+#     UI down with it. The rest is the note on _rate_limit_handler explaining
+#     why it must stay a plain def -- slowapi's synchronous middleware silently
+#     discards a coroutine handler and answers the global rate limit with a
+#     bare {"error": ...} and no Retry-After, which is unreachable from any
+#     test that drives a decorated route.
 #   api/main.py 1635 -> 1750. fix(#1666): +115 for three OpenAPI post-processing
 #     passes, joining the four already here. `_normalize_validation_error_contract`
 #     replaces FastAPI's `HTTPValidationError` at every 422 with the problem+json
@@ -2522,7 +2532,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # reach a backup, while /tmp is a per-container 512m tmpfs. Re-baselined on
     # the rebase across #1753, which raised the same cap for the token purge.
     # Cap 1789 -> 1796, exact.
-    "backend/app/api/main.py": 1796,
+    "backend/app/api/main.py": 1846,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative

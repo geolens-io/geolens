@@ -1702,6 +1702,38 @@ _last_health_status: str = "healthy"
 _HEALTH_ALERT_COOLDOWN_SECS: float = 300.0
 
 
+# fix(#1778): liveness, split out from readiness. `/health` probes the database,
+# the object store AND the cache, and 503s if any of them is down -- but the
+# cache path is explicitly engineered to survive a Valkey outage (it falls back
+# to an in-memory cache behind a circuit breaker), so a dependency the API can
+# serve straight through still marked the container unhealthy. That is the
+# Docker healthcheck AND the gate on `frontend: depends_on: api:
+# service_healthy`, so a restart during a Valkey or MinIO outage left the whole
+# UI down because the cache was down; under an orchestrator with an HTTP
+# liveness probe on `/health` the pod is killed and restarted in a loop while
+# the API is perfectly able to serve catalog reads.
+#
+# `/health` keeps its meaning (readiness: every dependency answered). This route
+# answers only "the process is up and the event loop is turning", mirroring the
+# worker's own split in observability/health/worker.py, and is what the
+# container healthcheck and any liveness probe should target.
+#
+# `include_in_schema=False` for the same reason the worker's probes are absent
+# from the contract: it is infrastructure surface, not API surface, and no SDK
+# or CLI caller has a use for it.
+#
+# Exempt from the limiter rather than capped at 60/min like `/health`: a
+# kubelet probing every second from one source address is already at that cap
+# before any other traffic, and a liveness probe that answers 429 gets the pod
+# killed. GAP-016 capped `/health` because it probes dependencies on every
+# call; this handler touches nothing and allocates one dict.
+@app.get("/health/live", include_in_schema=False, tags=["Health"])
+@limiter.exempt
+async def health_live(request: Request):
+    """Liveness probe: process is up, no dependency checks."""
+    return {"status": "ok"}
+
+
 # GAP-016: /health is rate-limited (60/min per IP) rather than fully exempt, to
 # bound abuse of this unauthenticated, dependency-probing endpoint. The limit is
 # deliberately generous: the Docker container healthcheck polls every 10s
