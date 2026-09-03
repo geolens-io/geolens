@@ -100,7 +100,19 @@ test.describe('Vector tile pipeline', () => {
     // The map fits to the dataset's bounds on load, so tiles for the data's own
     // extent are requested without needing an explicit zoom-to-layer.
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 20_000 });
-    await page.waitForLoadState('networkidle');
+
+    // fix(#1624): wait for the dataset's own first tile instead of `networkidle`.
+    // A trace on the dev stack showed basemap tiles finish, then a ~580ms
+    // client-side gap (map load event, transformRequest install, dataset source
+    // add) before the six signed dataset tile requests fire — well inside
+    // networkidle's 500ms quiet window under host load. That let the assertion
+    // below run before the dataset source was even added, reporting "no tiles
+    // requested" with a perfectly healthy pipeline. A timeout here falls
+    // through to the length assertion, which still reports the real #8186
+    // signature.
+    await page
+      .waitForResponse((r) => isDatasetTile(r.url()), { timeout: 20_000 })
+      .catch(() => undefined);
 
     // THE assertion. Zero here is the #8186 silent-worker signature. Scoped to
     // this dataset's own route, so third-party basemap/glyph .pbf traffic
