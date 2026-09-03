@@ -1,4 +1,4 @@
-"""fix(#1778): both job counters must move, and keep moving after a purge.
+"""fix(#1778): both job counters must move, and only once the row is written.
 
 ``geolens_jobs_completed_total`` was derived from a ``SELECT status, COUNT(*)
 ... GROUP BY status`` over ``catalog.procrastinate_jobs``, but the worker runs
@@ -15,26 +15,34 @@ rows can disappear -- and ``purge_expired_terminal_jobs`` makes them disappear.
 ``_prev_counts`` kept the pre-purge figure, so the next failure produced a
 non-positive delta the counter never saw, taking ``GeoLensJobFailures`` with
 it.
+
+fix(#1778 codex r2): both increments hang off the JOB MANAGER rather than a
+worker middleware. Procrastinate runs worker middleware inside
+``Worker._process_job``'s ``try``, which is before ``_persist_job_status``, so
+a middleware reported a completion for a job whose terminal row had not been
+written and might never be. Wrapping ``job_manager.finish_job`` counts strictly
+after the row lands, and takes Procrastinate's own status instead of
+re-deriving it: a retry goes through ``retry_job`` and never arrives, an abort
+arrives as ``Status.ABORTED`` and is counted as neither.
 """
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from procrastinate import exceptions as procrastinate_exceptions
+from procrastinate.jobs import Status
 
 from app.observability.metrics.jobs import (
     _refresh_job_metrics,
     jobs_completed_total,
     jobs_failed_total,
 )
+from app.platform.jobs import worker as worker_module
 from app.platform.jobs.worker import (
-    _writes_a_failed_row,
     count_failed_job,
-    count_job_outcome,
+    install_job_outcome_counters,
     purge_expired_terminal_jobs,
 )
 
@@ -51,20 +59,20 @@ def _mock_engine_returning(rows):
     return mock_engine
 
 
-def _context_for(queue: str):
-    context = MagicMock()
-    context.job.queue = queue
-    context.job.task_name = "app.tasks.ingest"
-    return context
+def _job(queue: str):
+    job = MagicMock()
+    job.queue = queue
+    job.id = 4242
+    return job
 
 
-def _worker_with_retry(retry_decision):
-    """A worker whose task declines (None) or grants a retry."""
-    task = MagicMock()
-    task.get_retry_exception = MagicMock(return_value=retry_decision)
-    worker = MagicMock()
-    worker.app.tasks = {"app.tasks.ingest": task}
-    return worker
+def _task_app_with_finish(side_effect=None):
+    """A stand-in app whose job manager records how finish_job was called."""
+    manager = MagicMock()
+    manager.finish_job = AsyncMock(side_effect=side_effect)
+    task_app = MagicMock()
+    task_app.job_manager = manager
+    return task_app, manager
 
 
 def _completed(queue: str) -> float:
@@ -76,147 +84,141 @@ def _failed(queue: str) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Completions
+# Counting at terminal persistence
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_a_completed_job_increments_the_counter():
+async def test_a_persisted_success_advances_exactly_one_counter():
     queue = "q1778_ok"
-    before = _completed(queue)
+    completed_before, failed_before = _completed(queue), _failed(queue)
 
-    async def call_next():
-        return "task result"
-
-    result = await count_job_outcome(
-        call_next, _context_for(queue), _worker_with_retry(None)
+    task_app, manager = _task_app_with_finish()
+    inner = manager.finish_job  # the wrapper replaces the attribute
+    install_job_outcome_counters(task_app)
+    await task_app.job_manager.finish_job(
+        job=_job(queue), status=Status.SUCCEEDED, delete_job=True
     )
 
-    assert result == "task result", "middleware must pass the task result through"
+    inner.assert_awaited_once()
+    assert _completed(queue) == completed_before + 1
+    assert _failed(queue) == failed_before
+
+
+@pytest.mark.asyncio
+async def test_a_persisted_failure_advances_exactly_one_counter():
+    queue = "q1778_terminal"
+    completed_before, failed_before = _completed(queue), _failed(queue)
+
+    task_app, _ = _task_app_with_finish()
+    install_job_outcome_counters(task_app)
+    await task_app.job_manager.finish_job(
+        job=_job(queue), status=Status.FAILED, delete_job=False
+    )
+
+    assert _failed(queue) == failed_before + 1
+    assert _completed(queue) == completed_before
+
+
+@pytest.mark.asyncio
+async def test_a_persistence_failure_leaves_both_counters_unchanged():
+    """fix(#1778 codex r2): the ordering a worker middleware could not give.
+
+    A middleware runs before `_persist_job_status`, so it reported a completion
+    for a job whose terminal row was never written.
+    """
+    queue = "q1778_persist_fail"
+    completed_before, failed_before = _completed(queue), _failed(queue)
+
+    task_app, _ = _task_app_with_finish(side_effect=RuntimeError("connection lost"))
+    install_job_outcome_counters(task_app)
+
+    for status in (Status.SUCCEEDED, Status.FAILED):
+        with pytest.raises(RuntimeError):
+            await task_app.job_manager.finish_job(
+                job=_job(queue), status=status, delete_job=False
+            )
+
+    assert _completed(queue) == completed_before
+    assert _failed(queue) == failed_before
+
+
+@pytest.mark.asyncio
+async def test_an_aborted_job_counts_as_neither():
+    """`aborted` is its own status; a graceful shutdown must not page anyone."""
+    queue = "q1778_abort"
+    completed_before, failed_before = _completed(queue), _failed(queue)
+
+    task_app, _ = _task_app_with_finish()
+    install_job_outcome_counters(task_app)
+    await task_app.job_manager.finish_job(
+        job=_job(queue), status=Status.ABORTED, delete_job=False
+    )
+
+    assert _completed(queue) == completed_before
+    assert _failed(queue) == failed_before
+
+
+@pytest.mark.asyncio
+async def test_a_retry_never_reaches_the_counters():
+    """`_persist_job_status` calls retry_job instead of finish_job.
+
+    A retried attempt is therefore not a failure. Counting it would turn one
+    eventual failure into one per attempt, which the row count never did.
+    """
+    queue = "q1778_retry"
+    completed_before, failed_before = _completed(queue), _failed(queue)
+
+    task_app, manager = _task_app_with_finish()
+    manager.retry_job = AsyncMock()
+    install_job_outcome_counters(task_app)
+    await task_app.job_manager.retry_job(job=_job(queue))
+
+    assert _completed(queue) == completed_before
+    assert _failed(queue) == failed_before
+
+
+@pytest.mark.asyncio
+async def test_installing_twice_does_not_double_count():
+    queue = "q1778_idempotent"
+    before = _completed(queue)
+
+    task_app, _ = _task_app_with_finish()
+    install_job_outcome_counters(task_app)
+    install_job_outcome_counters(task_app)
+    await task_app.job_manager.finish_job(
+        job=_job(queue), status=Status.SUCCEEDED, delete_job=True
+    )
+
     assert _completed(queue) == before + 1
 
 
 @pytest.mark.asyncio
-async def test_a_failing_job_does_not_increment_the_completed_counter():
-    queue = "q1778_fail"
-    before = _completed(queue)
+async def test_a_metrics_failure_never_changes_a_job_outcome():
+    task_app, _ = _task_app_with_finish()
+    install_job_outcome_counters(task_app)
 
-    async def call_next():
-        raise RuntimeError("task blew up")
-
-    with pytest.raises(RuntimeError):
-        await count_job_outcome(
-            call_next, _context_for(queue), _worker_with_retry(None)
-        )
-
-    assert _completed(queue) == before
-
-
-@pytest.mark.asyncio
-async def test_a_metrics_failure_never_fails_a_finished_job():
-    async def call_next():
-        return "done"
-
-    context = MagicMock()
-    type(context.job).queue = property(
+    job = MagicMock()
+    type(job).queue = property(
         lambda _self: (_ for _ in ()).throw(RuntimeError("registry down"))
     )
-
-    assert (
-        await count_job_outcome(call_next, context, _worker_with_retry(None)) == "done"
+    # The wrapper must not raise: the terminal row is already written.
+    await task_app.job_manager.finish_job(
+        job=job, status=Status.SUCCEEDED, delete_job=True
     )
 
 
-# ---------------------------------------------------------------------------
-# Failures
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_a_terminal_failure_increments_the_failed_counter():
-    queue = "q1778_terminal"
-    before = _failed(queue)
-
-    async def call_next():
-        raise RuntimeError("task blew up")
-
-    with pytest.raises(RuntimeError):
-        await count_job_outcome(
-            call_next, _context_for(queue), _worker_with_retry(None)
-        )
-
-    assert _failed(queue) == before + 1
-
-
-@pytest.mark.asyncio
-async def test_a_retried_attempt_is_not_a_failure():
-    """A retry goes back to `todo` and writes no failed row.
-
-    Counting it would turn one eventual failure into one per attempt, which is
-    not what the row count did.
-    """
-    queue = "q1778_retry"
-    before = _failed(queue)
-
-    async def call_next():
-        raise RuntimeError("transient")
-
-    with pytest.raises(RuntimeError):
-        await count_job_outcome(
-            call_next,
-            _context_for(queue),
-            _worker_with_retry(MagicMock(name="JobRetry")),
-        )
-
-    assert _failed(queue) == before
-
-
-@pytest.mark.asyncio
-async def test_an_aborted_job_is_not_a_failure():
-    """`aborted` is its own status; a graceful shutdown must not page anyone."""
-    queue = "q1778_abort"
-    before = _failed(queue)
-
-    for exc in (
-        procrastinate_exceptions.JobAborted("stop"),
-        asyncio.CancelledError(),
-    ):
-
-        async def call_next(_exc=exc):
-            raise _exc
-
-        with pytest.raises(BaseException):
-            await count_job_outcome(
-                call_next, _context_for(queue), _worker_with_retry(None)
-            )
-
-    assert _failed(queue) == before
-
-
-def test_writes_a_failed_row_mirrors_the_worker_decision():
-    context = _context_for("q1778_decision")
-
-    assert (
-        _writes_a_failed_row(RuntimeError("x"), context, _worker_with_retry(None))
-        is True
+def test_the_worker_installs_the_wrapper_before_it_starts():
+    """Both counters are dead again if main() stops installing it."""
+    src = inspect.getsource(worker_module.main)
+    assert "install_job_outcome_counters(task_app)" in src
+    install_at = src.index("install_job_outcome_counters(task_app)")
+    run_at = src.index("run_worker_async(")
+    assert install_at < run_at, "no job may finish outside the wrapper"
+    assert "worker_middleware=" not in src, (
+        "a worker middleware runs before _persist_job_status and cannot see "
+        "whether the terminal row was written"
     )
-    assert (
-        _writes_a_failed_row(
-            RuntimeError("x"), context, _worker_with_retry(MagicMock())
-        )
-        is False
-    )
-    assert (
-        _writes_a_failed_row(
-            procrastinate_exceptions.JobAborted("x"), context, _worker_with_retry(None)
-        )
-        is False
-    )
-
-    # An unregistered task cannot retry, so procrastinate records `failed`.
-    worker = MagicMock()
-    worker.app.tasks = {}
-    assert _writes_a_failed_row(RuntimeError("x"), context, worker) is True
 
 
 # ---------------------------------------------------------------------------
@@ -246,26 +248,23 @@ async def test_a_failure_after_a_purge_still_advances_the_counter():
     # The purge removes those rows.
     manager = MagicMock()
     manager.delete_old_jobs = AsyncMock(return_value=None)
-    task_app = MagicMock()
-    task_app.job_manager = manager
-    with patch("app.processing.ingest.tasks.task_app", task_app):
+    purge_app = MagicMock()
+    purge_app.job_manager = manager
+    with patch("app.processing.ingest.tasks.task_app", purge_app):
         with patch("app.core.config.settings.ingest_jobs_retention_days", 30):
             await purge_expired_terminal_jobs()
     manager.delete_old_jobs.assert_awaited_once()
 
-    # A poll that now sees no failed rows, then one new failure.
+    # A poll that now sees no failed rows, then one new persisted failure.
     with patch("app.core.db.engine", _mock_engine_returning([])):
         await _refresh_job_metrics()
 
     before = _failed(queue)
-
-    async def call_next():
-        raise RuntimeError("post-purge failure")
-
-    with pytest.raises(RuntimeError):
-        await count_job_outcome(
-            call_next, _context_for(queue), _worker_with_retry(None)
-        )
+    task_app, _ = _task_app_with_finish()
+    install_job_outcome_counters(task_app)
+    await task_app.job_manager.finish_job(
+        job=_job(queue), status=Status.FAILED, delete_job=False
+    )
 
     assert _failed(queue) == before + 1
 
@@ -304,14 +303,15 @@ async def test_a_succeeded_row_is_not_a_source_for_the_counter():
 # ---------------------------------------------------------------------------
 
 
-def test_the_stalled_sweep_counts_its_own_failures():
-    """fix(#1778 codex r1): a transition count has to be told about this one."""
-    from app.platform.jobs import worker as worker_module
-
+def test_the_stalled_sweep_counts_its_own_failures_after_persisting():
+    """It calls finish_job_by_id_async directly, so the wrapper never sees it."""
     src = inspect.getsource(worker_module.fail_stalled_queue_jobs)
     assert "count_failed_job(job.queue)" in src, (
         "failing a stalled job is a terminal transition the counter must see"
     )
+    persist_at = src.index("finish_job_by_id_async(")
+    count_at = src.index("count_failed_job(job.queue)")
+    assert persist_at < count_at, "a persistence failure must count nothing"
 
     queue = "q1778_sweep"
     before = _failed(queue)
@@ -322,11 +322,3 @@ def test_the_stalled_sweep_counts_its_own_failures():
     default_before = _failed("default")
     count_failed_job(None)
     assert _failed("default") == default_before + 1
-
-
-def test_the_worker_registers_the_middleware():
-    """Both counters are dead again if run_worker_async stops carrying it."""
-    from app.platform.jobs import worker as worker_module
-
-    src = inspect.getsource(worker_module.main)
-    assert "worker_middleware=[count_job_outcome]" in src
