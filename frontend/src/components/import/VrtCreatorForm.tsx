@@ -34,6 +34,15 @@ import { formatNumber } from '@/lib/format';
 
 const VRT_MAX_SOURCES = 20;
 
+// fix(#1805 review round 1 P2): shared by every client-side grid-alignment
+// float comparison in this form, mirroring the backend's _FLOAT_TOL in
+// _check_grid_alignment (backend/app/processing/raster/validation.py).
+const GRID_ALIGNMENT_TOLERANCE = 1e-10;
+
+function floatsAligned(a: number, b: number): boolean {
+  return Math.abs(a - b) <= GRID_ALIGNMENT_TOLERANCE;
+}
+
 type VrtType = 'mosaic' | 'band_stack';
 type ResolutionStrategy = 'finest' | 'coarsest' | 'average';
 
@@ -49,17 +58,33 @@ function validateSources(
   const errors: ValidationErrors = {};
   const first = sources[0];
 
+  // fix(#1805 review round 1): _check_crs (backend/app/processing/raster/
+  // validation.py) picks the reference CRS as the FIRST source in the list
+  // with a known CRS, not unconditionally sources[0] -- a source with no
+  // CRS never becomes the reference and is skipped as a comparison target.
+  // Using sources[0] unconditionally (the previous code) silently skipped
+  // every CRS comparison whenever the first selected source had no CRS,
+  // even if two LATER sources disagreed with each other.
+  const refCrs = sources.find((s) => s.properties.crs)?.properties.crs;
+
   for (let i = 1; i < sources.length; i++) {
     const src = sources[i];
     const errs: string[] = [];
 
-    // CRS check
-    if (src.properties.crs && first.properties.crs && src.properties.crs !== first.properties.crs) {
+    // CRS check -- mirrors _check_crs.
+    if (src.properties.crs && refCrs && src.properties.crs !== refCrs) {
       errs.push('crs_mismatch');
     }
 
     if (vrtType === 'mosaic') {
-      // Band count check (mosaic only)
+      // Band count check (mosaic only) -- mirrors _check_band_count_mosaic
+      // (VAL-02). The backend compares band_count unconditionally (it is a
+      // NOT NULL column on the authoritative RasterAsset row re-fetched at
+      // creation time); band_count here comes from OGC search-result
+      // properties, which omit the key entirely for legacy records with no
+      // recorded band count, so this client-side hint skips rather than
+      // flags a false mismatch against unknown data. The backend re-runs
+      // this check authoritatively before the VRT is actually created.
       if (
         src.properties.band_count != null &&
         first.properties.band_count != null &&
@@ -78,29 +103,49 @@ function validateSources(
     const srcNodata = src.properties['raster:bands']?.[0]?.nodata;
     const firstNodata = first.properties['raster:bands']?.[0]?.nodata;
 
-    // Dtype check
+    // Dtype check -- mirrors _check_dtype (VAL-04). Same "unknown data
+    // skips rather than flags" rationale as band_count above: raster:bands
+    // is entirely absent from OGC search-result properties for sources
+    // ingested before band-info tracking existed, while the backend's dtype
+    // column is guaranteed non-null.
     if (srcDtype && firstDtype && srcDtype !== firstDtype) {
       errs.push('dtype_mismatch');
     }
 
-    // Nodata check
-    if (srcNodata != null && firstNodata != null && srcNodata !== firstNodata) {
+    // fix(#1805 review round 1 P1): _check_nodata_consistency (VAL-06)
+    // requires only consistent PRESENCE of nodata across sources -- either
+    // all define one or none do -- not equal VALUES. The previous check
+    // compared values directly, so two sources that both define a nodata
+    // sentinel (-9999 and 0) were wrongly flagged, while a source defining
+    // one and a source defining none (a real inconsistency) were not
+    // compared at all whenever either side was null.
+    const srcHasNodata = srcNodata != null;
+    const firstHasNodata = firstNodata != null;
+    if (srcHasNodata !== firstHasNodata) {
       errs.push('nodata_inconsistent');
     }
 
-    // Band stack grid alignment check
+    // Band stack grid alignment check -- mirrors _check_grid_alignment
+    // (VAL-05).
     if (vrtType === 'band_stack') {
       const srcShape = src.properties['proj:shape'];
       const firstShape = first.properties['proj:shape'];
-      // proj:shape is [height, width].
+      // proj:shape is [height, width]; width/height compare exactly, same
+      // as the backend (integer pixel dimensions, no float tolerance).
       const heightMismatch =
         srcShape != null && firstShape != null && srcShape[0] !== firstShape[0];
       const widthMismatch =
         srcShape != null && firstShape != null && srcShape[1] !== firstShape[1];
+      // fix(#1805 review round 1 P2): the backend compares res_x/res_y with
+      // a 1e-10 absolute float tolerance, not strict equality -- gsd is
+      // derived from those same floats (min(abs(res_x), abs(res_y))) and
+      // carries the same serialization noise, so strict !== flagged
+      // grid_misaligned for values that are aligned within tolerance (e.g.
+      // 0.30000000000000004 vs 0.3).
       const gsdMismatch =
         src.properties.gsd != null &&
         first.properties.gsd != null &&
-        src.properties.gsd !== first.properties.gsd;
+        !floatsAligned(src.properties.gsd, first.properties.gsd);
 
       if (widthMismatch || heightMismatch || gsdMismatch) {
         errs.push('grid_misaligned');
