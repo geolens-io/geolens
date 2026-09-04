@@ -225,7 +225,7 @@ wheels = [
 
 [[package]]
 name = "geolens"
-version = "1.17.0"
+version = "1.18.0"
 source = { editable = "../sdks/python" }
 dependencies = [
     { name = "attrs" },
@@ -244,7 +244,7 @@ requires-dist = [
 
 [[package]]
 name = "geolens-mcp"
-version = "1.17.0"
+version = "1.18.0"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },

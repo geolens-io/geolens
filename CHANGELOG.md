@@ -7,6 +7,8 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-09-04
+
 ### Added
 
 - **WFS and OGC API Features service imports now accept a username and
@@ -387,7 +389,121 @@ and releases use semantic versioning.
   other's base URL, bearer token, or API key on the object the first caller is
   still holding (#1802).
 
+- **A WFS or OGC API Features header token outside the accepted character set
+  is now refused before any credential is spent.** Import commit and reupload
+  commit used to accept such a token, stash it as a single-use credential, and
+  only have the worker refuse it once the request reached ogr2ogr, burning
+  the credential for nothing; service preview used a weaker check and
+  accepted a token commit would later reject. All three doors now return the
+  same 422 the refresh door already gave, before anything is staged or spent
+  (#1752).
+
+- **The ArcGIS import preview now shows the layer's feature count**, the same
+  number probe already reported but preview previously left blank.
+  Separately, the GDAL bearer-token header file used during import now
+  lives on a container-private tmpfs instead of an untracked spot in the
+  system temp directory, so it disappears the moment the container
+  restarts and is never archived by the job that backs up the staging
+  volume. The worker clears any file a crashed run left behind at its own
+  next boot; it runs no periodic sweep of its own, and the API's periodic
+  sweep looks at its own container's tmpfs, not the worker's, so it cannot
+  reach one (#1751).
+
+- **Several small service-import fixes from an internal audit.** The service
+  token field in the import wizard, the reupload dialog, and the refresh
+  dialog no longer invites a password manager to offer to save it or fill in
+  the signed-in admin's own password. An ArcGIS sign-in failure now shows the
+  same clear message a WFS auth failure already did, instead of falling back
+  to a generic "Access denied." The token help text no longer points at the
+  ArcGIS `generateToken` HTML form, which no longer renders; it explains the
+  API-key and `client=referer` alternatives instead. And a layer picker no
+  longer collapses two same-named layers from one service into a single row
+  (#1750).
+
+- **The optional `cloud-dev` profile's Valkey cache now actually starts.** It
+  tried to drop from root to its own user with a capability its own
+  `cap_drop: [ALL]` had already removed, so it exited immediately on every
+  install that enabled the profile, silently leaving `REDIS_URL` unset.
+  Valkey now runs as its own user from the start, skipping the privilege drop
+  it could never complete (#1747).
+
+- **PostgreSQL's own log directory no longer grows without bound inside the
+  data volume.** Log rotation was enabled with no filename pattern, rotation
+  age, or truncate-on-rotation setting, so the collector rotated files but
+  never reclaimed them. Logs now rotate daily, truncate on rotation, and are
+  capped at 7 files regardless of volume; RUNBOOK.md's server-logs section
+  describes the new bound (#1783).
+
+- **A failed vector file import, service import, or VRT build now notifies
+  the operator the same way a failed raster import or re-upload already
+  did**, if `notify_on_ingest_failed` is on. The four ingest tasks had grown
+  separate copies of the failure-write logic, and only the raster and
+  re-upload copies ever sent the notification (#1784).
+
+- **Two storage and database leaks from a hard worker crash are now cleaned
+  up instead of surviving forever.** A raster or VRT ingest that wrote its
+  COG, quicklooks, or VRT to object storage and was then killed before its
+  terminal commit left those objects unreferenced by any row and unreachable
+  by any existing sweep; the job row now records the keys it is about to
+  write, and the periodic and startup recovery sweeps reap them once the job
+  is confirmed not to have landed. A hard kill after an analysis
+  `materialize` commit left the same gap for the output table it had just
+  created; both sweeps now drop an output table nothing ever adopted (#1803).
+
+- **Worker process metrics and a completed-job counter that had read zero
+  since the initial release are fixed.** The worker never started the RSS
+  and connection-pool metric collectors the API process already runs, even
+  though it hosts GDAL/ogr2ogr and carries a much larger memory limit.
+  Separately, `geolens_jobs_completed_total` was derived from counting rows
+  in a status the worker's own retention setting deletes before they can be
+  counted, so the metric, the matching RUNBOOK entry, and the "Job
+  throughput" Grafana panel never moved. It is now incremented at the job's
+  terminal transition instead. A finished queue job that failed, was
+  cancelled, or was aborted was also never purged from the job-queue table;
+  it now follows the same `INGEST_JOBS_RETENTION_DAYS` window the ingest-jobs
+  mirror already uses (#1804).
+
+- **Three admin-configurable settings that had no admin UI control now have
+  one.** `semantic_search_rate_limit` and `basemap_proxy_rate_limit` had no
+  environment-variable fallback at all, and `email_verification_required`'s
+  own docstring claimed the admin UI was the only way to set it; all three
+  are now exposed on their respective settings tabs. Separately, the SAML
+  provider admin page was gated on a coarser permission check than the API
+  behind it enforces, the same drift already corrected for the Settings tabs
+  by an earlier fix; it now uses the same mode-aware check (#1805).
+
+- **The map builder's Share panel now explains a refused public toggle.**
+  Turning a map public while it still holds non-public dataset layers was
+  refused by the API with a 400, but the panel could not parse the response
+  and swallowed it, so the toggle appeared to do nothing. The refusal now
+  renders as an inline message under the visibility control, names the
+  datasets that block it, and is announced to screen readers; the duplicate
+  generic error toast no longer also fires for the same failure (#1841).
+
 ### Security
+
+- **The ArcGIS token GeoLens sends on its own probe, preview, count, and
+  pagination requests now travels as an `X-Esri-Authorization: Bearer`
+  header instead of a `?token=` query parameter,** so it no longer appears
+  in a request URL or in the HTTP client's own request-log line, which
+  redaction runs too late to see. Esri's own header name is used rather than
+  the standard `Authorization`, because a portal behind a Web Adaptor with its
+  own web-tier authentication (IWA or PKI) consumes the standard header before
+  ArcGIS ever sees the request; if a portal still answers such a request with
+  an HTTP 401 or 403, GeoLens retries once with the query form on the same
+  origin.
+  An ArcGIS Server older than 10.5.1, read from the service's own
+  `currentVersion`, keeps the query form outright, since it does not read a
+  bearer header at all. The GDAL fetch that pulls the feature data itself is
+  unchanged and still uses the query form: the worker's header file only
+  accepts a base64url-shaped token, which an ArcGIS token is not guaranteed
+  to be, and that path was already redacted from job arguments and error
+  text. A single function now builds the count-query URL everywhere it is
+  needed, rather than three copies each composing it slightly differently.
+  Also: an SSRF refusal encountered while probing an ArcGIS service now
+  reaches the caller instead of degrading to a generic "unhealthy" answer,
+  and the query-form fallback now registers its token with the log scrubber
+  the same way the header form already did (#1840).
 
 - **ArcGIS sign-in attempts are now counted before the credential is sent,
   not after.** A sign-in request cancelled mid-flight could previously go
@@ -396,6 +512,13 @@ and releases use semantic versioning.
   against an account. This release adds migration `0058`, which adds a
   `user_scope` column to the sign-in attempt ledger; it runs automatically
   as part of the normal upgrade (#1820).
+
+- **A service token could remain readable on a failed import or re-upload job
+  row until the next cleanup sweep.** A worker that failed a job dispatched
+  with a WFS, OGC API Features, or ArcGIS credential left the token in the
+  job's stored arguments, since only a successful job's row was deleted. Both
+  tasks now strip their own token on any terminal failure, and the periodic
+  stale-job sweep strips it from any row a crashed worker left behind (#1753).
 
 - **Two more sensitive query parameters are now redacted from logs and
   stored source URLs.** `authkey` (ArcGIS) and `maxar_api_key` (Maxar) join
@@ -3430,7 +3553,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.17.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.18.0...HEAD
+[1.18.0]: https://github.com/geolens-io/geolens/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/geolens-io/geolens/compare/v1.16.1...v1.17.0
 [1.16.1]: https://github.com/geolens-io/geolens/compare/v1.16.0...v1.16.1
 [1.16.0]: https://github.com/geolens-io/geolens/compare/v1.15.1...v1.16.0
