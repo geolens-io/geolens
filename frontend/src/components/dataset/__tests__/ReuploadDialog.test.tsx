@@ -10,6 +10,8 @@ import {
 } from '@/components/dataset/hooks/use-dataset';
 import { useJobStatus, useUploadConfig } from '@/components/import/hooks/use-ingest';
 import { probeService } from '@/api/ingest';
+import { ApiError } from '@/api/client';
+import { queryKeys } from '@/lib/query-keys';
 import { ReuploadDialog } from '../ReuploadDialog';
 import type { DatasetResponse, ProbeResponse, ReuploadPreviewResponse } from '@/types/api';
 
@@ -593,6 +595,86 @@ describe('ReuploadDialog', () => {
       expect(commitMutateAsync).toHaveBeenCalled();
     });
     expect(commitMutateAsync.mock.calls[0][0].expectedOriginKind).toBe('upload');
+  });
+
+  // fix(#1768 round 1): the refusal tells the user to start the replacement
+  // again, and `handleRetry` clears the captured origin — but the origin is
+  // re-captured from the `dataset` prop, which is served from the cache the
+  // server just disagreed with. Without the invalidation the retry re-sends
+  // the same stale kind and 409s forever.
+  it('invalidates the dataset detail query when the commit reports origin_changed', async () => {
+    const user = userEvent.setup();
+    commitMutateAsync.mockRejectedValueOnce(
+      new ApiError('This dataset’s source changed', 409, {
+        code: 'origin_changed',
+        origin_kind: 'service',
+        expected_origin_kind: 'upload',
+      }),
+    );
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+    });
+    const invalidate = vi
+      .spyOn(queryClient, 'invalidateQueries')
+      .mockResolvedValue(undefined);
+
+    rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <ReuploadDialog
+          dataset={{ ...makeDataset(), origin: 'upload' }}
+          open
+          onOpenChange={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    await openFileSource(user);
+    await dropFile();
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => {
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: queryKeys.datasets.detail('dataset-1'),
+      });
+    });
+  });
+
+  it('does not invalidate the dataset detail query for an unrelated commit failure', async () => {
+    // The counterfactual's other half: the invalidation is keyed on the
+    // refusal code, not fired on every commit error.
+    const user = userEvent.setup();
+    commitMutateAsync.mockRejectedValueOnce(
+      new ApiError('A refresh is already running', 409, { code: 'dataset_busy' }),
+    );
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+    });
+    const invalidate = vi
+      .spyOn(queryClient, 'invalidateQueries')
+      .mockResolvedValue(undefined);
+
+    rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <ReuploadDialog
+          dataset={{ ...makeDataset(), origin: 'upload' }}
+          open
+          onOpenChange={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    await openFileSource(user);
+    await dropFile();
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await screen.findByText('A refresh is already running');
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: queryKeys.datasets.detail('dataset-1'),
+    });
   });
 });
 
