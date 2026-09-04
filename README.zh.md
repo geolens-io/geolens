@@ -2,9 +2,9 @@
 
 [English](README.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [简体中文](README.zh.md)
 
-**你团队的自托管空间数据枢纽：在一个地方完成搜索、制图与共享。**
+**您团队的自托管空间数据枢纽：在一个地方完成搜索、制图与共享。**
 
-GeoLens 是一个面向 GIS 和数据团队的开源空间数据枢纽：在你自己掌控的基础设施上查找和使用数据，全程无遥测。GeoLens 本身不会向任何外部服务回传数据，唯一的例外是默认底图瓦片——在管理员配置其他底图之前，它们从 tiles.openfreemap.org 加载。（你主动启用的其他功能可能产生出站请求：连接你所选的 OpenAI 兼容端点或 Anthropic 密钥的 AI 助手、OAuth/OIDC 登录、SMTP、远程/S3 数据源以及异地备份。）上传文件、在浏览器中创建数据集、免复制地注册 GeoLens 自身 PostGIS 数据库中已有的表、从 WFS、ArcGIS FeatureServer 或 OGC API Features 导入一次性副本，或实时引用远程 STAC 资产。GeoLens 记录每个数据集的来源，开箱即用地用 pg_trgm 索引目录元数据以支持模糊搜索（配置嵌入提供方并启用语义搜索后，pgvector 还会带来语义排序），并通过 OGC/STAC API 让 QGIS、ArcGIS 和 MapLibre 客户端原生连接。直接在浏览器中组合、样式化并共享多图层地图。基于 FastAPI 和 React 构建。一条命令完成部署。
+GeoLens 是一个面向 GIS 和数据团队的开源空间数据枢纽：在您自己掌控的基础设施上查找和使用数据，全程无遥测。GeoLens 本身不会主动连接任何外部服务，唯一的例外是默认底图瓦片——在管理员配置其他底图之前，它们从 tiles.openfreemap.org 加载。（您主动启用的其他功能可能产生出站请求：连接您所选的 OpenAI 兼容端点或 Anthropic 密钥的 AI 助手、OAuth/OIDC 登录、SMTP、远程/S3 数据源以及异地备份。）上传文件、在浏览器中创建数据集、免复制地注册 GeoLens 自身 PostGIS 数据库中已有的表、从 WFS、ArcGIS FeatureServer 或 OGC API Features 导入一次性副本，或实时引用远程 STAC 资产。GeoLens 记录每个数据集的来源，开箱即用地用 pg_trgm 索引目录元数据以支持模糊搜索（配置嵌入提供方并启用语义搜索后，pgvector 还会带来语义排序），并通过 OGC/STAC API 让 QGIS、ArcGIS 和 MapLibre 客户端原生连接。直接在浏览器中组合、样式化并共享多图层地图。基于 FastAPI 和 React 构建。一条命令完成部署。
 
 <p align="center">
   <a href="https://demo.getgeolens.com"><img src="https://img.shields.io/badge/%E2%96%B6%20Try%20the%20live%20demo-demo.getgeolens.com-2563eb?style=for-the-badge" alt="试用在线演示" /></a>
@@ -67,16 +67,16 @@ docker pull ghcr.io/geolens-io/geolens-frontend:latest
 GeoLens 取代了这种工作方式：
 
 - **统一的数据枢纽：** 上传文件、创建数据集、注册 GeoLens 数据库中已有的表、导入要素服务快照，或引用远程 STAC 资产——然后在一个地方统一搜索和预览
-- **来源状态一目了然：** 查看每个数据集如何进入目录、上次刷新或检查是什么时候、最近一次刷新与其声明的更新节奏相比处于什么状态（新鲜、到期、逾期或未知），以及远程 Service 或 STAC 来源当前是否仍可访问
-- **与你现有的工具协同：** 支持服务端 CQL2 过滤的 OGC API Features/Records、STAC API 1.0、供 QGIS、ArcGIS 和 MapLibre 使用的直连瓦片 URL
-- **无锁定：** 你的目录和 GeoLens 管理的副本始终留在你掌控的基础设施上，并可随时以开放格式迁出。矢量数据集可导出为 GeoPackage、GeoJSON、Shapefile、CSV、GeoParquet、FlatGeobuf 或 PMTiles；栅格可下载为云优化 GeoTIFF；任何 OGC API 客户端都能直接读取目录
+- **来源状态一目了然：** 查看每个数据集如何进入目录、上次刷新或检查是什么时候、最近一次刷新与其声明的更新节奏相比处于什么状态（时效正常、待刷新、刷新逾期或未知），以及远程 Service 或 STAC 来源当前是否仍可访问
+- **与您现有的工具协同：** 支持服务端 CQL2 过滤的 OGC API Features/Records、STAC API 1.0、供 QGIS、ArcGIS 和 MapLibre 使用的直连瓦片 URL
+- **无锁定：** 您的目录和 GeoLens 管理的副本始终留在您掌控的基础设施上，并可随时以开放格式迁出。矢量数据集可导出为 GeoPackage、GeoJSON、Shapefile、CSV、GeoParquet、FlatGeobuf 或 PMTiles；栅格可下载为云优化 GeoTIFF；任何 OGC API 客户端都能直接读取目录
 - **语义与空间搜索：** 开箱即用的 pg_trgm 模糊匹配；添加嵌入提供方并启用语义搜索后，可按含义对数据集排序（pgvector）
 - **内置地图构建器：** 组合多图层地图、样式化，并通过公开链接或可嵌入的 iframe 共享
-- **AI 辅助（可选）：** 与你的地图对话、自动生成描述、用自然语言搜索。接入 OpenAI 兼容端点或 Anthropic 密钥，也可以完全不用
+- **AI 辅助（可选）：** 与您的地图对话、自动生成描述、用自然语言搜索。接入 OpenAI 兼容端点或 Anthropic 密钥，也可以完全不用
 
 ## 实际效果
 
-以下示例使用 JWT Bearer 令牌。先在本地服务栈上生成一个（登录端点接受 OAuth2 密码表单，所以用 `-d` 传表单字段而不是 JSON）。把管理员用户名和 `.env` 中的密码替换成你自己的（`grep '^GEOLENS_ADMIN_PASSWORD=' .env`）：
+以下示例使用 JWT Bearer 令牌。先在本地服务栈上生成一个（登录端点接受 OAuth2 密码表单，所以用 `-d` 传表单字段而不是 JSON）。把管理员用户名和 `.env` 中的密码替换成您自己的（`grep '^GEOLENS_ADMIN_PASSWORD=' .env`）：
 
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login/ \
@@ -106,11 +106,11 @@ CID=$(curl -s "http://localhost:8080/api/search/datasets/?q=countries&limit=1" \
 curl "http://localhost:8080/api/collections/$CID/items?bbox=-10,35,30,60&limit=5"
 ```
 
-PostGIS 和 pgvector 共享同一个数据库，因此启用语义搜索后，你可以在单个查询中在空间窗口*内部*按含义对数据集排序。语义搜索与空间搜索如何协同，参见[搜索指南](https://docs.getgeolens.com/guides/user/search/)。
+PostGIS 和 pgvector 共享同一个数据库，因此启用语义搜索后，您可以在单个查询中在空间窗口*内部*按含义对数据集排序。语义搜索与空间搜索如何协同，参见[搜索指南](https://docs.getgeolens.com/guides/user/search/)。
 
 从 QGIS 直连：**图层 > 添加 WFS / OGC API Features**，地址填 `http://localhost:8080/api/`。
 
-用你熟悉的工具直连同样的端点：[geolens-examples](https://github.com/geolens-io/geolens-examples) 提供单文件 MapLibre、Leaflet、OpenLayers 和 ArcGIS JS 页面，QGIS 与 DuckDB 演练，两个 GeoLens SDK、语义目录搜索、STAC 浏览器、已保存地图嵌入、Python/GeoPandas 分析、供 CLI 使用的 catalog-as-code 清单，以及 MCP 配置示例。其中只读示例直接运行在在线演示上，CI 会在每次推送和每周在那里重放它们，所以你复制的是本周刚验证过可用的代码。[浏览示例库](https://geolens-io.github.io/geolens-examples/)。
+用您熟悉的工具直连同样的端点：[geolens-examples](https://github.com/geolens-io/geolens-examples) 提供单文件 MapLibre、Leaflet、OpenLayers 和 ArcGIS JS 页面，QGIS 与 DuckDB 演练，两个 GeoLens SDK、语义目录搜索、STAC 浏览器、已保存地图嵌入、Python/GeoPandas 分析、供 CLI 使用的 catalog-as-code 清单，以及 MCP 配置示例。其中只读示例直接运行在在线演示上，CI 会在每次推送和每周在那里重放它们，所以您复制的是本周刚验证过可用的代码。[浏览示例库](https://geolens-io.github.io/geolens-examples/)。
 
 ## 功能特性
 
@@ -118,12 +118,12 @@ PostGIS 和 pgvector 共享同一个数据库，因此启用语义搜索后，�
 
 ### 数据接入与导出
 
-- **五种数据源模式：** 上传和创建的数据在本地管理；注册表（Register Table）原位服务 GeoLens 自身 PostGIS 数据库中的已有表；服务（Service）导入生成一次性本地副本；STAC 数据集保持对远程资产的实时引用
+- **五种数据源模式：** 上传和创建的数据在本地管理；注册数据表（Register Table）原位提供 GeoLens 自身 PostGIS 数据库中的已有表；服务（Service）导入生成一次性本地副本；STAC 数据集保持对远程资产的实时引用
 - **矢量：** Shapefile、GeoPackage、GeoJSON、GeoParquet、FlatGeobuf、KML/KMZ、zip 压缩的 File Geodatabase、CSV、XLSX
 - **栅格：** GeoTIFF 与云优化 GeoTIFF（COG），自动转换
 - **镶嵌：** 基于多个源文件构建 VRT 栅格镶嵌
-- **导出：** GeoJSON、Shapefile、GeoPackage、CSV 和 FlatGeobuf，支持 CRS 重投影；GeoParquet（始终为 EPSG:4326）；PMTTiles 作为自包含瓦片档案，适用于支持 Range 请求的静态托管
-- **来源状态：** 来源与上次刷新/上次检查时间戳、基于更新节奏的数据新鲜度，以及对 Service 和 STAC 来源的按需健康检查
+- **导出：** GeoJSON、Shapefile、GeoPackage、CSV 和 FlatGeobuf，支持 CRS 重投影；GeoParquet（始终为 EPSG:4326）；PMTiles 作为自包含瓦片档案，适用于支持 Range 请求的静态托管
+- **来源状态：** 来源与上次刷新/上次检查时间戳、基于更新节奏的数据源时效性，以及对 Service 和 STAC 来源的按需健康检查
 - 血缘追踪与元数据编辑
 
 ### 分析
@@ -139,7 +139,7 @@ PostGIS 和 pgvector 共享同一个数据库，因此启用语义搜索后，�
 - 直连瓦片 URL 和按用户的 API 密钥，供 QGIS、ArcGIS、MapLibre 及任何 OGC 客户端使用
 - 矢量瓦片在缩放级别 10 以下省略属性列以控制低层级瓦片体积；在瓦片 URL 上添加 `cols=<column>,<column>` 查询参数可让指定列在所有层级保留（列名会对照数据集的列做校验，未知列名会被丢弃）
 - JWT + OAuth 2.0/OIDC，带逐数据集权限的 RBAC
-- 界面支持英语、西班牙语、法语、德语和中文
+- 界面支持英语、西班牙语、法语、德语和简体中文
 
 <details>
 <summary>安全</summary>
@@ -148,7 +148,7 @@ PostGIS 和 pgvector 共享同一个数据库，因此启用语义搜索后，�
 - 按用户的 API 密钥管理
 - OAuth 2.0 / OIDC 支持（Google、Microsoft 及通用提供方）
 - 基于角色的访问控制（RBAC），支持逐数据集权限
-- 自助注册默认关闭；启用 SMTP 邮箱验证后，新注册与撞名提交的注册邮件发送行为保持一致
+- 自助注册默认关闭；启用 SMTP 邮箱验证后，新注册与用户名冲突的注册请求采用一致的邮件发送行为
 - 所有管理操作均有审计日志
 
 </details>
@@ -162,9 +162,9 @@ PostGIS 和 pgvector 共享同一个数据库，因此启用语义搜索后，�
 </p>
 
 <p align="center">
-  <img src=".github/assets/geolens-dataset.png" alt="GeoLens 数据集详情页：重大火山喷发数据集，板块边界沿线 900 个喷发点的全球地图预览，下方是模式统计和类型化元数据" width="900" />
+  <img src=".github/assets/geolens-dataset.png" alt="GeoLens 数据集详情页：重大火山喷发数据集，板块边界沿线 900 个喷发点的全球地图预览，下方是字段结构统计和类型化元数据" width="900" />
   <br />
-  <em><strong>检视：</strong>每个数据集都有地图预览、模式统计和类型化元数据。这里展示的是 NOAA NCEI 六千年间的重大火山喷发数据</em>
+  <em><strong>检视：</strong>每个数据集都有地图预览、字段结构统计和类型化元数据。这里展示的是 NOAA NCEI 六千年间的重大火山喷发数据</em>
 </p>
 
 <p align="center">
@@ -173,7 +173,7 @@ PostGIS 和 pgvector 共享同一个数据库，因此启用语义搜索后，�
     <img src=".github/assets/geolens-dataset-chat.png" alt="GeoLens 陨石着陆数据集上的 Ask AI 面板，回答“目击坠落的陨石与后来发现的陨石各有多少”，附文字摘要、Fell/Found 计数表和一键打开地图构建器的按钮" width="900" />
   </picture>
   <br />
-  <em><strong>向数据提问：</strong>用自然语言盘问数据集。“目击坠落的陨石与后来发现的陨石各有多少？”返回答案、计数（1,096 对 31,090）以及一键跳转到构建器</em>
+  <em><strong>向数据提问：</strong>用自然语言向数据集提问。“目击坠落的陨石与后来发现的陨石各有多少？”返回答案、计数（1,096 对 31,090）以及一键跳转到构建器</em>
 </p>
 
 <p align="center">
@@ -200,7 +200,7 @@ PostGIS 和 pgvector 共享同一个数据库，因此启用语义搜索后，�
 ## 快速开始
 
 **前置条件：** Docker Engine 24+ 和 Docker Compose v2。自带的服务栈内置
-PostgreSQL 18。如果你将 GeoLens 指向外部管理的数据库，它必须是
+PostgreSQL 18。如果您将 GeoLens 指向外部管理的数据库，它必须是
 **PostgreSQL 13+**（为了 `gen_random_uuid()`）并带 **pgvector 0.5+**
 （为了 HNSW 语义搜索索引），另需 PostGIS、pg_trgm 和 unaccent。API 和
 worker 运行在容器中（内置 Python 3.14，无需宿主机 Python）。可选的 CLI
@@ -225,14 +225,14 @@ bash scripts/install.sh
 两种方式下，`scripts/install.sh` 都会把 `.env.example` 复制为 `.env`，
 生成 JWT 签名密钥，设置管理员凭据，并运行 `docker compose up -d`。管理员
 **用户名**默认为 `admin`；管理员**密码**会自动生成为强随机值（写入
-`.env`，绝不打印到终端），除非你自己提供。无人值守安装时，在运行前在
+`.env`，绝不打印到终端），除非您自己提供。无人值守安装时，在运行前在
 环境变量中设置 `GEOLENS_ADMIN_USERNAME` 和 `GEOLENS_ADMIN_PASSWORD`
 即可跳过交互提示。重复运行脚本是幂等的：`.env` 中的既有值会被保留。
 
 等待约 60 秒让服务启动，然后打开
 [http://localhost:8080](http://localhost:8080)。用管理员用户名和生成的密码
 登录（用 `grep '^GEOLENS_ADMIN_PASSWORD=' geolens/.env` 获取密码——一行
-安装器会克隆到你运行它的目录下的 `geolens/` 中；在源码检出内则是
+安装器会克隆到您运行它的目录下的 `geolens/` 中；在源码检出内则是
 `.env`）。
 
 验证所有服务健康：
@@ -269,12 +269,12 @@ shasum -a 256 -c SHA256SUMS
 
 ### 升级
 
-升级预构建安装，在你的安装目录运行 `./scripts/upgrade.sh`。它会备份数据
+升级预构建安装，在您的安装目录运行 `./scripts/upgrade.sh`。它会备份数据
 库、拉取新镜像、在健康门控下运行迁移，并在失败时打印回滚方案。预构建与
 源码构建两种流程及回滚详见 [`UPGRADING.md`](UPGRADING.md)，或在线
 [升级指南](https://docs.getgeolens.com/guides/quickstart/upgrade/)。
 
-### 添加你的第一个数据集
+### 添加您的第一个数据集
 
 仓库自带一个小文件 `city-parks.geojson`。用 **GeoLens CLI** 一条命令完成
 上传并发布：
@@ -288,10 +288,10 @@ geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City
 `geolens publish` 运行上传 → 预览 → 提交的接入流程，并打印新数据集的
 URL。一条命令把本地文件变成已发布、可制图的数据集。
 
-对于可重复、多数据集的目录，可以在**清单**（`geolens.yaml`）中描述你的
+对于可重复、多数据集的目录，可以在**清单**（`geolens.yaml`）中描述您的
 数据源并用 `geolens apply` 应用。清单数据源通过 HTTP(S) URL、S3 URI 或
 服务器上已暂存的路径引用；[`examples/manifests/`](examples/manifests/)
-中的示例就是可改编的模板。用 `geolens init` 生成新清单，再按你的数据源
+中的示例就是可改编的模板。用 `geolens init` 生成新清单，再按您的数据源
 编辑：
 
 ```bash
@@ -300,7 +300,7 @@ geolens validate geolens.yaml      # local schema check, no API call
 geolens apply geolens.yaml         # validates + applies via /ingest/manifest/apply
 ```
 
-完整的清单模式、数据源种类和 CI 集成模式，参见 [CLI 指南](https://docs.getgeolens.com/guides/cli/)。
+完整的清单结构、数据源种类和 CI 集成模式，参见 [CLI 指南](https://docs.getgeolens.com/guides/cli/)。
 
 ### 种子数据
 

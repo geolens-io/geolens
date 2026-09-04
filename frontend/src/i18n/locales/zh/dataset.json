@@ -13,7 +13,7 @@
     "attributeData": "属性数据",
     "noSpatialExtent": "无可用空间范围",
     "dataFirstTitle": "数据优先的表格数据集",
-    "dataFirstDescription": "此记录是一个非空间表格。请在下方查看各行，在“结构”中检查模式，并使用“连接”进行下游访问。",
+    "dataFirstDescription": "此记录是一个非空间表格。请在下方查看各行，在“结构”中检查字段结构，并使用“连接”进行下游访问。",
     "noMapPreview": "无地图预览"
   },
   "tabs": {
@@ -149,7 +149,7 @@
     "unknown": "未知",
     "original": "原始：EPSG:{{srid}}",
     "sridWithOriginal": "{{current}}（{{original}}）",
-    "present": "存在",
+    "present": "至今",
     "temporalExtent": "时间范围",
     "noTemporalExtent": "未设置",
     "recordStatus": "记录状态",
@@ -288,7 +288,7 @@
       "layerLabel": "图层：",
       "connectFailed": "连接服务失败。",
       "previewFailed": "预览所选图层失败。",
-      "retryNeedsToken": "如果此数据源需要身份验证，请使用新的访问令牌重新开始重新上传。",
+      "retryNeedsToken": "如果此数据源需要身份验证，请使用新的访问令牌重新发起上传。",
       "columns": {
         "name": "名称",
         "geometry": "几何",
@@ -305,7 +305,7 @@
     "raster": {
       "sourceSelectHelpText": "选择一个替换栅格文件。",
       "previewDescription": "确认替换该栅格。",
-      "previewNote": "栅格重新上传会跳过模式比较。确认后将开始 Cloud Optimized GeoTIFF 转换，可能需要几分钟时间。",
+      "previewNote": "栅格重新上传会跳过字段结构比较。确认后将开始 Cloud Optimized GeoTIFF 转换，可能需要几分钟时间。",
       "trackingDescription": "正在转换为 Cloud Optimized GeoTIFF。这可能需要几分钟时间。",
       "processingMessage": "正在转换为 Cloud Optimized GeoTIFF...",
       "trackingBackground": "这可能需要几分钟。请保持此对话框打开，直到转换完成。"
@@ -313,8 +313,8 @@
     "dropzone": "将文件拖放到此处，或点击浏览",
     "uploadingMessage": "正在上传并分析文件...",
     "file": "文件：",
-    "schemaChangeAdvisory": "模式与先前版本不同：新增 {{added}} 列，移除 {{removed}} 列。",
-    "warningSchemaChanges": "警告：此次重新上传包含模式更改，可能影响现有查询。",
+    "schemaChangeAdvisory": "字段结构与先前版本不同：新增 {{added}} 列，移除 {{removed}} 列。",
+    "warningSchemaChanges": "警告：此次重新上传包含字段结构变更，可能影响现有查询。",
     "confirmReupload": "确认重新上传",
     "committingMessage": "正在提交重新上传...",
     "processingMessage": "正在处理重新上传...",
@@ -347,14 +347,14 @@
       "cadenceAnnually": "预期每年刷新。",
       "cadenceUnknown": "刷新频率未知；请确认刷新计划。",
       "state": {
-        "fresh": "新鲜",
-        "stale": "过期",
-        "missing": "缺少新鲜度"
+        "fresh": "时效正常",
+        "stale": "需要更新",
+        "missing": "缺少时效信息"
       },
       "remediation": {
         "fresh": "无需立即刷新。",
-        "stale": "请重新计算质量指标，并验证最近的数据源更新是否已摄取。",
-        "missing": "请运行质量校验以生成新鲜度时间戳。"
+        "stale": "请重新计算质量指标，并验证最近的数据源更新是否已导入。",
+        "missing": "请运行质量校验以生成时效时间戳。"
       },
       "notAvailable": "不可用",
       "unknownAge": "时效未知"
@@ -394,7 +394,7 @@
     "columnsAdded": "新增列（{{count}}）",
     "columnsRemoved": "移除列（{{count}}）",
     "typeChanges": "类型更改（{{count}}）",
-    "noChanges": "未检测到模式更改。"
+    "noChanges": "未检测到字段结构变更。"
   },
   "map": {
     "ariaLabel": "数据集地图",
@@ -408,10 +408,10 @@
     "featureRetrieveFailed": "无法获取已编辑的要素",
     "attributesUpdated": "属性已更新",
     "attributesUpdateFailed": "更新属性失败",
-    "unsavedDiscarded": "未保存的更改已丢弃",
-    "discardChangesTitle": "丢弃未保存的地图编辑？",
-    "discardChangesDescription": "您的几何更改尚未保存。您可以继续编辑或将其丢弃。",
-    "discardChangesAction": "丢弃更改",
+    "unsavedDiscarded": "未保存的更改已放弃",
+    "discardChangesTitle": "放弃未保存的地图编辑？",
+    "discardChangesDescription": "您的几何更改尚未保存。您可以继续编辑，也可以放弃更改。",
+    "discardChangesAction": "放弃更改",
     "deleteFeatureTitle": "删除要素",
     "deleteFeatureDescription": "确定删除此要素吗？此操作无法撤销。",
     "multiPartNotEditable": "此要素包含多个部分，无法在地图上编辑。",
@@ -466,11 +466,11 @@
   "validation": {
     "title": "校验状态",
     "readyToPublish": "可以发布",
-    "issuesBlocking": "{{count}} 个问题阻碍发布",
+    "issuesBlocking": "{{count}} 个问题会阻止发布",
     "issuesFound": "发现 {{count}} 个问题",
     "warnings": "{{count}} 个警告",
     "goToField": "转到字段",
-    "helperBlocking": "{{errorCount}} 个阻碍性问题和 {{warningCount}} 个警告需要处理。请先解决可能的原因，然后打开“疑难解答”获取引导式修复。",
+    "helperBlocking": "{{errorCount}} 个阻塞问题和 {{warningCount}} 个警告需要处理。请先解决可能的原因，然后打开“疑难解答”获取引导式修复。",
     "helperIssues": "{{errorCount}} 个问题和 {{warningCount}} 个警告需要处理。请先解决可能的原因，然后打开“疑难解答”获取引导式修复。",
     "helperWarnings": "发现 {{warningCount}} 个警告。请在发布前查看可能的原因。",
     "likelyCompact": "可能原因：",
@@ -481,17 +481,17 @@
       "recommended": "建议项 {{count}}",
       "ready": "状态良好",
       "description": "{{requiredCount}} 个必填项和 {{recommendedCount}} 个建议项仍需审查。",
-      "descriptionReady": "未检测到有效的校验问题。"
+      "descriptionReady": "未检测到待处理的校验问题。"
     },
     "actions": {
       "summary": "审查摘要",
       "contacts": "审查联系人",
-      "lineage": "审查谱系",
+      "lineage": "审查数据血缘",
       "sourceUrl": "审查源 URL",
       "sourceOrganization": "审查来源组织",
       "temporalExtent": "审查时间范围",
       "updateFrequency": "审查更新频率",
-      "qualityStatement": "审查质量声明",
+      "qualityStatement": "审查数据质量说明",
       "governance": "审查治理",
       "attributeMetadata": "审查属性",
       "geometry": "审查几何",
@@ -502,8 +502,8 @@
       "title": "校验疑难解答",
       "description": "请查看 {{count}} 个校验问题，并按照后续步骤解决它们。",
       "likelyNextSteps": "建议的后续步骤",
-      "noIssues": "未检测到有效问题。如果您预期会出现警告或错误，请重新运行校验。",
-      "blockingErrors": "阻碍性错误（{{count}}）",
+      "noIssues": "未检测到待处理的问题。如果您预期会出现警告或错误，请重新运行校验。",
+      "blockingErrors": "阻塞错误（{{count}}）",
       "warnings": "警告（{{count}}）",
       "requiredFields": "补全必填字段",
       "requiredFieldsHint": "填写缺失的必填值，然后重新运行校验。",
@@ -547,7 +547,7 @@
     "primary": "主要",
     "copyUrl": "复制 URL",
     "loadError": "加载分发失败。",
-    "setPrimary": "将 {{name}} 设为主要",
+    "setPrimary": "将 {{name}} 设为主要分发",
     "currentPrimary": "{{name}} 是主要分发",
     "primaryUpdated": "主要分发已更新。",
     "setPrimaryFailed": "设置主要分发失败。"
@@ -580,7 +580,7 @@
     "loadError": "加载相关记录失败"
   },
   "iso": {
-    "lineage": "谱系",
+    "lineage": "数据血缘",
     "lineagePlaceholder": "描述数据的来源和处理历史...",
     "updateFrequency": "更新频率",
     "usageConstraints": "使用限制",
@@ -588,7 +588,7 @@
     "accessConstraints": "访问限制",
     "accessConstraintsPlaceholder": "描述访问限制...",
     "sensitivity": "敏感度分类",
-    "qualityStatement": "质量声明",
+    "qualityStatement": "数据质量说明",
     "qualityStatementPlaceholder": "描述数据质量...",
     "themeCategory": "主题类别",
     "sourceUrl": "源 URL",
@@ -607,7 +607,7 @@
       "annually": "每年",
       "asNeeded": "按需",
       "irregular": "不定期",
-      "notPlanned": "无计划",
+      "notPlanned": "暂无更新计划",
       "unknown": "未知"
     },
     "sensitivityOptions": {
@@ -667,7 +667,7 @@
     "metadataTitle": "元数据",
     "nextFillIn": "下一步：填写{{field}}",
     "nodata": "无数据值",
-    "ogcApiFeatures": "OGC API 要素接口",
+    "ogcApiFeatures": "OGC API Features",
     "percentComplete": "已完成 {{percent}}%",
     "rasterProperties": "栅格属性",
     "recommendedCount_one": "{{count}} 个建议项",
@@ -696,15 +696,15 @@
     "lastChecked": "上次检查",
     "featureCount": "要素数量",
     "health": "健康状态",
-    "freshness": "数据源新鲜度",
-    "drift": "模式漂移",
+    "freshness": "数据源时效性",
+    "drift": "字段结构漂移",
     "origin": {
       "vrt": "VRT 合成",
       "unknown": "未记录来源"
     },
     "description": {
       "upload": "从文件导入。GeoLens 会保留一份自有副本用于查询和切片。",
-      "postgis": "从此 GeoLens 数据库中的现有表原位注册。未创建重复副本。",
+      "postgis": "由当前 GeoLens 数据库中的现有表原位注册。未创建重复副本。",
       "service": "从远程服务导入。GeoLens 会保留一份自有副本用于本地查询和切片。",
       "stac": "从 STAC 目录远程引用。源资产必须保持可用。",
       "created": "在 GeoLens 中创建，并存储为自有、可编辑的数据集。",
@@ -726,7 +726,7 @@
       "table": "已注册的表",
       "serviceType": "服务类型",
       "layer": "图层标识符",
-      "endpoint": "安全源指针",
+      "endpoint": "安全的数据源地址",
       "collection": "STAC 集合",
       "asset": "STAC 资产",
       "item": "STAC 条目"
@@ -739,7 +739,7 @@
         "unknown": "未检查"
       },
       "freshness": {
-        "fresh": "新鲜",
+        "fresh": "时效正常",
         "due": "待刷新",
         "overdue": "已逾期",
         "unknown": "未知"
@@ -767,7 +767,7 @@
       "loadFailed": "无法加载数据源历史。",
       "version": "版本 {{number}}",
       "current": "当前",
-      "catalogUpdate": "目录数据源",
+      "catalogUpdate": "目录更新",
       "features_one": "{{formattedCount}} 个要素",
       "features_other": "{{formattedCount}} 个要素",
       "features_many": "{{formattedCount}} 个要素"
@@ -775,7 +775,7 @@
     "refresh": {
       "action": "从数据源刷新",
       "busyHint": "刷新已在进行中。请查看下方的刷新历史。",
-      "featureEditBlockedHint": "请在刷新前完成编辑或取消选择要素。",
+      "featureEditBlockedHint": "请在刷新前完成编辑或取消选中要素。",
       "dialogTitle": "从数据源刷新",
       "dialogDescription": "从最初导入的位置重新拉取此数据集的数据。在新数据就绪之前，数据集会继续提供当前数据。",
       "tokenLabel": "访问令牌（可选）",
@@ -953,8 +953,8 @@
     "discard": "丢弃",
     "addSelected": "添加所选",
     "generateSummary": "生成摘要",
-    "draftLineage": "起草谱系",
-    "draftQualityStatement": "起草质量声明",
+    "draftLineage": "起草数据血缘",
+    "draftQualityStatement": "起草数据质量说明",
     "summaryFailed": "生成摘要失败",
     "keywordsNoneSuggested": "没有建议的新关键词",
     "keywordsGenerateFailed": "生成关键词失败",
@@ -962,12 +962,12 @@
     "keywordsAdded_other": "已添加 {{count}} 个关键词",
     "keywordsAlreadyExist": "关键词已存在",
     "keywordsAddFailed": "添加关键词失败",
-    "lineageFailed": "生成谱系失败",
-    "qualityStatementFailed": "生成质量声明失败",
+    "lineageFailed": "生成数据血缘失败",
+    "qualityStatementFailed": "生成数据质量说明失败",
     "chat": {
       "title": "向 AI 询问此数据集",
       "emptyHint": "就此数据集的数据提出问题。",
-      "readOnlyNote": "回答为只读；数据绝不会被修改。",
+      "readOnlyNote": "AI 仅以只读方式回答；数据绝不会被修改。",
       "placeholder": "询问此数据...",
       "openInBuilder": "在构建器中打开"
     }
