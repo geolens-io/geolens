@@ -16,7 +16,7 @@ const FRONTEND_ROOT = path.resolve(SCRIPT_DIR, '..');
 const REPO_ROOT = path.resolve(FRONTEND_ROOT, '..');
 const ERROR_MAP_PATH = path.join(FRONTEND_ROOT, 'src/lib/error-map.ts');
 const BACKEND_ROOT = path.join(REPO_ROOT, 'backend/app');
-const LANGUAGES = ['en', 'es', 'fr', 'de'];
+const LANGUAGES = ['en', 'es', 'fr', 'de', 'zh'];
 
 function collectFiles(root, extension, files = []) {
   for (const entry of readdirSync(root, { withFileTypes: true })) {
