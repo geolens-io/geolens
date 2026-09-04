@@ -962,6 +962,14 @@ jobs:
 
       - name: Install TypeScript SDK dependencies (locked)
         working-directory: sdks/typescript
+        # fix(#1816): same npm-ci-stall settings as License Check
+        # (frontend)'s Install step, applied here for consistency —
+        # any job restoring the npm cache and then fetching from the
+        # registry can hit the same registry stall.
+        env:
+          NPM_CONFIG_FETCH_TIMEOUT: "30000"
+          NPM_CONFIG_FETCH_RETRIES: "2"
+          NPM_CONFIG_LOGLEVEL: http
         run: npm ci
 
       - name: Regenerate SDKs and check for drift
@@ -1605,6 +1613,14 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
+        # fix(#1816): same npm-ci-stall settings as License Check
+        # (frontend)'s Install step, applied here for consistency —
+        # any job restoring the npm cache and then fetching from the
+        # registry can hit the same registry stall.
+        env:
+          NPM_CONFIG_FETCH_TIMEOUT: "30000"
+          NPM_CONFIG_FETCH_RETRIES: "2"
+          NPM_CONFIG_LOGLEVEL: http
         run: npm ci
 
       - name: Verify generated API types
@@ -1661,6 +1677,14 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
+        # fix(#1816): same npm-ci-stall settings as License Check
+        # (frontend)'s Install step, applied here for consistency —
+        # any job restoring the npm cache and then fetching from the
+        # registry can hit the same registry stall.
+        env:
+          NPM_CONFIG_FETCH_TIMEOUT: "30000"
+          NPM_CONFIG_FETCH_RETRIES: "2"
+          NPM_CONFIG_LOGLEVEL: http
         run: npm ci
 
       - name: Run tests with coverage
@@ -1694,6 +1718,22 @@ jobs:
 
       - name: Install frontend dependencies (locked)
         working-directory: frontend
+        # fix(#1816): three PR runs on 2026-09-03 (License Check job,
+        # runs 33814256132, 33817442567 x2) printed nothing for five
+        # minutes after the npm cache restored, then hit the job's
+        # timeout-minutes cap with the run marked "cancelled" rather
+        # than failed. npm's own defaults (`npm config list -l`:
+        # fetch-timeout=300000, fetch-retries=2) let one stalled
+        # registry connection sit for up to five minutes per attempt,
+        # which is the whole job budget here on its own. Lowering
+        # fetch-timeout makes a stalled fetch fail (and retry) fast
+        # instead of silently eating the job cap; NPM_CONFIG_LOGLEVEL=http
+        # prints the request line for each fetch, so a future stall names
+        # the package/URL instead of five minutes of silence.
+        env:
+          NPM_CONFIG_FETCH_TIMEOUT: "30000"
+          NPM_CONFIG_FETCH_RETRIES: "2"
+          NPM_CONFIG_LOGLEVEL: http
         run: npm ci
 
       - name: Run license-checker (blocking — curated allowlist)
@@ -1962,6 +2002,14 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
+        # fix(#1816): same npm-ci-stall settings as License Check
+        # (frontend)'s Install step, applied here for consistency —
+        # any job restoring the npm cache and then fetching from the
+        # registry can hit the same registry stall.
+        env:
+          NPM_CONFIG_FETCH_TIMEOUT: "30000"
+          NPM_CONFIG_FETCH_RETRIES: "2"
+          NPM_CONFIG_LOGLEVEL: http
         run: npm ci
 
       - name: Install Playwright Browsers
@@ -2139,6 +2187,14 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
+        # fix(#1816): same npm-ci-stall settings as License Check
+        # (frontend)'s Install step, applied here for consistency —
+        # any job restoring the npm cache and then fetching from the
+        # registry can hit the same registry stall.
+        env:
+          NPM_CONFIG_FETCH_TIMEOUT: "30000"
+          NPM_CONFIG_FETCH_RETRIES: "2"
+          NPM_CONFIG_LOGLEVEL: http
         run: npm ci
 
       - name: Install Playwright Browsers
@@ -2409,6 +2465,14 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
+        # fix(#1816): same npm-ci-stall settings as License Check
+        # (frontend)'s Install step, applied here for consistency —
+        # any job restoring the npm cache and then fetching from the
+        # registry can hit the same registry stall.
+        env:
+          NPM_CONFIG_FETCH_TIMEOUT: "30000"
+          NPM_CONFIG_FETCH_RETRIES: "2"
+          NPM_CONFIG_LOGLEVEL: http
         run: npm ci
 
       - name: Install Playwright Browsers
@@ -2466,8 +2530,40 @@ jobs:
             sleep 10
           done
 
+      # fix(#1817): 2026-09-03 runs 33790017112 and 33815788642 both hit this
+      # job's 15-minute cap with the log frozen at "Running 68 tests using 1
+      # worker" — GitHub then marks every step "cancelled", which the two
+      # upload steps below (correctly) skip via !cancelled(), so the ejected
+      # #1798 queue run left no report to look at. playwright.config.ts's CI
+      # reporter set ([github, html, json]) writes only at the end, so
+      # nothing streams to the log while a run is in progress; --reporter
+      # here is scoped to this invocation only (CLI --reporter replaces,
+      # rather than merges with, the config value) and keeps `html` so the
+      # report-upload step still has something to upload, while adding
+      # `line` for a per-test line as each test finishes.
+      #
+      # --timeout makes this job's per-test default explicit rather than
+      # inherited from playwright.config.ts (60_000ms there today). Measured
+      # on the two passing runs above, the step itself took 4m11s/4m29s for
+      # 68 tests (~3.8s/test average), so 60s leaves ~15x headroom on a
+      # normal test; the one test that legitimately needs more (the
+      # beforeAll hook in accessibility.spec.ts, which calls
+      # test.setTimeout(120_000) for its own seeding) already overrides its
+      # own timeout and is unaffected by this default.
+      #
+      # --global-timeout turns a real hang into a Playwright-reported
+      # failure (named test + stack, and a report artifact) instead of a
+      # GitHub cancellation. 480s (8 min) is ~1.8x the ~4.5-minute normal
+      # run and leaves several minutes of this job's 15-minute cap for the
+      # steps before and after (checkout/env/compose-up/npm-ci/browser-
+      # install ran in 2m45s-4m29s across the two measured passing runs).
       - name: Run accessibility tests
-        run: npx playwright test e2e/accessibility.spec.ts e2e/keyboard-nav.spec.ts --project=chromium
+        run: >-
+          npx playwright test e2e/accessibility.spec.ts e2e/keyboard-nav.spec.ts
+          --project=chromium
+          --reporter=line,html
+          --timeout=60000
+          --global-timeout=480000
 
       - name: Upload test results
         if: ${{ !cancelled() }}
