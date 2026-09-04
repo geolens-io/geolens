@@ -694,22 +694,37 @@ class TestNoArcgisUrlCarriesAnAuthorizationHeader:
         assert _probe_credential_line(credential, "wfs") is not None
 
     def test_the_worker_refuses_to_write_an_arcgis_header_file_line(self):
-        """fix(#1840 audit round 1): the trust-boundary copy of the rule.
+        """fix(#1840 audit rounds 1 and 2): the trust-boundary copy of the rule.
 
         Both callers of ``_sanitize_authorization_token`` gate on the two
         header-file formats already. This is the worker's own check, which
         AGENTS.md requires to stand on its own rather than resting on a
         validator two processes away, and which is what keeps an ArcGIS token
         out of ``GDAL_HTTP_HEADER_FILE`` if a caller's gate is relaxed.
+
+        Round 1 put that gate inside ``_legacy_bearer_line``, the BARE-token
+        branch, so a finished line arriving for an ArcGIS job walked straight
+        through and the guarantee was half a guarantee. Both shapes are
+        parametrized here for that reason.
         """
         from app.processing.ingest.ogr import _sanitize_authorization_token
 
         token = "tok" + _value()
-        with pytest.raises(ValueError):
-            _sanitize_authorization_token(token, service_format="arcgis_featureserver")
-        # The counterfactual: the same bare token IS composed for WFS.
+        for arriving in (token, f"Authorization: Bearer {token}"):
+            with pytest.raises(ValueError):
+                _sanitize_authorization_token(
+                    arriving, service_format="arcgis_featureserver"
+                )
+        # The counterfactual: both shapes pass for WFS, so the refusal above
+        # is about the format and not about the shape.
         assert (
             _sanitize_authorization_token(token, service_format="wfs")
+            == f"Authorization: Bearer {token}"
+        )
+        assert (
+            _sanitize_authorization_token(
+                f"Authorization: Bearer {token}", service_format="wfs"
+            )
             == f"Authorization: Bearer {token}"
         )
 

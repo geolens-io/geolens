@@ -11,9 +11,11 @@ import structlog
 
 from app.core.service_tokens import (
     ARCGIS_SERVICE_FORMAT,
+    HEADER_TOKEN_MIN_LENGTH,
     CredentialMethod,
     ServiceCredential,
     build_credential_header,
+    credential_input_rejection_reason,
     register_credential_secret,
 )
 from app.core.url_redaction import redact_exception_text
@@ -259,8 +261,26 @@ def _query_form_credential(token: str) -> tuple[dict[str, str], str | None]:
     ``token=`` query key, the shape-dependent coverage #1770 round 43
     introduced the registry to replace. Registered here so both transports
     are covered by the same exact-value scrub.
+
+    fix(#1840 audit round 2): with a floor, because exact-value scrubbing is
+    a substring replacement over every log line in the request's context and
+    a short value is a substring of ordinary text. ArcGIS is the one transport
+    whose token is never held to ``HEADER_TOKEN_CHARSET`` -- ``credential_or_422``
+    returns before that check for a URL-query format -- so nothing upstream
+    rejects a four-character one. Measured: registering ``json`` rewrote
+    ``https://json.example.com`` to ``https://***.example.com`` in that
+    request's own logs, which corrupts the diagnostics the redactor exists to
+    make safe rather than protecting anything (a real AGO token is a hundred
+    characters of base64url). The same floor and charset the header transport
+    already applies is what decides: a value that could not have been a header
+    credential is not registered, and is not scrubbed. The credential still
+    reaches the origin either way; only the log-scrub registration is gated.
     """
-    register_credential_secret(token)
+    if (
+        credential_input_rejection_reason(token) is None
+        and len(token) >= HEADER_TOKEN_MIN_LENGTH
+    ):
+        register_credential_secret(token)
     return {}, token
 
 

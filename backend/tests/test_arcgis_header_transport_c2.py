@@ -35,6 +35,7 @@ import pytest
 from app.core.service_tokens import (
     ARCGIS_SERVICE_FORMAT,
     HEADER_AUTH_SERVICE_FORMATS,
+    HEADER_TOKEN_MIN_LENGTH,
     HEADER_TRANSPORT_SERVICE_FORMATS,
     registered_credential_secrets,
     requires_header_token_policy,
@@ -645,11 +646,47 @@ class TestTheQueryFallbackRegistersItsSecret:
         scrubbed = scrub_registered_credentials(f"Invalid token supplied: {_TOKEN}")
         assert _TOKEN not in scrubbed
 
-    def test_the_unusable_value_fallback_registers_the_token(self) -> None:
+    def test_the_unusable_value_fallback_does_not_register(self) -> None:
+        """fix(#1840 audit round 2): a value that could not have been a header
+        credential is not registered either. It still reaches the origin in
+        the query; only the log-scrub registration is gated."""
         reset_registered_credential_secrets()
         unusable = "has space"
         assert arcgis_request_auth(unusable) == ({}, unusable)
-        assert unusable in registered_credential_secrets()
+        assert registered_credential_secrets() == frozenset()
+
+    @pytest.mark.parametrize("short", ["json", "abc", "a", "tok"])
+    def test_a_short_token_is_not_registered(self, short: str) -> None:
+        """fix(#1840 audit round 2): exact-value scrubbing is a substring
+        replacement over every log line in the request's context, so a short
+        value corrupts ordinary text instead of protecting a credential.
+        ArcGIS is the one transport that never meets ``HEADER_TOKEN_CHARSET``
+        (``credential_or_422`` returns before that check for a URL-query
+        format), so nothing upstream rejects a four-character token. Measured:
+        registering ``json`` rewrote ``https://json.example.com`` to
+        ``https://***.example.com`` in that request's own logs.
+        """
+        reset_registered_credential_secrets()
+        headers, query_token = arcgis_request_auth(short, current_version="10.4")
+        assert (headers, query_token) == ({}, short)
+        assert registered_credential_secrets() == frozenset()
+        assert scrub_registered_credentials("https://json.example.com") == (
+            "https://json.example.com"
+        )
+
+    def test_a_token_at_the_floor_is_registered(self) -> None:
+        """The counterfactual for the floor: one character longer and it is
+        registered, so the gate is a length rule and not a switched-off
+        registration."""
+        reset_registered_credential_secrets()
+        at_floor = "a" * HEADER_TOKEN_MIN_LENGTH
+        assert arcgis_request_auth(at_floor, current_version="10.4") == ({}, at_floor)
+        assert at_floor in registered_credential_secrets()
+
+        reset_registered_credential_secrets()
+        below = "a" * (HEADER_TOKEN_MIN_LENGTH - 1)
+        assert arcgis_request_auth(below, current_version="10.4") == ({}, below)
+        assert registered_credential_secrets() == frozenset()
 
     def test_the_header_path_registers_the_composed_line(self) -> None:
         """The pre-existing half, asserted beside it so the two are read

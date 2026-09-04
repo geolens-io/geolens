@@ -169,17 +169,9 @@ def _legacy_bearer_line(token: str, service_format: str) -> str:
     the answer is the shape policy rather than a bearer-specific message: from
     here the two cases are indistinguishable, and the value is not named.
     """
-    # fix(#1840 audit round 1): the format gate is asked HERE, before the
-    # builder, rather than being inferred from the builder answering None.
-    # Lane C2 taught `build_credential_header` to compose a header for ArcGIS
-    # -- for GeoLens's own httpx requests, never for this file -- so "the
-    # builder said None" stopped meaning "this format carries no header line".
-    # Both call sites still gate on the same two formats before reaching here;
-    # this is the trust-boundary copy of that rule, which is where AGENTS.md
-    # says the worker's own check belongs, and it is what keeps an ArcGIS
-    # token out of GDAL_HTTP_HEADER_FILE if a caller's gate is ever relaxed.
-    if not requires_header_token_policy(service_format):
-        raise ValueError(HEADER_LINE_SHAPE_POLICY)
+    # fix(#1840 audit round 2): the format gate moved UP, to
+    # `_sanitize_authorization_token`'s own entry, so it covers a finished
+    # line as well as this bare-token branch. See the comment there.
     try:
         pair = build_credential_header(
             ServiceCredential(
@@ -191,9 +183,9 @@ def _legacy_bearer_line(token: str, service_format: str) -> str:
     except ValueError:
         raise ValueError(HEADER_LINE_SHAPE_POLICY) from None
     if pair is None:
-        # A service format that carries no header at all. The gate above and
-        # the callers' own both cover this; it exists because a silent empty
-        # line would be worse than a refusal.
+        # A service format that carries no header at all. The gate at the
+        # entry and the callers' own both cover this; it exists because a
+        # silent empty line would be worse than a refusal.
         raise ValueError(HEADER_LINE_SHAPE_POLICY)
     return credential_header_line(pair)
 
@@ -256,6 +248,19 @@ def _sanitize_authorization_token(
     """
     if header_line is None:
         return None
+    # fix(#1840 audit round 2): the format gate belongs HERE, at the entry to
+    # the only function this module sanitizes a header-file line through, not
+    # inside `_legacy_bearer_line`. Round 1 put it there, which covered a bare
+    # token arriving for an ArcGIS job and not a FINISHED line arriving for
+    # one -- so `_sanitize_authorization_token("Authorization: Bearer <tok>",
+    # service_format="arcgis_featureserver")` returned the line, and the claim
+    # that this keeps an ArcGIS credential out of GDAL_HTTP_HEADER_FILE if a
+    # caller's gate is relaxed was only half true. Both shapes are refused
+    # now. Both call sites still gate on the same two formats before reaching
+    # here; this is the trust-boundary copy of that rule, which is where
+    # AGENTS.md says the worker's own check belongs.
+    if not requires_header_token_policy(service_format):
+        raise ValueError(HEADER_LINE_SHAPE_POLICY)
     name, separator, value = header_line.partition(HEADER_LINE_SEPARATOR)
     if not separator:
         return _legacy_bearer_line(header_line, service_format)

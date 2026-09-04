@@ -49,9 +49,20 @@ from enum import StrEnum
 # is what produced a P1. ``wire_credential`` selected the bare-token branch by
 # asking whether ``build_credential_header`` answered None, which was
 # equivalent to this set until lane C2 taught the builder to compose an ArcGIS
-# header for the httpx transport. Every consumer of this set now asks
-# ``requires_header_token_policy`` by name; none infers the answer from the
-# builder. Anything added to this list must do the same.
+# header for the httpx transport.
+#
+# fix(#1840 audit round 2): so the rule for a consumer of this set is that it
+# must not depend on the builder's answer to learn the FORMAT. The three
+# consumers that decide by format ask ``requires_header_token_policy`` by name
+# (``wire_credential``, ``sources/router.py::_probe_credential_line``,
+# ``processing/ingest/ogr.py::_sanitize_authorization_token``). Three others
+# still branch on ``pair is not None`` -- ``sources/preview.py``'s two header
+# file writers and ``sources/router.py::_fetch_ogcapi_collection_srid`` -- and
+# that is sound only because each is already fenced by its caller to a WFS or
+# OAPIF source (a ``gdal_source.startswith("WFS:"/"OAPIF:")`` test, or a
+# credential the caller bound to ``ogcapi_features``). Un-fencing any of those
+# means gating it on the predicate at the same time; the builder's answer is
+# not a substitute for asking.
 HEADER_AUTH_SERVICE_FORMATS: frozenset[str] = frozenset({"wfs", "ogcapi_features"})
 
 # feat(C2). ArcGIS's own service format, spelled here rather than imported from

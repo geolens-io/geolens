@@ -4670,7 +4670,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # already gate on the same two formats; this is the trust-boundary copy
     # AGENTS.md requires, and the comment is the argument for keeping both.
     # Cap 1354 -> 1366, exact.
-    "backend/app/processing/ingest/ogr.py": 1366,
+    # fix(#1840 audit round 2): +5. That gate moved up to
+    # `_sanitize_authorization_token`'s own entry, because inside
+    # `_legacy_bearer_line` it covered only the BARE-token branch -- a
+    # finished `Authorization: Bearer <tok>` line arriving for an ArcGIS job
+    # walked straight through to the header file. Both shapes refused now, and
+    # the comment at each end says which half it is. Cap 1366 -> 1371, exact.
+    "backend/app/processing/ingest/ogr.py": 1371,
     # fix(#1778): +157 for two audit findings that both land in JIT
     # provisioning. One is the REGISTRATION_ENABLED gate plus its exception
     # class, so enabling a provider stops being a way to reopen signup while
