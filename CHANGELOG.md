@@ -478,15 +478,23 @@ and releases use semantic versioning.
 ### Security
 
 - **The ArcGIS token GeoLens sends on its own probe, preview, count, and
-  pagination requests now travels as an `Authorization: Bearer` header
-  instead of a `?token=` query parameter,** so it no longer appears in a
-  request URL or in the HTTP client's own request-log line, which redaction
-  runs too late to see. An ArcGIS Server older than 10.5.1, read from the
-  service's own `currentVersion`, keeps the query form, since it does not
-  read a bearer header. The GDAL fetch that pulls the feature data itself is
+  pagination requests now travels as an `X-Esri-Authorization: Bearer`
+  header instead of a `?token=` query parameter,** so it no longer appears
+  in a request URL or in the HTTP client's own request-log line, which
+  redaction runs too late to see. Esri's own header name is used rather than
+  the standard `Authorization`, because a portal behind a Web Adaptor with its
+  own web-tier authentication (IWA or PKI) consumes the standard header before
+  ArcGIS ever sees the request; if a portal still answers such a request with
+  an HTTP 401 or 403, GeoLens retries once with the query form on the same
+  origin.
+  An ArcGIS Server older than 10.5.1, read from the service's own
+  `currentVersion`, keeps the query form outright, since it does not read a
+  bearer header at all. The GDAL fetch that pulls the feature data itself is
   unchanged and still uses the query form: the worker's header file only
-  accepts a base64url-shaped token, which an ArcGIS token is not guaranteed to
-  be, and that path was already redacted from job arguments and error text.
+  accepts a base64url-shaped token, which an ArcGIS token is not guaranteed
+  to be, and that path was already redacted from job arguments and error
+  text. A single function now builds the count-query URL everywhere it is
+  needed, rather than three copies each composing it slightly differently.
   Also: an SSRF refusal encountered while probing an ArcGIS service now
   reaches the caller instead of degrading to a generic "unhealthy" answer,
   and the query-form fallback now registers its token with the log scrubber
