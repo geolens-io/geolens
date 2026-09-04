@@ -522,6 +522,200 @@ class TestPreviewEndpoint:
             )
             assert resp.status_code == 500
 
+    # -----------------------------------------------------------------
+    # fix(#1755 item 9): one test per typed refusal `run_service_preview`
+    # and its callees can raise, so `preview_service_layer`'s broad
+    # `except Exception` never turns one into a 500 the way it turned
+    # `RuntimeError` into one above. Each mocks `run_service_preview`
+    # directly (as `test_preview_unexpected_error` and
+    # `test_preview_ogrinfo_failure` already do above), bypassing the
+    # internal wrapping the classes normally go through, which is exactly
+    # what proves the ROUTER's own mapping — not a callee's — is what
+    # answers. Counterfactual: with `_preview_refusal_response` deleted (or
+    # its branch for the class under test removed), every one of these
+    # falls through to `except Exception` and asserts 500, same as
+    # `test_preview_unexpected_error`.
+    # -----------------------------------------------------------------
+
+    async def test_preview_cross_origin_endpoint_returns_422(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_validate_ssrf,
+        mock_build_gdal_source,
+    ):
+        """A description naming a foreign operation endpoint is a 422, not a 500."""
+        from app.platform.service_endpoints import CrossOriginEndpointError
+
+        with patch(
+            "app.modules.catalog.sources.router.run_service_preview",
+            new_callable=AsyncMock,
+            side_effect=CrossOriginEndpointError("https://evil.example.com"),
+        ):
+            resp = await client.post(
+                "/services/preview/",
+                json={
+                    "url": "https://example.com/wfs",
+                    "service_type": "WFS 2.0.0",
+                    "layer_name": "buildings",
+                    "auth": {"method": "basic", "username": "u", "password": "p"},
+                },
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 422, resp.text
+            detail = resp.json()["detail"]
+            assert detail["code"] == "cross_origin_endpoint"
+            # The service-chosen credential value is never in the body.
+            assert "p" != detail["message"]
+
+    async def test_preview_endpoint_check_failed_returns_422(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_validate_ssrf,
+        mock_build_gdal_source,
+    ):
+        """A description that could not be read is a 422, not a 500."""
+        from app.platform.service_endpoints import EndpointCheckFailedError
+
+        with patch(
+            "app.modules.catalog.sources.router.run_service_preview",
+            new_callable=AsyncMock,
+            side_effect=EndpointCheckFailedError(
+                "httpx.ConnectError: raw provider text"
+            ),
+        ):
+            resp = await client.post(
+                "/services/preview/",
+                json={
+                    "url": "https://example.com/wfs",
+                    "service_type": "WFS 2.0.0",
+                    "layer_name": "buildings",
+                    "auth": {"method": "basic", "username": "u", "password": "p"},
+                },
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 422, resp.text
+            detail = resp.json()["detail"]
+            assert detail["code"] == "endpoint_check_failed"
+            # `.reason` (the raw httpx text) never reaches the body.
+            assert "raw provider text" not in resp.text
+
+    async def test_preview_item_fetch_failed_returns_422(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_validate_ssrf,
+        mock_build_gdal_source,
+    ):
+        """An OGC API items page that could not be read is a 422, not a 500.
+
+        `ItemFetchFailedError` subclasses `EndpointCheckFailedError`
+        (`platform/service_items.py`), so it matches the same `isinstance`
+        branch — this test pins that the subclass relationship is what the
+        mapping relies on, not a duplicated class list.
+        """
+        from app.platform.service_items import ItemFetchFailedError
+
+        with patch(
+            "app.modules.catalog.sources.router.run_service_preview",
+            new_callable=AsyncMock,
+            side_effect=ItemFetchFailedError("items link leaves the origin"),
+        ):
+            resp = await client.post(
+                "/services/preview/",
+                json={
+                    "url": "https://example.com/collections/x",
+                    "service_type": "OGC API Features",
+                    "layer_name": "x",
+                    "auth": {"method": "basic", "username": "u", "password": "p"},
+                },
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 422, resp.text
+            assert resp.json()["detail"]["code"] == "endpoint_check_failed"
+
+    async def test_preview_ssrf_error_mid_preview_returns_400(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_validate_ssrf,
+        mock_build_gdal_source,
+    ):
+        """An SSRF refusal raised INSIDE run_service_preview (a redirect hop,
+        not the door's pre-flight `validate_url_for_ssrf`) is a 400, and never
+        echoes a redirect-chosen hostname (`SSRFResolutionError`'s own text).
+        """
+        with patch(
+            "app.modules.catalog.sources.router.run_service_preview",
+            new_callable=AsyncMock,
+            side_effect=SSRFResolutionError(
+                "Could not resolve hostname: internal-only.example.com (10.0.0.5)"
+            ),
+        ):
+            resp = await client.post(
+                "/services/preview/",
+                json={
+                    "url": "https://example.com/wfs",
+                    "service_type": "WFS 2.0.0",
+                    "layer_name": "buildings",
+                },
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 400, resp.text
+            assert "10.0.0.5" not in resp.text
+            assert "internal-only.example.com" not in resp.text
+
+    async def test_preview_href_too_long_returns_422(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_validate_ssrf,
+        mock_build_gdal_source,
+    ):
+        """An over-length service-advertised href is a 422, not a 500."""
+        from app.platform.service_endpoints import HrefTooLongError
+
+        with patch(
+            "app.modules.catalog.sources.router.run_service_preview",
+            new_callable=AsyncMock,
+            side_effect=HrefTooLongError("next href exceeds 8192 bytes"),
+        ):
+            resp = await client.post(
+                "/services/preview/",
+                json={
+                    "url": "https://example.com/wfs",
+                    "service_type": "WFS 2.0.0",
+                    "layer_name": "buildings",
+                },
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 422, resp.text
+
+    async def test_preview_credential_header_value_error_returns_400(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_validate_ssrf,
+        mock_build_gdal_source,
+    ):
+        """A plain ValueError from build_credential_header is a 400, not a 500."""
+        with patch(
+            "app.modules.catalog.sources.router.run_service_preview",
+            new_callable=AsyncMock,
+            side_effect=ValueError("unsupported credential method"),
+        ):
+            resp = await client.post(
+                "/services/preview/",
+                json={
+                    "url": "https://example.com/wfs",
+                    "service_type": "WFS 2.0.0",
+                    "layer_name": "buildings",
+                },
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 400, resp.text
+
     async def test_preview_creates_ingest_job(
         self,
         client: AsyncClient,

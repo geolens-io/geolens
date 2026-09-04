@@ -86,12 +86,30 @@ class DeferFailed(HTTPException):
     Same rule the review applied to ``_finalize`` one layer up: a helper that
     performs a state change reports whether it happened, rather than leaving the
     caller to assume.
+
+    fix(#1755 item 10): ``cause`` is the exception that made the guard raise —
+    either the dispatch marker write (`stamp_commit_attempted`) or the
+    ``defer_call`` itself. Both used to collapse into the same fixed 503 body,
+    so a bug inside the closure that builds the defer call (a `TypeError` from
+    a bad argument, say) read identically to Procrastinate's queue genuinely
+    being unreachable, and only ``str(cause)`` — never logged or returned here
+    — told the two apart. ``cause_class`` is ``type(cause).__name__``: a
+    Python identifier, never the exception's own message, so it cannot carry a
+    credential or a provider-chosen string the way ``str(cause)`` can. It goes
+    in ``detail`` as a coded field precisely because it is safe to return —
+    the raw message is not, and stays out of both the body and this
+    exception's own attributes.
     """
 
-    def __init__(self, *, rolled_back: bool) -> None:
+    def __init__(self, *, rolled_back: bool, cause: BaseException) -> None:
+        self.cause_class = type(cause).__name__
         super().__init__(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Task queue unavailable, please retry",
+            detail={
+                "code": "queue_unavailable",
+                "message": "Task queue unavailable, please retry",
+                "cause_class": self.cause_class,
+            },
         )
         self.rolled_back = rolled_back
 
@@ -298,13 +316,13 @@ async def defer_with_orphan_guard(
                 "dispatch marker write"
             )
         rolled_back = await _settle_after_failed_dispatch(rollback, stamp_exc, db)
-        raise DeferFailed(rolled_back=rolled_back) from stamp_exc
+        raise DeferFailed(rolled_back=rolled_back, cause=stamp_exc) from stamp_exc
 
     try:
         await defer_call()
     except Exception as defer_exc:  # broad: defer_async can throw various job-runner errors; orphan-guard handles all
         rolled_back = await _settle_after_failed_dispatch(rollback, defer_exc, db)
-        raise DeferFailed(rolled_back=rolled_back) from defer_exc
+        raise DeferFailed(rolled_back=rolled_back, cause=defer_exc) from defer_exc
 
 
 async def settle_ingest_job_failed(
