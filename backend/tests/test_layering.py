@@ -4551,7 +4551,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # was a logged repair failure that also skipped the grant. And the version
     # bump moved to the atomic helper, because this transaction holds no row
     # lock. Cap 1061 -> 1104, exact.
-    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1104,
+    # fix(#1738 round 2): +24 — the GiST index restore moves onto the same
+    # rule as the grant: every outcome where the column exists, not only the
+    # one where it had to be rewritten. `rederive_geom_4326` was the only
+    # caller of the index helper, so an overwrite that recreated the table
+    # with a valid STORED GENERATED `geom_4326` left the dataset with no
+    # spatial index and every `geom_4326 && <envelope>` predicate the readers
+    # issue fell back to a sequential scan. Cap 1104 -> 1128, exact.
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1128,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

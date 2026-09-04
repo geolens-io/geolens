@@ -136,6 +136,11 @@ _LOCK_TIMEOUT_SQLSTATE = "55P03"
 # Coded outcomes for the repair phase, logged on every run. They are NOT run
 # error codes: a failed repair does not fail the refresh (see
 # `_repair_geom_4326`), so none of these ever reaches the run ledger.
+#
+# They describe the RENDER COLUMN only. The reader grant and the GiST index
+# are restored on every outcome where the table is there and the column
+# exists, so `not_applicable` still means work may have been done — read
+# `index_added` on the report for that half (fix(#1738 rounds 1 and 2)).
 _REPAIR_REPAIRED = "repaired"
 _REPAIR_NOT_APPLICABLE = "not_applicable"
 _REPAIR_TIMED_OUT = "timed_out"
@@ -399,12 +404,13 @@ async def _repair_geom_4326(
     different hazards on a relation GeoLens does not own — see
     ``_REPAIR_STATEMENT_TIMEOUT_MS`` and ``_REPAIR_LOCK_TIMEOUT_MS``.
 
-    **The reader GRANT is re-issued whatever the geometry turned out to be**
-    (fix(#1738 round 1)). It is the third thing ``-overwrite`` destroys, and
-    losing it does not depend on the render column needing a rewrite: a table
-    recreated with a valid STORED GENERATED ``geom_4326``, or one with no
-    geometry at all, needs no re-derive and still cannot be read by
-    ``geolens_reader`` until the grant comes back.
+    **The reader GRANT and the GiST index are restored whatever the geometry
+    turned out to be** (fix(#1738 rounds 1 and 2)). They are the other two
+    things ``-overwrite`` destroys, and losing them does not depend on the
+    render column needing a rewrite: a table recreated with a valid STORED
+    GENERATED ``geom_4326`` needs no re-derive, and without these two it is
+    unreadable by ``geolens_reader`` and sequentially scanned by every bbox
+    predicate the readers issue.
 
     **Never fatal.** A refresh whose repair could not run still has a
     measurement to take, and that measurement is what the user asked for; the
@@ -415,6 +421,7 @@ async def _repair_geom_4326(
     """
     from app.core.db import async_session
     from app.processing.ingest.metadata import (
+        ensure_geom_4326_gist_index,
         get_table_srid,
         grant_reader_access,
         probe_geom_4326,
@@ -481,6 +488,23 @@ async def _repair_geom_4326(
                     session, table_name, srid or 4326, schema=schema, state=state
                 )
 
+            # fix(#1738 round 2): the index, on the same rule as the grant
+            # below — every outcome where the column EXISTS, not only the one
+            # where it had to be rewritten. `rederive_geom_4326` was the only
+            # caller of the index helper, so an overwrite that recreated the
+            # table with a valid STORED GENERATED `geom_4326` (nothing to
+            # re-derive) left the dataset with no GiST index at all, and every
+            # bbox predicate the readers issue — `geom_4326 && <envelope>` —
+            # fell back to a sequential scan on a table GeoLens does not own.
+            if repair is not None:
+                index_added = repair.index_added
+            elif state.has_render:
+                index_added = await ensure_geom_4326_gist_index(
+                    session, table_name, schema=schema
+                )
+            else:
+                index_added = False
+
             # fix(#1738 round 1): unconditionally, not only when the render
             # column was rewritten. The GRANT is the third thing `-overwrite`
             # destroys, and it is destroyed whatever the recreated table's
@@ -518,7 +542,7 @@ async def _repair_geom_4326(
                 _REPAIR_REPAIRED if repair is not None else _REPAIR_NOT_APPLICABLE,
                 repair.rows_rewritten if repair is not None else 0,
                 repair.column_added if repair is not None else False,
-                repair.index_added if repair is not None else False,
+                index_added,
                 tile_version,
             )
         except Exception as exc:  # broad: the repair is best-effort — see the docstring

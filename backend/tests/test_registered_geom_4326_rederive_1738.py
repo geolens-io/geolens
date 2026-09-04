@@ -651,20 +651,26 @@ async def test_the_repair_gives_up_its_lock_queue_position_on_a_busy_table(
 
 
 # ---------------------------------------------------------------------------
-# The grant is not conditional on the re-derive
+# The grant and the index are not conditional on the re-derive
 # ---------------------------------------------------------------------------
 
 
-async def test_a_recreated_generated_column_still_gets_its_reader_grant_back(
+async def test_a_recreated_generated_column_gets_its_index_and_grant_back(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ) -> None:
-    """fix(#1738 round 1): the GRANT is the third thing `-overwrite` destroys.
+    """The GRANT and the INDEX are the other two things `-overwrite` destroys.
 
-    Losing it does not depend on the render column needing a rewrite. A table
-    recreated with a valid STORED GENERATED `geom_4326` re-derives itself on
-    every write, so the repair has nothing to do to the column — and gating
-    the grant on the re-derive let exactly that table pass a refresh while
-    `geolens_reader` still could not read a row of it.
+    Losing them does not depend on the render column needing a rewrite. A
+    table recreated with a valid STORED GENERATED `geom_4326` re-derives
+    itself on every write, so the repair has nothing to do to the column — and
+    gating the other two restorations on the re-derive let exactly that table
+    pass a refresh unreadable by `geolens_reader` (fix(#1738 round 1)) and
+    with no GiST index behind the `geom_4326 && <envelope>` predicate every
+    reader issues (fix(#1738 round 2)).
+
+    A generated column is the case that isolates them: it is the one shape
+    where the render values are already correct and the two things around
+    them are still missing.
     """
     admin_id = await get_user_id(test_db_session, "admin")
     table_name = f"rd_gengr_{uuid.uuid4().hex[:8]}"
@@ -696,19 +702,25 @@ async def test_a_recreated_generated_column_still_gets_its_reader_grant_back(
         )
         await test_db_session.commit()
 
+        # A freshly created table carries neither: CREATE TABLE makes no
+        # index, and the grant was revoked above.
         assert not await _reader_can_select(test_db_session, table_name)
+        assert not await _has_gist_index(test_db_session, table_name)
 
         report = await tasks_postgis_refresh._repair_geom_4326(
             dataset.id, Dataset, schema="data", role="geolens_reader"
         )
-        # Nothing to re-derive, and the grant restored anyway.
+        # Nothing to re-derive, and both of the others restored anyway.
         assert report.code == tasks_postgis_refresh._REPAIR_NOT_APPLICABLE
         assert report.rows_rewritten == 0
+        assert report.index_added is True
         assert await _reader_can_select(test_db_session, table_name)
+        assert await _has_gist_index(test_db_session, table_name)
 
         # And through the real refresh, which must not fail on it either.
         await _refresh(test_db_session, client, admin_auth_header, dataset.id)
         assert await _reader_can_select(test_db_session, table_name)
+        assert await _has_gist_index(test_db_session, table_name)
         assert await _features_at(test_db_session, table_name, _THERE) == 1
     finally:
         await _drop(test_db_session, table_name)
