@@ -28,9 +28,16 @@ vi.mock('@/hooks/use-edition', () => ({
   useEdition: vi.fn(),
 }));
 
-vi.mock('@/api/maps', () => ({
-  checkMapVisibility: vi.fn(),
-}));
+vi.mock('@/api/maps', async (importOriginal) => {
+  // fix(#1831 review): keep the real `nonPublicDatasetsFromError` — it's the
+  // shared predicate SharePanel uses to detect the blocked-publish refusal;
+  // only `checkMapVisibility` needs stubbing here.
+  const actual = await importOriginal<typeof import('@/api/maps')>();
+  return {
+    ...actual,
+    checkMapVisibility: vi.fn(),
+  };
+});
 
 vi.mock('@/hooks/use-maps', () => ({
   usePublishMap: vi.fn(),
@@ -657,12 +664,13 @@ describe('SHARE-02 chip-based allowed-origins input', () => {
 
 /* ------------------------------------------------------------------ */
 /*  fix(#1831): the visibility PUT's 400 refusal (map holds non-public  */
-/*  dataset layers) used to vanish — the toast key it referenced didn't */
-/*  exist in any locale, and the dataset names were read off the        */
-/*  already-translated `err.message` instead of the raw `err.body`.     */
-/*  Now it renders as a persistent inline message under the visibility  */
-/*  control, naming the datasets, and the toggle never leaves its       */
-/*  previous value (the mutation only ever applies it on success).      */
+/*  dataset layers) used to vanish — the dataset names were read off    */
+/*  the already-translated `err.message` (a fallback string, not JSON)  */
+/*  and JSON.parse'd there, instead of off the raw `err.body` the       */
+/*  backend actually sent. Now it renders as a persistent inline        */
+/*  message under the visibility control, naming the datasets, and the  */
+/*  toggle never leaves its previous value (the mutation only ever      */
+/*  applies it on success).                                             */
 /* ------------------------------------------------------------------ */
 describe('#1831 publish blocked by non-public datasets', () => {
   beforeEach(() => {
@@ -690,6 +698,9 @@ describe('#1831 publish blocked by non-public datasets', () => {
       expect(screen.getByTestId('share-publish-blocked-error')).toBeInTheDocument();
     });
     expect(screen.getByTestId('share-publish-blocked-error')).toHaveTextContent('Large Lakes');
+    // fix(#1831 review P2): role="alert" so it's announced the way the toast
+    // it replaces would have been.
+    expect(screen.getByRole('alert')).toBe(screen.getByTestId('share-publish-blocked-error'));
 
     // The toggle stays on its previous value — the mutation never resolved,
     // so nothing "snaps back": it never moved in the first place.

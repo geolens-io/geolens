@@ -42,7 +42,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { usePublishMap, useCreateShareToken, useRevokeShareToken, useMapShareToken, useUpdateShareToken } from '@/hooks/use-maps';
-import { checkMapVisibility } from '@/api/maps';
+import { checkMapVisibility, nonPublicDatasetsFromError } from '@/api/maps';
 import { useCreateEmbedToken, useMapEmbedTokens, useUpdateEmbedToken, useRevokeEmbedToken } from '@/components/builder/hooks/use-embed-tokens';
 import { normalizeOrigin, WildcardOriginError } from '@/lib/builder/url-normalize';
 // fix(#430 V-17): reuse the same audience-visibility check as the layer-stack badge.
@@ -1053,9 +1053,10 @@ export function ShareDialog({
   // fix(#1831): the backend refuses PUT /maps/{id} with 400 when a map is
   // switched to public while it still holds non-public dataset layers
   // (validate_public_visibility in maps/router.py). That refusal used to
-  // vanish silently — the toast key it referenced didn't exist in any locale
-  // and the dataset names were never actually read off the error body. This
-  // holds the refusal so it renders as a persistent inline message under the
+  // vanish silently — the dataset names were read off the already-translated
+  // `err.message` (a fallback string, not JSON) and JSON.parse'd there,
+  // instead of off the raw `err.body` the backend actually sent. This holds
+  // the refusal so it renders as a persistent inline message under the
   // visibility control, since the confirm dialog is already closed by the
   // time the response comes back.
   const [publishBlocked, setPublishBlocked] = useState<string | null>(null);
@@ -1120,23 +1121,13 @@ export function ShareDialog({
       // fix(#1831): the mutation never touched `visibility` on failure (the
       // toggle only follows the server response above), so the previous
       // value is already what's on screen — nothing to snap back here. What
-      // was missing was WHY: the raw error detail (`err.body`, not
-      // `err.message`, which is already a translated fallback string) carries
-      // `{ message, datasets }` for this specific refusal; `usePublishMap`'s
-      // own onError still raises the generic "failed to update" toast, so
-      // only the non-public-datasets case gets its own explanation here.
-      const detail =
-        err instanceof ApiError && err.status === 400 && err.body && typeof err.body === 'object'
-          ? (err.body as { message?: unknown; datasets?: unknown })
-          : undefined;
-      if (
-        typeof detail?.message === 'string' &&
-        detail.message.includes('non-public datasets') &&
-        typeof detail.datasets === 'string' &&
-        detail.datasets.length > 0
-      ) {
-        setPublishBlocked(detail.datasets);
-      }
+      // was missing was WHY: the raw error detail (`err.body`) carries
+      // `{ message, datasets }` for this specific refusal, extracted here via
+      // the same helper `usePublishMap` uses to skip its own generic
+      // "failed to update" toast for this one case (every other failure
+      // still gets that toast — see use-maps.ts).
+      const datasets = nonPublicDatasetsFromError(err);
+      if (datasets) setPublishBlocked(datasets);
     }
   }
 
@@ -1307,6 +1298,7 @@ export function ShareDialog({
             {publishBlocked && (
               <div
                 data-testid="share-publish-blocked-error"
+                role="alert"
                 className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-foreground mt-2"
               >
                 <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden="true" />
