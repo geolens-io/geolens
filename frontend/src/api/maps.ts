@@ -283,6 +283,34 @@ export async function publishMap(id: string, visibility: 'public' | 'private' | 
   });
 }
 
+/**
+ * fix(#1831 review): distinguishes the one 400 `publishMap` can return that
+ * has its own dedicated UI (SharePanel's inline "can't go public" message)
+ * from every other failure, which still gets the generic toast. Reads the
+ * raw `err.body` the backend sent (`{ message, datasets }` from
+ * `validate_public_visibility` in `maps/router.py`), not `err.message` —
+ * that's already a translated fallback string, not JSON, and was the actual
+ * bug in #1831 (dataset names were read off it and silently dropped).
+ *
+ * Shared by `usePublishMap` (to skip its own toast for this one case) and
+ * `SharePanel` (to render the inline message), so the two can't drift.
+ */
+export function nonPublicDatasetsFromError(err: unknown): string | undefined {
+  if (!(err instanceof ApiError) || err.status !== 400 || !err.body || typeof err.body !== 'object') {
+    return undefined;
+  }
+  const detail = err.body as { message?: unknown; datasets?: unknown };
+  if (
+    typeof detail.message === 'string' &&
+    detail.message.includes('non-public datasets') &&
+    typeof detail.datasets === 'string' &&
+    detail.datasets.length > 0
+  ) {
+    return detail.datasets;
+  }
+  return undefined;
+}
+
 export async function createShareToken(
   mapId: string,
   expiration: ShareExpirationInput = {},

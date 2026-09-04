@@ -356,7 +356,10 @@ def scrub_registered_credentials(text: str) -> str:
 
     ``app.core.service_tokens.register_credential_secret`` is called at the
     one place a credential header is ever composed
-    (``build_credential_header``), so by the time anything downstream calls
+    (``build_credential_header``) and -- fix(#1840 audit round 1) -- at the one
+    place a credential is deliberately put in a URL instead
+    (``adapters/arcgis.py::_query_form_credential``, the pre-10.5.1 ArcGIS
+    fallback), so by the time anything downstream calls
     this, every secret in play for this request/job is already registered --
     exact-value redaction (``scrub_secret_value``, which also expands to the
     Basic cleartext and every URL-encoded form) then finds it wherever it

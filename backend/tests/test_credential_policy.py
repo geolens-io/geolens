@@ -351,13 +351,18 @@ class TestBuildCredentialHeaderReturnsNone:
     def test_no_credential(self, auth: ServiceCredential | None) -> None:
         assert build_credential_header(auth) is None
 
-    @pytest.mark.parametrize("method", ["none", "bearer", "basic", "header", "oauth"])
-    def test_arcgis_never_gets_a_header_whatever_the_method(self, method: str) -> None:
-        """D9's invariant at the one place it can be tested in isolation.
+    @pytest.mark.parametrize("method", ["none", "basic", "header", "oauth"])
+    def test_arcgis_gets_no_header_for_a_method_it_cannot_carry(
+        self, method: str
+    ) -> None:
+        """feat(C2) narrowed D9's invariant from every method to three.
 
         Every field is populated, so nothing here returns None for want of an
-        input. An ArcGIS token is percent-encoded into a URL query, so a
-        header line composed for it would land inside a query string.
+        input. ArcGIS has no basic or named-API-key spelling at all, and the
+        GDAL path still percent-encodes the bearer token into the source URL,
+        so a header line composed for any of these would land inside a query
+        string. The bearer case is the one that changed and is covered by
+        ``test_arcgis_gets_a_bearer_header`` below.
         """
         assert (
             build_credential_header(
@@ -373,6 +378,48 @@ class TestBuildCredentialHeaderReturnsNone:
             )
             is None
         )
+
+    @pytest.mark.parametrize(
+        "token",
+        ["tok+slash/", "AA'#&ULTRASECRET", GOOD_BEARER, "a" * 3],
+        ids=["reserved-chars", "url-reserved", "base64url", "shorter-than-the-floor"],
+    )
+    def test_arcgis_gets_a_bearer_header(self, token: str) -> None:
+        """feat(C2), and the vocabulary difference that goes with it.
+
+        An ArcGIS token is judged as a header VALUE (printable ASCII, no
+        whitespace) rather than by ``HEADER_TOKEN_CHARSET``, so ``+``, ``/``
+        and a token shorter than the WFS/OAPIF floor all compose. The header
+        NAME is Esri's own (fix(#1840 codex round 1)): a Web Adaptor or
+        web-tier authentication in front of ArcGIS Enterprise consumes the
+        standard one and refuses before ArcGIS runs. Those rules
+        exist for a credential written into a file libcurl parses; an ArcGIS
+        token never reaches that file, and refusing ``+`` would refuse
+        legitimate ArcGIS tokens for a danger this path does not have.
+        """
+        assert build_credential_header(
+            ServiceCredential(
+                method=CredentialMethod.BEARER,
+                service_format=ARCGIS_FORMAT,
+                token=token,
+            )
+        ) == ("X-Esri-Authorization", f"Bearer {token}")
+
+    @pytest.mark.parametrize("token", [None, "", "has space", "café"])
+    def test_an_arcgis_token_that_cannot_be_a_header_value_is_refused(
+        self, token: str | None
+    ) -> None:
+        """The floor the value charset still enforces: no whitespace, ASCII
+        only. CR and LF are whitespace, so the header-smuggling class this
+        rule exists for is closed on the ArcGIS path too."""
+        with pytest.raises(ValueError):
+            build_credential_header(
+                ServiceCredential(
+                    method=CredentialMethod.BEARER,
+                    service_format=ARCGIS_FORMAT,
+                    token=token,
+                )
+            )
 
     @pytest.mark.parametrize(
         "service_format", [None, "stac", "geojson", "shapefile", ""]

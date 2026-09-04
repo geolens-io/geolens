@@ -2666,6 +2666,22 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # opposite, which is why it now cites the line it was checked against.
     # Cap 1293 -> 1301, exact.
     "backend/app/modules/catalog/sources/arcgis_signin.py": 1301,
+    # feat(C2) / fix(#1840): crossed _RATCHET_INCLUSION_LOC when the ArcGIS
+    # credential moved out of the request URL and into a header. What the
+    # growth bought, in one list: the version gate Esri's own `currentVersion`
+    # spelling needs (`parse_arcgis_current_version`, where 10.5.1 reports as
+    # `10.51` and a float comparison gets two releases the wrong way round),
+    # the one transport chooser (`arcgis_request_auth`) so no read decides for
+    # itself where the credential goes, one bounded reader
+    # (`read_arcgis_json`) with the two query-form fallbacks a real deployment
+    # needs -- a pre-10.5.1 server's 499 envelope and a Web Adaptor's 401/403
+    # before ArcGIS is ever reached -- plus `build_arcgis_layer_info_url` and
+    # the fold of the third hand-rolled count query into
+    # `build_arcgis_count_query_url` (#1755 item 14). Most of the added lines
+    # are the comments carrying the measurements those decisions rest on;
+    # without them the next reader re-derives the Esri version encoding and
+    # the web-tier case from scratch. Cap set at 1015, exact.
+    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1015,
     # feat(#1746 B2b): first explicit entry for this file, which rode the 1500
     # default until the service-auth wave. #1758 added the ArcGIS sign-in
     # endpoint and its rate-limit wiring, and this lane added the credential
@@ -2723,7 +2739,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `preview_service_layer`'s broad `except Exception`, so a future edit
     # that breaks one of those callees' "raises only HTTPException" contracts
     # degrades to a coded 4xx instead of a 500. Cap 1639 -> 1780, exact.
-    "backend/app/modules/catalog/sources/router.py": 1780,
+    # fix(#1840 audit round 1): +11. `_probe_credential_line` gates on
+    # `requires_header_token_policy` rather than on `build_credential_header`
+    # answering None, plus the import and the docstring paragraph saying why
+    # the two stopped being equivalent when lane C2 taught the builder to
+    # compose an ArcGIS header for the httpx transport. Cap 1780 -> 1791,
+    # exact.
+    "backend/app/modules/catalog/sources/router.py": 1791,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against
@@ -4656,7 +4678,21 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # header`, the registry's only other producer, so the exact-value scrub
     # pass was inert for the whole worker service-import path on the
     # format every current job actually uses. Cap 1342 -> 1354, exact.
-    "backend/app/processing/ingest/ogr.py": 1354,
+    # fix(#1840 audit round 1): +12. `_legacy_bearer_line` asks
+    # `requires_header_token_policy` itself before reaching the builder,
+    # instead of inferring "this format carries no header line" from the
+    # builder answering None -- which stopped being true when lane C2 taught
+    # it to compose an ArcGIS header for the httpx transport. Both call sites
+    # already gate on the same two formats; this is the trust-boundary copy
+    # AGENTS.md requires, and the comment is the argument for keeping both.
+    # Cap 1354 -> 1366, exact.
+    # fix(#1840 audit round 2): +5. That gate moved up to
+    # `_sanitize_authorization_token`'s own entry, because inside
+    # `_legacy_bearer_line` it covered only the BARE-token branch -- a
+    # finished `Authorization: Bearer <tok>` line arriving for an ArcGIS job
+    # walked straight through to the header file. Both shapes refused now, and
+    # the comment at each end says which half it is. Cap 1366 -> 1371, exact.
+    "backend/app/processing/ingest/ogr.py": 1371,
     # fix(#1778): +157 for two audit findings that both land in JIT
     # provisioning. One is the REGISTRATION_ENABLED gate plus its exception
     # class, so enabling a provider stops being a way to reopen signup while

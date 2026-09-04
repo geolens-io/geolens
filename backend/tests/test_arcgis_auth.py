@@ -7,6 +7,7 @@ import pytest
 
 from app.modules.catalog.sources.adapters.arcgis import (
     ArcGISTokenError,
+    build_arcgis_count_query_url,
     enrich_arcgis_feature_counts,
     fetch_arcgis_pagination_info,
     probe_arcgis_service,
@@ -53,14 +54,29 @@ def _mock_transport_client(handle) -> httpx.AsyncClient:
 
 
 @pytest.mark.asyncio
-async def test_arcgis_probe_no_bearer_header():
-    """Verify the ArcGIS probe sends token only as query param, not as Authorization header."""
+async def test_arcgis_probe_sends_the_token_as_an_esri_authorization_header():
+    """feat(C2): the token is a header, and the URL carries no credential.
+
+    This test used to assert the exact opposite -- ``token=mytoken`` in the
+    URL and no credential header at all -- because that was the only
+    transport ArcGIS was believed to accept here. Measured live on 2026-09-04
+    against a referer-bound token on services6.arcgis.com, both
+    ``X-Esri-Authorization: Bearer`` and ``Authorization: Bearer`` return the
+    same count as ``?token=``, so the credential moved
+    out of the URL: out of httpx's ``HTTP Request: GET ...`` INFO line, out of
+    proxy access logs, and out of the text an origin quotes back in an error.
+    """
     recorded: list[httpx.Request] = []
 
     def handle(request: httpx.Request) -> httpx.Response:
         recorded.append(request)
         return _streaming_json_response(
-            {"layers": [{"id": 0, "name": "test", "geometryType": "esriGeometryPoint"}]}
+            {
+                "currentVersion": 11.3,
+                "layers": [
+                    {"id": 0, "name": "test", "geometryType": "esriGeometryPoint"}
+                ],
+            }
         )
 
     async with _mock_transport_client(handle) as client:
@@ -68,32 +84,34 @@ async def test_arcgis_probe_no_bearer_header():
             "https://services.arcgis.com/svc/FeatureServer", client, token="mytoken"
         )
 
-    # The URL should include the token as a query parameter
     assert len(recorded) == 1
-    assert "token=mytoken" in str(recorded[0].url)
-
-    # No Authorization header should have been sent
-    assert "Authorization" not in recorded[0].headers
+    assert "token" not in str(recorded[0].url)
+    assert recorded[0].headers["X-Esri-Authorization"] == "Bearer mytoken"
 
 
 @pytest.mark.asyncio
-async def test_arcgis_probe_encodes_url_reserved_characters_in_token():
-    """fix(#1746 codex r7): a token with URL-reserved characters must be encoded.
+async def test_arcgis_probe_falls_back_to_an_encoded_query_token_on_499():
+    """fix(#1746 codex r7) and feat(C2): the pre-10.5.1 fallback still encodes.
 
-    probe_arcgis_service() concatenates the token into the query string by
-    hand (unlike the sibling call sites that pass it through httpx's
-    ``params=``, which encodes automatically). The token validators only
-    reject whitespace/control characters, so ``'``, ``#``, and ``&`` all
-    pass through and were kept literal here -- a raw ``#`` truncates the
-    URL at a fragment boundary and a raw ``&`` starts a bogus new query
-    parameter, either of which leaks the tail of the token into the actual
-    request AND lets it escape the log redactor's URL match.
+    A token with URL-reserved characters must be percent-encoded when it does
+    travel in a query string: a raw ``#`` truncates the URL at a fragment
+    boundary and a raw ``&`` starts a bogus new query parameter, either of
+    which leaks the tail of the token into the actual request AND lets it
+    escape the log redactor's URL match.
+
+    Reaching that path now takes a server that answers 499 "Token Required"
+    to the header form, which is exactly what an ArcGIS Server older than
+    10.5.1 does -- it never reads the header, so it sees no token at all.
     """
     recorded: list[httpx.Request] = []
 
     def handle(request: httpx.Request) -> httpx.Response:
         recorded.append(request)
-        return _streaming_json_response({"layers": []})
+        if "token=" not in str(request.url):
+            return _streaming_json_response(
+                {"error": {"code": 499, "message": "Token Required"}}
+            )
+        return _streaming_json_response({"currentVersion": "10.4", "layers": []})
 
     async with _mock_transport_client(handle) as client:
         await probe_arcgis_service(
@@ -102,21 +120,28 @@ async def test_arcgis_probe_encodes_url_reserved_characters_in_token():
             token="AA'#&ULTRASECRET",
         )
 
-    url_called = str(recorded[0].url)
+    assert len(recorded) == 2
+    # The first attempt is the header form and carries nothing in the URL.
+    assert "token" not in str(recorded[0].url)
+    url_called = str(recorded[1].url)
     assert "token=AA%27%23%26ULTRASECRET" in url_called
+    assert "X-Esri-Authorization" not in recorded[1].headers
     assert "'" not in url_called
     assert "#" not in url_called
     assert "&ULTRA" not in url_called
 
 
 @pytest.mark.asyncio
-async def test_enrich_arcgis_feature_counts_encodes_url_reserved_characters_in_token():
-    """fix(#1746 codex r7): the second raw string-concatenation site.
+async def test_enrich_arcgis_feature_counts_uses_the_header_and_the_one_builder():
+    """fix(#1755 item 14) and feat(C2).
 
-    Same issue and same fix as the probe above, in
-    ``enrich_arcgis_feature_counts()``'s per-layer count query.
+    Two things at once, because the fold is what made the second possible.
+    The per-layer count query is composed by ``build_arcgis_count_query_url``
+    now rather than by a third hand-rolled concatenation, and the token it
+    would have concatenated is an ``X-Esri-Authorization`` header, so the URL this
+    site issues is byte-identical to the one the health probe issues.
 
-    fix(#1770 round 44 P1): this read now goes through `bounded_probe_read`
+    fix(#1770 round 44 P1): this read goes through `bounded_probe_read`
     (`client.stream`), so `AsyncMock(spec=httpx.AsyncClient)` -- which cannot
     fake the async-context-manager protocol `.stream()` returns -- is
     replaced with a real client over `MockTransport`, per this file's own
@@ -129,18 +154,20 @@ async def test_enrich_arcgis_feature_counts_encodes_url_reserved_characters_in_t
         return _streaming_json_response({"count": 5})
 
     async with _mock_transport_client(handle) as client:
-        await enrich_arcgis_feature_counts(
+        enriched = await enrich_arcgis_feature_counts(
             "https://services.arcgis.com/svc/FeatureServer",
             [{"id": 0, "name": "layer0"}],
             client,
             token="AA'#&ULTRASECRET",
+            current_version="11.3",
         )
 
-    url_called = str(recorded[0].url)
-    assert "token=AA%27%23%26ULTRASECRET" in url_called
-    assert "'" not in url_called
-    assert "#" not in url_called
-    assert "&ULTRA" not in url_called
+    assert enriched[0]["feature_count"] == 5
+    assert str(recorded[0].url) == build_arcgis_count_query_url(
+        "https://services.arcgis.com/svc/FeatureServer/0"
+    )
+    assert "token" not in str(recorded[0].url)
+    assert recorded[0].headers["X-Esri-Authorization"] == "Bearer AA'#&ULTRASECRET"
 
 
 @pytest.mark.asyncio
