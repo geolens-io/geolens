@@ -7,6 +7,45 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- **WFS and OGC API Features service imports now accept a username and
+  password, or an API key in a custom header, instead of only a bearer
+  token.** The import wizard's Service tab and the dataset refresh dialog
+  both offer a method select: none, bearer token, username and password, or
+  a named header. Nothing about the storage model changes: the credential is
+  validated and carried through the import job only long enough to run it,
+  and a refresh still asks for it again rather than remembering it. On the
+  backend, the same four entry points that already handled a bearer token
+  (probe, preview, commit, refresh) now compose the credential into the
+  request GDAL and the OGC client actually send, and it is purged and
+  redacted from job rows and logs the same way a bearer token already was.
+  Operators: this release renames the ingest job queue these imports run on
+  to `ingest-auth-v2`. If you ever need to roll back to a release before this
+  one, follow the queue-draining steps in RUNBOOK.md's upgrade-and-rollback
+  section (§10) first, or affected imports are left stuck rather than picked
+  up by the older worker (#1770, #1756, #1760, #1834).
+
+- **Sign in to ArcGIS Online or an ArcGIS Enterprise portal directly from the
+  import wizard, instead of pasting a token.** For an ArcGIS FeatureServer or
+  MapServer URL, the Service tab and the refresh dialog now offer a
+  username-and-password sign-in alongside the existing token field. GeoLens
+  exchanges the credentials for a short-lived token through the portal's own
+  sign-in service; the password is held only for that one request and
+  cleared the moment it settles, success or failure. Repeated sign-in
+  attempts against one ArcGIS account, or from one GeoLens user, are
+  rate-limited, since an unlimited retry here would let one GeoLens user
+  lock a colleague out of their own ArcGIS account (#1757, #1758, #1759,
+  #1820).
+
+### Changed
+
+- **The refresh dialog's token hint no longer promises a credential is
+  "never stored."** A crashed worker can leave a failed job's arguments
+  briefly readable before the cleanup sweep runs, so the copy now says the
+  credential is used for this refresh only and is not stored with the
+  dataset (#1759).
+
 ### Removed
 
 - **Two undocumented search compatibility forms are gone.** `?cql2_filter_lang=...`
@@ -17,6 +56,93 @@ and releases use semantic versioning.
   published, and the deprecation window has passed since #1666 shipped in
   1.16.0. A client generated from a pre-1.16.0 contract must regenerate
   against the current one. (#1671)
+
+### Fixed
+
+- **Switching import tabs no longer strands an in-progress service import
+  or upload.** The Service tab had no keep-alive: switching away mid-preview
+  or mid-commit unmounted the form and left the server's job hanging with
+  nothing to reconnect to. It now adopts an in-flight or already-finished
+  attempt on remount instead of starting a duplicate. The same lane also
+  closed a related race on the Upload tab, where a file dropped while a
+  background query was still loading could be silently discarded by a fast
+  tab switch (#1834).
+
+- **A registered PostGIS table now picks up writes made outside GeoLens
+  again.** The render column GeoLens derives for a registered table was only
+  ever written once, at registration. A row moved, deleted and reloaded, or
+  reloaded wholesale by an owner's own ETL job, went invisible on every map,
+  tile, export and query that reads that column, with no error anywhere.
+  Refresh now re-derives it, so the fix arrives the next time the dataset is
+  refreshed, including after the owner's tool drops and recreates the table
+  outright (#1823).
+
+- **Replacing a dataset's file can no longer silently overwrite a service or
+  STAC binding that changed underneath it.** A replacement started against a
+  dataset bound to an upload is refused up front if the dataset is bound to
+  a remote source instead, but that check only ran once, before the file was
+  staged. If the dataset's origin changed in the time it took a person to
+  review and confirm the replacement, the commit went through anyway and
+  silently rebound the dataset to the uploaded file. The commit now
+  re-checks the origin immediately before it takes effect and refuses if it
+  no longer matches what the client last saw (#1821).
+
+- **The CLI stops looping between "logged in" and "please log in again"
+  when the OS keyring refuses a write.** When a bearer token landed in the
+  credentials file because the keyring write failed, a companion refresh
+  token could still end up in the keyring, so the next command read half a
+  session from each location and never converged. The refresh token now
+  follows the bearer token to wherever it actually landed (#1815).
+
+- **A refused service preview returns a clear, coded error instead of a
+  generic server failure.** Preview requests that failed for a known reason,
+  such as a cross-origin redirect, an SSRF refusal, or a malformed
+  credential, could still fall through to a plain 500 if the failure didn't
+  match one of the narrower cases already handled. Every documented refusal
+  reason now maps to its own 4xx status and message (#1833).
+
+- **Several map-editing bugs from an internal audit are fixed:** a layer
+  saved at zero opacity came back fully opaque; `POST /maps/import` had no
+  cap on the number of layers it would accept; a filter with no depth or
+  size limit could be saved and later crash the request that tried to read
+  it back; a layer's zoom range and popup configuration were both lost on
+  export and re-import; and a deleted map's thumbnail and social-preview
+  image were never removed from storage. The map gallery listing also no
+  longer scans the entire layer table to compute per-map layer counts,
+  which showed up as measurably slower gallery loads on catalogs with many
+  maps and layers (#1801).
+
+- **Backup and restore operational fixes.** Offsite S3 backup copies were
+  never pruned, so a long-running instance with S3 backups enabled grew that
+  bucket without bound; they now follow the same retention as local backups.
+  The weekly database dump and the staging archives used during a restore
+  are now written atomically (to a temporary name, then renamed on success),
+  so a container killed mid-write can no longer leave a truncated file that
+  the retention pruner or a later restore mistakes for a good backup
+  (#1798).
+
+- **CLI and TypeScript SDK reliability fixes from an internal audit.** CLI
+  requests now time out instead of hanging indefinitely against an
+  unresponsive host; `geolens login --api-key` now clears a stale session
+  token instead of leaving it to silently outrank the new key; a stored
+  refresh token is now used to renew an expired session on `geolens status`
+  as well as `whoami`, instead of only the latter (#1802).
+
+### Security
+
+- **ArcGIS sign-in attempts are now counted before the credential is sent,
+  not after.** A sign-in request cancelled mid-flight could previously go
+  uncounted against the rate limit even though the password may already
+  have reached ArcGIS, understating how many attempts were actually made
+  against an account. This release adds migration `0058`, which adds a
+  `user_scope` column to the sign-in attempt ledger; it runs automatically
+  as part of the normal upgrade (#1820).
+
+- **Two more sensitive query parameters are now redacted from logs and
+  stored source URLs.** `authkey` (ArcGIS) and `maxar_api_key` (Maxar) join
+  the existing `api_key` and `token` entries, closing a gap where either
+  could appear in the clear in a stored service pointer or a composed GDAL
+  query string (#1830).
 
 ## [1.17.0] - 2026-08-30
 
