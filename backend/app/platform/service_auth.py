@@ -282,6 +282,14 @@ def wire_credential(
 # fleet member is guaranteed to be past this release. Tracked as a follow-up
 # on #1770; not yet named, since the release this ships in was not cut when
 # this was written.
+#
+# fix(#1770 round 48): the forward direction (a worker on this release or
+# later reading a job off this queue) is what all of the above covers.
+# Rolling the release BACK is not code's problem to solve — a pre-this-
+# release worker cannot compose the header line either, so there is no
+# release to send those jobs back to — and is instead an operator runbook
+# step: RUNBOOK.md §10, "Rolling back a release that shipped the header-auth
+# job queue".
 HEADER_AUTH_JOB_QUEUE = "ingest-auth-v2"
 
 
@@ -304,6 +312,12 @@ def header_auth_job_queue(
     worker resolves the same finished header line before it reaches
     ``_sanitize_authorization_token``, so the same worker generation has to
     be the one that reads it.
+
+    fix(#1770 round 48): this function and :data:`HEADER_AUTH_JOB_QUEUE`
+    only route jobs FORWARD onto a queue this release's workers understand.
+    Rolling the release back is an operator step, not a code path — see
+    RUNBOOK.md §10, "Rolling back a release that shipped the header-auth
+    job queue".
     """
     if token is None:
         return None
