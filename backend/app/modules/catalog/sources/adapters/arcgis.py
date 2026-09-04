@@ -3,11 +3,18 @@
 import asyncio
 import json
 import re
+from collections.abc import Callable
 from urllib.parse import quote, urlencode, urlparse
 
 import httpx
 import structlog
 
+from app.core.service_tokens import (
+    ARCGIS_SERVICE_FORMAT,
+    CredentialMethod,
+    ServiceCredential,
+    build_credential_header,
+)
 from app.core.url_redaction import redact_exception_text
 from app.platform.probe_bounds import bounded_probe_read
 from app.platform.service_endpoints import (
@@ -18,11 +25,39 @@ from app.platform.service_endpoints import (
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# What this adapter is, in the vocabulary ``build_credential_header`` reads.
-# Deliberately absent from ``HEADER_AUTH_SERVICE_FORMATS``: an ArcGIS token is
-# percent-encoded into the service URL, so the builder answers None for it and
-# no header is ever composed for this transport (plan D9).
-ARCGIS_SERVICE_FORMAT = "arcgis_featureserver"
+# Re-exported so every existing importer of ``ARCGIS_SERVICE_FORMAT`` from this
+# module keeps working; the literal itself lives in ``core/service_tokens.py``
+# now, beside the two sets that decide what a format's credential may become,
+# because ``core/`` may not import ``app.modules.*`` (feat(C2)).
+__all__ = [
+    "ARCGIS_SERVICE_FORMAT",
+    "ArcGISTokenError",
+    "arcgis_accepts_header_token",
+    "arcgis_request_auth",
+    "build_arcgis_count_query_url",
+    "enrich_arcgis_feature_counts",
+    "fetch_arcgis_feature_count",
+    "fetch_arcgis_layer_preview",
+    "fetch_arcgis_pagination_info",
+    "normalize_arcgis_url",
+    "parse_arcgis_current_version",
+    "probe_arcgis_service",
+]
+
+# feat(C2). ArcGIS Server started reading a bearer token from an HTTP header at
+# 10.5.1; before that the ``token`` query parameter was the only transport it
+# understood. Everything at or above this, and hosted ArcGIS Online whatever it
+# reports, gets the header.
+ARCGIS_HEADER_TOKEN_MIN_VERSION = (10, 5, 1)
+
+# ArcGIS reports an auth refusal as an error envelope inside an HTTP 200 body.
+# 499 means "Token Required": no usable token was seen at all, which is also
+# exactly what a pre-10.5.1 server says when it ignores the Authorization
+# header, and so is what triggers the query-form retry. 498 means a token WAS
+# read and rejected, so the header transport worked and a retry would only
+# resend a bad token.
+_ARCGIS_TOKEN_REQUIRED_CODE = 499
+_ARCGIS_TOKEN_ERROR_CODES = frozenset({498, _ARCGIS_TOKEN_REQUIRED_CODE})
 
 
 class ArcGISTokenError(Exception):
@@ -139,6 +174,172 @@ def normalize_arcgis_url(url: str) -> tuple[str, int | None]:
     return clean_url, layer_id
 
 
+def parse_arcgis_current_version(value: object) -> tuple[int, int, int] | None:
+    """Parse an ArcGIS ``currentVersion`` into a comparable triple.
+
+    feat(C2). Esri does not spell this the way semver does. ``currentVersion``
+    is a NUMBER, and a patch release is encoded as a second fractional digit:
+    10.5.1 is reported as ``10.51``, 10.4.1 as ``10.41``, while 10.5 is
+    ``10.5``. So ``10.5`` and ``10.51`` are two releases either side of the
+    line this function exists to draw, and reading them as floats puts
+    ``10.51`` above ``10.5`` for the wrong reason and ``10.5`` above ``10.41``
+    for another wrong reason. Dotted three-part strings ("10.5.1") are read
+    literally, because ArcGIS Enterprise's own documentation uses that spelling
+    in prose.
+
+    Returns ``None`` for anything unparseable, including ``None`` itself, and
+    every caller treats that as "version unknown".
+
+    The two-digit rule is ambiguous in principle for a hypothetical ``x.10``,
+    which this reads as ``x.1.0`` rather than ``x.10.0``. Esri has shipped no
+    such version, and the only comparison made here is against 10.5.1, where
+    both readings of any ``11.x`` land on the same side.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    text = str(value).strip()
+    if not re.fullmatch(r"\d+(\.\d+)*", text):
+        return None
+    parts = text.split(".")
+    major = int(parts[0])
+    if len(parts) == 1:
+        return (major, 0, 0)
+    if len(parts) >= 3:
+        return (major, int(parts[1]), int(parts[2]))
+    fraction = parts[1]
+    if len(fraction) == 2:
+        return (major, int(fraction[0]), int(fraction[1]))
+    return (major, int(fraction), 0)
+
+
+def arcgis_accepts_header_token(current_version: object = None) -> bool:
+    """Whether this service reads a token from the Authorization header.
+
+    feat(C2). True unless the service reported a version older than 10.5.1.
+    An unknown or unparseable version is treated as new enough, because the
+    only deployments that cannot read the header are ArcGIS Server releases
+    from before 2017 and every one of those DOES report a version; hosted
+    ArcGIS Online is the common case and it reports 11.x. A wrong guess in
+    this direction is one extra request (the 499 retry below), and a wrong
+    guess in the other direction would put the token back in the URL for
+    everyone.
+    """
+    parsed = parse_arcgis_current_version(current_version)
+    return parsed is None or parsed >= ARCGIS_HEADER_TOKEN_MIN_VERSION
+
+
+def _arcgis_error_code(data: object) -> int | None:
+    """The ArcGIS error code in an HTTP 200 envelope, if there is one."""
+    if not isinstance(data, dict):
+        return None
+    error = data.get("error")
+    if not isinstance(error, dict):
+        return None
+    code = error.get("code")
+    return code if isinstance(code, int) else None
+
+
+def arcgis_request_auth(
+    token: str | None, *, current_version: object = None
+) -> tuple[dict[str, str], str | None]:
+    """How one ArcGIS request presents *token*: headers, and a query token.
+
+    feat(C2). Exactly one half is ever populated. The header form is the
+    default and the query form is the documented fallback for ArcGIS Server
+    older than 10.5.1; ``build_credential_header`` composes the header, so this
+    adapter is not a second producer of one (see
+    ``tests/test_credential_producer_structural.py``).
+
+    A token the builder refuses -- one holding whitespace or a non-ASCII
+    character, which no ArcGIS token does -- degrades to the query form rather
+    than failing the read, because the query form percent-encodes it and that
+    is exactly what this path did before lane C2. Nothing about the refused
+    value is logged: it is a credential.
+    """
+    if not token:
+        return {}, None
+    if not arcgis_accepts_header_token(current_version):
+        return {}, token
+    try:
+        pair = build_credential_header(
+            ServiceCredential(
+                method=CredentialMethod.BEARER,
+                service_format=ARCGIS_SERVICE_FORMAT,
+                token=token,
+            )
+        )
+    except ValueError:
+        return {}, token
+    if pair is None:
+        return {}, token
+    return {pair[0]: pair[1]}, None
+
+
+async def read_arcgis_json(
+    client: httpx.AsyncClient,
+    build_url: Callable[[str | None], str],
+    token: str | None = None,
+    *,
+    current_version: object = None,
+) -> object:
+    """One bounded ArcGIS JSON read, with the token in an Authorization header.
+
+    feat(C2). *build_url* is handed the token that belongs in the QUERY, which
+    is ``None`` on the header path, so each caller keeps composing its own
+    parameters while only one place decides where the credential goes.
+
+    The retry is the version gate's safety net rather than a second policy: a
+    pre-10.5.1 server that never reported its version ignores the header and
+    answers 499 "Token Required" in an HTTP 200 envelope, and that answer is
+    the evidence the header transport did not work here. 498 is not retried --
+    it means a token was read and rejected, so the header arrived.
+
+    Raises whatever ``bounded_probe_read`` raises, plus ``ValueError`` from
+    ``json.loads``; every caller already handles both.
+    """
+    headers, query_token = arcgis_request_auth(token, current_version=current_version)
+    body, _ = await bounded_probe_read(
+        client, build_url(query_token), headers=headers, accept=OGC_JSON_ACCEPT
+    )
+    data = json.loads(body)
+    if not headers or _arcgis_error_code(data) != _ARCGIS_TOKEN_REQUIRED_CODE:
+        return data
+    body, _ = await bounded_probe_read(
+        client, build_url(token), headers={}, accept=OGC_JSON_ACCEPT
+    )
+    return json.loads(body)
+
+
+def _query_token_suffix(query_token: str | None) -> str:
+    """``&token=<percent-encoded>``, or nothing at all.
+
+    fix(#1746 codex r7): percent-encode the token before concatenating it into
+    a URL -- a URL-reserved character in a raw token (``'``, ``#``, ``&``) can
+    change what the request means and, in a log line, end the ``URL_LIKE_RE``
+    match early enough to escape the redactor entirely. Only the pre-10.5.1
+    fallback reaches this now.
+    """
+    return f"&token={quote(query_token, safe='')}" if query_token else ""
+
+
+def build_arcgis_layer_info_url(
+    base_url: str, layer_id: int | str, query_token: str | None = None
+) -> str:
+    """``<service>/<layer>?f=json``, the layer's own metadata document.
+
+    feat(C2): one builder for the two callers that read it
+    (``fetch_arcgis_pagination_info`` and ``fetch_arcgis_layer_preview``), on
+    the same reasoning as ``build_arcgis_count_query_url`` -- and because the
+    version this module gates on is read out of exactly this document.
+    """
+    base = base_url.rstrip("/")
+    safe_layer_id = str(layer_id).strip("/")
+    params: dict[str, str] = {"f": "json"}
+    if query_token:
+        params["token"] = query_token
+    return f"{base}/{safe_layer_id}?{urlencode(params)}"
+
+
 async def probe_arcgis_service(
     base_url: str, client: httpx.AsyncClient, token: str | None = None
 ) -> dict | None:
@@ -166,37 +367,37 @@ async def _probe_arcgis_service_within_deadline(
     unchanged: it is not a `TimeoutError`, so the wrapper's `except
     TimeoutError` does not intercept it.
     """
+
+    def _service_info_url(query_token: str | None) -> str:
+        return f"{base_url}?f=json{_query_token_suffix(query_token)}"
+
     try:
-        # fix(#1746 codex r7): percent-encode the token before concatenating it
-        # into the URL -- a URL-reserved character in a raw token (', #, &)
-        # can change what the request means and, in a log line, end the
-        # URL_LIKE_RE match early enough to escape the redactor entirely.
-        query = f"{base_url}?f=json" + (
-            f"&token={quote(token, safe='')}" if token else ""
-        )
         # fix(#1770 round 41 P1): bounded read, not a plain `client.get` --
         # see `bounded_probe_read`'s docstring. `EndpointCheckFailedError`
         # joins the two httpx types this already caught: whatever the cause,
         # this degrades to "not an ArcGIS service" the same way.
-        body, _ = await bounded_probe_read(
-            client, query, headers={}, accept=OGC_JSON_ACCEPT
-        )
+        #
+        # feat(C2): this is the FIRST request to the service, so no version is
+        # known yet and the header form is what goes out. `read_arcgis_json`'s
+        # 499 retry is what covers a pre-10.5.1 server here, since there is no
+        # earlier document to have read `currentVersion` from.
+        data = await read_arcgis_json(client, _service_info_url, token)
     except (
         httpx.HTTPStatusError,
         httpx.TransportError,
         EndpointCheckFailedError,
     ) as exc:
-        # fix(#1770 round 39): this request embeds OUR OWN token in the URL
-        # (see the fix(#1746 codex r7) comment above) -- an HTTPStatusError's
-        # message quotes that whole URL back, so the caught exception's text
-        # must be redacted, not just the href a response body carries.
+        # fix(#1770 round 39): an HTTPStatusError's message quotes the whole
+        # request URL back, so the caught exception's text must be redacted,
+        # not just the href a response body carries. feat(C2) narrows what is
+        # in that URL -- the token is a header now, except on the pre-10.5.1
+        # fallback -- without removing the need: `build_credential_header`
+        # registers the composed line for exact-value scrubbing, and the
+        # fallback still puts `token=` in the query.
         logger.debug(
             "ArcGIS probe failed for %s: %s", base_url, redact_exception_text(exc)
         )
         return None
-
-    try:
-        data = json.loads(body)
     except (ValueError, TypeError):
         return None
 
@@ -217,7 +418,7 @@ async def _probe_arcgis_service_within_deadline(
         logger.warning(
             "ArcGIS error response: url=%s code=%s message=%s", base_url, code, message
         )
-        if code in (498, 499):  # Invalid/expired token
+        if code in _ARCGIS_TOKEN_ERROR_CODES:  # Invalid/expired token
             raise ArcGISTokenError(code, message)
         return None
 
@@ -278,22 +479,38 @@ async def enrich_arcgis_feature_counts(
     layers: list[dict],
     client: httpx.AsyncClient,
     token: str | None = None,
+    *,
+    current_version: object = None,
 ) -> list[dict]:
     """Enrich ArcGIS layers with feature counts.
 
     Fetches returnCountOnly=true for each layer. Uses asyncio.Semaphore(5)
     for concurrency limiting. On failure, keeps feature_count=None.
 
-    fix(#1770 round 44 P1): this request carries the request-scoped ArcGIS
-    ``token=`` query parameter, and `assert_endpoints_stay_on_origin` never
-    runs a bound for it at all -- it returns immediately for any
+    fix(#1755 item 14): the count query is composed by
+    ``build_arcgis_count_query_url`` rather than hand-rolled here for a third
+    time. Two behaviours change with the fold, both deliberate. The
+    ``where`` parameter is now percent-encoded by ``urlencode`` (``1%3D1``
+    either way) and the parameter ORDER follows the builder's, so a test
+    pinning the old literal string sees a different URL for the same request.
+    And on the pre-10.5.1 fallback the token is percent-encoded by
+    ``urlencode`` rather than by a hand-written ``quote(token, safe='')``,
+    which differs for a token containing reserved characters -- ``urlencode``
+    leaves nothing dangerous unencoded, but a ``+`` in a token now renders as
+    ``%2B`` where the old concatenation also produced ``%2B``, and a space
+    renders as ``+`` rather than ``%20``. ArcGIS decodes both.
+
+    fix(#1770 round 44 P1): the read is bounded (``bounded_probe_read`` under
+    ``DEFAULT_CHECK_TIMEOUT``) because ``assert_endpoints_stay_on_origin``
+    never runs a bound for ArcGIS at all -- it returns immediately for any
     ``service_format`` outside `HEADER_AUTH_SERVICE_FORMATS`
-    (``requires_header_token_policy``), which ArcGIS is deliberately not a
-    member of (the token travels in the URL, never as a header). The
-    ``client.get`` this used had no byte cap, no decoded-size cap, httpx's
-    default transparent decompression, and only the per-inactivity timeout,
-    so a hostile or compromised layer endpoint could exhaust the process on
-    this read with nothing else in the request path bounding it first.
+    (``requires_header_token_policy``), which ArcGIS is still not a member of.
+    feat(C2) did not change that: the endpoint check exists for a service that
+    DESCRIBES a foreign operation endpoint GDAL then follows, and this adapter
+    composes every URL it reads from ``base_url`` itself, dereferencing no
+    server-chosen href. A redirect away from that origin is the one remaining
+    way the credential could travel, and httpx drops ``Authorization`` across
+    a cross-origin redirect while ``make_safe_client`` re-validates every hop.
     """
     semaphore = asyncio.Semaphore(5)
 
@@ -302,17 +519,17 @@ async def enrich_arcgis_feature_counts(
             layer_id = layer.get("id")
             if layer_id is None:
                 return {**layer, "feature_count": None}
-            # fix(#1746 codex r7): same percent-encoding as probe_arcgis_service
-            # above -- see its comment.
-            url = (
-                f"{base_url}/{layer_id}/query?where=1%3D1&returnCountOnly=true&f=json"
-            ) + (f"&token={quote(token, safe='')}" if token else "")
+            layer_url = f"{base_url.rstrip('/')}/{layer_id}"
             try:
                 async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
-                    body, _ = await bounded_probe_read(
-                        client, url, headers={}, accept=OGC_JSON_ACCEPT
+                    data = await read_arcgis_json(
+                        client,
+                        lambda query_token: build_arcgis_count_query_url(
+                            layer_url, query_token
+                        ),
+                        token,
+                        current_version=current_version,
                     )
-                    data = json.loads(body)
                 # fix(#1770 round 45 P2): a `200 5`/`200 []` response is valid
                 # JSON but not a dict, and `"error" in data`/`data.get(...)`
                 # on either raises `TypeError`/`AttributeError` -- neither
@@ -338,8 +555,15 @@ async def enrich_arcgis_feature_counts(
     return list(enriched)
 
 
-def build_arcgis_count_query_url(layer_url: str, token: str | None = None) -> str:
+def build_arcgis_count_query_url(layer_url: str, query_token: str | None = None) -> str:
     """The bounded count query for one FeatureServer layer.
+
+    feat(C2): *query_token* is the pre-10.5.1 fallback only. On the header
+    transport it is ``None`` and the returned URL carries no credential at all,
+    which is the point -- it is the URL httpx logs at INFO as ``HTTP Request:
+    GET ...``, the URL a proxy records, and the URL an origin quotes back in an
+    error. ``arcgis_request_auth`` decides which of the two it is; nothing
+    calls this with a raw token except through that decision.
 
     ``<layer>/query?where=1=1&returnCountOnly=true&f=json`` — the smallest
     request that exercises the QUERY operation, which is the operation
@@ -353,6 +577,10 @@ def build_arcgis_count_query_url(layer_url: str, token: str | None = None) -> st
     document would call it healthy and then fail in the worker. One builder,
     so the probe and the count fetcher cannot drift into probing one endpoint
     and depending on another.
+
+    fix(#1755 item 14): ``enrich_arcgis_feature_counts`` was the third
+    hand-rolled copy of this query and now calls this instead, so the builder
+    is finally the only producer the name promises.
     """
     # A stored origin_uri is provenance, not a curated endpoint: it can carry
     # a query string, a fragment, or an already-appended /query. Strip all
@@ -366,8 +594,8 @@ def build_arcgis_count_query_url(layer_url: str, token: str | None = None) -> st
         "returnCountOnly": "true",
         "f": "json",
     }
-    if token:
-        params["token"] = token
+    if query_token:
+        params["token"] = query_token
     return f"{clean}/query?{urlencode(params)}"
 
 
@@ -376,31 +604,35 @@ async def fetch_arcgis_feature_count(
     layer_id: int | str,
     client: httpx.AsyncClient,
     token: str | None = None,
+    *,
+    current_version: object = None,
 ) -> int | None:
     """Fetch a layer feature count from ArcGIS REST query metadata.
 
     fix(#1770 round 44 P1): same reasoning as `enrich_arcgis_feature_counts`
-    above -- this carries the request-scoped ArcGIS ``token=`` and
-    `assert_endpoints_stay_on_origin` runs no bound for it at all. Reads
-    through `bounded_probe_read` under `DEFAULT_CHECK_TIMEOUT` now, matching
-    the four service-type probes. `ArcGISTokenError`/`ValueError`/
-    `httpx.HTTPError` propagate unchanged to the caller, which already
-    handles them (`tasks_vector.py`'s ingest path, and
-    `fetch_arcgis_layer_preview` below); `EndpointCheckFailedError`/
+    above -- `assert_endpoints_stay_on_origin` runs no bound for ArcGIS at
+    all, so this reads through `bounded_probe_read` under
+    `DEFAULT_CHECK_TIMEOUT`, matching the four service-type probes.
+    `ArcGISTokenError`/`ValueError`/`httpx.HTTPError` propagate unchanged to
+    the caller, which already handles them (`tasks_vector.py`'s ingest path,
+    and `fetch_arcgis_layer_preview` below); `EndpointCheckFailedError`/
     `TimeoutError` join that same contract, since both mean the same thing
     to a caller as any other unreadable-response failure.
+
+    feat(C2): the token is an ``Authorization: Bearer`` header now, so the URL
+    this composes carries no credential (see ``build_arcgis_count_query_url``).
     """
     base = base_url.rstrip("/")
     safe_layer_id = str(layer_id).strip("/")
+    layer_url = f"{base}/{safe_layer_id}"
 
     async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
-        body, _ = await bounded_probe_read(
+        data = await read_arcgis_json(
             client,
-            build_arcgis_count_query_url(f"{base}/{safe_layer_id}", token),
-            headers={},
-            accept=OGC_JSON_ACCEPT,
+            lambda query_token: build_arcgis_count_query_url(layer_url, query_token),
+            token,
+            current_version=current_version,
         )
-        data = json.loads(body)
     # fix(#1770 round 45 P2): same reasoning as `_fetch_count` above -- a
     # `200 5`/`200 []` response is valid JSON but not a dict, and this
     # function has no local `except` at all around the checks below, so an
@@ -412,7 +644,7 @@ async def fetch_arcgis_feature_count(
         error_info = data["error"]
         code = error_info.get("code", 0)
         message = error_info.get("message", "Unknown ArcGIS error")
-        if code in (498, 499):
+        if code in _ARCGIS_TOKEN_ERROR_CODES:
             raise ArcGISTokenError(code, message)
         return None
 
@@ -427,29 +659,34 @@ async def fetch_arcgis_pagination_info(
     layer_id: int | str,
     client: httpx.AsyncClient,
     token: str | None = None,
+    *,
+    current_version: object = None,
 ) -> tuple[int | None, bool, str | None]:
     """Fetch ArcGIS pagination support, page size, and stable order field.
 
     fix(#1770 round 44 P1): same reasoning as `enrich_arcgis_feature_counts`
-    above -- this carries the request-scoped ArcGIS ``token=`` and
-    `assert_endpoints_stay_on_origin` runs no bound for it at all. Reads
-    through `bounded_probe_read` under `DEFAULT_CHECK_TIMEOUT`.
+    above -- `assert_endpoints_stay_on_origin` runs no bound for ArcGIS at
+    all, so this reads through `bounded_probe_read` under
+    `DEFAULT_CHECK_TIMEOUT`.
+
+    feat(C2): the token is an ``Authorization: Bearer`` header now. This is
+    also the document ``currentVersion`` is read from, so a caller that has
+    already fetched it (``fetch_arcgis_layer_preview``) passes the version in
+    and skips the retry; this one has not, so it relies on the 499 retry.
     """
     base = base_url.rstrip("/")
     safe_layer_id = str(layer_id).strip("/")
-    params: dict[str, str] = {"f": "json"}
-    if token:
-        params["token"] = token
 
     try:
         async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
-            body, _ = await bounded_probe_read(
+            data = await read_arcgis_json(
                 client,
-                f"{base}/{safe_layer_id}?{urlencode(params)}",
-                headers={},
-                accept=OGC_JSON_ACCEPT,
+                lambda query_token: build_arcgis_layer_info_url(
+                    base, safe_layer_id, query_token
+                ),
+                token,
+                current_version=current_version,
             )
-            data = json.loads(body)
     except (
         httpx.HTTPError,
         ValueError,
@@ -471,7 +708,7 @@ async def fetch_arcgis_pagination_info(
         error_info = data["error"]
         code = error_info.get("code", 0)
         message = error_info.get("message", "Unknown ArcGIS error")
-        if code in (498, 499):
+        if code in _ARCGIS_TOKEN_ERROR_CODES:
             raise ArcGISTokenError(code, message)
         return None, False, None
 
@@ -507,33 +744,35 @@ async def fetch_arcgis_layer_preview(
     Raises ``ArcGISTokenError`` on token errors so the router can surface a
     403. Other HTTP/parse failures raise ``httpx.HTTPError``/``ValueError``.
 
-    fix(#1770 round 44 P1): the metadata and sample-row reads below both
-    carry the request-scoped ArcGIS ``token=``, and (same reasoning as
-    `enrich_arcgis_feature_counts`) `assert_endpoints_stay_on_origin` never
-    bounds an ArcGIS-format read at all. Both now go through
+    fix(#1770 round 44 P1): (same reasoning as `enrich_arcgis_feature_counts`)
+    `assert_endpoints_stay_on_origin` never bounds an ArcGIS-format read at
+    all, so the metadata and sample-row reads below both go through
     `bounded_probe_read` under `DEFAULT_CHECK_TIMEOUT`; `EndpointCheckFailedError`/
     `TimeoutError` join the metadata read's propagation to the caller
     (`router.py`'s `except (httpx.HTTPError, ValueError, ...)`, widened to
     match) and the sample-row/feature-count reads' own local `except`
     clauses below (already best-effort, degrade to an empty/`None` result).
+
+    feat(C2): the token travels as an ``Authorization: Bearer`` header. The
+    metadata read is the one that discovers ``currentVersion``, so the two
+    reads after it are told what this service is and a pre-10.5.1 server costs
+    one retry rather than three.
     """
     base = base_url.rstrip("/")
     safe_layer_id = str(layer_id).strip("/")
 
     # --- Layer metadata: fields, geometry type, CRS, name ---
     # Query params are percent-encoded via urlencode so a token containing
-    # URL-reserved characters (+, &, %) cannot corrupt the query string.
-    meta_params: dict[str, str] = {"f": "json"}
-    if token:
-        meta_params["token"] = token
+    # URL-reserved characters (+, &, %) cannot corrupt the query string on the
+    # pre-10.5.1 fallback.
     async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
-        meta_body, _ = await bounded_probe_read(
+        meta = await read_arcgis_json(
             client,
-            f"{base}/{safe_layer_id}?{urlencode(meta_params)}",
-            headers={},
-            accept=OGC_JSON_ACCEPT,
+            lambda query_token: build_arcgis_layer_info_url(
+                base, safe_layer_id, query_token
+            ),
+            token,
         )
-        meta = json.loads(meta_body)
 
     # fix(#1770 round 45 P2): a `200 5`/`200 []` response is valid JSON but
     # not a dict. `.get("fields", [])` below would raise `AttributeError`,
@@ -551,7 +790,7 @@ async def fetch_arcgis_layer_preview(
         error_info = meta["error"]
         code = error_info.get("code", 0)
         message = error_info.get("message", "Unknown ArcGIS error")
-        if code in (498, 499):
+        if code in _ARCGIS_TOKEN_ERROR_CODES:
             raise ArcGISTokenError(code, message)
         raise ValueError(f"ArcGIS layer metadata error ({code}): {message}")
 
@@ -575,26 +814,30 @@ async def fetch_arcgis_layer_preview(
         srid = None
 
     layer_name = meta.get("name")
+    # feat(C2): read once, from the document that was fetched anyway, and
+    # handed to both reads below so they pick the transport directly instead
+    # of discovering it from a 499.
+    current_version = meta.get("currentVersion")
 
     # --- Sample rows: small bounded query ---
     sample_rows: list[dict] = []
-    query_params: dict[str, str] = {
-        "where": "1=1",
-        "outFields": "*",
-        "resultRecordCount": str(sample_limit),
-        "f": "json",
-    }
-    if token:
-        query_params["token"] = token
+
+    def _sample_url(query_token: str | None) -> str:
+        query_params: dict[str, str] = {
+            "where": "1=1",
+            "outFields": "*",
+            "resultRecordCount": str(sample_limit),
+            "f": "json",
+        }
+        if query_token:
+            query_params["token"] = query_token
+        return f"{base}/{safe_layer_id}/query?{urlencode(query_params)}"
+
     try:
         async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
-            sample_body, _ = await bounded_probe_read(
-                client,
-                f"{base}/{safe_layer_id}/query?{urlencode(query_params)}",
-                headers={},
-                accept=OGC_JSON_ACCEPT,
+            sample_data = await read_arcgis_json(
+                client, _sample_url, token, current_version=current_version
             )
-            sample_data = json.loads(sample_body)
         # fix(#1770 round 45 P2): same reasoning as the metadata read above
         # -- a non-dict `sample_data` degrades to "no sample rows" here
         # (this read already treats its own failures as best-effort),
@@ -624,7 +867,7 @@ async def fetch_arcgis_layer_preview(
     feature_count: int | None = None
     try:
         feature_count = await fetch_arcgis_feature_count(
-            base, safe_layer_id, client, token=token
+            base, safe_layer_id, client, token=token, current_version=current_version
         )
     except (
         httpx.HTTPError,

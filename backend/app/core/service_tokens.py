@@ -29,12 +29,48 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
 
-# The services whose credential travels as an Authorization header. ArcGIS is
-# deliberately absent: its token is a query parameter, urlencoded into the
-# ESRIJSON source URL, so it never becomes a header line and never carries the
-# smuggling risk this charset exists to prevent. Constraining it to base64url
-# would reject legitimate ArcGIS tokens for a danger that path does not have.
+# The services whose credential becomes a line in the 0600 GDAL header file.
+# ArcGIS is deliberately absent, and stays absent: on the GDAL/ogr2ogr path its
+# token is still a query parameter, urlencoded into the ESRIJSON source URL, so
+# it never becomes a header line there and never carries the smuggling risk
+# this charset exists to prevent. Constraining it to base64url would reject
+# legitimate ArcGIS tokens for a danger that path does not have.
+#
+# This set answers three questions at once, and lane C2 changed none of them:
+# it names the formats whose credential (a) is judged by
+# ``HEADER_TOKEN_CHARSET``, (b) is written to ``GDAL_HTTP_HEADER_FILE``, and
+# (c) is checked by ``assert_endpoints_stay_on_origin`` because GDAL follows
+# the service's own description with the header attached. All three still
+# exclude ArcGIS.
 HEADER_AUTH_SERVICE_FORMATS: frozenset[str] = frozenset({"wfs", "ogcapi_features"})
+
+# feat(C2). ArcGIS's own service format, spelled here rather than imported from
+# ``modules/catalog/sources/adapters/arcgis.py`` because ``core/`` may not
+# import ``app.modules.*``; the adapter re-exports this name, so its importers
+# are unchanged.
+ARCGIS_SERVICE_FORMAT = "arcgis_featureserver"
+
+# feat(C2): the formats whose credential travels as an HTTP header on
+# GeoLens's OWN httpx requests, which is a wider set than the one above.
+# ArcGIS Server has accepted ``Authorization: Bearer <token>`` since 10.5.1 and
+# hosted ArcGIS Online always has; measured live on 2026-09-04 with a
+# referer-bound token against services6.arcgis.com, where the header form and
+# the ``?token=`` form return the same count and no ``Referer`` is needed.
+# Sending it as a header keeps the token out of the request URL, and so out of
+# httpx's ``HTTP Request: GET ...`` INFO log line, out of proxy and
+# load-balancer access logs, and out of the exception text an origin quotes
+# back.
+#
+# A separate set rather than a widened ``HEADER_AUTH_SERVICE_FORMATS`` because
+# all three of that set's questions are still no for ArcGIS: the base64url
+# charset would refuse ArcGIS tokens holding ``+`` or ``/``, nothing writes an
+# ArcGIS credential to the GDAL header file, and the ArcGIS adapter composes
+# every URL it reads from the base URL rather than following an endpoint the
+# service describes, so there is no foreign-operation-endpoint class for
+# ``assert_endpoints_stay_on_origin`` to bound.
+HEADER_TRANSPORT_SERVICE_FORMATS: frozenset[str] = HEADER_AUTH_SERVICE_FORMATS | {
+    ARCGIS_SERVICE_FORMAT
+}
 
 # SEC-FU-04 (sec-audit-20260519.md line 535, Phase 1063-03): JWT-shaped tokens
 # use the base64url charset (RFC 4648 §5) plus dot separators (RFC 7519 —
@@ -79,8 +115,25 @@ def header_token_rejection_reason(token: str | None) -> str | None:
 
 
 def requires_header_token_policy(source_format: str | None) -> bool:
-    """Whether *source_format*'s credential travels as an Authorization header."""
+    """Whether *source_format*'s credential becomes a GDAL header-file line.
+
+    Which is also the question ``HEADER_TOKEN_CHARSET`` and
+    ``assert_endpoints_stay_on_origin`` ask. Not the same question as
+    :func:`sends_credential_as_header`, which is about GeoLens's own httpx
+    requests and includes ArcGIS.
+    """
     return source_format in HEADER_AUTH_SERVICE_FORMATS
+
+
+def sends_credential_as_header(source_format: str | None) -> bool:
+    """Whether *source_format*'s credential travels as an HTTP header.
+
+    feat(C2). The gate ``build_credential_header`` reads. Wider than
+    :func:`requires_header_token_policy` by exactly ArcGIS, whose token became
+    an ``Authorization: Bearer`` header on the httpx path in lane C2 while
+    staying a query parameter on the GDAL path.
+    """
+    return source_format in HEADER_TRANSPORT_SERVICE_FORMATS
 
 
 # ---------------------------------------------------------------------------
@@ -368,20 +421,72 @@ def reset_registered_credential_secrets() -> None:
     _REGISTERED_CREDENTIAL_SECRETS.set(frozenset())
 
 
+def _composes_a_header(
+    service_format: str | None, method: CredentialMethod | str
+) -> bool:
+    """Whether ``build_credential_header`` should compose anything at all.
+
+    Three refusals, kept out of the builder so its own body stays one branch
+    per method. A format whose credential does not travel as a header, the
+    ``none`` method, and -- feat(C2) -- ArcGIS asked for a method it has no
+    spelling for. Basic and a named API key have no ArcGIS form at all
+    (``service_carries_method`` refuses them at every door), so answering
+    False keeps the builder from composing a header the service could never
+    read rather than trusting that the doors refused first.
+    """
+    if not sends_credential_as_header(service_format):
+        return False
+    if method == CredentialMethod.NONE:
+        return False
+    return not (
+        service_format == ARCGIS_SERVICE_FORMAT and method != CredentialMethod.BEARER
+    )
+
+
+def _bearer_token_rejection(auth: ServiceCredential) -> str | None:
+    """Why *auth*'s bearer token cannot become an Authorization value.
+
+    feat(C2): two charsets, one per transport, chosen by the service format.
+
+    A WFS or OGC API Features token becomes a line in a 0600 file libcurl
+    parses, where a stray CR or LF is a header-smuggling primitive, so it is
+    held to ``HEADER_TOKEN_CHARSET`` (base64url plus a length floor). An
+    ArcGIS token never reaches that file -- the GDAL path percent-encodes it
+    into the ESRIJSON source URL instead -- and legitimately holds ``+`` or
+    ``/``, which base64url refuses, so it is judged as a header VALUE:
+    printable ASCII with no whitespace. That still bans every whitespace
+    character, CR and LF included, so the smuggling class is closed on both
+    paths; only the collateral damage differs.
+
+    Returns the POLICY and never the token, on the same reasoning as every
+    other message in this module.
+    """
+    if auth.service_format == ARCGIS_SERVICE_FORMAT:
+        # Rejects ``None`` on its own, unlike its header-token sibling, which
+        # reads ``None`` as "no token supplied and none required".
+        return credential_input_rejection_reason(auth.token)
+    return header_token_rejection_reason(auth.token)
+
+
 def build_credential_header(
     auth: ServiceCredential | None,
 ) -> tuple[str, str] | None:
     """The one producer of a credential header, as a name and value pair.
 
     Returns ``None`` when no header should be sent at all: no credential, or a
-    service format whose credential does not travel as a header. That second
-    case is the ArcGIS invariant, and it is expressed as an allowlist of the
-    formats in ``HEADER_AUTH_SERVICE_FORMATS`` rather than as a denylist of
-    ArcGIS, so a format nobody thought about degrades to no header rather than
-    to a smuggled one. The cost is that a caller which does not set
+    service format whose credential does not travel as a header. That is
+    expressed as an allowlist, ``HEADER_TRANSPORT_SERVICE_FORMATS``, rather
+    than as a denylist, so a format nobody thought about degrades to no header
+    rather than to a smuggled one. The cost is that a caller which does not set
     ``service_format`` gets no header, and the resulting failure is a 401 from
     the origin, which is loud, rather than an Authorization line inside a URL
     query, which is not.
+
+    feat(C2): ArcGIS is in that allowlist now, for its bearer token only. What
+    is composed here is what GeoLens's own httpx requests send; the GDAL path
+    still percent-encodes the same token into the ESRIJSON source URL and never
+    reaches this function, which is why ``HEADER_AUTH_SERVICE_FORMATS`` (the
+    header-FILE set, and the base64url charset that goes with it) is unchanged.
 
     Raises ``ValueError`` when the inputs for the chosen method are unusable.
     The message is the policy and never the value, because it becomes a 422
@@ -407,15 +512,13 @@ def build_credential_header(
     """
     if auth is None:
         return None
-    if not requires_header_token_policy(auth.service_format):
-        return None
 
     method = auth.method
-    if method == CredentialMethod.NONE:
+    if not _composes_a_header(auth.service_format, method):
         return None
 
     if method == CredentialMethod.BEARER:
-        reason = header_token_rejection_reason(auth.token)
+        reason = _bearer_token_rejection(auth)
         if auth.token is None or reason is not None:
             raise ValueError(reason or HEADER_TOKEN_POLICY)
         pair = ("Authorization", f"{BEARER_SCHEME}{auth.token}")
