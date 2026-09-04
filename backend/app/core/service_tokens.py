@@ -36,12 +36,22 @@ from enum import StrEnum
 # this charset exists to prevent. Constraining it to base64url would reject
 # legitimate ArcGIS tokens for a danger that path does not have.
 #
-# This set answers three questions at once, and lane C2 changed none of them:
+# This set answers FOUR questions at once, and lane C2 changed none of them:
 # it names the formats whose credential (a) is judged by
 # ``HEADER_TOKEN_CHARSET``, (b) is written to ``GDAL_HTTP_HEADER_FILE``, and
 # (c) is checked by ``assert_endpoints_stay_on_origin`` because GDAL follows
-# the service's own description with the header attached. All three still
+# the service's own description with the header attached, and (d) crosses to
+# the worker as a finished header LINE rather than as a bare token
+# (``platform/service_auth.py::wire_credential``, plan D9). All four still
 # exclude ArcGIS.
+#
+# fix(#1840 audit round 1): (d) was missing from this list, and its omission
+# is what produced a P1. ``wire_credential`` selected the bare-token branch by
+# asking whether ``build_credential_header`` answered None, which was
+# equivalent to this set until lane C2 taught the builder to compose an ArcGIS
+# header for the httpx transport. Every consumer of this set now asks
+# ``requires_header_token_policy`` by name; none infers the answer from the
+# builder. Anything added to this list must do the same.
 HEADER_AUTH_SERVICE_FORMATS: frozenset[str] = frozenset({"wfs", "ogcapi_features"})
 
 # feat(C2). ArcGIS's own service format, spelled here rather than imported from

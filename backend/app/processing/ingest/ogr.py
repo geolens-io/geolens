@@ -34,6 +34,7 @@ from app.core.service_tokens import (
     build_credential_header,
     credential_header_line,
     register_credential_secret,
+    requires_header_token_policy,
 )
 from app.core.url_redaction import redact_url_credentials
 
@@ -168,6 +169,17 @@ def _legacy_bearer_line(token: str, service_format: str) -> str:
     the answer is the shape policy rather than a bearer-specific message: from
     here the two cases are indistinguishable, and the value is not named.
     """
+    # fix(#1840 audit round 1): the format gate is asked HERE, before the
+    # builder, rather than being inferred from the builder answering None.
+    # Lane C2 taught `build_credential_header` to compose a header for ArcGIS
+    # -- for GeoLens's own httpx requests, never for this file -- so "the
+    # builder said None" stopped meaning "this format carries no header line".
+    # Both call sites still gate on the same two formats before reaching here;
+    # this is the trust-boundary copy of that rule, which is where AGENTS.md
+    # says the worker's own check belongs, and it is what keeps an ArcGIS
+    # token out of GDAL_HTTP_HEADER_FILE if a caller's gate is ever relaxed.
+    if not requires_header_token_policy(service_format):
+        raise ValueError(HEADER_LINE_SHAPE_POLICY)
     try:
         pair = build_credential_header(
             ServiceCredential(
@@ -179,9 +191,9 @@ def _legacy_bearer_line(token: str, service_format: str) -> str:
     except ValueError:
         raise ValueError(HEADER_LINE_SHAPE_POLICY) from None
     if pair is None:
-        # A service format that carries no header at all. The caller gates on
-        # the two that do, so this is unreachable from the one call site and
-        # exists because a silent empty line would be worse than a refusal.
+        # A service format that carries no header at all. The gate above and
+        # the callers' own both cover this; it exists because a silent empty
+        # line would be worse than a refusal.
         raise ValueError(HEADER_LINE_SHAPE_POLICY)
     return credential_header_line(pair)
 

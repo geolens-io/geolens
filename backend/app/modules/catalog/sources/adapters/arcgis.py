@@ -14,9 +14,11 @@ from app.core.service_tokens import (
     CredentialMethod,
     ServiceCredential,
     build_credential_header,
+    register_credential_secret,
 )
 from app.core.url_redaction import redact_exception_text
 from app.platform.probe_bounds import bounded_probe_read
+from app.platform.security import SSRFError
 from app.platform.service_endpoints import (
     DEFAULT_CHECK_TIMEOUT,
     OGC_JSON_ACCEPT,
@@ -208,6 +210,9 @@ def parse_arcgis_current_version(value: object) -> tuple[int, int, int] | None:
         return (major, int(parts[1]), int(parts[2]))
     fraction = parts[1]
     if len(fraction) == 2:
+        # Note: this reads a hypothetical "10.10" as 10.1.0 rather than
+        # 10.10.0, which would fall to the query form. Esri has shipped no
+        # such version, and above 10.9 the numbering went to 11.x.
         return (major, int(fraction[0]), int(fraction[1]))
     return (major, int(fraction), 0)
 
@@ -239,6 +244,26 @@ def _arcgis_error_code(data: object) -> int | None:
     return code if isinstance(code, int) else None
 
 
+def _query_form_credential(token: str) -> tuple[dict[str, str], str | None]:
+    """The pre-10.5.1 fallback: no headers, the bare token for the query.
+
+    fix(#1840 audit round 1): the ONE place the query form is chosen, and the
+    reason it is a function rather than three ``return {}, token`` lines. On
+    the header path ``build_credential_header`` registers the line it composes
+    with ``register_credential_secret``, so ``redact_exception_text`` and the
+    structlog ``_scrub_text`` processor can scrub the credential out of
+    anything that echoes it back BY EXACT VALUE. Nothing registered the token
+    on this branch, which is precisely the branch that puts it in a URL -- and
+    ArcGIS answers an auth refusal with a server-chosen ``message`` that this
+    module logs at WARNING. Redaction there fell back to pattern matching on a
+    ``token=`` query key, the shape-dependent coverage #1770 round 43
+    introduced the registry to replace. Registered here so both transports
+    are covered by the same exact-value scrub.
+    """
+    register_credential_secret(token)
+    return {}, token
+
+
 def arcgis_request_auth(
     token: str | None, *, current_version: object = None
 ) -> tuple[dict[str, str], str | None]:
@@ -259,7 +284,7 @@ def arcgis_request_auth(
     if not token:
         return {}, None
     if not arcgis_accepts_header_token(current_version):
-        return {}, token
+        return _query_form_credential(token)
     try:
         pair = build_credential_header(
             ServiceCredential(
@@ -269,9 +294,9 @@ def arcgis_request_auth(
             )
         )
     except ValueError:
-        return {}, token
+        return _query_form_credential(token)
     if pair is None:
-        return {}, token
+        return _query_form_credential(token)
     return {pair[0]: pair[1]}, None
 
 
@@ -304,8 +329,13 @@ async def read_arcgis_json(
     data = json.loads(body)
     if not headers or _arcgis_error_code(data) != _ARCGIS_TOKEN_REQUIRED_CODE:
         return data
+    # fix(#1840 audit round 1): through the same chooser, so the retry
+    # registers the token for exact-value scrubbing exactly as the version
+    # gate's own fallback does. `token` is truthy here -- `headers` is
+    # non-empty, which only happens for a token that composed a header.
+    _retry_headers, retry_token = _query_form_credential(token or "")
     body, _ = await bounded_probe_read(
-        client, build_url(token), headers={}, accept=OGC_JSON_ACCEPT
+        client, build_url(retry_token), headers=_retry_headers, accept=OGC_JSON_ACCEPT
     )
     return json.loads(body)
 
@@ -382,6 +412,19 @@ async def _probe_arcgis_service_within_deadline(
         # 499 retry is what covers a pre-10.5.1 server here, since there is no
         # earlier document to have read `currentVersion` from.
         data = await read_arcgis_json(client, _service_info_url, token)
+    except SSRFError:
+        # fix(#1840 audit round 1): FIRST, because `SSRFError` subclasses
+        # `ValueError` (`platform/security.py`) and the `except (ValueError,
+        # TypeError)` below is the clause that catches `json.loads` failing.
+        # Before lane C2 the network read and the parse sat in two separate
+        # `try` blocks, so a refused redirect hop -- a blocked address, or a
+        # cross-origin one that would have forwarded a credential header --
+        # propagated to the `/probe` door and became its coded refusal.
+        # Folding the parse into the request's `try` silently downgraded that
+        # to "not an ArcGIS service", and the caller then went on trying the
+        # remaining probes. The SSRF itself was still blocked; the ANSWER the
+        # operator gets is what regressed.
+        raise
     except (
         httpx.HTTPStatusError,
         httpx.TransportError,

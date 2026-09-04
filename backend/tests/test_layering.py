@@ -2723,7 +2723,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `preview_service_layer`'s broad `except Exception`, so a future edit
     # that breaks one of those callees' "raises only HTTPException" contracts
     # degrades to a coded 4xx instead of a 500. Cap 1639 -> 1780, exact.
-    "backend/app/modules/catalog/sources/router.py": 1780,
+    # fix(#1840 audit round 1): +11. `_probe_credential_line` gates on
+    # `requires_header_token_policy` rather than on `build_credential_header`
+    # answering None, plus the import and the docstring paragraph saying why
+    # the two stopped being equivalent when lane C2 taught the builder to
+    # compose an ArcGIS header for the httpx transport. Cap 1780 -> 1791,
+    # exact.
+    "backend/app/modules/catalog/sources/router.py": 1791,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against
@@ -4656,7 +4662,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # header`, the registry's only other producer, so the exact-value scrub
     # pass was inert for the whole worker service-import path on the
     # format every current job actually uses. Cap 1342 -> 1354, exact.
-    "backend/app/processing/ingest/ogr.py": 1354,
+    # fix(#1840 audit round 1): +12. `_legacy_bearer_line` asks
+    # `requires_header_token_policy` itself before reaching the builder,
+    # instead of inferring "this format carries no header line" from the
+    # builder answering None -- which stopped being true when lane C2 taught
+    # it to compose an ArcGIS header for the httpx transport. Both call sites
+    # already gate on the same two formats; this is the trust-boundary copy
+    # AGENTS.md requires, and the comment is the argument for keeping both.
+    # Cap 1354 -> 1366, exact.
+    "backend/app/processing/ingest/ogr.py": 1366,
     # fix(#1778): +157 for two audit findings that both land in JIT
     # provisioning. One is the REGISTRATION_ENABLED gate plus its exception
     # class, so enabling a provider stops being a way to reopen signup while

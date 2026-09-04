@@ -239,6 +239,21 @@ def wire_credential(
 
     ``service_format`` defaults to the one already on the credential, which is
     what an in-process caller of plan D2 sets when it constructs one directly.
+
+    fix(#1840 audit round 1): the ArcGIS branch is selected by
+    ``requires_header_token_policy`` and NOT by "the builder answered None".
+    Lane C2 taught ``build_credential_header`` to compose an
+    ``Authorization: Bearer`` header for ArcGIS -- for GeoLens's own httpx
+    requests, which is a different transport from this one -- and that silently
+    killed the branch below, so this handed the worker the string
+    ``Authorization: Bearer <token>`` as ``token``. ``build_gdal_source`` then
+    percent-encoded the whole line into ``&token=Authorization%3A+Bearer+...``
+    and every authenticated ArcGIS ingest, refresh and reupload failed at the
+    origin, after the single-use credential had already been spent. The
+    question this function asks is whether the credential becomes a header
+    LINE, which is what ``requires_header_token_policy`` answers and what
+    ``HEADER_AUTH_SERVICE_FORMATS`` is the set for; asking the builder was a
+    proxy for it that stopped being equivalent.
     """
     resolved = (
         service_format
@@ -248,6 +263,10 @@ def wire_credential(
     bound = credential_or_422(credential, service_format=resolved)
     if bound is None:
         return None
+    if not requires_header_token_policy(resolved):
+        # A URL-query transport: ArcGIS, whose worker-side token is the bare
+        # value `build_gdal_source` percent-encodes into the ESRIJSON source.
+        return bearer_token_for_credential(bound)
     pair = build_credential_header(bound)
     if pair is None:
         return bearer_token_for_credential(bound)

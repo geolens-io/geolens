@@ -37,6 +37,7 @@ import os
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import quote
 
 import httpx
 import pytest
@@ -587,10 +588,130 @@ class TestNoArcgisUrlCarriesAnAuthorizationHeader:
             assert token in url
 
     def test_the_count_url_carries_nothing_on_the_header_transport(self):
-        """feat(C2): the default, which is what httpx logs at INFO."""
-        url = arcgis_mod.build_arcgis_count_query_url(f"{_ARCGIS_BASE}/0")
+        """feat(C2): the default, which is what httpx logs at INFO.
+
+        fix(#1840 audit round 1): this asserted only that a count URL built
+        with NO token argument contains no token, which has been true in every
+        revision -- it passed unchanged against the parent and was therefore
+        worth nothing as evidence for this lane. It now drives the transport
+        DECISION, which is the thing that changed: ``arcgis_request_auth`` is
+        what chooses, and it did not exist before C2.
+        """
+        token = "tok" + _value()
+        headers, query_token = arcgis_mod.arcgis_request_auth(token)
+        assert headers == {"Authorization": f"Bearer {token}"}
+        assert query_token is None
+
+        url = arcgis_mod.build_arcgis_count_query_url(f"{_ARCGIS_BASE}/0", query_token)
         assert "token" not in url
         assert "Authorization" not in url
+        assert token not in url
+
+    def test_the_worker_gets_the_bare_arcgis_token_not_a_header_line(self):
+        """fix(#1840 audit round 1): the P1 this class was narrowed past.
+
+        ``wire_credential`` is the one string that crosses to the worker under
+        the kwarg ``token``, and for ArcGIS it must be the BARE token, because
+        ``build_gdal_source`` percent-encodes whatever it gets into
+        ``&token=`` in the ESRIJSON source URL. It used to select that branch
+        by asking whether ``build_credential_header`` answered None, and lane
+        C2 made the builder answer with a pair -- so the worker was handed
+        ``Authorization: Bearer <token>`` and every authenticated ArcGIS
+        import, refresh and reupload sent ``token=Authorization%3A+Bearer+...``
+        and got a 498/499, after the single-use credential had been spent.
+
+        Driven end to end through the three functions that disagreed, rather
+        than asserting on the builder, because the builder answering a pair is
+        correct now and the bug was one consumer's reading of that answer.
+        """
+        from app.modules.catalog.sources.preview import build_gdal_source
+        from app.platform.service_auth import wire_credential
+
+        token = "tok+slash/" + _value()
+        credential = ServiceCredential(
+            method=CredentialMethod.BEARER,
+            service_format="arcgis_featureserver",
+            token=token,
+        )
+
+        wired = wire_credential(credential)
+        assert wired == token
+        assert "Authorization" not in wired
+
+        source, _layer = build_gdal_source(
+            "ArcGIS FeatureServer", _ARCGIS_BASE, "Parcels", 0, token=wired
+        )
+        count_url = arcgis_mod.build_arcgis_count_query_url(f"{_ARCGIS_BASE}/0", wired)
+        for url in (source, count_url):
+            assert "Authorization" not in url
+            assert "Bearer" not in url
+            assert f"token={quote(token, safe='')}" in url
+
+        # And the httpx side of the same credential still gets the header,
+        # so this pins the split rather than a revert of the lane.
+        headers, query_token = arcgis_mod.arcgis_request_auth(wired)
+        assert headers == {"Authorization": f"Bearer {token}"}
+        assert query_token is None
+
+    @pytest.mark.parametrize("service_format", ["wfs", "ogcapi_features"])
+    def test_the_two_header_file_formats_still_wire_a_finished_line(
+        self, service_format
+    ):
+        """The counterfactual for the test above: without it, that one would
+        pass for a ``wire_credential`` that had stopped composing lines at
+        all."""
+        from app.platform.service_auth import wire_credential
+
+        token = "tok" + _value()
+        wired = wire_credential(
+            ServiceCredential(
+                method=CredentialMethod.BEARER,
+                service_format=service_format,
+                token=token,
+            )
+        )
+        assert wired == f"Authorization: Bearer {token}"
+
+    def test_the_endpoint_check_line_is_none_for_arcgis(self):
+        """fix(#1840 audit round 1), the sibling consumer.
+
+        ``_probe_credential_line`` feeds ``assert_endpoints_stay_on_origin``,
+        which is a question about a service DESCRIBING a foreign operation
+        endpoint that GDAL follows with a header file attached -- WFS and OGC
+        API only. It read the builder's answer too, and started returning an
+        ArcGIS header line. Inert, because the check early-returns on the same
+        predicate, but it was a claim about the wrong transport waiting for
+        that guard to be relaxed.
+        """
+        from app.modules.catalog.sources.router import _probe_credential_line
+
+        credential = ServiceCredential(
+            method=CredentialMethod.BEARER,
+            service_format="arcgis_featureserver",
+            token="tok" + _value(),
+        )
+        assert _probe_credential_line(credential, "arcgis_featureserver") is None
+        assert _probe_credential_line(credential, "wfs") is not None
+
+    def test_the_worker_refuses_to_write_an_arcgis_header_file_line(self):
+        """fix(#1840 audit round 1): the trust-boundary copy of the rule.
+
+        Both callers of ``_sanitize_authorization_token`` gate on the two
+        header-file formats already. This is the worker's own check, which
+        AGENTS.md requires to stand on its own rather than resting on a
+        validator two processes away, and which is what keeps an ArcGIS token
+        out of ``GDAL_HTTP_HEADER_FILE`` if a caller's gate is relaxed.
+        """
+        from app.processing.ingest.ogr import _sanitize_authorization_token
+
+        token = "tok" + _value()
+        with pytest.raises(ValueError):
+            _sanitize_authorization_token(token, service_format="arcgis_featureserver")
+        # The counterfactual: the same bare token IS composed for WFS.
+        assert (
+            _sanitize_authorization_token(token, service_format="wfs")
+            == f"Authorization: Bearer {token}"
+        )
 
     def test_the_paged_import_path_composes_no_credential_header(self):
         """The positive control names the string it is looking for.

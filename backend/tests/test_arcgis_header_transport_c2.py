@@ -36,9 +36,13 @@ from app.core.service_tokens import (
     ARCGIS_SERVICE_FORMAT,
     HEADER_AUTH_SERVICE_FORMATS,
     HEADER_TRANSPORT_SERVICE_FORMATS,
+    registered_credential_secrets,
     requires_header_token_policy,
+    reset_registered_credential_secrets,
     sends_credential_as_header,
 )
+from app.core.url_redaction import scrub_registered_credentials
+from app.modules.catalog.sources.adapters import arcgis as arcgis_mod
 from app.modules.catalog.sources.adapters.arcgis import (
     ARCGIS_HEADER_TOKEN_MIN_VERSION,
     arcgis_accepts_header_token,
@@ -51,6 +55,7 @@ from app.modules.catalog.sources.adapters.arcgis import (
     parse_arcgis_current_version,
     probe_arcgis_service,
 )
+from app.platform.security import SSRFError
 
 _BASE = (
     "https://services6.arcgis.com/ZrVlS0wslq8Nvq5I/arcgis/rest/services/X/FeatureServer"
@@ -574,3 +579,105 @@ class TestTheTokenCannotReachTheHttpxRequestLog:
         carried a credential at all."""
         lines = await self._httpx_log_lines(token=_TOKEN, current_version="10.4")
         assert any("token=" in line for line in lines)
+
+
+# ---------------------------------------------------------------------------
+# Audit round 1
+# ---------------------------------------------------------------------------
+
+
+class TestARefusedRedirectHopStillReachesTheDoor:
+    """fix(#1840 audit round 1).
+
+    ``SSRFError`` subclasses ``ValueError`` (``platform/security.py``), and the
+    first cut of this lane folded ``json.loads`` into the request's own ``try``
+    -- so ``except (ValueError, TypeError): return None``, which exists to
+    degrade an unparseable body to "not an ArcGIS service", started swallowing
+    a refused redirect hop as well. The SSRF stayed blocked either way; what
+    regressed is the ANSWER: the ``/probe`` door's coded refusal became "not
+    recognized", and the caller went on trying the other probes.
+    """
+
+    pytestmark = pytest.mark.asyncio
+
+    async def test_an_ssrf_refusal_propagates(self, monkeypatch) -> None:
+        async def _refuse(*_args, **_kwargs):
+            raise SSRFError("redirect target refused: evil.example.com")
+
+        monkeypatch.setattr(arcgis_mod, "bounded_probe_read", _refuse)
+
+        async with _client(lambda _request: _stream({})) as client:
+            with pytest.raises(SSRFError):
+                await probe_arcgis_service(_BASE, client, token=_TOKEN)
+
+    async def test_an_unparseable_body_still_degrades_to_none(self) -> None:
+        """The counterfactual. Without it the test above would pass for a
+        probe that had stopped catching parse failures at all."""
+
+        def handle(_request: httpx.Request) -> httpx.Response:
+            async def _chunks():
+                yield b"<html>not json</html>"
+
+            return httpx.Response(200, content=_chunks())
+
+        async with _client(handle) as client:
+            assert await probe_arcgis_service(_BASE, client, token=_TOKEN) is None
+
+
+class TestTheQueryFallbackRegistersItsSecret:
+    """fix(#1840 audit round 1).
+
+    ``build_credential_header`` registers the line it composes, so the header
+    transport is covered by the exact-value scrub #1770 round 43 introduced.
+    The query fallback composes no header and so registered nothing -- on
+    exactly the branch that puts the token in a URL, and where this module
+    logs the server's own ``message`` at WARNING (``ArcGIS error response:
+    url=%s code=%s message=%s``). Redaction there fell back to matching the
+    ``token=`` query key by shape, which is the coverage the registry exists
+    to replace.
+    """
+
+    def test_the_version_gated_fallback_registers_the_token(self) -> None:
+        reset_registered_credential_secrets()
+        headers, query_token = arcgis_request_auth(_TOKEN, current_version="10.4")
+        assert (headers, query_token) == ({}, _TOKEN)
+        assert _TOKEN in registered_credential_secrets()
+        scrubbed = scrub_registered_credentials(f"Invalid token supplied: {_TOKEN}")
+        assert _TOKEN not in scrubbed
+
+    def test_the_unusable_value_fallback_registers_the_token(self) -> None:
+        reset_registered_credential_secrets()
+        unusable = "has space"
+        assert arcgis_request_auth(unusable) == ({}, unusable)
+        assert unusable in registered_credential_secrets()
+
+    def test_the_header_path_registers_the_composed_line(self) -> None:
+        """The pre-existing half, asserted beside it so the two are read
+        together."""
+        reset_registered_credential_secrets()
+        headers, query_token = arcgis_request_auth(_TOKEN)
+        assert query_token is None
+        assert headers  # positive control: a header was composed
+        assert f"Authorization: Bearer {_TOKEN}" in registered_credential_secrets()
+
+    def test_nothing_is_registered_without_a_token(self) -> None:
+        """The counterfactual: the registry is not simply always non-empty."""
+        reset_registered_credential_secrets()
+        assert arcgis_request_auth(None) == ({}, None)
+        assert registered_credential_secrets() == frozenset()
+
+    @pytest.mark.asyncio
+    async def test_the_499_retry_registers_before_it_re_reads(self) -> None:
+        """The retry composes its URL directly rather than through the version
+        gate, so it needs a registration of its own."""
+        reset_registered_credential_secrets()
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if "token=" not in str(request.url):
+                return _stream({"error": {"code": 499, "message": "Token Required"}})
+            return _stream({"currentVersion": "10.4", "layers": []})
+
+        async with _client(handle) as client:
+            await probe_arcgis_service(_BASE, client, token=_TOKEN)
+
+        assert _TOKEN in registered_credential_secrets()
