@@ -1707,6 +1707,19 @@ jobs:
     runs-on: ubuntu-latest
     if: always()  # run even if other jobs fail
     timeout-minutes: 5
+    # fix(#1816 round 2): job-scoped, not step-scoped. Codex round 1 on #1818
+    # caught that a step-level env: on "Install frontend dependencies" only
+    # covers `npm ci` — the next step's two `npx --yes license-checker`
+    # calls fetch that package over the network too (it's in neither
+    # package.json nor package-lock.json, unlike `npx playwright` elsewhere
+    # in this file, which resolves to the lockfile-installed binary and
+    # never hits the registry). A step-scoped var left those npx fetches on
+    # npm's 300000ms default, so a stall there could still eat the whole
+    # 5-minute job cap silently. Job-level env covers both steps.
+    env:
+      NPM_CONFIG_FETCH_TIMEOUT: "30000"
+      NPM_CONFIG_FETCH_RETRIES: "2"
+      NPM_CONFIG_LOGLEVEL: http
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -1729,11 +1742,9 @@ jobs:
         # fetch-timeout makes a stalled fetch fail (and retry) fast
         # instead of silently eating the job cap; NPM_CONFIG_LOGLEVEL=http
         # prints the request line for each fetch, so a future stall names
-        # the package/URL instead of five minutes of silence.
-        env:
-          NPM_CONFIG_FETCH_TIMEOUT: "30000"
-          NPM_CONFIG_FETCH_RETRIES: "2"
-          NPM_CONFIG_LOGLEVEL: http
+        # the package/URL instead of five minutes of silence. (Settings are
+        # job-scoped above so they also cover the npx license-checker
+        # fetches in the next step.)
         run: npm ci
 
       - name: Run license-checker (blocking — curated allowlist)
