@@ -5,14 +5,38 @@ make a landed table readable by the tile, feature and analysis surfaces.
 ``add_4326_column`` writes the render column (2D and linear, with its GIST
 index); ``linearize_existing_4326`` enforces that same invariant on a column
 the pipeline never wrote, since registration skips ``add_4326_column`` when a
-BYO table already carries one; ``grant_reader_access`` hands the finished
-table to the reader role.
+BYO table already carries one; ``rederive_geom_4326`` re-applies the whole
+invariant to a registered table its owner has written to since (#1738);
+``grant_reader_access`` hands the finished table to the reader role.
 """
+
+from typing import NamedTuple
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.processing.ingest.metadata_sql import _qtable
+
+
+def _geom_4326_expr(source_srid: int) -> str:
+    """The expression that derives ``geom_4326`` from ``geom``.
+
+    One definition, because two paths write the column from the source
+    geometry — the registration/ingest write (:func:`add_4326_column`) and the
+    out-of-band repair (:func:`rederive_geom_4326`) — and a drift between them
+    would make a refresh rewrite every row of every table forever while
+    "fixing" nothing.
+
+    fix(#1113 review r16): linearize IN THE SOURCE CRS, then reproject. An
+    arc is defined by its control points, and CRS transforms are nonlinear:
+    transforming the control points first and densifying after traces the
+    arc in the wrong space, so ST_CurveToLine(ST_Transform(...)) yields a
+    materially different shape from the correct
+    ST_Transform(ST_CurveToLine(...)).
+    """
+    if source_srid == 4326:
+        return "ST_Force2D(ST_CurveToLine(ST_SetSRID(geom, 4326)))"
+    return "ST_Force2D(ST_Transform(ST_CurveToLine(geom), 4326))"
 
 
 async def add_4326_column(
@@ -51,17 +75,11 @@ async def add_4326_column(
         )
     )
 
-    # fix(#1113 review r16): linearize IN THE SOURCE CRS, then reproject. An
-    # arc is defined by its control points, and CRS transforms are nonlinear:
-    # transforming the control points first and densifying after traces the
-    # arc in the wrong space, so ST_CurveToLine(ST_Transform(...)) yields a
-    # materially different shape from the correct
-    # ST_Transform(ST_CurveToLine(...)).
-    if source_srid == 4326:
-        rewrite_expr = "ST_Force2D(ST_CurveToLine(ST_SetSRID(geom, 4326)))"
-    else:
-        rewrite_expr = "ST_Force2D(ST_Transform(ST_CurveToLine(geom), 4326))"
-    # codeql[py/sql-injection] fix(#1615): table via _qtable (metadata_sql.py); rewrite_expr is one of the two literals above
+    # The expression itself, and the reason it linearizes before it
+    # reprojects, live on _geom_4326_expr — the repair path writes the same
+    # column and must write it the same way.
+    rewrite_expr = _geom_4326_expr(source_srid)
+    # codeql[py/sql-injection] fix(#1615): table via _qtable (metadata_sql.py); rewrite_expr is one of _geom_4326_expr's two literals
     await session.execute(text(f"UPDATE {tref} SET geom_4326 = {rewrite_expr}"))
 
     await ensure_geom_4326_gist_index(session, table_name, schema=schema)
@@ -75,6 +93,143 @@ async def add_4326_column(
     # (_finalize_ingest at tasks_common.py:821) owns the phase-2 commit
     # boundary so a downstream failure rolls back the ALTER + UPDATE +
     # CREATE INDEX above atomically.
+
+
+REPAIR_APPLIED = "applied"
+REPAIR_NO_GEOMETRY = "no_geometry"
+REPAIR_GENERATED = "generated"
+
+
+class Geom4326Repair(NamedTuple):
+    """What one re-derive pass did to a table, for the run to report.
+
+    ``rows_rewritten`` is the drift signal: a table nobody wrote to since the
+    last pass reports 0, and a repeated non-zero count means the owner's
+    writes keep arriving between refreshes.
+    """
+
+    outcome: str
+    column_added: bool
+    index_added: bool
+    rows_rewritten: int
+
+
+async def rederive_geom_4326(
+    session: AsyncSession,
+    table_name: str,
+    source_srid: int,
+    *,
+    schema: str = "data",
+) -> Geom4326Repair:
+    """Re-apply the geom_4326 invariant to a table written to outside GeoLens.
+
+    fix(#1738): ``geom_4326`` is a plain column, populated once — by
+    :func:`add_4326_column` at registration, and afterwards only by GeoLens's
+    own feature-edit writes. A registered table's owner keeps writing to it
+    directly (registration copies no data and serves from the live relation),
+    and nothing re-derives the column for those writes. An ``UPDATE geom``, a
+    ``DELETE`` plus re-``INSERT``, and ``ogr2ogr -overwrite`` (which drops the
+    table and recreates it without the column, its index, or the reader grant)
+    all leave rows whose render geometry is stale or NULL. Every reader
+    filters on ``geom_4326 && <envelope>`` and ``NULL && anything`` is NULL,
+    so those rows are silently invisible rather than visibly wrong.
+
+    This is that invariant re-applied from OUTSIDE the table, which is what
+    makes it survive ``-overwrite``: the same ADD COLUMN, the same expression
+    and the same index-if-absent registration uses, each idempotent, so a
+    recreated table gets its column and index back rather than needing the
+    dataset deleted and registered again.
+
+    **The UPDATE is scoped to rows whose stored value would actually change**,
+    compared through ``ST_AsBinary`` — that is what keeps a refresh of an
+    untouched table to one sequential scan with no writes and no bloat, which
+    in turn is what makes this safe to run on every refresh rather than behind
+    a separate button. The scope is deliberately NOT ``geom_4326 IS NULL OR
+    ...``: a row whose ``geom`` is NULL has a NULL render geometry that is
+    already correct, and the IS NULL disjunct would rewrite every such row
+    NULL-to-NULL on every pass — a write that changes nothing, and a drift
+    count that lies.
+
+    A STORED GENERATED ``geom_4326`` is skipped for the reason
+    :func:`linearize_existing_4326` skips it: PostgreSQL rejects any
+    non-DEFAULT write to a generated column at parse time, and such a column
+    re-derives itself on every write anyway, so there is nothing to repair.
+
+    A table with no ``geom`` column is skipped too — registration admits
+    non-spatial tables (#1359), and #1737 refuses a spatial table whose
+    geometry lives under another name, so "no geom" here means an attribute
+    table rather than a broken one.
+
+    One benign interaction, recorded because it looks like drift and is not:
+    GeoLens's own feature edits write ``geom_4326`` from the request's GeoJSON
+    and ``geom`` by transforming that into the dataset's SRID
+    (``features/service.py``), so on a projected dataset the stored render
+    value is the original rather than a round trip. The first pass after such
+    an edit normalizes it to ``ST_Transform(geom, 4326)`` — a sub-millimetre
+    change, counted as one drifted row — and then converges, because the next
+    pass compares that expression against itself.
+
+    The caller owns the transaction, the statement deadline and the reader
+    GRANT; this function only touches the column and its index.
+    """
+    tref = _qtable(table_name, schema=schema)
+
+    # One probe for all three questions, and the same pair of column names
+    # registration looks for. ``udt_name`` is checked because a plain column
+    # that happens to be called ``geom`` is not a geometry: Find_SRID would
+    # raise on it, and the UPDATE below would too.
+    probe = (
+        await session.execute(
+            text(
+                "SELECT column_name, udt_name, is_generated "
+                "FROM information_schema.columns "
+                "WHERE table_schema = :schema AND table_name = :table "
+                "  AND column_name IN ('geom', 'geom_4326')"
+            ).bindparams(schema=schema, table=table_name)
+        )
+    ).all()
+    columns = {row.column_name: row for row in probe}
+
+    source = columns.get("geom")
+    if source is None or source.udt_name != "geometry":
+        return Geom4326Repair(REPAIR_NO_GEOMETRY, False, False, 0)
+
+    render = columns.get("geom_4326")
+    if render is not None and render.is_generated == "ALWAYS":
+        return Geom4326Repair(REPAIR_GENERATED, False, False, 0)
+
+    if render is None:
+        # Gated on the probe, NOT left to ``IF NOT EXISTS``: ALTER TABLE takes
+        # ACCESS EXCLUSIVE whether or not it changes anything, and a lock
+        # request that is merely QUEUED already blocks every reader arriving
+        # behind it. Issuing it on the ordinary path — a registered table that
+        # still has its column — would put a brief stop-the-world on somebody
+        # else's table on every refresh. ``IF NOT EXISTS`` stays as the race
+        # guard for a column added between the probe and here.
+        await session.execute(
+            text(
+                # codeql[py/sql-injection] fix(#1738): identifiers validated by _qtable (metadata_sql.py)
+                f"ALTER TABLE {tref} "
+                f"ADD COLUMN IF NOT EXISTS geom_4326 geometry(Geometry, 4326)"
+            )
+        )
+
+    rewrite_expr = _geom_4326_expr(source_srid)
+    result = await session.execute(
+        text(
+            # codeql[py/sql-injection] fix(#1738): table via _qtable (metadata_sql.py); rewrite_expr is one of _geom_4326_expr's two literals
+            f"UPDATE {tref} SET geom_4326 = {rewrite_expr} "
+            f"WHERE ST_AsBinary(geom_4326) IS DISTINCT FROM "
+            f"      ST_AsBinary({rewrite_expr})"
+        )
+    )
+    index_added = await ensure_geom_4326_gist_index(session, table_name, schema=schema)
+    return Geom4326Repair(
+        REPAIR_APPLIED,
+        render is None,
+        index_added,
+        result.rowcount if result.rowcount and result.rowcount > 0 else 0,
+    )
 
 
 async def linearize_existing_4326(
@@ -191,8 +346,13 @@ async def linearize_existing_4326(
 
 async def ensure_geom_4326_gist_index(
     session: AsyncSession, table_name: str, *, schema: str = "data"
-) -> None:
+) -> bool:
     """Create the GIST index on geom_4326 if this table doesn't have one.
+
+    Returns whether an index was created. fix(#1738): the repair path reports
+    what it restored on a table recreated behind GeoLens's back, and "the
+    spatial index was missing" is the part of that report an operator can act
+    on. Every other caller ignores the value.
 
     fix(#448): the previous ``CREATE INDEX IF NOT EXISTS idx_<table>_geom_4326``
     matched by NAME schema-wide, not per-table. On a second re-ingest the
@@ -216,7 +376,7 @@ async def ensure_geom_4326_gist_index(
         ).bindparams(schema=schema, tn=table_name)
     )
     if has_col.first() is None:
-        return
+        return False
 
     has_gist = await session.execute(
         text(
@@ -232,6 +392,8 @@ async def ensure_geom_4326_gist_index(
                 f"CREATE INDEX ON {_qtable(table_name, schema)} USING GIST (geom_4326)"
             )
         )
+        return True
+    return False
 
 
 async def grant_reader_access(

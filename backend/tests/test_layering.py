@@ -2795,7 +2795,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # threshold, so none needs an entry here yet. What is left below is the
     # re-export façade every existing importer and mock.patch target resolves
     # against. Cap 2151 -> 144, exact.
-    "backend/app/processing/ingest/metadata.py": 144,
+    # fix(#1738): +10 — the re-exports the repair path resolves against
+    # (rederive_geom_4326, the Geom4326Repair it returns, and its three
+    # outcome constants) plus their __all__ entries. Cap 144 -> 154, exact.
+    "backend/app/processing/ingest/metadata.py": 154,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining runway to the cliff
     # cannot be spent silently.
@@ -4501,7 +4504,34 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # and turn one layer's failure into a 500. The parent is reloaded in the
     # same breath, and the log line reads a snapshotted id rather than the
     # instance it just expired. Cap 1500 -> 1513, exact.
-    "backend/app/processing/ingest/service.py": 1513,
+    # fix(#1738): +8 of docstring, no code. register_existing_table's stated
+    # contract was "linearize once, do not police the table afterward", which
+    # a reader could take as "the owner's writes are picked up somehow". They
+    # are not: they are picked up by Refresh, which now re-derives geom_4326.
+    # The paragraph says which writes go stale and what recovers them, so the
+    # next reader does not have to find that out from a broken dataset.
+    # Cap 1513 -> 1521, exact.
+    "backend/app/processing/ingest/service.py": 1521,
+    # fix(#1738): first entry, crossed _RATCHET_INCLUSION_LOC (842 -> 1019) on
+    # the change that gave this task a repair phase. What the growth bought:
+    # `geom_4326` on a registered table was written once, at registration, and
+    # never re-derived, so an `UPDATE geom`, a DELETE+INSERT reload, or an
+    # `ogr2ogr -overwrite` left rows that every reader filters out — silently
+    # invisible, because `NULL && <envelope>` is NULL. Phase 1.5 re-applies
+    # the invariant from outside the table, which is the only shape that
+    # survives -overwrite dropping it. Most of the added lines are the
+    # docstring and the constant comments carrying the two properties a later
+    # reader would otherwise simplify away: the phase runs BEFORE the
+    # read-only measurement (which declares postgresql_readonly=True precisely
+    # so a write from it fails), and it installs its own statement deadline
+    # because `install_api_statement_timeout` is an API-process concern and a
+    # worker UPDATE on a customer's relation would otherwise be unbounded.
+    # The second bound is the one measurement forced: ADD COLUMN takes ACCESS
+    # EXCLUSIVE, a QUEUED lock request already blocks every reader behind it,
+    # and the first version of this phase sat on that queue for the full five
+    # minutes in a test. `_REPAIR_LOCK_TIMEOUT_MS` gives the position back
+    # after five seconds instead. Cap 842 -> 1061, exact.
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1061,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

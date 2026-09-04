@@ -60,6 +60,7 @@ from app.platform.refresh.service import (
 )
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
+    _current_tenant_role,
     _current_tenant_schema,
     _declared_geometry_type,
     _derived_record_type,
@@ -95,6 +96,59 @@ _ERROR_CODE_MISSING = "source_missing"
 _ERROR_CODE_INACCESSIBLE = "source_inaccessible"
 _ERROR_CODE_GENERIC = "postgis_refresh_failed"
 _ERROR_CODE_SUPERSEDED = "superseded"
+
+# fix(#1738): the repair phase's own statement deadline, in milliseconds.
+#
+# `install_api_statement_timeout` runs in the API process only (`api/main.py`;
+# the docstring on `core/statement_timeout.py` says so explicitly), so a
+# worker statement has NO deadline at all. Every other statement this task
+# issues is a read under a read-only snapshot; the repair below is the one
+# write it makes to a relation GeoLens does not own, and an unbounded UPDATE
+# there holds row locks on somebody else's table for as long as it takes.
+#
+# Five minutes: far longer than the common case (a table nobody wrote to
+# matches no rows, so the statement is one sequential scan), and short enough
+# that a table too large to re-derive inside it gives the deadline back rather
+# than sitting on the owner's locks. The bound is on the whole repair
+# transaction, not just the UPDATE, because the DDL takes an ACCESS EXCLUSIVE
+# lock and waiting for one is exactly as blocking as holding one.
+_REPAIR_STATEMENT_TIMEOUT_MS = 300_000
+
+# fix(#1738): and a much shorter bound on WAITING for a lock, which is a
+# different hazard from holding one.
+#
+# The repair takes ACCESS EXCLUSIVE when it has to add the column back to a
+# recreated table, and a lock request that is merely QUEUED already blocks
+# every reader that arrives behind it. Waiting out the statement deadline for
+# one would therefore stall the owner's own traffic for five minutes to fix a
+# column. Five seconds instead: on a busy table the repair gives its queue
+# position back and reports itself blocked, and the next refresh tries again.
+_REPAIR_LOCK_TIMEOUT_MS = 5_000
+
+# query_canceled — what `statement_timeout` raises. And lock_not_available,
+# what `lock_timeout` raises; they are distinguished because they mean
+# different things to whoever reads the log line: too much data to re-derive
+# inside the deadline, versus somebody else using the table right now.
+_STATEMENT_TIMEOUT_SQLSTATE = "57014"
+_LOCK_TIMEOUT_SQLSTATE = "55P03"
+
+# Coded outcomes for the repair phase, logged on every run. They are NOT run
+# error codes: a failed repair does not fail the refresh (see
+# `_repair_geom_4326`), so none of these ever reaches the run ledger.
+_REPAIR_REPAIRED = "repaired"
+_REPAIR_NOT_APPLICABLE = "not_applicable"
+_REPAIR_TIMED_OUT = "timed_out"
+_REPAIR_BLOCKED = "blocked"
+_REPAIR_FAILED = "failed"
+
+
+class _RepairReport(NamedTuple):
+    """What phase 1.5 did, for the log line and for the tests."""
+
+    code: str
+    rows_rewritten: int = 0
+    column_added: bool = False
+    index_added: bool = False
 
 
 class _Verdict(NamedTuple):
@@ -310,6 +364,150 @@ async def _relation_exists(session: Any, *, schema: str, table: str) -> bool:
     )
 
 
+async def _repair_geom_4326(
+    dataset_uuid: uuid.UUID, Dataset: Any, *, schema: str, role: str
+) -> _RepairReport:
+    """Phase 1.5: re-derive this table's render column before measuring it.
+
+    fix(#1738): ``geom_4326`` is written once, at registration, and never
+    again. The owner of a registered table keeps writing to it — that is the
+    whole premise of registering one — and none of those writes touch the
+    render column every GeoLens reader filters on, so an ``UPDATE geom``, a
+    ``DELETE`` plus re-``INSERT``, or an ``ogr2ogr -overwrite`` leaves rows
+    that are silently invisible in tiles, feature reads, extent and analysis.
+
+    Refresh is the right place for the correction: it is the existing
+    user-facing "make the catalog agree with the table" action, with an
+    admission gate, a run ledger and a history behind it, and it already bumps
+    the tile version and purges the tile cache. It is also the only place the
+    fix can live and still survive ``-overwrite``, because that drops the
+    table: a trigger, a generated column or an index would go with it, and
+    only an invariant re-applied from outside comes back.
+
+    **Before the measurement, in its own session and transaction**, so the
+    measurement in phase 2 measures the repaired table under its own READ ONLY
+    REPEATABLE READ snapshot, and so the tile-version bump below is already
+    committed when phase 2 reads `content_version` — a bump landing after that
+    read would trip phase 3's superseded guard against this task's own write.
+
+    **Bounded twice**, because holding a lock and waiting for one are
+    different hazards on a relation GeoLens does not own — see
+    ``_REPAIR_STATEMENT_TIMEOUT_MS`` and ``_REPAIR_LOCK_TIMEOUT_MS``.
+
+    **Never fatal.** A refresh whose repair could not run still has a
+    measurement to take, and that measurement is what the user asked for; the
+    outcome is returned and logged instead. This is also what keeps the change
+    from adding a failure mode to a strategy that had none: if the repair
+    cannot write, the dataset is left exactly as broken as it already was, not
+    more so.
+    """
+    from app.core.db import async_session
+    from app.processing.ingest.metadata import (
+        REPAIR_APPLIED,
+        get_table_srid,
+        grant_reader_access,
+        rederive_geom_4326,
+    )
+
+    report = _RepairReport(_REPAIR_NOT_APPLICABLE)
+    purge_table: str | None = None
+
+    async with async_session() as session:
+        try:
+            # SET LOCAL, spelled as set_config(..., is_local => true) so the
+            # statement stays static SQL with a bound value — `SET` takes no
+            # parameters, and interpolating the numbers would put a dynamic
+            # text() site in this module for no gain. Both bounds are set
+            # before anything else runs in this transaction, so every
+            # statement below is covered, DDL included.
+            await session.execute(
+                text(
+                    "SELECT set_config('statement_timeout', :ms, true), "
+                    "       set_config('lock_timeout', :lock_ms, true)"
+                ),
+                {
+                    "ms": str(_REPAIR_STATEMENT_TIMEOUT_MS),
+                    "lock_ms": str(_REPAIR_LOCK_TIMEOUT_MS),
+                },
+            )
+            dataset = await session.get(Dataset, dataset_uuid)
+            if dataset is None:
+                return _RepairReport(_REPAIR_NOT_APPLICABLE)
+            try:
+                table_name = _resolve_bound_table(dataset, schema=schema)
+            except PostgisRefreshError:
+                # A binding fault is phase 2's to report, with the message and
+                # the error code it already owns. Repairing nothing here keeps
+                # this phase from changing any existing failure path.
+                return _RepairReport(_REPAIR_NOT_APPLICABLE)
+            if not await _relation_exists(session, schema=schema, table=table_name):
+                # Same: the "missing" verdict belongs to the measurement.
+                return _RepairReport(_REPAIR_NOT_APPLICABLE)
+
+            srid = await get_table_srid(session, table_name, schema=schema)
+            repair = await rederive_geom_4326(
+                session, table_name, srid or 4326, schema=schema
+            )
+            if repair.outcome != REPAIR_APPLIED:
+                await session.rollback()
+                return _RepairReport(_REPAIR_NOT_APPLICABLE)
+
+            # Idempotent, and the other half of what `-overwrite` destroys:
+            # the recreated table carries no GRANT, and a split runtime role
+            # would then read nothing through it.
+            await grant_reader_access(session, table_name, schema=schema, role=role)
+
+            if repair.rows_rewritten:
+                # Gated on rewritten ROWS, not on the column or the index.
+                # Restoring an index changes how a tile is computed and not
+                # what it contains, and a column added to a table with nothing
+                # in it renders the same nothing; a table that had rows and
+                # lost the column has all of them in this count anyway. The
+                # contract on this method is that it is bumped in the same
+                # transaction as a change to tile CONTENT, so anything looser
+                # would bust every cached tile of every registered dataset on
+                # the first refresh after this ships.
+                #
+                # It busts browser and CDN copies through the `_v=` parameter,
+                # which the server-side purge below cannot reach.
+                dataset.bump_tile_cache_version()
+                purge_table = table_name
+            await session.commit()
+            report = _RepairReport(
+                _REPAIR_REPAIRED,
+                repair.rows_rewritten,
+                repair.column_added,
+                repair.index_added,
+            )
+        except Exception as exc:  # broad: the repair is best-effort — see the docstring
+            await session.rollback()
+            codes = set(_chained_sqlstates(exc))
+            if _STATEMENT_TIMEOUT_SQLSTATE in codes:
+                code = _REPAIR_TIMED_OUT
+            elif _LOCK_TIMEOUT_SQLSTATE in codes:
+                code = _REPAIR_BLOCKED
+            else:
+                code = _REPAIR_FAILED
+            logger.warning(
+                "geom_4326 repair did not complete",
+                dataset_id=str(dataset_uuid),
+                repair=code,
+                exc_info=True,
+            )
+            return _RepairReport(code)
+
+    if purge_table is not None:
+        # Outside the transaction, because it is not part of it: the MVT cache
+        # key has no content-version dimension, so cached tiles are served
+        # until they expire and the rows this repair just made visible would
+        # stay invisible behind them. The end-of-run purge repeats this on the
+        # success path; doing it here as well is what makes the repair visible
+        # even when the measurement that follows fails.
+        await invalidate_tile_cache_for_table(purge_table)
+
+    return report
+
+
 class _RecordAs:
     """The record as the measurement implies it, for scoring only.
 
@@ -495,6 +693,27 @@ async def refresh_postgis(
         )
 
         schema = _current_tenant_schema()
+
+        # ----------------------------------------------------------------- #
+        # Phase 1.5: REPAIR the render column, before anything measures it.
+        #
+        # fix(#1738). The one write this task makes to the registered table,
+        # deliberately ahead of the read-only phase below rather than inside
+        # it: that phase declares `postgresql_readonly=True` precisely so a
+        # write from it fails loudly. Non-fatal by design — see
+        # `_repair_geom_4326`.
+        # ----------------------------------------------------------------- #
+        repair = await _repair_geom_4326(
+            dataset_uuid, Dataset, schema=schema, role=_current_tenant_role()
+        )
+        logger.info(
+            "geom_4326 repair phase finished",
+            dataset_id=dataset_id,
+            repair=repair.code,
+            rows_rewritten=repair.rows_rewritten,
+            column_added=repair.column_added,
+            index_added=repair.index_added,
+        )
 
         async with async_session() as session:
             # fix(#1313 review round 4): established on the CONNECTION, before

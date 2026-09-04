@@ -658,6 +658,14 @@ async def register_existing_table(
     STORED GENERATED ``geom_4326`` columns fall under the same
     contract -- their generation expression must produce linear output.
 
+    fix(#1738): "does not police the table afterward" now means "does not
+    police it continuously". Nothing here changed, and the owner's direct
+    writes still leave ``geom_4326`` stale or NULL -- invisible to tiles,
+    feature reads, extent and analysis, because every reader filters on that
+    column. What picks them up is Refresh: ``refresh_postgis`` re-derives the
+    column before it re-measures, and restores the column, its GiST index and
+    the reader grant when the table was dropped and recreated without them.
+
     fix(#1452): ``managed`` declares that the CALLER created the table it is
     handing over, so deleting the resulting dataset may drop it again. It
     defaults to False because the two register endpoints take a table name
