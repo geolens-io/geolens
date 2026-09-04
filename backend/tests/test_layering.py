@@ -2810,7 +2810,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # threshold, so none needs an entry here yet. What is left below is the
     # re-export façade every existing importer and mock.patch target resolves
     # against. Cap 2151 -> 144, exact.
-    "backend/app/processing/ingest/metadata.py": 144,
+    # fix(#1738): +10 — the re-exports the repair path resolves against
+    # (rederive_geom_4326, the Geom4326Repair it returns, and its three
+    # outcome constants) plus their __all__ entries. Cap 144 -> 154, exact.
+    # fix(#1738 round 1): +4 — probe_geom_4326 and the Geom4326State it
+    # returns, split out so the caller can tell a non-spatial table from a
+    # repairable one BEFORE resolving the SRID. Cap 154 -> 158, exact.
+    "backend/app/processing/ingest/metadata.py": 158,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining runway to the cliff
     # cannot be spent silently.
@@ -3305,7 +3311,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the docstring stating why `NO KEY UPDATE` over plain `UPDATE`, and
     # pointing at the sweep-side fixes that now have to contend with this
     # lock instead of racing past it. Cap 2470 -> 2495, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2495,
+    # fix(#1738 round 1): +38 — bump_tile_cache_version_atomic, the sibling of
+    # Dataset.bump_tile_cache_version for a writer that holds no row lock.
+    # Most of it is the docstring arguing why the lock is not the fix: the
+    # feature-edit routers roll the counter through a plain read-modify-write
+    # and never take one, so one side locking does not serialize a race the
+    # other side is not playing. Cap 2495 -> 2533, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2533,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -4525,7 +4537,52 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # and turn one layer's failure into a 500. The parent is reloaded in the
     # same breath, and the log line reads a snapshotted id rather than the
     # instance it just expired. Cap 1500 -> 1513, exact.
-    "backend/app/processing/ingest/service.py": 1513,
+    # fix(#1738): +8 of docstring, no code. register_existing_table's stated
+    # contract was "linearize once, do not police the table afterward", which
+    # a reader could take as "the owner's writes are picked up somehow". They
+    # are not: they are picked up by Refresh, which now re-derives geom_4326.
+    # The paragraph says which writes go stale and what recovers them, so the
+    # next reader does not have to find that out from a broken dataset.
+    # Cap 1513 -> 1521, exact.
+    "backend/app/processing/ingest/service.py": 1521,
+    # fix(#1738): first entry, crossed _RATCHET_INCLUSION_LOC (842 -> 1019) on
+    # the change that gave this task a repair phase. What the growth bought:
+    # `geom_4326` on a registered table was written once, at registration, and
+    # never re-derived, so an `UPDATE geom`, a DELETE+INSERT reload, or an
+    # `ogr2ogr -overwrite` left rows that every reader filters out — silently
+    # invisible, because `NULL && <envelope>` is NULL. Phase 1.5 re-applies
+    # the invariant from outside the table, which is the only shape that
+    # survives -overwrite dropping it. Most of the added lines are the
+    # docstring and the constant comments carrying the two properties a later
+    # reader would otherwise simplify away: the phase runs BEFORE the
+    # read-only measurement (which declares postgresql_readonly=True precisely
+    # so a write from it fails), and it installs its own statement deadline
+    # because `install_api_statement_timeout` is an API-process concern and a
+    # worker UPDATE on a customer's relation would otherwise be unbounded.
+    # The second bound is the one measurement forced: ADD COLUMN takes ACCESS
+    # EXCLUSIVE, a QUEUED lock request already blocks every reader behind it,
+    # and the first version of this phase sat on that queue for the full five
+    # minutes in a test. `_REPAIR_LOCK_TIMEOUT_MS` gives the position back
+    # after five seconds instead. Cap 842 -> 1061, exact.
+    # fix(#1738 round 1): +43 for two review findings and the defect the first
+    # of them uncovered. The reader GRANT is now re-issued whatever the
+    # geometry turned out to be — it is the third thing -overwrite destroys
+    # and losing it does not depend on the render column needing a rewrite, so
+    # gating it on the re-derive let a recreated table with a generated
+    # geom_4326 pass a refresh unreadable. Probing the columns before
+    # resolving the SRID is what that exposed: Find_SRID RAISES for a table
+    # with no geometry, so every refresh of a registered non-spatial dataset
+    # was a logged repair failure that also skipped the grant. And the version
+    # bump moved to the atomic helper, because this transaction holds no row
+    # lock. Cap 1061 -> 1104, exact.
+    # fix(#1738 round 2): +24 — the GiST index restore moves onto the same
+    # rule as the grant: every outcome where the column exists, not only the
+    # one where it had to be rewritten. `rederive_geom_4326` was the only
+    # caller of the index helper, so an overwrite that recreated the table
+    # with a valid STORED GENERATED `geom_4326` left the dataset with no
+    # spatial index and every `geom_4326 && <envelope>` predicate the readers
+    # issue fell back to a sequential scan. Cap 1104 -> 1128, exact.
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1128,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

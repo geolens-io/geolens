@@ -72,10 +72,17 @@ from app.processing.ingest.metadata_mercator import (
     clip_to_mercator_bounds,  # noqa: F401 -- re-exported, see __all__
 )
 from app.processing.ingest.metadata_projection import (
+    REPAIR_APPLIED,  # noqa: F401 -- re-exported, see __all__
+    REPAIR_GENERATED,  # noqa: F401 -- re-exported, see __all__
+    REPAIR_NO_GEOMETRY,  # noqa: F401 -- re-exported, see __all__
+    Geom4326Repair,  # noqa: F401 -- re-exported, see __all__
+    Geom4326State,  # noqa: F401 -- re-exported, see __all__
     add_4326_column,  # noqa: F401 -- re-exported, see __all__
     ensure_geom_4326_gist_index,  # noqa: F401 -- re-exported, see __all__
     grant_reader_access,  # noqa: F401 -- re-exported, see __all__
     linearize_existing_4326,  # noqa: F401 -- re-exported, see __all__
+    probe_geom_4326,  # noqa: F401 -- re-exported, see __all__
+    rederive_geom_4326,  # noqa: F401 -- re-exported, see __all__
 )
 from app.processing.ingest.metadata_quality import (
     _score_attribute_completeness,  # noqa: F401 -- re-exported, see __all__
@@ -92,6 +99,11 @@ from app.processing.ingest.metadata_sql import (
 )
 
 __all__ = [
+    "REPAIR_APPLIED",
+    "REPAIR_GENERATED",
+    "REPAIR_NO_GEOMETRY",
+    "Geom4326Repair",
+    "Geom4326State",
     "_ABSTRACT_TO_CONCRETE_GEOMETRY_TYPE",
     "_BOX3D_RE",
     "_DEGREE_UNIT_SRTEXT_RE",
@@ -138,7 +150,9 @@ __all__ = [
     "get_table_srid",
     "grant_reader_access",
     "linearize_existing_4326",
+    "probe_geom_4326",
     "promote_z_to_elev",
+    "rederive_geom_4326",
     "refresh_attribute_metadata",
     "rename_reserved_columns",
 ]
