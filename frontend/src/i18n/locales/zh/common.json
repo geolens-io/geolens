@@ -44,7 +44,7 @@
   "sourceState": {
     "freshness": {
       "fresh": {
-        "label": "数据源新鲜",
+        "label": "数据源时效正常",
         "description": "数据源在其声明的刷新周期内已完成刷新"
       },
       "due": {
@@ -159,7 +159,7 @@
       "widthLabel": "宽度：{{label}}",
       "cluster": {
         "server": "服务端聚合",
-        "bounded": "有界聚合",
+        "bounded": "客户端聚合",
         "fallback": "回退为点"
       },
       "geometry": {
@@ -222,7 +222,7 @@
       "cancelled": "已取消。",
       "thinking": "思考中...",
       "emptyHint": "就这张地图的数据提出问题。",
-      "readOnlyNote": "回答为只读——可在不更改地图的情况下探索数据。",
+      "readOnlyNote": "AI 仅以只读方式回答——可在不更改地图的情况下探索数据。",
       "error": "出现问题。请重试。",
       "retry": "重试",
       "queryResult": {
@@ -289,7 +289,7 @@
     "analysisSourceTooLarge": "此图层对该分析来说过大（上限 {{limit}} 个要素）。请先用筛选器将其缩减为更小的数据集。",
     "analysisMaskTooLarge": "掩膜图层要素过多，无法用于裁剪（上限 {{limit}} 个）。请选择更小的掩膜图层，或在地图上绘制掩膜。",
     "analysisJobAlreadyRunning": "您的上一个分析仍在运行。请等待其完成后再启动另一个。",
-    "sharedQueryBusy": "分析预览与 AI 对话一次只能共用一个数据查询，且已有一个正在运行。请等待其完成后再试。",
+    "sharedQueryBusy": "分析预览和 AI 对话共用数据查询通道，一次只能运行一个查询，且当前已有查询正在运行。请等待其完成后再试。",
     "analysisVectorRequired": "分析需要矢量数据集——此图层不是矢量数据集。",
     "analysisMaskPolygonRequired": "裁剪掩膜必须是多边形图层。",
     "datasetVisibilityBlockedByMaps": "这些地图正将该数据集共享给即将失去访问权的受众：{{maps}}。请移除其中的图层，或先收窄这些地图的共享范围。",
@@ -305,14 +305,14 @@
     "refreshCredentialStoreUnavailable": "此实例目前无法暂存服务凭据。对于公开数据源，仍可不带令牌进行刷新。",
     "refreshInvalidServiceToken": "令牌被拒绝：{{message}}",
     "arcgisSigninRejected": "ArcGIS 未接受该登录信息。请检查用户名和密码（注意大小写）。失败次数过多也会导致 ArcGIS 账户被临时锁定。",
-    "arcgisSsoAccount": "此账户通过您组织的身份提供程序登录，或已启用多因素认证。此处无法使用用户名和密码登录。请改用令牌或 API 密钥。",
+    "arcgisSsoAccount": "此账户通过您组织的身份提供商登录，或已启用多因素认证。此处无法使用用户名和密码登录。请改用令牌或 API 密钥。",
     "arcgisPortalUnreachable": "GeoLens 无法连接该门户，因为它指向私有网络地址。私有网络中的门户无法在此登录；请改用令牌或 API 密钥。",
     "arcgisSigninInProgress": "此账户的另一个登录流程正在进行中。请稍后重试。",
     "arcgisPortalNotHttps": "该门户或其指向的令牌服务未使用 HTTPS。GeoLens 不会通过明文 HTTP 发送密码；请使用 https:// 的门户 URL。",
     "arcgisPortalHostInvalid": "该门户地址不是可用的主机名。请检查 URL，例如 https://your-org.maps.arcgis.com。",
     "refreshServiceTokenRequired": "此数据集的数据源需要服务凭据才能刷新。请在下方提供一个以继续。",
     "refreshSourceUrlBlocked": "此数据集存储的数据源 URL 未通过安全检查，无法自动刷新。请联系管理员。",
-    "reuploadOriginChanged": "在准备替换数据期间，此数据集的数据源发生了变化，因此未排队任何任务。请在替换数据前检查该数据集的数据源。",
+    "reuploadOriginChanged": "在准备替换数据期间，此数据集的数据源发生了变化，因此未将任何任务加入队列。请在替换数据前检查该数据集的数据源。",
     "unknownLayers": "上传的文件中未找到这些图层：{{layers}}。",
     "sourceValidationCrsMismatch": "数据源 {{source}} 的坐标参考系统与其他数据源不匹配。",
     "sourceValidationBandCountMismatch": "数据源 {{source}} 的波段数与其他数据源不匹配。",
@@ -372,7 +372,7 @@
     "aiSummaryFailed": "生成摘要失败",
     "aiKeywordsFailed": "生成关键词失败",
     "aiLineageFailed": "生成数据血缘失败",
-    "aiQualityFailed": "生成质量说明失败",
+    "aiQualityFailed": "生成数据质量说明失败",
     "aiDisabled": "AI 功能当前已禁用",
     "aiNotConfigured": "AI 未配置（缺少 API 密钥）",
     "aiGenerationFailed": "AI 地图生成意外失败",
@@ -454,7 +454,7 @@
       "polygon": "多边形",
       "multiPoint": "多点",
       "multiLineString": "多折线",
-      "multiPolygon": "多多边形"
+      "multiPolygon": "多重多边形"
     },
     "geometryFamily": {
       "point": "点",
@@ -484,7 +484,7 @@
       "fgdb": "文件地理数据库",
       "wfs": "WFS",
       "arcgisFeatureServer": "ArcGIS 要素服务",
-      "ogcapiFeatures": "OGC API 要素服务",
+      "ogcapiFeatures": "OGC API Features",
       "created": "在 GeoLens 中创建"
     }
   },

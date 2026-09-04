@@ -138,7 +138,7 @@
     },
     "placeholders": {
       "username": "用户名",
-      "email": "用户@示例.com",
+      "email": "user@example.com",
       "password": "至少 12 个字符"
     },
     "roles": {
@@ -160,7 +160,7 @@
       "active": "活跃"
     },
     "placeholder": {
-      "email": "用户@示例.com"
+      "email": "user@example.com"
     },
     "roles": {
       "viewer": "查看者",
@@ -307,7 +307,7 @@
     "backfillRunFailed": "嵌入回填运行失败——请查看服务器日志",
     "backfillRunCancelled": "嵌入回填已取消",
     "allEmbedded": "所有数据集均已生成嵌入",
-    "staleEmbeddingsWarning": "{{count}} 个嵌入由其他模型生成，无法用于语义搜索。可“生成缺失的嵌入”仅重新嵌入这些记录，或“全部重新生成”并同时删除被取代的向量。",
+    "staleEmbeddingsWarning": "{{count}} 个嵌入向量由不同模型生成，无法用于语义搜索。选择“生成缺失的嵌入”可只重新生成这些记录的嵌入；选择“全部重新生成”还会删除已被替代的向量。",
     "manageSettings": "管理 AI 设置",
     "sectionInference": "推理（LLM）",
     "sectionSemanticSearch": "语义搜索与嵌入",
@@ -332,7 +332,7 @@
     "keyNotSet": "未设置",
     "testConnection": "测试连接",
     "testing": "测试中…",
-    "testConnectionDescription": "对每个已配置的提供商发起一次真实调用，以验证密钥和连通性。会消耗少量提供商令牌。",
+    "testConnectionDescription": "对每个已配置的提供商发起一次真实调用，以验证密钥和连通性。会消耗少量模型 token（词元）。",
     "testConnectionDirty": "请先保存更改——测试针对已保存的配置运行。",
     "testConnectionFailed": "连接测试失败",
     "probeOk": "正常",
@@ -341,7 +341,7 @@
     "labels": {
       "aiEnabled": "启用 AI 聊天",
       "sendSampleValues": "向 LLM 发送样本值",
-      "maxAiTokensPerDay": "每用户每日 AI 令牌上限（0=不限）",
+      "maxAiTokensPerDay": "每用户每日 AI token 上限（0 = 不限）",
       "llmProvider": "LLM 提供商",
       "model": "模型",
       "openaiBaseUrl": "OpenAI 兼容基础 URL",
@@ -422,14 +422,14 @@
     "expired": "已过期",
     "revoked": "已吊销",
     "noLink": "无链接",
-    "never": "从不",
-    "revoke": "吊销",
-    "revokeSuccess": "共享令牌已吊销",
-    "revokeFailed": "吊销共享令牌失败",
-    "revokeDialogTitle": "吊销共享链接",
-    "revokeDialogDescription": "确定要吊销“{{map}}”的共享链接吗？持有此链接的所有人将失去访问权限。",
+    "never": "从未",
+    "revoke": "撤销",
+    "revokeSuccess": "共享链接已撤销",
+    "revokeFailed": "撤销共享链接失败",
+    "revokeDialogTitle": "撤销共享链接",
+    "revokeDialogDescription": "确定要撤销“{{map}}”的共享链接吗？持有此链接的所有人将失去访问权限。",
     "revokeDialogCancel": "取消",
-    "revokeDialogConfirm": "吊销"
+    "revokeDialogConfirm": "撤销"
   },
   "embedTokens": {
     "tokenHint": "令牌",
@@ -443,16 +443,16 @@
     "revoked": "已吊销",
     "expiringSoon": "{{days}} 天后过期",
     "expiresToday": "今日过期",
-    "never": "从不",
+    "never": "从未",
     "noOrigins": "不限",
     "revokeSelected": "吊销所选（{{count}}）",
-    "bulkRevokeTitle": "吊销嵌入令牌",
-    "bulkRevokeDescription": "确定吊销 {{count}} 个嵌入令牌吗？此操作无法撤销。使用这些令牌的嵌入地图将失去瓦片访问权限。",
+    "bulkRevokeTitle": "吊销嵌入地图访问令牌",
+    "bulkRevokeDescription": "确定吊销 {{count}} 个嵌入地图访问令牌吗？此操作无法撤销。使用这些令牌的嵌入地图将失去瓦片访问权限。",
     "bulkRevokeConfirm": "吊销",
     "bulkRevokeCancel": "取消",
-    "bulkRevokeSuccess": "已吊销 {{count}} 个嵌入令牌",
-    "bulkRevokeFailed": "吊销嵌入令牌失败",
-    "tableLabel": "嵌入令牌"
+    "bulkRevokeSuccess": "已吊销 {{count}} 个嵌入地图访问令牌",
+    "bulkRevokeFailed": "吊销嵌入地图访问令牌失败",
+    "tableLabel": "嵌入地图访问令牌"
   },
   "settings": {
     "copySPEntityId": "复制 SP 实体 ID",
@@ -524,9 +524,9 @@
       "landingFirst": "以登录页作为落地页",
       "landingFirstDescription": "启用后，访问根 URL 的匿名访客将看到登录页面而非目录。“浏览目录”链接可让访客在本次会话中跳过登录。",
       "aiFeatures": "AI 功能",
-      "aiFeaturesDescription": "启用 AI 驱动的功能，包括数据集元数据起草（摘要、关键词、谱系、质量声明）、地图构建器聊天和 AI 地图生成。",
+      "aiFeaturesDescription": "启用 AI 驱动的功能，包括数据集元数据起草（摘要、关键词、数据血缘、数据质量说明）、地图构建器聊天和 AI 地图生成。",
       "requireMetadata": "发布前要求完整元数据",
-      "requireMetadataDescription": "启用后，数据集必须具备完整的元数据（标题、摘要、联系人、关键词、许可协议、空间范围、CRS、谱系）才能发布。",
+      "requireMetadataDescription": "启用后，数据集必须具备完整的元数据（标题、摘要、联系人、关键词、许可协议、空间范围、CRS、数据血缘）才能发布。",
       "enableDatasetEditing": "启用数据集编辑",
       "enableDatasetEditingDescription": "允许在数据集详情页绘制几何图形和编辑属性。禁用时，数据集为只读。",
       "restrictPublicVisibility": "仅管理员可设置公开可见性",
@@ -579,7 +579,7 @@
       "saveFailed": "保存底图失败"
     },
     "mapDefaults": {
-      "title": "地图默认值",
+      "title": "地图默认设置",
       "cardTitle": "默认地图视图",
       "cardDescription": "设置所有地图视图的初始中心和缩放级别。",
       "latitude": "纬度",
@@ -587,8 +587,8 @@
       "zoomLevel": "缩放级别",
       "preview": "预览",
       "useCurrentView": "使用当前视图",
-      "saved": "地图默认值已保存",
-      "saveFailed": "保存地图默认值失败"
+      "saved": "地图默认设置已保存",
+      "saveFailed": "保存地图默认设置失败"
     },
     "plugins": {
       "title": "地图插件",
@@ -648,7 +648,7 @@
       "allowedEmailDomains": "允许的电子邮箱域名",
       "allowedEmailDomainsDescription": "将注册和登录限制为这些域名的电子邮箱地址。留空则允许任何域名。",
       "allowedEmailDomainsUnrestricted": "无限制——允许所有电子邮箱域名。",
-      "addDomainPlaceholder": "示例.com",
+      "addDomainPlaceholder": "example.com",
       "addDomain": "添加",
       "removeDomain": "移除域名 {{domain}}"
     },
@@ -780,7 +780,7 @@
     "idpSsoUrlHint": "用户被重定向以进行身份验证的单点登录端点（HTTP-Redirect 或 HTTP-POST 绑定）。",
     "idpCertificate": "IdP 签名证书（PEM）",
     "idpCertificateKeep": "留空即可保留现有证书",
-    "idpCertificateHint": "IdP 用于签名 SAML 断言的 PEM 编码 X.509 证书。静态存储时已加密。",
+    "idpCertificateHint": "IdP 用于签名 SAML 断言的 PEM 编码 X.509 证书。采用静态加密存储。",
     "spEntityId": "SP 实体 ID",
     "spEntityIdWarning": "必须与在 IdP 注册的 SP entityID 完全一致。配置后请勿更改。",
     "defaultRole": "默认角色",

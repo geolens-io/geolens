@@ -5,7 +5,7 @@
   "empty": {
     "title": "还没有集合",
     "description": "集合将相关的数据集分组，便于发现。",
-    "cta": "创建你的第一个集合"
+    "cta": "创建您的第一个集合"
   },
   "error": {
     "title": "加载集合失败",
@@ -29,7 +29,7 @@
   "search": {
     "placeholder": "搜索集合...",
     "empty": "没有匹配的集合",
-    "emptyHint": "没有集合与你的搜索匹配。请尝试其他名称。"
+    "emptyHint": "没有集合与您的搜索匹配。请尝试其他名称。"
   },
   "card": {
     "datasetCount_one": "{{count}} 个数据集",

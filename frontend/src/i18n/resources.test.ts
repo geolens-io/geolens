@@ -87,6 +87,10 @@ const IDENTICAL_ACROSS_LOCALES = new Set([
   'dataset:schema.columnNamePlaceholder', // column_name
   'import:urlImport.placeholder', // https://data.source.coop/…/buildings.parquet
   'import:urlImport.filenamePlaceholder', // buildings.parquet
+  'import:serviceUrl.portalUrlPlaceholder', // https://your-org.maps.arcgis.com
+  'admin:userCreate.placeholders.email', // user@example.com
+  'admin:userEdit.placeholder.email', // user@example.com
+  'admin:settings.security.addDomainPlaceholder', // example.com
   'dataset:sourcePanel.refresh.credential.arcgis.portalUrlPlaceholder', // https://www.arcgis.com
 ]);
 
