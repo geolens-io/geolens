@@ -31,7 +31,9 @@ from app.modules.catalog.sources.arcgis_signin import signin_account_key
 from app.modules.catalog.sources.models import ArcGISSignInAttempt
 from app.modules.catalog.sources.signin_guard import (
     _ARCGIS_SIGNIN_ATTEMPT_LIMIT,
+    SignInTarget,
     _signin_budgets_spent,
+    signin_target,
 )
 
 pytestmark = pytest.mark.anyio
@@ -53,6 +55,10 @@ def test_the_ledger_is_deliberately_outside_the_rls_boundary():
     assert set(ArcGISSignInAttempt.__table__.c.keys()) == {
         "id",
         "account_key",
+        # fix(#1775): the per-caller budget's key, and a keyed digest of the
+        # caller and the token-service scope rather than a user id, so the
+        # no-plaintext-identifier rule this test states still holds.
+        "user_scope",
         "attempted_at",
     }
 
@@ -137,10 +143,22 @@ async def test_two_tenants_share_one_budget_for_one_arcgis_account(multi_tenant_
                 await conn.execute(
                     sa.text(
                         f"INSERT INTO catalog.{_LEDGER} "
-                        "(id, account_key, attempted_at) "
-                        "VALUES (:id, :account_key, now())"
+                        "(id, account_key, user_scope, attempted_at) "
+                        "VALUES (:id, :account_key, :user_scope, now())"
                     ),
-                    {"id": uuid.uuid4(), "account_key": account_key},
+                    {
+                        "id": uuid.uuid4(),
+                        "account_key": account_key,
+                        # fix(#1775): tenant A's caller, which tenant B is
+                        # not. The per-caller budget reads this table too now,
+                        # so charging these rows to B's digest would let the
+                        # WRONG budget answer the question below and the test
+                        # would prove nothing about the account budget
+                        # crossing tenants.
+                        "user_scope": signin_target(
+                            ctx.user_a_id, host, "someone"
+                        ).user_scope,
+                    },
                 )
 
         # Tenant B, under the tenant GUC and the non-privileged role, so RLS
@@ -156,8 +174,15 @@ async def test_two_tenants_share_one_budget_for_one_arcgis_account(multi_tenant_
             # could just mean RLS was never enforced.
             assert visible_audit_rows == 0
 
+            # Tenant B's own caller digest, against the account tenant A
+            # spent: the only budget that can refuse here is the account's.
             spent = await _signin_budgets_spent(
-                session, ctx.user_b_id, host, account_key
+                session,
+                SignInTarget(
+                    host=host,
+                    account_key=account_key,
+                    user_scope=signin_target(ctx.user_b_id, host, "someone").user_scope,
+                ),
             )
 
         assert spent is True

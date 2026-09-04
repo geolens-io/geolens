@@ -2557,7 +2557,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # than refuse, since the hook fires on every 3xx whether or not it is
     # followed. r17 decodes to a fixed point instead of for four passes, and
     # refuses a stable form still carrying an encoded separator.
-    "backend/app/modules/catalog/sources/arcgis_signin.py": 1253,
+    # fix(#1775): +40. `signin_user_key`, the keyed digest that carries the
+    # per-caller budget now that it is counted from the ledger rather than
+    # from audit_logs (reserve-then-settle commits the attempt before the
+    # credential POST and writes the audit row after it, so a cancelled
+    # request leaves no audit row to count), and AUDIT_CANCELLED, the outcome
+    # of an attempt whose POST was interrupted. Cap 1253 -> 1293, exact.
+    "backend/app/modules/catalog/sources/arcgis_signin.py": 1293,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against

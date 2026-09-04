@@ -33,16 +33,14 @@ from app.modules.catalog.sources.arcgis_signin import (
     ArcGISSignInError,
     open_portal_signin,
     portal_host,
-    signin_account_key,
 )
 from app.modules.catalog.sources.preview import build_gdal_source, run_service_preview
 from app.modules.catalog.sources.signin_guard import (
     _signin_audit,
-    _signin_budgets_spent,
-    _signin_in_progress,
-    _signin_locks,
-    _signin_rate_limited,
     _signin_refusal,
+    _signin_reserve,
+    _signin_settle_cancelled,
+    signin_target,
 )
 from app.modules.catalog.sources.probe import ServiceNotRecognized, detect_service_type
 from app.modules.catalog.sources.schemas import (
@@ -1144,16 +1142,18 @@ async def preview_service_layer(
 #    control 4 raised out of the way: six 200s under the old keying, three
 #    200s then three 429s under the new. The key functions below were never
 #    the leak; they carry the user id in both.
-# 3. A PostgreSQL advisory lock per (user, portal host), held across the
-#    mint, so the count below cannot be read by two workers at once.
-# 4. The same three attempts per fifteen minutes counted from the audit rows
-#    this endpoint already writes, which is shared state on a stock install.
-#    Valkey is not: `REDIS_URL` is unset by default, so a Valkey-backed
-#    limiter would be no enforcement at all on the installs that most need
-#    it. Strictly below Esri's five failed sign-ins in fifteen minutes, so
-#    GeoLens can never be what locks an account and the user keeps two
-#    attempts of their own.
+# 3. Two PostgreSQL advisory locks, per (user, token service) and per ArcGIS
+#    account, so the count below cannot be read by two workers at once.
+# 4. The same three attempts per fifteen minutes, counted from the ledger rows
+#    this endpoint writes, which is shared state on a stock install. Valkey is
+#    not: `REDIS_URL` is unset by default, so a Valkey-backed limiter would be
+#    no enforcement at all on the installs that most need it. Strictly below
+#    Esri's five failed sign-ins in fifteen minutes, so GeoLens can never be
+#    what locks an account and the user keeps two attempts of their own.
 # 5. One POST per attempt and never a retry, in `arcgis_signin.py`.
+#
+# fix(#1775): controls 3 and 4 apply in ONE short transaction that commits
+# before the credential POST, rather than across it. See `_signin_reserve`.
 #
 # fix(#1758 codex r1): controls 3 and 4 replaced a process-local set and a
 # pair of process-local counters that a two-worker install multiplied by two.
@@ -1167,19 +1167,19 @@ _ARCGIS_SIGNIN_USER_LIMIT = "3/15minutes"
 _ARCGIS_SIGNIN_PORTAL_LIMIT = "3/15minutes"
 
 
-# fix(#1758 codex r17): a worker-wide ceiling on sign-ins that are inside
-# their network phases, set below the database pool so they cannot take it.
-# Production runs 10 pooled connections plus 3 overflow (13), and a sign-in
-# holds its request connection across discovery and the mint for up to the
-# 45-second budget, so 13 concurrent sign-ins for distinct scopes could
-# occupy the whole pool and time out unrelated API requests. Four leaves nine
-# for everything else.
-#
-# This BOUNDS that saturation, it does not remove it: the connection is still
-# held across external I/O. The reservation redesign that removes it is
-# tracked separately; see the PR body.
-_ARCGIS_SIGNIN_CONCURRENCY = 4
-_signin_slots = asyncio.Semaphore(_ARCGIS_SIGNIN_CONCURRENCY)
+# fix(#1775): the worker-wide `asyncio.Semaphore(4)` that used to stand here
+# is GONE, and its removal is the point of this change rather than a
+# side-effect. It existed (fix(#1758 codex r17)) because a sign-in held its
+# pooled connection across discovery and the mint for up to the 45-second
+# network budget, so 13 concurrent sign-ins for distinct scopes could occupy a
+# 10+3 pool and time out unrelated API requests; four was a bound on that
+# saturation, honestly documented as a bound rather than a fix. The handler
+# below now holds no connection across any network phase, so there is nothing
+# left for the ceiling to protect, and keeping it would refuse a fifth
+# concurrent caller per worker for no remaining reason. What still bounds
+# outbound credential POSTs is what always did the work: three attempts per
+# ArcGIS account and three per caller and token service, both committed before
+# the POST goes out.
 
 _require_create_layers = require_permission("create_layers")
 
@@ -1276,6 +1276,21 @@ async def arcgis_signin(
     an API key instead. A portal on a private network is unreachable either
     way.
     """
+    # fix(#1775): the scalars this handler needs, taken off the ORM instance
+    # BEFORE the rollback below. `Identity` is the concrete `User` row, and
+    # `AsyncSession.rollback()` expires every instance it loaded, so the next
+    # attribute read would raise MissingGreenlet rather than reload.
+    user_id = user.id
+    # fix(#1775): return the pooled connection before any network I/O. The
+    # `create_layers` check above left this session in an open transaction,
+    # which used to stay checked out through discovery, both advisory locks
+    # and the mint — up to the 45-second budget — so 13 concurrent sign-ins
+    # for distinct scopes could occupy a 10+3 pool and time out unrelated API
+    # requests. Nothing of ours is uncommitted here, so the rollback discards
+    # nothing; the later phases reuse this same session object and each checks
+    # out a fresh connection for as long as its own short transaction lasts.
+    await db.rollback()
+
     # fix(#1758 codex r7): phase one resolves WHERE the password would go, and
     # every limit below is keyed on that rather than on the address the caller
     # typed. fix(#1758 codex r11): "where" is the installation, not just the
@@ -1287,6 +1302,9 @@ async def arcgis_signin(
     # fresh three-attempt buckets against a single ArcGIS account. Discovery
     # is a credential-free GET under the same deadline, and it runs before any
     # lock is taken so a portal that cannot be resolved costs nobody a lock.
+    # It is also why the reservation cannot simply precede discovery: the
+    # account scope IS the token-service destination, and only discovery knows
+    # it.
     #
     # fix(#1758 codex r8): the resolved identity is held OUTSIDE the block, so
     # the handler below can charge a failure to it. A cancellation is the case
@@ -1296,78 +1314,50 @@ async def arcgis_signin(
     # Charged to `unknown` that outcome spent nothing, and a caller could
     # repeat credential POSTs against a real account forever without the
     # ledger ever moving.
-    resolved_host: str | None = None
-    resolved_account_key: str | None = None
-    resolved_note: str | None = None
-    # fix(#1758 codex r17): refuse rather than queue. Waiting here would hold
-    # the request's own pooled connection while waiting, which is the resource
-    # this bound exists to protect; the caller gets the same 429 the attempt
-    # budget uses and the client already maps.
-    if _signin_slots.locked():
-        await _signin_refusal(
-            db,
-            user.id,
-            "unknown",
-            signin_account_key("unknown", body.username),
-            _signin_rate_limited(),
-        )
+    target = signin_target(user_id, "unknown", body.username)
+    note: str | None = None
+    reserved = False
     try:
-        async with _signin_slots, open_portal_signin(body.portal_url) as portal:
+        async with open_portal_signin(body.portal_url) as portal:
             # fix(#1758 codex r3): the account lock and both budgets are keyed
             # on the ARCGIS account, not on the GeoLens caller. The username
             # reaches this line and goes no further: what is stored, locked on
             # and counted is the digest.
-            resolved_host = host = portal.scope
-            resolved_account_key = account_key = signin_account_key(host, body.username)
-            resolved_note = portal.discovery_note
+            target = signin_target(user_id, portal.scope, body.username)
+            note = portal.discovery_note
 
-            # fix(#1758 codex r5): two locks, taken user-and-host FIRST and
-            # account SECOND, and that order is the whole of the deadlock
-            # argument. The account lock alone left the per-user budget racy:
-            # one caller signing in to three different accounts on one host
-            # took three different account locks, so all three read the same
-            # pre-attempt count and all three passed a limit of three.
-            #
-            # fix(#1758 codex r6/r10): both on the request's own session, so
-            # a sign-in costs one pooled connection rather than three.
-            async with _signin_locks(
-                db, f"user:{user.id}:host:{host}", f"account:{account_key}"
-            ) as locked:
-                if not locked:
-                    await _signin_refusal(
-                        db, user.id, host, account_key, _signin_in_progress()
-                    )
-                if await _signin_budgets_spent(db, user.id, host, account_key):
-                    await _signin_refusal(
-                        db, user.id, host, account_key, _signin_rate_limited()
-                    )
-                try:
-                    minted = await portal.mint(body.username, body.password)
-                except ArcGISSignInError as exc:
-                    await _signin_refusal(
-                        db, user.id, host, account_key, exc, resolved_note
-                    )
+            # fix(#1775): RESERVE. One short transaction takes both locks,
+            # reads both budgets, commits the counted attempt and gives the
+            # connection back. Everything after this line runs with no session
+            # held, and the attempt is already spent, so a cancellation cannot
+            # hand ArcGIS a failed password that GeoLens does not count.
+            await _signin_reserve(db, user_id, target, note)
+            reserved = True
 
-                # Inside both locks, so the row is committed before the next
-                # attempt against this account, or by this caller against this
-                # token service, can read either counter.
-                logger.info("ArcGIS sign-in succeeded", token_service_host=host)
-                await _signin_audit(
-                    db, user.id, host, AUDIT_SUCCESS, account_key, resolved_note
-                )
+            try:
+                minted = await portal.mint(body.username, body.password)
+            except ArcGISSignInError as exc:
+                await _signin_refusal(db, user_id, target, exc, note, reserved=True)
+            except asyncio.CancelledError:
+                # fix(#1775): uvicorn cancelling this task during shutdown
+                # bypasses `mint`'s `except Exception` and the clause above.
+                # The count is already durable; what this recovers is the
+                # operator-facing row saying a password went out. Shielded and
+                # best effort, and it re-raises either way — see the helper.
+                await _signin_settle_cancelled(db, user_id, target, note)
+                raise
+
+            # fix(#1775): SETTLE. A second short transaction, and the only one
+            # that runs after the network. The reservation already counted the
+            # attempt, so `reserved=True` keeps this from counting it twice.
+            logger.info("ArcGIS sign-in succeeded", token_service_host=target.host)
+            await _signin_audit(db, user_id, target, AUDIT_SUCCESS, note, reserved=True)
     except ArcGISSignInError as exc:
-        # A mint failure was already turned into an HTTPException above, inside
-        # the locks, so what reaches here is either a phase-one failure or a
-        # cancellation that unwound past the inner handler. `unknown` is only
-        # ever correct for the first: once discovery has named a destination,
-        # every outcome after it is charged to that account, ledger row
-        # included, because by then a credential POST may well have gone out.
-        await _signin_refusal(
-            db,
-            user.id,
-            resolved_host or "unknown",
-            resolved_account_key or signin_account_key("unknown", body.username),
-            exc,
-            resolved_note,
-        )
+        # A mint failure was already turned into an HTTPException above, so
+        # what reaches here is a phase-one failure. `unknown` is only ever
+        # correct for that: once discovery has named a destination, every
+        # outcome after it is charged to that account. `reserved` is carried
+        # rather than assumed, so a counted outcome that a later change adds
+        # between the reservation and the mint cannot count itself twice.
+        await _signin_refusal(db, user_id, target, exc, note, reserved=reserved)
     return ArcGISSignInResponse(token=minted.token, expires_at=minted.expires_at)
