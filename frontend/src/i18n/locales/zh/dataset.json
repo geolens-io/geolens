@@ -394,7 +394,8 @@
     "columnsAdded": "新增列（{{count}}）",
     "columnsRemoved": "移除列（{{count}}）",
     "typeChanges": "类型更改（{{count}}）",
-    "noChanges": "未检测到字段结构变更。"
+    "noChanges": "未检测到字段结构变更。",
+    "rowCountUnknown": "列未发生变化，但无法确定行数。"
   },
   "map": {
     "ariaLabel": "数据集地图",
@@ -809,6 +810,22 @@
         "wfs": {
           "intro": "此数据源因需要凭据而直接拒绝了刷新。请在下方再次发送令牌。",
           "escapeHatch": "如果数据源现在已公开，请在“重新上传”对话框中不带令牌重新导入，以清除此要求。"
+        },
+        "service": {
+          "methodLabel": "身份验证",
+          "methodNone": "无身份验证",
+          "methodBearer": "Bearer 令牌",
+          "methodBasic": "用户名和密码",
+          "methodHeader": "请求头中的 API 密钥",
+          "tokenLabel": "Bearer 令牌",
+          "tokenPlaceholder": "粘贴 Bearer 令牌",
+          "usernameLabel": "用户名",
+          "passwordLabel": "密码",
+          "headerNameLabel": "请求头名称",
+          "headerNamePlaceholder": "例如 X-API-Key",
+          "headerValueLabel": "请求头值",
+          "headerValuePlaceholder": "您的 API 密钥",
+          "helpText": "Bearer 令牌会通过 Authorization 请求头发送；用户名和密码会通过 HTTP Basic 身份验证发送；API 密钥可放在服务提供商指定的任意请求头中，例如 X-API-Key、Ocp-Apim-Subscription-Key 或 key。"
         }
       },
       "history": {
