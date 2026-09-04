@@ -467,7 +467,30 @@ and releases use semantic versioning.
   behind it enforces, the same drift already corrected for the Settings tabs
   by an earlier fix; it now uses the same mode-aware check (#1805).
 
+- **The map builder's Share panel now explains a refused public toggle.**
+  Turning a map public while it still holds non-public dataset layers was
+  refused by the API with a 400, but the panel could not parse the response
+  and swallowed it, so the toggle appeared to do nothing. The refusal now
+  renders as an inline message under the visibility control, names the
+  datasets that block it, and is announced to screen readers; the duplicate
+  generic error toast no longer also fires for the same failure (#1841).
+
 ### Security
+
+- **The ArcGIS token GeoLens sends on its own probe, preview, count, and
+  pagination requests now travels as an `Authorization: Bearer` header
+  instead of a `?token=` query parameter,** so it no longer appears in a
+  request URL or in the HTTP client's own request-log line, which redaction
+  runs too late to see. An ArcGIS Server older than 10.5.1, read from the
+  service's own `currentVersion`, keeps the query form, since it does not
+  read a bearer header. The GDAL fetch that pulls the feature data itself is
+  unchanged and still uses the query form: the worker's header file only
+  accepts a base64url-shaped token, which an ArcGIS token is not guaranteed to
+  be, and that path was already redacted from job arguments and error text.
+  Also: an SSRF refusal encountered while probing an ArcGIS service now
+  reaches the caller instead of degrading to a generic "unhealthy" answer,
+  and the query-form fallback now registers its token with the log scrubber
+  the same way the header form already did (#1840).
 
 - **ArcGIS sign-in attempts are now counted before the credential is sent,
   not after.** A sign-in request cancelled mid-flight could previously go
