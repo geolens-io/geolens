@@ -11,20 +11,21 @@ and releases use semantic versioning.
 
 - **WFS and OGC API Features service imports now accept a username and
   password, or an API key in a custom header, instead of only a bearer
-  token.** The import wizard's Service tab and the dataset refresh dialog
-  both offer a method select: none, bearer token, username and password, or
-  a named header. Nothing about the storage model changes: the credential is
-  validated and carried through the import job only long enough to run it,
-  and a refresh still asks for it again rather than remembering it. On the
-  backend, the same four entry points that already handled a bearer token
-  (probe, preview, commit, refresh) now compose the credential into the
-  request GDAL and the OGC client actually send, and it is purged and
-  redacted from job rows and logs the same way a bearer token already was.
-  Operators: this release renames the ingest job queue these imports run on
-  to `ingest-auth-v2`. If you ever need to roll back to a release before this
-  one, follow the queue-draining steps in RUNBOOK.md's upgrade-and-rollback
-  section (§10) first, or affected imports are left stuck rather than picked
-  up by the older worker (#1770, #1756, #1760, #1834).
+  token.** The import wizard's Service tab and the dataset refresh dialog both
+  offer a method select: none, bearer token, username and password, or a named
+  header. The credential is not stored with the dataset: it is validated,
+  carried to the worker for that one job, and a refresh still asks for it
+  again rather than remembering it. Job arguments carrying it are purged by
+  the existing cleanup sweep once the job reaches a terminal state, the same
+  way a bearer token's arguments already were. On the backend, the same four
+  entry points that already handled a bearer token (probe, preview, commit,
+  refresh) now compose the credential into the request GDAL and the OGC client
+  actually send, and it is redacted from logs the same way a bearer token
+  already was. Operators: this release renames the ingest job queue these
+  imports run on to `ingest-auth-v2`. If you ever need to roll back to a
+  release before this one, follow the queue-draining steps in RUNBOOK.md's
+  upgrade-and-rollback section (§10) first, or affected imports are left stuck
+  rather than picked up by the older worker (#1770, #1756, #1760, #1834).
 
 - **Sign in to ArcGIS Online or a Portal for ArcGIS deployment directly from
   the import wizard, instead of pasting a token.** For an ArcGIS FeatureServer
@@ -167,13 +168,25 @@ and releases use semantic versioning.
   feature, or typed search carried into the next signed-in session (#1761).
 
 - **Raster tile and export reliability fixes.** A vector tile query with no
-  defined row order beyond its feature cap could return a different result
-  on every rebuild, so different app servers could serve inconsistent tiles
-  for the same request; tile queries are now consistently ordered. The
-  dataset export endpoint no longer holds a pooled database connection open
-  for the full duration of the conversion, which could otherwise starve
-  other requests during a large or slow export (#1781, #1784, #1791,
-  #1803, #1804).
+  defined row order beyond its feature cap could return a different result on
+  every rebuild, so different app servers could serve inconsistent tiles for
+  the same request; tile queries are now consistently ordered. The dataset
+  export endpoint no longer holds a pooled database connection open for the
+  full duration of the conversion, which could otherwise starve other requests
+  during a large or slow export. Every export format, GeoParquet included, is
+  now bounded to the same deadline as the edge proxy's read timeout, instead
+  of a synchronous export running for up to an hour behind a ten-minute proxy
+  window (#1781, #1791, #1804).
+
+- **Two data-loss bugs in the raster and VRT publish path are fixed.** A lost
+  commit acknowledgement or a cancellation during a raster replace or VRT
+  publish could leave the terminal cleanup believing the publish had failed,
+  so it deleted the storage objects the already-committed dataset row now
+  pointed at, leaving the dataset naming bytes that no longer existed with no
+  way in the product to restore them. Separately, on a local-storage install,
+  a worker-side validation failure (a lowered upload size limit catching a
+  file already queued, for example) deleted the user's only copy of the
+  uploaded file instead of leaving it in place (#1784).
 
 - **A registered PostGIS table now picks up writes made outside GeoLens
   again.** The render column GeoLens derives for a registered table was only
@@ -268,6 +281,15 @@ and releases use semantic versioning.
   supposed to guarantee. The raw embed token is also now redacted from
   generated diagnostic reports (#1795).
 
+- **A revoked embed token could still be served from cache for a request
+  racing the revocation, or during a Redis outage.** A request that read the
+  token as still active in the instant before a revocation committed could
+  cache it again as valid, and a token cached during a Redis outage could
+  survive a revocation issued once Redis recovered. Both are now fail-closed:
+  a revocation now wins the race and survives an outage on either side. This
+  release adds migration `0057`, which adds the revocation-tracking table
+  backing this; it runs automatically as part of the normal upgrade (#1796).
+
 - **A password over 72 bytes could crash the login endpoint, and the same
   input could crash-loop the API container on first boot.** bcrypt hashes
   at most 72 bytes and raises rather than truncating; `/auth/login` and the
@@ -279,12 +301,63 @@ and releases use semantic versioning.
   same duplicate-cookie hardening its paired refresh-token cookie already
   had (#1796).
 
+- **CORS could be tricked into trusting a client-controlled Host header.**
+  When an incoming request's Origin failed the configured allowlist, both CORS
+  resolvers fell back to reading the request's Host header instead of
+  refusing, and the proxy forwards Host verbatim, so a request naming an
+  arbitrary Host both failed and passed the allowlist check on the same call.
+  The fallback no longer runs after an explicit rejection (#1796).
+
+- **Two OAuth and SAML sign-in gaps closed.** Signing in through an OAuth or
+  OIDC provider no longer creates an account while self-service registration
+  is disabled: JIT provisioning never read the "Registration enabled" switch,
+  so an operator who added a provider without also restricting it by email
+  domain had, in effect, open signup, and any account at that identity
+  provider could sign in and be created as a viewer, who can list and export
+  every internal dataset. Existing users are unaffected. Separately, an
+  installation using the group-role-mapping extension now re-evaluates an
+  OAuth-mapped role on every login instead of binding it once at account
+  creation. Before this, the mapping could only add a role, never take one
+  away: removing someone from a mapped group at the identity provider now
+  revokes the GeoLens role that membership had granted (#1796).
+
 - **Service tokens no longer appear in plaintext in application logs.**
   httpx's own request logging and Procrastinate's worker job logging both
   wrote the composed request URL or job arguments at INFO, including the
   token, past the existing structured-log redaction, which only inspected
   known field keys rather than the rendered message text. Both loggers are
   now scrubbed (#1749).
+
+- **Application error logs no longer leak query values or share-link tokens.**
+  Database errors logged the full failing statement together with its bound
+  parameters, which the existing log redaction could not see because it only
+  inspects known field keys, not rendered text. A 500 or a database outage on
+  a shared-map link also logged its share token in the clear, unlike the
+  access log line beside it, which has redacted it since #821. Both are now
+  redacted (#1804).
+
+- **Vector tiles could return columns outside a dataset's declared column
+  allowlist.** The `cols=` request parameter was documented as bounded by the
+  dataset's `tile_columns` allowlist, but actually unioned any column past it,
+  so a client could read a column the allowlist was meant to keep out of the
+  tile. It now only ever narrows the projection the allowlist already permits.
+  Operators with a narrow allowlist and a data-driven style keyed on a column
+  outside it will need to add that column to the allowlist (#1804).
+
+- **Dataset CSV downloads are hardened against spreadsheet formula
+  execution.** An attribute value written by anyone with edit access to a
+  public dataset reached an anonymous downloader's CSV file byte for byte;
+  opening it in Excel or a similar tool could execute the value if it parsed
+  as a formula. A cell that could be read as a formula is now escaped; an
+  ordinary negative number is left alone (#1804).
+
+- **Private Cloud-Optimized GeoTIFF downloads no longer stay valid for an hour
+  after the token that authorized them expires.** The signed redirect for a
+  COG download was valid for a flat hour regardless of the caller's own access
+  token, so a private or internal dataset's download URL, once issued, kept
+  working long after the short-lived token behind it should have. The signed
+  URL's lifetime is now capped to what remains of the caller's own token
+  (#1804).
 
 - **The SQL sandbox closes several parsing edge cases that could bypass its
   access checks or leak a query in an error response.** A handful of
@@ -295,11 +368,45 @@ and releases use semantic versioning.
   logged. A query ending in a `--` comment could also be spliced with
   GeoLens's own row-limit wrapper in a way that broke the limit (#1797).
 
-- **The admin-configurable global rate limit now actually limits by
-  caller.** It was keyed by client IP and URL path rather than IP and
-  endpoint, so a caller could multiply their effective budget by varying a
-  path parameter, a dataset id or a tile coordinate, that the route table
-  was supposed to fix in place, not the limiter (#1785).
+- **AI chat trust-boundary fixes.** The chat surface's `query_data` tool sat
+  behind the same permission as the hardened raw-SQL endpoint but skipped its
+  capacity limit, self-join cap, and row and column caps; it now shares all of
+  them. Dataset content reaching the model, including sample values from
+  another user's public dataset, and every tool result handed back to the
+  model are now fenced as untrusted data with an explicit instruction that it
+  cannot be treated as an instruction, closing a cross-user path into a
+  prompt-injection surface (#1797).
+
+- **AI chat quota and error-disclosure fixes.** A chat request that failed,
+  timed out, or was cancelled after already spending provider tokens recorded
+  no usage against the caller's daily AI token budget, so a caller who could
+  reliably force one of those outcomes could exceed it for free; usage is now
+  recorded on every exit path. Error responses also no longer leak raw
+  exception text, including SQL statements and AI-provider connection details,
+  to the browser (#1797).
+
+- **Two raster and VRT worker hardening fixes close resource-exhaustion
+  paths.** Generating a quicklook for a malformed or adversarially crafted
+  Cloud-Optimized GeoTIFF could read an unbounded array into memory; the read
+  is now clamped to a fixed multiple of the target size. A stalled remote
+  raster source could hang a worker indefinitely during VRT metadata reads and
+  quicklook rendering, a hazard reintroduced after an earlier fix; GDAL
+  connect and read timeouts are applied again on those paths (#1803).
+
+- **The admin-configurable global rate limit now actually limits by caller.**
+  It was keyed by client IP and URL path rather than IP and endpoint, so a
+  caller could multiply their effective budget by varying a path parameter, a
+  dataset id or a tile coordinate, that the route table was supposed to fix in
+  place, not the limiter (#1785).
+
+- **Two more gaps let an anonymous caller cost more than the deployment's rate
+  limits allow.** The `/api/tiles/raster-proxy/` URL answered every request
+  with no rate limit at all, bypassing the one nginx enforced on the same
+  handler's other URL spelling. And the vector tile `cols=` parameter fed
+  unvalidated into the tile cache key, so a wide public table could be cached
+  under an unbounded number of keys for the one set of bytes those requests
+  actually returned, evicting legitimate tiles from the cache on a Valkey-less
+  install (#1785).
 
 ## [1.17.0] - 2026-08-30
 
