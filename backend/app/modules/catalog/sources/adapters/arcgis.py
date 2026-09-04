@@ -20,7 +20,7 @@ from app.core.service_tokens import (
 )
 from app.core.url_redaction import redact_exception_text
 from app.platform.probe_bounds import bounded_probe_read
-from app.platform.security import SSRFError
+from app.platform.security import SSRFError, same_origin
 from app.platform.service_endpoints import (
     DEFAULT_CHECK_TIMEOUT,
     OGC_JSON_ACCEPT,
@@ -56,10 +56,11 @@ ARCGIS_HEADER_TOKEN_MIN_VERSION = (10, 5, 1)
 
 # ArcGIS reports an auth refusal as an error envelope inside an HTTP 200 body.
 # 499 means "Token Required": no usable token was seen at all, which is also
-# exactly what a pre-10.5.1 server says when it ignores the Authorization
-# header, and so is what triggers the query-form retry. 498 means a token WAS
-# read and rejected, so the header transport worked and a retry would only
-# resend a bad token.
+# exactly what a pre-10.5.1 server says when it ignores the credential header,
+# and so is what triggers the query-form retry. 498 means a token WAS read and
+# rejected, so the header transport worked and a retry would only resend a bad
+# token. A deployment whose WEB TIER eats the header never reaches either code;
+# `_WEB_TIER_AUTH_STATUSES` below is that case.
 _ARCGIS_TOKEN_REQUIRED_CODE = 499
 _ARCGIS_TOKEN_ERROR_CODES = frozenset({498, _ARCGIS_TOKEN_REQUIRED_CODE})
 
@@ -320,6 +321,52 @@ def arcgis_request_auth(
     return {pair[0]: pair[1]}, None
 
 
+# fix(#1840 codex round 1): the statuses a web tier answers BEFORE ArcGIS is
+# reached. On ArcGIS Enterprise behind a Web Adaptor, or with web-tier
+# authentication (IWA or PKI in IIS), the server in front consumes the
+# credential header and refuses at the HTTP layer, so `bounded_probe_read`'s
+# `raise_for_status()` fires and no JSON envelope is ever produced -- the 499
+# fallback below cannot see such a deployment at all.
+_WEB_TIER_AUTH_STATUSES = frozenset({401, 403})
+
+
+def _is_web_tier_refusal(exc: httpx.HTTPStatusError, requested_url: str) -> bool:
+    """Whether *exc* is a front-end refusal worth one query-form retry.
+
+    Three bounds, all of them about not turning a real 401 into a credential
+    replay somewhere else. The status has to be 401 or 403; the response must
+    not have come through a redirect (``history`` empty), because a refusal
+    from a host we were bounced to says nothing about the host we addressed;
+    and the responding URL has to be the same origin as the one asked for.
+    """
+    response = exc.response
+    if response is None or response.status_code not in _WEB_TIER_AUTH_STATUSES:
+        return False
+    if response.history:
+        return False
+    return same_origin(str(response.url), requested_url)
+
+
+async def _read_with_query_token(
+    client: httpx.AsyncClient,
+    build_url: Callable[[str | None], str],
+    token: str,
+) -> object:
+    """The query-form read both fallbacks land on. Never retried again.
+
+    Composing through ``_query_form_credential`` rather than inline is what
+    registers the token with the exact-value scrubber before it goes into a
+    URL (fix(#1840 audit round 1)), and having exactly one of these is what
+    bounds the whole fallback to a single extra request: nothing it calls can
+    reach either fallback branch again.
+    """
+    retry_headers, retry_token = _query_form_credential(token)
+    body, _ = await bounded_probe_read(
+        client, build_url(retry_token), headers=retry_headers, accept=OGC_JSON_ACCEPT
+    )
+    return json.loads(body)
+
+
 async def read_arcgis_json(
     client: httpx.AsyncClient,
     build_url: Callable[[str | None], str],
@@ -327,37 +374,49 @@ async def read_arcgis_json(
     *,
     current_version: object = None,
 ) -> object:
-    """One bounded ArcGIS JSON read, with the token in an Authorization header.
+    """One bounded ArcGIS JSON read, with the token in a credential header.
 
     feat(C2). *build_url* is handed the token that belongs in the QUERY, which
     is ``None`` on the header path, so each caller keeps composing its own
     parameters while only one place decides where the credential goes.
 
-    The retry is the version gate's safety net rather than a second policy: a
-    pre-10.5.1 server that never reported its version ignores the header and
-    answers 499 "Token Required" in an HTTP 200 envelope, and that answer is
-    the evidence the header transport did not work here. 498 is not retried --
-    it means a token was read and rejected, so the header arrived.
+    Two fallbacks to the query form, both bounded to exactly one extra request
+    on the same validated URL, and both landing on ``_read_with_query_token``
+    so neither can chain into the other:
+
+    * An HTTP 200 whose JSON envelope carries error 499 "Token Required". That
+      is what an ArcGIS Server older than 10.5.1 says when it ignores the
+      header and therefore sees no token. 498 is NOT retried -- it means a
+      token was read and rejected, so the header arrived.
+    * fix(#1840 codex round 1): an HTTP 401 or 403 on the request itself. A
+      Web Adaptor or web-tier authentication (IWA/PKI in IIS) in front of
+      ArcGIS Enterprise consumes the credential header and refuses before
+      ArcGIS runs, so there is no envelope for the first fallback to read, and
+      an authenticated probe, preview or import would fail on a portal where
+      ``?token=`` had always worked. Bounded by ``_is_web_tier_refusal``:
+      same origin, no redirect in between, and only those two statuses. A
+      second 401 propagates, because ``_read_with_query_token`` catches
+      nothing.
 
     Raises whatever ``bounded_probe_read`` raises, plus ``ValueError`` from
     ``json.loads``; every caller already handles both.
     """
     headers, query_token = arcgis_request_auth(token, current_version=current_version)
-    body, _ = await bounded_probe_read(
-        client, build_url(query_token), headers=headers, accept=OGC_JSON_ACCEPT
-    )
+    requested_url = build_url(query_token)
+    try:
+        body, _ = await bounded_probe_read(
+            client, requested_url, headers=headers, accept=OGC_JSON_ACCEPT
+        )
+    except httpx.HTTPStatusError as exc:
+        if not headers or not token or not _is_web_tier_refusal(exc, requested_url):
+            raise
+        return await _read_with_query_token(client, build_url, token)
     data = json.loads(body)
     if not headers or _arcgis_error_code(data) != _ARCGIS_TOKEN_REQUIRED_CODE:
         return data
-    # fix(#1840 audit round 1): through the same chooser, so the retry
-    # registers the token for exact-value scrubbing exactly as the version
-    # gate's own fallback does. `token` is truthy here -- `headers` is
-    # non-empty, which only happens for a token that composed a header.
-    _retry_headers, retry_token = _query_form_credential(token or "")
-    body, _ = await bounded_probe_read(
-        client, build_url(retry_token), headers=_retry_headers, accept=OGC_JSON_ACCEPT
-    )
-    return json.loads(body)
+    # `token` is truthy here: `headers` is non-empty, which only happens for a
+    # token that composed a header.
+    return await _read_with_query_token(client, build_url, token or "")
 
 
 def _query_token_suffix(query_token: str | None) -> str:

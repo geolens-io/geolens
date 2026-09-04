@@ -73,14 +73,15 @@ ARCGIS_SERVICE_FORMAT = "arcgis_featureserver"
 
 # feat(C2): the formats whose credential travels as an HTTP header on
 # GeoLens's OWN httpx requests, which is a wider set than the one above.
-# ArcGIS Server has accepted ``Authorization: Bearer <token>`` since 10.5.1 and
-# hosted ArcGIS Online always has; measured live on 2026-09-04 with a
-# referer-bound token against services6.arcgis.com, where the header form and
-# the ``?token=`` form return the same count and no ``Referer`` is needed.
-# Sending it as a header keeps the token out of the request URL, and so out of
-# httpx's ``HTTP Request: GET ...`` INFO log line, out of proxy and
-# load-balancer access logs, and out of the exception text an origin quotes
-# back.
+# ArcGIS Server has accepted a bearer token in a header since 10.5.1 and hosted
+# ArcGIS Online always has; measured live on 2026-09-04 with a referer-bound
+# token against services6.arcgis.com, where both header forms and the
+# ``?token=`` form return the same count and no ``Referer`` is needed. The name
+# sent is ``X-Esri-Authorization`` (see ``ESRI_AUTHORIZATION_HEADER`` below for
+# why the standard one is not safe on Enterprise). Sending it as a header keeps
+# the token out of the request URL, and so out of httpx's ``HTTP Request:
+# GET ...`` INFO log line, out of proxy and load-balancer access logs, and out
+# of the exception text an origin quotes back.
 #
 # A separate set rather than a widened ``HEADER_AUTH_SERVICE_FORMATS`` because
 # all three of that set's questions are still no for ArcGIS: the base64url
@@ -151,7 +152,8 @@ def sends_credential_as_header(source_format: str | None) -> bool:
 
     feat(C2). The gate ``build_credential_header`` reads. Wider than
     :func:`requires_header_token_policy` by exactly ArcGIS, whose token became
-    an ``Authorization: Bearer`` header on the httpx path in lane C2 while
+    an ``X-Esri-Authorization: Bearer`` header on the httpx path in lane C2
+    while
     staying a query parameter on the GDAL path.
     """
     return source_format in HEADER_TRANSPORT_SERVICE_FORMATS
@@ -211,6 +213,25 @@ HEADER_LINE_SEPARATOR = ": "
 # The scheme prefix the bearer branch composes, and the prefix the worker
 # recognizes to decide that the stricter base64url charset applies.
 BEARER_SCHEME = "Bearer "
+
+# fix(#1840 codex round 1): the header ArcGIS's own bearer token travels under.
+# Esri documents this name precisely BECAUSE a deployment may consume the
+# standard one: on ArcGIS Enterprise behind a Web Adaptor, or with web-tier
+# authentication (IWA or PKI in IIS), IIS answers 401/403 to a request carrying
+# `Authorization` before ArcGIS ever sees it, so the JSON envelope that the
+# 499 fallback keys on is never produced. Hosted ArcGIS Online accepts either
+# (measured 2026-09-04, rows 3-6 of plan section 9 question 1), so the name
+# that also works on Enterprise is the one to send.
+#
+# Rule A's objection -- a custom header name is forwarded verbatim across a
+# cross-origin redirect where `Authorization` is stripped -- does not apply on
+# the httpx path, because this exact name is in `_ALWAYS_CREDENTIAL_HEADERS`
+# (`app/platform/security.py:143`) and `_refuse_cross_origin_credential`
+# (same file, ~line 187, called from `_revalidate_redirect` at ~line 234)
+# REFUSES such a hop rather than following it. That is strictly louder than
+# httpx's silent strip of `Authorization`. GDAL never sends this: the ArcGIS
+# ingest path still percent-encodes the token into the ESRIJSON source URL.
+ESRI_AUTHORIZATION_HEADER = "X-Esri-Authorization"
 
 # The basic branch's, named for the same reason: the redactor recognizes it to
 # decide that what follows is base64 of a username and password, and so has a
@@ -542,6 +563,10 @@ def build_credential_header(
         reason = _bearer_token_rejection(auth)
         if auth.token is None or reason is not None:
             raise ValueError(reason or HEADER_TOKEN_POLICY)
+        if auth.service_format == ARCGIS_SERVICE_FORMAT:
+            esri_pair = (ESRI_AUTHORIZATION_HEADER, f"{BEARER_SCHEME}{auth.token}")
+            register_credential_secret(credential_header_line(esri_pair))
+            return esri_pair
         pair = ("Authorization", f"{BEARER_SCHEME}{auth.token}")
         register_credential_secret(credential_header_line(pair))
         return pair

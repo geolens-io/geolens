@@ -54,14 +54,15 @@ def _mock_transport_client(handle) -> httpx.AsyncClient:
 
 
 @pytest.mark.asyncio
-async def test_arcgis_probe_sends_the_token_as_an_authorization_header():
+async def test_arcgis_probe_sends_the_token_as_an_esri_authorization_header():
     """feat(C2): the token is a header, and the URL carries no credential.
 
     This test used to assert the exact opposite -- ``token=mytoken`` in the
-    URL and no ``Authorization`` header at all -- because that was the only
+    URL and no credential header at all -- because that was the only
     transport ArcGIS was believed to accept here. Measured live on 2026-09-04
-    against a referer-bound token on services6.arcgis.com, ``Authorization:
-    Bearer`` returns the same count as ``?token=``, so the credential moved
+    against a referer-bound token on services6.arcgis.com, both
+    ``X-Esri-Authorization: Bearer`` and ``Authorization: Bearer`` return the
+    same count as ``?token=``, so the credential moved
     out of the URL: out of httpx's ``HTTP Request: GET ...`` INFO line, out of
     proxy access logs, and out of the text an origin quotes back in an error.
     """
@@ -85,7 +86,7 @@ async def test_arcgis_probe_sends_the_token_as_an_authorization_header():
 
     assert len(recorded) == 1
     assert "token" not in str(recorded[0].url)
-    assert recorded[0].headers["Authorization"] == "Bearer mytoken"
+    assert recorded[0].headers["X-Esri-Authorization"] == "Bearer mytoken"
 
 
 @pytest.mark.asyncio
@@ -124,7 +125,7 @@ async def test_arcgis_probe_falls_back_to_an_encoded_query_token_on_499():
     assert "token" not in str(recorded[0].url)
     url_called = str(recorded[1].url)
     assert "token=AA%27%23%26ULTRASECRET" in url_called
-    assert "Authorization" not in recorded[1].headers
+    assert "X-Esri-Authorization" not in recorded[1].headers
     assert "'" not in url_called
     assert "#" not in url_called
     assert "&ULTRA" not in url_called
@@ -137,7 +138,7 @@ async def test_enrich_arcgis_feature_counts_uses_the_header_and_the_one_builder(
     Two things at once, because the fold is what made the second possible.
     The per-layer count query is composed by ``build_arcgis_count_query_url``
     now rather than by a third hand-rolled concatenation, and the token it
-    would have concatenated is an ``Authorization`` header, so the URL this
+    would have concatenated is an ``X-Esri-Authorization`` header, so the URL this
     site issues is byte-identical to the one the health probe issues.
 
     fix(#1770 round 44 P1): this read goes through `bounded_probe_read`
@@ -166,7 +167,7 @@ async def test_enrich_arcgis_feature_counts_uses_the_header_and_the_one_builder(
         "https://services.arcgis.com/svc/FeatureServer/0"
     )
     assert "token" not in str(recorded[0].url)
-    assert recorded[0].headers["Authorization"] == "Bearer AA'#&ULTRASECRET"
+    assert recorded[0].headers["X-Esri-Authorization"] == "Bearer AA'#&ULTRASECRET"
 
 
 @pytest.mark.asyncio

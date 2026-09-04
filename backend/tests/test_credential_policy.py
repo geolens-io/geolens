@@ -389,7 +389,10 @@ class TestBuildCredentialHeaderReturnsNone:
 
         An ArcGIS token is judged as a header VALUE (printable ASCII, no
         whitespace) rather than by ``HEADER_TOKEN_CHARSET``, so ``+``, ``/``
-        and a token shorter than the WFS/OAPIF floor all compose. Those rules
+        and a token shorter than the WFS/OAPIF floor all compose. The header
+        NAME is Esri's own (fix(#1840 codex round 1)): a Web Adaptor or
+        web-tier authentication in front of ArcGIS Enterprise consumes the
+        standard one and refuses before ArcGIS runs. Those rules
         exist for a credential written into a file libcurl parses; an ArcGIS
         token never reaches that file, and refusing ``+`` would refuse
         legitimate ArcGIS tokens for a danger this path does not have.
@@ -400,7 +403,7 @@ class TestBuildCredentialHeaderReturnsNone:
                 service_format=ARCGIS_FORMAT,
                 token=token,
             )
-        ) == ("Authorization", f"Bearer {token}")
+        ) == ("X-Esri-Authorization", f"Bearer {token}")
 
     @pytest.mark.parametrize("token", [None, "", "has space", "café"])
     def test_an_arcgis_token_that_cannot_be_a_header_value_is_refused(

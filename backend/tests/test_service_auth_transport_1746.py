@@ -566,7 +566,7 @@ class TestNoArcgisUrlCarriesAnAuthorizationHeader:
                 token=token,
             )
         )
-        assert pair == ("Authorization", f"Bearer {token}")
+        assert pair == ("X-Esri-Authorization", f"Bearer {token}")
 
     def test_no_composed_arcgis_url_contains_the_string(self):
         """Every ArcGIS URL this codebase composes, with a token in it.
@@ -599,7 +599,7 @@ class TestNoArcgisUrlCarriesAnAuthorizationHeader:
         """
         token = "tok" + _value()
         headers, query_token = arcgis_mod.arcgis_request_auth(token)
-        assert headers == {"Authorization": f"Bearer {token}"}
+        assert headers == {"X-Esri-Authorization": f"Bearer {token}"}
         assert query_token is None
 
         url = arcgis_mod.build_arcgis_count_query_url(f"{_ARCGIS_BASE}/0", query_token)
@@ -650,7 +650,7 @@ class TestNoArcgisUrlCarriesAnAuthorizationHeader:
         # And the httpx side of the same credential still gets the header,
         # so this pins the split rather than a revert of the lane.
         headers, query_token = arcgis_mod.arcgis_request_auth(wired)
-        assert headers == {"Authorization": f"Bearer {token}"}
+        assert headers == {"X-Esri-Authorization": f"Bearer {token}"}
         assert query_token is None
 
     @pytest.mark.parametrize("service_format", ["wfs", "ogcapi_features"])
@@ -1619,7 +1619,7 @@ class TestABearerTokenIsJudgedAfterDetection:
         # header VALUE instead.
         arcgis = [r for r in recorded if "f=json" in r.url.query.decode()]
         assert arcgis
-        assert arcgis[0].headers["Authorization"] == f"Bearer {token}"
+        assert arcgis[0].headers["X-Esri-Authorization"] == f"Bearer {token}"
         assert all(token not in str(r.url) for r in recorded)
         assert all("tok%2Bslash%2F" not in str(r.url) for r in recorded)
 

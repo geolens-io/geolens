@@ -514,7 +514,7 @@ def _probe_credential_line(
 
     fix(#1840 audit round 1): gated on ``requires_header_token_policy`` rather
     than on the builder answering None. The two stopped being equivalent when
-    lane C2 taught the builder to compose an ``Authorization: Bearer`` header
+    lane C2 taught the builder to compose an ``X-Esri-Authorization`` header
     for ArcGIS's own httpx requests, and this function feeds
     ``assert_endpoints_stay_on_origin``, which is about a service DESCRIBING a
     foreign operation endpoint that GDAL then follows with a header file

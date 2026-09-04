@@ -243,7 +243,7 @@ def wire_credential(
     fix(#1840 audit round 1): the ArcGIS branch is selected by
     ``requires_header_token_policy`` and NOT by "the builder answered None".
     Lane C2 taught ``build_credential_header`` to compose an
-    ``Authorization: Bearer`` header for ArcGIS -- for GeoLens's own httpx
+    ``X-Esri-Authorization: Bearer`` header for ArcGIS -- for GeoLens's own httpx
     requests, which is a different transport from this one -- and that silently
     killed the branch below, so this handed the worker the string
     ``Authorization: Bearer <token>`` as ``token``. ``build_gdal_source`` then

@@ -2666,6 +2666,22 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # opposite, which is why it now cites the line it was checked against.
     # Cap 1293 -> 1301, exact.
     "backend/app/modules/catalog/sources/arcgis_signin.py": 1301,
+    # feat(C2) / fix(#1840): crossed _RATCHET_INCLUSION_LOC when the ArcGIS
+    # credential moved out of the request URL and into a header. What the
+    # growth bought, in one list: the version gate Esri's own `currentVersion`
+    # spelling needs (`parse_arcgis_current_version`, where 10.5.1 reports as
+    # `10.51` and a float comparison gets two releases the wrong way round),
+    # the one transport chooser (`arcgis_request_auth`) so no read decides for
+    # itself where the credential goes, one bounded reader
+    # (`read_arcgis_json`) with the two query-form fallbacks a real deployment
+    # needs -- a pre-10.5.1 server's 499 envelope and a Web Adaptor's 401/403
+    # before ArcGIS is ever reached -- plus `build_arcgis_layer_info_url` and
+    # the fold of the third hand-rolled count query into
+    # `build_arcgis_count_query_url` (#1755 item 14). Most of the added lines
+    # are the comments carrying the measurements those decisions rest on;
+    # without them the next reader re-derives the Esri version encoding and
+    # the web-tier case from scratch. Cap set at 1015, exact.
+    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1015,
     # feat(#1746 B2b): first explicit entry for this file, which rode the 1500
     # default until the service-auth wave. #1758 added the ArcGIS sign-in
     # endpoint and its rate-limit wiring, and this lane added the credential

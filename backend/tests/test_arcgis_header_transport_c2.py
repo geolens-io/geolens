@@ -1,4 +1,4 @@
-"""The ArcGIS token travels as an Authorization header (lane C2).
+"""The ArcGIS token travels as an X-Esri-Authorization header (lane C2).
 
 Measured live on 2026-09-04 before any of this was written, against
 ``Cons_Map_WFL1/FeatureServer/0`` on services6.arcgis.com with a token minted
@@ -12,22 +12,33 @@ no credential                           499 "Token Required" in an HTTP 200
 a wrong or absent ``Referer``           no difference on any of the above
 ======================================  ==================================
 
-``Authorization`` rather than ``X-Esri-Authorization`` is plan rule A: GDAL
-and libcurl strip ``Authorization`` on a cross-host redirect and forward a
-custom header verbatim, and httpx does the same, so the standard name is the
-one that survives a hostile 302 without needing a rule of its own. No
-``Referer`` is sent, because none is needed.
+Hosted ArcGIS Online takes either name. ``X-Esri-Authorization`` is what is
+sent (fix(#1840 codex round 1)), because Esri documents that name precisely
+for the case AGOL cannot show: on ArcGIS Enterprise behind a Web Adaptor, or
+with web-tier authentication (IWA/PKI in IIS), the front end consumes the
+standard ``Authorization`` header and answers 401/403 before ArcGIS produces
+any JSON at all.
+
+Rule A's objection to a custom header name -- that a cross-origin redirect
+forwards it verbatim where ``Authorization`` would be stripped -- is answered
+on the httpx path by ``security.py``'s ``_ALWAYS_CREDENTIAL_HEADERS``, which
+lists this exact name so ``_refuse_cross_origin_credential`` REFUSES the hop
+rather than following it. That is louder than a silent strip, and it is what
+``TestACrossOriginRedirectIsRefused`` pins. No ``Referer`` is sent, because
+none is needed.
 
 What these tests pin, in order: the version parser and the gate it feeds, the
 transport chooser, the header actually reaching every read the adapter makes,
-the URL carrying nothing on any of them, the pre-10.5.1 fallback and what
-triggers it, and the two security invariants -- a cross-origin redirect does
-not carry the header, and no token can reach httpx's ``HTTP Request: GET ...``
-INFO line because it is no longer in the URL.
+the URL carrying nothing on any of them, the two query-form fallbacks (the
+pre-10.5.1 499 envelope and the web-tier 401/403) and what triggers each, and
+the two security invariants -- a cross-origin redirect carrying the credential
+is refused, and no token can reach httpx's ``HTTP Request: GET ...`` INFO line
+because it is no longer in the URL.
 """
 
 import json as _json
 import logging
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -56,6 +67,7 @@ from app.modules.catalog.sources.adapters.arcgis import (
     parse_arcgis_current_version,
     probe_arcgis_service,
 )
+from app.platform import security as security_mod
 from app.platform.security import SSRFError
 
 _BASE = (
@@ -171,7 +183,7 @@ class TestTheHeaderGate:
 class TestTheTransportChooser:
     def test_the_header_is_the_default(self) -> None:
         headers, query_token = arcgis_request_auth(_TOKEN)
-        assert headers == {"Authorization": f"Bearer {_TOKEN}"}
+        assert headers == {"X-Esri-Authorization": f"Bearer {_TOKEN}"}
         assert query_token is None
 
     def test_an_old_server_gets_the_query_form(self) -> None:
@@ -256,16 +268,16 @@ class TestEveryReadSendsTheHeaderAndNoQueryToken:
     @staticmethod
     def _assert_clean(recorded: list[httpx.Request]) -> None:
         for request in recorded:
-            assert request.headers["Authorization"] == f"Bearer {_TOKEN}"
+            assert request.headers["X-Esri-Authorization"] == f"Bearer {_TOKEN}"
             assert "token" not in str(request.url)
             assert _TOKEN not in str(request.url)
             # feat(C2) sends no Referer: measured, and not needed even for a
             # referer-bound token.
             assert "referer" not in {name.lower() for name in request.headers}
-            # Rule A: the standard name, not the Esri-specific one.
-            assert "x-esri-authorization" not in {
-                name.lower() for name in request.headers
-            }
+            # fix(#1840 codex round 1): the Esri-specific name, NOT the
+            # standard one -- a web tier in front of ArcGIS Enterprise
+            # consumes `Authorization` and refuses before ArcGIS runs.
+            assert "authorization" not in {name.lower() for name in request.headers}
 
     async def test_the_service_probe(self) -> None:
         self._assert_clean(
@@ -388,7 +400,7 @@ class TestThePreTenFiveOneFallback:
 
         assert result is not None
         assert len(recorded) == 2
-        assert recorded[0].headers["Authorization"] == f"Bearer {_TOKEN}"
+        assert recorded[0].headers["X-Esri-Authorization"] == f"Bearer {_TOKEN}"
         assert "token" not in str(recorded[0].url)
         assert "authorization" not in {n.lower() for n in recorded[1].headers}
         assert "token=" in str(recorded[1].url)
@@ -454,70 +466,240 @@ class TestThePreTenFiveOneFallback:
 # ---------------------------------------------------------------------------
 
 
-class TestACrossOriginRedirectDoesNotCarryTheHeader:
-    """Rule A, httpx half, and why ``Authorization`` is the name to use.
+class TestTheWebTierRefusalFallback:
+    """fix(#1840 codex round 1): the case AGOL cannot demonstrate.
 
-    httpx drops ``Authorization`` itself when a redirect leaves the origin,
-    and forwards any other header verbatim -- which is why a custom name
-    (``X-Esri-Authorization``) has to be declared to ``make_safe_client`` and
-    this one does not. Recorded per hop, because a test that only reads the
-    final request cannot tell a dropped header from one that was never sent.
+    On ArcGIS Enterprise behind a Web Adaptor, or with web-tier authentication
+    (IWA or PKI in IIS), the front end consumes the credential header and
+    answers 401/403 at the HTTP layer. ``bounded_probe_read``'s
+    ``raise_for_status()`` fires, so execution never reaches the 499 envelope
+    fallback -- a portal where ``?token=`` had always worked would have
+    started failing on every authenticated probe, preview and import.
     """
 
     pytestmark = pytest.mark.asyncio
 
     @staticmethod
-    def _redirecting(location: str):
+    def _web_tier(status: int, *, refuse_query_too: bool = False):
+        recorded: list[httpx.Request] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            if "token=" in str(request.url):
+                if refuse_query_too:
+                    return httpx.Response(status)
+                return _stream({"count": 4242})
+            return httpx.Response(status)
+
+        return handle, recorded
+
+    @pytest.mark.parametrize("status", [401, 403])
+    async def test_a_web_tier_refusal_retries_with_the_query_form(
+        self, status: int
+    ) -> None:
+        handle, recorded = self._web_tier(status)
+
+        async with _client(handle) as client:
+            count = await fetch_arcgis_feature_count(_BASE, 0, client, token=_TOKEN)
+
+        assert count == 4242
+        assert len(recorded) == 2
+        assert recorded[0].headers["X-Esri-Authorization"] == f"Bearer {_TOKEN}"
+        assert "token" not in str(recorded[0].url)
+        assert "x-esri-authorization" not in {n.lower() for n in recorded[1].headers}
+        assert "token=" in str(recorded[1].url)
+        # Same origin, same layer: the retry is the same question asked the
+        # other way, not a different endpoint.
+        assert recorded[1].url.host == recorded[0].url.host
+        assert recorded[1].url.path == recorded[0].url.path
+
+    @pytest.mark.parametrize("status", [401, 403])
+    async def test_a_second_refusal_propagates(self, status: int) -> None:
+        """Bounded to one extra request: no loop, and the operator sees the
+        real status rather than a degraded 'not an ArcGIS service'."""
+        handle, recorded = self._web_tier(status, refuse_query_too=True)
+
+        async with _client(handle) as client:
+            with pytest.raises(httpx.HTTPStatusError) as raised:
+                await fetch_arcgis_feature_count(_BASE, 0, client, token=_TOKEN)
+
+        assert raised.value.response.status_code == status
+        assert len(recorded) == 2
+
+    @pytest.mark.parametrize("status", [400, 404, 429, 500, 502, 503])
+    async def test_no_other_status_triggers_the_retry(self, status: int) -> None:
+        """The counterfactual for the status bound. A 500 is not a web tier
+        eating the header, and retrying one would resend the credential in a
+        URL for no reason."""
+        recorded: list[httpx.Request] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return httpx.Response(status)
+
+        async with _client(handle) as client:
+            with pytest.raises(httpx.HTTPStatusError):
+                await fetch_arcgis_feature_count(_BASE, 0, client, token=_TOKEN)
+
+        assert len(recorded) == 1
+
+    async def test_an_anonymous_401_is_not_retried(self) -> None:
+        """With no token there is no second transport to try."""
+        recorded: list[httpx.Request] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return httpx.Response(401)
+
+        async with _client(handle) as client:
+            with pytest.raises(httpx.HTTPStatusError):
+                await fetch_arcgis_feature_count(_BASE, 0, client)
+
+        assert len(recorded) == 1
+
+    async def test_a_401_after_a_redirect_is_not_retried(self) -> None:
+        """The origin bound. A refusal from a host we were bounced to says
+        nothing about the host we addressed, and replaying the credential to
+        it in a URL is exactly what must not happen."""
         recorded: list[httpx.Request] = []
 
         def handle(request: httpx.Request) -> httpx.Response:
             recorded.append(request)
             if len(recorded) == 1:
-                return httpx.Response(302, headers={"Location": location})
-            return _stream({"count": 1})
+                return httpx.Response(
+                    302, headers={"Location": "https://elsewhere.example/harvest"}
+                )
+            return httpx.Response(401)
 
-        return handle, recorded
-
-    async def test_another_origin_gets_no_credential(self) -> None:
-        handle, recorded = self._redirecting("https://elsewhere.example/harvest")
         async with httpx.AsyncClient(
             transport=httpx.MockTransport(handle), follow_redirects=True
         ) as client:
-            await fetch_arcgis_feature_count(_BASE, 0, client, token=_TOKEN)
+            with pytest.raises(httpx.HTTPStatusError):
+                await fetch_arcgis_feature_count(_BASE, 0, client, token=_TOKEN)
 
         assert len(recorded) == 2
-        assert recorded[0].headers["Authorization"] == f"Bearer {_TOKEN}"
-        assert "authorization" not in {n.lower() for n in recorded[1].headers}
-        assert recorded[1].url.host == "elsewhere.example"
-        assert all(_TOKEN not in str(r.url) for r in recorded)
+        assert all("token=" not in str(r.url) for r in recorded)
 
-    async def test_a_same_origin_redirect_still_authenticates(self) -> None:
+    async def test_the_401_fallback_registers_the_token(self) -> None:
+        """It lands on the same `_query_form_credential` the version gate uses,
+        so the scrub registration is not a second thing to remember."""
+        reset_registered_credential_secrets()
+        handle, _recorded = self._web_tier(401)
+
+        async with _client(handle) as client:
+            await fetch_arcgis_feature_count(_BASE, 0, client, token=_TOKEN)
+
+        assert _TOKEN in registered_credential_secrets()
+
+    async def test_a_200_envelope_499_still_takes_the_other_path(self) -> None:
+        """The two fallbacks are separate branches; neither replaced the
+        other, and neither can chain into the other."""
+        recorded: list[httpx.Request] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            if "token=" not in str(request.url):
+                return _stream({"error": {"code": 499, "message": "Token Required"}})
+            return _stream({"count": 7})
+
+        async with _client(handle) as client:
+            count = await fetch_arcgis_feature_count(_BASE, 0, client, token=_TOKEN)
+
+        assert count == 7
+        assert len(recorded) == 2
+
+
+class TestACrossOriginRedirectIsRefused:
+    """Rule A, httpx half, and why the Esri name is safe to use here.
+
+    httpx drops ``Authorization`` on a cross-origin redirect by itself and
+    forwards every other header verbatim, which is the whole of rule A's
+    objection to a custom name. On this path the answer is louder than a
+    strip: ``X-Esri-Authorization`` is in ``_ALWAYS_CREDENTIAL_HEADERS``
+    (``app/platform/security.py:143``), so ``_refuse_cross_origin_credential``
+    (same file, ~line 187) raises ``SSRFError`` from ``_revalidate_redirect``
+    (~line 234) BEFORE the second request is issued. Every client on these
+    paths comes from ``make_safe_client``, which installs that hook.
+
+    Recorded per hop, because a test that only reads the final request cannot
+    tell a refused hop from one that was never attempted.
+    """
+
+    pytestmark = pytest.mark.asyncio
+
+    @pytest.fixture
+    def redirecting(self, monkeypatch):
+        """A ``make_safe_client`` whose transport is a MockTransport.
+
+        The hook under test lives on the client, so the transport is what has
+        to be faked -- patching ``make_safe_client`` itself would remove the
+        thing being asserted. ``validate_url_for_ssrf`` is stubbed because
+        these hostnames do not resolve.
+        """
+
+        def install(location: str) -> list[httpx.Request]:
+            recorded: list[httpx.Request] = []
+
+            def handle(request: httpx.Request) -> httpx.Response:
+                recorded.append(request)
+                if len(recorded) == 1:
+                    return httpx.Response(302, headers={"Location": location})
+                return _stream({"count": 1})
+
+            monkeypatch.setattr(
+                security_mod, "make_safe_transport", lambda: httpx.MockTransport(handle)
+            )
+            monkeypatch.setattr(security_mod, "validate_url_for_ssrf", AsyncMock())
+            return recorded
+
+        return install
+
+    async def test_another_origin_refuses_the_hop(self, redirecting) -> None:
+        recorded = redirecting("https://elsewhere.example/harvest")
+
+        async with security_mod.make_safe_client() as client:
+            with pytest.raises(SSRFError) as raised:
+                await fetch_arcgis_feature_count(_BASE, 0, client, token=_TOKEN)
+
+        # One request only: the refusal lands on the hop, before the second
+        # is issued, so the credential never reaches the other origin at all.
+        assert len(recorded) == 1
+        assert recorded[0].headers["X-Esri-Authorization"] == f"Bearer {_TOKEN}"
+        assert _TOKEN not in str(raised.value)
+
+    async def test_a_same_origin_redirect_still_authenticates(
+        self, redirecting
+    ) -> None:
         """The counterfactual: without it, the test above would pass for a
-        client that simply never sent the header."""
-        handle, recorded = self._redirecting(f"{_BASE}/0/query?moved=1")
-        async with httpx.AsyncClient(
-            transport=httpx.MockTransport(handle), follow_redirects=True
-        ) as client:
+        client that simply never sent the header, or that refused every
+        redirect."""
+        recorded = redirecting(f"{_BASE}/0/query?moved=1")
+
+        async with security_mod.make_safe_client() as client:
             await fetch_arcgis_feature_count(_BASE, 0, client, token=_TOKEN)
 
         assert len(recorded) == 2
-        assert recorded[1].headers["Authorization"] == f"Bearer {_TOKEN}"
+        assert recorded[1].headers["X-Esri-Authorization"] == f"Bearer {_TOKEN}"
 
-    async def test_the_query_fallback_does_not_follow_a_redirect_either(self) -> None:
+    async def test_the_query_fallback_does_not_follow_a_redirect_either(
+        self, redirecting
+    ) -> None:
         """On the pre-10.5.1 path the credential is in the request URL, and a
         redirect target is chosen by the SERVICE, so it carries none of our
-        query string. Pinned so a future 'preserve the query across the
-        redirect' convenience cannot land unnoticed."""
-        handle, recorded = self._redirecting("https://elsewhere.example/harvest")
-        async with httpx.AsyncClient(
-            transport=httpx.MockTransport(handle), follow_redirects=True
-        ) as client:
+        query string. No header goes out, so the hop is not refused -- it is
+        followed, and arrives with nothing. Pinned so a future 'preserve the
+        query across the redirect' convenience cannot land unnoticed."""
+        recorded = redirecting("https://elsewhere.example/harvest")
+
+        async with security_mod.make_safe_client() as client:
             await fetch_arcgis_feature_count(
                 _BASE, 0, client, token=_TOKEN, current_version="10.4"
             )
 
+        assert len(recorded) == 2
         assert "token=" in str(recorded[0].url)
         assert "token=" not in str(recorded[1].url)
+        assert "x-esri-authorization" not in {n.lower() for n in recorded[1].headers}
 
 
 class TestTheTokenCannotReachTheHttpxRequestLog:
@@ -695,7 +877,9 @@ class TestTheQueryFallbackRegistersItsSecret:
         headers, query_token = arcgis_request_auth(_TOKEN)
         assert query_token is None
         assert headers  # positive control: a header was composed
-        assert f"Authorization: Bearer {_TOKEN}" in registered_credential_secrets()
+        assert (
+            f"X-Esri-Authorization: Bearer {_TOKEN}" in registered_credential_secrets()
+        )
 
     def test_nothing_is_registered_without_a_token(self) -> None:
         """The counterfactual: the registry is not simply always non-empty."""
