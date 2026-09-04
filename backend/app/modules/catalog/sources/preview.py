@@ -215,6 +215,19 @@ def build_gdal_source(
             params["resultRecordCount"] = result_limit
         if result_offset is not None:
             params["resultOffset"] = result_offset
+        # feat(C2): deliberately still the query form, and the one ArcGIS
+        # transport lane C2 did NOT move. The httpx adapter sends
+        # ``Authorization: Bearer`` now, but GDAL reads a credential only from
+        # ``GDAL_HTTP_HEADER_FILE``, which is process-global (measured for
+        # #1770 and recorded in ``platform/service_items``) and whose writer
+        # holds every line to ``HEADER_TOKEN_CHARSET``. An ArcGIS token
+        # legitimately contains ``+`` or ``/``, which that charset refuses, so
+        # moving this path would mean either widening the base64url rule that
+        # exists to stop header smuggling into libcurl, or refusing tokens that
+        # work today. The exposure this leaves -- the token in the subprocess
+        # argv and in GDAL's error text -- is bounded where it lands:
+        # ``run_ogr2ogr_service`` redacts before the text becomes an exception,
+        # and #1753 purges the job row.
         if token:
             params["token"] = token
         query_url = f"{safe_base_url}/{safe_layer_id}/query?{urlencode(params)}"

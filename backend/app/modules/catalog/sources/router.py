@@ -35,6 +35,7 @@ from app.core.service_tokens import (
     ServiceCredential,
     build_credential_header,
     credential_header_line,
+    requires_header_token_policy,
 )
 from app.modules.catalog.sources.adapters.arcgis import (
     ARCGIS_SERVICE_FORMAT,
@@ -509,10 +510,20 @@ def _probe_credential_line(
 
     fix(#1746 B2b review r14): the probe holds a credential bound to whichever
     transport its URL looked like, and the check needs it bound to the format
-    detection just established. Composed by the one builder, which answers None
-    for a format that carries no header at all.
+    detection just established. Composed by the one builder.
+
+    fix(#1840 audit round 1): gated on ``requires_header_token_policy`` rather
+    than on the builder answering None. The two stopped being equivalent when
+    lane C2 taught the builder to compose an ``X-Esri-Authorization`` header
+    for ArcGIS's own httpx requests, and this function feeds
+    ``assert_endpoints_stay_on_origin``, which is about a service DESCRIBING a
+    foreign operation endpoint that GDAL then follows with a header file
+    attached -- a WFS/OAPIF question only. It was inert either way, because
+    that check early-returns on the same predicate, but a line composed here
+    for a format that never becomes a header file is a claim about the wrong
+    transport waiting for its consumer's guard to be relaxed.
     """
-    if credential is None:
+    if credential is None or not requires_header_token_policy(service_format):
         return None
     pair = build_credential_header(replace(credential, service_format=service_format))
     return None if pair is None else credential_header_line(pair)

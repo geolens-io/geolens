@@ -263,8 +263,16 @@ async def detect_service_type(
         result = await _arcgis_probe(base_url)
         if result is not None:
             _arcgis_carries(credential)
+            # feat(C2): the probe just read `currentVersion` out of the
+            # service document, so the count queries know which token
+            # transport this deployment understands without discovering it
+            # again from a 499.
             enriched = await enrich_arcgis_feature_counts(
-                base_url, result["layers"], client, token=token
+                base_url,
+                result["layers"],
+                client,
+                token=token,
+                current_version=result.get("version"),
             )
             return _build_arcgis_response(
                 result, enriched, base_url, selected_layer_id=layer_id
@@ -304,8 +312,14 @@ async def detect_service_type(
     arcgis_result = await _arcgis_probe(base_url)
     if arcgis_result is not None:
         _arcgis_carries(credential)
+        # feat(C2): same as the fast path above -- the version came back with
+        # the service document.
         enriched = await enrich_arcgis_feature_counts(
-            base_url, arcgis_result["layers"], client, token=token
+            base_url,
+            arcgis_result["layers"],
+            client,
+            token=token,
+            current_version=arcgis_result.get("version"),
         )
         return _build_arcgis_response(
             arcgis_result, enriched, base_url, selected_layer_id=layer_id
