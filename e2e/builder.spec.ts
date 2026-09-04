@@ -372,24 +372,27 @@ test.describe.serial('Map Builder', () => {
       (resp) => resp.url().includes(`/api/maps/${mapId}/layers`) && resp.request().method() === 'POST',
     );
     await page.getByRole('menuitem', { name: /^Duplicate$/i }).click();
-    expect([200, 201]).toContain((await rowDuplicateResponse).status());
+    const rowDuplicateRes = await rowDuplicateResponse;
+    expect([200, 201]).toContain(rowDuplicateRes.status());
 
-    let afterRowLayers: MapLayerListItem[] = [];
-    await expect.poll(async () => {
-      afterRowLayers = await getMapLayers(mapId, headers);
-      return afterRowLayers.length;
-    }).toBe(initialLayers.length + 1);
+    // fix(#1810): read the new layer straight off the write's own response
+    // body instead of re-fetching the map right after — a fresh GET here
+    // raced the layer-add commit under host load and intermittently saw a
+    // pre-write (sometimes empty) snapshot. The response IS the commit's
+    // confirmation, so build the "after" state from it plus the known
+    // "before" state rather than a racy re-read.
+    const rowDuplicate = await rowDuplicateRes.json() as MapLayerListItem;
+    const afterRowLayers = [...initialLayers, rowDuplicate];
 
-    const rowDuplicate = afterRowLayers.find((layer) => !initialLayers.some((existing) => existing.id === layer.id));
-    expect(rowDuplicate?.id).not.toBe(originalLayer.id);
-    expect(rowDuplicate?.dataset_id).toBe(originalLayer.dataset_id);
-    expect(rowDuplicate?.paint ?? null).toEqual(originalLayer.paint ?? null);
-    expect(rowDuplicate?.layout ?? null).toEqual(originalLayer.layout ?? null);
-    expect(rowDuplicate?.style_config ?? null).toEqual(originalLayer.style_config ?? null);
+    expect(rowDuplicate.id).not.toBe(originalLayer.id);
+    expect(rowDuplicate.dataset_id).toBe(originalLayer.dataset_id);
+    expect(rowDuplicate.paint ?? null).toEqual(originalLayer.paint ?? null);
+    expect(rowDuplicate.layout ?? null).toEqual(originalLayer.layout ?? null);
+    expect(rowDuplicate.style_config ?? null).toEqual(originalLayer.style_config ?? null);
     expect(afterRowLayers.filter((layer) => layer.dataset_id === originalLayer.dataset_id)).toHaveLength(initialDatasetCount + 1);
-    if (rowDuplicate?.id) {
-      await expect(page.locator(`#stack-row-${rowDuplicate.id}`)).toBeVisible();
-    }
+    // Confirm the UI's own store-driven render picked up the new row —
+    // this is the write's effect on the page, not another backend read.
+    await expect(page.locator(`#stack-row-${rowDuplicate.id}`)).toBeVisible();
 
     await page.getByRole('button', { name: /add data/i }).first().click();
     const dialog = page.getByRole('dialog', { name: /add dataset/i });
@@ -403,15 +406,19 @@ test.describe.serial('Map Builder', () => {
       (resp) => resp.url().includes(`/api/maps/${mapId}/layers`) && resp.request().method() === 'POST',
     );
     await dialog.getByRole('button', { name: 'another rendering' }).first().click();
-    expect([200, 201]).toContain((await modalDuplicateResponse).status());
+    const modalDuplicateRes = await modalDuplicateResponse;
+    expect([200, 201]).toContain(modalDuplicateRes.status());
+
+    // fix(#1810): same principle as the row-duplicate assertion above —
+    // read the created layer from the write's response, not a fresh GET.
+    const modalDuplicate = await modalDuplicateRes.json() as MapLayerListItem;
+    const afterModalLayers = [...afterRowLayers, modalDuplicate];
 
     await page.keyboard.press('Escape');
     await expect(dialog).not.toBeVisible();
 
-    await expect.poll(async () => {
-      const layers = await getMapLayers(mapId, headers);
-      return layers.filter((layer) => layer.dataset_id === originalLayer.dataset_id).length;
-    }).toBe(initialDatasetCount + 2);
+    expect(afterModalLayers.filter((layer) => layer.dataset_id === originalLayer.dataset_id)).toHaveLength(initialDatasetCount + 2);
+    await expect(page.locator(`#stack-row-${modalDuplicate.id}`)).toBeVisible();
     await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
   });
 
