@@ -165,6 +165,11 @@ async def _dispatch_harness():
     """
     task = MagicMock()
     task.defer_async = AsyncMock(return_value=None)
+    # fix(#1770 round 35): a header-auth credential routes the reupload
+    # dispatch through task.configure(queue=...) before defer_async.
+    # Returning the mock itself from configure() keeps `task` the object
+    # every assertion here already checks.
+    task.configure = MagicMock(return_value=task)
     port = MagicMock()
     port.refresh_postgis_task.return_value = task
     port.reupload_service_task.return_value = task
@@ -855,7 +860,11 @@ class TestLifecycleBraids:
         # composed via record_refresh_success directly). task_kwargs IS what
         # a live worker would have received off the queue.
         task_kwargs = task.defer_async.call_args.kwargs
-        await _execute_service(task_kwargs, expected_token=secret)
+        # feat(#1746 B2b) plan D9: what a WFS origin dispatches, and therefore
+        # what the worker redeems, is the composed header line.
+        await _execute_service(
+            task_kwargs, expected_token=f"Authorization: Bearer {secret}"
+        )
 
         runs = await _runs_ordered(test_db_session, dataset.id)
         assert [r.status for r in runs] == ["succeeded"]
@@ -1034,6 +1043,11 @@ class TestSentinelTokenSweep:
             # it", since nothing here is a happy-path no-op.
             task = MagicMock()
             task.defer_async = AsyncMock(side_effect=RuntimeError("queue unavailable"))
+            # fix(#1770 round 35): same reason as the shared harness above —
+            # keep configure(queue=...) resolving to this exact mock so the
+            # side_effect still fires wherever the dispatch actually calls
+            # defer_async.
+            task.configure = MagicMock(return_value=task)
             port = MagicMock()
             port.reupload_service_task.return_value = task
             with (

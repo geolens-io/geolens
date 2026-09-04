@@ -25,6 +25,7 @@ from procrastinate import App, PsycopgConnector
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.dataset_origin import classify_origin, set_dataset_origin
 from app.core.config import settings
+from app.core.service_tokens import reset_registered_credential_secrets
 from app.core.url_redaction import redact_url_credentials
 from app.processing.embeddings.helpers import defer_embedding
 from app.processing.ingest.source_format import derive_source_format
@@ -608,6 +609,13 @@ def _bind_task_log_context(*, task_name: str, job_id: str, **extra: object) -> N
     """
 
     structlog.contextvars.clear_contextvars()
+    # fix(#1770 round 43 P2): resets the credential-secret registry
+    # (`core/service_tokens.register_credential_secret`) at the same
+    # boundary, for the same reason -- a worker process runs many jobs in
+    # sequence, and without a reset here a prior job's registered secret
+    # would linger and scrub (or a stale entry would fail to scrub) a later,
+    # unrelated job's log lines.
+    reset_registered_credential_secrets()
     structlog.contextvars.bind_contextvars(
         service="worker",
         task=task_name,

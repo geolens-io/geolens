@@ -98,6 +98,13 @@ class TestServiceReuploadCommitDispatch:
         mock_reupload_file.configure.return_value.defer_async = AsyncMock(
             return_value=None
         )
+        # fix(#1770 round 35): this job's credential is a WFS bearer token, a
+        # header-auth format, so the dispatch calls .configure(queue=...)
+        # before defer_async — the same shape the file branch below already
+        # has to anticipate for its own (different) queue.
+        mock_reupload_service.configure.return_value.defer_async = AsyncMock(
+            return_value=None
+        )
         mock_catalog_port = MagicMock()
         mock_catalog_port.reupload_service_task.return_value = mock_reupload_service
         mock_catalog_port.reupload_file_task.return_value = mock_reupload_file
@@ -118,14 +125,27 @@ class TestServiceReuploadCommitDispatch:
         assert payload["status"] == "pending"
         assert payload["message"] == "Re-upload queued"
 
-        mock_reupload_service.defer_async.assert_awaited_once()
-        service_kwargs = mock_reupload_service.defer_async.call_args.kwargs
+        from app.platform.service_auth import HEADER_AUTH_JOB_QUEUE
+
+        # fix(#1770 round 35): a WFS bearer credential routes through the
+        # versioned queue, so the task the door actually defers on is the
+        # configured one, not the bare mock.
+        mock_reupload_service.configure.assert_called_once_with(
+            queue=HEADER_AUTH_JOB_QUEUE
+        )
+        mock_reupload_service.defer_async.assert_not_awaited()
+        configured_service = mock_reupload_service.configure.return_value
+        configured_service.defer_async.assert_awaited_once()
+        service_kwargs = configured_service.defer_async.call_args.kwargs
         assert service_kwargs["job_id"] == str(job.id)
         assert service_kwargs["dataset_id"] == str(dataset.id)
         assert service_kwargs["source_url"] == "https://example.com/wfs"
         assert service_kwargs["source_layer"] == "roads"
         assert service_kwargs["user_id"] == str(admin_id)
-        assert service_kwargs["token"] == "super-secret-token"
+        # feat(#1746 B2b) plan D9: a WFS origin's credential crosses the queue
+        # as the finished header line, under the same kwarg name the purge,
+        # the sweep and the log scrubber already key on.
+        assert service_kwargs["token"] == "Authorization: Bearer super-secret-token"
 
         mock_reupload_file.defer_async.assert_not_awaited()
         mock_reupload_file.configure.assert_not_called()
@@ -374,8 +394,8 @@ class TestServiceReuploadWorker:
     @pytest.mark.parametrize(
         ("refresh", "expected"),
         [
-            (False, "Retry the re-upload with a service token"),
-            (True, "Retry the refresh with a service token"),
+            (False, "Retry the re-upload with the credential"),
+            (True, "Retry the refresh with the credential"),
         ],
         ids=["reupload_commit", "refresh"],
     )
@@ -391,7 +411,13 @@ class TestServiceReuploadWorker:
         One task serves the refresh endpoint and the re-upload commit, and the
         old string said "Retry commit" on both — advice about a door half the
         callers never came through. It also names the request field that fixes
-        it, since a token is request-only and there is nothing to un-expire.
+        it, since a credential is request-only and there is nothing to
+        un-expire.
+
+        fix(#1746 B2b review r1): that field is the `auth` object rather than
+        the deprecated `token`, which always means a bearer credential and so
+        could not authenticate the basic or named-key origin that produced this
+        failure.
         """
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
@@ -441,6 +467,6 @@ class TestServiceReuploadWorker:
         await test_db_session.refresh(job)
         assert job.status == "failed"
         assert expected in (job.error_message or "")
-        assert "`token` field" in (job.error_message or "")
+        assert "`auth` object" in (job.error_message or "")
         # The door that was NOT used is never named.
         assert "Retry commit with a service token" not in (job.error_message or "")

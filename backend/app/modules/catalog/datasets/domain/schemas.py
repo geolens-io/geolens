@@ -740,7 +740,15 @@ class SchemaDiff(BaseModel):
     )
     row_count_old: int | None
     row_count_new: int | None
-    row_count_delta: int = Field(description="row_count_new minus row_count_old")
+    # fix(#1746 B2b review r24): nullable, but still REQUIRED. `None` is the
+    # answer when either count is unknown; making a client distinguish
+    # "absent" from "unknown" as well would be a wider contract change than
+    # the finding needs.
+    row_count_delta: int | None = Field(
+        description=(
+            "row_count_new minus row_count_old, or null when either side is unknown"
+        ),
+    )
 
 
 class ReuploadResponse(BaseModel):
@@ -771,9 +779,26 @@ class ReuploadServicePreviewRequest(BaseModel):
     layer_name: str = Field(max_length=500)
     layer_title: str | None = Field(default=None, max_length=500)
     layer_id: int | str | None = None
-    token: str | None = Field(default=None, max_length=1000)
+    token: str | None = Field(
+        default=None, max_length=1000, description=DEPRECATED_TOKEN_SUFFIX.strip()
+    )
     _validate_token = field_validator("token")(_validate_safe_service_token)
     object_id_field: str | None = Field(default=None, max_length=200)
+    # feat(#1746): the fifth model to carry the structured credential. #1760
+    # left it out because nothing composed a header for the methods it adds;
+    # with the transport in place, leaving it out would mean a basic-protected
+    # service could be re-uploaded but not previewed first.
+    #
+    # LAST, like every other model that gained this field. The generated Python
+    # SDK gives each model field a positional slot in declaration order, so
+    # inserting `auth` ahead of `object_id_field` would move that slot and an
+    # existing positional caller would send its OID string as `auth` and
+    # collect a 422. Appending cannot move a slot that already exists. Pinned
+    # by test_service_auth_contract_1746.
+    auth: ServiceAuthRequest | None = Field(
+        default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
+    )
+    _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
 
 
 class ReuploadPreviewRequest(BaseModel):

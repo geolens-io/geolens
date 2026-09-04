@@ -30,7 +30,11 @@ import pytest
 from httpx import AsyncClient
 from unittest.mock import AsyncMock, patch
 
-from app.core.service_tokens import HEADER_TOKEN_POLICY
+from app.core.service_tokens import (
+    HEADER_TOKEN_POLICY,
+    CredentialMethod,
+    ServiceCredential,
+)
 from app.platform.jobs.models import IngestJob
 from tests.factories import create_dataset, get_user_id
 
@@ -115,6 +119,13 @@ def _assert_policy_without_the_token(resp, secret: str) -> None:
 # ---------------------------------------------------------------------------
 # Door 1 — first import (POST /ingest/commit/{job_id})
 # ---------------------------------------------------------------------------
+
+
+def _wfs_bearer(token: str) -> ServiceCredential:
+    """The bearer credential a WFS door hands the preview path (fix(#1746))."""
+    return ServiceCredential(
+        method=CredentialMethod.BEARER, service_format="wfs", token=token
+    )
 
 
 class TestImportCommitDoor:
@@ -420,7 +431,9 @@ class TestServicePreviewDoor:
 
         with pytest.raises(HTTPException) as excinfo:
             await preview_mod.run_service_preview(
-                f"WFS:{_WFS_URL}", "topp:parcels", token=_rejected_token()
+                f"WFS:{_WFS_URL}",
+                "topp:parcels",
+                credential=_wfs_bearer(_rejected_token()),
             )
         assert excinfo.value.status_code == 422
         assert excinfo.value.detail["code"] == "invalid_service_token"
@@ -488,7 +501,7 @@ class TestServicePreviewDoor:
         await preview_mod.run_service_preview(
             f"WFS:{_WFS_URL}",
             "topp:parcels",
-            token="averylongbearertoken1234567890",
+            credential=_wfs_bearer("averylongbearertoken1234567890"),
         )
 
         header_file = seen["header_file"]

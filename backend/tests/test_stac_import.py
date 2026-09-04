@@ -1241,21 +1241,32 @@ class TestStacAdapter:
     """Unit tests for the STAC adapter functions with mocked httpx."""
 
     async def test_connect_stac_api_success(self):
+        import json as _json
+
+        import httpx
+
         from app.modules.catalog.sources.adapters.stac import connect_stac_api
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = STAC_LANDING
-        mock_response.raise_for_status = lambda: None
+        # fix(#1770 round 41 P1): a real client over a MockTransport, not a
+        # fully-mocked one -- `connect_stac_api` now reads via `client.stream`,
+        # which an `AsyncMock` cannot fake the async-context-manager protocol
+        # of. A content-yielding async generator is what a real transport's
+        # response looks like from the client's side (a plain `json=...`
+        # response is read at construction, so streaming it raises
+        # `StreamConsumed`).
+        raw = _json.dumps(STAC_LANDING).encode()
 
-        mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
+        async def _chunks():
+            yield raw
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=_chunks())
+
+        real_client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
 
         with patch(
             "app.modules.catalog.sources.adapters.stac._make_client",
-            return_value=mock_client,
+            return_value=real_client,
         ):
             result = await connect_stac_api("https://stac.example.com/v1")
 
@@ -1264,21 +1275,25 @@ class TestStacAdapter:
         assert result["stac_version"] == "1.0.0"
 
     async def test_connect_stac_api_not_stac(self):
+        import json as _json
+
+        import httpx
+
         from app.modules.catalog.sources.adapters.stac import connect_stac_api
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"type": "html", "content": "not stac"}
-        mock_response.raise_for_status = lambda: None
+        raw = _json.dumps({"type": "html", "content": "not stac"}).encode()
 
-        mock_client = AsyncMock()
-        mock_client.get.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
+        async def _chunks():
+            yield raw
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=_chunks())
+
+        real_client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
 
         with patch(
             "app.modules.catalog.sources.adapters.stac._make_client",
-            return_value=mock_client,
+            return_value=real_client,
         ):
             result = await connect_stac_api("https://not-stac.example.com")
 
@@ -1286,16 +1301,17 @@ class TestStacAdapter:
 
     async def test_connect_stac_api_http_error(self):
         import httpx
+
         from app.modules.catalog.sources.adapters.stac import connect_stac_api
 
-        mock_client = AsyncMock()
-        mock_client.get.side_effect = httpx.TransportError("Connection refused")
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
+        def handle(request: httpx.Request) -> httpx.Response:
+            raise httpx.TransportError("Connection refused")
+
+        real_client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
 
         with patch(
             "app.modules.catalog.sources.adapters.stac._make_client",
-            return_value=mock_client,
+            return_value=real_client,
         ):
             result = await connect_stac_api("https://unreachable.example.com")
 

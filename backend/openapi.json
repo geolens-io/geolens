@@ -3907,6 +3907,17 @@
             ],
             "description": "CSV/Excel only: name of the WKT geometry column (alternative to x_column/y_column).",
             "title": "Geom Column"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceAuthRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Structured credential for a protected service. Mutually exclusive with the token field."
           }
         },
         "required": [
@@ -14510,6 +14521,7 @@
                 "type": "null"
               }
             ],
+            "description": "Deprecated: use the auth object with method bearer.",
             "title": "Token"
           },
           "object_id_field": {
@@ -14523,6 +14535,17 @@
               }
             ],
             "title": "Object Id Field"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceAuthRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Structured credential for a protected service. Mutually exclusive with the token field."
           }
         },
         "required": [
@@ -14933,9 +14956,16 @@
             "title": "Row Count New"
           },
           "row_count_delta": {
-            "description": "row_count_new minus row_count_old",
-            "title": "Row Count Delta",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "row_count_new minus row_count_old, or null when either side is unknown",
+            "title": "Row Count Delta"
           }
         },
         "required": [

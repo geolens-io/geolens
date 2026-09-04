@@ -58,6 +58,7 @@ from app.platform.ratelimit import limiter
 from app.processing.ingest.tasks import task_app
 from app.api.middleware.body_limit import RequestBodyLimitMiddleware
 from app.api.middleware.cors import DynamicCORSMiddleware
+from app.api.middleware.credential_scrub import CredentialScrubASGIMiddleware
 from app.api.middleware.logging import RequestLoggingMiddleware, safe_access_log_path
 from app.api.middleware.security import SecurityHeadersMiddleware
 from app.api.middleware.tenant_context import TenantContextMiddleware
@@ -1013,6 +1014,19 @@ async def _database_error_handler(request: Request, exc: DBAPIError) -> JSONResp
 app.add_exception_handler(DatasetQuotaExceededError, _dataset_quota_handler)
 app.add_exception_handler(StorageQuotaExceededError, _storage_quota_handler)
 app.add_exception_handler(DBAPIError, _database_error_handler)
+
+# fix(#1770 round 44 P2): registered FIRST, so it ends up INNERMOST --
+# `add_middleware` prepends, so the earliest call is closest to the router
+# (see the ordering comment further down this file). It has to be, and it
+# has to be a plain ASGI callable rather than a `BaseHTTPMiddleware`
+# subclass: every `BaseHTTPMiddleware` below runs the rest of the stack in a
+# separately spawned task, and a `ContextVar` a route handler sets (the
+# credential-secret registry, `core/service_tokens.py`) never propagates
+# back out of one. This is the one layer that shares the handler's own task,
+# so it is the one place an unhandled exception can still be scrubbed of a
+# registered credential before anything outside that task reads it. See its
+# own module docstring for the measured proof.
+app.add_middleware(CredentialScrubASGIMiddleware)
 
 # SEC-02 / M-64 / SEC-005: gate https_only on the production indicator. Local-dev
 # and test runs use the development posture (no TLS terminator), so

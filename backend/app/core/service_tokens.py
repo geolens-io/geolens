@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import base64
 import string
+from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -121,6 +122,28 @@ HEADER_NAME_CHARSET: frozenset[str] = frozenset(
     string.ascii_letters + string.digits + "!#$%&'*+-.^_`|~"
 )
 
+# fix(#1746): what a composed line's VALUE may contain, which is the input
+# charset plus one character. The space is there because a composed value
+# carries an authentication scheme (``Bearer <token>``, ``Basic <blob>``),
+# and it is the only difference: a value is still printable ASCII with no
+# line break, so it cannot smuggle a second header.
+HEADER_LINE_VALUE_CHARSET: frozenset[str] = CREDENTIAL_INPUT_CHARSET | {" "}
+
+# The one separator ``credential_header_line`` joins with and the worker
+# splits on. Named so the joiner and the parser cannot drift into two
+# spellings of the same rule.
+HEADER_LINE_SEPARATOR = ": "
+
+# The scheme prefix the bearer branch composes, and the prefix the worker
+# recognizes to decide that the stricter base64url charset applies.
+BEARER_SCHEME = "Bearer "
+
+# The basic branch's, named for the same reason: the redactor recognizes it to
+# decide that what follows is base64 of a username and password, and so has a
+# cleartext form an origin can echo back
+# (fix(#1746 B2b review r11), core/url_redaction.py).
+BASIC_SCHEME = "Basic "
+
 # Header names a caller may not send a credential under. Compared
 # case-insensitively, because HTTP field names are case-insensitive and a
 # reviewer will try ``AUTHORIZATION``. Two groups, for two different reasons.
@@ -133,6 +156,21 @@ RESERVED_HEADER_NAMES: frozenset[str] = frozenset(
         "authorization",
         "x-esri-authorization",
         "accept",
+        # fix(#1770 round 49 P2): both `service_endpoints.py::credential_
+        # headers` and `probe_bounds.py::bounded_probe_read` build their
+        # request headers as `{name: value, "Accept-Encoding": "identity"}`
+        # -- the caller's pair FIRST, GeoLens's own encoding pin SECOND, so a
+        # credential named exactly `Accept-Encoding` (any case; the dict
+        # keys collide because both call sites spell the literal the same
+        # way) is silently overwritten by `"identity"` before the request
+        # goes out. The credentialed read then reaches the origin with no
+        # real credential value at all -- an anonymous read on exactly the
+        # path r14's fail-closed design exists to keep from happening, and
+        # `next(iter(headers))` still names the right header for `make_safe_
+        # client`'s cross-origin strip, which is what made this reachable
+        # without a single obviously-wrong log line anywhere in the request
+        # path. Refused at input instead of ever reaching those dicts.
+        "accept-encoding",
         "content-type",
         "content-length",
         "host",
@@ -278,6 +316,58 @@ def header_name_rejection_reason(name: str | None) -> str | None:
     return None
 
 
+# fix(#1770 round 43 P2). `redact_exception_text`/the structlog `_scrub_text`
+# processor (`core/logging_config.py`) only ever redacted by PATTERN: a known
+# credential query-parameter NAME, or userinfo. A same-origin redirect that
+# reflects the credential into the URL PATH, or into a query key not on that
+# list (`?echo=<value>`, say), carried the secret straight through both --
+# each new reflection site was its own review round rather than a closed
+# class. This registry is what closes the class instead of the instance: the
+# one producer of a credential header (`build_credential_header` below)
+# registers the exact line it composes, HERE, so every reader of this secret
+# is registered at the one place it is ever produced -- no caller of the
+# builder has to remember to thread the raw value through to a log call for
+# it to be found by EXACT VALUE rather than by guessing its shape.
+#
+# A `ContextVar` rather than a module-level set: this has to be scoped to one
+# request or one job, not to the process. A worker or an API instance handles
+# many callers' credentials over its lifetime, and a set that outlived one
+# request would grow without bound and would let request B's log line be
+# scrubbed of request A's already-finished secret -- over-redaction, not a
+# leak, but still a resource that has to be reset somewhere.
+# `app.api.middleware.logging` and
+# `app.processing.ingest.tasks_common._bind_task_log_context` are that
+# somewhere: both already reset the request/job's structlog contextvars at
+# the same two boundaries this reuses.
+_REGISTERED_CREDENTIAL_SECRETS: ContextVar[frozenset[str]] = ContextVar(
+    "registered_credential_secrets", default=frozenset()
+)
+
+
+def register_credential_secret(secret: str | None) -> None:
+    """Register *secret* for exact-scrub redaction for the rest of this
+    request/job's context.
+
+    A no-op on ``None``/empty, so a caller that has nothing to register (no
+    credential at all) need not guard the call itself.
+    """
+    if not secret:
+        return
+    _REGISTERED_CREDENTIAL_SECRETS.set(_REGISTERED_CREDENTIAL_SECRETS.get() | {secret})
+
+
+def registered_credential_secrets() -> frozenset[str]:
+    """Every secret registered so far in this request/job's context."""
+    return _REGISTERED_CREDENTIAL_SECRETS.get()
+
+
+def reset_registered_credential_secrets() -> None:
+    """Clear the registry. Call once at the start of each request/job scope,
+    the same moment structlog's own contextvars are cleared, so a re-used
+    worker or a subsequent request cannot inherit a prior one's secrets."""
+    _REGISTERED_CREDENTIAL_SECRETS.set(frozenset())
+
+
 def build_credential_header(
     auth: ServiceCredential | None,
 ) -> tuple[str, str] | None:
@@ -302,6 +392,18 @@ def build_credential_header(
     probe adapters want a dict key. Returning only a string would put a second
     parser in each adapter, which is what the single-producer rule exists to
     prevent.
+
+    fix(#1770 round 43 P2): being the single producer is also why this is the
+    one place ``register_credential_secret`` needs calling at all -- every
+    header line this function composes is registered, HERE, on every branch
+    that returns one, so ``redact_exception_text`` and the structlog
+    ``_scrub_text`` processor can exact-scrub it out of anything that later
+    echoes it back, regardless of WHERE it gets reflected (a query parameter
+    name neither of them already knows to look for, or the URL path, not only
+    the ones a pattern-based redactor recognises by shape).
+    ``test_credential_producer_structural.py``'s
+    ``TestBuildCredentialHeaderRegistersEverythingItProduces`` pins the shape
+    structurally: one registration call per branch that returns a pair.
     """
     if auth is None:
         return None
@@ -316,7 +418,9 @@ def build_credential_header(
         reason = header_token_rejection_reason(auth.token)
         if auth.token is None or reason is not None:
             raise ValueError(reason or HEADER_TOKEN_POLICY)
-        return ("Authorization", f"Bearer {auth.token}")
+        pair = ("Authorization", f"{BEARER_SCHEME}{auth.token}")
+        register_credential_secret(credential_header_line(pair))
+        return pair
 
     if method == CredentialMethod.BASIC:
         username = auth.username
@@ -333,7 +437,9 @@ def build_credential_header(
         if ":" in username:
             raise ValueError(BASIC_USERNAME_POLICY)
         encoded = base64.b64encode(f"{username}:{password}".encode("ascii"))
-        return ("Authorization", f"Basic {encoded.decode('ascii')}")
+        pair = ("Authorization", f"{BASIC_SCHEME}{encoded.decode('ascii')}")
+        register_credential_secret(credential_header_line(pair))
+        return pair
 
     if method == CredentialMethod.HEADER_KEY:
         name = auth.header_name
@@ -344,7 +450,9 @@ def build_credential_header(
         reason = credential_input_rejection_reason(value)
         if value is None or reason is not None:
             raise ValueError(reason or CREDENTIAL_INPUT_POLICY)
-        return (name, value)
+        pair = (name, value)
+        register_credential_secret(credential_header_line(pair))
+        return pair
 
     raise ValueError(CREDENTIAL_METHOD_POLICY)
 
@@ -358,4 +466,4 @@ def credential_header_line(pair: tuple[str, str]) -> str:
     writers add their own newline, so this returns exactly one line.
     """
     name, value = pair
-    return f"{name}: {value}"
+    return f"{name}{HEADER_LINE_SEPARATOR}{value}"

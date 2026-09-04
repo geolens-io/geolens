@@ -1033,15 +1033,21 @@ async def reupload_service(
                 # message reaches record_refresh_failure through
                 # redact_run_error, and a composed string is one more thing a
                 # redactor has to be right about.
+                #
+                # fix(#1746 B2b review r1): "credential" and the `auth` object,
+                # not "token", for the same reason the refresh door's 422
+                # changed: the deprecated field always means a bearer token, so
+                # a basic or named-key origin cannot be authenticated by
+                # following this advice.
                 auth_error_message=(
                     "Remote service authentication failed. Retry the refresh "
-                    "with a service token in the request body's `token` "
-                    "field; tokens are request-only and are not stored "
-                    "between runs."
+                    "with the credential in the request body's `auth` object; "
+                    "credentials are request-only and are not stored between "
+                    "runs."
                     if is_refresh
                     else "Remote service authentication failed. Retry the "
-                    "re-upload with a service token in the commit request's "
-                    "`token` field; tokens are request-only and are not "
+                    "re-upload with the credential in the commit request's "
+                    "`auth` object; credentials are request-only and are not "
                     "stored between runs."
                 ),
             )

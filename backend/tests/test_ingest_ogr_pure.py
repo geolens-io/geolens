@@ -1066,51 +1066,188 @@ class TestFriendlyOpenFailureMessage:
         assert "/app/staging" not in msg
 
 
-class TestSecFu04SanitizeAuthorizationToken:
-    """SEC-FU-04 (sec-audit-20260519.md line 535, Phase 1063-03): base64url charset filter
-    for the Authorization bearer token before GDAL_HTTP_HEADERS env-var composition.
+def _sanitize(value: "str | None") -> "str | None":
+    """`_sanitize_authorization_token` for a WFS job (fix(#1746 B2b r3)).
 
-    A malicious token with CR/LF or arbitrary unicode could smuggle extra HTTP headers
-    into libcurl via the env-var pipeline. JWT-shaped tokens use the base64url charset
-    (RFC 4648 §5) plus dot separators; restricting to that charset is a tight
-    defense-in-depth guard with no legitimate-traffic impact.
+    The format only selects the builder's allowlist branch, and both
+    header-auth formats compose an identical bearer line, so every case below
+    reads the same for `ogcapi_features`.
+    """
+    return _sanitize_authorization_token(value, service_format="wfs")
+
+
+class TestSecFu04SanitizeAuthorizationToken:
+    """SEC-FU-04: the credential header LINE filter, before the header file.
+
+    A line with CR/LF or arbitrary unicode could smuggle extra HTTP headers
+    into libcurl through the GDAL_HTTP_HEADER_FILE pipeline, so the shape and
+    the charsets are a security boundary rather than a formatting preference.
+
+    fix(#1746 B2b) plan D9: the value crossing from the door to the worker is
+    the finished header line, so this judges a line — printable ASCII, no CR or
+    LF, one ``": "`` separator, an RFC 7230 field name — and keeps the
+    base64url charset and the length floor on the bearer branch of it.
     """
 
-    def test_sec_fu_04_happy_path_jwt_token_passes_through_unchanged(self):
-        """A JWT-shaped token (base64url segments + dot separators) passes through unchanged."""
-        token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature_value-"
-        assert _sanitize_authorization_token(token) == token
+    def test_sec_fu_04_happy_path_jwt_line_passes_through_unchanged(self):
+        """A JWT-shaped bearer line passes through unchanged."""
+        line = (
+            "Authorization: Bearer "
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature_value-"
+        )
+        assert _sanitize(line) == line
+
+    def test_sec_fu_04_a_basic_line_passes_through_unchanged(self):
+        """The encoded output of a validated username and password.
+
+        Base64 is outside the base64url alphabet whenever it emits ``+`` or
+        ``/``, which is why the bearer charset is applied to the bearer branch
+        alone rather than to every line.
+        """
+        line = "Authorization: Basic dXNlcjpwYSsvd29yZA=="
+        assert _sanitize(line) == line
+
+    def test_sec_fu_04_a_named_api_key_line_passes_through_unchanged(self):
+        line = "X-Api-Key: not-a-real-key-value"
+        assert _sanitize(line) == line
 
     def test_sec_fu_04_crlf_injection_raises_value_error(self):
-        """Token with CR/LF raises ValueError naming SEC-FU-04 and the offending character."""
-        token = "valid.jwt.sig\r\nX-Smuggled-Header: evil"
+        """A line carrying CR/LF raises ValueError naming SEC-FU-04."""
+        line = "Authorization: Bearer valid.jwt.sig\r\nX-Smuggled-Header: evil"
         with pytest.raises(ValueError) as exc_info:
-            _sanitize_authorization_token(token)
+            _sanitize(line)
         msg = str(exc_info.value)
         assert "SEC-FU-04" in msg
-        # The first offending char is \r — confirm it's named in the message
-        assert repr("\r") in msg or "\\r" in msg
 
-    def test_sec_fu_04_whitespace_raises_value_error(self):
-        """Token with literal space characters raises ValueError."""
-        token = "valid jwt sig"
+    def test_sec_fu_04_a_second_separator_raises_value_error(self):
+        """Two ``: `` separators are two headers, whatever the writer intended."""
         with pytest.raises(ValueError) as exc_info:
-            _sanitize_authorization_token(token)
+            _sanitize("X-Api-Key: a: b")
+        assert "SEC-FU-04" in str(exc_info.value)
+
+    def test_sec_fu_04_a_legacy_bare_token_becomes_its_line(self):
+        """fix(#1746 B2b review r3): the pre-#1770 wire value keeps working.
+
+        A worker that starts while authenticated WFS or OGC API jobs are
+        already queued reads a bare bearer token out of the queue row, or out
+        of the credential store behind a reference the old door stashed.
+        Refusing it would fail every one of those deterministically at the
+        next deploy or restart, and would spend the single-use credential
+        before ogr2ogr started. It is composed into the line the current door
+        would have produced, by the same builder.
+        """
+        token = "not-a-real-legacy-token"
+        assert _sanitize(token) == f"Authorization: Bearer {token}"
+
+    def test_sec_fu_04_a_legacy_token_outside_the_charset_still_raises(self):
+        """Neither a valid line nor a value the previous version dispatched.
+
+        The old door enforced the base64url charset and the length floor on
+        this exact value, so a token failing them was never dispatchable and
+        the compatibility branch must not widen what is accepted.
+        """
+        for bad in ("short", "has spaces here", "plus+slash/", "sig\r\nX-Evil: 1"):
+            with pytest.raises(ValueError) as exc_info:
+                _sanitize(bad)
+            assert "SEC-FU-04" in str(exc_info.value)
+            # Policy-only: from here a bad line and a bad legacy token are
+            # indistinguishable, and neither names the value.
+            assert bad not in str(exc_info.value)
+
+    def test_sec_fu_04_an_invalid_field_name_raises_value_error(self):
+        with pytest.raises(ValueError) as exc_info:
+            _sanitize("Bad Name: value")
+        assert "SEC-FU-04" in str(exc_info.value)
+
+    def test_sec_fu_04_whitespace_in_the_bearer_token_raises_value_error(self):
+        """A space inside the token is refused by the bearer charset."""
+        with pytest.raises(ValueError) as exc_info:
+            _sanitize("Authorization: Bearer valid jwt sig")
         assert "SEC-FU-04" in str(exc_info.value)
 
     def test_sec_fu_04_unicode_raises_value_error(self):
-        """Token with non-ASCII unicode characters raises ValueError."""
-        token = "valid.jwt.signaturé"  # U+00E9
+        """A non-ASCII character anywhere in the value is refused.
+
+        The header file is written with ``.encode("ascii")``, so this is what
+        stops a UnicodeEncodeError landing after the single-use credential has
+        been claimed.
+        """
         with pytest.raises(ValueError) as exc_info:
-            _sanitize_authorization_token(token)
+            _sanitize("X-Api-Key: signaturé")  # U+00E9
         assert "SEC-FU-04" in str(exc_info.value)
 
     def test_sec_fu_04_empty_string_raises_value_error(self):
         """Empty string raises ValueError (operator misconfiguration guard)."""
         with pytest.raises(ValueError) as exc_info:
-            _sanitize_authorization_token("")
+            _sanitize("")
         assert "SEC-FU-04" in str(exc_info.value)
 
     def test_sec_fu_04_none_returns_none(self):
         """None passes through unchanged (the no-token path from the calling code)."""
-        assert _sanitize_authorization_token(None) is None
+        assert _sanitize(None) is None
+
+    def test_sec_fu_04_only_the_bearer_branch_names_a_character(self):
+        """fix(#1746): the message is policy-only for every other method.
+
+        This exception becomes `IngestJob.error_message`, a log record, a
+        notification reason and the exception the queue records. Naming a
+        character of a password across all four is not a debugging aid worth
+        having; naming one of a bearer token, whose alphabet is already
+        constrained and carries no structure, still is.
+        """
+        password_char = "é"
+        with pytest.raises(ValueError) as exc_info:
+            _sanitize(f"Authorization: Basic dXNlcj{password_char}")
+        assert password_char not in str(exc_info.value)
+        assert "{" not in str(exc_info.value)
+
+        with pytest.raises(ValueError) as exc_info:
+            _sanitize("Authorization: Bearer valid.jwt.sig!")
+        assert "!" in str(exc_info.value)
+
+    def test_sec_fu_04_a_d9_line_registers_the_value_for_exact_scrub(self) -> None:
+        """fix(#1770 round 49 P3, `core/service_tokens.py`/`ogr.py`).
+
+        `register_credential_secret` (`core/service_tokens.py`) is only
+        called from `build_credential_header` -- the whole reason the
+        registry closes the exact-value-reflection class for every OTHER
+        producer. On the D9 wire format (a finished header line WITH a
+        separator, what a modern job actually carries), this function
+        validates the line and returns it unchanged without ever calling
+        that builder: `_legacy_bearer_line` above is the only branch that
+        does, for the pre-#1770 bare-token shape. So the registry stayed
+        empty for the whole worker service-import path on the format every
+        current job actually uses, and only the two explicit
+        `scrub_secret_from_exception` calls covered exceptions -- an
+        ordinary log line calling `_scrub_text` directly was not covered at
+        all. Counterfactual: remove the `register_credential_secret(value)`
+        call from `_sanitize_authorization_token` and the secret below
+        survives `_scrub_text` untouched.
+        """
+        from app.core.logging_config import _scrub_text
+        from app.core.service_tokens import reset_registered_credential_secrets
+
+        secret = "s3cret-d9-header-value"
+        reset_registered_credential_secrets()
+        try:
+            line = _sanitize(f"X-Api-Key: {secret}")
+            assert line == f"X-Api-Key: {secret}"
+
+            rendered = _scrub_text(f"worker received header line ...{secret}...")
+        finally:
+            reset_registered_credential_secrets()
+
+        assert secret not in rendered
+
+    def test_sec_fu_04_an_unregistered_value_is_not_scrubbed(self) -> None:
+        """Positive control: the mechanism above is not vacuously passing."""
+        from app.core.logging_config import _scrub_text
+        from app.core.service_tokens import reset_registered_credential_secrets
+
+        reset_registered_credential_secrets()
+        try:
+            rendered = _scrub_text("worker received header line ...never-sanitized...")
+        finally:
+            reset_registered_credential_secrets()
+
+        assert "never-sanitized" in rendered

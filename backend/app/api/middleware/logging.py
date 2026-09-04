@@ -14,6 +14,7 @@ from starlette.responses import Response
 # capability the access-log line beside it had just redacted. Re-exported here
 # because this is where callers and tests have always imported it from.
 from app.core.logging_config import safe_access_log_path
+from app.core.service_tokens import reset_registered_credential_secrets
 
 __all__ = ["RequestLoggingMiddleware", "access_logger", "safe_access_log_path"]
 
@@ -25,6 +26,12 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next) -> Response:
         structlog.contextvars.clear_contextvars()
+        # fix(#1770 round 43 P2): the credential-secret registry is scoped to
+        # one request the same way these contextvars are, and for the same
+        # reason -- a re-used worker/API process must not let one request's
+        # registered secrets scrub (or fail to scrub, if reused as a stale
+        # bound) another's log lines.
+        reset_registered_credential_secrets()
 
         request_id = str(uuid.uuid4())
         structlog.contextvars.bind_contextvars(service="api", request_id=request_id)

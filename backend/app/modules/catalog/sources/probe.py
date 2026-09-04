@@ -25,8 +25,18 @@ from urllib.parse import urlparse
 import httpx
 import structlog
 
+from app.core.service_tokens import ServiceCredential
+from app.platform.service_auth import (
+    INVALID_SERVICE_TOKEN_CODE,
+    UNSUPPORTED_AUTH_METHOD_CODE,
+    UNSUPPORTED_AUTH_METHOD_POLICY,
+    service_carries_method,
+    url_query_token,
+)
 from app.core.url_redaction import redact_url_credentials
 from app.modules.catalog.sources.adapters.arcgis import (
+    ARCGIS_SERVICE_FORMAT,
+    ArcGISTokenError,
     _looks_like_arcgis,
     enrich_arcgis_feature_counts,
     normalize_arcgis_url,
@@ -46,6 +56,37 @@ def _looks_like_wfs(url: str) -> bool:
     lower_path = parsed.path.lower()
     lower_query = parsed.query.lower()
     return "/wfs" in lower_path or "service=wfs" in lower_query
+
+
+class ServiceCredentialUnusable(Exception):
+    """A header-auth adapter could not compose the credential it was given.
+
+    fix(#1746 B2b review r7): raised only after every adapter has had its turn,
+    which is the whole point of it. The probe is what DETERMINES the service
+    type, so a credential policy chosen from the URL alone gets it wrong for
+    the services this function exists to find: ``probe_arcgis_service``
+    classifies an endpoint that names neither FeatureServer nor MapServer by
+    what its response contains, and an ArcGIS token is percent-encoded into a
+    query, so it legitimately holds characters the header charset refuses.
+    Refusing such a token up front rejected a working ArcGIS import.
+
+    So a token an adapter cannot turn into a header stops THAT adapter and
+    nothing else. If another one claims the URL, the probe succeeds and the
+    token was fine. If none does, this carries the policy the caller needs to
+    read, which is better advice than "service not recognized" for a URL whose
+    only problem was the credential.
+    """
+
+    def __init__(self, policy: str, *, code: str = INVALID_SERVICE_TOKEN_CODE):
+        self.policy = policy
+        # fix(#1746 B2b review r9): which refusal this is. A credential whose
+        # VALUE cannot become a header is `invalid_service_token`; a method
+        # the detected service cannot carry at all is
+        # `unsupported_auth_method`, the same code the doors return when they
+        # know the format up front. Two outcomes, one exception, because both
+        # are "detection finished and the credential cannot be sent".
+        self.code = code
+        super().__init__(policy)
 
 
 class ServiceNotRecognized(Exception):
@@ -110,8 +151,45 @@ def _build_arcgis_response(
     )
 
 
+def _arcgis_carries(credential: ServiceCredential | None) -> None:
+    """Refuse a method ArcGIS cannot present, once ArcGIS is what we found.
+
+    fix(#1746 B2b review r9): `url_query_token` answers None for basic and for
+    a named API key, because neither fits in a query parameter. On the fallback
+    path that silently became an ANONYMOUS ArcGIS probe: a vanity endpoint
+    identified only by its `f=json` response answered 200 and the caller was
+    told their credential worked, and then preview refused the same credential
+    with `unsupported_auth_method`. The probe has to give the answer preview
+    will give.
+
+    fix(#1746 B2b review r27): this is now the ONLY place the question is
+    answered for a probe, and it is answered after detection. The door used to
+    answer it too, from the URL text, which refused a WFS at
+    `/FeatureServer/wfs` a credential it supports. All three ArcGIS outcomes
+    reach here: the keyword-detected fast path, the fallback that identifies a
+    vanity endpoint by its response, and the token challenge.
+
+    Module-level rather than nested in `detect_service_type` so that function
+    stays inside its complexity budget, and so the rule can be read without
+    reading the detector.
+    """
+    if credential is None:
+        return
+    # Asked of the shared mapping rather than re-listed here. The door asks the
+    # same question of the same function about the method alone, and this asks
+    # it again about the service that was actually found, so the two cannot
+    # drift apart.
+    if service_carries_method(ARCGIS_SERVICE_FORMAT, credential.method):
+        return
+    raise ServiceCredentialUnusable(
+        UNSUPPORTED_AUTH_METHOD_POLICY, code=UNSUPPORTED_AUTH_METHOD_CODE
+    )
+
+
 async def detect_service_type(
-    url: str, client: httpx.AsyncClient, token: str | None = None
+    url: str,
+    client: httpx.AsyncClient,
+    credential: ServiceCredential | None = None,
 ) -> ProbeResponse:
     """Detect whether a URL is a WFS, ArcGIS, or OGC API Features service.
 
@@ -120,9 +198,61 @@ async def detect_service_type(
     2. Slow path: OGC API probe first, then WFS, then ArcGIS
 
     Raises ServiceNotRecognized if no probe succeeds.
+
+    fix(#1746): one credential reaches all three adapters, and each presents
+    it the way its own service takes one. The two header-auth adapters compose
+    a header from it; the ArcGIS branch takes the bare token and nothing else.
     """
+    # fix(#1746) plan D9: an ArcGIS credential is percent-encoded into a URL
+    # query, so a bearer token is the only method that fits. The probe door
+    # refuses the other two for an ArcGIS-shaped URL; on this fallback path,
+    # where the URL said nothing, they simply cannot be presented and the
+    # origin's 401 is the honest answer.
+    token = url_query_token(credential)
     looks_arcgis = _looks_like_arcgis(url)
     looks_wfs = _looks_like_wfs(url)
+
+    # fix(#1746 B2b review r7): a credential the header-auth transports cannot
+    # compose ends those probes and no others. Recorded rather than raised, so
+    # the ArcGIS branch below still gets its turn with the same value carried
+    # the way that transport carries one.
+    refusals: list[str] = []
+
+    async def _header_auth_probe(probe) -> dict | None:
+        try:
+            return await probe(url, client, credential=credential)
+        except ValueError as exc:
+            refusals.append(str(exc))
+            logger.debug(
+                "probe adapter refused the credential",
+                adapter=probe.__name__,
+                reason=str(exc),
+            )
+            return None
+
+    async def _arcgis_probe(base: str) -> dict | None:
+        """Probe ArcGIS, and let a token challenge identify it too.
+
+        fix(#1746 B2b review r10): ArcGIS answers 499 or 498 in the BODY of an
+        otherwise successful response, and `probe_arcgis_service` turns that
+        into `ArcGISTokenError`. The challenge is proof that this endpoint IS
+        an ArcGIS service, exactly as a layer list would be, so the credential
+        has to be judged against it before the challenge is reported. Without
+        this, a keyword-free protected endpoint answered a basic or named-key
+        caller with the generic 403 "provide a valid ArcGIS token" while the
+        keyword-detected branch and the public-vanity fallback both answered
+        422 `unsupported_auth_method` — three sub-branches of one question
+        giving two different answers, and the 403 is advice the caller cannot
+        act on, because the method is what is wrong rather than the token.
+
+        The challenge is re-raised unchanged for bearer and for a
+        credential-free probe, which are the callers it is true advice for.
+        """
+        try:
+            return await probe_arcgis_service(base, client, token=token)
+        except ArcGISTokenError:
+            _arcgis_carries(credential)
+            raise
 
     # Fast path: ArcGIS URL pattern
     if looks_arcgis:
@@ -130,8 +260,9 @@ async def detect_service_type(
             "URL pattern matches ArcGIS", url=redact_url_credentials(url)
         )  # fix(#430 BA-27)
         base_url, layer_id = normalize_arcgis_url(url)
-        result = await probe_arcgis_service(base_url, client, token=token)
+        result = await _arcgis_probe(base_url)
         if result is not None:
+            _arcgis_carries(credential)
             enriched = await enrich_arcgis_feature_counts(
                 base_url, result["layers"], client, token=token
             )
@@ -145,7 +276,7 @@ async def detect_service_type(
         logger.info(
             "URL pattern matches WFS", url=redact_url_credentials(url)
         )  # fix(#430 BA-27)
-        result = await probe_wfs(url, client, token=token)
+        result = await _header_auth_probe(probe_wfs)
         if result is not None:
             # D-05: no enrichment — layers already have geometry_type=None,
             # feature_count=None, kind='vector' from probe_wfs.
@@ -156,27 +287,34 @@ async def detect_service_type(
     logger.info("Trying all probes", url=redact_url_credentials(url))  # fix(#430 BA-27)
 
     # Try OGC API Features landing page probe
-    ogcapi_result = await probe_ogcapi(url, client, token=token)
+    ogcapi_result = await _header_auth_probe(probe_ogcapi)
     if ogcapi_result is not None:
         # D-05: no enrichment — layers already have geometry_type=None,
         # feature_count=None, kind classified by classify_layer_kind from probe_ogcapi.
         return _build_probe_response(ogcapi_result, ogcapi_result["layers"], url)
 
     # Try WFS
-    wfs_result = await probe_wfs(url, client, token=token)
+    wfs_result = await _header_auth_probe(probe_wfs)
     if wfs_result is not None:
         # D-05: no enrichment — same as fast-path WFS branch above.
         return _build_probe_response(wfs_result, wfs_result["layers"], url)
 
     # Try ArcGIS
     base_url, layer_id = normalize_arcgis_url(url)
-    arcgis_result = await probe_arcgis_service(base_url, client, token=token)
+    arcgis_result = await _arcgis_probe(base_url)
     if arcgis_result is not None:
+        _arcgis_carries(credential)
         enriched = await enrich_arcgis_feature_counts(
             base_url, arcgis_result["layers"], client, token=token
         )
         return _build_arcgis_response(
             arcgis_result, enriched, base_url, selected_layer_id=layer_id
         )
+
+    if refusals:
+        # Nothing claimed this URL, and a header-auth adapter never got to ask
+        # because the credential could not become a header. That policy is the
+        # actionable half of the answer, so it is what the caller gets.
+        raise ServiceCredentialUnusable(refusals[0])
 
     raise ServiceNotRecognized()

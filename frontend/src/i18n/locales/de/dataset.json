@@ -443,7 +443,8 @@
     "columnsAdded": "Hinzugefügte Spalten ({{count}})",
     "columnsRemoved": "Entfernte Spalten ({{count}})",
     "typeChanges": "Typänderungen ({{count}})",
-    "noChanges": "Keine Schemaänderungen erkannt."
+    "noChanges": "Keine Schemaänderungen erkannt.",
+    "rowCountUnknown": "Die Spalten sind unverändert. Die Zeilenanzahl konnte nicht ermittelt werden."
   },
   "map": {
     "ariaLabel": "Datensatzkarte",

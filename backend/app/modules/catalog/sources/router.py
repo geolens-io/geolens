@@ -2,9 +2,12 @@
 
 import asyncio
 import hashlib
+import json
+import time
 import uuid
+from dataclasses import replace
 from typing import NoReturn
-from urllib.parse import urljoin
+from urllib.parse import urlencode, urljoin
 
 import httpx
 import structlog
@@ -14,7 +17,11 @@ from slowapi.util import get_remote_address
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.url_redaction import has_url_credentials, redact_url_credentials
+from app.core.url_redaction import (
+    has_url_credentials,
+    redact_exception_text,
+    redact_url_credentials,
+)
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.crs_uri import parse_crs_uri
 from app.core.identity import Identity
@@ -23,11 +30,19 @@ from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.core.dependencies import get_db
 from app.platform.jobs.models import IngestJob
 from app.platform.extensions import get_catalog_port, get_connector_extension
+from app.core.service_tokens import (
+    CredentialMethod,
+    ServiceCredential,
+    build_credential_header,
+    credential_header_line,
+)
 from app.modules.catalog.sources.adapters.arcgis import (
+    ARCGIS_SERVICE_FORMAT,
     ArcGISTokenError,
     fetch_arcgis_layer_preview,
     normalize_arcgis_url,
 )
+from app.modules.catalog.sources.adapters.wfs import WFS_SERVICE_FORMAT
 from app.modules.catalog.sources.arcgis_signin import (
     AUDIT_SUCCESS,
     ArcGISSignInError,
@@ -42,7 +57,11 @@ from app.modules.catalog.sources.signin_guard import (
     _signin_settle_cancelled,
     signin_target,
 )
-from app.modules.catalog.sources.probe import ServiceNotRecognized, detect_service_type
+from app.modules.catalog.sources.probe import (
+    ServiceCredentialUnusable,
+    ServiceNotRecognized,
+    detect_service_type,
+)
 from app.modules.catalog.sources.schemas import (
     ArcGISSignInRequest,
     ArcGISSignInResponse,
@@ -60,7 +79,19 @@ from app.modules.catalog.sources.schemas import (
     service_credential_from_request,
 )
 from app.platform.ratelimit import limiter
-from app.platform.service_auth import bearer_token_for_credential
+from app.platform.service_auth import (
+    credential_or_422,
+    custom_credential_header_name,
+    url_query_token,
+)
+from app.platform.probe_bounds import bounded_probe_read
+from app.platform.service_endpoints import (
+    DEFAULT_CHECK_TIMEOUT,
+    OGC_JSON_ACCEPT,
+    CrossOriginEndpointError,
+    EndpointCheckFailedError,
+    assert_endpoints_stay_on_origin,
+)
 from app.platform.security import (
     PROBE_TIMEOUT,
     SSRFError,
@@ -446,10 +477,16 @@ async def _probe_audit_fail(
     url: str,
     result: str,
     status_code: int,
-    detail: str,
+    detail: str | dict[str, str],
     **extra,
 ) -> None:
-    """Audit-log a probe failure and raise HTTPException."""
+    """Audit-log a probe failure and raise HTTPException.
+
+    ``detail`` is a plain string for every refusal this door has always made,
+    and a coded object for the credential-policy one (fix(#1746 B2b review
+    r7)), which reuses the shape and the code the preview and commit doors
+    return so a client maps one thing rather than two.
+    """
     safe_url = redact_url_credentials(url)
     await audit_emit(
         db,
@@ -464,8 +501,40 @@ async def _probe_audit_fail(
     raise HTTPException(status_code=status_code, detail=detail)
 
 
+def _probe_credential_line(
+    credential: ServiceCredential | None, service_format: str | None
+) -> str | None:
+    """The header line the endpoint check sends, or None for a public probe.
+
+    fix(#1746 B2b review r14): the probe holds a credential bound to whichever
+    transport its URL looked like, and the check needs it bound to the format
+    detection just established. Composed by the one builder, which answers None
+    for a format that carries no header at all.
+    """
+    if credential is None:
+        return None
+    pair = build_credential_header(replace(credential, service_format=service_format))
+    return None if pair is None else credential_header_line(pair)
+
+
+def _preview_service_format(service_type: str) -> str | None:
+    """The canonical format a preview's human service label resolves to.
+
+    fix(#1746): the credential policy is chosen by the format, not the label,
+    because that is what says whether the credential becomes a header or a
+    query parameter. An unrecognized label answers None, which composes no
+    header and leaves the "Unsupported service type" refusal where it already
+    lives, in ``build_gdal_source``.
+    """
+    try:
+        _, source_format = get_catalog_port().resolve_service_type(service_type)
+    except (ValueError, KeyError, IngestionError):
+        return None
+    return source_format
+
+
 async def _fetch_ogcapi_collection_srid(
-    base_url: str, layer_name: str, token: str | None
+    base_url: str, layer_name: str, credential: ServiceCredential | None
 ) -> int | None:
     """Fetch OGC API collection metadata and parse URI-form CRS to EPSG.
 
@@ -483,26 +552,71 @@ async def _fetch_ogcapi_collection_srid(
     The collection URL is constructed by appending ``/collections/{name}``
     (no user-controlled path components other than layer_name from the
     probe's known_layer_names allowlist).
+
+    fix(#1756 codex round 8): this carries the same service credential the two
+    probe adapters carry and so composes it the same way, through the shared
+    builder, and declares a service-chosen header name to the client so a
+    cross-origin redirect cannot forward it.
+
+    fix(#1770 round 43): this used a plain ``client.get`` -- the same
+    unbounded-buffering shape round 41 closed for the four service-type
+    probes, missed here because round 41's sweep was scoped to
+    ``adapters/`` and ``platform/service_*.py``, and this is neither. With
+    a Basic or header-key credential attached, a hostile or compromised
+    authenticated endpoint could exhaust the process during THIS read, the
+    same as it could have during a probe's own. Reads through
+    ``bounded_probe_read`` now, and the whole function runs under
+    ``DEFAULT_CHECK_TIMEOUT`` -- the same clock the probe adapters and
+    ``assert_endpoints_stay_on_origin`` already run their own reads under --
+    since this fetch has no deadline of its own to inherit: it runs AFTER
+    ``run_service_preview`` has already returned, with only the client's own
+    per-inactivity timeout bounding it before this round.
     """
     collection_url = urljoin(
         base_url if base_url.endswith("/") else base_url + "/",
         f"collections/{layer_name}",
     )
-    headers: dict[str, str] = {"Accept": "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
+    # `bounded_probe_read` takes no `params=`; folded into the URL the same
+    # way the adapters compose their own query strings.
+    collection_url = f"{collection_url}?{urlencode({'f': 'json'})}"
+    headers: dict[str, str] = {}
     try:
-        async with make_safe_client(timeout=PROBE_TIMEOUT) as client:
-            response = await client.get(
-                collection_url, headers=headers, params={"f": "json"}
-            )
-            response.raise_for_status()
-            data = response.json()
-    except (httpx.HTTPError, ValueError) as exc:
+        async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
+            pair = build_credential_header(credential)
+            if pair is not None:
+                headers[pair[0]] = pair[1]
+            async with make_safe_client(
+                timeout=PROBE_TIMEOUT,
+                credential_header=custom_credential_header_name(credential),
+            ) as client:
+                body, _ = await bounded_probe_read(
+                    client, collection_url, headers=headers, accept=OGC_JSON_ACCEPT
+                )
+                data = json.loads(body)
+    except (
+        httpx.HTTPError,
+        ValueError,
+        RecursionError,
+        SSRFError,
+        EndpointCheckFailedError,
+        TimeoutError,
+    ) as exc:
+        # SSRFError joins the others on the same reasoning as the rest of this
+        # helper: the CRS fallback is best effort and its failure costs the
+        # user the CRS Override field, not the preview. A refused redirect hop
+        # — blocked address, or a cross-origin one that would have forwarded a
+        # service-chosen credential header — is one more way not to answer,
+        # same as a body over the byte/decoded-size cap (EndpointCheckFailedError)
+        # or a deadline that ran out (TimeoutError, from asyncio.timeout above).
+        # fix(#1770 round 44 P2): RecursionError joins them too -- a JSON
+        # depth bomb (900,000 nested `[`) is under every byte/token cap this
+        # module checks and raises RecursionError, not ValueError. See
+        # `service_endpoints.py::_parsed_json`'s docstring for the class this
+        # closes.
         logger.debug(
             "OGC API collection CRS fallback fetch failed",
             url=collection_url,
-            error=str(exc),
+            error=redact_exception_text(exc),
         )
         return None
 
@@ -648,10 +762,51 @@ async def probe_service_url(
     service, and returns a unified layer list. All attempts are audit-logged.
     """
     # feat(#1746): the structured credential is what the layers below take;
-    # the flat `token` is its deprecated bearer spelling. Refused first, so a
-    # method this build cannot send never reaches the network or the audit log.
-    service_token = bearer_token_for_credential(
-        service_credential_from_request(request.auth, request.token)
+    # the flat `token` is its deprecated bearer spelling. Judged first, so a
+    # method this service cannot carry, or a value that cannot become a
+    # header, never reaches the network or the audit log.
+    #
+    # fix(#1755 item 2): the probe used to judge nothing, so a WFS token
+    # outside the header-token charset probed cleanly and was refused at
+    # preview.
+    #
+    # fix(#1746 B2b review r7): but only what is true whatever gets detected.
+    # The first cut selected the policy from the URL shape, and that regressed
+    # a working import: `detect_service_type`'s slow path deliberately probes
+    # ArcGIS for a URL naming neither FeatureServer nor MapServer, and
+    # `probe_arcgis_service` classifies such an endpoint by what its response
+    # contains, so a vanity or rewritten ArcGIS URL is ordinary. Its token is
+    # percent-encoded into a query and legitimately holds `+` or `/`, which
+    # the header charset refuses.
+    #
+    # So a bearer token is bound to the query-parameter transport here and
+    # keeps that wider vocabulary; the header-line policy is applied once an
+    # adapter has said the service is a header-auth one, and reaches the
+    # caller as the same 422 through `ServiceCredentialUnusable` below. The
+    # two methods that exist only as a header are judged now, because no
+    # detection outcome makes them sendable to ArcGIS and their inputs must be
+    # usable whatever is found.
+    credential = service_credential_from_request(request.auth, request.token)
+    sends_a_header = (
+        credential is not None and credential.method != CredentialMethod.BEARER
+    )
+    # fix(#1746 B2b review r27): bound by the METHOD alone. This used to read
+    # `_looks_like_arcgis(request.url)`, which matches `FeatureServer` or
+    # `MapServer` anywhere in the URL, so a WFS at `/FeatureServer/wfs` had its
+    # basic or named-key credential refused before `detect_service_type` was
+    # given the chance to say what the service actually is -- the exact case
+    # its fast-path-then-fallback design exists to handle.
+    #
+    # A header-only method is bound to the header transport so its SHAPE is
+    # validated here, at the door, where the caller can act on the answer. The
+    # question of whether the service found can carry that method at all is a
+    # different one, and it is answered after detection by
+    # `service_carries_method`, which is where every other caller answers it.
+    service_credential = credential_or_422(
+        credential,
+        service_format=(
+            WFS_SERVICE_FORMAT if sends_a_header else ARCGIS_SERVICE_FORMAT
+        ),
     )
     safe_url = redact_url_credentials(request.url)
     # Step 1: SSRF validation
@@ -674,10 +829,106 @@ async def probe_service_url(
     # handles auth its own way (ArcGIS via &token= query param, WFS via
     # per-request header). Sending Bearer headers to ArcGIS breaks auth.
     try:
-        async with make_safe_client(timeout=PROBE_TIMEOUT) as client:
+        async with make_safe_client(
+            timeout=PROBE_TIMEOUT,
+            credential_header=custom_credential_header_name(service_credential),
+        ) as client:
             response = await detect_service_type(
-                request.url, client, token=service_token
+                request.url, client, credential=service_credential
             )
+            # After detection, because the check is per service type and the
+            # probe is what determines it (the round-7 rule).
+            detected_format = _preview_service_format(response.service_type)
+            await assert_endpoints_stay_on_origin(
+                request.url,
+                service_format=detected_format,
+                # fix(#1746 B2b review r14): the description is read WITH the
+                # credential, because a protected service answers an anonymous
+                # read with a 401 and the check would learn nothing about the
+                # document GDAL will actually act on. Composed by the one
+                # builder, against the format detection just established.
+                credential_line=_probe_credential_line(
+                    service_credential, detected_format
+                ),
+                # fix(#1746 B2b review r24): the probe has no budget of its
+                # own, so it takes the shared one. Without it this ran under
+                # `asyncio.timeout(None)`, and the client bounds inactivity
+                # rather than the operation, so a description delivered slowly
+                # but steadily across up to twenty listing pages held the
+                # request open indefinitely.
+                deadline=time.monotonic() + DEFAULT_CHECK_TIMEOUT,
+            )
+
+    except (CrossOriginEndpointError, EndpointCheckFailedError) as exc:
+        # fix(#1746 B2b review r13): the service describes its own operation
+        # endpoints, GDAL follows that description with the credential
+        # attached, and no redirect rule can see those requests. Refused here
+        # so the caller learns at the step they are on rather than at preview,
+        # and refused again in the worker because the document can change.
+        # `origin` only exists on the cross-origin half, and neither message
+        # nor either attribute carries any part of the credential.
+        logger.warning(
+            "Probe endpoint check refused",
+            url=safe_url,
+            code=exc.code,
+            origin=getattr(exc, "origin", None),
+        )
+        await _probe_audit_fail(
+            db,
+            user.id,
+            request.url,
+            exc.code,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": exc.code, "message": exc.policy, "field": exc.field},
+        )
+
+    except ServiceCredentialUnusable as exc:
+        # fix(#1746 B2b review r7): every adapter has had its turn and none
+        # claimed the URL, so the credential policy is now the answer rather
+        # than a guess made before detection. Same code and same policy-only
+        # message the preview and commit doors return, which the client
+        # already maps.
+        logger.warning("Probe credential unusable", url=safe_url, code=exc.code)
+        await _probe_audit_fail(
+            db,
+            user.id,
+            request.url,
+            exc.code,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": exc.code, "message": exc.policy},
+        )
+
+    except SSRFError as exc:
+        # fix(#1746): raised mid-probe rather than at the door — either a
+        # redirect hop resolving to a blocked address, or a cross-origin hop
+        # that would have forwarded a service-chosen credential header. Both
+        # are the same answer the pre-flight check gives. Without this
+        # clause the broad handler below would rewrite it into a 500.
+        #
+        # fix(#1770 round 49 P3): `str(exc)` is a fixed policy string for
+        # every `SSRFError` EXCEPT one subclass -- `SSRFResolutionError`
+        # (`platform/security.py`) interpolates the raw, unresolved hostname
+        # into its message, and that hostname is chosen by the SERVICE, via
+        # its own mid-probe redirect `Location` header, not by the caller.
+        # The `#1746` comment this replaces claimed "carries no part of the
+        # credential", which is true but was never the whole question: a
+        # provider-chosen hostname reflected into the 400 body and the
+        # persisted audit reason is the same class of thing this codebase
+        # refuses everywhere else an href/hostname a document chose could
+        # reach a response. A fixed message for both; the raw text stays
+        # only in the log line below, which is server-side and already
+        # subject to `_redact_sensitive_fields`.
+        ssrf_policy_message = "redirect target refused by SSRF policy"
+        logger.warning("SSRF blocked mid-probe", url=safe_url, reason=str(exc))
+        await _probe_audit_fail(
+            db,
+            user.id,
+            request.url,
+            "ssrf_blocked",
+            status.HTTP_400_BAD_REQUEST,
+            ssrf_policy_message,
+            reason=ssrf_policy_message,
+        )
 
     except httpx.TimeoutException:
         logger.warning("Probe timeout", url=safe_url)
@@ -791,10 +1042,17 @@ async def preview_service_layer(
     """
     # feat(#1746): see `probe_service_url`. One conversion, before anything
     # else, so an unsupported method is answered without a preview job or an
-    # audit row.
-    service_token = bearer_token_for_credential(
-        service_credential_from_request(request.auth, request.token)
+    # audit row. Here the service type IS known, so the credential is judged
+    # against the transport it is actually about to take: a header for WFS and
+    # OGC API Features, a URL query parameter for ArcGIS.
+    service_credential = credential_or_422(
+        service_credential_from_request(request.auth, request.token),
+        service_format=_preview_service_format(request.service_type),
     )
+    # ArcGIS is the only branch that reads a bare token: `build_gdal_source`
+    # percent-encodes it into the ESRIJSON query. For the header-auth formats
+    # this is None and the credential travels as a header instead.
+    service_token = url_query_token(service_credential)
     safe_url = redact_url_credentials(request.url)
     # Step 1: SSRF validation
     try:
@@ -961,12 +1219,24 @@ async def preview_service_layer(
                     "ArcGIS token and try again."
                 ),
             )
-        except (httpx.HTTPError, ValueError) as exc:
+        except (
+            httpx.HTTPError,
+            ValueError,
+            EndpointCheckFailedError,
+            TimeoutError,
+        ) as exc:
+            # fix(#1770 round 44 P1): fetch_arcgis_layer_preview's metadata
+            # read now goes through bounded_probe_read (see that function's
+            # own fix note), which can raise EndpointCheckFailedError for a
+            # bound violation, and the function's own asyncio.timeout can
+            # raise TimeoutError -- both join the pre-existing
+            # httpx.HTTPError/ValueError this preview path already degrades
+            # on rather than surfacing a 500.
             logger.warning(
                 "ArcGIS preview failed",
                 url=safe_url,
                 layer=request.layer_name,
-                error=str(exc),
+                error=redact_exception_text(exc),
             )
             await _fail_preview(db, user.id, request.url, request.layer_name)
 
@@ -1020,7 +1290,7 @@ async def preview_service_layer(
     # Step 3: Run ogrinfo preview
     try:
         preview_data = await run_service_preview(
-            gdal_source, layer_arg, token=service_token
+            gdal_source, layer_arg, credential=service_credential
         )
     except IngestionError:
         # Step 4: WFS namespace retry -- if layer_name has a colon prefix, retry without it
@@ -1042,7 +1312,7 @@ async def preview_service_layer(
                     result_limit=5,
                 )
                 preview_data = await run_service_preview(
-                    retry_source, retry_layer, token=service_token
+                    retry_source, retry_layer, credential=service_credential
                 )
             except (IngestionError, ValueError):
                 logger.warning(
@@ -1096,7 +1366,7 @@ async def preview_service_layer(
     # EPSG code instead of "Unknown + required override".
     if preview_data.get("srid") is None and request.service_type == "OGC API Features":
         fallback_srid = await _fetch_ogcapi_collection_srid(
-            request.url, request.layer_name, service_token
+            request.url, request.layer_name, service_credential
         )
         if fallback_srid is not None:
             preview_data["srid"] = fallback_srid

@@ -7039,6 +7039,8 @@ export interface components {
              * @description CSV/Excel only: name of the WKT geometry column (alternative to x_column/y_column).
              */
             geom_column?: string | null;
+            /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
+            auth?: components["schemas"]["ServiceAuthRequest"] | null;
         };
         /** CommitResponse */
         CommitResponse: {
@@ -11599,10 +11601,15 @@ export interface components {
             layer_title?: string | null;
             /** Layer Id */
             layer_id?: number | string | null;
-            /** Token */
+            /**
+             * Token
+             * @description Deprecated: use the auth object with method bearer.
+             */
             token?: string | null;
             /** Object Id Field */
             object_id_field?: string | null;
+            /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
+            auth?: components["schemas"]["ServiceAuthRequest"] | null;
         };
         /**
          * SSEActionsEvent
@@ -11826,9 +11833,9 @@ export interface components {
             row_count_new: number | null;
             /**
              * Row Count Delta
-             * @description row_count_new minus row_count_old
+             * @description row_count_new minus row_count_old, or null when either side is unknown
              */
-            row_count_delta: number;
+            row_count_delta: number | null;
         };
         /**
          * ServiceAuthRequest

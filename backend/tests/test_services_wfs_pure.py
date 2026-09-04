@@ -161,3 +161,25 @@ class TestBuildCapabilitiesUrl:
         assert parsed.scheme == "https"
         assert parsed.netloc == "example.com:8443"
         assert parsed.path == "/geoserver/wfs"
+
+    def test_a_query_over_the_old_field_count_bound_still_resolves(self):
+        """fix(#1770 round 47c): round 47b bound this with `max_num_fields`,
+        reasoning `_header_auth_probe` (`probe.py`) catches every
+        `ValueError` from an adapter -- true for `probe_wfs`, but not the
+        only caller. `origin_probe.py::service_probe_target` calls this for
+        the periodic health check with NO surrounding `except ValueError`
+        at all, so a 257-param caller URL reached `POST /datasets/{id}/
+        source-health/` as a raw 500 instead of a coded refusal -- see
+        `test_source_health_1222.py::test_a_many_param_service_url_still_
+        probes_not_a_500` for the pin at the actual route. `url`
+        is the caller's own submitted service URL, already capped at 2048
+        chars by the schema, so it resolves normally at any field count a
+        real URL that short can carry.
+        """
+        from app.platform.service_endpoints import MAX_QUERY_FIELDS
+
+        query = "&".join(f"a{n}=1" for n in range(MAX_QUERY_FIELDS + 1))
+        url = build_capabilities_url(f"https://example.com/wfs?{query}")
+        q = self._query(url)
+        assert q["service"] == "WFS"
+        assert q["request"] == "GetCapabilities"

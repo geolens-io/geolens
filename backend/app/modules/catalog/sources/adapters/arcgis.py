@@ -1,13 +1,28 @@
 """ArcGIS REST API probing, URL normalization, and service type detection."""
 
 import asyncio
+import json
 import re
 from urllib.parse import quote, urlencode, urlparse
 
 import httpx
 import structlog
 
+from app.core.url_redaction import redact_exception_text
+from app.platform.probe_bounds import bounded_probe_read
+from app.platform.service_endpoints import (
+    DEFAULT_CHECK_TIMEOUT,
+    OGC_JSON_ACCEPT,
+    EndpointCheckFailedError,
+)
+
 logger = structlog.stdlib.get_logger(__name__)
+
+# What this adapter is, in the vocabulary ``build_credential_header`` reads.
+# Deliberately absent from ``HEADER_AUTH_SERVICE_FORMATS``: an ArcGIS token is
+# percent-encoded into the service URL, so the builder answers None for it and
+# no header is ever composed for this transport (plan D9).
+ARCGIS_SERVICE_FORMAT = "arcgis_featureserver"
 
 
 class ArcGISTokenError(Exception):
@@ -131,6 +146,25 @@ async def probe_arcgis_service(
 
     Returns a dict with service_type, version, and layers on success,
     or None if not an ArcGIS service.
+
+    fix(#1770 round 41 P1): the whole function runs under
+    ``DEFAULT_CHECK_TIMEOUT``, same reasoning as ``probe_ogcapi``.
+    """
+    try:
+        async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
+            return await _probe_arcgis_service_within_deadline(base_url, client, token)
+    except TimeoutError:
+        logger.debug("ArcGIS probe: deadline exceeded for %s", base_url)
+        return None
+
+
+async def _probe_arcgis_service_within_deadline(
+    base_url: str, client: httpx.AsyncClient, token: str | None
+) -> dict | None:
+    """``probe_arcgis_service``'s body, split out so the deadline wraps all
+    of it. ``ArcGISTokenError`` still propagates through the deadline
+    unchanged: it is not a `TimeoutError`, so the wrapper's `except
+    TimeoutError` does not intercept it.
     """
     try:
         # fix(#1746 codex r7): percent-encode the token before concatenating it
@@ -140,15 +174,39 @@ async def probe_arcgis_service(
         query = f"{base_url}?f=json" + (
             f"&token={quote(token, safe='')}" if token else ""
         )
-        response = await client.get(query)
-        response.raise_for_status()
-    except (httpx.HTTPStatusError, httpx.TransportError) as exc:
-        logger.debug("ArcGIS probe failed for %s: %s", base_url, exc)
+        # fix(#1770 round 41 P1): bounded read, not a plain `client.get` --
+        # see `bounded_probe_read`'s docstring. `EndpointCheckFailedError`
+        # joins the two httpx types this already caught: whatever the cause,
+        # this degrades to "not an ArcGIS service" the same way.
+        body, _ = await bounded_probe_read(
+            client, query, headers={}, accept=OGC_JSON_ACCEPT
+        )
+    except (
+        httpx.HTTPStatusError,
+        httpx.TransportError,
+        EndpointCheckFailedError,
+    ) as exc:
+        # fix(#1770 round 39): this request embeds OUR OWN token in the URL
+        # (see the fix(#1746 codex r7) comment above) -- an HTTPStatusError's
+        # message quotes that whole URL back, so the caught exception's text
+        # must be redacted, not just the href a response body carries.
+        logger.debug(
+            "ArcGIS probe failed for %s: %s", base_url, redact_exception_text(exc)
+        )
         return None
 
     try:
-        data = response.json()
+        data = json.loads(body)
     except (ValueError, TypeError):
+        return None
+
+    # fix(#1770 round 44 P2): a `200 5`/`200 "x"` response is valid JSON but
+    # not a dict, and `"error" in data` on an int raises `TypeError`
+    # (a str would silently do a substring check instead, which is
+    # misleading but not a crash) -- either way this is not an ArcGIS
+    # service response, the same degrade `"layers" not in data` below
+    # already gives.
+    if not isinstance(data, dict):
         return None
 
     # ArcGIS returns HTTP 200 with error in JSON body
@@ -225,6 +283,17 @@ async def enrich_arcgis_feature_counts(
 
     Fetches returnCountOnly=true for each layer. Uses asyncio.Semaphore(5)
     for concurrency limiting. On failure, keeps feature_count=None.
+
+    fix(#1770 round 44 P1): this request carries the request-scoped ArcGIS
+    ``token=`` query parameter, and `assert_endpoints_stay_on_origin` never
+    runs a bound for it at all -- it returns immediately for any
+    ``service_format`` outside `HEADER_AUTH_SERVICE_FORMATS`
+    (``requires_header_token_policy``), which ArcGIS is deliberately not a
+    member of (the token travels in the URL, never as a header). The
+    ``client.get`` this used had no byte cap, no decoded-size cap, httpx's
+    default transparent decompression, and only the per-inactivity timeout,
+    so a hostile or compromised layer endpoint could exhaust the process on
+    this read with nothing else in the request path bounding it first.
     """
     semaphore = asyncio.Semaphore(5)
 
@@ -239,9 +308,18 @@ async def enrich_arcgis_feature_counts(
                 f"{base_url}/{layer_id}/query?where=1%3D1&returnCountOnly=true&f=json"
             ) + (f"&token={quote(token, safe='')}" if token else "")
             try:
-                resp = await client.get(url)
-                resp.raise_for_status()
-                data = resp.json()
+                async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
+                    body, _ = await bounded_probe_read(
+                        client, url, headers={}, accept=OGC_JSON_ACCEPT
+                    )
+                    data = json.loads(body)
+                # fix(#1770 round 45 P2): a `200 5`/`200 []` response is valid
+                # JSON but not a dict, and `"error" in data`/`data.get(...)`
+                # on either raises `TypeError`/`AttributeError` -- neither
+                # caught below, so it escaped `asyncio.gather` and failed the
+                # WHOLE probe/preview rather than degrading this one layer.
+                if not isinstance(data, dict):
+                    return {**layer, "feature_count": None}
                 # ArcGIS may return HTTP 200 with error in JSON body
                 if "error" in data:
                     return {**layer, "feature_count": None}
@@ -249,6 +327,8 @@ async def enrich_arcgis_feature_counts(
             except (
                 httpx.HTTPStatusError,
                 httpx.TransportError,
+                EndpointCheckFailedError,
+                TimeoutError,
                 ValueError,
                 KeyError,
             ):
@@ -297,15 +377,37 @@ async def fetch_arcgis_feature_count(
     client: httpx.AsyncClient,
     token: str | None = None,
 ) -> int | None:
-    """Fetch a layer feature count from ArcGIS REST query metadata."""
+    """Fetch a layer feature count from ArcGIS REST query metadata.
+
+    fix(#1770 round 44 P1): same reasoning as `enrich_arcgis_feature_counts`
+    above -- this carries the request-scoped ArcGIS ``token=`` and
+    `assert_endpoints_stay_on_origin` runs no bound for it at all. Reads
+    through `bounded_probe_read` under `DEFAULT_CHECK_TIMEOUT` now, matching
+    the four service-type probes. `ArcGISTokenError`/`ValueError`/
+    `httpx.HTTPError` propagate unchanged to the caller, which already
+    handles them (`tasks_vector.py`'s ingest path, and
+    `fetch_arcgis_layer_preview` below); `EndpointCheckFailedError`/
+    `TimeoutError` join that same contract, since both mean the same thing
+    to a caller as any other unreadable-response failure.
+    """
     base = base_url.rstrip("/")
     safe_layer_id = str(layer_id).strip("/")
 
-    resp = await client.get(
-        build_arcgis_count_query_url(f"{base}/{safe_layer_id}", token)
-    )
-    resp.raise_for_status()
-    data = resp.json()
+    async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
+        body, _ = await bounded_probe_read(
+            client,
+            build_arcgis_count_query_url(f"{base}/{safe_layer_id}", token),
+            headers={},
+            accept=OGC_JSON_ACCEPT,
+        )
+        data = json.loads(body)
+    # fix(#1770 round 45 P2): same reasoning as `_fetch_count` above -- a
+    # `200 5`/`200 []` response is valid JSON but not a dict, and this
+    # function has no local `except` at all around the checks below, so an
+    # uncaught `TypeError`/`AttributeError` propagated straight to the
+    # caller instead of the ordinary "no count" degrade.
+    if not isinstance(data, dict):
+        return None
     if "error" in data:
         error_info = data["error"]
         code = error_info.get("code", 0)
@@ -326,7 +428,13 @@ async def fetch_arcgis_pagination_info(
     client: httpx.AsyncClient,
     token: str | None = None,
 ) -> tuple[int | None, bool, str | None]:
-    """Fetch ArcGIS pagination support, page size, and stable order field."""
+    """Fetch ArcGIS pagination support, page size, and stable order field.
+
+    fix(#1770 round 44 P1): same reasoning as `enrich_arcgis_feature_counts`
+    above -- this carries the request-scoped ArcGIS ``token=`` and
+    `assert_endpoints_stay_on_origin` runs no bound for it at all. Reads
+    through `bounded_probe_read` under `DEFAULT_CHECK_TIMEOUT`.
+    """
     base = base_url.rstrip("/")
     safe_layer_id = str(layer_id).strip("/")
     params: dict[str, str] = {"f": "json"}
@@ -334,10 +442,29 @@ async def fetch_arcgis_pagination_info(
         params["token"] = token
 
     try:
-        resp = await client.get(f"{base}/{safe_layer_id}", params=params)
-        resp.raise_for_status()
-        data = resp.json()
-    except (httpx.HTTPError, ValueError, TypeError):
+        async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
+            body, _ = await bounded_probe_read(
+                client,
+                f"{base}/{safe_layer_id}?{urlencode(params)}",
+                headers={},
+                accept=OGC_JSON_ACCEPT,
+            )
+            data = json.loads(body)
+    except (
+        httpx.HTTPError,
+        ValueError,
+        TypeError,
+        EndpointCheckFailedError,
+        TimeoutError,
+    ):
+        return None, False, None
+
+    # fix(#1770 round 49 P3): same reasoning as `_fetch_count`/`fetch_arcgis_
+    # feature_count` above -- a `200 5`/`200 "x"` response is valid JSON but
+    # not a dict, and this function has no local `except` around the checks
+    # below, so an uncaught `TypeError`/`AttributeError` propagated straight
+    # to the caller instead of the ordinary "no pagination info" degrade.
+    if not isinstance(data, dict):
         return None, False, None
 
     if "error" in data:
@@ -379,19 +506,46 @@ async def fetch_arcgis_layer_preview(
 
     Raises ``ArcGISTokenError`` on token errors so the router can surface a
     403. Other HTTP/parse failures raise ``httpx.HTTPError``/``ValueError``.
+
+    fix(#1770 round 44 P1): the metadata and sample-row reads below both
+    carry the request-scoped ArcGIS ``token=``, and (same reasoning as
+    `enrich_arcgis_feature_counts`) `assert_endpoints_stay_on_origin` never
+    bounds an ArcGIS-format read at all. Both now go through
+    `bounded_probe_read` under `DEFAULT_CHECK_TIMEOUT`; `EndpointCheckFailedError`/
+    `TimeoutError` join the metadata read's propagation to the caller
+    (`router.py`'s `except (httpx.HTTPError, ValueError, ...)`, widened to
+    match) and the sample-row/feature-count reads' own local `except`
+    clauses below (already best-effort, degrade to an empty/`None` result).
     """
     base = base_url.rstrip("/")
     safe_layer_id = str(layer_id).strip("/")
 
     # --- Layer metadata: fields, geometry type, CRS, name ---
-    # Pass query params via httpx so a token containing URL-reserved characters
-    # (+, &, %) is percent-encoded instead of corrupting the query string.
+    # Query params are percent-encoded via urlencode so a token containing
+    # URL-reserved characters (+, &, %) cannot corrupt the query string.
     meta_params: dict[str, str] = {"f": "json"}
     if token:
         meta_params["token"] = token
-    resp = await client.get(f"{base}/{safe_layer_id}", params=meta_params)
-    resp.raise_for_status()
-    meta = resp.json()
+    async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
+        meta_body, _ = await bounded_probe_read(
+            client,
+            f"{base}/{safe_layer_id}?{urlencode(meta_params)}",
+            headers={},
+            accept=OGC_JSON_ACCEPT,
+        )
+        meta = json.loads(meta_body)
+
+    # fix(#1770 round 45 P2): a `200 5`/`200 []` response is valid JSON but
+    # not a dict. `.get("fields", [])` below would raise `AttributeError`,
+    # uncaught by this function's own body and by the router's except
+    # clause around this call (`httpx.HTTPError, ValueError, ...` -- no
+    # `AttributeError`/`TypeError`), so it reached the caller as a 500
+    # instead of the ordinary "not readable" refusal every other
+    # unparseable metadata response gets. `ValueError` matches this
+    # function's own contract for a bad metadata response (see the `error`
+    # branch just below) and the caller's existing `except ValueError`.
+    if not isinstance(meta, dict):
+        raise ValueError("ArcGIS layer metadata is not an object")
 
     if "error" in meta:
         error_info = meta["error"]
@@ -433,22 +587,34 @@ async def fetch_arcgis_layer_preview(
     if token:
         query_params["token"] = token
     try:
-        sample_resp = await client.get(
-            f"{base}/{safe_layer_id}/query", params=query_params
-        )
-        sample_resp.raise_for_status()
-        sample_data = sample_resp.json()
-        if "error" not in sample_data:
+        async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
+            sample_body, _ = await bounded_probe_read(
+                client,
+                f"{base}/{safe_layer_id}/query?{urlencode(query_params)}",
+                headers={},
+                accept=OGC_JSON_ACCEPT,
+            )
+            sample_data = json.loads(sample_body)
+        # fix(#1770 round 45 P2): same reasoning as the metadata read above
+        # -- a non-dict `sample_data` degrades to "no sample rows" here
+        # (this read already treats its own failures as best-effort),
+        # rather than raising `AttributeError`/`TypeError` uncaught.
+        if isinstance(sample_data, dict) and "error" not in sample_data:
             # ArcGIS query responses carry attributes under ``attributes``.
             sample_rows = [
                 feat.get("attributes", {}) for feat in sample_data.get("features", [])
             ]
-    except (httpx.HTTPError, ValueError) as exc:
+    except (
+        httpx.HTTPError,
+        ValueError,
+        EndpointCheckFailedError,
+        TimeoutError,
+    ) as exc:
         logger.debug(
             "ArcGIS sample-row fetch failed for %s/%s: %s",
             base,
             safe_layer_id,
-            exc,
+            redact_exception_text(exc),
         )
 
     # fix(#1746): the preview previously always returned feature_count=None;
@@ -460,12 +626,18 @@ async def fetch_arcgis_layer_preview(
         feature_count = await fetch_arcgis_feature_count(
             base, safe_layer_id, client, token=token
         )
-    except (httpx.HTTPError, ValueError, ArcGISTokenError) as exc:
+    except (
+        httpx.HTTPError,
+        ValueError,
+        ArcGISTokenError,
+        EndpointCheckFailedError,
+        TimeoutError,
+    ) as exc:
         logger.debug(
             "ArcGIS feature-count fetch failed for %s/%s: %s",
             base,
             safe_layer_id,
-            exc,
+            redact_exception_text(exc),
         )
 
     return {

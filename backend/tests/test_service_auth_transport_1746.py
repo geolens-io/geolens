@@ -1,0 +1,10099 @@
+"""feat(#1746) lane B2b: how a service credential actually travels.
+
+The contract tests next door assert what the doors ACCEPT. These assert what
+leaves the process once a door has accepted it, which is where this change can
+fail quietly:
+
+- the GDAL header file holds exactly one composed line, whatever the method,
+  and never the double prefix a writer that kept its own
+  ``Authorization: Bearer `` would have produced;
+- a bearer import writes the byte-identical file it wrote before the prefix
+  moved into the shared builder;
+- an input carrying CR, LF or a non-ASCII character is refused at the door,
+  before a single-use credential can be spent, and the refusal echoes nothing;
+- no composed ArcGIS URL contains the string ``Authorization``, which is plan
+  D9's invariant at the place it would actually do damage;
+- a cross-origin redirect cannot carry a service-chosen credential header off
+  the origin it was given to, on each of the three httpx paths that send one;
+- the GDAL envs that carry a header file pin the Authorization redirect rule.
+
+Every credential value here is generated per call, so an assertion that a
+value is absent from a response, a file or a job row cannot pass by
+coincidence, and no literal password is written down anywhere (Rule 3).
+"""
+
+from __future__ import annotations
+
+import ast
+import asyncio
+import base64
+import inspect
+import re
+import json
+import sys
+import pathlib
+import time
+import os
+import uuid
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import httpx
+import pytest
+
+from dataclasses import replace
+
+from app.core.service_tokens import (
+    HEADER_TOKEN_POLICY,
+    CredentialMethod,
+    ServiceCredential,
+    build_credential_header,
+)
+from app.modules.catalog.sources import preview as preview_mod
+from app.modules.catalog.sources.adapters import arcgis as arcgis_mod
+from app.modules.catalog.sources.adapters import ogcapi as ogcapi_mod
+from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
+from app.modules.catalog.sources.adapters.wfs import probe_wfs
+from app.platform import security
+from app.platform.security import SSRFError, make_safe_client
+from app.processing.ingest import tasks_vector
+from app.processing.ingest import ogr as ogr_mod
+from app.platform import service_endpoints as service_endpoints_mod
+from app.platform import service_items as service_items_mod
+from app.platform.service_endpoints import WFS_XML_ACCEPT, EndpointCheckFailedError
+from app.platform.service_items import (
+    ItemFetchFailedError,
+    MaterialisedCollection,
+    materialise_oapif_items,
+)
+from app.core.url_redaction import scrub_secret_from_exception
+from app.processing.ingest.ogr import IngestionError, run_ogr2ogr_service
+
+# fix(#1746 codex r2): autouse where imported — the credential header lands in
+# gdal_header_dir(), so without this the suite writes into the real /tmp.
+from tests.test_ogr_subprocess_env import gdal_header_tmpdir  # noqa: F401
+
+pytestmark = pytest.mark.anyio
+
+
+@pytest.fixture(autouse=True)
+def _staging_dir(tmp_path, monkeypatch):
+    """Keep the materialised-items extract out of the real staging volume.
+
+    fix(#1746 B2b review r16): a protected OGC API collection is streamed to a
+    file under the staging dir, which on a developer host is the unwritable
+    container path.
+    """
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path / "staging"))
+
+
+_WFS_URL = "https://services.example.test/geoserver/wfs"
+_ARCGIS_BASE = "https://services.example.test/rest/services/Parcels/FeatureServer"
+_REDIRECT_PIN = "CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT"
+_REDIRECT_PIN_VALUE = "IF_SAME_HOST"
+_DOUBLE_PREFIX = "Authorization: Bearer Authorization:"
+
+
+def _value() -> str:
+    """A credential value with no literal spelled anywhere in this file."""
+    return uuid.uuid4().hex
+
+
+def _basic() -> tuple[ServiceCredential, str, str]:
+    username = "u" + _value()
+    password = "p" + _value()
+    return (
+        ServiceCredential(
+            method=CredentialMethod.BASIC,
+            service_format="wfs",
+            username=username,
+            password=password,
+        ),
+        username,
+        password,
+    )
+
+
+def _header_key() -> tuple[ServiceCredential, str]:
+    value = _value()
+    return (
+        ServiceCredential(
+            method=CredentialMethod.HEADER_KEY,
+            service_format="wfs",
+            header_name="X-Api-Key",
+            header_value=value,
+        ),
+        value,
+    )
+
+
+def _bearer(token: str | None = None) -> ServiceCredential:
+    return ServiceCredential(
+        method=CredentialMethod.BEARER,
+        service_format="wfs",
+        token=token or ("tok" + _value()),
+    )
+
+
+# ---------------------------------------------------------------------------
+# The header file: one line, composed once
+# ---------------------------------------------------------------------------
+
+
+class _CapturedRun:
+    """What the ogrinfo/ogr2ogr subprocess would have been given."""
+
+    def __init__(self) -> None:
+        self.env: dict[str, str] = {}
+        self.header_bytes: bytes | None = None
+        self.cmd: tuple = ()
+
+
+def _capture_subprocess(monkeypatch, capture: _CapturedRun, *, payload: dict | None):
+    async def _fake_exec(*cmd, **kwargs):
+        capture.cmd = cmd
+        capture.env = dict(kwargs.get("env") or {})
+        path = capture.env.get("GDAL_HTTP_HEADER_FILE")
+        if path and os.path.exists(path):
+            with open(path, "rb") as handle:
+                capture.header_bytes = handle.read()
+        proc = MagicMock()
+        proc.returncode = 0
+
+        async def _communicate():
+            return (json.dumps(payload or {}).encode(), b"")
+
+        proc.communicate = _communicate
+        return proc
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+
+_EMPTY_LAYER = {
+    "layers": [
+        {"name": "topp:parcels", "fields": [], "features": [], "geometryFields": []}
+    ]
+}
+
+
+async def _preview_with(monkeypatch, credential) -> _CapturedRun:
+    capture = _CapturedRun()
+    _capture_subprocess(monkeypatch, capture, payload=_EMPTY_LAYER)
+    await preview_mod.run_service_preview(
+        f"WFS:{_WFS_URL}", "topp:parcels", credential=credential
+    )
+    return capture
+
+
+async def _commit_with(monkeypatch, token: str) -> _CapturedRun:
+    capture = _CapturedRun()
+    _capture_subprocess(monkeypatch, capture, payload=None)
+
+    async def _fake_communicate(proc, timeout, tool_name):
+        return (b"", b"")
+
+    monkeypatch.setattr(
+        "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
+    )
+    await run_ogr2ogr_service(
+        gdal_source=f"WFS:{_WFS_URL}",
+        layer_name="topp:parcels",
+        table_name="t",
+        db_conn_str="PG:dummy",
+        service_type="wfs",
+        token=token,
+        schema="data",
+    )
+    return capture
+
+
+class TestTheHeaderFileHoldsOneComposedLine:
+    async def test_a_basic_credential_writes_one_authorization_line(
+        self, monkeypatch
+    ) -> None:
+        """The whole point of moving the prefix into the builder.
+
+        A writer that kept its own ``Authorization: Bearer `` and was handed a
+        finished line would emit
+        ``Authorization: Bearer Authorization: Basic <blob>`` — a
+        working-looking string that 401s at the origin and reads in a log like
+        a credential problem rather than a bug.
+        """
+        credential, username, password = _basic()
+        capture = await _preview_with(monkeypatch, credential)
+
+        assert capture.header_bytes is not None
+        text = capture.header_bytes.decode("ascii")
+        assert text.count("\n") == 1 and text.endswith("\n")
+        line = text.rstrip("\n")
+        name, _, value = line.partition(": ")
+        assert name == "Authorization"
+        assert value.startswith("Basic ")
+        assert _DOUBLE_PREFIX not in text
+        # The blob really is this username and password, encoded server side.
+        blob = base64.b64decode(value.removeprefix("Basic ")).decode("ascii")
+        assert blob == f"{username}:{password}"
+
+    async def test_a_named_api_key_writes_its_own_header_name(
+        self, monkeypatch
+    ) -> None:
+        credential, value = _header_key()
+        capture = await _preview_with(monkeypatch, credential)
+
+        assert capture.header_bytes == f"X-Api-Key: {value}\n".encode("ascii")
+        assert _DOUBLE_PREFIX not in capture.header_bytes.decode("ascii")
+
+    async def test_a_bearer_preview_is_byte_identical_to_the_shipping_path(
+        self, monkeypatch
+    ) -> None:
+        """The parity guard: moving the prefix changed nothing that ships."""
+        credential = _bearer()
+        capture = await _preview_with(monkeypatch, credential)
+
+        assert capture.header_bytes == (
+            f"Authorization: Bearer {credential.token}\n".encode("ascii")
+        )
+
+    async def test_a_bearer_commit_is_byte_identical_to_the_shipping_path(
+        self, monkeypatch
+    ) -> None:
+        token = "tok" + _value()
+        capture = await _commit_with(monkeypatch, f"Authorization: Bearer {token}")
+
+        assert capture.header_bytes == (
+            f"Authorization: Bearer {token}\n".encode("ascii")
+        )
+
+    async def test_a_basic_commit_writes_the_line_it_was_given(
+        self, monkeypatch
+    ) -> None:
+        credential, username, password = _basic()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        line = f"{pair[0]}: {pair[1]}"
+
+        capture = await _commit_with(monkeypatch, line)
+
+        assert capture.header_bytes == f"{line}\n".encode("ascii")
+        assert password not in capture.header_bytes.decode("ascii")
+        assert _DOUBLE_PREFIX not in capture.header_bytes.decode("ascii")
+
+    @pytest.mark.parametrize("path", ["preview", "commit"])
+    async def test_the_redirect_pin_is_on_every_env_that_carries_a_header_file(
+        self, monkeypatch, path
+    ) -> None:
+        """Plan rule A, on both GDAL paths.
+
+        GDAL forwards ``Authorization`` only to the host it was given to, and
+        forwards every other header name verbatim even across hosts, so a
+        service-chosen API key is redirect-exposed here and cannot be protected
+        from inside; that residual is bounded operationally, which is why the
+        httpx probe path refuses the cross-origin hop outright instead.
+
+        The value is asserted rather than left to GDAL's default so a later
+        change to that default cannot silently widen what this credential
+        follows. What it must NOT be is asserted too: see the test below.
+        """
+        if path == "preview":
+            capture = await _preview_with(monkeypatch, _bearer())
+        else:
+            capture = await _commit_with(
+                monkeypatch, "Authorization: Bearer tok" + _value()
+            )
+
+        assert capture.env[_REDIRECT_PIN] == _REDIRECT_PIN_VALUE
+        # And never the option that reads as a defense and is a no-op (#937).
+        assert "GDAL_HTTP_FOLLOWLOCATION" not in capture.env
+
+    @pytest.mark.parametrize("path", ["preview", "commit"])
+    async def test_the_pin_does_not_drop_the_header_on_a_same_host_redirect(
+        self, monkeypatch, path
+    ) -> None:
+        """fix(#1746 B2b review r4): NO would have regressed working imports.
+
+        ``NO`` blocks forwarding after ANY redirect, not only a cross-host one,
+        so a protected WFS or OAPIF endpoint that redirects to its own
+        canonical path -- adding a trailing slash is the common one -- would
+        lose the credential and answer 401. Bearer imports that work today go
+        through exactly that.
+
+        This asserts the value, not the behaviour. The harness stubs the
+        subprocess, so no libcurl runs and no redirect is followed here; what
+        can be pinned is that this build asks GDAL for the same-host rule and
+        not the total one.
+        """
+        if path == "preview":
+            capture = await _preview_with(monkeypatch, _bearer())
+        else:
+            capture = await _commit_with(
+                monkeypatch, "Authorization: Bearer tok" + _value()
+            )
+
+        assert capture.env[_REDIRECT_PIN] == "IF_SAME_HOST"
+        assert capture.env[_REDIRECT_PIN] != "NO"
+
+    async def test_no_env_carries_the_credential_itself(self, monkeypatch) -> None:
+        """IA-P1-06: the env var holds the file path, not the secret."""
+        credential, _username, password = _basic()
+        capture = await _preview_with(monkeypatch, credential)
+
+        assert "GDAL_HTTP_HEADERS" not in capture.env
+        assert password not in str(capture.env)
+
+
+# ---------------------------------------------------------------------------
+# The doors judge inputs, and refuse before anything is spent
+# ---------------------------------------------------------------------------
+
+
+_REFUSED_INPUTS = {
+    "carriage_return": "abc\rdef",
+    "line_feed": "abc\ndef",
+    "non_ascii": "abcdéfgh",
+    "space": "abc def",
+    "empty": "",
+}
+
+
+class TestUnusableInputsAreRefusedAtTheDoor:
+    """fix(#1746): before the composition, and before the credential is spent.
+
+    Non-ASCII is the one worth naming. RFC 7617 makes UTF-8 the default charset
+    for basic authentication, so refusing an accented letter reads like a bug
+    until you look at the writer: both header files are written with
+    ``.encode("ascii")``, so the alternative is a UnicodeEncodeError inside the
+    worker, AFTER the single-use credential has been claimed — unrecoverable
+    without re-entering it, and reported as an encoding bug rather than as the
+    field the user typed.
+    """
+
+    async def _preview(self, client, headers, auth: dict):
+        spawned: list = []
+
+        async def _fake_exec(*cmd, **kwargs):
+            spawned.append(cmd)
+            raise AssertionError("ogrinfo must not be spawned for a refused input")
+
+        with (
+            patch(
+                "app.modules.catalog.sources.router.validate_url_for_ssrf",
+                new_callable=AsyncMock,
+            ),
+            patch.object(asyncio, "create_subprocess_exec", _fake_exec),
+        ):
+            resp = await client.post(
+                "/services/preview",
+                json={
+                    "url": _WFS_URL,
+                    "service_type": "WFS 2.0.0",
+                    "layer_name": "topp:parcels",
+                    "auth": auth,
+                },
+                headers=headers,
+            )
+        return resp, spawned
+
+    @pytest.mark.parametrize("kind", sorted(_REFUSED_INPUTS))
+    async def test_a_password_that_cannot_be_written_is_refused(
+        self, client, admin_auth_header: dict, kind
+    ) -> None:
+        password = _REFUSED_INPUTS[kind]
+        resp, spawned = await self._preview(
+            client,
+            admin_auth_header,
+            {"method": "basic", "username": "u" + _value(), "password": password},
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert spawned == []
+        if password.strip():
+            assert password not in resp.text
+
+    @pytest.mark.parametrize("kind", sorted(_REFUSED_INPUTS))
+    async def test_a_header_value_that_cannot_be_written_is_refused(
+        self, client, admin_auth_header: dict, kind
+    ) -> None:
+        value = _REFUSED_INPUTS[kind]
+        resp, spawned = await self._preview(
+            client,
+            admin_auth_header,
+            {"method": "header", "header_name": "X-Api-Key", "header_value": value},
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert spawned == []
+        if value.strip():
+            assert value not in resp.text
+
+    @pytest.mark.parametrize(
+        "header_name", ["Authorization", "AUTHORIZATION", "X Api Key", ":authority"]
+    )
+    async def test_a_header_name_this_build_sets_itself_is_refused(
+        self, client, admin_auth_header: dict, header_name
+    ) -> None:
+        """The denylist is case-insensitive, and a pseudo-header is not a field."""
+        value = _value()
+        resp, spawned = await self._preview(
+            client,
+            admin_auth_header,
+            {"method": "header", "header_name": header_name, "header_value": value},
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert spawned == []
+        assert value not in resp.text
+
+    async def test_the_probe_judges_the_same_inputs_as_the_preview(
+        self, client, admin_auth_header: dict
+    ) -> None:
+        """fix(#1755 item 2): the two doors agreed on nothing before this.
+
+        A credential the preview refuses used to probe cleanly, so the user
+        learned at the next step rather than at the one they were on.
+        """
+        probe = AsyncMock()
+        with (
+            patch(
+                "app.modules.catalog.sources.router.validate_url_for_ssrf",
+                new_callable=AsyncMock,
+            ),
+            patch("app.modules.catalog.sources.router.detect_service_type", probe),
+        ):
+            resp = await client.post(
+                "/services/probe",
+                json={
+                    "url": _WFS_URL,
+                    "auth": {
+                        "method": "basic",
+                        "username": "u" + _value(),
+                        "password": "abc\rdef",
+                    },
+                },
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 422, resp.text
+        probe.assert_not_awaited()
+
+    async def test_a_bearer_token_is_not_charset_judged_before_detection(
+        self, client, admin_auth_header: dict
+    ) -> None:
+        """fix(#1746 B2b review r7): the probe is what determines the service.
+
+        A bearer token reaches detection whatever the URL looks like, because
+        the transport that would constrain it is not known yet. The refusal,
+        when it comes, comes from `TestABearerTokenIsJudgedAfterDetection`
+        below, after every adapter has had its turn.
+        """
+        from app.modules.catalog.sources.schemas import ProbeResponse
+
+        probe = AsyncMock(
+            return_value=ProbeResponse(
+                service_type="ArcGIS FeatureServer", url=_ARCGIS_BASE, layers=[]
+            )
+        )
+        for url in (_WFS_URL, _ARCGIS_BASE):
+            with (
+                patch(
+                    "app.modules.catalog.sources.router.validate_url_for_ssrf",
+                    new_callable=AsyncMock,
+                ),
+                patch("app.modules.catalog.sources.router.detect_service_type", probe),
+            ):
+                resp = await client.post(
+                    "/services/probe",
+                    json={"url": url, "token": "tok+slash/" + _value()},
+                    headers=admin_auth_header,
+                )
+
+            assert resp.status_code == 200, (url, resp.text)
+
+
+# ---------------------------------------------------------------------------
+# Plan D9's invariant: an ArcGIS URL never carries a header
+# ---------------------------------------------------------------------------
+
+
+class TestNoArcgisUrlCarriesAnAuthorizationHeader:
+    """The builder answers None for ArcGIS, so nothing can compose one there.
+
+    An ArcGIS credential is percent-encoded straight into a URL query
+    (``build_gdal_source``, ``build_arcgis_count_query_url``, the paged import
+    path), so a builder that ever returned a line for an ArcGIS credential
+    would put ``Authorization: Basic ...`` inside a query string.
+    """
+
+    @pytest.mark.parametrize(
+        "method",
+        [
+            CredentialMethod.BEARER,
+            CredentialMethod.BASIC,
+            CredentialMethod.HEADER_KEY,
+        ],
+    )
+    def test_the_builder_composes_nothing_for_an_arcgis_credential(self, method):
+        credential = ServiceCredential(
+            method=method,
+            service_format="arcgis_featureserver",
+            token="tok" + _value(),
+            username="u" + _value(),
+            password="p" + _value(),
+            header_name="X-Api-Key",
+            header_value=_value(),
+        )
+        assert build_credential_header(credential) is None
+
+    def test_no_composed_arcgis_url_contains_the_string(self):
+        """Every ArcGIS URL this codebase composes, with a token in it."""
+        from app.modules.catalog.sources.preview import build_gdal_source
+
+        token = "tok" + _value()
+        source, _layer = build_gdal_source(
+            "ArcGIS FeatureServer", _ARCGIS_BASE, "Parcels", 0, token=token
+        )
+        count_url = arcgis_mod.build_arcgis_count_query_url(f"{_ARCGIS_BASE}/0", token)
+
+        for url in (source, count_url):
+            assert "Authorization" not in url
+            assert token in url
+
+    def test_neither_arcgis_module_composes_a_credential_header(self):
+        """The positive control names the string it is looking for.
+
+        A source-text assertion, because the ArcGIS transport is C2's lane and
+        this is the invariant that lane must not break: an adapter that grew a
+        header would pass every behavioural test here while putting a
+        credential where the query goes.
+        """
+        adapter_source = inspect.getsource(arcgis_mod)
+        paged_source = inspect.getsource(tasks_vector._fetch_arcgis_import_page_info)
+        assert "token" in adapter_source, "positive control: the file was read"
+        for source in (adapter_source, paged_source):
+            # The only mention either module may make of the header is the
+            # comment saying it composes none.
+            assert "Authorization:" not in source
+            assert "build_credential_header(" not in source
+
+
+# ---------------------------------------------------------------------------
+# Rule A, httpx half: a credential header stays on its origin
+# ---------------------------------------------------------------------------
+
+
+class TestACrossOriginRedirectCannotCarryTheKey:
+    """Per adapter, because each builds its own request off one client.
+
+    ``make_safe_client`` is what refuses, and B1 pinned that mechanism. What
+    these add is that the adapters are actually reached through a client that
+    declared the header, so a future adapter that builds its own client is a
+    failure here rather than a silent leak.
+    """
+
+    @pytest.fixture
+    def transport(self, monkeypatch):
+        def install(location: str) -> list[httpx.Request]:
+            recorded: list[httpx.Request] = []
+
+            def handle(request: httpx.Request) -> httpx.Response:
+                recorded.append(request)
+                if len(recorded) == 1:
+                    return httpx.Response(302, headers={"Location": location})
+                return httpx.Response(200, json={})
+
+            monkeypatch.setattr(
+                security,
+                "make_safe_transport",
+                # fix(#1770 round 41 P1): the probe adapters now read via
+                # `client.stream`, and `_as_stream` (see its own docstring)
+                # is what turns a plain `httpx.Response(json=...)` double into
+                # one that supports being streamed at all.
+                lambda: httpx.MockTransport(lambda r: _as_stream(handle(r))),
+            )
+            monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+            return recorded
+
+        return install
+
+    @pytest.mark.parametrize("probe", [probe_wfs, probe_ogcapi])
+    async def test_a_probe_adapter_issues_no_second_request(self, transport, probe):
+        recorded = transport("https://elsewhere.example/collect")
+        credential, value = _header_key()
+
+        async with make_safe_client(credential_header="X-Api-Key") as client:
+            with pytest.raises(SSRFError) as raised:
+                await probe(_WFS_URL, client, credential=credential)
+
+        assert len(recorded) == 1
+        assert value not in str(raised.value)
+
+    async def test_the_collection_crs_fallback_issues_no_second_request(
+        self, transport
+    ):
+        """It builds its own client, so it declares its own header name."""
+        from app.modules.catalog.sources.router import _fetch_ogcapi_collection_srid
+
+        recorded = transport("https://elsewhere.example/collect")
+        credential, _value = _header_key()
+
+        srid = await _fetch_ogcapi_collection_srid(
+            "https://services.example.test/oapif",
+            "parcels",
+            ServiceCredential(
+                method=credential.method,
+                service_format="ogcapi_features",
+                header_name=credential.header_name,
+                header_value=credential.header_value,
+            ),
+        )
+
+        # Degrades to no CRS rather than raising, and never issues the hop.
+        assert srid is None
+        assert len(recorded) == 1
+
+    @pytest.mark.parametrize("probe", [probe_wfs, probe_ogcapi])
+    async def test_a_same_origin_redirect_still_carries_it(self, transport, probe):
+        """The ordinary case a service moving its own path produces."""
+        recorded = transport("https://services.example.test/geoserver/moved")
+        credential, value = _header_key()
+
+        async with make_safe_client(credential_header="X-Api-Key") as client:
+            await probe(_WFS_URL, client, credential=credential)
+
+        assert len(recorded) == 2
+        assert recorded[1].headers.get("X-Api-Key") == value
+
+
+# ---------------------------------------------------------------------------
+# A failed dispatch leaves nothing behind
+# ---------------------------------------------------------------------------
+
+
+class TestAFailedDispatchLeavesNoCredentialBehind:
+    """The durable surfaces, for a credential that is no longer a bare token.
+
+    Plan D9 keeps them all working by keeping the kwarg NAME: the queued-row
+    purge is ``args - 'token'``, the terminal-row sweep reads the same key, and
+    the log scrubber's regex is a word-boundary match on ``token``. What D9
+    does not close on its own is the exact-value scrub: with a header line as
+    the value, an origin that echoed back only the credential half would have
+    survived it.
+    """
+
+    async def test_the_queued_row_purge_strips_a_composed_line(
+        self, test_db_session
+    ) -> None:
+        from app.processing.ingest.tasks_common import purge_queued_job_token
+        from tests.test_failed_job_token_purge_1746 import (
+            _drop_queue,
+            _queue_row,
+            _read_args,
+        )
+
+        credential, _username, password = _basic()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        line = f"{pair[0]}: {pair[1]}"
+        blob = pair[1].removeprefix("Basic ")
+
+        queue = f"b2b-purge-{uuid.uuid4().hex[:12]}"
+        try:
+            row_id = await _queue_row(
+                test_db_session,
+                status="failed",
+                queue_name=queue,
+                args={"job_id": str(uuid.uuid4()), "token": line},
+            )
+            context = SimpleNamespace(job=SimpleNamespace(id=row_id))
+            await purge_queued_job_token(context)
+            args = await _read_args(test_db_session, row_id)
+        finally:
+            await _drop_queue(test_db_session, queue)
+
+        assert "token" not in args
+        assert blob not in json.dumps(args)
+        assert password not in json.dumps(args)
+
+    def test_an_echo_of_the_credential_half_is_scrubbed_too(self) -> None:
+        """The residual D9 does not close on its own.
+
+        ``scrub_secret_from_exception`` scrubs the exact value it is handed.
+        With the line as that value, an origin that quotes back the encoded
+        credential without the header name it arrived under would have gone
+        through untouched into ``IngestJob.error_message``, a log record, a
+        notification reason and the exception the queue records.
+        """
+        from app.core.url_redaction import scrub_secret_from_exception
+
+        credential, _username, _password = _basic()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        line = f"{pair[0]}: {pair[1]}"
+        blob = pair[1].removeprefix("Basic ")
+
+        for echo in (line, pair[1], blob):
+            error = ValueError(f"upstream said: {echo} was rejected")
+            scrub_secret_from_exception(error, line)
+            assert echo not in str(error)
+            assert blob not in str(error)
+
+    def test_a_bearer_echo_is_still_scrubbed_by_its_bare_token(self) -> None:
+        """The parity half: this is exactly what was scrubbed before D9."""
+        from app.core.url_redaction import scrub_secret_from_exception
+
+        token = "tok" + _value()
+        error = ValueError(f"upstream said: {token} was rejected")
+        scrub_secret_from_exception(error, f"Authorization: Bearer {token}")
+        assert token not in str(error)
+
+    async def test_the_worker_error_carries_no_credential_after_the_scrub(
+        self, monkeypatch
+    ) -> None:
+        """The chain, end to end, on the path an origin actually echoes.
+
+        ogr2ogr prints the request it failed on, so a credential can reach
+        stderr; ``redact_url_credentials`` is pattern-based and does not see a
+        header. The exact-value scrub in the task is what closes it, and it can
+        only close it because the value the task holds is the same string.
+        """
+        from app.core.url_redaction import scrub_secret_from_exception
+        from app.processing.ingest.ogr import IngestionError
+
+        credential, _username, _password = _basic()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        line = f"{pair[0]}: {pair[1]}"
+        blob = pair[1].removeprefix("Basic ")
+
+        async def _fake_exec(*cmd, **kwargs):
+            proc = MagicMock()
+            proc.returncode = 1
+            return proc
+
+        async def _fake_communicate(proc, timeout, tool_name):
+            return (b"", f"ERROR 1: HTTP error, sent {blob}".encode())
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
+        )
+
+        with pytest.raises(IngestionError) as raised:
+            await run_ogr2ogr_service(
+                gdal_source=f"WFS:{_WFS_URL}",
+                layer_name="topp:parcels",
+                table_name="t",
+                db_conn_str="PG:dummy",
+                service_type="wfs",
+                token=line,
+                schema="data",
+            )
+
+        scrub_secret_from_exception(raised.value, line)
+        assert blob not in str(raised.value)
+
+
+# ---------------------------------------------------------------------------
+# The preview path's own failure text
+# ---------------------------------------------------------------------------
+
+
+class TestAPreviewFailureCarriesNoCredential:
+    """fix(#1746 B2b review r2): the door path needed the worker's scrub too.
+
+    GDAL prints the request it failed on, so an origin that rejects a
+    credential can put the header line, or the encoded credential on its own,
+    into ogrinfo's stderr. Neither `redact_url_credentials`, which matches URL
+    shapes, nor the stdlib log processor, which matches key NAMES, can see a
+    credential arriving as prose under a `stderr` key. The exact-value scrub
+    can, because it holds the value, and it runs before the log line and
+    before the exception is built, so every downstream reader gets the same
+    text: the API log, the 502 the router raises, and the response body.
+    """
+
+    async def _failing_preview(self, monkeypatch, credential, stderr_text: str):
+        """Run a preview whose ogrinfo exits 1 with *stderr_text*."""
+        import structlog
+
+        async def _fake_exec(*cmd, **kwargs):
+            proc = MagicMock()
+            proc.returncode = 1
+
+            async def _communicate():
+                return (b"", stderr_text.encode())
+
+            proc.communicate = _communicate
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+        with structlog.testing.capture_logs() as captured:
+            with pytest.raises(Exception) as raised:  # noqa: PT011 - IngestionError is resolved through the port
+                await preview_mod.run_service_preview(
+                    f"WFS:{_WFS_URL}", "topp:parcels", credential=credential
+                )
+        return raised.value, captured
+
+    async def test_a_basic_credential_echoed_in_stderr_is_scrubbed(
+        self, monkeypatch
+    ) -> None:
+        credential, _username, password = _basic()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        line = f"{pair[0]}: {pair[1]}"
+        blob = pair[1].removeprefix("Basic ")
+
+        # Every shape an origin can echo: the whole line, the scheme-prefixed
+        # value, and the encoded credential on its own.
+        stderr_text = (
+            f"ERROR 1: HTTP error code 401 - sent '{line}' "
+            f"(header value '{pair[1]}', credential '{blob}')"
+        )
+        error, captured = await self._failing_preview(
+            monkeypatch, credential, stderr_text
+        )
+
+        for secret in (line, pair[1], blob, password):
+            assert secret not in str(error), secret
+            assert secret not in str(captured), secret
+
+    async def test_a_named_api_key_echoed_in_stderr_is_scrubbed(
+        self, monkeypatch
+    ) -> None:
+        credential, value = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        line = f"{pair[0]}: {pair[1]}"
+
+        error, captured = await self._failing_preview(
+            monkeypatch, credential, f"ERROR 1: rejected '{line}' / bare '{value}'"
+        )
+
+        for secret in (line, value):
+            assert secret not in str(error), secret
+            assert secret not in str(captured), secret
+
+    async def test_a_bearer_token_echoed_in_stderr_is_scrubbed(
+        self, monkeypatch
+    ) -> None:
+        """The shipping path keeps the guarantee the other two just gained."""
+        credential = _bearer()
+        token = credential.token
+        error, captured = await self._failing_preview(
+            monkeypatch,
+            credential,
+            f"ERROR 1: HTTP 401 for 'Authorization: Bearer {token}' / '{token}'",
+        )
+
+        assert token not in str(error)
+        assert token not in str(captured)
+
+    async def test_the_counterfactual(self, monkeypatch) -> None:
+        """The assertions above pass because of the scrub, not by accident.
+
+        Without a positive control an absence assertion is satisfied by a
+        preview that never reached the failure block at all. This drives the
+        same path with the scrub disabled and requires the credential to come
+        through, so the three tests above cannot be green for the wrong
+        reason.
+        """
+        monkeypatch.setattr(
+            preview_mod, "scrub_secret_value", lambda text, secret: text
+        )
+        credential, _username, _password = _basic()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        blob = pair[1].removeprefix("Basic ")
+
+        error, captured = await self._failing_preview(
+            monkeypatch, credential, f"ERROR 1: sent '{blob}'"
+        )
+
+        assert blob in str(error)
+        assert blob in str(captured)
+
+    async def test_unreadable_stdout_names_none_of_it(self, monkeypatch) -> None:
+        """An exit-0 run whose stdout is not JSON used to raise the decoder's.
+
+        A `JSONDecodeError` carries the document it could not parse, and that
+        document is GDAL output like any other.
+        """
+        import structlog
+
+        credential, _username, _password = _basic()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        blob = pair[1].removeprefix("Basic ")
+
+        async def _fake_exec(*cmd, **kwargs):
+            proc = MagicMock()
+            proc.returncode = 0
+
+            async def _communicate():
+                return (f"not json, and it quotes {blob}".encode(), b"")
+
+            proc.communicate = _communicate
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+        with structlog.testing.capture_logs() as captured:
+            with pytest.raises(Exception) as raised:  # noqa: PT011
+                await preview_mod.run_service_preview(
+                    f"WFS:{_WFS_URL}", "topp:parcels", credential=credential
+                )
+
+        assert blob not in str(raised.value)
+        assert blob not in str(captured)
+        # And the chained original cannot carry it either.
+        assert raised.value.__cause__ is None
+
+
+# ---------------------------------------------------------------------------
+# The queue this worker inherits from the version before it
+# ---------------------------------------------------------------------------
+
+
+class TestALegacyQueuedTokenStillImports:
+    """fix(#1746 B2b review r3): a deploy must not fail the jobs already in flight.
+
+    Plan D9 changed what travels under the `token` kwarg from a bare bearer
+    token to a finished header line. A worker that starts while authenticated
+    WFS or OGC API jobs are already queued reads the OLD shape, out of
+    `procrastinate_jobs.args` or out of the credential store behind a reference
+    the previous door stashed. Refusing it would fail every one of those
+    deterministically at the next deploy or restart, and would spend the
+    single-use credential before ogr2ogr started, which is worse than the skew
+    #1689 accepted here: that one degraded to a 401 the operator could retry.
+
+    The compatibility branch is exactly as wide as the old door was, and the
+    line it produces comes from the same builder as every other line.
+    """
+
+    async def test_a_bare_token_reaches_ogr2ogr_as_the_composed_line(
+        self, monkeypatch
+    ) -> None:
+        token = "tok" + _value()
+        capture = _CapturedRun()
+        _capture_subprocess(monkeypatch, capture, payload=None)
+
+        async def _fake_communicate(proc, timeout, tool_name):
+            return (b"", b"")
+
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
+        )
+        await run_ogr2ogr_service(
+            gdal_source=f"WFS:{_WFS_URL}",
+            layer_name="topp:parcels",
+            table_name="t",
+            db_conn_str="PG:dummy",
+            service_type="wfs",
+            # The pre-#1770 wire value, exactly as the old door dispatched it.
+            token=token,
+            schema="data",
+        )
+
+        assert capture.header_bytes == (
+            f"Authorization: Bearer {token}\n".encode("ascii")
+        )
+        assert _DOUBLE_PREFIX not in capture.header_bytes.decode("ascii")
+        assert capture.env[_REDIRECT_PIN] == _REDIRECT_PIN_VALUE
+
+    async def test_a_bare_token_reaches_the_ogcapi_reader_as_the_line(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The same conversion, on the driver that no longer sees a header file.
+
+        A protected OGC API collection is read in-process now, so the legacy
+        value has to arrive at that reader already composed, and nothing may be
+        written for GDAL to pick up (fix #1746 B2b review r16).
+        """
+        token = "tok" + _value()
+        capture = _CapturedRun()
+        _capture_subprocess(monkeypatch, capture, payload=None)
+        seen: dict = {}
+
+        async def _fake_communicate(proc, timeout, tool_name):
+            return (b"", b"")
+
+        async def _fake_materialise(url, collection, **kwargs):
+            seen.update(url=url, collection=collection, **kwargs)
+            local = tmp_path / "items.geojson"
+            local.write_text('{"type": "FeatureCollection", "features": []}')
+            return MaterialisedCollection(path=str(local), features=0, total=0)
+
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
+        )
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr.materialise_oapif_items", _fake_materialise
+        )
+        await run_ogr2ogr_service(
+            gdal_source=f"OAPIF:{_SVC_OAPIF}",
+            layer_name="c0",
+            table_name="t",
+            db_conn_str="PG:dummy",
+            service_type="ogcapi_features",
+            token=token,
+            schema="data",
+        )
+
+        assert seen["credential_line"] == f"Authorization: Bearer {token}"
+        assert seen["url"] == _SVC_OAPIF
+        assert seen["collection"] == "c0"
+        # Nothing left for GDAL to read: no header file, and a local extract in
+        # place of the service URL.
+        assert capture.header_bytes is None
+        assert str(tmp_path / "items.geojson") in capture.cmd
+        assert not any(str(part).startswith("OAPIF:") for part in capture.cmd)
+
+    async def test_a_value_that_is_neither_shape_still_refuses(
+        self, monkeypatch
+    ) -> None:
+        """The branch widens compatibility, not what may reach libcurl."""
+        from app.processing.ingest.ogr import HEADER_LINE_SHAPE_POLICY
+
+        spawned: list = []
+
+        async def _fake_exec(*cmd, **kwargs):
+            spawned.append(cmd)
+            raise AssertionError("ogr2ogr must not be spawned for a refused value")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+        with pytest.raises(ValueError) as raised:
+            await run_ogr2ogr_service(
+                gdal_source=f"WFS:{_WFS_URL}",
+                layer_name="topp:parcels",
+                table_name="t",
+                db_conn_str="PG:dummy",
+                service_type="wfs",
+                # Not a line, and outside the charset the old door enforced.
+                token="plus+slash/" + _value(),
+                schema="data",
+            )
+
+        assert str(raised.value) == HEADER_LINE_SHAPE_POLICY
+        assert spawned == []
+
+    def test_the_compatibility_branch_composes_nothing_of_its_own(self) -> None:
+        """The single-producer rule holds through the legacy path.
+
+        A prefix written here would be a second producer in the module the
+        whole gate exists to keep clean, and it would be invisible to the AST
+        rule because this module's write site is allowlisted for a different
+        reason (the line arrives as a task argument).
+        """
+        source = inspect.getsource(ogr_mod._legacy_bearer_line)
+        assert "build_credential_header(" in source
+        assert "credential_header_line(" in source
+        assert "Bearer" not in source
+
+
+# ---------------------------------------------------------------------------
+# A link the DOCUMENT chose is not a redirect, and nothing else guards it
+# ---------------------------------------------------------------------------
+
+
+_SERVICE_ORIGIN = "https://service.example"
+_OTHER_ORIGIN = "https://elsewhere.example"
+
+
+class TestTheConformanceLinkStaysOnTheServiceOrigin:
+    """fix(#1746 B2b review r5): the second way a credential leaves its origin.
+
+    `make_safe_client` refuses a cross-origin REDIRECT, and that covers every
+    hop httpx follows. It cannot cover this one: when an OGC API landing page
+    omits `conformsTo`, the adapter follows the `conformance` link the document
+    named, and that is a fresh request. A landing page that points its
+    conformance link at another origin would have been handed the credential
+    built for the service.
+
+    The rule is the same one, asked by the adapter instead of by the hook, and
+    it uses the same `same_origin` definition so the two cannot drift.
+    """
+
+    def _landing(self, conformance_href: str) -> dict:
+        """A landing page with no `conformsTo`, so the link must be followed."""
+        return {
+            "links": [
+                {"rel": "data", "href": f"{_SERVICE_ORIGIN}/oapif/collections"},
+                {"rel": "conformance", "href": conformance_href},
+            ]
+        }
+
+    async def _probe(self, monkeypatch, credential, conformance_href, *, blocked=()):
+        recorded: list[httpx.Request] = []
+        landing = self._landing(conformance_href)
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            if request.url.path.endswith("/collections"):
+                return httpx.Response(200, json={"collections": [{"id": "parcels"}]})
+            if "conformance" in request.url.path:
+                return httpx.Response(
+                    200,
+                    json={
+                        "conformsTo": [
+                            "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+                        ]
+                    },
+                )
+            return httpx.Response(200, json=landing)
+
+        async def _validate(target: str) -> None:
+            # The real validator has its own suite; what matters here is that
+            # this adapter asks it BEFORE the fetch and honours the refusal.
+            if any(target.startswith(prefix) for prefix in blocked):
+                raise SSRFError("blocked")
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+            _validate,
+        )
+
+        # fix(#1770 round 41 P1): `_as_stream` -- see its own docstring --
+        # turns a plain `httpx.Response(json=...)` double into one that
+        # supports the streaming read the probe adapters now use.
+        transport = httpx.MockTransport(lambda r: _as_stream(handle(r)))
+        async with httpx.AsyncClient(transport=transport) as client:
+            result = await probe_ogcapi(
+                f"{_SERVICE_ORIGIN}/oapif", client, credential=credential
+            )
+        return recorded, result
+
+    async def test_a_cross_origin_link_is_not_followed_with_a_credential(
+        self, monkeypatch
+    ) -> None:
+        credential, value = _header_key()
+        recorded, result = await self._probe(
+            monkeypatch,
+            replace(credential, service_format="ogcapi_features"),
+            f"{_OTHER_ORIGIN}/conformance",
+        )
+
+        # Not a single request reached the other origin, so the key could not
+        # have been disclosed to it.
+        assert all(str(r.url).startswith(_SERVICE_ORIGIN) for r in recorded), recorded
+        assert not [r for r in recorded if "conformance" in r.url.path]
+        # And the credential still goes to the service itself, so this is a
+        # refusal to follow one link and not a probe quietly stripped of its
+        # credential.
+        assert [r for r in recorded if r.headers.get("X-Api-Key") == value]
+        # The service is still classified, by its `data` link, exactly as a
+        # landing page advertising no conformance link at all would be.
+        assert result is not None
+        assert result["service_type"] == "OGC API Features"
+
+    async def test_a_same_origin_link_keeps_the_credential(self, monkeypatch) -> None:
+        """The ordinary shape, which must keep working.
+
+        A service that publishes its conformance document under its own origin
+        and requires a credential for it is the case this whole path exists
+        for.
+        """
+        credential, value = _header_key()
+        recorded, result = await self._probe(
+            monkeypatch,
+            replace(credential, service_format="ogcapi_features"),
+            f"{_SERVICE_ORIGIN}/oapif/conformance",
+        )
+
+        conformance = [r for r in recorded if "conformance" in r.url.path]
+        assert len(conformance) == 1
+        assert conformance[0].headers.get("X-Api-Key") == value
+        assert result is not None
+
+    async def test_a_default_port_spelling_is_the_same_origin(
+        self, monkeypatch
+    ) -> None:
+        """`https://host` and `https://host:443` are one origin, not two.
+
+        Comparing the port as written would refuse a real service over a
+        spelling difference, which is the failure `same_origin` fills the
+        default port to avoid.
+        """
+        credential, value = _header_key()
+        recorded, _result = await self._probe(
+            monkeypatch,
+            replace(credential, service_format="ogcapi_features"),
+            "https://service.example:443/oapif/conformance",
+        )
+
+        conformance = [r for r in recorded if "conformance" in r.url.path]
+        assert len(conformance) == 1
+        assert conformance[0].headers.get("X-Api-Key") == value
+
+    async def test_an_anonymous_probe_still_follows_a_cross_origin_link(
+        self, monkeypatch
+    ) -> None:
+        """The refusal is about the credential, not about the link.
+
+        With nothing to disclose there is nothing to protect, and refusing here
+        would classify fewer public services for no gain. Recorded as a test so
+        the asymmetry is deliberate rather than incidental.
+        """
+        recorded, result = await self._probe(
+            monkeypatch, None, f"{_OTHER_ORIGIN}/conformance"
+        )
+
+        followed = [r for r in recorded if str(r.url).startswith(_OTHER_ORIGIN)]
+        assert len(followed) == 1
+        assert "x-api-key" not in {name.lower() for name in followed[0].headers}
+        assert result is not None
+
+    async def test_a_private_address_link_is_refused_before_any_request(
+        self, monkeypatch
+    ) -> None:
+        """The SSRF gate is in front of this fetch, and its refusal is honoured.
+
+        Driven anonymously on purpose. A private address is a different origin,
+        so a credentialed probe is already refused by the rule above and this
+        gate would never be reached; running it with no credential isolates the
+        gate and proves it is the thing doing the refusing.
+        """
+        recorded, result = await self._probe(
+            monkeypatch,
+            None,
+            "http://127.0.0.1:9/conformance",
+            blocked=("http://127.0.0.1",),
+        )
+
+        assert "127.0.0.1" not in {r.url.host for r in recorded}, recorded
+        assert result is not None
+
+    async def test_a_syntactically_invalid_link_is_unusable_not_a_crash(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1746 B2b review r6): the origin question must be answerable.
+
+        `httpx.URL` raises on something like `http://example.com:notaport/`,
+        and the landing document chooses this URL, so asking whether it is the
+        same origin used to turn a probe into a 500 where the old path
+        degraded. An unparseable link is not the same origin as anything, so
+        it is simply not followed.
+        """
+        credential, value = _header_key()
+        recorded, result = await self._probe(
+            monkeypatch,
+            replace(credential, service_format="ogcapi_features"),
+            "http://example.com:notaport/conformance",
+        )
+
+        assert not [r for r in recorded if "conformance" in r.url.path]
+        assert all(str(r.url).startswith(_SERVICE_ORIGIN) for r in recorded), recorded
+        assert [r for r in recorded if r.headers.get("X-Api-Key") == value]
+        assert result is not None
+        assert result["service_type"] == "OGC API Features"
+
+    async def test_a_syntactically_invalid_link_degrades_anonymously_too(
+        self, monkeypatch
+    ) -> None:
+        """The path with no credential never reaches the origin rule.
+
+        It still has to degrade rather than raise, which is what the guarded
+        block around the fetch is for, and what the old code did before this
+        branch added an origin comparison in front of it.
+        """
+        recorded, result = await self._probe(
+            monkeypatch, None, "http://example.com:notaport/conformance"
+        )
+
+        assert all(str(r.url).startswith(_SERVICE_ORIGIN) for r in recorded), recorded
+        assert result is not None
+        assert result["service_type"] == "OGC API Features"
+
+    async def test_a_link_that_will_not_even_resolve_degrades_too(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1746 B2b review r19): resolution itself is inside the guard.
+
+        r6 moved the origin comparison in and left `urljoin` outside, which
+        held for the invalid-port case it was reasoning about because
+        `urlparse` defers that until the attribute is read. An unclosed IPv6
+        bracket raises during resolution instead, so the probe still 500ed on
+        a link the landing document chose.
+        """
+        credential, value = _header_key()
+        recorded, result = await self._probe(
+            monkeypatch,
+            replace(credential, service_format="ogcapi_features"),
+            "http://[::1",
+        )
+
+        assert not [r for r in recorded if "conformance" in r.url.path]
+        assert all(str(r.url).startswith(_SERVICE_ORIGIN) for r in recorded), recorded
+        assert [r for r in recorded if r.headers.get("X-Api-Key") == value]
+        assert result is not None
+        assert result["service_type"] == "OGC API Features"
+
+    async def test_a_link_that_will_not_resolve_degrades_anonymously_too(
+        self, monkeypatch
+    ) -> None:
+        """The credential-free twin, which never reaches the origin rule."""
+        recorded, result = await self._probe(monkeypatch, None, "http://[::1")
+
+        assert all(str(r.url).startswith(_SERVICE_ORIGIN) for r in recorded), recorded
+        assert result is not None
+        assert result["service_type"] == "OGC API Features"
+
+    def test_the_origin_rule_is_total(self) -> None:
+        """Asked directly, because both callers depend on it never raising."""
+        from app.platform.security import same_origin
+
+        assert same_origin("https://a.example/x", "https://a.example/y") is True
+        assert same_origin("https://a.example", "https://a.example:443") is True
+        assert same_origin("https://a.example", "https://b.example") is False
+        # Unparseable on either side, and unparseable against itself.
+        broken = "http://example.com:notaport/conformance"
+        assert same_origin("https://a.example", broken) is False
+        assert same_origin(broken, "https://a.example") is False
+        assert same_origin(broken, broken) is False
+
+    async def test_the_adapter_asks_the_shared_origin_rule(self) -> None:
+        """One definition of same-origin, shared with the redirect refusal.
+
+        A second one here would drift from the hook's, and the two are meant to
+        answer the same question about the same credential.
+        """
+        source = inspect.getsource(ogcapi_mod._resolve_conformance)
+        assert "same_origin(" in source
+        assert "validate_url_for_ssrf(" in source
+
+
+# ---------------------------------------------------------------------------
+# The probe is what determines the service, so it judges the token afterwards
+# ---------------------------------------------------------------------------
+
+
+class TestABearerTokenIsJudgedAfterDetection:
+    """fix(#1746 B2b review r7): restores the probe's pre-#1770 acceptance.
+
+    The first cut of #1755 item 2 chose the credential policy from the URL
+    shape, and that rejected a working import. `detect_service_type`'s slow
+    path deliberately probes ArcGIS for a URL naming neither FeatureServer nor
+    MapServer, and `probe_arcgis_service` classifies such an endpoint by what
+    its response contains, so a vanity or rewritten ArcGIS URL is ordinary.
+    Its token is percent-encoded into a query and legitimately holds `+` or
+    `/`, which the header charset refuses.
+
+    Only ArcGIS gets that acceptance back. A token no adapter can use is still
+    refused, with the same code and the same policy-only message the preview
+    and commit doors return; it just happens after detection rather than
+    instead of it.
+    """
+
+    async def _probe(self, client, headers, url, body, handle):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            # fix(#1770 round 41 P1): `_as_stream` -- see its own docstring
+            # -- turns a plain `httpx.Response(json=...)` double into one
+            # that supports the streaming read the probe adapters now use.
+            return _as_stream(handle(request))
+
+        with (
+            patch.object(
+                security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+            ),
+            patch.object(security, "validate_url_for_ssrf", AsyncMock()),
+            patch(
+                "app.modules.catalog.sources.router.validate_url_for_ssrf",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+                new_callable=AsyncMock,
+            ),
+        ):
+            resp = await client.post(
+                "/services/probe", json={"url": url, **body}, headers=headers
+            )
+        return resp, recorded
+
+    async def test_a_keyword_free_arcgis_url_keeps_its_token_vocabulary(
+        self, client, admin_auth_header: dict
+    ) -> None:
+        """The regression, end to end through the real adapters.
+
+        No FeatureServer or MapServer in the URL, so the fast path does not
+        fire and the two header-auth adapters are tried first. Neither can
+        compose this token; that ends those two probes and nothing else, and
+        the ArcGIS probe then classifies the endpoint by its response.
+        """
+        token = "tok+slash/" + _value()
+        vanity = "https://gis.example/maps/data"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if "f=json" in str(request.url):
+                return httpx.Response(
+                    200,
+                    json={
+                        "currentVersion": 10.91,
+                        "layers": [{"id": 0, "name": "Parcels"}],
+                    },
+                )
+            return httpx.Response(404)
+
+        resp, recorded = await self._probe(
+            client, admin_auth_header, vanity, {"token": token}, handle
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["service_type"] == "ArcGIS FeatureServer"
+        # The token reached the service the way that transport carries one,
+        # percent-encoded into the query, and never as a header.
+        arcgis = [r for r in recorded if "f=json" in r.url.query.decode()]
+        assert arcgis
+        assert "tok%2Bslash%2F" in str(arcgis[0].url)
+        assert all(
+            "authorization" not in {n.lower() for n in r.headers} for r in recorded
+        )
+
+    async def test_a_token_no_adapter_can_use_is_refused_after_detection(
+        self, client, admin_auth_header: dict
+    ) -> None:
+        """The other half: the policy still applies, just not prematurely.
+
+        Nothing claims this URL. The header-auth adapters could not compose the
+        token, so the answer is the policy that explains why rather than
+        "service not recognized", which would send the caller off to check
+        their URL.
+        """
+        token = "tok+slash/" + _value()
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404)
+
+        resp, recorded = await self._probe(
+            client, admin_auth_header, _WFS_URL, {"token": token}, handle
+        )
+
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["detail"]
+        assert detail["code"] == "invalid_service_token"
+        assert detail["message"] == HEADER_TOKEN_POLICY
+        assert token not in resp.text
+        # No credential left the process under a header, on any hop.
+        assert all(
+            "authorization" not in {n.lower() for n in r.headers} for r in recorded
+        )
+
+    async def test_an_unrecognized_service_still_says_so(
+        self, client, admin_auth_header: dict
+    ) -> None:
+        """The policy answer must not swallow the ordinary one.
+
+        With a token every adapter can use, a URL nothing claims is still a 400
+        about the URL, which is the advice that caller needs.
+        """
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404)
+
+        resp, _recorded = await self._probe(
+            client,
+            admin_auth_header,
+            _WFS_URL,
+            {"token": "tok" + _value()},
+            handle,
+        )
+
+        assert resp.status_code == 400, resp.text
+
+    @pytest.mark.parametrize("method", ["basic", "header"])
+    async def test_the_header_only_methods_are_still_judged_up_front(
+        self, client, admin_auth_header: dict, method
+    ) -> None:
+        """No detection outcome makes these sendable to ArcGIS.
+
+        So their inputs are judged before anything is requested, exactly as
+        before: the deferral is for the one method ArcGIS can carry.
+        """
+        secrets = [_value()]
+        auth = (
+            {"method": "basic", "username": secrets[0], "password": "bad\rvalue"}
+            if method == "basic"
+            else {
+                "method": "header",
+                "header_name": "X-Api-Key",
+                "header_value": "bad\rvalue",
+            }
+        )
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            raise AssertionError("nothing may be requested for a refused credential")
+
+        resp, recorded = await self._probe(
+            client, admin_auth_header, _WFS_URL, {"auth": auth}, handle
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert recorded == []
+        for secret in secrets:
+            assert secret not in resp.text
+
+    async def test_a_fallback_detected_arcgis_refuses_a_method_it_cannot_carry(
+        self, client, admin_auth_header: dict
+    ) -> None:
+        """fix(#1746 B2b review r9): the probe must answer what preview will.
+
+        `url_query_token` answers None for basic and for a named API key,
+        because neither fits in a query parameter. On this path that silently
+        became an ANONYMOUS ArcGIS probe: the vanity endpoint answered 200 and
+        the caller was told their credential worked, and then preview refused
+        the same credential with `unsupported_auth_method`. The probe now
+        gives that answer itself, once the fallback has established that
+        ArcGIS is what this is.
+        """
+        secret = _value()
+        vanity = "https://gis.example/maps/data"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if "f=json" in str(request.url):
+                return httpx.Response(
+                    200,
+                    json={
+                        "currentVersion": 10.91,
+                        "layers": [{"id": 0, "name": "Parcels"}],
+                    },
+                )
+            return httpx.Response(404)
+
+        resp, recorded = await self._probe(
+            client,
+            admin_auth_header,
+            vanity,
+            {
+                "auth": {
+                    "method": "basic",
+                    "username": "u" + _value(),
+                    "password": secret,
+                }
+            },
+            handle,
+        )
+
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["detail"]
+        assert detail["code"] == "unsupported_auth_method"
+        assert secret not in resp.text
+        # The ArcGIS request is the one that identified the service, and it is
+        # the anonymous one: a basic credential has no query spelling, which
+        # is the whole reason this refusal exists. The header-auth probes that
+        # ran before it did carry the credential, to the service's own origin,
+        # which is what they are for.
+        arcgis = [r for r in recorded if "f=json" in r.url.query.decode()]
+        assert arcgis
+        assert all(secret not in str(r.url) for r in recorded)
+        assert all(
+            "authorization" not in {n.lower() for n in r.headers} for r in arcgis
+        )
+
+    async def test_the_same_fallback_still_succeeds_for_a_bearer_token(
+        self, client, admin_auth_header: dict
+    ) -> None:
+        """The twin, so the refusal is about the method and not the path."""
+        token = "tok" + _value()
+        vanity = "https://gis.example/maps/data"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if "f=json" in str(request.url):
+                return httpx.Response(
+                    200,
+                    json={
+                        "currentVersion": 10.91,
+                        "layers": [{"id": 0, "name": "Parcels"}],
+                    },
+                )
+            return httpx.Response(404)
+
+        resp, recorded = await self._probe(
+            client,
+            admin_auth_header,
+            vanity,
+            {"auth": {"method": "bearer", "token": token}},
+            handle,
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["service_type"] == "ArcGIS FeatureServer"
+        assert [r for r in recorded if token in str(r.url)]
+
+    async def test_the_anonymous_fallback_is_untouched(
+        self, client, admin_auth_header: dict
+    ) -> None:
+        """No credential, nothing to refuse: a public vanity endpoint probes."""
+        vanity = "https://gis.example/maps/data"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if "f=json" in str(request.url):
+                return httpx.Response(
+                    200,
+                    json={
+                        "currentVersion": 10.91,
+                        "layers": [{"id": 0, "name": "Parcels"}],
+                    },
+                )
+            return httpx.Response(404)
+
+        resp, _recorded = await self._probe(
+            client, admin_auth_header, vanity, {}, handle
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["service_type"] == "ArcGIS FeatureServer"
+
+    @staticmethod
+    def _challenging_arcgis(request: httpx.Request) -> httpx.Response:
+        """A protected keyword-free endpoint: ArcGIS 499 in a 200 body."""
+        if "f=json" in str(request.url):
+            return httpx.Response(
+                200,
+                json={"error": {"code": 499, "message": "Token Required"}},
+            )
+        return httpx.Response(404)
+
+    async def test_a_challenged_fallback_refuses_a_method_it_cannot_carry(
+        self, client, admin_auth_header: dict
+    ) -> None:
+        """fix(#1746 B2b review r10): the third sub-branch of one question.
+
+        ArcGIS answers 499 in the BODY of a 200, which `probe_arcgis_service`
+        turns into `ArcGISTokenError`. That challenge identifies the service
+        just as surely as a layer list does, so it used to report the generic
+        403 "provide a valid ArcGIS token" to a caller whose problem was the
+        METHOD and not the token: advice they cannot act on, and a different
+        answer from the two sibling branches.
+        """
+        secret = _value()
+        vanity = "https://gis.example/maps/data"
+
+        resp, recorded = await self._probe(
+            client,
+            admin_auth_header,
+            vanity,
+            {
+                "auth": {
+                    "method": "basic",
+                    "username": "u" + _value(),
+                    "password": secret,
+                }
+            },
+            self._challenging_arcgis,
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "unsupported_auth_method"
+        assert secret not in resp.text
+        arcgis = [r for r in recorded if "f=json" in r.url.query.decode()]
+        assert arcgis
+        assert all(secret not in str(r.url) for r in arcgis)
+
+    async def test_a_challenged_fallback_still_challenges_an_anonymous_caller(
+        self, client, admin_auth_header: dict
+    ) -> None:
+        """The challenge is true advice for the callers it is true for.
+
+        With no credential, "this service requires authentication" is exactly
+        what the caller needs to hear, and it is the answer this door has
+        always given.
+        """
+        resp, _recorded = await self._probe(
+            client,
+            admin_auth_header,
+            "https://gis.example/maps/data",
+            {},
+            self._challenging_arcgis,
+        )
+
+        assert resp.status_code == 403, resp.text
+
+    async def test_a_challenged_fallback_still_challenges_a_bearer_caller(
+        self, client, admin_auth_header: dict
+    ) -> None:
+        """A bearer token IS presentable here, so a rejection is about the token."""
+        token = "tok" + _value()
+
+        resp, recorded = await self._probe(
+            client,
+            admin_auth_header,
+            "https://gis.example/maps/data",
+            {"auth": {"method": "bearer", "token": token}},
+            self._challenging_arcgis,
+        )
+
+        assert resp.status_code == 403, resp.text
+        # And it was actually presented, the way that transport presents one.
+        assert [r for r in recorded if token in str(r.url)]
+
+
+# ---------------------------------------------------------------------------
+# The credential an ORIGIN knows is a username and a password
+# ---------------------------------------------------------------------------
+
+
+class TestTheCleartextHalvesOfABasicCredentialAreScrubbed:
+    """fix(#1746 B2b review r11): base64 matches none of what a service says.
+
+    A basic credential travels encoded, so every spelling scrubbed until now
+    was an encoded one. The origin does not know that spelling: it knows a
+    username and a password, and its own error text says so. GDAL propagates
+    that body to stderr, the preview path logs it, and the worker paths carry
+    it into `IngestJob.error_message`, the notification reason and the
+    exception the queue records.
+
+    The values here carry the characters #1749's review classes named --
+    quotes, `#`, `&`, a path delimiter, a percent -- because the variants feed
+    `str.replace`, which is literal. Nothing is compiled, so no value can
+    change what matches; asserting that is what keeps a future rewrite from
+    reaching for a regex.
+    """
+
+    @staticmethod
+    def _awkward_basic() -> tuple[ServiceCredential, str, str, str]:
+        """A credential whose halves exercise the redaction review classes."""
+        username = "al'ice#" + _value()
+        password = 'p&ss/"word%' + _value()
+        credential = ServiceCredential(
+            method=CredentialMethod.BASIC,
+            service_format="wfs",
+            username=username,
+            password=password,
+        )
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return credential, username, password, f"{pair[0]}: {pair[1]}"
+
+    async def test_the_preview_path_scrubs_both_halves(self, monkeypatch) -> None:
+        """The reported case, on the door path that logs stderr."""
+        credential, username, password, line = self._awkward_basic()
+        blob = line.rsplit(" ", 1)[1]
+
+        (
+            error,
+            captured,
+        ) = await TestAPreviewFailureCarriesNoCredential()._failing_preview(
+            monkeypatch,
+            credential,
+            # What a service actually says, in the words it knows.
+            f"ERROR 1: HTTP 401 authentication failed for user '{username}' "
+            f"(password '{password}')",
+        )
+
+        for secret in (username, password, blob, line):
+            assert secret not in str(error), secret
+            assert secret not in str(captured), secret
+
+    async def test_the_worker_failure_detail_scrubs_both_halves(
+        self, monkeypatch
+    ) -> None:
+        """The same echo on the path that PERSISTS it.
+
+        `scrub_secret_from_exception` mutates in place precisely so the job
+        row, the log record, the notification reason and the re-raise all read
+        the same text, so proving it once at that call proves it for all four.
+        """
+        from app.core.url_redaction import scrub_secret_from_exception
+        from app.processing.ingest.ogr import IngestionError
+
+        credential, username, password, line = self._awkward_basic()
+
+        async def _fake_exec(*cmd, **kwargs):
+            proc = MagicMock()
+            proc.returncode = 1
+            return proc
+
+        async def _fake_communicate(proc, timeout, tool_name):
+            return (
+                b"",
+                f"ERROR 1: rejected credentials for {username} / {password}".encode(),
+            )
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
+        )
+
+        with pytest.raises(IngestionError) as raised:
+            await run_ogr2ogr_service(
+                gdal_source=f"WFS:{_WFS_URL}",
+                layer_name="topp:parcels",
+                table_name="t",
+                db_conn_str="PG:dummy",
+                service_type="wfs",
+                token=line,
+                schema="data",
+            )
+
+        # Before the scrub the worker's own message still carries it: the
+        # pattern-based redactor cannot see a credential in prose, which is
+        # why the exact-value scrub exists at all.
+        scrub_secret_from_exception(raised.value, line)
+        assert username not in str(raised.value)
+        assert password not in str(raised.value)
+
+    def test_a_blob_that_cannot_be_decoded_scrubs_what_it_can(self) -> None:
+        """Never raise: the value reaching the scrub is whatever was handed over.
+
+        A truncated, re-encoded or simply non-base64 blob has to degrade to
+        "nothing extra to scrub" rather than replacing a failure message with a
+        decoder traceback, and the line itself must still be scrubbed.
+        """
+        from app.core.url_redaction import scrub_secret_value
+
+        for blob in ("!!! not base64 !!!", "dXNlcg", "", "=", "AAAA"):
+            line = f"Authorization: Basic {blob}"
+            scrubbed = scrub_secret_value(f"ERROR 1: sent {line}", line)
+            assert line not in scrubbed
+            assert "***" in scrubbed
+
+    def test_the_halves_are_matched_literally_not_as_a_pattern(self) -> None:
+        """#1749's review classes, asked directly.
+
+        `scrub_secret_value` replaces with `str.replace`, so a credential
+        containing regex metacharacters, quotes or a path delimiter is matched
+        as itself. A future rewrite to a compiled pattern would fail here
+        rather than in production.
+        """
+        from app.core.url_redaction import scrub_secret_value
+
+        _credential, username, password, line = self._awkward_basic()
+        for secret in (username, password):
+            assert (
+                scrub_secret_value(f"said {secret} loudly", line) == "said *** loudly"
+            )
+        # A metacharacter-only neighbour is untouched, which a pattern built
+        # from these values would not manage.
+        assert scrub_secret_value("a.*b", line) == "a.*b"
+
+    def test_the_counterfactual_on_the_decode_step(self, monkeypatch) -> None:
+        """The assertions above pass because of the decode, not by accident."""
+        from app.core import url_redaction
+
+        _credential, username, password, line = self._awkward_basic()
+        monkeypatch.setattr(url_redaction, "_basic_cleartext", lambda blob: set())
+
+        scrubbed = url_redaction.scrub_secret_value(
+            f"user {username} pw {password}", line
+        )
+        assert username in scrubbed
+        assert password in scrubbed
+
+
+# ---------------------------------------------------------------------------
+# Where a service says its own operations live
+# ---------------------------------------------------------------------------
+
+
+_SVC_ORIGIN = "https://service.example"
+_SVC_WFS = f"{_SVC_ORIGIN}/geoserver/wfs"
+_SVC_OAPIF = f"{_SVC_ORIGIN}/oapif"
+_FOREIGN = "https://collector.example"
+
+
+def _collection_doc(items_href: str | None) -> dict:
+    """A collection document, advertising where its items are or saying nothing.
+
+    fix(#1746 B2b review r20): the materialiser reads this first now and
+    follows what it advertises, so every double that serves items has to serve
+    the document that points at them.
+    """
+    links = [] if items_href is None else [{"rel": "items", "href": items_href}]
+    return {"id": "c1", "links": links}
+
+
+def _point(feature_id: str) -> dict:
+    return {
+        "type": "Feature",
+        "id": feature_id,
+        "geometry": {"type": "Point", "coordinates": [0, 0]},
+        "properties": {},
+    }
+
+
+def _as_stream(response: httpx.Response, *, chunk: int = 64) -> httpx.Response:
+    """Re-deliver a pre-read double as a response that actually streams.
+
+    `httpx.Response(json=...)` and `text=...` are read at construction, so
+    `aiter_raw` over one raises `StreamConsumed`. A real transport never hands
+    back a read response, so a double that does cannot exercise the bounded
+    streaming read the production code performs, and would fail on a
+    `RuntimeError` that says nothing about the behaviour under test
+    (fix #1746 B2b review r19).
+
+    Applied by every mock transport in this file rather than by each handler,
+    because the handler that forgets is the one that matters.
+    """
+    if not response.is_stream_consumed:
+        return response
+    raw = response.content
+
+    async def _chunks():
+        for start in range(0, len(raw), chunk):
+            yield raw[start : start + chunk]
+
+    return httpx.Response(
+        response.status_code, headers=response.headers, content=_chunks()
+    )
+
+
+def _streamed(body: dict, *, chunk: int = 64) -> httpx.Response:
+    """An items page delivered in chunks, the way a real server delivers one."""
+    raw = json.dumps(body).encode()
+
+    async def _chunks():
+        for start in range(0, len(raw), chunk):
+            yield raw[start : start + chunk]
+
+    return httpx.Response(200, content=_chunks())
+
+
+def _hosts(requests) -> set[str]:
+    """The hosts a recorded run actually contacted.
+
+    fix(#1746 B2b review r16): comparing parsed hosts rather than testing a
+    substring of the URL. CodeQL flags the substring form, and it is right to:
+    `"collector.example" in url` also matches
+    `https://collector.example.attacker.test/`, so the assertion was weaker
+    than it read.
+    """
+    return {request.url.host for request in requests}
+
+
+def _capabilities(get_href: str) -> str:
+    """A WFS 2.0 capabilities document advertising *get_href* for GetFeature."""
+    return f"""<?xml version="1.0"?>
+<WFS_Capabilities version="2.0.0"
+    xmlns="http://www.opengis.net/wfs/2.0"
+    xmlns:ows="http://www.opengis.net/ows/1.1"
+    xmlns:xlink="http://www.w3.org/1999/xlink">
+  <ows:OperationsMetadata>
+    <ows:Operation name="GetFeature">
+      <ows:DCP><ows:HTTP>
+        <ows:Get xlink:href="{get_href}"/>
+      </ows:HTTP></ows:DCP>
+    </ows:Operation>
+  </ows:OperationsMetadata>
+  <FeatureTypeList>
+    <FeatureType><Name>topp:parcels</Name><Title>Parcels</Title>
+      <DefaultCRS>urn:ogc:def:crs:EPSG::4326</DefaultCRS></FeatureType>
+  </FeatureTypeList>
+</WFS_Capabilities>"""
+
+
+def _capabilities_ows(operations: dict[str, str]) -> str:
+    """A WFS 2.0 capabilities document naming each *operations* entry.
+
+    ``operations`` maps an operation name (``"GetFeature"``, ``"Transaction"``,
+    ...) to the ``Get`` href it advertises for that operation.
+    """
+    ops_xml = "".join(
+        f'<ows:Operation name="{name}"><ows:DCP><ows:HTTP>'
+        f'<ows:Get xlink:href="{href}"/>'
+        "</ows:HTTP></ows:DCP></ows:Operation>"
+        for name, href in operations.items()
+    )
+    return f"""<?xml version="1.0"?>
+<WFS_Capabilities version="2.0.0"
+    xmlns="http://www.opengis.net/wfs/2.0"
+    xmlns:ows="http://www.opengis.net/ows/1.1"
+    xmlns:xlink="http://www.w3.org/1999/xlink">
+  <ows:OperationsMetadata>
+    {ops_xml}
+  </ows:OperationsMetadata>
+  <FeatureTypeList>
+    <FeatureType><Name>topp:parcels</Name><Title>Parcels</Title>
+      <DefaultCRS>urn:ogc:def:crs:EPSG::4326</DefaultCRS></FeatureType>
+  </FeatureTypeList>
+</WFS_Capabilities>"""
+
+
+def _capabilities_10_ops(operations: dict[str, str]) -> str:
+    """A WFS 1.0 capabilities document naming each *operations* entry.
+
+    1.0 has no wrapping ``ows:Operation`` element -- the operation IS the
+    element, one level under ``<Request>``, with an ``onlineResource``
+    attribute rather than ``xlink:href``.
+    """
+    ops_xml = "".join(
+        f"<{name}><DCPType><HTTP>"
+        f'<Get onlineResource="{href}"/>'
+        f"</HTTP></DCPType></{name}>"
+        for name, href in operations.items()
+    )
+    return f"""<?xml version="1.0"?>
+<WFS_Capabilities version="1.0.0" xmlns="http://www.opengis.net/wfs">
+  <Capability><Request>
+    {ops_xml}
+  </Request></Capability>
+  <FeatureTypeList>
+    <FeatureType><Name>topp:parcels</Name><Title>Parcels</Title>
+      <SRS>EPSG:4326</SRS></FeatureType>
+  </FeatureTypeList>
+</WFS_Capabilities>"""
+
+
+class TestAWfsCheckOnlyValidatesTheOperationsTheReadPathUses:
+    """fix(#1770 round 36 P2, `service_endpoints.py:292`).
+
+    `_wfs_operation_hrefs` used to collect every `Get`/`Post` in the whole
+    capabilities document, regardless of which `ows:Operation` (or, for 1.0,
+    which top-level request element) advertised it. A service hosting
+    `Transaction` or `LockFeature` on a different origin from its read
+    endpoints -- ordinary for a WFS-T deployment that proxies writes
+    separately -- was refused for an endpoint the read-only ogr2ogr path this
+    check protects can never reach: `run_ogr2ogr_service` never runs ogr2ogr
+    against a WFS source in transaction mode or with a lock held.
+
+    Filtered to `_WFS_READ_OPERATIONS` now: GetCapabilities,
+    DescribeFeatureType, GetFeature, and 2.0's GetPropertyValue. An endpoint
+    this walk cannot attribute to any operation is still checked -- the set
+    is an exclusion list, not an allowlist that fails open on an unrecognised
+    document shape.
+    """
+
+    def test_transaction_on_another_origin_is_ignored_getfeature_still_checked(
+        self,
+    ) -> None:
+        from app.platform.service_endpoints import _wfs_operation_hrefs
+
+        document = _capabilities_ows(
+            {
+                "GetFeature": f"{_SVC_ORIGIN}/geoserver/wfs",
+                "Transaction": f"{_FOREIGN}/wfs",
+            }
+        )
+
+        hrefs = _wfs_operation_hrefs(document.encode())
+
+        assert hrefs == [f"{_SVC_ORIGIN}/geoserver/wfs"]
+
+    def test_lockfeature_on_another_origin_is_also_ignored(self) -> None:
+        from app.platform.service_endpoints import _wfs_operation_hrefs
+
+        document = _capabilities_ows(
+            {
+                "GetFeature": f"{_SVC_ORIGIN}/geoserver/wfs",
+                "LockFeature": f"{_FOREIGN}/wfs",
+            }
+        )
+
+        hrefs = _wfs_operation_hrefs(document.encode())
+
+        assert hrefs == [f"{_SVC_ORIGIN}/geoserver/wfs"]
+
+    def test_describefeaturetype_and_getpropertyvalue_are_still_checked(self) -> None:
+        """Both are read operations the driver can actually issue."""
+        from app.platform.service_endpoints import _wfs_operation_hrefs
+
+        document = _capabilities_ows(
+            {
+                "GetCapabilities": f"{_SVC_ORIGIN}/geoserver/wfs",
+                "DescribeFeatureType": f"{_FOREIGN}/describe",
+                "GetFeature": f"{_SVC_ORIGIN}/geoserver/wfs",
+                "GetPropertyValue": f"{_FOREIGN}/value",
+            }
+        )
+
+        hrefs = _wfs_operation_hrefs(document.encode())
+
+        assert f"{_FOREIGN}/describe" in hrefs
+        assert f"{_FOREIGN}/value" in hrefs
+
+    def test_wfs_1_0_transaction_is_ignored_getfeature_still_checked(self) -> None:
+        """1.0's shape: the operation is the element, not an attribute."""
+        from app.platform.service_endpoints import _wfs_operation_hrefs
+
+        document = _capabilities_10_ops(
+            {
+                "GetFeature": f"{_SVC_ORIGIN}/geoserver/wfs",
+                "Transaction": f"{_FOREIGN}/wfs",
+            }
+        )
+
+        hrefs = _wfs_operation_hrefs(document.encode())
+
+        assert hrefs == [f"{_SVC_ORIGIN}/geoserver/wfs"]
+
+    def test_an_endpoint_outside_any_operation_is_still_checked(self) -> None:
+        """Fail closed: the excluded set is who is OUT, not who is let in."""
+        from app.platform.service_endpoints import _wfs_operation_hrefs
+
+        document = f"""<?xml version="1.0"?>
+<WFS_Capabilities version="2.0.0"
+    xmlns:xlink="http://www.w3.org/1999/xlink">
+  <SomeUnexpectedWrapper>
+    <Get xlink:href="{_FOREIGN}/wfs"/>
+  </SomeUnexpectedWrapper>
+</WFS_Capabilities>"""
+
+        hrefs = _wfs_operation_hrefs(document.encode())
+
+        assert hrefs == [f"{_FOREIGN}/wfs"]
+
+    async def test_transaction_on_another_origin_passes_the_real_check(
+        self, monkeypatch
+    ) -> None:
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        document = _capabilities_ows(
+            {
+                "GetFeature": _SVC_WFS,
+                "Transaction": f"{_FOREIGN}/wfs",
+            }
+        )
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            return _as_stream(httpx.Response(200, text=document))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        await assert_endpoints_stay_on_origin(
+            _SVC_WFS,
+            service_format="wfs",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            collection=None,
+            deadline=None,
+        )
+
+    async def test_getfeature_on_another_origin_still_refuses(
+        self, monkeypatch
+    ) -> None:
+        from app.platform.service_endpoints import (
+            CrossOriginEndpointError,
+            assert_endpoints_stay_on_origin,
+        )
+
+        document = _capabilities_ows(
+            {
+                "GetFeature": f"{_FOREIGN}/wfs",
+                "Transaction": _SVC_WFS,
+            }
+        )
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            return _as_stream(httpx.Response(200, text=document))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        with pytest.raises(CrossOriginEndpointError):
+            await assert_endpoints_stay_on_origin(
+                _SVC_WFS,
+                service_format="wfs",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                collection=None,
+                deadline=None,
+            )
+
+
+class TestTheCapabilitiesUrlBuilderIsNotFieldCountBounded:
+    """fix(#1770 round 47c, `service_endpoints.py::_capabilities_url`).
+
+    Round 47b bound this with `max_num_fields=MAX_QUERY_FIELDS`, reasoning
+    it "costs nothing to close" since `url` is caller-submitted rather than
+    the finding's live shape -- true, but wrong about the cost. This
+    function is `_check_wfs`'s capabilities read, reached from
+    `assert_endpoints_stay_on_origin` for EVERY WFS caller: `preview.py`,
+    `sources/router.py`'s `/probe` (below), and the worker
+    (`processing/ingest/ogr.py`). All three catch only
+    `(CrossOriginEndpointError, EndpointCheckFailedError)`, not a bare
+    `ValueError`, so a many-param caller URL reached each of them as an
+    escaping exception rather than the coded refusal or normal result an
+    ordinary URL gets -- the exact class this whole finding exists to
+    close, reintroduced by binding a function whose real callers were
+    never audited. `url` is the caller's own submitted service URL
+    (`ProbeRequest`/`ServicePreviewRequest` cap it at 2048 chars), so it is
+    exempted (`# parse_qs: unbounded`) rather than bound.
+    """
+
+    def test_a_few_params_still_resolve(self) -> None:
+        from app.platform.service_endpoints import _capabilities_url
+
+        query = "&".join(f"a{n}=1" for n in range(10))
+        url = _capabilities_url(f"{_SVC_ORIGIN}/geoserver/wfs?{query}")
+        assert "service=WFS" in url
+        assert "request=GetCapabilities" in url
+
+    def test_a_query_over_the_old_field_count_bound_still_resolves(self) -> None:
+        from app.platform.service_endpoints import MAX_QUERY_FIELDS, _capabilities_url
+
+        query = "&".join(f"a{n}=1" for n in range(MAX_QUERY_FIELDS + 1))
+        url = _capabilities_url(f"{_SVC_ORIGIN}/geoserver/wfs?{query}")
+        assert "service=WFS" in url
+        assert "request=GetCapabilities" in url
+
+    async def test_a_many_param_probe_url_gets_a_coded_result_not_a_500(
+        self, monkeypatch
+    ) -> None:
+        """`assert_endpoints_stay_on_origin` is exactly what `sources/
+        router.py`'s `/probe` handler calls, catching only
+        `(CrossOriginEndpointError, EndpointCheckFailedError)`. A raw
+        `ValueError` escaping here is what reached that handler as an
+        unclassified exception before this round's fix. Counterfactual:
+        restoring round 47b's `max_num_fields=MAX_QUERY_FIELDS` at
+        `_capabilities_url` makes this raise a bare `ValueError` instead
+        of returning cleanly.
+        """
+        from app.platform.service_endpoints import (
+            MAX_QUERY_FIELDS,
+            assert_endpoints_stay_on_origin,
+        )
+
+        query = "&".join(f"a{n}=1" for n in range(MAX_QUERY_FIELDS + 1))
+        many_param_svc = f"{_SVC_WFS}?{query}"
+        document = _capabilities(_SVC_WFS)
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            return _as_stream(httpx.Response(200, text=document))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        # No exception at all, coded or otherwise: the capabilities URL this
+        # builds from `many_param_svc` still resolves, so the walk proceeds
+        # to the ordinary same-origin check exactly as it would for a
+        # normal URL.
+        await assert_endpoints_stay_on_origin(
+            many_param_svc,
+            service_format="wfs",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            collection=None,
+            deadline=None,
+        )
+
+
+class TestADeeplyNestedWfsBranchNeverBecomesARecursionError:
+    """fix(#1770 round 47 P2, `service_endpoints.py:481`/`:1062`).
+
+    `_xml_preflight` only refused a document deeper than `MAX_DOCUMENT_DEPTH`
+    -- at 1,000, exactly Python's own default recursion ceiling
+    (`sys.getrecursionlimit()`) -- and `_wfs_operation_hrefs`'s tree walk was
+    recursive, with no depth check of its own. An otherwise recognisable WFS
+    capabilities response carrying one unrelated branch nested to that depth
+    passed the preflight and then blew the interpreter's own stack: an
+    uncaught `RecursionError` where every other unreadable shape here gets a
+    coded refusal instead. Closed two ways -- the walk is iterative now (no
+    stack frame per level of document nesting, so no depth of its own can
+    ever raise this), and `MAX_DOCUMENT_DEPTH` is lowered to 256, well below
+    the interpreter's ceiling with headroom for whatever else already sits
+    on the stack, and still an order of magnitude past the deepest real
+    document measured (a WFS capabilities listing five thousand feature
+    types, a few dozen deep).
+
+    Depth is the deepest point in the WHOLE document, not just the
+    read-relevant branch: the `<Junk>` chain below is deliberately the
+    deepest part, alongside an ordinary same-origin `GetFeature` the walk
+    still has to find and check correctly once it gets past the junk.
+    """
+
+    def _document(self, depth: int, get_href: str) -> str:
+        """A WFS 1.0 capabilities document with a normal `GetFeature` and an
+        unrelated `<Junk>` chain nested so the document's DEEPEST point is
+        exactly *depth* (the root `<WFS_Capabilities>` element is depth 1).
+
+        WFS_Capabilities(1) > FeatureTypeList(2) > Junk*N(3..2+N) > Deep(3+N).
+        """
+        levels = max(depth - 3, 0)
+        junk = "<Junk>" * levels + "<Deep/>" + "</Junk>" * levels
+        return f"""<?xml version="1.0"?>
+<WFS_Capabilities version="1.0.0" xmlns="http://www.opengis.net/wfs">
+  <Capability><Request>
+    <GetFeature><DCPType><HTTP>
+      <Get onlineResource="{get_href}"/>
+    </HTTP></DCPType></GetFeature>
+  </Request></Capability>
+  <FeatureTypeList>{junk}</FeatureTypeList>
+</WFS_Capabilities>"""
+
+    def _transport(self, monkeypatch, document: str) -> None:
+        def _handle(request: httpx.Request) -> httpx.Response:
+            return _as_stream(httpx.Response(200, text=document))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+
+    async def test_a_document_at_the_depth_budget_never_raises_recursionerror(
+        self, monkeypatch
+    ) -> None:
+        """Run under the DEFAULT recursion limit deliberately: the fix must
+        hold at whatever ceiling Python ships with, not one this test raised
+        to make room for.
+        """
+        from app.platform.service_endpoints import (
+            MAX_DOCUMENT_DEPTH,
+            assert_endpoints_stay_on_origin,
+        )
+
+        # fix(#1770 round 47b, low-priority): a hard `== 1000` failed for the
+        # wrong reason wherever the interpreter's default ever legitimately
+        # differs (a future CPython release, a pytest plugin or conftest
+        # that raises the limit for its own purposes) -- a confusing
+        # "recursion limit isn't 1000" failure instead of the actual bug
+        # this test exists to pin. Skipped rather than asserted: a RAISED
+        # limit specifically defeats the point (this test could pass with a
+        # buggy recursive reimplementation under enough headroom), so it is
+        # the one direction worth refusing to run under rather than
+        # silently passing.
+        if sys.getrecursionlimit() > 1000:
+            pytest.skip(
+                "recursion limit raised above the interpreter default "
+                f"(got {sys.getrecursionlimit()}) -- this test cannot prove "
+                "anything about the DEFAULT ceiling under a raised one"
+            )
+        document = self._document(MAX_DOCUMENT_DEPTH, _SVC_WFS)
+        self._transport(monkeypatch, document)
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        # Coded refusal or a clean pass are both fine here -- a
+        # RecursionError escaping either way is the one outcome this pins
+        # against.
+        try:
+            await assert_endpoints_stay_on_origin(
+                _SVC_WFS,
+                service_format="wfs",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                collection=None,
+                deadline=None,
+            )
+        except EndpointCheckFailedError:
+            pass
+
+    def test_the_walk_itself_never_recurses_at_any_depth(self) -> None:
+        """Pure-function pin, one level below the async pipeline: calls
+        `_wfs_operation_hrefs` directly at a depth (5,000) far past
+        `MAX_DOCUMENT_DEPTH` -- `_xml_preflight` would refuse a document
+        this deep long before this ever ran in production, but the walk's
+        OWN safety must not depend on that outer gate. An explicit stack has
+        no recursion depth of its own to exceed, at any nesting at all.
+        """
+        from app.platform.service_endpoints import _wfs_operation_hrefs
+
+        document = self._document(5_000, _SVC_WFS)
+
+        hrefs = _wfs_operation_hrefs(document.encode())
+
+        assert hrefs == [_SVC_WFS]
+
+    async def test_a_shallow_document_still_passes_normally(self, monkeypatch) -> None:
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        document = self._document(50, _SVC_WFS)
+        self._transport(monkeypatch, document)
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        await assert_endpoints_stay_on_origin(
+            _SVC_WFS,
+            service_format="wfs",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            collection=None,
+            deadline=None,
+        )
+
+    async def test_one_level_over_the_budget_is_refused_by_the_preflight(
+        self, monkeypatch
+    ) -> None:
+        """Refused before `_wfs_operation_hrefs` ever runs -- `_xml_preflight`
+        (inside `fetch_document`/`require_decodable`) trips first, on the
+        document's raw bytes, with no tree built at all.
+        """
+        from app.platform.service_endpoints import (
+            MAX_DOCUMENT_DEPTH,
+            assert_endpoints_stay_on_origin,
+        )
+
+        document = self._document(MAX_DOCUMENT_DEPTH + 1, _SVC_WFS)
+        self._transport(monkeypatch, document)
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        with pytest.raises(EndpointCheckFailedError):
+            await assert_endpoints_stay_on_origin(
+                _SVC_WFS,
+                service_format="wfs",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                collection=None,
+                deadline=None,
+            )
+
+
+class TestAnOgcApiCheckOnlyValidatesRelsSomethingDereferences:
+    """fix(#1770 round 37 P2, `service_endpoints.py:126`) and
+    fix(#1770 round 46 P2, `service_endpoints.py:986`).
+
+    Round 37: `_OGCAPI_OPERATION_RELS` used to include `self` and `data`.
+    Neither is ever GET'd: `self` names the document itself and nothing here
+    reads it, and `data` is a presence-only classification signal
+    (`has_data_link` in `adapters/ogcapi.py`) -- `probe_ogcapi` builds
+    `/collections` from the submitted URL directly rather than following the
+    `data` link there. A service reached through an alias that advertises a
+    canonical cross-origin `self` link (ordinary for a service behind a CDN
+    or a reverse proxy that rewrites the advertised host) failed `/probe` for
+    an endpoint nothing in this codebase ever contacts. Corrected to
+    `{"conformance", "items"}`.
+
+    Round 46: round 37 got the REL right and the SCOPE wrong. That corrected
+    set was still applied UNIFORMLY to every document `_check_ogcapi` reads
+    -- the landing page, a collections listing page, each entry in that
+    listing, and the collection document itself -- when only two rel+document
+    pairs are ever dereferenced: `conformance` from the LANDING page
+    (`_resolve_conformance` in `adapters/ogcapi.py`) and `items` from the
+    COLLECTION document (`_advertised_items_href`/`_resolve_items_url` in
+    `service_items.py`). A collections listing entry carrying an ordinary
+    cross-origin `rel=conformance` provider-docs link -- never read from
+    anywhere but the landing page -- refused the whole import even though
+    nothing was ever going to GET it. Split into `_LANDING_RELS =
+    {"conformance"}` (the landing-page fetch only) and `_COLLECTION_RELS =
+    {"items"}` (the direct per-collection fetch only); the listing page and
+    each of its entries now pass `frozenset()` explicitly, since neither
+    document type dereferences either rel -- traced through
+    `service_items.py`'s `_resolve_items_url`, which always re-fetches the
+    collection document directly rather than reading an entry's inlined
+    `items` href.
+
+    `next` deliberately stays out of BOTH sets, in both rounds. Trying to add
+    it (round 37, before this note existed) turned `_next_page`'s deliberate
+    r16 soft-degrade on the probe's own `/collections` listing walk into a
+    hard `CrossOriginEndpointError`, breaking
+    `test_a_listing_next_that_will_not_parse_stops_the_walk` below -- and the
+    OTHER place `next` is followed, `service_items.py`'s real page walk, is a
+    document `_check_ogcapi` never reads at all, already independently
+    refused by
+    `TestAPagedCollectionCannotWalkOffTheOrigin::test_a_cross_origin_next_is_refused_before_it_is_fetched`.
+    "Followed somewhere in this codebase" is necessary but not sufficient for
+    membership in either set; it has to be followed by code THIS check's
+    pre-flight is actually standing in front of, from the SPECIFIC document
+    type that check reads.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _check(self, handler, monkeypatch, *, collection=None):
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        self._transport(monkeypatch, handler)
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        await assert_endpoints_stay_on_origin(
+            _SVC_OAPIF,
+            service_format="ogcapi_features",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            collection=collection,
+            deadline=None,
+        )
+
+    async def test_cross_origin_self_on_the_landing_page_and_collection_passes(
+        self, monkeypatch
+    ) -> None:
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/collections/c1"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": "c1",
+                        "links": [
+                            {"rel": "self", "href": f"{_FOREIGN}/oapif/collections/c1"},
+                            {
+                                "rel": "items",
+                                "href": f"{_SVC_OAPIF}/collections/c1/items",
+                            },
+                        ],
+                    },
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "conformsTo": [
+                        "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+                    ],
+                    "links": [{"rel": "self", "href": f"{_FOREIGN}/oapif"}],
+                },
+            )
+
+        # No CrossOriginEndpointError: neither `self` is ever followed.
+        await self._check(handle, monkeypatch, collection="c1")
+
+    async def test_cross_origin_items_still_refuses(self, monkeypatch) -> None:
+        from app.platform.service_endpoints import CrossOriginEndpointError
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/collections/c1"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": "c1",
+                        "links": [{"rel": "items", "href": f"{_FOREIGN}/oapif/items"}],
+                    },
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "conformsTo": [
+                        "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+                    ],
+                    "links": [],
+                },
+            )
+
+        with pytest.raises(CrossOriginEndpointError):
+            await self._check(handle, monkeypatch, collection="c1")
+
+    async def test_cross_origin_next_on_the_real_items_page_still_refuses(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Pin (c), against the mechanism that actually enforces it.
+
+        `_check_ogcapi` never reads an items page, so it has no `next` to
+        pre-validate for the real page walk -- `service_items.py`'s own
+        materializer is what follows `next` there, and it already refuses a
+        cross-origin one on its own. This is the same property
+        `TestAPagedCollectionCannotWalkOffTheOrigin` pins in full; this
+        version exists so the round-37 class states the invariant it depends
+        on explicitly rather than by reference alone.
+        """
+        from app.platform.service_items import (
+            ItemFetchFailedError,
+            materialise_oapif_items,
+        )
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/items"):
+                return _streamed(
+                    {
+                        "type": "FeatureCollection",
+                        "features": [_point("f0")],
+                        "links": [
+                            {
+                                "rel": "next",
+                                "href": f"{_FOREIGN}/oapif/collections/c1/items?page=2",
+                            }
+                        ],
+                    }
+                )
+            return httpx.Response(200, json=_collection_doc(None))
+
+        recorded = self._transport(monkeypatch, handle)
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+
+        # `ItemFetchFailedError.__str__` is the shared policy constant,
+        # never the specific `reason` string a call site raised with (see
+        # `EndpointCheckFailedError.__init__`), so the refusal is checked the
+        # same way the sibling class does: the exception type, plus what it
+        # actually prevented.
+        with pytest.raises(ItemFetchFailedError):
+            await materialise_oapif_items(
+                _SVC_OAPIF,
+                "c1",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                staging_dir=tmp_path,
+            )
+
+        assert "collector.example" not in {r.url.host for r in recorded}
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_json_depth_bomb_on_an_items_page_is_a_coded_refusal(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """fix(#1770 round 44 P2, `service_items.py:451`).
+
+        Same bomb as `TestAnXmlDocumentIsBoundedByItsElements::
+        test_a_json_depth_bomb_is_a_coded_refusal_not_a_crash`, on the OTHER
+        JSON parse this module makes: an items page whose body is 900,000
+        nested `[` raises `RecursionError` from `json.loads`, not the
+        `ValueError` the local except clause used to name -- a worker's
+        OAPIF item-page walk would otherwise die unclassified instead of
+        raising this module's own `ItemFetchFailedError`.
+        """
+        from app.platform.service_items import (
+            ItemFetchFailedError,
+            materialise_oapif_items,
+        )
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/items"):
+                raw = b"[" * 900_000
+
+                async def _chunks():
+                    yield raw
+
+                return httpx.Response(200, content=_chunks())
+            return httpx.Response(200, json=_collection_doc(None))
+
+        self._transport(monkeypatch, handle)
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+
+        with pytest.raises(ItemFetchFailedError):
+            await materialise_oapif_items(
+                _SVC_OAPIF,
+                "c1",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                staging_dir=tmp_path,
+            )
+
+    async def test_a_listing_next_that_leaves_the_origin_still_stops_not_refuses(
+        self, monkeypatch
+    ) -> None:
+        """The r16 design this round's fix does not disturb.
+
+        `next` on the probe's own `/collections` listing is credential-free
+        exploration bounded by `_MAX_COLLECTION_PAGES`; a cross-origin one
+        there stops the walk rather than raising, the same as
+        `test_a_listing_next_that_will_not_parse_stops_the_walk` pins for the
+        unparseable case. Adding `next` to either `_LANDING_RELS` or
+        `_COLLECTION_RELS` (tried in round 37 before this test existed)
+        would have turned this into a `CrossOriginEndpointError` and broken
+        that sibling test.
+        """
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/collections"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "collections": [{"id": "c1", "links": []}],
+                        "links": [
+                            {
+                                "rel": "next",
+                                "href": f"{_FOREIGN}/oapif/collections?page=2",
+                            }
+                        ],
+                    },
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "conformsTo": [
+                        "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+                    ],
+                    "links": [],
+                },
+            )
+
+        # No `collection`: the probe walks the listing. Returns normally --
+        # no CrossOriginEndpointError -- because the walk just stopped there.
+        await self._check(handle, monkeypatch, collection=None)
+
+    def test_each_rel_is_traced_to_the_call_site_that_actually_dereferences_it(
+        self,
+    ) -> None:
+        """Source-enumeration, hand-traced rather than blindly grepped.
+
+        fix(#1770 round 46b P3): renamed from `test_the_checked_set_matches_
+        what_the_walkers_actually_dereference` -- round 46 split the single
+        set this test's old name referred to into `_LANDING_RELS`/
+        `_COLLECTION_RELS` and moved the equality assertion into
+        `test_each_document_type_is_scoped_to_only_the_rel_it_reads` below,
+        so this test no longer mentions either set at all; what it still
+        checks is the MEMBERSHIP tracing the name now says.
+
+        A bare `rel") == "X"` grep also matches `data` in `adapters/ogcapi.py`
+        (`has_data_link = any(... lnk.get("rel") == "data" ...)`), which is a
+        presence check, not a fetch, and `next` in both consumer files, which
+        is followed but by code outside what this check stands in front of
+        (see the class docstring) -- so this asserts each MEMBER rel against
+        the specific function known to dereference it, and separately asserts
+        `self` never appears in either consumer file and `data`'s one match
+        is the `any(...)` presence check, never an argument to a fetch.
+        """
+        import inspect
+
+        from app.modules.catalog.sources.adapters import ogcapi as ogcapi_adapter
+        from app.platform import service_items
+
+        adapter_source = inspect.getsource(ogcapi_adapter)
+        items_source = inspect.getsource(service_items)
+
+        # conformance: compared, then its resolved href is actually read.
+        # fix(#1770 round 41 P1): the plain `client.get(abs_href, ...)` this
+        # pinned became a bounded, streamed read (`bounded_probe_read`); the
+        # href it names is unchanged.
+        assert '.get("rel") == "conformance"' in adapter_source
+        assert "bounded_probe_read(\n            client, abs_href" in adapter_source
+
+        # items: `_ITEMS_REL` is the constant compared against, and
+        # `_resolve_items_url` (which reads it via `_advertised_items_href`)
+        # feeds the result into `_fetch_page`.
+        assert '_ITEMS_REL = "items"' in items_source
+        resolve_items_url = items_source[items_source.index("def _resolve_items_url") :]
+        resolve_items_url = resolve_items_url[: resolve_items_url.index("\n\n\n")]
+        assert "_fetch_page(" in resolve_items_url
+
+        # self: never compared against anywhere a link is read for a fetch.
+        assert '"self"' not in adapter_source
+        assert '"self"' not in items_source
+
+        # data: compared exactly once, and only to build a boolean -- one
+        # combined pattern rather than a proximity heuristic, so a reformat
+        # that only moves the `any(` onto the same line cannot make this
+        # pass without the assignment still being there.
+        assert adapter_source.count('.get("rel") == "data"') == 1
+        assert re.search(
+            r"has_data_link\s*=\s*any\(\s*isinstance\(lnk,\s*dict\)\s*and\s*"
+            r'lnk\.get\("rel"\)\s*==\s*"data"',
+            adapter_source,
+        )
+
+    def test_each_document_type_is_scoped_to_only_the_rel_it_reads(self) -> None:
+        """fix(#1770 round 46 P2): the per-document scoping itself.
+
+        Round 37 got the member rels right (pinned above) and applied them
+        uniformly to every document `_check_ogcapi` reads. This asserts the
+        two named sets hold EXACTLY their one rel each, and that
+        `_check_ogcapi`'s own source calls each of its four
+        `_ogcapi_link_hrefs` sites with the rel set the class docstring
+        says it should: `_LANDING_RELS` for the landing-page fetch,
+        `_COLLECTION_RELS` for the direct per-collection fetch, and
+        `frozenset()` -- explicitly, not by omission -- for both the
+        listing page and each of its entries.
+        """
+        import inspect
+
+        from app.platform import service_endpoints
+
+        assert service_endpoints._LANDING_RELS == {"conformance"}
+        assert service_endpoints._COLLECTION_RELS == {"items"}
+        # No rel is a member of both -- if it were, a document type scoped
+        # to one set could still smuggle a dereference meant for the other.
+        assert not (
+            service_endpoints._LANDING_RELS & service_endpoints._COLLECTION_RELS
+        )
+
+        check_source = inspect.getsource(service_endpoints._check_ogcapi)
+        assert (
+            check_source.count("_ogcapi_link_hrefs(_parsed_json(body), _LANDING_RELS)")
+            == 1
+        )
+        assert check_source.count("_ogcapi_link_hrefs(document, _COLLECTION_RELS)") == 1
+        assert check_source.count("_ogcapi_link_hrefs(listing, frozenset())") == 1
+        assert check_source.count("_ogcapi_link_hrefs(entry, frozenset())") == 1
+        # Positive control: every `_ogcapi_link_hrefs(` call in the function
+        # is accounted for by exactly one of the four assertions above --
+        # a fifth call site, or one of the four re-scoped to something
+        # else, changes this count and fails here rather than being missed.
+        assert check_source.count("_ogcapi_link_hrefs(") == 4
+
+    # fix(#1770 round 46 P2): document type x rel, at CROSS origin. Only two
+    # cells refuse -- the two `_check_ogcapi` actually dereferences from that
+    # document type -- and every other cell of this 4x6 grid allows, which is
+    # the property this round exists to establish: a rel dereferenced from
+    # ONE document type must not refuse a DIFFERENT document type for
+    # carrying it, even cross-origin, because nothing is ever going to GET it
+    # from there.
+    _MATRIX_REFUSES = {("landing", "conformance"), ("collection_doc", "items")}
+    _MATRIX_DOCUMENT_TYPES = (
+        "landing",
+        "listing_page",
+        "listing_entry",
+        "collection_doc",
+    )
+    _MATRIX_RELS = ("conformance", "items", "self", "data", "license", "next")
+
+    def _matrix_handler(self, document_type: str, rel: str, href: str):
+        """A handler carrying ONE link (*rel* -> *href*) on the document
+        type under test, with every other document this check reads
+        answering an empty, harmless body."""
+        link = {"rel": rel, "href": href}
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if path.endswith("/collections/c1"):
+                body = (
+                    {"id": "c1", "links": [link]}
+                    if document_type == "collection_doc"
+                    else {"id": "c1", "links": []}
+                )
+                return httpx.Response(200, json=body)
+            if path.endswith("/collections"):
+                if document_type == "listing_page":
+                    return httpx.Response(
+                        200, json={"collections": [], "links": [link]}
+                    )
+                if document_type == "listing_entry":
+                    return httpx.Response(
+                        200,
+                        json={
+                            "collections": [{"id": "c1", "links": [link]}],
+                            "links": [],
+                        },
+                    )
+                return httpx.Response(200, json={"collections": [], "links": []})
+            # The landing page.
+            body = {"links": [link]} if document_type == "landing" else {"links": []}
+            return httpx.Response(200, json=body)
+
+        return handle
+
+    @pytest.mark.parametrize("document_type", _MATRIX_DOCUMENT_TYPES)
+    @pytest.mark.parametrize("rel", _MATRIX_RELS)
+    async def test_cross_origin_matrix_only_refuses_the_two_real_pairs(
+        self, monkeypatch, document_type, rel
+    ) -> None:
+        from app.platform.service_endpoints import CrossOriginEndpointError
+
+        handle = self._matrix_handler(document_type, rel, f"{_FOREIGN}/x")
+        # `collection_doc` needs a collection id so `_check_ogcapi` takes
+        # the direct per-collection branch; every other document type is
+        # reached via the probe's listing walk (`collection=None`).
+        collection = "c1" if document_type == "collection_doc" else None
+
+        if (document_type, rel) in self._MATRIX_REFUSES:
+            with pytest.raises(CrossOriginEndpointError):
+                await self._check(handle, monkeypatch, collection=collection)
+        else:
+            await self._check(handle, monkeypatch, collection=collection)
+
+    async def test_the_exact_codex_case_a_listing_entry_mixes_both_rels(
+        self, monkeypatch
+    ) -> None:
+        """The specific case round 46 was opened for: an authenticated
+        listing entry carries a cross-origin `conformance` (an ordinary
+        provider-docs link, never dereferenced from an entry) alongside a
+        SAME-origin `items` -- the import proceeds, because nothing here
+        was ever going to follow the entry's `conformance` link regardless
+        of its origin."""
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/collections"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "collections": [
+                            {
+                                "id": "c1",
+                                "links": [
+                                    {
+                                        "rel": "conformance",
+                                        "href": f"{_FOREIGN}/conformance",
+                                    },
+                                    {
+                                        "rel": "items",
+                                        "href": f"{_SVC_OAPIF}/collections/c1/items",
+                                    },
+                                ],
+                            }
+                        ],
+                        "links": [],
+                    },
+                )
+            return httpx.Response(200, json={"links": []})
+
+        # No `collection`: the probe walks the listing and reads the entry.
+        await self._check(handle, monkeypatch, collection=None)
+
+    async def test_same_origin_always_allows_regardless_of_rel_or_document(
+        self, monkeypatch
+    ) -> None:
+        """The other axis of the matrix: origin, not rel or document type,
+        is what a same-origin href is judged on. A representative sample --
+        the two cells that DO refuse cross-origin -- confirm same-origin
+        never trips either."""
+        for document_type, rel in sorted(self._MATRIX_REFUSES):
+            handle = self._matrix_handler(document_type, rel, f"{_SVC_OAPIF}/x")
+            collection = "c1" if document_type == "collection_doc" else None
+            await self._check(handle, monkeypatch, collection=collection)
+
+
+class TestAServiceCannotPointTheCredentialSomewhereElse:
+    """fix(#1746 B2b review r13/r14): the document GDAL reads, not the one we do.
+
+    GDAL applies `GDAL_HTTP_HEADER_FILE` to every request it makes, and for
+    these two formats it does not only fetch the URL it was given: it reads the
+    service's own description and fetches the operation endpoints that
+    description advertises. Those are fresh requests, so
+    `CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT` never applies and
+    would not cover a service-chosen header name if it did.
+
+    Two properties, and r14 is why the first one matters as much as the second.
+    The description is read WITH the credential, because the services this
+    protects are exactly the ones that answer an anonymous read with a 401; and
+    a description that cannot be read is a refusal rather than a pass, because
+    "could not read it" was the normal answer for those same services.
+    """
+
+    # The one class that drives the real check; every other suite gets the
+    # autouse stub, so nothing reaches for a service description by accident.
+    uses_the_real_endpoint_check = True
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        # The adapter imported it by name, so patching the definition alone
+        # leaves its own binding pointing at the real resolver.
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+            AsyncMock(),
+        )
+        # fix(#1746 B2b review r23): one module makes the requests now, so
+        # there is one place to gate. A patch of `service_items` would silently
+        # stop covering anything.
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    @staticmethod
+    def _wfs_handler(get_href: str, *, protected: bool = False):
+        """A WFS whose capabilities advertise *get_href*.
+
+        ``protected`` makes it answer 401 to an unauthenticated read, which is
+        the shape that made an anonymous check worse than none: it learned
+        nothing and approved the source.
+        """
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if protected and "x-api-key" not in {
+                name.lower() for name in request.headers
+            }:
+                return httpx.Response(401)
+            if "GetCapabilities" in str(request.url):
+                return httpx.Response(200, text=_capabilities(get_href))
+            return httpx.Response(404)
+
+        return handle
+
+    @staticmethod
+    def _oapif_handler(items_href: str, *, collection_count: int = 1):
+        """An OGC API whose collection number ``collection_count - 1`` is foreign.
+
+        The listing is paginated one page per collection so the probe has to
+        follow `next`, and the last one carries the cross-origin items link.
+        """
+        ids = [f"c{index}" for index in range(collection_count)]
+
+        def _collection(index: int) -> dict:
+            href = (
+                items_href
+                if index == collection_count - 1
+                else (f"{_SVC_OAPIF}/collections/{ids[index]}/items")
+            )
+            return {"id": ids[index], "links": [{"rel": "items", "href": href}]}
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if path.endswith("/collections"):
+                page = int(request.url.params.get("page", 0))
+                body: dict = {"collections": [_collection(page)]}
+                if page + 1 < collection_count:
+                    body["links"] = [
+                        {
+                            "rel": "next",
+                            "href": f"{_SVC_OAPIF}/collections?page={page + 1}",
+                        }
+                    ]
+                return httpx.Response(200, json=body)
+            if path.endswith("/items"):
+                return _streamed(
+                    {"type": "FeatureCollection", "features": [], "links": []}
+                )
+            if "/collections/" in path:
+                index = ids.index(path.rsplit("/", 1)[1])
+                return httpx.Response(200, json=_collection(index))
+            return httpx.Response(
+                200,
+                json={
+                    "conformsTo": [
+                        "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+                    ],
+                    "links": [{"rel": "data", "href": f"{_SVC_OAPIF}/collections"}],
+                },
+            )
+
+        return handle
+
+    async def _probe(self, client, headers, url, body, handler, monkeypatch):
+        recorded = self._transport(monkeypatch, handler)
+        with patch(
+            "app.modules.catalog.sources.router.validate_url_for_ssrf",
+            new_callable=AsyncMock,
+        ):
+            resp = await client.post(
+                "/services/probe", json={"url": url, **body}, headers=headers
+            )
+        return resp, recorded
+
+    @staticmethod
+    def _key_auth(value: str) -> dict:
+        return {"method": "header", "header_name": "X-Api-Key", "header_value": value}
+
+    # -- the door -----------------------------------------------------------
+
+    @pytest.mark.parametrize(
+        ("href", "refused"),
+        [
+            (f"{_SVC_ORIGIN}/geoserver/wfs", False),
+            ("/geoserver/wfs", False),
+            ("wfs", False),
+            (f"{_FOREIGN}/wfs", True),
+        ],
+        ids=["absolute_same", "root_relative", "relative", "cross_origin"],
+    )
+    async def test_the_probe_refuses_a_cross_origin_operation_endpoint(
+        self, client, admin_auth_header: dict, monkeypatch, href, refused
+    ) -> None:
+        """Relative hrefs describe the service itself and must keep working."""
+        value = _value()
+        resp, recorded = await self._probe(
+            client,
+            admin_auth_header,
+            _SVC_WFS,
+            {"auth": self._key_auth(value)},
+            self._wfs_handler(href),
+            monkeypatch,
+        )
+
+        if refused:
+            assert resp.status_code == 422, resp.text
+            detail = resp.json()["detail"]
+            assert detail["code"] == "cross_origin_endpoint"
+            assert detail["field"] == "url"
+            assert value not in resp.text
+        else:
+            assert resp.status_code == 200, resp.text
+        assert "collector.example" not in _hosts(recorded)
+
+    async def test_a_protected_service_is_read_with_the_credential(
+        self, client, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        """fix(#1746 B2b review r14): the reported hole, end to end.
+
+        A protected origin answers an anonymous read with 401. The check used
+        to take that as "nothing to see" and approve the source, and GDAL then
+        authenticated, received the real document, and followed the
+        cross-origin endpoint it advertised.
+        """
+        value = _value()
+        resp, recorded = await self._probe(
+            client,
+            admin_auth_header,
+            _SVC_WFS,
+            {"auth": self._key_auth(value)},
+            self._wfs_handler(f"{_FOREIGN}/wfs", protected=True),
+            monkeypatch,
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "cross_origin_endpoint"
+        # The credential went to the submitted origin, which is what made the
+        # real document readable, and nowhere else.
+        authenticated = [r for r in recorded if r.headers.get("X-Api-Key") == value]
+        assert authenticated
+        assert all(str(r.url).startswith(_SVC_ORIGIN) for r in authenticated)
+        assert "collector.example" not in _hosts(recorded)
+
+    async def test_a_protected_same_origin_service_proceeds(
+        self, client, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        """The half that must keep working: authentication is not the problem."""
+        resp, _recorded = await self._probe(
+            client,
+            admin_auth_header,
+            _SVC_WFS,
+            {"auth": self._key_auth(_value())},
+            self._wfs_handler(f"{_SVC_ORIGIN}/geoserver/wfs", protected=True),
+            monkeypatch,
+        )
+
+        assert resp.status_code == 200, resp.text
+
+    async def test_a_description_that_stops_answering_is_not_approved(
+        self, client, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        """A read that fails says nothing, so it cannot say yes.
+
+        Shaped as the service answering the probe and then refusing the
+        check's own read, which is the reachable form of it: a service that
+        refuses every read is never detected at all and the door answers 400
+        about the URL, before any of this. It is also the case the worker's
+        second check exists for, since the document can change between two
+        reads that are minutes apart.
+        """
+        value = _value()
+        reads: list[int] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if "GetCapabilities" not in str(request.url):
+                return httpx.Response(404)
+            reads.append(1)
+            if len(reads) == 1:
+                return httpx.Response(
+                    200, text=_capabilities(f"{_SVC_ORIGIN}/geoserver/wfs")
+                )
+            return httpx.Response(503)
+
+        resp, _recorded = await self._probe(
+            client,
+            admin_auth_header,
+            _SVC_WFS,
+            {"auth": self._key_auth(value)},
+            handle,
+            monkeypatch,
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "endpoint_check_failed"
+        assert value not in resp.text
+
+    async def test_a_credential_free_probe_is_unaffected(
+        self, client, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        """A public federated service is ordinary; the credential is the problem."""
+        resp, _recorded = await self._probe(
+            client,
+            admin_auth_header,
+            _SVC_WFS,
+            {},
+            self._wfs_handler(f"{_FOREIGN}/wfs"),
+            monkeypatch,
+        )
+
+        assert resp.status_code == 200, resp.text
+
+    async def test_a_late_collections_items_link_is_allowed_at_the_probe(
+        self, client, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        """fix(#1770 round 46 P2): corrected expectation, not a regression.
+
+        This pinned the OPPOSITE outcome before round 46: a listing entry
+        (page 9 of `_oapif_handler`'s one-collection-per-page walk) carrying
+        a cross-origin `items` link used to refuse the whole probe. Nothing
+        the probe does ever reads an entry's `items` href -- `probe_ogcapi`
+        never mentions `items` at all, and the only place that rel is ever
+        dereferenced in production is `_resolve_items_url`'s own
+        `same_origin` guard in `service_items.py`, at actual import time --
+        `_check_ogcapi`'s `_COLLECTION_RELS` branch (`collection is not
+        None`) is UNREACHABLE here: `assert_endpoints_stay_on_origin`'s
+        only live OGC API caller is this probe route
+        (`sources/router.py`), which never passes a `collection`. The
+        probe still never contacts the foreign host -- it was never going
+        to fetch that href either way -- so this is Allowed, not merely
+        "didn't crash".
+
+        fix(#1770 round 46b P2): the corrected 200 + no-foreign-host
+        assertions pass identically if the listing walk stopped after page
+        1 -- they prove nothing about whether the walk actually REACHES the
+        later page carrying the cross-origin link, which is the whole
+        point of `collection_count=10` and the reason this test exists
+        rather than a same-page-1 version. Asserting that a `?page=9`
+        request was actually made restores that half of the pin: reducing
+        the walk to a single page makes this assertion fail even though
+        the 200 and the no-foreign-host checks above both still pass. Not
+        a bare count -- `probe_ogcapi` (the adapter's own layer-listing
+        read, unrelated to this security walk) also fetches `/collections`
+        once with no `page` param at all, so a total-request count would
+        couple this pin to that unrelated call's presence; the specific
+        page-9 query does not.
+        """
+        value = _value()
+        resp, recorded = await self._probe(
+            client,
+            admin_auth_header,
+            _SVC_OAPIF,
+            {"auth": self._key_auth(value)},
+            self._oapif_handler(
+                f"{_FOREIGN}/oapif/collections/c9/items", collection_count=10
+            ),
+            monkeypatch,
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert "collector.example" not in _hosts(recorded)
+        assert any(
+            r.url.params.get("page") == "9"
+            for r in recorded
+            if r.url.path.endswith("/collections")
+        )
+
+    # -- the preview door ---------------------------------------------------
+
+    async def test_the_preview_refuses_before_writing_the_header_file(
+        self, monkeypatch
+    ) -> None:
+        credential, value = _header_key()
+        recorded = self._transport(
+            monkeypatch, self._wfs_handler(f"{_FOREIGN}/wfs", protected=True)
+        )
+
+        async def _fake_exec(*cmd, **kwargs):
+            raise AssertionError("ogrinfo must not be spawned for a refused source")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+        with pytest.raises(Exception) as raised:  # noqa: PT011 - HTTPException
+            await preview_mod.run_service_preview(
+                f"WFS:{_SVC_WFS}", "topp:parcels", credential=credential
+            )
+
+        assert raised.value.detail["code"] == "cross_origin_endpoint"
+        assert value not in str(raised.value.detail)
+        assert "collector.example" not in _hosts(recorded)
+
+    async def test_the_preview_refuses_a_cross_origin_items_link(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1746 B2b review r20): the link is read, and judged.
+
+        r16 stopped consulting the advertised `rel=items` link at all, which
+        made a cross-origin one harmless and a non-conventional one broken.
+        r20 follows it again, so it is refused on its merits instead: the
+        collection document chose the address, and it does not get to choose a
+        different service to be paid with this credential.
+        """
+        credential, _value_ = _header_key()
+        recorded = self._transport(
+            monkeypatch,
+            self._oapif_handler(
+                f"{_FOREIGN}/oapif/collections/c54/items", collection_count=55
+            ),
+        )
+
+        async def _fake_exec(*cmd, **kwargs):
+            raise AssertionError("ogrinfo must not run for a refused collection")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+        with pytest.raises(Exception) as raised:  # noqa: PT011 - HTTPException
+            await preview_mod.run_service_preview(
+                f"OAPIF:{_SVC_OAPIF}", "c54", credential=credential
+            )
+
+        assert raised.value.detail["code"] == "endpoint_check_failed"
+        assert "collector.example" not in _hosts(recorded)
+        # The collection document was read, and the address it named was not.
+        assert [r.url.path for r in recorded] == ["/oapif/collections/c54"]
+
+    # -- the worker ---------------------------------------------------------
+
+    async def _run_worker(self, monkeypatch, gdal_source: str, layer: str):
+        credential, value = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+
+        async def _fake_exec(*cmd, **kwargs):
+            raise AssertionError("ogr2ogr must not be spawned for a refused source")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+        await run_ogr2ogr_service(
+            gdal_source=gdal_source,
+            layer_name=layer,
+            table_name="t",
+            db_conn_str="PG:dummy",
+            service_type="wfs" if gdal_source.startswith("WFS:") else "ogcapi_features",
+            token=f"{pair[0]}: {pair[1]}",
+            schema="data",
+        )
+        return value
+
+    async def test_the_worker_refuses_the_same_source(self, monkeypatch) -> None:
+        """Checked again here because the document can change in between.
+
+        This is also the side that actually spends the credential, so a
+        refusal that only ran at the door would be one an attacker could wait
+        out.
+        """
+        from app.platform.service_endpoints import CrossOriginEndpointError
+
+        recorded = self._transport(
+            monkeypatch, self._wfs_handler(f"{_FOREIGN}/wfs", protected=True)
+        )
+
+        with pytest.raises(CrossOriginEndpointError):
+            await self._run_worker(monkeypatch, f"WFS:{_SVC_WFS}", "topp:parcels")
+
+        assert "collector.example" not in _hosts(recorded)
+
+    async def test_an_endpoint_href_that_will_not_parse_is_refused(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1746 B2b review r16): the href comes out of a distrusted document.
+
+        An address the parser cannot read cannot be shown to stay on the
+        origin, so it gets the same coded refusal, and nothing of what the
+        service wrote reaches the message.
+        """
+        from app.platform.service_endpoints import (
+            CrossOriginEndpointError,
+            assert_endpoints_stay_on_origin,
+        )
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        self._transport(monkeypatch, self._wfs_handler("http://[", protected=True))
+
+        with pytest.raises(CrossOriginEndpointError) as raised:
+            await assert_endpoints_stay_on_origin(
+                _SVC_WFS,
+                service_format="wfs",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                deadline=None,
+            )
+
+        assert "[" not in raised.value.policy
+
+    async def test_a_listing_next_that_will_not_parse_stops_the_walk(
+        self, monkeypatch
+    ) -> None:
+        """The sibling site. The walk already stops for an off-origin `next`."""
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if path.endswith("/collections"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "collections": [
+                            {
+                                "id": "c0",
+                                "links": [
+                                    {
+                                        "rel": "items",
+                                        "href": f"{_SVC_OAPIF}/collections/c0/items",
+                                    }
+                                ],
+                            }
+                        ],
+                        "links": [{"rel": "next", "href": "http://["}],
+                    },
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "conformsTo": [
+                        "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+                    ],
+                    "links": [{"rel": "data", "href": f"{_SVC_OAPIF}/collections"}],
+                },
+            )
+
+        self._transport(monkeypatch, handle)
+
+        await assert_endpoints_stay_on_origin(
+            _SVC_OAPIF,
+            service_format="ogcapi_features",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            deadline=None,
+        )
+
+    async def test_the_worker_refuses_a_cross_origin_items_link(
+        self, monkeypatch
+    ) -> None:
+        """The same property on the side that actually spends the credential."""
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        recorded = self._transport(
+            monkeypatch,
+            self._oapif_handler(
+                f"{_FOREIGN}/oapif/collections/c54/items", collection_count=55
+            ),
+        )
+
+        async def _fake_exec(*cmd, **kwargs):
+            raise AssertionError("ogr2ogr must not run for a refused collection")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+        with pytest.raises(ItemFetchFailedError):
+            await run_ogr2ogr_service(
+                gdal_source=f"OAPIF:{_SVC_OAPIF}",
+                layer_name="c54",
+                table_name="t",
+                db_conn_str="PG:dummy",
+                service_type="ogcapi_features",
+                token=f"{pair[0]}: {pair[1]}",
+                schema="data",
+            )
+
+        assert "collector.example" not in _hosts(recorded)
+        assert [r.url.path for r in recorded] == ["/oapif/collections/c54"]
+
+    async def test_the_worker_proceeds_for_a_same_origin_service(
+        self, monkeypatch
+    ) -> None:
+        """The counterfactual's other half: the guard is not refusing everything."""
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        self._transport(
+            monkeypatch,
+            self._wfs_handler(f"{_SVC_ORIGIN}/geoserver/wfs", protected=True),
+        )
+
+        spawned: list = []
+
+        async def _fake_exec(*cmd, **kwargs):
+            spawned.append(cmd)
+            proc = MagicMock()
+            proc.returncode = 0
+            return proc
+
+        async def _fake_communicate(proc, timeout, tool_name):
+            return (b"", b"")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
+        )
+
+        await run_ogr2ogr_service(
+            gdal_source=f"WFS:{_SVC_WFS}",
+            layer_name="topp:parcels",
+            table_name="t",
+            db_conn_str="PG:dummy",
+            service_type="wfs",
+            token=f"{pair[0]}: {pair[1]}",
+            schema="data",
+        )
+
+        assert spawned
+
+    # -- the validator itself -----------------------------------------------
+
+    async def test_an_unreadable_document_refuses(self, monkeypatch) -> None:
+        """fix(#1746 B2b review r14): fail closed, and this is why.
+
+        The previous revision failed OPEN here, reasoning that one request
+        against a third party should not refuse an import. That reasoning was
+        wrong for this check specifically: the services it protects are the
+        ones that refuse an unauthenticated description, so "could not read it"
+        was their normal answer and it approved every one of them.
+        """
+        from app.platform.service_endpoints import (
+            EndpointCheckFailedError,
+            assert_endpoints_stay_on_origin,
+        )
+
+        self._transport(monkeypatch, lambda request: httpx.Response(500))
+
+        with pytest.raises(EndpointCheckFailedError) as raised:
+            await assert_endpoints_stay_on_origin(
+                _SVC_WFS,
+                service_format="wfs",
+                credential_line=f"X-Api-Key: {_value()}",
+                deadline=None,
+            )
+
+        assert raised.value.code == "endpoint_check_failed"
+        assert raised.value.field == "url"
+
+    async def test_a_malformed_capabilities_document_refuses(self, monkeypatch) -> None:
+        from app.platform.service_endpoints import (
+            EndpointCheckFailedError,
+            assert_endpoints_stay_on_origin,
+        )
+
+        self._transport(
+            monkeypatch, lambda request: httpx.Response(200, text="<not xml")
+        )
+
+        with pytest.raises(EndpointCheckFailedError):
+            await assert_endpoints_stay_on_origin(
+                _SVC_WFS,
+                service_format="wfs",
+                credential_line=f"X-Api-Key: {_value()}",
+                deadline=None,
+            )
+
+    async def test_an_arcgis_source_is_not_checked(self, monkeypatch) -> None:
+        """Its credential is a query parameter, so there is no header to leak."""
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        recorded = self._transport(monkeypatch, self._wfs_handler(f"{_FOREIGN}/wfs"))
+
+        await assert_endpoints_stay_on_origin(
+            _SVC_WFS,
+            service_format="arcgis_featureserver",
+            credential_line=f"Authorization: Bearer tok{_value()}",
+            deadline=None,
+        )
+
+        assert recorded == []
+
+    async def test_a_credential_free_call_is_not_checked(self, monkeypatch) -> None:
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        recorded = self._transport(monkeypatch, self._wfs_handler(f"{_FOREIGN}/wfs"))
+
+        await assert_endpoints_stay_on_origin(
+            _SVC_WFS,
+            service_format="wfs",
+            credential_line=None,
+            deadline=None,
+        )
+
+        assert recorded == []
+
+    # -- the three WFS spellings, together ----------------------------------
+
+    @staticmethod
+    def _capabilities_10(online_resource: str) -> str:
+        """WFS 1.0: `DCPType/HTTP/Get @onlineResource`, and no xlink at all.
+
+        fix(#1746 B2b review r15): reading only `href` let a 1.0 service
+        advertise a cross-origin GetFeature and pass the guard, which is
+        exactly what this check exists to catch.
+        """
+        return f"""<?xml version="1.0"?>
+<WFS_Capabilities version="1.0.0" xmlns="http://www.opengis.net/wfs">
+  <Capability><Request>
+    <GetFeature>
+      <DCPType><HTTP><Get onlineResource="{online_resource}"/></HTTP></DCPType>
+      <DCPType><HTTP><Post onlineResource="{online_resource}"/></HTTP></DCPType>
+    </GetFeature>
+  </Request></Capability>
+  <FeatureTypeList>
+    <FeatureType><Name>topp:parcels</Name><Title>Parcels</Title>
+      <SRS>EPSG:4326</SRS></FeatureType>
+  </FeatureTypeList>
+</WFS_Capabilities>"""
+
+    @pytest.mark.parametrize(
+        ("version", "foreign"),
+        [("1.0", True), ("1.0", False), ("2.0", True), ("2.0", False)],
+        ids=["v1_0_cross", "v1_0_same", "v2_0_cross", "v2_0_same"],
+    )
+    async def test_every_wfs_spelling_of_an_operation_endpoint_is_read(
+        self, client, admin_auth_header: dict, monkeypatch, version, foreign
+    ) -> None:
+        """The two attribute spellings, refused and allowed, in one place.
+
+        1.1 and 2.0 name the endpoint with `xlink:href` under `ows:DCP`; 1.0
+        uses `onlineResource` under `DCPType` and binds no xlink namespace.
+        Both are compared by local name, because the namespaces and the
+        prefixes bound to them differ across the three versions.
+        """
+        endpoint = f"{_FOREIGN}/wfs" if foreign else f"{_SVC_ORIGIN}/geoserver/wfs"
+        document = (
+            self._capabilities_10(endpoint)
+            if version == "1.0"
+            else _capabilities(endpoint)
+        )
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if "GetCapabilities" in str(request.url):
+                return httpx.Response(200, text=document)
+            return httpx.Response(404)
+
+        value = _value()
+        resp, recorded = await self._probe(
+            client,
+            admin_auth_header,
+            _SVC_WFS,
+            {"auth": self._key_auth(value)},
+            handle,
+            monkeypatch,
+        )
+
+        if foreign:
+            assert resp.status_code == 422, resp.text
+            assert resp.json()["detail"]["code"] == "cross_origin_endpoint"
+            assert value not in resp.text
+        else:
+            assert resp.status_code == 200, resp.text
+        assert "collector.example" not in _hosts(recorded)
+
+    async def test_a_malformed_port_is_refused_without_raising(
+        self, client, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        """fix(#1746 B2b review r15): the refusal must survive being built.
+
+        `same_origin` already answered False for `http://example.com:notaport/`,
+        which is correct. Reporting it then read `parsed.port`, which
+        `urlparse` defers and raises ValueError on, so the clean 422 became a
+        500. The port is dropped rather than echoed: the URL is
+        provider-controlled and the raw value does not belong in a message or
+        a log line.
+        """
+        value = _value()
+        resp, _recorded = await self._probe(
+            client,
+            admin_auth_header,
+            _SVC_WFS,
+            {"auth": self._key_auth(value)},
+            self._wfs_handler("http://example.com:notaport/wfs"),
+            monkeypatch,
+        )
+
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["detail"]
+        assert detail["code"] == "cross_origin_endpoint"
+        assert detail["message"].endswith("Advertised origin: http://example.com")
+        assert "notaport" not in resp.text
+        assert value not in resp.text
+
+    def test_the_validator_has_exactly_one_request_site(self) -> None:
+        """fix(#1746 B2b review r15): one site, one marker, both counted.
+
+        Every document this module reads goes through one `_fetch`, so the
+        SSRF revalidation cannot be forgotten at a new call site and there is
+        exactly one suppression marker to keep correct. A second request added
+        beside it fails here rather than in a scan weeks later.
+        """
+        import inspect as _inspect
+
+        from app.platform import service_endpoints
+
+        source = _inspect.getsource(service_endpoints)
+        requests = sum(
+            source.count(f"client.{verb}(")
+            for verb in ("get", "post", "put", "patch", "delete", "request", "stream")
+        )
+        assert requests == 1, requests
+        assert source.count("# codeql[py/full-ssrf]") == 1
+        # And the marker binds to the call: the suppression query reads the
+        # line that FOLLOWS it, so prose between the two silently disarms it.
+        lines = source.splitlines()
+        marker = next(
+            index
+            for index, line in enumerate(lines)
+            if "# codeql[py/full-ssrf]" in line
+        )
+        assert "client.stream(" in lines[marker + 1]
+        # The revalidation is in the same function, above the call.
+        assert "validate_url_for_ssrf(url)" in "\n".join(lines[marker - 12 : marker])
+
+
+class TestAPagedCollectionCannotWalkOffTheOrigin:
+    """fix(#1746 B2b review r16): the page chain is bounded where it is read.
+
+    An OGC API items response names its own successor. GDAL follows that link
+    and applies `GDAL_HTTP_HEADER_FILE` to every request the process makes, and
+    GDAL 3.10.3 has no way to scope a header to one origin; that was measured
+    against a two-server rig before this module was written, and the command
+    and result are in `app/platform/service_items.py`. So the pages are read
+    here instead, and `next` is judged before it is followed.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        # fix(#1746 B2b review r23): one module makes the requests now, so
+        # there is one place to gate. A patch of `service_items` would silently
+        # stop covering anything.
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    @staticmethod
+    def _pages(*nexts: str | None):
+        """A handler serving one feature per page, each naming the next."""
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                # The collection document the walk reads first. It advertises
+                # the conventional layout, so what these tests exercise is the
+                # chain rather than the resolution.
+                return httpx.Response(
+                    200, json=_collection_doc(f"{_SVC_OAPIF}/collections/c1/items")
+                )
+            page = int(request.url.params.get("page", 0))
+            body: dict = {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "id": f"f{page}",
+                        "geometry": {"type": "Point", "coordinates": [0, 0]},
+                        "properties": {"page": page},
+                    }
+                ],
+                "links": [],
+            }
+            if page < len(nexts) and nexts[page] is not None:
+                body["links"] = [{"rel": "next", "href": nexts[page]}]
+            return _streamed(body)
+
+        return handle
+
+    async def test_a_same_origin_chain_is_followed_to_the_end(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        credential, value = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        base = f"{_SVC_OAPIF}/collections/c1/items"
+        recorded = self._transport(
+            monkeypatch, self._pages(f"{base}?page=1", f"{base}?page=2", None)
+        )
+
+        path = (
+            await materialise_oapif_items(
+                _SVC_OAPIF,
+                "c1",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                staging_dir=tmp_path,
+            )
+        ).path
+
+        document = json.loads(pathlib.Path(path).read_text())
+        assert [f["properties"]["page"] for f in document["features"]] == [0, 1, 2]
+        # Three pages, plus the collection document read before them.
+        assert len(recorded) == 4
+        # The credential went to the service, and only to the service.
+        assert {r.url.host for r in recorded} == {httpx.URL(_SVC_OAPIF).host}
+        assert all(r.headers.get(pair[0]) == value for r in recorded)
+
+    async def test_a_cross_origin_next_is_refused_before_it_is_fetched(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        recorded = self._transport(
+            monkeypatch, self._pages(f"{_FOREIGN}/oapif/collections/c1/items")
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await materialise_oapif_items(
+                _SVC_OAPIF,
+                "c1",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                staging_dir=tmp_path,
+            )
+
+        assert "collector.example" not in {r.url.host for r in recorded}
+        # And the partial extract is gone: it is data read with somebody's
+        # credential, and nothing downstream would know it was short.
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_without_the_origin_check_the_foreign_page_is_fetched(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The counterfactual. Neuter `same_origin` and the leak comes back."""
+        credential, value = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        recorded = self._transport(
+            monkeypatch,
+            # `?page=1` so the foreign page is the LAST one. The chain has to
+            # end: otherwise the page cap refuses it (fix #1746 B2b review r18)
+            # and the leak this exists to demonstrate hides behind a different
+            # refusal.
+            self._pages(f"{_FOREIGN}/oapif/collections/c1/items?page=1", None),
+        )
+        monkeypatch.setattr(
+            "app.platform.service_items.same_origin", lambda *args: True
+        )
+
+        await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+        )
+
+        foreign = [r for r in recorded if r.url.host == httpx.URL(_FOREIGN).host]
+        assert foreign
+        assert foreign[0].headers.get(pair[0]) == value
+
+    async def test_a_preview_stops_at_its_sample_size(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """A preview wants a handful of rows, not the collection."""
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        base = f"{_SVC_OAPIF}/collections/c1/items"
+        recorded = self._transport(
+            monkeypatch, self._pages(*[f"{base}?page={n}" for n in range(1, 20)])
+        )
+
+        extract = await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            feature_limit=2,
+        )
+
+        document = json.loads(pathlib.Path(extract.path).read_text())
+        assert len(document["features"]) == 2
+        # fix(#1746 B2b review r24): the sample size is not the collection.
+        # These pages publish no `numberMatched`, so the total is unknown
+        # rather than two.
+        assert extract.features == 2
+        assert extract.total is None
+        # Two pages, plus the collection document.
+        assert len(recorded) == 3
+
+    @staticmethod
+    def _endless(features_per_page: int = 0):
+        """A service that never stops offering `next`."""
+        base = f"{_SVC_OAPIF}/collections/c1/items"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(base))
+            page = int(request.url.params.get("page", 0))
+            return _streamed(
+                {
+                    "type": "FeatureCollection",
+                    "features": [
+                        {
+                            "type": "Feature",
+                            "id": f"f{page}-{n}",
+                            "geometry": {"type": "Point", "coordinates": [0, 0]},
+                            "properties": {},
+                        }
+                        for n in range(features_per_page)
+                    ],
+                    "links": [{"rel": "next", "href": f"{base}?page={page + 1}"}],
+                }
+            )
+
+        return handle
+
+    async def test_a_chain_still_offering_next_at_the_cap_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """fix(#1746 B2b review r18): a prefix is not a collection.
+
+        The cap used to close the array and return the file, so a service that
+        only partly honours `limit`, or a collection past ten thousand pages,
+        produced a short extract that read as a complete one. The worker
+        imports what it is given and would have replaced a dataset with it.
+        """
+        recorded = self._transport(monkeypatch, self._endless(features_per_page=1))
+        monkeypatch.setattr("app.platform.service_items.MAX_PAGES", 4)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert len(recorded) == 5
+        # Nothing to import, which is the point: a truncated read fails loud
+        # rather than arriving as data.
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_the_worker_refuses_rather_than_importing_a_prefix(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The side that would have written the truncation into a dataset."""
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        self._transport(monkeypatch, self._endless(features_per_page=1))
+        monkeypatch.setattr("app.platform.service_items.MAX_PAGES", 3)
+        monkeypatch.setattr(
+            "app.core.config.settings.upload_staging_dir", str(tmp_path)
+        )
+
+        async def _fake_exec(*cmd, **kwargs):
+            raise AssertionError("ogr2ogr must not run against a partial collection")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+        with pytest.raises(ItemFetchFailedError):
+            await run_ogr2ogr_service(
+                gdal_source=f"OAPIF:{_SVC_OAPIF}",
+                layer_name="c1",
+                table_name="t",
+                db_conn_str="PG:dummy",
+                service_type="ogcapi_features",
+                token=f"{pair[0]}: {pair[1]}",
+                schema="data",
+            )
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_preview_that_got_its_sample_still_succeeds(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The one caller allowed to stop with `next` still on offer.
+
+        A preview asked for five rows and has five rows. The endless chain
+        behind them is not its problem, and refusing here would make every
+        large collection unpreviewable.
+        """
+        self._transport(monkeypatch, self._endless(features_per_page=2))
+        monkeypatch.setattr("app.platform.service_items.MAX_PAGES", 4)
+
+        path = (await self._materialise(tmp_path, feature_limit=5)).path
+
+        document = json.loads(pathlib.Path(path).read_text())
+        assert len(document["features"]) == 5
+
+    async def test_a_next_that_will_not_parse_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """fix(#1746 B2b review r16): `urljoin` raises on some references.
+
+        Refused rather than read as the end of the chain, so a short extract is
+        never mistaken for a complete collection.
+        """
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        self._transport(monkeypatch, self._pages("http://[", None))
+
+        with pytest.raises(ItemFetchFailedError):
+            await materialise_oapif_items(
+                _SVC_OAPIF,
+                "c1",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                staging_dir=tmp_path,
+            )
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_page_that_cannot_be_read_leaves_nothing_behind(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        self._transport(monkeypatch, lambda request: httpx.Response(500))
+
+        with pytest.raises(ItemFetchFailedError):
+            await materialise_oapif_items(
+                _SVC_OAPIF,
+                "c1",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                staging_dir=tmp_path,
+            )
+
+        assert list(tmp_path.iterdir()) == []
+
+
+class TestOnePageCannotCostTheWholeProcess:
+    """fix(#1746 B2b review r17): the page is bounded on the way in.
+
+    The whole page is held in memory to be parsed, so a bound applied while
+    writing features measures the wrong thing: the decode has already happened
+    by then. One oversized response from a user-chosen service would exhaust
+    the API preview process or a worker regardless of any total.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        # fix(#1746 B2b review r23): one module makes the requests now, so
+        # there is one place to gate. A patch of `service_items` would silently
+        # stop covering anything.
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    async def test_the_read_stops_at_the_bound_not_at_the_end_of_the_body(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The point of the finding: refused DURING the read, before any parse.
+
+        Memory is not what proves it, because a test that only checked the
+        final size would pass just as well against the old buffered read. What
+        proves it is how few bytes the service was ever asked for.
+        """
+        produced = 0
+        chunk = b"x" * 1000
+        parsed: list = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+
+            async def _chunks():
+                nonlocal produced
+                for _ in range(1000):
+                    produced += len(chunk)
+                    yield chunk
+
+            return httpx.Response(200, content=_chunks())
+
+        self._transport(monkeypatch, handle)
+        monkeypatch.setattr("app.platform.service_items.MAX_PAGE_BYTES", 4000)
+        monkeypatch.setattr(
+            "app.platform.service_items.json.loads",
+            lambda *args, **kwargs: parsed.append(args) or {},
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        # A megabyte was on offer and five kilobytes were taken.
+        assert produced <= 5000
+        # The collection document ahead of it is parsed, as it must be. What
+        # never reaches the parser is the megabyte, which is where the memory
+        # would have gone.
+        assert [args for args in parsed if len(args[0]) > 4000] == []
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_an_honest_content_length_is_refused_without_reading(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Free when the service declares it; the running count covers the rest."""
+        produced = 0
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+
+            async def _chunks():
+                nonlocal produced
+                produced += 1
+                yield b"{}"
+
+            return httpx.Response(
+                200, headers={"Content-Length": "999999"}, content=_chunks()
+            )
+
+        self._transport(monkeypatch, handle)
+        monkeypatch.setattr("app.platform.service_items.MAX_PAGE_BYTES", 4000)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert produced == 0
+
+    async def test_a_json_round_trip_that_grows_is_bounded_on_disk(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """fix(#1746 B2b review r20): the r19 "cannot grow" proof was wrong.
+
+        r19 removed a written-bytes counter, reasoning that compact UTF-8
+        output is a subset of the page it came from. A JSON round trip can
+        grow: `1e15` is four bytes on the wire and parses to a float whose
+        repr is `1000000000000000.0`, which is eighteen. Python only switches
+        to exponent notation at 1e16, so a page of such numbers expands more
+        than fourfold on the way to disk and a chain inside the download cap
+        could leave many gigabytes on a shared staging volume.
+
+        The bound is measured now, and this test measures the same two numbers
+        so it fails if the growth ever stops being possible rather than
+        passing vacuously.
+        """
+        # Built by hand: `json.dumps` writes a float back as `1e+15`, so the
+        # compact wire form has to be authored rather than round-tripped.
+        properties = ",".join(f'"a{n}":1e15' for n in range(600))
+        raw = (
+            '{"type":"FeatureCollection","features":[{"type":"Feature",'
+            '"id":"f0","geometry":null,"properties":{' + properties + "}}],"
+            '"links":[]}'
+        ).encode()
+        wire = len(raw)
+        feature = json.loads(raw)["features"][0]
+        on_disk = len(
+            json.dumps(feature, separators=(",", ":"), ensure_ascii=False).encode()
+        )
+        # The premise, asserted rather than assumed.
+        assert wire < on_disk, (wire, on_disk)
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+
+            async def _chunks():
+                yield raw
+
+            return httpx.Response(200, content=_chunks())
+
+        self._transport(monkeypatch, handle)
+        # Between the two: the download is comfortably inside the cap, and the
+        # extract is over it. Only the on-disk bound can refuse this.
+        cap = (wire + on_disk) // 2
+        monkeypatch.setattr("app.platform.service_items.MAX_BYTES", cap)
+
+        # fix(#1746 B2b review r21): the size at the moment of refusal, caught
+        # on the way past because the file is unlinked before the error
+        # escapes. Asserting on what is left afterwards would say nothing
+        # about whether the cap was ever exceeded.
+        at_refusal: list[int] = []
+        real_discard = service_items_mod._discard
+
+        def _capture(path: str) -> None:
+            at_refusal.append(os.path.getsize(path))
+            real_discard(path)
+
+        monkeypatch.setattr(service_items_mod, "_discard", _capture)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        # Never over the cap, not even by the one expanded feature that used to
+        # be written before the comparison ran.
+        assert at_refusal and at_refusal[0] <= cap, (at_refusal, cap)
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_the_extract_is_utf8_not_escaped(self, monkeypatch, tmp_path) -> None:
+        """The other half: what does fit is written as the bytes it came as."""
+        self._transport(
+            monkeypatch,
+            lambda request: (
+                httpx.Response(200, json=_collection_doc(None))
+                if not request.url.path.endswith("/items")
+                else _streamed(
+                    {
+                        "type": "FeatureCollection",
+                        "features": [
+                            {
+                                "type": "Feature",
+                                "id": "f0",
+                                "geometry": {"type": "Point", "coordinates": [0, 0]},
+                                "properties": {"name": "\u6771\u4eac"},
+                            }
+                        ],
+                        "links": [],
+                    }
+                )
+            ),
+        )
+        path = (await self._materialise(tmp_path)).path
+
+        raw = pathlib.Path(path).read_bytes()
+        assert b"\\u" not in raw
+        assert json.loads(raw.decode())["type"] == "FeatureCollection"
+
+    async def test_a_compressed_page_is_refused(self, monkeypatch, tmp_path) -> None:
+        """Identity is asked for, and the answer has to be identity.
+
+        `aiter_raw` hands back the compressed bytes, so the alternative is a
+        JSON error about the wrong thing.
+        """
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            assert request.headers["Accept-Encoding"] == "identity"
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            return httpx.Response(
+                200, headers={"Content-Encoding": "gzip"}, json={"features": []}
+            )
+
+        self._transport(monkeypatch, handle)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_the_total_counts_bytes_read_not_bytes_written(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """A chain of honest pages is bounded by what it downloaded.
+
+        The old total counted the output file, so a service returning pages
+        that decoded to almost nothing could be asked for the collection cap
+        many times over.
+        """
+        base = f"{_SVC_OAPIF}/collections/c1/items"
+        pages = 0
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            nonlocal pages
+            pages += 1
+            page = int(request.url.params.get("page", 0))
+            return _streamed(
+                {
+                    "type": "FeatureCollection",
+                    # Bulky on the wire, nothing written from it.
+                    "unused": "y" * 4000,
+                    "features": [],
+                    "links": [{"rel": "next", "href": f"{base}?page={page + 1}"}],
+                }
+            )
+
+        self._transport(monkeypatch, handle)
+        monkeypatch.setattr("app.platform.service_items.MAX_BYTES", 9000)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        # Three pages of ~4 KB against a 9 KB total: the third is the one the
+        # remaining budget refuses, and the walk stops there rather than
+        # running to MAX_PAGES on an empty output file.
+        assert pages == 3
+        assert list(tmp_path.iterdir()) == []
+
+
+class TestAnAdvertisedHrefCannotCostTheWholeProcess:
+    """fix(#1770 round 47 P1, `service_items.py:378` "Bound parsing of
+    advertised items-query parameters").
+
+    A collection document's own `rel=items` link is a JSON STRING, so its
+    query can pack millions of short `key=value` pairs while costing almost
+    no `structural_tokens` budget (the separators live inside one string,
+    which is exactly the blind spot `MAX_DOCUMENT_ELEMENTS` closed for XML
+    attributes in round 43) and staying comfortably under
+    `MAX_DOCUMENT_BYTES`. `parse_qsl()` has no length or field-count bound
+    of its own and materialises the whole list before `_with_page_size`'s
+    own comprehension and `urlencode()` copy it again -- three or more full
+    passes over a value a hostile collection document chose, all BEFORE a
+    single request for the items page it names is ever made.
+
+    `bounded_service_url` (`service_endpoints.py`) closes it: refused by
+    length, before any parsing, at every site that resolves a
+    service-advertised href (`_advertised_items_href`, `_with_page_size`,
+    `_next_href` here; `_next_page`/`_assert_same_origin` in
+    `service_endpoints.py`; `_resolve_conformance` in `adapters/ogcapi.py`);
+    `bounded_parse_qsl` additionally caps the field count on the one
+    `parse_qsl` call this module makes on a service-advertised query.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    async def test_an_items_href_with_millions_of_query_params_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The finding itself: ~2 million short pairs, under the document
+        cap, refused with the coded error and NO request for the items page
+        the href names."""
+        bomb_query = "&".join(f"a{n}=1" for n in range(2_000_000))
+        bomb_href = f"{_SVC_OAPIF}/collections/c1/items?{bomb_query}"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            assert not request.url.path.endswith("/items"), (
+                "the items page must never be requested"
+            )
+            return httpx.Response(200, json=_collection_doc(bomb_href))
+
+        from app.platform.service_endpoints import MAX_DOCUMENT_BYTES
+
+        assert len(bomb_href.encode()) < MAX_DOCUMENT_BYTES
+
+        recorded = self._transport(monkeypatch, handle)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert not any(r.url.path.endswith("/items") for r in recorded)
+
+    async def test_an_href_one_byte_over_the_length_cap_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        from app.platform.service_endpoints import MAX_SERVICE_HREF_BYTES
+
+        # One query param whose value pads the whole href to exactly
+        # MAX_SERVICE_HREF_BYTES + 1 bytes.
+        base = f"{_SVC_OAPIF}/collections/c1/items?a="
+        pad_len = MAX_SERVICE_HREF_BYTES + 1 - len(base.encode())
+        oversized_href = base + ("x" * pad_len)
+        assert len(oversized_href.encode()) == MAX_SERVICE_HREF_BYTES + 1
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            assert not request.url.path.endswith("/items")
+            return httpx.Response(200, json=_collection_doc(oversized_href))
+
+        self._transport(monkeypatch, handle)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+    async def test_many_short_params_under_the_length_cap_are_refused_by_field_count(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Isolates `bounded_parse_qsl`'s own bound from `bounded_service_url`'s:
+        this href is short enough to clear the LENGTH cap on its own (unlike
+        the millions-of-pairs href above, which the length cap alone already
+        refuses) but still packs more than `MAX_QUERY_FIELDS` short pairs --
+        the exact "many short params, few bytes" shape the finding named.
+        """
+        from app.platform.service_endpoints import (
+            MAX_QUERY_FIELDS,
+            MAX_SERVICE_HREF_BYTES,
+        )
+
+        field_count = MAX_QUERY_FIELDS + 100
+        bomb_query = "&".join(f"a{n}=1" for n in range(field_count))
+        bomb_href = f"{_SVC_OAPIF}/collections/c1/items?{bomb_query}"
+        assert len(bomb_href.encode()) < MAX_SERVICE_HREF_BYTES, (
+            "this href must clear the LENGTH cap on its own, so a failure "
+            "here can only be the field-count cap"
+        )
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            assert not request.url.path.endswith("/items")
+            return httpx.Response(200, json=_collection_doc(bomb_href))
+
+        recorded = self._transport(monkeypatch, handle)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert not any(r.url.path.endswith("/items") for r in recorded)
+
+    async def test_an_ordinary_href_with_ten_params_still_resolves(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Positive control: this class's refusals are not vacuous."""
+        ordinary_query = "&".join(f"a{n}=1" for n in range(10))
+        ordinary_href = f"{_SVC_OAPIF}/collections/c1/items?{ordinary_query}"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/items"):
+                return _streamed(
+                    {"type": "FeatureCollection", "features": [], "links": []}
+                )
+            return httpx.Response(200, json=_collection_doc(ordinary_href))
+
+        recorded = self._transport(monkeypatch, handle)
+
+        await self._materialise(tmp_path)
+
+        assert any(r.url.path.endswith("/items") for r in recorded)
+
+
+class TestTheCallersClockCoversTheDownload:
+    """fix(#1746 B2b review r17): the walk runs inside the caller's budget.
+
+    It used to run before either caller's clock started, and httpx's read
+    timeout is per inactivity rather than per response, so a service answering
+    slowly but never stopping could hold an API request or an ingest worker for
+    hours across up to ten thousand pages, and then still be handed the full
+    subprocess timeout afterwards.
+    """
+
+    def _slow_transport(self, monkeypatch, delay: float):
+        base = f"{_SVC_OAPIF}/collections/c1/items"
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            page = int(request.url.params.get("page", 0))
+
+            async def _chunks():
+                await asyncio.sleep(delay)
+                yield json.dumps(
+                    {
+                        "type": "FeatureCollection",
+                        "features": [],
+                        "links": [{"rel": "next", "href": f"{base}?page={page + 1}"}],
+                    }
+                ).encode()
+
+            return httpx.Response(200, content=_chunks())
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        # fix(#1746 B2b review r23): one module makes the requests now, so
+        # there is one place to gate. A patch of `service_items` would silently
+        # stop covering anything.
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def test_a_slow_service_is_stopped_at_the_deadline(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Stopped by the clock, not by MAX_PAGES, which is the whole point."""
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        recorded = self._slow_transport(monkeypatch, 0.05)
+
+        with pytest.raises(ItemFetchFailedError):
+            await materialise_oapif_items(
+                _SVC_OAPIF,
+                "c1",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                staging_dir=tmp_path,
+                deadline=time.monotonic() + 0.2,
+            )
+
+        # A handful of pages in, nowhere near the page cap: the service was
+        # perfectly responsive by httpx's reckoning and would have gone on
+        # answering until the caller gave up.
+        assert 1 <= len(recorded) < 100
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_deadline_already_passed_refuses_without_a_request(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        recorded = self._slow_transport(monkeypatch, 0.0)
+
+        with pytest.raises(ItemFetchFailedError):
+            await materialise_oapif_items(
+                _SVC_OAPIF,
+                "c1",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                staging_dir=tmp_path,
+                deadline=time.monotonic() - 1.0,
+            )
+
+        assert recorded == []
+
+    async def test_the_worker_gives_ogr2ogr_what_the_walk_did_not_spend(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """One clock over both halves, so the pair cannot outlast the budget."""
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        waited: list[float] = []
+
+        async def _fake_materialise(url, collection, **kwargs):
+            assert kwargs["deadline"] is not None
+            await asyncio.sleep(0.05)
+            local = tmp_path / "items.geojson"
+            local.write_text('{"type": "FeatureCollection", "features": []}')
+            return MaterialisedCollection(path=str(local), features=0, total=0)
+
+        async def _fake_exec(*cmd, **kwargs):
+            proc = MagicMock()
+            proc.returncode = 0
+            return proc
+
+        async def _fake_communicate(proc, timeout, tool_name):
+            waited.append(timeout)
+            return (b"", b"")
+
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr.materialise_oapif_items", _fake_materialise
+        )
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
+        )
+
+        await run_ogr2ogr_service(
+            gdal_source=f"OAPIF:{_SVC_OAPIF}",
+            layer_name="c1",
+            table_name="t",
+            db_conn_str="PG:dummy",
+            service_type="ogcapi_features",
+            token=f"{pair[0]}: {pair[1]}",
+            schema="data",
+            timeout=10.0,
+        )
+
+        # Whatever the walk spent came off the subprocess's share. Well clear
+        # of `_SUBPROCESS_FLOOR_SECONDS`, which would otherwise be what the
+        # assertion measured.
+        assert waited and 0.0 < waited[0] < 10.0
+
+    async def test_a_wfs_import_keeps_its_whole_subprocess_budget(
+        self, monkeypatch
+    ) -> None:
+        """The counterfactual half: nothing is deducted where nothing is read."""
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        waited: list[float] = []
+
+        async def _fake_exec(*cmd, **kwargs):
+            proc = MagicMock()
+            proc.returncode = 0
+            return proc
+
+        async def _fake_communicate(proc, timeout, tool_name):
+            waited.append(timeout)
+            return (b"", b"")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
+        )
+
+        await run_ogr2ogr_service(
+            gdal_source=f"WFS:{_SVC_WFS}",
+            layer_name="topp:parcels",
+            table_name="t",
+            db_conn_str="PG:dummy",
+            service_type="wfs",
+            token=f"{pair[0]}: {pair[1]}",
+            schema="data",
+            timeout=1800.0,
+        )
+
+        # fix(#1746 B2b review r23): the remaining budget rather than the
+        # nominal one, because the recompute moved to immediately before the
+        # spawn so it accounts for the endpoint-check preflight too. Nothing
+        # spent it here, so it is the whole of it bar the arithmetic.
+        assert waited and 1799.0 < waited[0] <= 1800.0, waited
+
+
+class TestAFailedMaterialisationStillDatesTheContact:
+    """fix(#1746 B2b review r17): the origin was reached, so say so.
+
+    `on_spawn` used to fire after the subprocess existed, which was the first
+    outbound moment while GDAL did the fetching. It no longer is: a protected
+    OGC API collection is contacted by the walk, and a walk that fails on its
+    first page has reached the service without any subprocess being created.
+    A caller dating origin contacts would have left `last_checked_at` stale
+    and reported the opposite of what happened.
+    """
+
+    async def test_a_first_page_failure_still_marks_the_origin_contacted(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        contacted: list[int] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(401)
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        # fix(#1746 B2b review r23): one module makes the requests now, so
+        # there is one place to gate. A patch of `service_items` would silently
+        # stop covering anything.
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+
+        async def _fake_exec(*cmd, **kwargs):
+            raise AssertionError("no subprocess exists on this path")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+        with pytest.raises(ItemFetchFailedError):
+            await run_ogr2ogr_service(
+                gdal_source=f"OAPIF:{_SVC_OAPIF}",
+                layer_name="c1",
+                table_name="t",
+                db_conn_str="PG:dummy",
+                service_type="ogcapi_features",
+                token=f"{pair[0]}: {pair[1]}",
+                schema="data",
+                on_spawn=lambda: contacted.append(1),
+            )
+
+        assert contacted == [1]
+
+    async def test_it_fires_once_when_the_import_succeeds(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Not twice: the walk arms it, and the spawn must not arm it again."""
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        contacted: list[int] = []
+
+        async def _fake_materialise(url, collection, **kwargs):
+            kwargs["on_first_request"]()
+            local = tmp_path / "items.geojson"
+            local.write_text('{"type": "FeatureCollection", "features": []}')
+            return MaterialisedCollection(path=str(local), features=0, total=0)
+
+        async def _fake_exec(*cmd, **kwargs):
+            proc = MagicMock()
+            proc.returncode = 0
+            return proc
+
+        async def _fake_communicate(proc, timeout, tool_name):
+            return (b"", b"")
+
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr.materialise_oapif_items", _fake_materialise
+        )
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
+        )
+
+        await run_ogr2ogr_service(
+            gdal_source=f"OAPIF:{_SVC_OAPIF}",
+            layer_name="c1",
+            table_name="t",
+            db_conn_str="PG:dummy",
+            service_type="ogcapi_features",
+            token=f"{pair[0]}: {pair[1]}",
+            schema="data",
+            on_spawn=lambda: contacted.append(1),
+        )
+
+        assert contacted == [1]
+
+    async def test_a_wfs_import_still_dates_it_at_the_spawn(self, monkeypatch) -> None:
+        """Unchanged where GDAL is still the one making the request."""
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        contacted: list[int] = []
+
+        async def _fake_exec(*cmd, **kwargs):
+            proc = MagicMock()
+            proc.returncode = 0
+            return proc
+
+        async def _fake_communicate(proc, timeout, tool_name):
+            return (b"", b"")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
+        )
+
+        await run_ogr2ogr_service(
+            gdal_source=f"WFS:{_SVC_WFS}",
+            layer_name="topp:parcels",
+            table_name="t",
+            db_conn_str="PG:dummy",
+            service_type="wfs",
+            token=f"{pair[0]}: {pair[1]}",
+            schema="data",
+            on_spawn=lambda: contacted.append(1),
+        )
+
+        assert contacted == [1]
+
+
+class TestOneDescriptionCannotCostTheWholeProcess:
+    """fix(#1746 B2b review r19): the sibling of the item-page bound.
+
+    r17 bounded the item pages and left the description reads beside them
+    buffered, which was the same exposure through the other door: a
+    capabilities or collections document is chosen by the same untrusted
+    service, read into the same process, and parsed whole. Both use one reader
+    now.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _check(self, service_format="wfs", collection=None):
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        await assert_endpoints_stay_on_origin(
+            _SVC_WFS if service_format == "wfs" else _SVC_OAPIF,
+            service_format=service_format,
+            credential_line=f"{pair[0]}: {pair[1]}",
+            collection=collection,
+            deadline=None,
+        )
+
+    async def test_the_read_stops_at_the_bound_and_never_reaches_the_parser(
+        self, monkeypatch
+    ) -> None:
+        """Refused DURING the read, before any XML is parsed.
+
+        Shaped like the round-18 items test: what proves it is how few bytes
+        the service was ever asked for, not the size of what came back, since
+        a buffered read reaches the same final size and would pass a check on
+        that.
+        """
+        from app.platform import service_endpoints
+
+        produced = 0
+        chunk = b"<Get/>" * 200
+        parsed: list = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            async def _chunks():
+                nonlocal produced
+                for _ in range(1000):
+                    produced += len(chunk)
+                    yield chunk
+
+            return httpx.Response(200, content=_chunks())
+
+        self._transport(monkeypatch, handle)
+        monkeypatch.setattr(service_endpoints, "MAX_DOCUMENT_BYTES", 4000)
+        monkeypatch.setattr(
+            service_endpoints.ET,
+            "fromstring",
+            lambda *args, **kwargs: parsed.append(args) or [],
+        )
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check()
+
+        # More than a megabyte on offer, five kilobytes taken.
+        assert produced <= 5000
+        # And defusedxml was never handed any of it, which is where the second
+        # copy and the parse cost would have been.
+        assert parsed == []
+
+    async def test_an_honest_content_length_is_refused_without_reading(
+        self, monkeypatch
+    ) -> None:
+        from app.platform import service_endpoints
+
+        produced = 0
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            async def _chunks():
+                nonlocal produced
+                produced += 1
+                yield b"<x/>"
+
+            return httpx.Response(
+                200, headers={"Content-Length": "999999"}, content=_chunks()
+            )
+
+        self._transport(monkeypatch, handle)
+        monkeypatch.setattr(service_endpoints, "MAX_DOCUMENT_BYTES", 4000)
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check()
+
+        assert produced == 0
+
+    async def test_a_compressed_description_is_refused(self, monkeypatch) -> None:
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200, headers={"Content-Encoding": "gzip"}, text="<WFS_Capabilities/>"
+            )
+
+        self._transport(monkeypatch, handle)
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check()
+
+    async def test_an_ordinary_document_still_passes(self, monkeypatch) -> None:
+        """The counterfactual's other half: the bound is not refusing everything."""
+        recorded = self._transport(
+            monkeypatch,
+            lambda request: httpx.Response(
+                200,
+                text=(
+                    '<?xml version="1.0" encoding="UTF-8"?>'
+                    '<WFS_Capabilities xmlns:xlink="http://www.w3.org/1999/xlink">'
+                    '<OperationsMetadata><Operation name="GetFeature"><DCP><HTTP>'
+                    f'<Get xlink:href="{_SVC_WFS}"/>'
+                    "</HTTP></DCP></Operation></OperationsMetadata>"
+                    "</WFS_Capabilities>"
+                ),
+            ),
+        )
+
+        await self._check()
+
+        assert recorded
+
+
+class TestARelativeLinkIsResolvedAgainstTheDocument:
+    """fix(#1746 B2b review r19): a canonical redirect moves the base.
+
+    `/items` answering 301 to `/items/` makes a relative `next` of `page2`
+    mean `/items/page2`, not `/page2`. Resolving against the URL that was asked
+    for requests a path the service never offered, so the walk stops early and
+    the extract is a prefix. Both modules resolve against `response.url` now,
+    which the safe client has already revalidated per hop and refused to let
+    leave the origin.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        # The redirect hook resolves it through security's own namespace, so
+        # patching the two importers is not enough for a test that redirects.
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+        # fix(#1746 B2b review r23): one module makes the requests now, so
+        # there is one place to gate. A patch of `service_items` would silently
+        # stop covering anything.
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def test_a_relative_next_follows_the_redirected_path(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        items = f"{_SVC_OAPIF}/collections/c1/items"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if path.endswith("/c1"):
+                return httpx.Response(200, json=_collection_doc(items))
+            if path.endswith("/items"):
+                # The canonical form the service prefers.
+                return httpx.Response(301, headers={"Location": f"{items}/?limit=1000"})
+            if path.endswith("/items/"):
+                return _streamed(
+                    {
+                        "type": "FeatureCollection",
+                        "features": [_point("a")],
+                        "links": [{"rel": "next", "href": "page2"}],
+                    }
+                )
+            return _streamed(
+                {
+                    "type": "FeatureCollection",
+                    "features": [_point("b")],
+                    "links": [],
+                }
+            )
+
+        recorded = self._transport(monkeypatch, handle)
+
+        path = (
+            await materialise_oapif_items(
+                _SVC_OAPIF,
+                "c1",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                staging_dir=tmp_path,
+            )
+        ).path
+
+        # `page2` relative to `/collections/c1/items/`, not to `/collections/c1/`.
+        assert [r.url.path for r in recorded] == [
+            "/oapif/collections/c1",
+            "/oapif/collections/c1/items",
+            "/oapif/collections/c1/items/",
+            "/oapif/collections/c1/items/page2",
+        ]
+        document = json.loads(pathlib.Path(path).read_text())
+        assert [f["id"] for f in document["features"]] == ["a", "b"]
+
+    async def test_a_relative_endpoint_href_is_judged_from_the_document(
+        self, monkeypatch
+    ) -> None:
+        """The same rule in the description check, where it decides a refusal."""
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/"):
+                # The query survives the canonical redirect, as it must: the
+                # capabilities URL carries the WFS request parameters.
+                canonical = request.url.copy_with(path=request.url.path + "/")
+                return httpx.Response(301, headers={"Location": str(canonical)})
+            return httpx.Response(
+                200,
+                text=(
+                    '<?xml version="1.0" encoding="UTF-8"?>'
+                    '<WFS_Capabilities xmlns:xlink="http://www.w3.org/1999/xlink">'
+                    '<OperationsMetadata><Operation name="GetFeature"><DCP><HTTP>'
+                    '<Get xlink:href="deeper"/>'
+                    "</HTTP></DCP></Operation></OperationsMetadata>"
+                    "</WFS_Capabilities>"
+                ),
+            )
+
+        recorded = self._transport(monkeypatch, handle)
+        seen: list[str] = []
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.same_origin",
+            lambda base, resolved: seen.append(resolved) or True,
+        )
+
+        await assert_endpoints_stay_on_origin(
+            _SVC_WFS,
+            service_format="wfs",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            deadline=None,
+        )
+
+        # `deeper` resolved against the redirected document, not against the
+        # URL that was asked for. Same-origin either way, so the assertion has
+        # to be on the resolved path rather than on the outcome.
+        assert [r.url.path for r in recorded] == [
+            "/geoserver/wfs",
+            "/geoserver/wfs/",
+        ]
+        assert seen == [f"{_SVC_ORIGIN}/geoserver/wfs/deeper"]
+
+
+class TestTheItemsLinkTheCollectionAdvertises:
+    """fix(#1746 B2b review r20): where the items are is the service's to say.
+
+    r16 moved the read in-process and built `/collections/{id}/items` by hand,
+    which was a regression against the path it replaced: GDAL followed the
+    advertised `rel=items` link, and `service_endpoints` still treats advertised
+    links as authoritative, so a valid service with a non-conventional layout
+    passed the probe and then 404ed at preview and import.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        # fix(#1746 B2b review r23): one module makes the requests now, so
+        # there is one place to gate. A patch of `service_items` would silently
+        # stop covering anything.
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    @staticmethod
+    def _service(links: list[dict]):
+        """A service whose items live at /data/c1/features, not the convention."""
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if path == "/data/c1/features":
+                return _streamed(
+                    {
+                        "type": "FeatureCollection",
+                        "features": [_point("a")],
+                        "links": [],
+                    }
+                )
+            if path.endswith("/collections/c1"):
+                return httpx.Response(200, json={"id": "c1", "links": links})
+            # The conventional layout this service does not use.
+            return httpx.Response(404)
+
+        return handle
+
+    async def test_the_advertised_layout_is_followed(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        recorded = self._transport(
+            monkeypatch,
+            self._service(
+                [{"rel": "items", "href": f"{_SVC_OAPIF}/../data/c1/features"}]
+            ),
+        )
+
+        path = (await self._materialise(tmp_path)).path
+
+        assert [r.url.path for r in recorded] == [
+            "/oapif/collections/c1",
+            "/data/c1/features",
+        ]
+        document = json.loads(pathlib.Path(path).read_text())
+        assert [f["id"] for f in document["features"]] == ["a"]
+
+    async def test_the_page_size_rides_on_the_advertised_link(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """And whatever else the service put on its own link survives."""
+        recorded = self._transport(
+            monkeypatch,
+            self._service(
+                [{"rel": "items", "href": "/data/c1/features?f=json&limit=1"}]
+            ),
+        )
+
+        await self._materialise(tmp_path)
+
+        asked = recorded[-1].url
+        assert asked.params["f"] == "json"
+        # Ours replaces theirs rather than being appended beside it.
+        assert asked.params.get_list("limit") == ["1000"]
+
+    async def test_geojson_is_preferred_over_another_representation(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        recorded = self._transport(
+            monkeypatch,
+            self._service(
+                [
+                    {
+                        "rel": "items",
+                        "type": "text/html",
+                        "href": "/collections/c1/items",
+                    },
+                    {
+                        "rel": "items",
+                        "type": "application/geo+json",
+                        "href": "/data/c1/features",
+                    },
+                ]
+            ),
+        )
+
+        await self._materialise(tmp_path)
+
+        assert recorded[-1].url.path == "/data/c1/features"
+
+    async def test_a_document_that_advertises_nothing_falls_back(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The convention is the fallback, not the rule."""
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/items"):
+                return _streamed(
+                    {
+                        "type": "FeatureCollection",
+                        "features": [_point("a")],
+                        "links": [],
+                    }
+                )
+            return httpx.Response(200, json=_collection_doc(None))
+
+        recorded = self._transport(monkeypatch, handle)
+
+        await self._materialise(tmp_path)
+
+        assert [r.url.path for r in recorded] == [
+            "/oapif/collections/c1",
+            "/oapif/collections/c1/items",
+        ]
+
+    async def test_a_cross_origin_items_link_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Followed means judged: the same rule `next` gets, for the same reason."""
+        recorded = self._transport(
+            monkeypatch,
+            self._service([{"rel": "items", "href": f"{_FOREIGN}/data/c1/features"}]),
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert "collector.example" not in _hosts(recorded)
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_an_items_link_that_will_not_parse_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        self._transport(
+            monkeypatch, self._service([{"rel": "items", "href": "http://["}])
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+
+class TestAPageThatIsNotAPageIsNotAnEmptyPage:
+    """fix(#1746 B2b review r21): the truncation class, one level up.
+
+    `features or []` read an HTTP 200 JSON error envelope as an empty page,
+    and read `"features": null` and `"features": {}` the same way. A preview
+    then succeeded with zero rows, and a refresh or re-upload handed an empty
+    FeatureCollection to ogr2ogr, which replaced existing data with nothing.
+
+    A page that does not say what it is does not get to say it is empty. A
+    page that does say so and is genuinely empty still reads as empty, which
+    is what makes the refusal specific rather than a blanket suspicion.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        # fix(#1746 B2b review r23): one module makes the requests now, so
+        # there is one place to gate. A patch of `service_items` would silently
+        # stop covering anything.
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    @staticmethod
+    def _serving(page: object):
+        """A service whose collection document is fine and whose page is not."""
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            return httpx.Response(200, json=page)
+
+        return handle
+
+    @pytest.mark.parametrize(
+        "page",
+        [
+            pytest.param({"error": "quota exceeded"}, id="error_envelope_at_200"),
+            pytest.param(
+                {"type": "FeatureCollection", "features": None}, id="features_null"
+            ),
+            pytest.param(
+                {"type": "FeatureCollection", "features": {}}, id="features_object"
+            ),
+            pytest.param({"type": "FeatureCollection"}, id="features_absent"),
+            pytest.param({"features": []}, id="type_absent"),
+            pytest.param(
+                {"type": "Feature", "features": []}, id="type_is_a_single_feature"
+            ),
+            pytest.param([], id="a_bare_list"),
+            pytest.param("ok", id="a_bare_string"),
+        ],
+    )
+    async def test_a_malformed_page_is_refused(
+        self, monkeypatch, tmp_path, page
+    ) -> None:
+        self._transport(monkeypatch, self._serving(page))
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_genuinely_empty_collection_still_reads_as_empty(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The other half. Without this the refusal is just distrust."""
+        self._transport(
+            monkeypatch,
+            self._serving({"type": "FeatureCollection", "features": [], "links": []}),
+        )
+
+        path = (await self._materialise(tmp_path)).path
+
+        assert json.loads(pathlib.Path(path).read_text()) == {
+            "type": "FeatureCollection",
+            "features": [],
+        }
+
+    async def test_a_malformed_second_page_is_refused_too(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Every page, not just the first: `next` reaches the same validator."""
+        base = f"{_SVC_OAPIF}/collections/c1/items"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            if request.url.params.get("page") == "1":
+                return httpx.Response(200, json={"error": "quota exceeded"})
+            return _streamed(
+                {
+                    "type": "FeatureCollection",
+                    "features": [_point("a")],
+                    "links": [{"rel": "next", "href": f"{base}?page=1"}],
+                }
+            )
+
+        self._transport(monkeypatch, handle)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        # The first page's feature is discarded with the file: a prefix is not
+        # a collection, which is the r18 rule reaching this failure too.
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_collection_document_that_is_not_an_object_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The third site the same fetch feeds, and the earliest one."""
+        recorded = self._transport(
+            monkeypatch, lambda request: httpx.Response(200, json=["c1"])
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        # Refused at the collection document, before any items URL was built.
+        assert [r.url.path for r in recorded] == ["/oapif/collections/c1"]
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_the_refusal_never_echoes_the_page(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The body is provider-controlled and reaches a message and a log."""
+        secret = "canary" + _value()
+        self._transport(monkeypatch, self._serving({"error": secret}))
+
+        with pytest.raises(ItemFetchFailedError) as raised:
+            await self._materialise(tmp_path)
+
+        assert secret not in str(raised.value)
+        assert secret not in raised.value.policy
+        assert secret not in raised.value.reason
+
+
+class TestAPageCannotCostMoreDecodedThanItDidOnTheWire:
+    """fix(#1746 B2b review r22): the wire cap bounds bytes, not the objects.
+
+    Compact JSON expands enormously: measured on this interpreter, a 1 MiB
+    page of `[1.5,...]` decodes to 8.2x, `[{"a":1},...]` to 24.1x and
+    `[[[1]],...]` to 30.7x. So the 64 MiB page cap this round lowered allowed
+    roughly 2 GiB of objects from a single response, which is the whole API
+    container, and concurrent previews made it worse.
+
+    The bound that closes it is counted on the raw bytes BEFORE decoding, so
+    reaching it costs three `bytes.count` passes rather than the memory.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        # fix(#1746 B2b review r23): one module makes the requests now, so
+        # there is one place to gate. A patch of `service_items` would silently
+        # stop covering anything.
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    @staticmethod
+    def _serving(raw: bytes):
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+
+            async def _chunks():
+                yield raw
+
+            return httpx.Response(200, content=_chunks())
+
+        return handle
+
+    def test_the_count_cannot_undercount_the_decoded_values(self) -> None:
+        """The premise the bound rests on, checked against the decoder.
+
+        Every value after the first is preceded by a comma and every container
+        opens with a bracket, so the count is an upper bound. A string full of
+        commas inflates it, which is the safe direction.
+        """
+
+        def values(node) -> int:
+            if isinstance(node, dict):
+                return 1 + sum(values(v) for v in node.values())
+            if isinstance(node, list):
+                return 1 + sum(values(v) for v in node)
+            return 1
+
+        for raw in (
+            b"[1.5,1.5,1.5]",
+            b'[{"a":1},{"a":2}]',
+            b"[[[1]],[[2]],[[3]]]",
+            b"{}",
+            b"[]",
+            b'{"a":{"b":[1,2,{"c":3}]}}',
+            b'["a,b,c,d,e"]',
+        ):
+            assert (
+                service_endpoints_mod.structural_tokens(raw)
+                >= values(json.loads(raw)) - 1
+            ), raw
+
+    async def test_a_page_over_the_token_bound_is_refused_before_decoding(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Refused without the decoder ever running, which is the whole point.
+
+        A cap that fired after `json.loads` would have already paid the memory
+        it exists to save, so the assertion is that the decoder was not called
+        rather than that an error came back.
+        """
+        # Compact and comfortably inside the wire cap; ruinous decoded.
+        raw = b"[" + b"1.5," * 40_000 + b"1.5]"
+        assert len(raw) < service_items_mod.MAX_PAGE_BYTES
+
+        self._transport(monkeypatch, self._serving(raw))
+        monkeypatch.setattr(service_items_mod, "MAX_STRUCTURAL_TOKENS", 10_000)
+
+        decoded: list = []
+        real_loads = json.loads
+
+        def _loads(payload, *args, **kwargs):
+            # The collection document is decoded, as it must be; anything the
+            # size of the page under test is not.
+            if len(payload) > 1000:
+                decoded.append(len(payload))
+                raise AssertionError("the page must not reach the decoder")
+            return real_loads(payload, *args, **kwargs)
+
+        monkeypatch.setattr(service_items_mod.json, "loads", _loads)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert decoded == []
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_an_ordinary_page_of_many_features_is_accepted(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The other half: the bound is generous to anything honest.
+
+        A full page of `PAGE_SIZE` features with real geometry is nowhere near
+        it, so a service that paginates the way it was asked to never sees it.
+        """
+        features = [
+            {
+                "type": "Feature",
+                "id": f"f{n}",
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]],
+                },
+                "properties": {"name": f"n{n}", "area": 1.0},
+            }
+            for n in range(service_items_mod.PAGE_SIZE)
+        ]
+        # fix(#1770 round 38): `numberMatched` equal to the page, so a page
+        # this size with an empty `links` list is PROVABLY the whole
+        # collection -- what this test exercises is the byte/token cap, not
+        # completeness, and a page this large with no proof of completeness
+        # is now exactly what round 38 refuses.
+        raw = json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": features,
+                "numberMatched": service_items_mod.PAGE_SIZE,
+                "links": [],
+            }
+        ).encode()
+        tokens = service_endpoints_mod.structural_tokens(raw)
+        # Measured rather than asserted vaguely: a full page of 1,000 polygon
+        # features costs about 22,000 tokens, so the bound is roughly ninety
+        # times an honest page. Pinned at fifty so a future page shape has room
+        # to grow without this becoming a tripwire.
+        assert tokens * 50 < service_items_mod.MAX_STRUCTURAL_TOKENS, tokens
+
+        self._transport(monkeypatch, self._serving(raw))
+
+        path = (await self._materialise(tmp_path)).path
+
+        document = json.loads(pathlib.Path(path).read_text())
+        assert len(document["features"]) == service_items_mod.PAGE_SIZE
+
+    async def test_a_page_one_byte_over_the_wire_cap_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The cheaper bound still fires first, on a page that is merely big."""
+        monkeypatch.setattr(service_items_mod, "MAX_PAGE_BYTES", 4096)
+        # Well under the token bound: this one is refused for its size alone.
+        raw = b'{"type":"FeatureCollection","features":[],"pad":"' + b"x" * 4096 + b'"}'
+        assert service_endpoints_mod.structural_tokens(raw) < 10
+
+        self._transport(monkeypatch, self._serving(raw))
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+    def test_the_wire_cap_is_sixteen_mebibytes(self) -> None:
+        """Pinned because lowering it is the other half of this round's fix."""
+        assert service_items_mod.MAX_PAGE_BYTES == 16 * 1024 * 1024
+
+
+class TestBothModulesReadThroughOneRequestFunction:
+    """fix(#1746 B2b review r23): the sibling-site class, closed structurally.
+
+    `service_endpoints` and `service_items` read documents a caller-named
+    service chose, into the same process, holding the same credential. They had
+    grown different subsets of the same protections, and every round since r17
+    has found one that reached one module and not the other. There is one
+    request function now, and this asserts it rather than trusting it.
+    """
+
+    _MODULES = ("app/platform/service_endpoints.py", "app/platform/service_items.py")
+    _VERBS = ("get", "post", "put", "patch", "delete", "request", "stream", "send")
+
+    def _sources(self):
+        import inspect as _inspect
+
+        from app.platform import service_endpoints, service_items
+
+        return {
+            "service_endpoints": _inspect.getsource(service_endpoints),
+            "service_items": _inspect.getsource(service_items),
+        }
+
+    def test_only_fetch_document_talks_to_the_network(self) -> None:
+        """Every `client.<verb>(` in either module is inside the one helper."""
+        import ast
+        import inspect as _inspect
+
+        from app.platform import service_endpoints, service_items
+
+        offenders: list[str] = []
+        for module in (service_endpoints, service_items):
+            tree = ast.parse(_inspect.getsource(module))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                    continue
+                for inner in ast.walk(node):
+                    if not isinstance(inner, ast.Call):
+                        continue
+                    func = inner.func
+                    if not isinstance(func, ast.Attribute):
+                        continue
+                    if func.attr not in self._VERBS:
+                        continue
+                    if not isinstance(func.value, ast.Name):
+                        continue
+                    if func.value.id != "client":
+                        continue
+                    offenders.append(f"{module.__name__}.{node.name}")
+
+        assert offenders == ["app.platform.service_endpoints.fetch_document"], offenders
+
+    def test_the_suppression_marker_follows_the_one_call(self) -> None:
+        """One request site means one marker, and it binds to the call."""
+        sources = self._sources()
+        assert sources["service_items"].count("# codeql[py/full-ssrf]") == 0
+        endpoints = sources["service_endpoints"]
+        assert endpoints.count("# codeql[py/full-ssrf]") == 1
+        lines = endpoints.splitlines()
+        marker = next(
+            index
+            for index, line in enumerate(lines)
+            if "# codeql[py/full-ssrf]" in line
+        )
+        assert "client.stream(" in lines[marker + 1]
+        assert "validate_url_for_ssrf(url)" in "\n".join(lines[marker - 12 : marker])
+
+    def test_neither_module_builds_its_own_credential_headers(self) -> None:
+        """One header builder, so `Accept-Encoding` cannot reach one and not the other.
+
+        This is the shape of the r23 P1: `service_items` asked for identity and
+        `service_endpoints` did not, while both refused an encoded body. The
+        refusal without the request is a working-looking configuration that
+        rejects honest servers.
+        """
+        sources = self._sources()
+        for name, source in sources.items():
+            assert source.count("HEADER_LINE_SEPARATOR)") <= 1, name
+        assert "def credential_headers(" in sources["service_endpoints"]
+        assert "def credential_headers(" not in sources["service_items"]
+
+    def test_the_contract_is_written_down(self) -> None:
+        """The list a future protection has to be added to, in one place."""
+        from app.platform import service_endpoints
+
+        contract = service_endpoints.__doc__ or ""
+        for phrase in (
+            "Accept-Encoding: identity",
+            "Content-Length",
+            "structural-token bound",
+            "SSRF revalidation",
+            "origin-contact callback",
+            "final URL after redirects",
+        ):
+            assert phrase in contract, phrase
+
+
+class TestTheDescriptionReadHasTheItemsPathsProtections:
+    """fix(#1746 B2b review r23): one test per protection that was missing."""
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _check(self, *, deadline=None, **kwargs):
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        await assert_endpoints_stay_on_origin(
+            _SVC_WFS,
+            service_format="wfs",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            deadline=deadline,
+            **kwargs,
+        )
+
+    @staticmethod
+    def _capabilities() -> str:
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<WFS_Capabilities xmlns:xlink="http://www.w3.org/1999/xlink">'
+            '<OperationsMetadata><Operation name="GetFeature"><DCP><HTTP>'
+            f'<Get xlink:href="{_SVC_WFS}"/>'
+            "</HTTP></DCP></Operation></OperationsMetadata>"
+            "</WFS_Capabilities>"
+        )
+
+    async def test_the_description_request_asks_for_identity(self, monkeypatch) -> None:
+        """P1: refusing an encoded body while offering to accept one.
+
+        httpx defaults to `Accept-Encoding: gzip, deflate`, so a server that
+        honoured the offer had its answer refused as unreadable. The refusal
+        was right and the offer was the bug.
+        """
+        recorded = self._transport(
+            monkeypatch, lambda request: httpx.Response(200, text=self._capabilities())
+        )
+
+        await self._check()
+
+        assert recorded
+        assert all(r.headers["Accept-Encoding"] == "identity" for r in recorded)
+
+    async def test_an_encoded_description_is_still_refused(self, monkeypatch) -> None:
+        """The other half, which was already right and must stay right."""
+        self._transport(
+            monkeypatch,
+            lambda request: httpx.Response(
+                200,
+                headers={"Content-Encoding": "gzip"},
+                text=self._capabilities(),
+            ),
+        )
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check()
+
+    async def test_a_slow_description_is_stopped_at_the_deadline(
+        self, monkeypatch
+    ) -> None:
+        """P1: the check had only the client's per-inactivity timeout.
+
+        A service answering slowly but never stopping held the read for as long
+        as it liked, before the preview or the import it precedes had started.
+        """
+
+        # A VALID document, delivered slowly. An invalid one would fail on the
+        # parser whether or not the clock worked, and the test would pass
+        # vacuously with the deadline disarmed (it did, until this was fixed).
+        raw = self._capabilities().encode()
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            async def _chunks():
+                for start in range(0, len(raw), 8):
+                    await asyncio.sleep(0.02)
+                    yield raw[start : start + 8]
+
+            return httpx.Response(200, content=_chunks())
+
+        recorded = self._transport(monkeypatch, handle)
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check(deadline=time.monotonic() + 0.2)
+
+        # Stopped mid-read rather than after it: the service was answering
+        # steadily and would have finished, given long enough.
+        assert recorded
+
+    async def test_a_deadline_already_passed_makes_no_request(
+        self, monkeypatch
+    ) -> None:
+        recorded = self._transport(
+            monkeypatch, lambda request: httpx.Response(200, text=self._capabilities())
+        )
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check(deadline=time.monotonic() - 1.0)
+
+        assert recorded == []
+
+    async def test_a_description_over_the_token_bound_is_refused(
+        self, monkeypatch
+    ) -> None:
+        """P1: 32 MiB of wire was ~1 GiB of objects on the landing path."""
+        from app.platform import service_endpoints
+
+        raw = b'{"links":[' + b"[[1]]," * 20_000 + b"[[1]]]}"
+        assert len(raw) < service_endpoints.MAX_DOCUMENT_BYTES
+
+        parsed: list = []
+        real_loads = json.loads
+
+        def _loads(payload, *args, **kwargs):
+            if len(payload) > 1000:
+                parsed.append(len(payload))
+                raise AssertionError("the document must not reach the decoder")
+            return real_loads(payload, *args, **kwargs)
+
+        self._transport(monkeypatch, lambda request: httpx.Response(200, content=raw))
+        monkeypatch.setattr(service_endpoints, "MAX_DOCUMENT_TOKENS", 10_000)
+        monkeypatch.setattr(service_endpoints.json, "loads", _loads)
+
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        with pytest.raises(EndpointCheckFailedError):
+            await assert_endpoints_stay_on_origin(
+                _SVC_OAPIF,
+                service_format="ogcapi_features",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                deadline=None,
+            )
+
+        assert parsed == []
+
+    async def test_an_ordinary_description_still_passes(self, monkeypatch) -> None:
+        """The counterfactual's other half for all four bounds at once."""
+        recorded = self._transport(
+            monkeypatch, lambda request: httpx.Response(200, text=self._capabilities())
+        )
+
+        await self._check(deadline=time.monotonic() + 30.0)
+
+        assert recorded
+
+
+class TestAWfsPreflightDatesTheOriginContact:
+    """fix(#1746 B2b review r23): the WFS half of what r17 fixed for OGC API.
+
+    The authenticated capabilities preflight contacts the origin before the
+    subprocess exists, so a 401, malformed XML or cross-origin endpoint had
+    already reached the service. Firing the callback only at the spawn left
+    `origin_contact_attempted` false and `last_checked_at` stale for exactly
+    the failures the check exists to produce.
+    """
+
+    uses_the_real_endpoint_check = True
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _import(self, monkeypatch, contacted, spawn_allowed: bool):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+
+        async def _fake_exec(*cmd, **kwargs):
+            if not spawn_allowed:
+                raise AssertionError("ogr2ogr must not run for a refused source")
+            proc = MagicMock()
+            proc.returncode = 0
+            return proc
+
+        async def _fake_communicate(proc, timeout, tool_name):
+            return (b"", b"")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
+        )
+        await run_ogr2ogr_service(
+            gdal_source=f"WFS:{_SVC_WFS}",
+            layer_name="topp:parcels",
+            table_name="t",
+            db_conn_str="PG:dummy",
+            service_type="wfs",
+            token=f"{pair[0]}: {pair[1]}",
+            schema="data",
+            on_spawn=lambda: contacted.append(1),
+        )
+
+    async def test_a_preflight_failure_still_marks_the_origin_contacted(
+        self, monkeypatch
+    ) -> None:
+        from app.platform.service_endpoints import EndpointCheckFailedError
+
+        contacted: list[int] = []
+        self._transport(monkeypatch, lambda request: httpx.Response(401))
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._import(monkeypatch, contacted, spawn_allowed=False)
+
+        assert contacted == [1]
+
+    async def test_a_cross_origin_refusal_still_marks_it(self, monkeypatch) -> None:
+        from app.platform.service_endpoints import CrossOriginEndpointError
+
+        contacted: list[int] = []
+        self._transport(
+            monkeypatch,
+            lambda request: httpx.Response(
+                200,
+                text=(
+                    '<?xml version="1.0" encoding="UTF-8"?>'
+                    '<WFS_Capabilities xmlns:xlink="http://www.w3.org/1999/xlink">'
+                    '<OperationsMetadata><Operation name="GetFeature"><DCP><HTTP>'
+                    f'<Get xlink:href="{_FOREIGN}/wfs"/>'
+                    "</HTTP></DCP></Operation></OperationsMetadata>"
+                    "</WFS_Capabilities>"
+                ),
+            ),
+        )
+
+        with pytest.raises(CrossOriginEndpointError):
+            await self._import(monkeypatch, contacted, spawn_allowed=False)
+
+        assert contacted == [1]
+
+    async def test_it_fires_once_when_the_import_succeeds(self, monkeypatch) -> None:
+        """Not twice: the preflight arms it and the spawn must not re-arm it."""
+        contacted: list[int] = []
+        self._transport(
+            monkeypatch,
+            lambda request: httpx.Response(
+                200,
+                text=(
+                    '<?xml version="1.0" encoding="UTF-8"?>'
+                    '<WFS_Capabilities xmlns:xlink="http://www.w3.org/1999/xlink">'
+                    '<OperationsMetadata><Operation name="GetFeature"><DCP><HTTP>'
+                    f'<Get xlink:href="{_SVC_WFS}"/>'
+                    "</HTTP></DCP></Operation></OperationsMetadata>"
+                    "</WFS_Capabilities>"
+                ),
+            ),
+        )
+
+        await self._import(monkeypatch, contacted, spawn_allowed=True)
+
+        assert contacted == [1]
+
+
+class TestOnFirstRequestFiresOnlyAfterValidation:
+    """fix(#1746 B2b round 34, `service_endpoints.py:586`).
+
+    `fetch_document` used to fire `on_first_request` as its first statement,
+    before `validate_url_for_ssrf`. A host that resolved publicly at the door
+    and privately by the time the worker asked (AGENTS.md Rule 2) is rejected
+    by that revalidation, but the callback had already fired, so a caller
+    dating origin contacts (the source's `origin_contact_attempted` and
+    `last_checked_at`) recorded a contact that never happened: no request ever
+    left the process for that read.
+    """
+
+    async def test_an_ssrf_rejection_never_fires_the_callback(
+        self, monkeypatch
+    ) -> None:
+        from app.platform.service_endpoints import OGC_JSON_ACCEPT, fetch_document
+
+        async def _reject(url: str) -> None:
+            raise SSRFError("blocked")
+
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", _reject
+        )
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            raise AssertionError("no request should reach the transport")
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+
+        fired: list[int] = []
+
+        async with make_safe_client(credential_header="X-Api-Key") as client:
+            with pytest.raises(EndpointCheckFailedError):
+                await fetch_document(
+                    client,
+                    "https://services.example.test/oapif",
+                    {},
+                    accept=OGC_JSON_ACCEPT,
+                    on_first_request=lambda: fired.append(1),
+                )
+
+        assert fired == []
+
+    async def test_a_successful_validation_fires_exactly_once_before_the_stream(
+        self, monkeypatch
+    ) -> None:
+        from app.platform.service_endpoints import OGC_JSON_ACCEPT, fetch_document
+
+        order: list[str] = []
+
+        async def _validate(url: str) -> None:
+            order.append("validated")
+
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", _validate
+        )
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            order.append("requested")
+            return _as_stream(httpx.Response(200, json={}))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+
+        def _on_first_request() -> None:
+            order.append("fired")
+
+        async with make_safe_client(credential_header="X-Api-Key") as client:
+            await fetch_document(
+                client,
+                "https://services.example.test/oapif",
+                {},
+                accept=OGC_JSON_ACCEPT,
+                on_first_request=_on_first_request,
+            )
+
+        assert order == ["validated", "fired", "requested"]
+        assert order.count("fired") == 1
+
+
+class TestEveryCallerNamesItsClock:
+    """fix(#1746 B2b review r24): `/probe` had omitted the deadline.
+
+    It ran under `asyncio.timeout(None)`, and since the client bounds
+    inactivity rather than the operation, and the OGC API check reads up to
+    twenty listing pages, a description delivered slowly but steadily held an
+    API request open for as long as the service liked.
+
+    The keyword has no default now, so omitting it is a `TypeError` at the call
+    rather than an unbounded read at run time.
+    """
+
+    # The route test drives the real check; without this the conftest fixture
+    # no-ops it and the test would pass against a stub.
+    uses_the_real_endpoint_check = True
+
+    def test_the_keyword_has_no_default(self) -> None:
+        import inspect as _inspect
+
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        parameter = _inspect.signature(assert_endpoints_stay_on_origin).parameters[
+            "deadline"
+        ]
+        assert parameter.kind is _inspect.Parameter.KEYWORD_ONLY
+        assert parameter.default is _inspect.Parameter.empty
+
+    def test_no_production_call_site_omits_it(self) -> None:
+        """Every caller in `app/` says what clock it runs under."""
+        import ast
+        import pathlib as _pathlib
+
+        root = _pathlib.Path(__file__).resolve().parents[1] / "app"
+        sites: list[str] = []
+        for path in root.rglob("*.py"):
+            tree = ast.parse(path.read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                name = getattr(node.func, "id", None) or getattr(
+                    node.func, "attr", None
+                )
+                if name != "assert_endpoints_stay_on_origin":
+                    continue
+                keywords = {k.arg for k in node.keywords}
+                sites.append(f"{path.name}:{node.lineno}")
+                assert "deadline" in keywords, f"{path}:{node.lineno}"
+
+        # The three that spend the credential: probe, preview, worker.
+        assert len(sites) == 3, sites
+
+    async def test_the_probe_route_is_bounded(
+        self, client, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        """The route answers the coded refusal rather than hanging.
+
+        A service that trickles a valid description forever is refused inside
+        the shared budget, which is shortened here so the test is not.
+        """
+        from app.platform import service_endpoints
+
+        recorded: list[httpx.Request] = []
+        raw = _capabilities(_SVC_WFS).encode()
+        reads: list[int] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            if "GetCapabilities" not in str(request.url):
+                return httpx.Response(404)
+            reads.append(1)
+            if len(reads) == 1:
+                # Detection answers at once, as a real service would. The
+                # endpoint check's own read is the one that trickles, and it
+                # is the read that had no clock over it.
+                #
+                # fix(#1770 round 41 P1): `_as_stream` -- see its own
+                # docstring -- turns this eagerly-materialized double into
+                # one that supports the streaming read `probe_wfs` now uses
+                # for detection.
+                return _as_stream(httpx.Response(200, content=raw))
+
+            async def _chunks():
+                for start in range(0, len(raw), 4):
+                    await asyncio.sleep(0.05)
+                    yield raw[start : start + 4]
+
+            return httpx.Response(200, content=_chunks())
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.router.validate_url_for_ssrf", AsyncMock()
+        )
+        monkeypatch.setattr(service_endpoints, "DEFAULT_CHECK_TIMEOUT", 0.2)
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.router.DEFAULT_CHECK_TIMEOUT", 0.2
+        )
+
+        started = time.monotonic()
+        response = await client.post(
+            "/services/probe",
+            json={
+                "url": _SVC_WFS,
+                "auth": {
+                    "method": "header",
+                    "header_name": "X-Api-Key",
+                    "header_value": _value(),
+                },
+            },
+            headers=admin_auth_header,
+        )
+        elapsed = time.monotonic() - started
+
+        assert response.status_code == 422, response.text
+        assert response.json()["detail"]["code"] == "endpoint_check_failed"
+        # Stopped by the clock, well short of the ~4 s the service would have
+        # taken to finish, and nowhere near the twenty pages it could have run.
+        assert elapsed < 3.0, elapsed
+        assert recorded
+
+
+class TestAPreviewReportsTheCollectionNotTheScratchFile:
+    """fix(#1746 B2b review r24): two things ogrinfo cannot know.
+
+    Pointed at a scratch file with no layer argument, the GeoJSON driver
+    answers with the temp file's name and with the number of features in the
+    sample. Users saw `oapif_items_xxxx` where their collection should be, and
+    a row count of `sample_limit` that the import preview showed and
+    re-upload's schema diff turned into a delta against the real dataset.
+    """
+
+    def _transport(self, monkeypatch, *, number_matched: int | None, total: int):
+        recorded: list[httpx.Request] = []
+        base = f"{_SVC_OAPIF}/collections/roads/items"
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            if not request.url.path.endswith("/items"):
+                return _as_stream(
+                    httpx.Response(200, json={"id": "roads", "links": []})
+                )
+            page = int(request.url.params.get("page", 0))
+            body: dict = {
+                "type": "FeatureCollection",
+                "features": [_point(f"f{page}-{n}") for n in range(10)],
+                "links": [{"rel": "next", "href": f"{base}?page={page + 1}"}]
+                if (page + 1) * 10 < total
+                else [],
+            }
+            if number_matched is not None:
+                body["numberMatched"] = number_matched
+            return _streamed(body)
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    def _ogrinfo(self, monkeypatch):
+        """ogrinfo describing the scratch file, as it really does."""
+
+        async def _fake_exec(*cmd, **kwargs):
+            proc = MagicMock()
+            proc.returncode = 0
+
+            async def _communicate():
+                return (
+                    json.dumps(
+                        {
+                            "layers": [
+                                {
+                                    # The driver's answer: the temp file, and
+                                    # what is in it.
+                                    "name": "oapif_items_scratch",
+                                    "featureCount": 5,
+                                    "fields": [{"name": "id", "type": "String"}],
+                                    "features": [],
+                                    "geometryFields": [],
+                                }
+                            ]
+                        }
+                    ).encode(),
+                    b"",
+                )
+
+            proc.communicate = _communicate
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+    async def test_the_layer_name_is_the_collection(self, monkeypatch) -> None:
+        credential, _value_ = _header_key()
+        self._transport(monkeypatch, number_matched=500, total=500)
+        self._ogrinfo(monkeypatch)
+
+        result = await preview_mod.run_service_preview(
+            f"OAPIF:{_SVC_OAPIF}", "roads", sample_limit=5, credential=credential
+        )
+
+        assert result["layer_name"] == "roads"
+        assert "oapif_items" not in result["layer_name"]
+
+    async def test_the_count_is_number_matched_not_the_sample(
+        self, monkeypatch
+    ) -> None:
+        credential, _value_ = _header_key()
+        self._transport(monkeypatch, number_matched=500, total=500)
+        self._ogrinfo(monkeypatch)
+
+        result = await preview_mod.run_service_preview(
+            f"OAPIF:{_SVC_OAPIF}", "roads", sample_limit=5, credential=credential
+        )
+
+        assert result["feature_count"] == 500
+
+    async def test_the_count_is_unknown_when_the_service_says_nothing(
+        self, monkeypatch
+    ) -> None:
+        """Unknown rather than five. Five is the lie this closes."""
+        credential, _value_ = _header_key()
+        self._transport(monkeypatch, number_matched=None, total=500)
+        self._ogrinfo(monkeypatch)
+
+        result = await preview_mod.run_service_preview(
+            f"OAPIF:{_SVC_OAPIF}", "roads", sample_limit=5, credential=credential
+        )
+
+        assert result["feature_count"] is None
+
+    async def test_a_collection_smaller_than_the_sample_counts_exactly(
+        self, monkeypatch
+    ) -> None:
+        """The walk ran to the end, so what it wrote IS the collection."""
+        credential, _value_ = _header_key()
+        self._transport(monkeypatch, number_matched=None, total=10)
+        self._ogrinfo(monkeypatch)
+
+        result = await preview_mod.run_service_preview(
+            f"OAPIF:{_SVC_OAPIF}", "roads", sample_limit=50, credential=credential
+        )
+
+        assert result["feature_count"] == 10
+
+    async def test_an_unprotected_preview_still_reports_ogrinfos_answer(
+        self, monkeypatch
+    ) -> None:
+        """Nothing is localised without a credential, so nothing changes."""
+        self._ogrinfo(monkeypatch)
+
+        result = await preview_mod.run_service_preview(
+            f"WFS:{_SVC_WFS}", "topp:parcels", sample_limit=5
+        )
+
+        assert result["layer_name"] == "oapif_items_scratch"
+        assert result["feature_count"] == 5
+
+
+class TestAnUnknownRowCountIsNotADelta:
+    """fix(#1746 B2b review r24): `None` meant zero in the schema diff.
+
+    `(new or 0) - (old or 0)` turned an unknown count into a delta the size of
+    whichever side was known, and the case that reaches it most often is a
+    service preview whose collection size the service never published.
+    """
+
+    def test_an_unknown_new_count_has_no_delta(self) -> None:
+        from app.modules.catalog.datasets.domain.service_metadata import (
+            compute_schema_diff,
+        )
+
+        diff = compute_schema_diff(
+            [], [], old_feature_count=1200, new_feature_count=None
+        )
+
+        assert diff["row_count_old"] == 1200
+        assert diff["row_count_new"] is None
+        assert diff["row_count_delta"] is None
+
+    def test_an_unknown_old_count_has_no_delta(self) -> None:
+        from app.modules.catalog.datasets.domain.service_metadata import (
+            compute_schema_diff,
+        )
+
+        diff = compute_schema_diff([], [], old_feature_count=None, new_feature_count=7)
+
+        assert diff["row_count_delta"] is None
+
+    def test_two_known_counts_still_subtract(self) -> None:
+        from app.modules.catalog.datasets.domain.service_metadata import (
+            compute_schema_diff,
+        )
+
+        diff = compute_schema_diff([], [], old_feature_count=10, new_feature_count=4)
+
+        assert diff["row_count_delta"] == -6
+
+
+class TestAServiceThatServesHtmlToAnyoneWhoAsks:
+    """fix(#1746 B2b review r25): the check negotiated, the probe negotiated, differently.
+
+    `probe_ogcapi` asks for `application/json`. The endpoint check asked for
+    nothing, so httpx sent `*/*` and a service that defaults that to HTML
+    answered the probe with a document and answered the check with a web page.
+    `_parsed_json` refused it and `/probe` reported `endpoint_check_failed`
+    about a service that was working perfectly.
+
+    Content negotiation belongs to the read now, not to whichever caller
+    remembered it: `fetch_document` takes a required `accept`.
+    """
+
+    uses_the_real_endpoint_check = True
+
+    @staticmethod
+    def _wants_json(request: httpx.Request) -> bool:
+        """What a content-negotiating service checks before choosing a body."""
+        accept = request.headers.get("Accept", "*/*")
+        return "json" in accept
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    def _picky_ogcapi(self, *, items_features: int = 3):
+        """HTML for `*/*`, JSON for anything that asks for JSON."""
+        html = b"<!doctype html><html><body>Collections</body></html>"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not self._wants_json(request):
+                return httpx.Response(
+                    200, headers={"Content-Type": "text/html"}, content=html
+                )
+            path = request.url.path
+            if path.endswith("/items"):
+                return _streamed(
+                    {
+                        "type": "FeatureCollection",
+                        "numberMatched": items_features,
+                        "features": [_point(f"f{n}") for n in range(items_features)],
+                        "links": [],
+                    }
+                )
+            if path.endswith("/collections"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "collections": [{"id": "c1", "links": []}],
+                        "links": [],
+                    },
+                )
+            if "/collections/" in path:
+                return httpx.Response(200, json={"id": "c1", "links": []})
+            return httpx.Response(
+                200,
+                json={
+                    "conformsTo": [
+                        "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+                    ],
+                    "links": [{"rel": "data", "href": f"{_SVC_OAPIF}/collections"}],
+                },
+            )
+
+        return handle
+
+    async def test_the_endpoint_check_passes_such_a_service(self, monkeypatch) -> None:
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        recorded = self._transport(monkeypatch, self._picky_ogcapi())
+
+        await assert_endpoints_stay_on_origin(
+            _SVC_OAPIF,
+            service_format="ogcapi_features",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            collection="c1",
+            deadline=None,
+        )
+
+        # Every read asked for JSON, so every read got a document.
+        assert recorded
+        assert all(self._wants_json(r) for r in recorded), [
+            r.headers.get("Accept") for r in recorded
+        ]
+
+    async def test_materialisation_reads_such_a_service(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        recorded = self._transport(monkeypatch, self._picky_ogcapi())
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+
+        extract = await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+        )
+
+        document = json.loads(pathlib.Path(extract.path).read_text())
+        assert len(document["features"]) == 3
+        assert all(self._wants_json(r) for r in recorded)
+
+    async def test_the_capabilities_read_asks_for_xml(self, monkeypatch) -> None:
+        """WFS negotiates by query, but the header must not say `*/*` either."""
+        from app.platform.service_endpoints import (
+            WFS_XML_ACCEPT,
+            assert_endpoints_stay_on_origin,
+        )
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        recorded = self._transport(
+            monkeypatch,
+            lambda request: httpx.Response(
+                200, text=_capabilities(f"{_SVC_ORIGIN}/geoserver/wfs")
+            ),
+        )
+
+        await assert_endpoints_stay_on_origin(
+            _SVC_WFS,
+            service_format="wfs",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            deadline=None,
+        )
+
+        assert recorded
+        assert all(r.headers["Accept"] == WFS_XML_ACCEPT for r in recorded)
+        assert all("*/*" not in r.headers["Accept"] for r in recorded)
+
+    async def test_the_three_reads_negotiate_identically(self, monkeypatch) -> None:
+        """The probe, the check and the items walk ask for the same thing.
+
+        This is the property the finding turns on: three reads of the same
+        service disagreeing about which representation they wanted is what let
+        one of them refuse what the others accepted.
+        """
+        from app.modules.catalog.sources.adapters import ogcapi as adapter
+        from app.platform.service_endpoints import OGC_JSON_ACCEPT
+
+        # fix(#1770 round 41 P1): `probe_ogcapi` is now a thin deadline
+        # wrapper (see the class docstring on the split); the Accept header
+        # is set in `_probe_ogcapi_within_deadline`, its body.
+        probe_accept = re.search(
+            r'headers: dict\[str, str\] = \{"Accept": "([^"]+)"\}',
+            inspect.getsource(adapter._probe_ogcapi_within_deadline),
+        )
+        assert probe_accept is not None, "probe_ogcapi no longer sets Accept"
+        # The shared value is a superset of the probe's, so a service that
+        # answers the probe answers the other two.
+        assert probe_accept.group(1) in OGC_JSON_ACCEPT
+
+
+class TestEveryReadStatesWhatItWants:
+    """fix(#1746 B2b review r25): structurally, not by review."""
+
+    def test_fetch_document_requires_an_accept(self) -> None:
+        import inspect as _inspect
+
+        from app.platform.service_endpoints import fetch_document
+
+        parameter = _inspect.signature(fetch_document).parameters["accept"]
+        assert parameter.kind is _inspect.Parameter.KEYWORD_ONLY
+        assert parameter.default is _inspect.Parameter.empty
+
+    def test_no_call_site_omits_it(self) -> None:
+        """Every `fetch_document(` in either module names its representation."""
+        import ast
+        import inspect as _inspect
+
+        from app.platform import service_endpoints, service_items
+
+        sites: list[str] = []
+        for module in (service_endpoints, service_items):
+            tree = ast.parse(_inspect.getsource(module))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                name = getattr(node.func, "id", None) or getattr(
+                    node.func, "attr", None
+                )
+                if name != "fetch_document":
+                    continue
+                sites.append(f"{module.__name__}:{node.lineno}")
+                assert "accept" in {k.arg for k in node.keywords}, sites[-1]
+
+        # One per module: the endpoint check's `_fetch` and the items
+        # `_fetch_page`. A third would be a new read to think about.
+        assert len(sites) == 2, sites
+
+    def test_the_credential_headers_no_longer_negotiate(self) -> None:
+        """The header builder must not grow an `Accept` back.
+
+        Splitting it between the credential and the read is what made the two
+        modules disagree; putting it back would reopen that.
+        """
+        import inspect as _inspect
+
+        from app.platform import service_endpoints
+
+        source = _inspect.getsource(service_endpoints.credential_headers)
+        assert '"Accept"' not in source
+        assert (
+            "accept"
+            not in _inspect.signature(service_endpoints.credential_headers).parameters
+        )
+
+
+class TestAnXmlDocumentIsBoundedByItsElements:
+    """fix(#1746 B2b review r26): the JSON counter answers ~0 for XML.
+
+    `structural_tokens` counts commas and JSON brackets, so a WFS capabilities
+    body made of millions of tiny elements reported near-zero complexity and
+    sailed past every bound this module had. The full ElementTree was then
+    built in the API and worker processes.
+    """
+
+    uses_the_real_endpoint_check = True
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _check(self, service_format="wfs", url=None):
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        await assert_endpoints_stay_on_origin(
+            url or (_SVC_WFS if service_format == "wfs" else _SVC_OAPIF),
+            service_format=service_format,
+            credential_line=f"{pair[0]}: {pair[1]}",
+            deadline=None,
+        )
+
+    def test_the_count_cannot_undercount_the_elements(self) -> None:
+        """The premise, checked against the parser's own element count."""
+        import defusedxml.ElementTree as ET
+
+        from app.platform import service_endpoints
+
+        for raw in (
+            b"<r/>",
+            b"<r><a/><a/><a/></r>",
+            b'<r><a b="1"/></r>',
+            b"<r><a>text</a></r>",
+            b"<r><![CDATA[< < < <]]></r>",
+            b"<?xml version='1.0'?><r><a/></r>",
+        ):
+            parsed = len(list(ET.fromstring(raw).iter()))
+            assert service_endpoints.structural_elements(raw) >= parsed, raw
+
+    async def test_a_million_tiny_elements_is_refused_before_parsing(
+        self, monkeypatch
+    ) -> None:
+        """Under the byte cap, ruinous as a tree, and never handed to the parser."""
+        from app.platform import service_endpoints
+
+        raw = b"<r>" + b"<a/>" * 1_000_000 + b"</r>"
+        assert len(raw) < service_endpoints.MAX_DOCUMENT_BYTES
+        # The JSON counter sees nothing to worry about, which is the finding.
+        assert service_endpoints.structural_tokens(raw) == 0
+
+        parsed: list = []
+        real_fromstring = service_endpoints.ET.fromstring
+
+        def _fromstring(payload, *args, **kwargs):
+            parsed.append(len(payload))
+            raise AssertionError("the document must not reach the parser")
+
+        self._transport(monkeypatch, lambda request: httpx.Response(200, content=raw))
+        monkeypatch.setattr(service_endpoints.ET, "fromstring", _fromstring)
+        assert real_fromstring is not None
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check()
+
+        assert parsed == []
+
+    async def test_an_ordinary_capabilities_document_still_passes(
+        self, monkeypatch
+    ) -> None:
+        """The bound is generous to anything real.
+
+        A capabilities document advertising a thousand feature types is three
+        orders of magnitude inside it.
+        """
+        from app.platform import service_endpoints
+
+        feature_types = b"".join(
+            b"<FeatureType><Name>t%d</Name><Title>T</Title>"
+            b"<DefaultCRS>EPSG:4326</DefaultCRS></FeatureType>" % n
+            for n in range(1000)
+        )
+        raw = (
+            b'<?xml version="1.0" encoding="UTF-8"?>'
+            b'<WFS_Capabilities xmlns:xlink="http://www.w3.org/1999/xlink">'
+            b'<OperationsMetadata><Operation name="GetFeature"><DCP><HTTP>'
+            b'<Get xlink:href="' + _SVC_WFS.encode() + b'"/>'
+            b"</HTTP></DCP></Operation></OperationsMetadata>"
+            b"<FeatureTypeList>" + feature_types + b"</FeatureTypeList>"
+            b"</WFS_Capabilities>"
+        )
+        elements = service_endpoints.structural_elements(raw)
+        assert elements * 50 < service_endpoints.MAX_DOCUMENT_ELEMENTS, elements
+
+        self._transport(monkeypatch, lambda request: httpx.Response(200, content=raw))
+
+        await self._check()
+
+    async def test_a_doctype_is_refused(self, monkeypatch) -> None:
+        """The other way a small body becomes a huge tree.
+
+        defusedxml already refuses entity DECLARATIONS by default, which is the
+        billion-laughs case, but it allows a DOCTYPE including one naming an
+        external subset. A capabilities document has no use for either.
+        """
+        raw = (
+            b'<?xml version="1.0"?>'
+            b'<!DOCTYPE WFS_Capabilities SYSTEM "http://collector.example/x.dtd">'
+            b"<WFS_Capabilities/>"
+        )
+        recorded = self._transport(
+            monkeypatch, lambda request: httpx.Response(200, content=raw)
+        )
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check()
+
+        assert "collector.example" not in _hosts(recorded)
+
+    async def test_an_entity_declaration_is_a_refusal_not_a_crash(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1746 B2b review r26): found while implementing the bound.
+
+        `DefusedXmlException` is a `ValueError`, NOT a `ParseError`, and the
+        handler caught only `ParseError`. A capabilities document carrying an
+        entity declaration therefore escaped uncaught and surfaced as a 500
+        rather than as the coded refusal every other unreadable description
+        gets.
+        """
+        raw = (
+            b'<?xml version="1.0"?>'
+            b'<!DOCTYPE r [<!ENTITY x "expanded">]>'
+            b"<WFS_Capabilities>&x;</WFS_Capabilities>"
+        )
+        self._transport(monkeypatch, lambda request: httpx.Response(200, content=raw))
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check()
+
+    async def test_a_json_document_is_still_bounded_by_tokens(
+        self, monkeypatch
+    ) -> None:
+        """The dispatch goes the other way for an OGC API document.
+
+        A landing page full of `[[1]],` has almost no `<` in it, so an element
+        bound would let it through; the token bound is what catches it.
+        """
+        from app.platform import service_endpoints
+
+        raw = b'{"links":[' + b"[[1]]," * 20_000 + b"[[1]]]}"
+        assert service_endpoints.structural_elements(raw) == 0
+
+        self._transport(monkeypatch, lambda request: httpx.Response(200, content=raw))
+        monkeypatch.setattr(service_endpoints, "MAX_DOCUMENT_TOKENS", 10_000)
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check(service_format="ogcapi_features")
+
+    async def test_a_json_depth_bomb_is_a_coded_refusal_not_a_crash(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1770 round 44 P2, `service_endpoints.py:903` `_parsed_json`).
+
+        900,000 nested `[` is 1.8 bytes each -- comfortably under both
+        `MAX_DOCUMENT_BYTES` and `MAX_DOCUMENT_TOKENS` (`structural_tokens`
+        counts brackets, not nesting depth, so it cannot see this shape at
+        all) -- and makes `json.loads` raise `RecursionError`, not the
+        `ValueError` `_parsed_json`'s except clause used to name. Uncaught,
+        that would surface as a bare 500 rather than the coded
+        `endpoint_check_failed` every other unreadable description gets.
+        """
+        from app.platform import service_endpoints
+
+        raw = b"[" * 900_000
+        assert len(raw) < service_endpoints.MAX_DOCUMENT_BYTES
+        assert (
+            service_endpoints.structural_tokens(raw)
+            < service_endpoints.MAX_DOCUMENT_TOKENS
+        )
+
+        self._transport(monkeypatch, lambda request: httpx.Response(200, content=raw))
+
+        with pytest.raises(EndpointCheckFailedError):
+            await self._check(service_format="ogcapi_features")
+
+
+class TestAnXmlStreamingPreflightCatchesWhatTheByteScanCannot:
+    """fix(#1770 round 43 P1, `platform/service_endpoints.py:495`
+    "attribute bomb").
+
+    `structural_elements`'s `body.count(b"<")` bounds cost spread across
+    many elements, roughly one attribute each -- the shape its own
+    worst-measured-cost table was calibrated against. A single start tag
+    carrying hundreds of thousands of uniquely named attributes counts as
+    ONE `<`, comfortably under `MAX_DOCUMENT_ELEMENTS`, while
+    `require_decodable` for XML used to `return` right after that one
+    check -- `token_budget` was never consulted for XML at all -- so
+    nothing bounded the attribute dict ElementTree still allocates for that
+    one tag. `_xml_preflight` (a streaming `xml.parsers.expat` pass) closes
+    that and two siblings in the same resource class: a deep-nesting bomb
+    (one nominal element inside another, thousands of levels deep, cheap on
+    every other budget) and a text bomb (all of the byte budget spent on
+    one run of character data, outside any element/attribute count).
+    """
+
+    def _refuse(self, body: bytes, *, accept: str = WFS_XML_ACCEPT) -> None:
+        from app.platform.service_endpoints import (
+            EndpointCheckFailedError,
+            require_decodable,
+        )
+
+        with pytest.raises(EndpointCheckFailedError):
+            require_decodable(
+                body,
+                accept=accept,
+                token_budget=1000,
+                element_budget=1000,
+            )
+
+    def test_an_attribute_bomb_is_refused_before_a_full_parse(self) -> None:
+        """One tag, one element, a quarter million attributes."""
+        from app.platform.service_endpoints import (
+            EndpointCheckFailedError,
+            MAX_DOCUMENT_ATTRIBUTES,
+            require_decodable,
+        )
+
+        attrs = b" ".join(b'a%d="1"' % n for n in range(MAX_DOCUMENT_ATTRIBUTES + 1))
+        raw = b"<r " + attrs + b"/>"
+        # The premise: this is ONE element, nowhere near the element budget.
+        assert raw.count(b"<") == 1
+
+        with pytest.raises(EndpointCheckFailedError):
+            require_decodable(
+                raw, accept=WFS_XML_ACCEPT, token_budget=1000, element_budget=1000
+            )
+
+    def test_a_deep_nesting_bomb_is_refused_before_a_full_parse(self) -> None:
+        """One element nested inside another, far past any real document.
+
+        fix(#1770 round 44 P2): this used to pass for the wrong reason.
+        `_refuse`'s default `element_budget=1000` is smaller than
+        `MAX_DOCUMENT_ELEMENTS`, and `depth = MAX_DOCUMENT_DEPTH + 1` nested
+        elements is TWICE that many `<` (open and close tags both count),
+        so `structural_elements(raw) > element_budget` tripped
+        `require_decodable`'s cheap byte-scan on its own FIRST line -- before
+        `_xml_preflight` (where the depth counter actually lives) ever ran.
+        Deleting the depth counter entirely left this passing unchanged.
+        `element_budget=MAX_DOCUMENT_ELEMENTS` here is what makes the byte
+        scan pass the body through, so only the depth budget can trip.
+        """
+        from app.platform.service_endpoints import (
+            EndpointCheckFailedError,
+            MAX_DOCUMENT_DEPTH,
+            MAX_DOCUMENT_ELEMENTS,
+            require_decodable,
+        )
+
+        depth = MAX_DOCUMENT_DEPTH + 1
+        raw = b"<a>" * depth + b"</a>" * depth
+        # The premise: this is well under the ELEMENT budget (2x depth open
+        # tags is still far short of MAX_DOCUMENT_ELEMENTS), so only the
+        # depth budget below can be what refuses it.
+        assert raw.count(b"<") < MAX_DOCUMENT_ELEMENTS
+
+        with pytest.raises(EndpointCheckFailedError):
+            require_decodable(
+                raw,
+                accept=WFS_XML_ACCEPT,
+                token_budget=1000,
+                element_budget=MAX_DOCUMENT_ELEMENTS,
+            )
+
+    def test_a_text_bomb_is_refused_before_a_full_parse(self) -> None:
+        """One element, no attributes, and a text run past the byte budget."""
+        raw = b"<r>" + b"a" * 5000 + b"</r>"
+        self._refuse(raw)
+
+    def test_an_ordinary_document_passes_every_budget(self) -> None:
+        """Positive control: none of the three pins above is vacuous.
+
+        A handful of elements, a handful of attributes each, shallow
+        nesting, and a short text run -- comfortably under every budget --
+        must NOT be refused.
+        """
+        from app.platform.service_endpoints import require_decodable
+
+        raw = b'<r a="1" b="2"><c><d e="1">hello</d></c></r>'
+        require_decodable(
+            raw, accept=WFS_XML_ACCEPT, token_budget=1000, element_budget=1000
+        )
+
+    def test_an_entity_declaration_is_refused_by_the_preflight_too(self) -> None:
+        """The preflight uses raw `expat`, not `defusedxml` -- it has to
+        refuse an entity declaration itself rather than inherit the
+        refusal `ET.fromstring(..., forbid_dtd=True)` gives the real parse
+        downstream, since this parser runs BEFORE that one and would
+        otherwise expand it first."""
+        raw = b'<?xml version="1.0"?><!DOCTYPE r [<!ENTITY x "expanded">]><r>&x;</r>'
+        self._refuse(raw)
+
+
+class TestEachDocumentKindGetsItsOwnBound:
+    """fix(#1746 B2b review r26): the bound is keyed on the negotiated kind."""
+
+    def test_the_dispatch_follows_the_accept_value(self) -> None:
+        from app.platform.service_endpoints import (
+            OGC_JSON_ACCEPT,
+            WFS_XML_ACCEPT,
+            EndpointCheckFailedError,
+            require_decodable,
+        )
+
+        xml_ish = b"<r>" + b"<a/>" * 100 + b"</r>"
+        json_ish = b"[" + b"1," * 100 + b"1]"
+
+        # XML body, XML accept: the element bound bites, the token one cannot.
+        with pytest.raises(EndpointCheckFailedError):
+            require_decodable(
+                xml_ish,
+                accept=WFS_XML_ACCEPT,
+                token_budget=10,
+                element_budget=10,
+            )
+        require_decodable(
+            xml_ish, accept=WFS_XML_ACCEPT, token_budget=0, element_budget=10_000
+        )
+
+        # JSON body, JSON accept: the reverse.
+        with pytest.raises(EndpointCheckFailedError):
+            require_decodable(
+                json_ish,
+                accept=OGC_JSON_ACCEPT,
+                token_budget=10,
+                element_budget=10,
+            )
+        require_decodable(
+            json_ish, accept=OGC_JSON_ACCEPT, token_budget=10_000, element_budget=0
+        )
+
+    def test_every_read_is_bounded_by_the_parser_it_feeds(self) -> None:
+        """Each `fetch_document` call names one of the two known accept values.
+
+        Keyed on the value rather than on a free string, so a read cannot
+        negotiate for something neither bound understands and take the JSON
+        branch by default.
+        """
+        import ast
+        import inspect as _inspect
+
+        from app.platform import service_endpoints, service_items
+
+        known = {"OGC_JSON_ACCEPT", "WFS_XML_ACCEPT"}
+        seen: list[str] = []
+        for module in (service_endpoints, service_items):
+            tree = ast.parse(_inspect.getsource(module))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                name = getattr(node.func, "id", None) or getattr(
+                    node.func, "attr", None
+                )
+                if name != "fetch_document":
+                    continue
+                accept = next(k for k in node.keywords if k.arg == "accept")
+                # Either a constant by name, or the parameter a wrapper threads
+                # through (the wrappers' own defaults are checked below).
+                assert isinstance(accept.value, ast.Name), ast.dump(accept.value)
+                assert accept.value.id in known | {"accept"}, accept.value.id
+                seen.append(f"{module.__name__}:{accept.value.id}")
+
+        assert len(seen) == 2, seen
+
+    def test_the_wrappers_default_to_a_known_value(self) -> None:
+        """The two wrappers that thread `accept` through start from a constant."""
+        import inspect as _inspect
+
+        from app.platform import service_endpoints, service_items
+
+        endpoints_default = (
+            _inspect.signature(service_endpoints._fetch).parameters["accept"].default
+        )
+        assert endpoints_default == service_endpoints.OGC_JSON_ACCEPT
+
+        items_source = _inspect.getsource(service_items._fetch_page)
+        assert "accept=OGC_JSON_ACCEPT" in items_source
+
+
+class TestAnOrphanedExtractIsReclaimed:
+    """fix(#1746 B2b review r28): a SIGKILL skips every cleanup this has.
+
+    `materialise_oapif_items` removes the extract in a `finally` and on every
+    exception, and none of that runs when the process is killed. Up to
+    `MAX_BYTES` of it then sits in the shared staging directory forever: the
+    atomic-write sweep only recognised `<name>.<32 hex>.tmp`, and the export
+    sweep only scans `exports/`.
+    """
+
+    @staticmethod
+    def _plant(root, name: str, *, age_seconds: float) -> pathlib.Path:
+        path = root / name
+        path.write_bytes(b'{"type": "FeatureCollection", "features": []}')
+        stamp = time.time() - age_seconds
+        os.utime(path, (stamp, stamp))
+        return path
+
+    def test_only_the_aged_orphan_is_removed(self, tmp_path) -> None:
+        from app.core.runtime.staging import (
+            EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
+            sweep_orphaned_write_scratch,
+        )
+
+        old = EXPORTS_PERIODIC_SWEEP_AGE_SECONDS * 2
+        aged = self._plant(tmp_path, "oapif_items_aged.geojson", age_seconds=old)
+        fresh = self._plant(tmp_path, "oapif_items_fresh.geojson", age_seconds=1)
+
+        removed = sweep_orphaned_write_scratch(tmp_path)
+
+        assert removed == 1
+        assert not aged.exists()
+        # A walk still in progress must not be swept out from under itself.
+        assert fresh.exists()
+
+    def test_it_reaches_a_nested_directory(self, tmp_path) -> None:
+        """The sweep walks the staging tree, and the extract may be anywhere."""
+        from app.core.runtime.staging import (
+            EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
+            sweep_orphaned_write_scratch,
+        )
+
+        nested = tmp_path / "a" / "b"
+        nested.mkdir(parents=True)
+        aged = self._plant(
+            nested,
+            "oapif_items_deep.geojson",
+            age_seconds=EXPORTS_PERIODIC_SWEEP_AGE_SECONDS * 2,
+        )
+
+        assert sweep_orphaned_write_scratch(tmp_path) == 1
+        assert not aged.exists()
+
+    def test_it_leaves_everything_else_alone(self, tmp_path) -> None:
+        """A sweep that eats real data is worse than one that leaks."""
+        from app.core.runtime.staging import (
+            EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
+            sweep_orphaned_write_scratch,
+        )
+
+        old = EXPORTS_PERIODIC_SWEEP_AGE_SECONDS * 2
+        keep = [
+            self._plant(tmp_path, "parcels.geojson", age_seconds=old),
+            self._plant(tmp_path, "oapif_items_no_suffix", age_seconds=old),
+            self._plant(tmp_path, "not_oapif_items_x.geojson", age_seconds=old),
+        ]
+
+        assert sweep_orphaned_write_scratch(tmp_path) == 0
+        assert all(path.exists() for path in keep)
+
+    async def test_the_writer_and_the_sweep_describe_the_same_file(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The name is imported from the sweeper, so the two cannot drift.
+
+        Asserted end to end rather than by comparing constants: a real extract
+        is written, aged, and the sweep is asked to recognise it.
+        """
+        from app.core.runtime.staging import (
+            EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
+            sweep_orphaned_write_scratch,
+        )
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        kept: list[str] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return _as_stream(httpx.Response(200, json=_collection_doc(None)))
+            return _streamed(
+                {"type": "FeatureCollection", "features": [_point("a")], "links": []}
+            )
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        # Left behind the way a SIGKILL leaves it: written, never cleaned up.
+        monkeypatch.setattr(
+            "app.platform.service_items._discard", lambda path: kept.append(path)
+        )
+
+        extract = await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+        )
+
+        orphan = pathlib.Path(extract.path)
+        assert orphan.exists()
+        stamp = time.time() - EXPORTS_PERIODIC_SWEEP_AGE_SECONDS * 2
+        os.utime(orphan, (stamp, stamp))
+
+        assert sweep_orphaned_write_scratch(tmp_path) == 1
+        assert not orphan.exists()
+
+
+class TestASampleThatExactlyFillsACollection:
+    """fix(#1746 B2b review r28): complete is not the same as truncated.
+
+    r24 reported the total as unknown whenever `written >= feature_limit`,
+    which is also true of a collection holding exactly the sample size and
+    ending there. That is a complete read, and its total is known.
+
+    fix(#1770 round 42): the tests above ask this question only where the
+    sample limit's own `written >= feature_limit` break fires -- a page at
+    least as large as the sample. A page SHORTER than the sample exhausts
+    naturally instead (Python's `for ... else`, never breaking), which used
+    to skip the completeness question entirely for a sampled walk: `links`
+    absent and no `numberMatched` there left `truncated` at its untouched
+    `False`, and the preview reported `written` -- the page's own row
+    count -- as the collection's total. `_page_proves_complete` (the single
+    predicate round 41 corrected for the full-walk case) now answers this
+    question too, at the SAME boundary, regardless of which door reached it.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    @staticmethod
+    def _serving(count: int, *, offer_next: bool):
+        base = f"{_SVC_OAPIF}/collections/c1/items"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            page = int(request.url.params.get("page", 0))
+            return _streamed(
+                {
+                    "type": "FeatureCollection",
+                    "features": [_point(f"f{page}-{n}") for n in range(count)],
+                    "links": (
+                        [{"rel": "next", "href": f"{base}?page={page + 1}"}]
+                        if offer_next
+                        else []
+                    ),
+                }
+            )
+
+        return handle
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    async def test_exactly_the_sample_with_no_next_is_a_known_total(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Five features, a sample of five, and nothing after them."""
+        self._transport(monkeypatch, self._serving(5, offer_next=False))
+
+        extract = await self._materialise(tmp_path, feature_limit=5)
+
+        assert extract.features == 5
+        assert extract.total == 5
+
+    async def test_exactly_the_sample_with_a_next_is_unknown(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The same five, with the service offering more."""
+        self._transport(monkeypatch, self._serving(5, offer_next=True))
+
+        extract = await self._materialise(tmp_path, feature_limit=5)
+
+        assert extract.features == 5
+        assert extract.total is None
+
+    async def test_the_limit_landing_mid_page_is_unknown(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Features left on this page is short even with no next link."""
+        self._transport(monkeypatch, self._serving(9, offer_next=False))
+
+        extract = await self._materialise(tmp_path, feature_limit=5)
+
+        assert extract.features == 5
+        assert extract.total is None
+
+    async def test_an_unparseable_next_does_not_fail_a_complete_sample(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The walk is stopping, so it must not resolve or judge the link.
+
+        Resolving it would refuse the preview; judging its origin would refuse
+        it too. Its presence only decides whether the total is known.
+        """
+        self._transport(
+            monkeypatch,
+            lambda request: (
+                httpx.Response(200, json=_collection_doc(None))
+                if not request.url.path.endswith("/items")
+                else _streamed(
+                    {
+                        "type": "FeatureCollection",
+                        "features": [_point(f"f{n}") for n in range(5)],
+                        "links": [{"rel": "next", "href": "http://["}],
+                    }
+                )
+            ),
+        )
+
+        extract = await self._materialise(tmp_path, feature_limit=5)
+
+        assert extract.features == 5
+        # A link was offered, so the read is short; it was never followed.
+        assert extract.total is None
+
+    async def test_a_short_page_with_no_links_no_total_is_unknown(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Pin, fix(#1770 round 42): the finding itself. Three features, a
+        sample of five (so the page exhausts naturally, never breaking on
+        the sample limit), `links` ABSENT ENTIRELY, no `numberMatched`.
+        Nothing here proves the collection actually holds only three -- a
+        service that merely forgot pagination is indistinguishable from
+        one that stopped there on purpose -- so the total must be unknown,
+        not the three rows this page happened to carry.
+        """
+        self._transport(
+            monkeypatch,
+            lambda request: (
+                httpx.Response(200, json=_collection_doc(None))
+                if not request.url.path.endswith("/items")
+                else _streamed(
+                    {
+                        "type": "FeatureCollection",
+                        "features": [_point(f"f{n}") for n in range(3)],
+                    }
+                )
+            ),
+        )
+
+        extract = await self._materialise(tmp_path, feature_limit=5)
+
+        assert extract.features == 3
+        assert extract.total is None
+
+    async def test_a_short_page_with_matching_number_matched_is_known(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Pin, fix(#1770 round 42): the other half of the same boundary.
+        Same shape as the finding above, except the page states
+        `numberMatched` equal to what it actually carries -- which IS proof,
+        so the total is known even with `links` absent entirely.
+        """
+        self._transport(
+            monkeypatch,
+            lambda request: (
+                httpx.Response(200, json=_collection_doc(None))
+                if not request.url.path.endswith("/items")
+                else _streamed(
+                    {
+                        "type": "FeatureCollection",
+                        "features": [_point(f"f{n}") for n in range(3)],
+                        "numberMatched": 3,
+                    }
+                )
+            ),
+        )
+
+        extract = await self._materialise(tmp_path, feature_limit=5)
+
+        assert extract.features == 3
+        assert extract.total == 3
+
+    async def test_a_full_walk_short_page_is_unaffected(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Control, fix(#1770 round 42): the same page shape -- `links`
+        absent, no `numberMatched` -- on a FULL walk (no `feature_limit`) is
+        exactly round 41's already-covered refusal, unchanged by anything
+        round 42 added to the sampled path."""
+        self._transport(
+            monkeypatch,
+            lambda request: (
+                httpx.Response(200, json=_collection_doc(None))
+                if not request.url.path.endswith("/items")
+                else _streamed(
+                    {
+                        "type": "FeatureCollection",
+                        "features": [_point(f"f{n}") for n in range(3)],
+                    }
+                )
+            ),
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_number_matched_still_wins(self, monkeypatch, tmp_path) -> None:
+        """What the service says beats what the walk inferred, either way."""
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            return _streamed(
+                {
+                    "type": "FeatureCollection",
+                    "numberMatched": 4321,
+                    "features": [_point(f"f{n}") for n in range(5)],
+                    "links": [],
+                }
+            )
+
+        self._transport(monkeypatch, handle)
+
+        extract = await self._materialise(tmp_path, feature_limit=5)
+
+        assert extract.total == 4321
+
+
+class TestNothingMalformedIsMistakenForTheLastPage:
+    """fix(#1746 B2b review r29): the r21 rule, applied to the link shapes.
+
+    `_has_next` and `_next_href` both answer None for a shape they cannot
+    read, and None is indistinguishable from a service saying there is no
+    more. So a page whose `links` is an object, or whose `next` entry has an
+    unusable href, ended the walk silently and a re-upload could replace a
+    dataset with the prefix. Malformed means refuse; it never means
+    end-of-collection.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    @staticmethod
+    def _serving(page: dict):
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            return httpx.Response(200, json=page)
+
+        return handle
+
+    @pytest.mark.parametrize(
+        "links",
+        [
+            pytest.param({"next": "/page2"}, id="links_is_an_object"),
+            pytest.param("next", id="links_is_a_string"),
+            pytest.param(42, id="links_is_a_number"),
+            pytest.param(None, id="links_is_null"),
+            pytest.param(["/page2"], id="entry_is_a_string"),
+            pytest.param([["rel", "next"]], id="entry_is_a_list"),
+            pytest.param([{"rel": "next"}], id="next_without_an_href"),
+            pytest.param([{"rel": "next", "href": None}], id="next_href_null"),
+            pytest.param([{"rel": "next", "href": 7}], id="next_href_number"),
+            pytest.param([{"rel": "next", "href": ""}], id="next_href_empty"),
+            pytest.param([{"rel": "next", "href": "   "}], id="next_href_blank"),
+            pytest.param([{"rel": "next", "href": ["/p2"]}], id="next_href_list"),
+        ],
+    )
+    async def test_a_links_member_that_cannot_be_walked_is_refused(
+        self, monkeypatch, tmp_path, links
+    ) -> None:
+        page = {
+            "type": "FeatureCollection",
+            "features": [_point("a")],
+            "links": links,
+        }
+        recorded = self._transport(monkeypatch, self._serving(page))
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        # And the feature it did write goes with the file: a prefix is not a
+        # collection, which is the r18 rule reaching this failure too.
+        assert list(tmp_path.iterdir()) == []
+        # Refused ON this page, not after chasing whatever the malformed link
+        # coerced to. Without this, three of these shapes pass for the wrong
+        # reason: a truthy non-string href survives `str()`, resolves to some
+        # address, and gets fetched, and the refusal that follows is about the
+        # document THAT returned. The collection document plus this one page is
+        # the whole of what a correct refusal reads.
+        assert [r.url.path for r in recorded] == [
+            "/oapif/collections/c1",
+            "/oapif/collections/c1/items",
+        ]
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            pytest.param("120", id="a_string"),
+            pytest.param(12.5, id="a_float"),
+            pytest.param(True, id="a_bool"),
+            pytest.param(-1, id="negative"),
+            pytest.param(None, id="null"),
+            pytest.param({"count": 3}, id="an_object"),
+        ],
+    )
+    async def test_a_number_matched_that_is_not_a_count_is_refused(
+        self, monkeypatch, tmp_path, value
+    ) -> None:
+        """The number a preview reports and re-upload turns into a delta.
+
+        Not a truncation risk on its own, which is why it is worth saying: a
+        service that cannot spell its own total is not one to take counts from,
+        and the alternative was silently reporting the total as unknown.
+        """
+        page = {
+            "type": "FeatureCollection",
+            "numberMatched": value,
+            "features": [_point("a")],
+            "links": [],
+        }
+        self._transport(monkeypatch, self._serving(page))
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+    async def test_a_second_page_without_links_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Reaching page two means following a link, so page two must have some.
+
+        A page that suddenly carries none is a truncated response rather than
+        the end of the collection.
+        """
+        base = f"{_SVC_OAPIF}/collections/c1/items"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            if request.url.params.get("page") == "1":
+                return httpx.Response(
+                    200,
+                    json={"type": "FeatureCollection", "features": [_point("b")]},
+                )
+            return _streamed(
+                {
+                    "type": "FeatureCollection",
+                    "features": [_point("a")],
+                    "links": [{"rel": "next", "href": f"{base}?page=1"}],
+                }
+            )
+
+        self._transport(monkeypatch, handle)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_single_page_without_links_is_fine(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The other half. Nothing was followed to get here, and none is read.
+
+        Common enough that refusing it would break ordinary services, and
+        harmless because no link is being consulted. `numberMatched` is
+        added (fix(#1770 round 40 P1)) so this stays a test of the SHAPE
+        tolerance it names, not an incidental exercise of the now-closed
+        completeness gap `TestAFullPageWithoutLinksMustProveItIsTheLastOne`
+        covers on its own terms.
+        """
+        page = {
+            "type": "FeatureCollection",
+            "features": [_point("a")],
+            "numberMatched": 1,
+        }
+        self._transport(monkeypatch, self._serving(page))
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 1
+        assert extract.total == 1
+
+    async def test_an_ordinary_paginated_walk_is_untouched(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The counterfactual's other half: the rule refuses nothing real."""
+        base = f"{_SVC_OAPIF}/collections/c1/items"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            page = int(request.url.params.get("page", 0))
+            return _streamed(
+                {
+                    "type": "FeatureCollection",
+                    "features": [_point(f"f{page}")],
+                    "links": (
+                        [{"rel": "next", "href": f"{base}?page={page + 1}"}]
+                        if page < 2
+                        else [{"rel": "self", "href": base}]
+                    ),
+                }
+            )
+
+        self._transport(monkeypatch, handle)
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 3
+        assert extract.total == 3
+
+    async def test_the_refusal_never_echoes_the_page(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The body is provider-controlled and reaches a message and a log."""
+        secret = "canary" + _value()
+        page = {
+            "type": "FeatureCollection",
+            "features": [_point("a")],
+            "links": {"next": secret},
+        }
+        self._transport(monkeypatch, self._serving(page))
+
+        with pytest.raises(ItemFetchFailedError) as raised:
+            await self._materialise(tmp_path)
+
+        assert secret not in str(raised.value)
+        assert secret not in raised.value.policy
+        assert secret not in raised.value.reason
+
+
+class TestAChainThatEndsBeforeTheServiceSaidItWould:
+    """fix(#1746 B2b review r30): the response itself proves the truncation.
+
+    A service reporting `numberMatched: 100` whose link chain runs out after
+    ten features has told us both things. Nothing about any page is malformed
+    -- r21 and r29 have no complaint -- the walk simply ended early, and
+    accepting it handed a re-upload ten features to replace a hundred with.
+
+    Checked on FULL walks only. A sampled read is short by construction, so the
+    count says nothing there, and `truncated` from r28 carries that judgement
+    instead.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    @staticmethod
+    def _chain(pages: list[dict]):
+        """A service serving *pages* in order, linked while more remain."""
+        base = f"{_SVC_OAPIF}/collections/c1/items"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            index = int(request.url.params.get("page", 0))
+            body = dict(pages[index])
+            body.setdefault("type", "FeatureCollection")
+            body["links"] = (
+                [{"rel": "next", "href": f"{base}?page={index + 1}"}]
+                if index + 1 < len(pages)
+                else [{"rel": "self", "href": base}]
+            )
+            return _streamed(body)
+
+        return handle
+
+    @staticmethod
+    def _features(count: int, start: int = 0) -> list[dict]:
+        return [_point(f"f{n}") for n in range(start, start + count)]
+
+    async def test_a_chain_shorter_than_reported_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The reported case: says a hundred, delivers ten, stops."""
+        self._transport(
+            monkeypatch,
+            self._chain([{"numberMatched": 100, "features": self._features(10)}]),
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        # And the ten it wrote go with the file: a prefix is not a collection.
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_chain_longer_than_reported_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The mirror. More than promised is not a happier outcome.
+
+        It is a service whose count cannot be trusted, and that count is what a
+        preview reports and re-upload turns into a row-count delta.
+        """
+        self._transport(
+            monkeypatch,
+            self._chain([{"numberMatched": 3, "features": self._features(10)}]),
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_chain_matching_the_report_completes(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The other half, across a real multi-page walk."""
+        self._transport(
+            monkeypatch,
+            self._chain(
+                [
+                    {"numberMatched": 25, "features": self._features(10)},
+                    {"features": self._features(10, 10)},
+                    {"features": self._features(5, 20)},
+                ]
+            ),
+        )
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 25
+        assert extract.total == 25
+
+    async def test_a_service_that_reports_nothing_completes(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """`numberMatched` is optional, and its absence is not evidence --
+        restored (fix(#1770 round 41 P1)) after round 40 briefly closed this:
+        `_chain` gives a single page a `links` member naming only `self`
+        (no `next`), which IS the service's own terminal-page statement, not
+        the shape `numberMatched` exists to police. Round 40's over-tightening
+        had made THIS test refuse; round 41 restores the original assertion.
+        """
+        self._transport(monkeypatch, self._chain([{"features": self._features(10)}]))
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 10
+        assert extract.total == 10
+
+    async def test_pages_that_disagree_about_the_size_are_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """It describes the whole query, so two answers describe two queries.
+
+        Neither can then be checked against the walk, which is the thing the
+        count exists here to do.
+        """
+        self._transport(
+            monkeypatch,
+            self._chain(
+                [
+                    {"numberMatched": 20, "features": self._features(10)},
+                    {"numberMatched": 40, "features": self._features(10, 10)},
+                ]
+            ),
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_pages_that_repeat_the_same_size_are_fine(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Repeating it on every page is ordinary and must not be refused."""
+        self._transport(
+            monkeypatch,
+            self._chain(
+                [
+                    {"numberMatched": 20, "features": self._features(10)},
+                    {"numberMatched": 20, "features": self._features(10, 10)},
+                ]
+            ),
+        )
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 20
+        assert extract.total == 20
+
+    async def test_a_sampled_read_is_not_measured_against_it(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """A preview stops deliberately, so being short proves nothing.
+
+        This is the case the r28 flag covers and this rule must stay out of:
+        refusing here would make every large collection unpreviewable.
+        """
+        self._transport(
+            monkeypatch,
+            self._chain(
+                [
+                    {"numberMatched": 100, "features": self._features(10)},
+                    {"features": self._features(10, 10)},
+                ]
+            ),
+        )
+
+        extract = await self._materialise(tmp_path, feature_limit=5)
+
+        assert extract.features == 5
+        assert extract.total == 100
+
+    async def test_the_refusal_never_echoes_the_page(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The counts and the body are provider-controlled."""
+        secret = "canary" + _value()
+        self._transport(
+            monkeypatch,
+            self._chain(
+                [
+                    {
+                        "numberMatched": 100,
+                        "features": [
+                            {
+                                "type": "Feature",
+                                "id": "a",
+                                "geometry": None,
+                                "properties": {"note": secret},
+                            }
+                        ],
+                    }
+                ]
+            ),
+        )
+
+        with pytest.raises(ItemFetchFailedError) as raised:
+            await self._materialise(tmp_path)
+
+        assert secret not in str(raised.value)
+        assert secret not in raised.value.policy
+        assert secret not in raised.value.reason
+
+
+class TestAPageThatContradictsItsOwnCount:
+    """fix(#1746 B2b review r31): `numberReturned` checks the page against itself.
+
+    A page saying it returned a hundred while carrying ten is a truncated
+    response, and nothing else in the walk notices: the features array is well
+    formed, the links are well formed, and a full walk that ends there accepts
+    the ten as the whole collection. It is the per-page twin of the r30 check.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    @staticmethod
+    def _serving(page: dict):
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            body = dict(page)
+            body.setdefault("type", "FeatureCollection")
+            body.setdefault("links", [])
+            return httpx.Response(200, json=body)
+
+        return handle
+
+    @pytest.mark.parametrize(
+        "returned",
+        [
+            pytest.param(100, id="claims_more_than_it_carries"),
+            pytest.param(1, id="claims_fewer_than_it_carries"),
+            pytest.param(0, id="claims_none_while_carrying_some"),
+        ],
+    )
+    async def test_a_number_returned_that_is_not_the_page_is_refused(
+        self, monkeypatch, tmp_path, returned
+    ) -> None:
+        page = {
+            "numberReturned": returned,
+            "features": [_point(f"f{n}") for n in range(10)],
+        }
+        self._transport(monkeypatch, self._serving(page))
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.parametrize(
+        "returned",
+        [
+            pytest.param("10", id="a_string"),
+            pytest.param(10.0, id="a_float"),
+            pytest.param(True, id="a_bool"),
+            pytest.param(-1, id="negative"),
+            pytest.param(None, id="null"),
+        ],
+    )
+    async def test_a_number_returned_that_is_not_a_count_is_refused(
+        self, monkeypatch, tmp_path, returned
+    ) -> None:
+        """`True` matters here: `bool` is an `int`, so it would pass as 1."""
+        page = {"numberReturned": returned, "features": [_point("a")]}
+        self._transport(monkeypatch, self._serving(page))
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+    async def test_a_matching_number_returned_passes(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        page = {
+            "numberReturned": 3,
+            "numberMatched": 3,
+            "features": [_point(f"f{n}") for n in range(3)],
+        }
+        self._transport(monkeypatch, self._serving(page))
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 3
+        assert extract.total == 3
+
+    async def test_an_absent_number_returned_passes(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """It is optional, and its absence is not evidence of anything."""
+        page = {"features": [_point(f"f{n}") for n in range(3)]}
+        self._transport(monkeypatch, self._serving(page))
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 3
+
+    async def test_zero_returned_on_an_empty_page_passes(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The boundary, where the count and the page agree at nothing."""
+        page = {"numberReturned": 0, "numberMatched": 0, "features": []}
+        self._transport(monkeypatch, self._serving(page))
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 0
+        assert extract.total == 0
+
+
+class TestASampleCanBeShorterButNeverLonger:
+    """fix(#1746 B2b review r31): the half of the r30 check that always holds.
+
+    r30 gated the whole comparison on a full walk, which let a sampled read of
+    five features past a `numberMatched` of two: the extract had five rows and
+    reported a total of two, and re-upload turned that into a schema delta
+    against a real dataset. Stopping early can produce fewer rows than the
+    total; nothing can produce more.
+
+    fix(#1746 B2b round 34): "produce" was checked against `written`, which a
+    sample truncates. A page of a hundred features under a `numberMatched` of
+    ten and a five-row preview left `written == 5`, which is `<= 10` and
+    passed, even though the page the service actually sent was ten times the
+    size it claims the whole collection is. The comparison now uses
+    `observed`, the page counted whole before the sample cuts it down.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    def _chain(self, monkeypatch, matched: int, per_page: int, pages: int):
+        base = f"{_SVC_OAPIF}/collections/c1/items"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            index = int(request.url.params.get("page", 0))
+            return _streamed(
+                {
+                    "type": "FeatureCollection",
+                    "numberMatched": matched,
+                    "features": [_point(f"f{index}-{n}") for n in range(per_page)],
+                    "links": (
+                        [{"rel": "next", "href": f"{base}?page={index + 1}"}]
+                        if index + 1 < pages
+                        else [{"rel": "self", "href": base}]
+                    ),
+                }
+            )
+
+        return self._transport(monkeypatch, handle)
+
+    async def test_a_sample_longer_than_the_reported_total_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Five rows against a reported two. The reported case."""
+        self._chain(monkeypatch, matched=2, per_page=5, pages=1)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path, feature_limit=5)
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_an_oversized_page_is_refused_even_under_a_sample(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The page that only `observed` catches: bigger than its own claim.
+
+        A hundred features on one page under a `numberMatched` of ten, sampled
+        down to five. `written` (5) is `<= numberMatched` (10) and would have
+        passed; the page the service actually sent (100) is not.
+        """
+        self._chain(monkeypatch, matched=10, per_page=100, pages=1)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path, feature_limit=5)
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_sample_shorter_than_the_reported_total_completes(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The ordinary preview: a handful of rows out of a hundred."""
+        self._chain(monkeypatch, matched=100, per_page=10, pages=10)
+
+        extract = await self._materialise(tmp_path, feature_limit=5)
+
+        assert extract.features == 5
+        assert extract.total == 100
+
+    async def test_a_full_walk_longer_than_reported_is_still_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The r30 mirror, unchanged by the rule moving out of its guard."""
+        self._chain(monkeypatch, matched=3, per_page=10, pages=1)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+    async def test_a_full_walk_shorter_than_reported_is_still_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """And the r30 case itself, which only a full walk can judge."""
+        self._chain(monkeypatch, matched=100, per_page=10, pages=1)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+    async def test_a_full_walk_matching_the_report_completes(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        self._chain(monkeypatch, matched=30, per_page=10, pages=3)
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 30
+        assert extract.total == 30
+
+    async def test_a_sample_exactly_the_reported_total_completes(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The boundary: equal is not greater, so it must not be refused."""
+        self._chain(monkeypatch, matched=5, per_page=5, pages=1)
+
+        extract = await self._materialise(tmp_path, feature_limit=5)
+
+        assert extract.features == 5
+        assert extract.total == 5
+
+
+class TestAFullPageWithoutLinksMustProveItIsTheLastOne:
+    """fix(#1770 round 38 P1, `service_items.py:278`; tightened round 40 P1;
+    corrected round 41 P1).
+
+    A first page with no `links` at all is accepted as a well-formed shape
+    (`_require_links` tolerates it -- nothing was followed to get here, so
+    nothing was decided from a link). `_walk_pages` used to read that shape
+    the same way it reads a genuine last page: no `next` found, stop, done.
+    On a FULL walk (`feature_limit=None`, a refresh or re-upload, never a
+    preview) that let a server which returns exactly the page size but omits
+    pagination metadata entirely replace an existing dataset with page one.
+
+    Round 38's fix also accepted a page SHORTER than `limit=PAGE_SIZE` as
+    proof on its own, reasoning that a server with more to give would have
+    filled the page up to the limit this module itself asked for. Round 40's
+    re-review found the flaw: that assumes the server's own page size is at
+    least `PAGE_SIZE`, which is the server's choice, not this module's
+    assumption to make. Page length proves nothing on its own, on either
+    side of the check, and that removal stands.
+
+    Round 40 then over-corrected: it required `numberMatched` on EVERY page
+    reaching this branch, including one that carries a `links` member --
+    even `[]`, even one naming only `self`/`alternate` -- which is the
+    service's own unambiguous statement that it considered pagination and
+    chose not to offer a `next`. OGC API Features Part 1 makes `links`
+    optional but `next`'s absence from a `links` array that EXISTS is the
+    spec's own terminal-page signal, so round 40 was refusing every
+    conforming server that states no `next` and has nothing else to say --
+    most of them.
+
+    Provably complete now means one of two things, depending on which shape
+    reached this branch: a page whose `links` member is PRESENT (any value
+    `_require_links` accepted; `following is None` already means no `next`
+    was in it) is complete on that alone. A page whose `links` member is
+    ABSENT ENTIRELY needs `numberMatched` present and equal to what the walk
+    has actually totalled across every page it read (`observed`) -- the
+    shape `_require_links` tolerates but does not itself vouch for. A
+    preview is unaffected either way: it was never claiming to be the whole
+    collection, so `feature_limit is not None` keeps it off this branch
+    entirely.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    def _first_page_no_links(
+        self, monkeypatch, *, feature_count: int, number_matched: int | None
+    ):
+        """A single page with no `links` member at all, optionally no
+        `numberMatched` either. `feature_count` PAGE_SIZE is the shape round
+        38 fixed; anything under it is a page a server could not have padded
+        out further."""
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            body: dict = {
+                "type": "FeatureCollection",
+                "features": [_point(f"f{n}") for n in range(feature_count)],
+            }
+            if number_matched is not None:
+                body["numberMatched"] = number_matched
+            return _streamed(body)
+
+        return self._transport(monkeypatch, handle)
+
+    async def test_full_walk_page_at_the_limit_no_links_no_total_refuses(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Pin (a). Exactly the shape round 38 closes: a page as large as the
+        limit this module asked for, no `numberMatched`, no `links` at all --
+        indistinguishable from a server that had more and never said so."""
+        from app.platform.service_items import PAGE_SIZE
+
+        self._first_page_no_links(
+            monkeypatch, feature_count=PAGE_SIZE, number_matched=None
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_full_walk_page_under_the_limit_no_links_no_total_refuses(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Pin (b), fix(#1770 round 40 P1). Replaces the round-38 test that
+        assumed the opposite (`test_full_walk_page_under_the_limit_no_links_
+        accepts`): a page shorter than `limit=PAGE_SIZE`, with no `links` and
+        no `numberMatched`, no longer proves anything on its own -- a server
+        with a smaller server-side page size than `PAGE_SIZE` can send
+        exactly this shape while still having more to give."""
+        self._first_page_no_links(monkeypatch, feature_count=3, number_matched=None)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_full_walk_page_at_the_limit_matching_total_accepts(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Pin (c). `numberMatched == observed` proves it even at the limit,
+        no `links` needed."""
+        from app.platform.service_items import PAGE_SIZE
+
+        self._first_page_no_links(
+            monkeypatch, feature_count=PAGE_SIZE, number_matched=PAGE_SIZE
+        )
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == PAGE_SIZE
+        assert extract.total == PAGE_SIZE
+
+    async def test_full_walk_page_with_mismatched_total_refuses(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Pin (c'), fix(#1770 round 40 P1). `numberMatched` present but NOT
+        equal to what the walk actually read is refused, not merely tolerated
+        as "no proof" -- a server that states a total and then contradicts it
+        on the very page carrying that total is not a case the completeness
+        check should stay silent on."""
+        self._first_page_no_links(monkeypatch, feature_count=3, number_matched=7)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_preview_page_at_the_limit_no_links_no_total_accepts(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Pin (d). A preview never claimed to be the whole collection, so
+        this round's proof requirement does not apply to it -- unchanged from
+        before round 38. Sample size one under the page, so the sample
+        genuinely stops mid-page (`truncated`) rather than landing on the
+        boundary case where a short sample is also a complete read."""
+        from app.platform.service_items import PAGE_SIZE
+
+        self._first_page_no_links(
+            monkeypatch, feature_count=PAGE_SIZE, number_matched=None
+        )
+
+        extract = await self._materialise(tmp_path, feature_limit=PAGE_SIZE - 1)
+
+        assert extract.features == PAGE_SIZE - 1
+        assert extract.total is None
+
+    def _first_page_with_links(
+        self, monkeypatch, *, feature_count: int, links: list[dict]
+    ):
+        """A single page whose `links` member IS PRESENT -- the shape round
+        41 restores proof-free acceptance for, since the member's presence
+        with no `next` in it is the service's own statement, not a gap this
+        module tolerated only for lack of anything to check."""
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+            body: dict = {
+                "type": "FeatureCollection",
+                "features": [_point(f"f{n}") for n in range(feature_count)],
+                "links": links,
+            }
+            return _streamed(body)
+
+        return self._transport(monkeypatch, handle)
+
+    async def test_full_walk_page_with_an_empty_links_array_accepts(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Pin, fix(#1770 round 41 P1). `links: []` is present, so
+        `_next_href` finding no `next` in it is the service's own terminal
+        signal -- not the shape-tolerance gap `numberMatched` exists to
+        cover. No `numberMatched` needed."""
+        self._first_page_with_links(monkeypatch, feature_count=3, links=[])
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 3
+        assert extract.total == 3
+
+    async def test_full_walk_page_with_only_self_and_alternate_links_accepts(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Pin, fix(#1770 round 41 P1). Same proof, a step further: `links`
+        names OTHER relations but still no `next`. Present is present,
+        whatever else it says."""
+        self._first_page_with_links(
+            monkeypatch,
+            feature_count=3,
+            links=[
+                {"rel": "self", "href": f"{_SVC_OAPIF}/collections/c1/items"},
+                {"rel": "alternate", "href": f"{_SVC_OAPIF}/collections/c1"},
+            ],
+        )
+
+        extract = await self._materialise(tmp_path)
+
+        assert extract.features == 3
+        assert extract.total == 3
+
+
+def _mentions_httpx(node: "ast.expr | None") -> bool:
+    return node is not None and "httpx" in ast.dump(node)
+
+
+def _is_log_call(node: "ast.Call") -> bool:
+    func = node.func
+    log_methods = {"debug", "info", "warning", "error", "exception", "critical"}
+    return (
+        isinstance(func, ast.Attribute)
+        and isinstance(func.value, ast.Name)
+        and func.value.id in ("logger", "log")
+        and func.attr in log_methods
+    )
+
+
+# fix(#1770 round 40 P2): widened from `error` alone to the four keyword
+# spellings actually used for a caught exception's text across this tree
+# (`grep`-confirmed: `detail=` on a raised `HTTPException`'s body, `reason=`
+# on an audit/refusal record, `message=` nowhere yet but cheap to cover
+# alongside the other three).
+_TRACKED_KEYWORDS = frozenset({"error", "detail", "reason", "message"})
+
+
+def _unwrapped_httpx_name(kw: "ast.keyword", httpx_names: set[str]) -> str | None:
+    """The bound except-name a bare/`str(...)` tracked kwarg still carries."""
+    if kw.arg not in _TRACKED_KEYWORDS:
+        return None
+    if isinstance(kw.value, ast.Name) and kw.value.id in httpx_names:
+        return kw.value.id
+    if (
+        isinstance(kw.value, ast.Call)
+        and isinstance(kw.value.func, ast.Name)
+        and kw.value.func.id == "str"
+        and len(kw.value.args) == 1
+        and isinstance(kw.value.args[0], ast.Name)
+        and kw.value.args[0].id in httpx_names
+    ):
+        return kw.value.args[0].id
+    return None
+
+
+def _find_unredacted_error_fields_in_source(
+    source: str,
+) -> set[tuple[str, str, str]]:
+    """(function, keyword, offending-name) for every unwrapped log site."""
+    tree = ast.parse(source)
+    found: set[tuple[str, str, str]] = set()
+    func_stack: list[str] = []
+    httpx_names: set[str] = set()
+
+    class _Visitor(ast.NodeVisitor):
+        def visit_FunctionDef(self, node: "ast.FunctionDef") -> None:
+            self._enter(node)
+
+        def visit_AsyncFunctionDef(self, node: "ast.AsyncFunctionDef") -> None:
+            self._enter(node)
+
+        def _enter(self, node) -> None:
+            func_stack.append(node.name)
+            self.generic_visit(node)
+            func_stack.pop()
+
+        def visit_ExceptHandler(self, node: "ast.ExceptHandler") -> None:
+            bound = None
+            if _mentions_httpx(node.type) and node.name:
+                httpx_names.add(node.name)
+                bound = node.name
+            self.generic_visit(node)
+            if bound is not None:
+                httpx_names.discard(bound)
+
+        def visit_Call(self, node: "ast.Call") -> None:
+            if _is_log_call(node):
+                for kw in node.keywords:
+                    bad_name = _unwrapped_httpx_name(kw, httpx_names)
+                    if bad_name is not None:
+                        fname = func_stack[-1] if func_stack else "<module>"
+                        found.add((fname, kw.arg, bad_name))
+            self.generic_visit(node)
+
+    _Visitor().visit(tree)
+    return found
+
+
+def _find_unredacted_error_fields_in_tree(root: "pathlib.Path") -> dict:
+    """Same sweep, over every ``.py`` file under ``root`` (fix(#1770 round
+    40)): widened from a hand-picked list of six modules to the whole
+    backend, since the round 39 P2 re-review found the sixth-listed sweep
+    scope itself was the gap -- `sources/router.py`'s CRS-fallback fetch was
+    never one of the six.
+    """
+    findings: dict = {}
+    for path in sorted(root.rglob("*.py")):
+        try:
+            source = path.read_text()
+            hits = _find_unredacted_error_fields_in_source(source)
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        if hits:
+            findings[str(path.relative_to(root.parent))] = hits
+    return findings
+
+
+class TestAResponseProvidedUrlNeverReachesALogUnredacted:
+    """fix(#1770 round 38 P2, `adapters/ogcapi.py:131`).
+
+    `_resolve_conformance` logged the landing page's advertised `conformance`
+    href verbatim in three places: the cross-origin refusal, the SSRF-blocked
+    branch, and the fetch-failed branch. That href names a document the
+    SERVICE chose, so a hostile or compromised one can shape it into
+    something that looks like `?token=<value>` -- not necessarily OUR
+    credential, but a live demonstration that whatever this function is about
+    to send can come straight back out through a log line, the exact leak
+    the GDAL-header-file design (never a subprocess env, never argv) exists
+    to prevent everywhere else.
+
+    Fixed by redacting at each log call with the existing
+    `redact_url_credentials` (`core/url_redaction.py`), never at the point
+    `abs_href` is bound: `same_origin`, `validate_url_for_ssrf` and the
+    actual GET all need the real value.
+    """
+
+    async def test_a_reflected_token_in_the_conformance_href_is_not_logged(
+        self, monkeypatch
+    ) -> None:
+        """A landing page whose `conformance` link is cross-origin AND carries
+        a `?token=<secret>` -- exactly the shape a hostile or compromised
+        service uses to try to get whatever we are about to send it echoed
+        back into our own logs. Hits the first of the three fixed sites: the
+        cross-origin refusal, which fires because a credential is present."""
+        import structlog
+
+        from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
+
+        credential, _value_ = _header_key()
+        secret = "reflect-" + _value()
+        landing = {
+            "links": [
+                {"rel": "data", "href": f"{_SERVICE_ORIGIN}/oapif/collections"},
+                {
+                    "rel": "conformance",
+                    "href": f"{_OTHER_ORIGIN}/conformance?token={secret}",
+                },
+            ]
+        }
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/collections"):
+                return httpx.Response(200, json={"collections": [{"id": "c1"}]})
+            return httpx.Response(200, json=landing)
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+            AsyncMock(),
+        )
+
+        with structlog.testing.capture_logs() as captured:
+            async with httpx.AsyncClient(
+                # fix(#1770 round 41 P1): _as_stream (see its own docstring)
+                transport=httpx.MockTransport(lambda r: _as_stream(handle(r)))
+            ) as client:
+                await probe_ogcapi(
+                    f"{_SERVICE_ORIGIN}/oapif",
+                    client,
+                    credential=replace(credential, service_format="ogcapi_features"),
+                )
+
+        rendered = str(captured)
+        assert secret not in rendered
+        # Not vacuous: the branch this is pinning actually ran.
+        assert "conformance link is on another origin" in rendered
+
+    def test_the_conformance_log_sites_redact_the_href_they_carry(self) -> None:
+        """Source-enumeration, closed set (fix(#1770 round 38 P2)).
+
+        Keyed on the literal helper name, not on data flow: a keyword
+        argument named `href`/`url`/`link` (case-insensitive) whose value is
+        a bare variable reference must either be that variable wrapped in
+        `redact_url_credentials(...)`, or be a name this list has been
+        audited and pinned as never response-derived. Known limits, on
+        purpose rather than by oversight: this walks structlog-style
+        `logger.warning(msg, key=value)` calls only -- the old-style
+        `logger.debug("... %s", value)` calls in `arcgis.py`/`wfs.py` are a
+        different shape this AST pattern does not match at all, audited by
+        hand instead (every value logged there is the function's own
+        caller-supplied URL parameter or a deterministic string built from
+        it, never anything read out of a response body). Anyone adding a new
+        entry to either list, safe or not, is required to look at this test
+        and decide which bucket it belongs in -- that is what a closed list
+        buys over an open-ended one.
+        """
+        import ast
+        import inspect
+
+        from app.modules.catalog.sources.adapters import ogcapi as ogcapi_adapter
+        from app.modules.catalog.sources.adapters import stac as stac_adapter
+
+        log_methods = {"debug", "info", "warning", "error", "exception", "critical"}
+        name_patterns = ("href", "url", "link")
+
+        def _find_calls(module) -> set[tuple[str, str, str]]:
+            """(function, kwarg, value-description) for every URL-shaped kwarg."""
+            tree = ast.parse(inspect.getsource(module))
+            found: set[tuple[str, str, str]] = set()
+            func_stack: list[str] = []
+
+            class _Visitor(ast.NodeVisitor):
+                def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+                    self._enter(node)
+
+                def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+                    self._enter(node)
+
+                def _enter(self, node) -> None:
+                    func_stack.append(node.name)
+                    self.generic_visit(node)
+                    func_stack.pop()
+
+                def visit_Call(self, node: ast.Call) -> None:
+                    func = node.func
+                    is_log = (
+                        isinstance(func, ast.Attribute)
+                        and isinstance(func.value, ast.Name)
+                        and func.value.id in ("logger", "log")
+                        and func.attr in log_methods
+                    )
+                    if is_log:
+                        for kw in node.keywords:
+                            if kw.arg and any(
+                                p in kw.arg.lower() for p in name_patterns
+                            ):
+                                fname = func_stack[-1] if func_stack else "<module>"
+                                if (
+                                    isinstance(kw.value, ast.Call)
+                                    and isinstance(kw.value.func, ast.Name)
+                                    and kw.value.func.id == "redact_url_credentials"
+                                ):
+                                    value = "redacted"
+                                elif isinstance(kw.value, ast.Name):
+                                    value = kw.value.id
+                                else:
+                                    value = ast.dump(kw.value)
+                                found.add((fname, kw.arg, value))
+                    self.generic_visit(node)
+
+            _Visitor().visit(tree)
+            return found
+
+        # Every URL-shaped kwarg found today, in the two files that have any.
+        # A bare (unwrapped) entry is only here because it was audited and
+        # confirmed to be the function's own caller-supplied parameter (or,
+        # for `collections_url`, a deterministic string built from it) --
+        # never a value read out of a parsed response body.
+        expected_ogcapi = {
+            ("_resolve_conformance", "href", "redacted"),
+            # fix(#1770 round 41 P1): `probe_ogcapi` split into a thin
+            # deadline wrapper and `_probe_ogcapi_within_deadline`, its body
+            # -- these three URL-shaped kwargs live in the latter now.
+            ("_probe_ogcapi_within_deadline", "url", "url"),
+            ("_probe_ogcapi_within_deadline", "url", "collections_url"),
+            ("_probe_ogcapi_within_deadline", "collections_url", "collections_url"),
+            # The wrapper's own deadline-exceeded log: `url` is the caller's
+            # own submitted parameter, never a value read out of a response.
+            ("probe_ogcapi", "url", "url"),
+        }
+        expected_stac = {
+            # fix(#1770 round 41 P1): `connect_stac_api`'s own deadline-exceeded
+            # log keeps the bare `url` kwarg under the outer wrapper's name; the
+            # body's own use moved to `_connect_stac_api_within_deadline`.
+            ("connect_stac_api", "url", "url"),
+            ("_connect_stac_api_within_deadline", "url", "url"),
+        }
+
+        assert _find_calls(ogcapi_adapter) == expected_ogcapi
+        assert _find_calls(stac_adapter) == expected_stac
+
+    async def test_a_reflected_token_in_a_same_origin_conformance_fetch_is_not_logged(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1770 round 39 P2, `adapters/ogcapi.py` conformance fetch-failed
+        branch).
+
+        The href field on this log call was redacted in round 38, but the
+        `error` field carried `str(exc)` verbatim -- and `httpx.HTTPStatusError`
+        (what `raise_for_status` raises) puts the WHOLE request URL, query
+        string included, into its own message. A same-origin conformance link
+        never trips the cross-origin refusal (round 38's pin), so it reaches
+        the actual GET; if that service answers 401, the exception text alone
+        still carries whatever the link's query string held. Pins the `error`
+        field of the fetch-failed log, not the `href` field round 38 already
+        covered.
+        """
+        import structlog
+
+        from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
+
+        secret = "reflect-" + _value()
+        landing = {
+            "links": [
+                {"rel": "data", "href": f"{_SERVICE_ORIGIN}/oapif/collections"},
+                {
+                    "rel": "conformance",
+                    "href": f"{_SERVICE_ORIGIN}/oapif/conformance?token={secret}",
+                },
+            ]
+        }
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/conformance"):
+                return httpx.Response(401, json={"error": "unauthorized"})
+            if request.url.path.endswith("/collections"):
+                return httpx.Response(200, json={"collections": [{"id": "c1"}]})
+            return httpx.Response(200, json=landing)
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+            AsyncMock(),
+        )
+
+        with structlog.testing.capture_logs() as captured:
+            async with httpx.AsyncClient(
+                # fix(#1770 round 41 P1): _as_stream (see its own docstring)
+                transport=httpx.MockTransport(lambda r: _as_stream(handle(r)))
+            ) as client:
+                await probe_ogcapi(f"{_SERVICE_ORIGIN}/oapif", client)
+
+        rendered = str(captured)
+        assert secret not in rendered
+        # Not vacuous: the branch this is pinning actually ran, and it is the
+        # fetch-failed branch specifically, not the cross-origin refusal
+        # round 38 already pins (this href is same-origin).
+        assert "conformance fetch failed" in rendered
+        assert "another origin" not in rendered
+
+    async def test_an_oversized_conformance_href_reaches_the_redactor_bounded(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1770 round 47b P1, `adapters/ogcapi.py:123`).
+
+        Round 47's own P1 fix (`bounded_service_url`) can now FAIL because
+        `conformance_href` is huge -- exactly the shape this round's own
+        finding is about -- and `abs_href` was seeded from the full raw
+        href before the guard, so the three log/exception sites below all
+        still had the entire multi-megabyte string when resolution never
+        got a chance to shrink it. Every one of them hands its `href=` to
+        `redact_url_credentials`, which is itself backed by an UNBOUNDED
+        `parse_qsl` (`url_redaction.py`, deliberately: a redactor must never
+        raise on the string it scrubs). So the exact cost `bounded_
+        service_url` exists to refuse was paid anyway, on every refused
+        attempt, from a LOGGING call with no request in flight to time out
+        -- worse than doing nothing, since a probe now pays this on the
+        request that is supposed to be the cheap, fast refusal.
+
+        Fixed by seeding `abs_href` from a bounded preview
+        (`conformance_href[:MAX_SERVICE_HREF_BYTES]`) rather than the full
+        raw href, so it is safe to redact/log at every point in the
+        function by construction.
+        """
+        from app.core import url_redaction
+        from app.platform.service_endpoints import MAX_SERVICE_HREF_BYTES
+
+        credential, _value_ = _header_key()
+        bomb_query = "&".join(f"a{n}=1" for n in range(2_000_000))
+        bomb_href = f"{_OTHER_ORIGIN}/conformance?{bomb_query}"
+        assert len(bomb_href) > MAX_SERVICE_HREF_BYTES, (
+            "this must be the oversized shape bounded_service_url refuses"
+        )
+
+        landing = {
+            "links": [
+                {"rel": "data", "href": f"{_SERVICE_ORIGIN}/oapif/collections"},
+                {"rel": "conformance", "href": bomb_href},
+            ]
+        }
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/collections"):
+                return httpx.Response(200, json={"collections": [{"id": "c1"}]})
+            return httpx.Response(200, json=landing)
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+            AsyncMock(),
+        )
+
+        seen_lengths: list[int] = []
+        real_redact = url_redaction.redact_url_credentials
+
+        def _spy(value: str) -> str:
+            seen_lengths.append(len(value))
+            return real_redact(value)
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.adapters.ogcapi.redact_url_credentials",
+            _spy,
+        )
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda r: _as_stream(handle(r)))
+        ) as client:
+            await probe_ogcapi(
+                f"{_SERVICE_ORIGIN}/oapif",
+                client,
+                credential=replace(credential, service_format="ogcapi_features"),
+            )
+
+        assert seen_lengths, "the redactor must have been called at least once"
+        assert all(n <= MAX_SERVICE_HREF_BYTES for n in seen_lengths), seen_lengths
+
+    async def test_a_same_origin_redirect_reflecting_the_credential_is_not_logged(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1770 round 40 P2, `sources/router.py:564`).
+
+        Round 39's sweep covered `modules/catalog/sources/adapters/` and
+        `platform/service_*.py` only, and this site -- the credentialed CRS
+        fallback fetch a preview uses to resolve an OGC API collection's
+        SRID -- was never in scope. Same leak shape as the conformance case:
+        `except (httpx.HTTPError, ValueError, SSRFError) as exc:` logged
+        `error=str(exc)` on the same call whose `url=` field was already
+        redacted.
+
+        This one exercises the REDIRECT half of the reflection rather than
+        an advertised href: `make_safe_client`'s `follow_redirects=True`
+        forwards a service-chosen custom header across a SAME-origin hop
+        (only a cross-origin one is refused, by `credential_header=`), so a
+        same-origin path this function did not ask for can redirect to a URL
+        that echoes the header's value back as a query parameter, and a 4xx
+        there puts that whole URL into `HTTPStatusError`'s own message.
+        """
+        import structlog
+
+        from app.modules.catalog.sources.router import _fetch_ogcapi_collection_srid
+
+        credential, value = _header_key()
+        recorded: list[httpx.Request] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            if len(recorded) == 1:
+                return httpx.Response(
+                    302,
+                    headers={
+                        "Location": (
+                            "https://services.example.test/oapif/"
+                            f"collections-moved?token={value}"
+                        )
+                    },
+                )
+            return httpx.Response(404, json={"error": "not found"})
+
+        monkeypatch.setattr(
+            security,
+            "make_safe_transport",
+            lambda: httpx.MockTransport(lambda r: _as_stream(handle(r))),
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+
+        with structlog.testing.capture_logs() as captured:
+            srid = await _fetch_ogcapi_collection_srid(
+                "https://services.example.test/oapif",
+                "parcels",
+                ServiceCredential(
+                    method=credential.method,
+                    service_format="ogcapi_features",
+                    header_name=credential.header_name,
+                    header_value=credential.header_value,
+                ),
+            )
+
+        assert srid is None
+        # Not vacuous: both requests happened (the redirect was followed),
+        # and the branch this is pinning actually logged.
+        assert len(recorded) == 2
+        rendered = str(captured)
+        assert value not in rendered
+        assert "CRS fallback fetch failed" in rendered
+
+    def test_an_error_field_bound_to_an_httpx_except_never_bypasses_the_helper(
+        self,
+    ) -> None:
+        """Source-enumeration, whole-tree (fix(#1770 round 39 P2, widened
+        round 40 P2)).
+
+        Round 39 swept six hand-picked modules for a keyword argument
+        literally named `error`, whose value is a bare reference to a name
+        bound by an `except ...httpx...` clause -- or `str()` of that name --
+        with no `redact_exception_text(...)` wrapper. Round 40's re-review
+        found the real gap was the scope itself:
+        `sources/router.py`'s credentialed CRS fallback fetch logged
+        `error=str(exc)` on exactly this shape and was never one of the six.
+        This now walks every `.py` file under `app/`, and tracks `detail=`
+        and `reason=` alongside `error=` (`message=` too, unused today but as
+        cheap to cover) -- `detail=` is how a raised `HTTPException` carries
+        exception text to a response body, `reason=` how an audit/refusal
+        record carries it.
+
+        Known limits, on purpose, same as round 39's: only an `except`
+        clause whose type expression literally contains "httpx" is tracked
+        (covers every site in this tree today: `httpx.HTTPStatusError`,
+        `httpx.TransportError`, `httpx.HTTPError`, `httpx.TimeoutException`,
+        tuples of these) -- an alias-imported or re-exported httpx exception
+        type would not match. Only the four keywords above are checked, and
+        only a value shaped as a bare name or `str(name)`; `repr(name)`, an
+        f-string interpolating the name, or a differently-named keyword would
+        need a human audit. It does not walk the old-style positional
+        `logger.debug("... %s", value)` calls in `arcgis.py`/`wfs.py`: those
+        pass the exception as a plain positional argument, a different shape
+        this AST pattern does not match at all -- audited by hand instead,
+        and every site there wraps the exception in
+        `redact_exception_text(...)` before the format string sees it.
+
+        A bare `except Exception as exc:` inside a function that itself
+        awaits an httpx call is the harder sibling case round 40 asked to
+        close if tractable: it is not, at an acceptable false-positive rate,
+        by a purely syntactic sweep. A verb-name heuristic ("does the
+        function await anything named `.get(`/`.post(`/etc.") was tried by
+        hand across this tree and produced three false positives on its
+        first run -- `api/main.py`'s DB-connectivity retry (`await
+        cfg.get(session)`, a `PersistentConfig` read, not httpx),
+        `processing/analysis/tasks.py`'s job-failure handler (`await
+        session.get(...)`, a SQLAlchemy `AsyncSession.get`, not httpx) -- for
+        one real hit (`sources/cog_info.py`'s Titiler fetch, fixed below).
+        Telling those apart needs the callee's actual type, which is real
+        data-flow analysis this repo's other structural gates deliberately
+        stay out of (see `test_credential_producer_structural.py`'s own
+        Known-limits). `processing/ai/probe.py`'s embeddings probe matched
+        the heuristic too and was hand-audited rather than fixed: its
+        `_sanitized_failure` docstring already documents the tradeoff on
+        purpose ("The response must never carry exception text... The full
+        detail is logged server-side instead") for a first-party paid
+        provider's own error body, a different threat model from a
+        self-hosted GIS service reflecting a query parameter shaped like a
+        credential -- the class this fix and its predecessors close.
+        """
+        import pathlib
+
+        import app as app_package
+
+        app_root = pathlib.Path(app_package.__file__).parent
+        findings = _find_unredacted_error_fields_in_tree(app_root)
+        assert findings == {}, findings
+
+
+class TestAdapterProbeReadsAreBounded:
+    """fix(#1770 round 41 P1, `adapters/ogcapi.py:203` "Bound authenticated
+    probe responses before buffering").
+
+    `probe_ogcapi`/`probe_wfs`/`probe_arcgis_service`/`connect_stac_api` (and
+    `_resolve_conformance`) used a plain `client.get`, which buffers the
+    whole body -- decompressed, if the service sends one -- before
+    `.json()`/`.text` ever runs, with no byte cap, no decoded-size cap, and
+    no bound on how long any of it could take beyond the client's own
+    per-inactivity timeout. `assert_endpoints_stay_on_origin()`, which bounds
+    all of that, only runs AFTER `detect_service_type()` returns, so a
+    protected service a caller already holds a credential for could exhaust
+    the API process during a probe's own read, before that check ever gets a
+    turn.
+
+    Fixed by routing each read through `bounded_probe_read`
+    (`platform/probe_bounds.py`), which streams via `client.stream` and
+    `read_bounded_body` -- the same `MAX_DOCUMENT_BYTES` on the wire,
+    identity-only so a compressed body is refused before a byte of it is
+    inflated -- and `require_decodable` for the same `MAX_DOCUMENT_TOKENS`/
+    `MAX_DOCUMENT_ELEMENTS` decoded, all reused from `service_endpoints.py`
+    rather than reinvented. Each probe function additionally runs its whole
+    body under `DEFAULT_CHECK_TIMEOUT` via `asyncio.timeout`, the same clock
+    `assert_endpoints_stay_on_origin` runs its own reads under.
+
+    Known limits, on purpose, scoped explicitly rather than left implicit:
+    this closes the four SERVICE-TYPE-DETECTION entry points the finding
+    named -- the ones reachable BEFORE any per-target credential check has
+    run, which is the exact ordering gap the finding is about. It does NOT
+    convert every `client.<verb>(` in these two directories; the structural
+    sweep below enumerates the ones that stay unbounded and why each is a
+    different, lower-severity case than the four named entry points:
+
+    - `stac.py`'s `list_stac_collections`/`search_stac_items`: STAC's own
+      adapter carries no credential at all on this codepath (`_make_client`
+      builds an anonymous client; `has_url_credentials` is what this module
+      polices instead), so the "a caller already holds a credential for it"
+      half of the finding does not apply the same way.
+
+    Closing those is real follow-up work, not a settled non-issue -- an
+    unbounded read is still an unbounded read regardless of what credential
+    is or is not attached -- but it is a different, wider-scoped change than
+    this finding's four named entry points, so it is named here rather than
+    silently left for a future sweep to rediscover.
+
+    fix(#1770 round 44 P1): `arcgis.py`'s `_fetch_count`/
+    `fetch_arcgis_feature_count`/`fetch_arcgis_pagination_info`/
+    `fetch_arcgis_layer_preview` used to be listed above too, on the
+    reasoning that `assert_endpoints_stay_on_origin` had already vetted the
+    target by the time these run. That reasoning was wrong:
+    `assert_endpoints_stay_on_origin` returns immediately for any
+    `service_format` outside `HEADER_AUTH_SERVICE_FORMATS`
+    (`requires_header_token_policy` in `core/service_tokens.py`), and ArcGIS
+    is deliberately not a member -- its token travels in the URL, never a
+    header, so it never gets a header-carrying bound at all. No check of any
+    kind ran for these five reads (`fetch_arcgis_layer_preview` makes two)
+    before this round. All five now read through `bounded_probe_read` under
+    `DEFAULT_CHECK_TIMEOUT`, so they moved out of the Known-limits list
+    entirely rather than staying documented here as "different, lower
+    severity" -- they were the same severity as the finding's four named
+    entry points, just missed by the same sweep.
+
+    fix(#1770 round 43 P1): `modules/catalog/sources/router.py`'s
+    `_fetch_ogcapi_collection_srid` -- the CRS fallback for the localized
+    preview -- carried the SAME `ServiceCredential` shape the four probes
+    above carry (Basic or a header-key, via `build_credential_header`) and
+    the SAME plain `client.get` shape this class already closed for them,
+    but stayed open, because round 41's sweep was scoped to `adapters/` and
+    `platform/service_*.py`, and `router.py` is neither. That is a scope gap
+    in the class, not a new class, so this round widens the enumeration
+    below to ALL of `backend/app` rather than patching the one instance, and
+    routes the CRS fetch through `bounded_probe_read` under
+    `DEFAULT_CHECK_TIMEOUT`, matching the four probes exactly. The
+    tree-wide sweep this round turned up, and each is documented in the
+    `expected` set below rather than here, so the two lists cannot drift
+    apart:
+
+    - `auth/oauth/service.py`'s `_resolve_github_identity`: the GitHub
+      OAuth access token, not a `ServiceCredential` -- already allowlisted
+      by name in `test_credential_producer_structural.py`'s
+      `CREDENTIAL_HEADER_ALLOWLIST` as "not a service credential and not
+      B2b's to move". A different credential type with a different
+      producer; out of THIS class's scope for the same reason that gate
+      already gave it.
+    - `catalog/sources/arcgis_signin.py`'s `_fetch_json`: already
+      independently bounded by its own `client.stream()` implementation
+      from #1758 (byte cap and deadline both native to that module, not
+      borrowed from `probe_bounds.py`).
+    - `catalog/sources/cog_info.py`'s `fetch_cog_info` (3 sites): all three
+      talk to GeoLens's OWN internal, trusted Titiler service
+      (`build_titiler_cog_url`), carrying no external credential at all --
+      see that function's own Gate 1/Gate 2 docstring.
+    - `catalog/sources/origin_probe.py`'s `probe_remote_uri`/
+      `fetch_json_document`: neither attaches a credential header; both
+      already run under their own doubled hard deadline and (for the JSON
+      fetch) accumulate into a `bytearray` the caller bounds separately.
+    - `platform/config_ops/service.py`'s `check_oidc_endpoint`: no
+      credential header -- it validates an admin-configured OIDC issuer
+      URL, not a customer's external service source.
+    - `platform/notifications/webhook_channel.py`'s `post_webhook`: carries
+      a webhook SIGNING secret (an HMAC computed over the outgoing body),
+      not a `ServiceCredential` read FROM an external service -- the
+      opposite direction and a different threat model.
+    - `processing/ingest/manifest_service.py`'s `_download_http_source`:
+      takes no credential parameter at all.
+    - `processing/ingest/url_fetch.py`'s `fetch_url_to_path`: no credential
+      header (`headers={"Accept-Encoding": "identity"}` only); already
+      bounded by its own outer `asyncio.timeout`, identity-only streaming,
+      and its own `codeql[py/full-ssrf]` marker (fix(#1708)).
+    - `platform/probe_bounds.py`'s `bounded_probe_read` and
+      `platform/service_endpoints.py`'s `fetch_document`: the two bounded
+      implementations themselves.
+    """
+
+    def test_every_network_call_in_scope_is_bounded_or_documented(self) -> None:
+        """Source-enumeration, closed set, tree-wide.
+
+        fix(#1770 round 43 P1): widened from `modules/catalog/sources/
+        adapters/*.py` + `platform/service_*.py` to every `*.py` under
+        `backend/app`, because the round-41 scope gap (see class docstring)
+        was exactly a file this walk did not visit. Finds every
+        `client.<verb>(` call anywhere in the tree and asserts the found set
+        matches exactly the `expected` closed set, each entry justified in
+        the class docstring above. Any new addition -- a fixed site
+        regressing, or a genuinely new call site anywhere in `backend/app`
+        -- changes this set and fails here rather than in a future review
+        round.
+        """
+        import ast
+        import pathlib
+
+        import app as app_package
+
+        app_root = pathlib.Path(app_package.__file__).parent
+        verbs = {"get", "post", "put", "patch", "delete", "request", "stream", "send"}
+
+        def _find(source: str) -> set[tuple[str, str]]:
+            tree = ast.parse(source)
+            found: set[tuple[str, str]] = set()
+            func_stack: list[str] = []
+
+            class _Visitor(ast.NodeVisitor):
+                def visit_FunctionDef(self, node: "ast.FunctionDef") -> None:
+                    self._enter(node)
+
+                def visit_AsyncFunctionDef(self, node: "ast.AsyncFunctionDef") -> None:
+                    self._enter(node)
+
+                def _enter(self, node) -> None:
+                    func_stack.append(node.name)
+                    self.generic_visit(node)
+                    func_stack.pop()
+
+                def visit_Call(self, node: "ast.Call") -> None:
+                    func = node.func
+                    if (
+                        isinstance(func, ast.Attribute)
+                        and func.attr in verbs
+                        and isinstance(func.value, ast.Name)
+                        and func.value.id == "client"
+                    ):
+                        fname = func_stack[-1] if func_stack else "<module>"
+                        found.add((fname, func.attr))
+                    self.generic_visit(node)
+
+            _Visitor().visit(tree)
+            return found
+
+        found: set[tuple[str, str, str]] = set()
+        for path in sorted(app_root.rglob("*.py")):
+            dotted = "app." + ".".join(path.relative_to(app_root).with_suffix("").parts)
+            for fname, verb in _find(path.read_text(encoding="utf-8")):
+                found.add((dotted, fname, verb))
+
+        expected = {
+            # Known limits, documented in the class docstring above.
+            #
+            # fix(#1770 round 44 P1): the four arcgis.py entries that used to
+            # sit here (`_fetch_count`, `fetch_arcgis_feature_count`,
+            # `fetch_arcgis_pagination_info`, `fetch_arcgis_layer_preview`)
+            # are GONE from this set, not renamed into it: all four now read
+            # through `bounded_probe_read`, so they no longer show up as a
+            # raw `client.<verb>(` call at all. The justification that used
+            # to be here -- "already vetted for this endpoint by the time
+            # these run" -- was wrong for ArcGIS specifically:
+            # `assert_endpoints_stay_on_origin` returns immediately for any
+            # `service_format` outside `HEADER_AUTH_SERVICE_FORMATS`
+            # (`requires_header_token_policy`), and ArcGIS is deliberately
+            # not a member (its token travels in the URL, never a header;
+            # `ARCGIS_SERVICE_FORMAT` in this file). No bound of any kind ran
+            # for these four before this round.
+            (
+                "app.modules.catalog.sources.adapters.stac",
+                "list_stac_collections",
+                "get",
+            ),
+            ("app.modules.catalog.sources.adapters.stac", "search_stac_items", "post"),
+            # The two already-bounded implementations themselves.
+            ("app.platform.service_endpoints", "fetch_document", "stream"),
+            ("app.platform.probe_bounds", "bounded_probe_read", "stream"),
+            # fix(#1770 round 43 P1): the tree-wide widening. See class
+            # docstring for why each of these is out of scope.
+            ("app.modules.auth.oauth.service", "_resolve_github_identity", "get"),
+            ("app.modules.catalog.sources.arcgis_signin", "_fetch_json", "stream"),
+            ("app.modules.catalog.sources.cog_info", "fetch_cog_info", "get"),
+            ("app.modules.catalog.sources.origin_probe", "probe_remote_uri", "stream"),
+            (
+                "app.modules.catalog.sources.origin_probe",
+                "fetch_json_document",
+                "stream",
+            ),
+            ("app.platform.config_ops.service", "check_oidc_endpoint", "get"),
+            (
+                "app.platform.notifications.webhook_channel",
+                "post_webhook",
+                "post",
+            ),
+            (
+                "app.processing.ingest.manifest_service",
+                "_download_http_source",
+                "stream",
+            ),
+            ("app.processing.ingest.url_fetch", "fetch_url_to_path", "stream"),
+        }
+        assert found == expected, found - expected or expected - found
+
+    async def test_the_crs_fallback_also_stops_at_the_byte_cap(
+        self, monkeypatch
+    ) -> None:
+        """Pin for fix(#1770 round 43 P1): `_fetch_ogcapi_collection_srid`
+        now reads through `bounded_probe_read` exactly like the four probes
+        above, so an authenticated collection endpoint that tries to stream
+        an oversized body past it is stopped at `MAX_DOCUMENT_BYTES`, not
+        buffered in full by a bare `client.get().json()`.
+
+        Counterfactual: reverting the fix (a plain `client.get` with no
+        cap) lets `_chunks` run to completion and either raises inside
+        `.json()` on the truncated-by-nothing giant payload or, worse,
+        actually decodes it -- either way `chunks_yielded` is NOT bounded
+        near the cap the way it is here.
+        """
+        from app.modules.catalog.sources.router import _fetch_ogcapi_collection_srid
+        from app.platform.service_endpoints import MAX_DOCUMENT_BYTES
+
+        chunk_size = 1024 * 1024
+        chunks_yielded = 0
+
+        async def _chunks():
+            nonlocal chunks_yielded
+            total = (MAX_DOCUMENT_BYTES // chunk_size) + 50
+            for _ in range(total):
+                chunks_yielded += 1
+                yield b"a" * chunk_size
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=_chunks())
+
+        monkeypatch.setattr(
+            security,
+            "make_safe_transport",
+            lambda: httpx.MockTransport(handle),
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+
+        srid = await _fetch_ogcapi_collection_srid(
+            "https://services.example.test/oapif",
+            "parcels",
+            None,
+        )
+
+        assert srid is None
+        assert chunks_yielded <= (MAX_DOCUMENT_BYTES // chunk_size) + 2, chunks_yielded
+
+    async def test_the_crs_fallback_degrades_on_a_json_depth_bomb(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1770 round 44 P2, `sources/router.py:598`).
+
+        Same bomb as `_parsed_json`'s own pin: 900,000 nested `[` is under
+        every byte/token cap `_fetch_ogcapi_collection_srid` checks and
+        raises `RecursionError` from `json.loads(body)`, not the `ValueError`
+        the except clause used to name. Uncaught, this would have escaped
+        the whole `except (...)` tuple as an unhandled exception rather than
+        degrading to `None` the way every other unreadable collection
+        document does.
+        """
+        from app.modules.catalog.sources.router import _fetch_ogcapi_collection_srid
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            raw = b"[" * 900_000
+
+            async def _chunks():
+                yield raw
+
+            return httpx.Response(200, content=_chunks())
+
+        monkeypatch.setattr(
+            security,
+            "make_safe_transport",
+            lambda: httpx.MockTransport(handle),
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+
+        srid = await _fetch_ogcapi_collection_srid(
+            "https://services.example.test/oapif",
+            "parcels",
+            None,
+        )
+
+        assert srid is None
+
+    async def test_a_body_over_the_byte_cap_is_refused_before_full_buffering(
+        self,
+    ) -> None:
+        """Pin: the read stops at the cap rather than paying for the whole
+        oversized body first ("stream and stop", not measure-then-refuse)."""
+        from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
+        from app.platform.service_endpoints import MAX_DOCUMENT_BYTES
+
+        chunk_size = 1024 * 1024
+        chunks_yielded = 0
+
+        async def _chunks():
+            nonlocal chunks_yielded
+            # Fifty chunks past the cap it should never be asked for.
+            total = (MAX_DOCUMENT_BYTES // chunk_size) + 50
+            for _ in range(total):
+                chunks_yielded += 1
+                yield b"a" * chunk_size
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=_chunks())
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+            result = await probe_ogcapi(f"{_SERVICE_ORIGIN}/oapif", client)
+
+        assert result is None
+        assert chunks_yielded <= (MAX_DOCUMENT_BYTES // chunk_size) + 2, chunks_yielded
+
+    async def test_a_compressed_body_is_refused_before_decompression(
+        self, monkeypatch
+    ) -> None:
+        """Pin: a compressed body -- large or small -- never reaches the
+        decoded-size check at all. `read_bounded_body` refuses any
+        `Content-Encoding` other than identity outright, the same
+        compression-bomb defense `service_endpoints.py`'s door reads already
+        use, extended here rather than reinvented.
+
+        SSRF is mocked and `recorded` is asserted to length 1 so this cannot
+        pass for the wrong reason: a real httpx client transparently
+        decompresses a gzip body on `.json()`, so the counterfactual (a plain
+        `client.get`) would otherwise reach `/collections` too and only fail
+        there on an unmocked SSRF check -- a coincidence, not this fix.
+        """
+        import gzip
+
+        from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
+
+        payload = json.dumps(
+            {
+                "conformsTo": [
+                    "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+                ]
+            }
+        ).encode()
+        compressed = gzip.compress(payload)
+        recorded: list[httpx.Request] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return httpx.Response(
+                200, content=compressed, headers={"Content-Encoding": "gzip"}
+            )
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+            AsyncMock(),
+        )
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+            result = await probe_ogcapi(f"{_SERVICE_ORIGIN}/oapif", client)
+
+        assert result is None
+        assert len(recorded) == 1
+
+    async def test_a_slow_trickling_body_past_the_deadline_is_refused(
+        self, monkeypatch
+    ) -> None:
+        """Pin: a service that answers, just slowly, is bounded by the
+        deadline the whole probe function now runs under -- not just by the
+        client's own per-inactivity timeout, which a steady trickle never
+        trips."""
+        from app.modules.catalog.sources.adapters import ogcapi as ogcapi_adapter
+
+        monkeypatch.setattr(ogcapi_adapter, "DEFAULT_CHECK_TIMEOUT", 0.05)
+
+        async def _chunks():
+            yield b'{"con'
+            await asyncio.sleep(0.3)
+            yield b'formsTo": []}'
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=_chunks())
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+            result = await ogcapi_adapter.probe_ogcapi(
+                f"{_SERVICE_ORIGIN}/oapif", client
+            )
+
+        assert result is None
+
+    async def test_an_ordinary_landing_page_is_unaffected(self, monkeypatch) -> None:
+        """Pin: the fourth case matters as much as the other three -- an
+        honest service inside every bound gets the same answer it always
+        did."""
+        from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
+
+        landing = {
+            "conformsTo": [
+                "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+            ]
+        }
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/collections"):
+                return httpx.Response(200, json={"collections": [{"id": "c1"}]})
+            return httpx.Response(200, json=landing)
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+            AsyncMock(),
+        )
+        transport = httpx.MockTransport(lambda r: _as_stream(handle(r)))
+        async with httpx.AsyncClient(transport=transport) as client:
+            result = await probe_ogcapi(f"{_SERVICE_ORIGIN}/oapif", client)
+
+        assert result is not None
+        assert result["service_type"] == "OGC API Features"
+        assert [layer["name"] for layer in result["layers"]] == ["c1"]
+
+
+_NON_DICT_JSON_BODIES = (b"[]", b"null", b'"x"')
+
+
+class TestANonDictDocumentIsNotACrash:
+    """fix(#1770 round 44 P2, `adapters/ogcapi.py:329`, `stac.py:274`,
+    `arcgis.py:204`).
+
+    A credentialed endpoint answering `200 []`, `200 null`, or `200 "x"` is
+    valid JSON but not a dict. `ogcapi.py`'s `/collections` fetch called
+    `col_data.get(...)` with no `isinstance` guard (the landing page has
+    one; `/collections` did not); `stac.py`'s landing-page read called
+    `data.get(...)` the same way; `arcgis.py`'s response check did `"error"
+    in data`, which raises `TypeError` on an int and does a silent (wrong,
+    but not crashing) substring check on a str. All three raised
+    `AttributeError`/`TypeError` that neither `_header_auth_probe`
+    (`probe.py`, `ValueError` only) nor the probe route's except chain
+    catches, so each surfaced as a bare 500 instead of the ordinary
+    "not this service type" `None` degrade.
+    """
+
+    @pytest.mark.parametrize("body", _NON_DICT_JSON_BODIES)
+    async def test_ogcapi_collections_response(self, monkeypatch, body) -> None:
+        from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
+
+        landing = {
+            "conformsTo": [
+                "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+            ]
+        }
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/collections"):
+                return httpx.Response(200, content=body)
+            return httpx.Response(200, json=landing)
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+            AsyncMock(),
+        )
+        transport = httpx.MockTransport(lambda r: _as_stream(handle(r)))
+        async with httpx.AsyncClient(transport=transport) as client:
+            result = await probe_ogcapi(f"{_SERVICE_ORIGIN}/oapif", client)
+
+        assert result is None
+
+    @pytest.mark.parametrize("body", _NON_DICT_JSON_BODIES)
+    async def test_stac_landing_page_response(self, monkeypatch, body) -> None:
+        from app.modules.catalog.sources.adapters.stac import connect_stac_api
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=body)
+
+        monkeypatch.setattr(
+            security,
+            "make_safe_transport",
+            lambda: httpx.MockTransport(lambda r: _as_stream(handle(r))),
+        )
+
+        result = await connect_stac_api(f"{_SERVICE_ORIGIN}/stac")
+
+        assert result is None
+
+    @pytest.mark.parametrize("body", _NON_DICT_JSON_BODIES)
+    async def test_arcgis_service_root_response(self, monkeypatch, body) -> None:
+        from app.modules.catalog.sources.adapters.arcgis import probe_arcgis_service
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=body)
+
+        transport = httpx.MockTransport(lambda r: _as_stream(handle(r)))
+        async with httpx.AsyncClient(transport=transport) as client:
+            result = await probe_arcgis_service(
+                f"{_SERVICE_ORIGIN}/FeatureServer", client
+            )
+
+        assert result is None
+
+
+class TestARegisteredCredentialIsScrubbedByExactValue:
+    """fix(#1770 round 43 P2, `sources/router.py:587`).
+
+    `redact_exception_text`/the structlog `_scrub_text` processor only ever
+    redacted a credential by PATTERN: a query parameter whose NAME is in
+    `SENSITIVE_QUERY_PARAMS`, or userinfo. A same-origin redirect can reflect
+    the Basic blob, a password, or an API key into the URL PATH, or into an
+    arbitrary query key neither pattern recognises (`?echo=<value>`), and
+    either shape reached a log line untouched -- each one its own review
+    round rather than a closed class.
+
+    `register_credential_secret` (`core/service_tokens.py`), called at the
+    one place a credential header is composed (`build_credential_header`),
+    closes it: `redact_exception_text` and `_scrub_text` both exact-scrub
+    every registered secret after their pattern-based passes, so no caller
+    has to notice a new reflection shape for it to be caught.
+    """
+
+    async def test_a_credential_reflected_into_an_arbitrary_query_key_is_scrubbed(
+        self, monkeypatch
+    ) -> None:
+        """`?echo=<value>` -- not in `SENSITIVE_QUERY_PARAMS` at all."""
+        import structlog
+
+        from app.modules.catalog.sources.router import _fetch_ogcapi_collection_srid
+
+        credential, value = _header_key()
+        recorded: list[httpx.Request] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            if len(recorded) == 1:
+                return httpx.Response(
+                    302,
+                    headers={
+                        "Location": (
+                            "https://services.example.test/oapif/"
+                            f"collections-moved?echo={value}"
+                        )
+                    },
+                )
+            return httpx.Response(404, json={"error": "not found"})
+
+        monkeypatch.setattr(
+            security,
+            "make_safe_transport",
+            lambda: httpx.MockTransport(lambda r: _as_stream(handle(r))),
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+
+        with structlog.testing.capture_logs() as captured:
+            srid = await _fetch_ogcapi_collection_srid(
+                "https://services.example.test/oapif",
+                "parcels",
+                ServiceCredential(
+                    method=credential.method,
+                    service_format="ogcapi_features",
+                    header_name=credential.header_name,
+                    header_value=credential.header_value,
+                ),
+            )
+
+        assert srid is None
+        assert len(recorded) == 2
+        rendered = str(captured)
+        assert value not in rendered
+        assert "CRS fallback fetch failed" in rendered
+
+    async def test_a_credential_reflected_into_the_url_path_is_scrubbed(
+        self, monkeypatch
+    ) -> None:
+        """The other reflection shape: no query string involved at all."""
+        import structlog
+
+        from app.modules.catalog.sources.router import _fetch_ogcapi_collection_srid
+
+        credential, value = _header_key()
+        recorded: list[httpx.Request] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            if len(recorded) == 1:
+                return httpx.Response(
+                    302,
+                    headers={
+                        "Location": (
+                            f"https://services.example.test/oapif/{value}/moved"
+                        )
+                    },
+                )
+            return httpx.Response(404, json={"error": "not found"})
+
+        monkeypatch.setattr(
+            security,
+            "make_safe_transport",
+            lambda: httpx.MockTransport(lambda r: _as_stream(handle(r))),
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+
+        with structlog.testing.capture_logs() as captured:
+            srid = await _fetch_ogcapi_collection_srid(
+                "https://services.example.test/oapif",
+                "parcels",
+                ServiceCredential(
+                    method=credential.method,
+                    service_format="ogcapi_features",
+                    header_name=credential.header_name,
+                    header_value=credential.header_value,
+                ),
+            )
+
+        assert srid is None
+        assert len(recorded) == 2
+        rendered = str(captured)
+        assert value not in rendered
+        assert "CRS fallback fetch failed" in rendered
+
+    def test_the_structlog_processor_also_scrubs_a_registered_secret(self) -> None:
+        """`_scrub_text` (`core/logging_config.py`) is the OTHER caller this
+        closes for -- any log line, not only ones that route through
+        `redact_exception_text`."""
+        from app.core.logging_config import _scrub_text
+        from app.core.service_tokens import (
+            build_credential_header,
+            reset_registered_credential_secrets,
+        )
+
+        reset_registered_credential_secrets()
+        try:
+            pair = build_credential_header(
+                ServiceCredential(
+                    method=CredentialMethod.HEADER_KEY,
+                    service_format="ogcapi_features",
+                    header_name="X-Api-Key",
+                    header_value="s3cret-value",
+                )
+            )
+            assert pair is not None
+
+            rendered = _scrub_text(
+                "GET /collections?echo=s3cret-value moved to /oapif/s3cret-value"
+            )
+        finally:
+            reset_registered_credential_secrets()
+
+        assert "s3cret-value" not in rendered
+
+    def test_a_producer_that_forgets_to_register_is_not_scrubbed(self) -> None:
+        """Positive control: the mechanism is not vacuously passing.
+
+        A secret never registered is not found -- this is what the pin above
+        is actually testing FOR, and it is also the shape the structural
+        counterfactual in `test_credential_producer_structural.py` exercises
+        by reverting the real registration call.
+        """
+        from app.core.logging_config import _scrub_text
+        from app.core.service_tokens import reset_registered_credential_secrets
+
+        reset_registered_credential_secrets()
+        try:
+            rendered = _scrub_text("moved to /oapif/never-registered-secret")
+        finally:
+            reset_registered_credential_secrets()
+
+        assert "never-registered-secret" in rendered
+
+
+class TestASecretDoesNotSurviveInTheChain:
+    """fix(#1746 B2b review r32): a traceback renders more than `args`.
+
+    A namespace-qualified WFS import that fails, retries unqualified, and fails
+    again leaves the FIRST attempt's error as the retry's `__context__`, and as
+    its `__cause__` when the auth hint replaces it. Scrubbing only the
+    outermost `args` left a username or password the first GDAL attempt echoed
+    sitting in the chained traceback that exception logging renders and the
+    queue's bare re-raise records.
+    """
+
+    @staticmethod
+    def _secret() -> str:
+        return "pw" + _value()
+
+    def test_a_context_chain_is_scrubbed_at_every_level(self) -> None:
+        secret = self._secret()
+        try:
+            try:
+                raise IngestionError(f"attempt one: bad password {secret}")
+            except IngestionError:
+                raise IngestionError(f"attempt two: bad password {secret}") from None
+        except IngestionError as outer:
+            scrub_secret_from_exception(outer, secret)
+
+            assert secret not in str(outer)
+            # `from None` suppresses the CAUSE and leaves the CONTEXT attached,
+            # so the first attempt's message is still reachable and still
+            # rendered by anything that walks the chain itself.
+            assert outer.__context__ is not None
+            assert secret not in str(outer.__context__)
+
+    def test_a_cause_chain_is_scrubbed_at_every_level(self) -> None:
+        """The shape `_run_service_import_with_wfs_fallback` builds."""
+        secret = self._secret()
+        try:
+            try:
+                raise IngestionError(f"gdal said {secret}")
+            except IngestionError as retry_exc:
+                raise IngestionError("This service requires a token.") from retry_exc
+        except IngestionError as outer:
+            scrub_secret_from_exception(outer, secret)
+
+            assert outer.__cause__ is not None
+            assert secret not in str(outer.__cause__)
+
+    def test_a_deep_chain_is_scrubbed_throughout(self) -> None:
+        secret = self._secret()
+        exc: BaseException = IngestionError(f"level 0 {secret}")
+        for level in range(1, 6):
+            outer = IngestionError(f"level {level} {secret}")
+            outer.__context__ = exc
+            exc = outer
+
+        scrub_secret_from_exception(exc, secret)
+
+        seen = 0
+        node: BaseException | None = exc
+        while node is not None:
+            assert secret not in str(node), seen
+            seen += 1
+            node = node.__context__
+        assert seen == 6
+
+    def test_a_cycle_terminates(self) -> None:
+        """`e.__context__ = e` is legal, and a handler for Y raising X from Y
+        builds a two-node one. The visited set is what ends the walk."""
+        secret = self._secret()
+        one = IngestionError(f"one {secret}")
+        two = IngestionError(f"two {secret}")
+        one.__context__ = two
+        two.__context__ = one
+        one.__cause__ = two
+
+        scrub_secret_from_exception(one, secret)
+
+        assert secret not in str(one)
+        assert secret not in str(two)
+
+    def test_a_self_referencing_exception_terminates(self) -> None:
+        secret = self._secret()
+        exc = IngestionError(f"alone {secret}")
+        exc.__context__ = exc
+        exc.__cause__ = exc
+
+        scrub_secret_from_exception(exc, secret)
+
+        assert secret not in str(exc)
+
+    def test_a_chain_longer_than_the_bound_still_returns(self) -> None:
+        """The depth bound is a floor under a chain that is merely long.
+
+        Whatever it does not reach it does not hang on, which is the property
+        that matters while a job is already failing.
+        """
+        from app.core.url_redaction import _MAX_EXCEPTION_CHAIN_DEPTH
+
+        secret = self._secret()
+        exc: BaseException = IngestionError(f"deep {secret}")
+        for _ in range(_MAX_EXCEPTION_CHAIN_DEPTH * 3):
+            outer = IngestionError(f"deep {secret}")
+            outer.__context__ = exc
+            exc = outer
+
+        scrub_secret_from_exception(exc, secret)
+
+        assert secret not in str(exc)
+
+    def test_exception_group_members_are_scrubbed(self) -> None:
+        """A group carries its members beside the chain, not in it.
+
+        `anyio` and `asyncio.TaskGroup` raise these, and the worker runs under
+        both, so following only `__context__` and `__cause__` walks straight
+        past the exception that actually holds the text.
+        """
+        secret = self._secret()
+        group = BaseExceptionGroup(
+            "task group failed",
+            [
+                IngestionError(f"member one {secret}"),
+                IngestionError(f"member two {secret}"),
+            ],
+        )
+
+        scrub_secret_from_exception(group, secret)
+
+        for member in group.exceptions:
+            assert secret not in str(member)
+
+    def test_a_nested_group_is_scrubbed(self) -> None:
+        secret = self._secret()
+        inner = BaseExceptionGroup("inner", [IngestionError(f"deep {secret}")])
+        outer = BaseExceptionGroup("outer", [inner])
+
+        scrub_secret_from_exception(outer, secret)
+
+        assert secret not in str(outer.exceptions[0].exceptions[0])
+
+    def test_notes_are_scrubbed(self) -> None:
+        """`add_note` text is rendered exactly like the message is."""
+        secret = self._secret()
+        exc = IngestionError("ogr2ogr failed")
+        exc.add_note(f"attempted with {secret}")
+        inner = IngestionError("first attempt")
+        inner.add_note(f"also {secret}")
+        exc.__context__ = inner
+
+        scrub_secret_from_exception(exc, secret)
+
+        assert secret not in "".join(exc.__notes__)
+        assert secret not in "".join(inner.__notes__)
+
+    def test_a_chain_of_mixed_types_is_scrubbed(self) -> None:
+        """The walk must not assume every link is an `IngestionError`."""
+        secret = self._secret()
+        try:
+            try:
+                raise OSError(f"connect failed for {secret}")
+            except OSError:
+                raise IngestionError(f"import failed {secret}") from None
+        except IngestionError as outer:
+            scrub_secret_from_exception(outer, secret)
+
+            assert secret not in str(outer)
+            assert secret not in str(outer.__context__)
+
+    def test_nothing_happens_without_a_secret(self) -> None:
+        """The no-credential path must not pay for any of this."""
+        exc = IngestionError("ogr2ogr failed (exit 1)")
+        inner = IngestionError("first attempt")
+        exc.__context__ = inner
+
+        scrub_secret_from_exception(exc, None)
+        scrub_secret_from_exception(exc, "")
+
+        assert str(exc) == "ogr2ogr failed (exit 1)"
+        assert str(inner) == "first attempt"
+
+    async def test_the_worker_scrubs_the_chain_it_produces(self, monkeypatch) -> None:
+        """End to end through the retry that builds the chain in production.
+
+        The first attempt fails with the password echoed, the unqualified retry
+        fails the same way, and what the task hands on must carry it at neither
+        level.
+        """
+        from app.processing.ingest.tasks_common import (
+            _run_service_import_with_wfs_fallback,
+        )
+
+        secret = self._secret()
+        attempts: list[str] = []
+
+        async def _import(layer_name: str) -> None:
+            attempts.append(layer_name)
+            raise IngestionError(
+                f"ogr2ogr failed (exit 1): authentication failed for {secret}"
+            )
+
+        with pytest.raises(IngestionError) as raised:
+            await _run_service_import_with_wfs_fallback(_import, "topp:parcels")
+
+        # Both attempts ran, so there is a chain to scrub.
+        assert attempts == ["topp:parcels", "parcels"]
+        assert raised.value.__context__ is not None
+        assert secret in str(raised.value.__context__)
+
+        scrub_secret_from_exception(raised.value, secret)
+
+        assert secret not in str(raised.value)
+        assert secret not in str(raised.value.__context__)
+
+
+class TestAHeaderAuthJobGoesOnTheVersionedQueue:
+    """fix(#1770 round 35, `service_auth.py` P1 on head 1ad209100).
+
+    A worker running the release before this PR has no notion of a composed
+    header line: its ``_sanitize_authorization_token`` takes no
+    ``service_format`` and applies the bare-bearer charset to whatever
+    ``token`` holds, so the first ``:`` or space in a line this PR composes
+    is refused as a bad character. During a rolling deploy that upgrades the
+    API before every worker, that turns a previously-working bearer WFS/OGC
+    API import into a deterministic failure that still spends the single-use
+    credential.
+
+    `header_auth_job_queue` routes a header-auth job to a queue only a
+    worker from this release listens to, so an old one never dequeues it —
+    the job sits exactly as it would while every worker is busy, and an
+    upgraded worker drains it once one exists. A task-name gate was
+    considered and rejected for the same reason #1689 and #1277 already
+    rejected it at this door: Procrastinate marks a job with no registered
+    task FAILED before the task body runs, so the ``ingest_jobs`` row this
+    codebase owns never updates and sits `pending` until the abandoned-run
+    sweep.
+    """
+
+    def test_a_header_auth_credential_gets_the_versioned_queue(self) -> None:
+        from app.platform.service_auth import (
+            HEADER_AUTH_JOB_QUEUE,
+            header_auth_job_queue,
+        )
+
+        assert (
+            header_auth_job_queue("Authorization: Bearer abc", service_format="wfs")
+            == HEADER_AUTH_JOB_QUEUE
+        )
+        assert (
+            header_auth_job_queue(
+                "Authorization: Basic abc", service_format="ogcapi_features"
+            )
+            == HEADER_AUTH_JOB_QUEUE
+        )
+        assert (
+            header_auth_job_queue("X-Api-Key: abc", service_format="wfs")
+            == HEADER_AUTH_JOB_QUEUE
+        )
+
+    def test_arcgis_and_no_credential_use_the_tasks_own_queue(self) -> None:
+        """ArcGIS's token is a URL query parameter, never a header line — a
+        worker from any generation reads it the same way, so it never needs
+        the versioned queue. No credential at all means no line was composed,
+        so there is nothing an old worker could misread either."""
+        from app.platform.service_auth import header_auth_job_queue
+
+        assert (
+            header_auth_job_queue(
+                "bare-arcgis-token", service_format="arcgis_featureserver"
+            )
+            is None
+        )
+        assert header_auth_job_queue(None, service_format="wfs") is None
+        assert header_auth_job_queue(None, service_format=None) is None
+
+    def test_every_service_credential_defer_site_routes_through_it(self) -> None:
+        """Structural: the import door, the refresh door and the reupload
+        door each judge the queue on the composed line and configure the
+        task with it — grepped rather than asserted per-branch, so a fourth
+        site added later without the same two calls fails here."""
+        import inspect
+
+        from app.modules.catalog.datasets.api import router_refresh, router_reupload
+        from app.processing.ingest import service as ingest_service_module
+
+        for module in (ingest_service_module, router_refresh, router_reupload):
+            source = inspect.getsource(module)
+            assert "header_auth_job_queue(" in source, (
+                f"{module.__name__} must judge the queue on the composed line"
+            )
+            assert ".configure(queue=" in source, (
+                f"{module.__name__} must apply the verdict to the deferred task"
+            )
+
+    def test_the_shipped_default_worker_queues_include_it(self) -> None:
+        """The class-level default, not the live `settings` singleton — this
+        must hold regardless of what a test or a deployment's env overrides
+        it to."""
+        from app.core.config import Settings
+        from app.platform.service_auth import HEADER_AUTH_JOB_QUEUE
+
+        default = Settings.model_fields["worker_queues"].default
+        queues = [q.strip() for q in default.split(",") if q.strip()]
+        assert HEADER_AUTH_JOB_QUEUE in queues
+
+    def test_docker_compose_and_env_example_name_every_queue_in_the_default(
+        self,
+    ) -> None:
+        """fix(#1770 round 36): the P1 this round closes.
+
+        Round 35 raised the Settings default and reasoned that neither
+        deployment template SETS ``WORKER_QUEUES``, so the raised default
+        reaches every stock install untouched. True for the Helm chart,
+        false for Compose: both compose files interpolate
+        ``WORKER_QUEUES: "${WORKER_QUEUES:-priority,ingest,raster}"``, and
+        Compose supplying that env var — even as a fallback — shadows the
+        Settings class default inside the container entirely. A stock
+        install never picked up the new queue, and a header-auth WFS/OGC API
+        job sat pending forever (the very case
+        ``TestAHeaderAuthJobGoesOnTheVersionedQueue`` above exists to keep
+        from failing), exactly as the ``fix(#695)`` comment beside both
+        compose lines already warned: a queue no worker listens to is not an
+        error, and nothing ever fails it.
+
+        Reads the files as text rather than parsing YAML: the two compose
+        lines are a fixed ``KEY: "${KEY:-default}"`` shape this asserts on
+        directly, and .env.example's is a commented ``# KEY=default`` — no
+        need for a YAML dependency to read either.
+        """
+        from app.core.config import Settings
+        from app.platform.service_auth import HEADER_AUTH_JOB_QUEUE
+
+        default = Settings.model_fields["worker_queues"].default
+        queues = [q.strip() for q in default.split(",") if q.strip()]
+        assert HEADER_AUTH_JOB_QUEUE in queues, (
+            "fix this test's other assertions first, not this one"
+        )
+
+        repo_root = None
+        for candidate in pathlib.Path(__file__).resolve().parents:
+            if (candidate / "docker-compose.yml").is_file():
+                repo_root = candidate
+                break
+        if repo_root is None:
+            # A backend-only container layout ships no compose files at
+            # all — nothing here to drift, and nothing to read.
+            pytest.skip("docker-compose.yml not found above this test file")
+
+        compose_pattern = re.compile(r'WORKER_QUEUES:\s*"\$\{WORKER_QUEUES:-([^}]*)\}"')
+        for compose_file in ("docker-compose.yml", "docker-compose.prod.yml"):
+            text = (repo_root / compose_file).read_text()
+            match = compose_pattern.search(text)
+            assert match is not None, f"{compose_file}: no WORKER_QUEUES default found"
+            compose_queues = [q.strip() for q in match.group(1).split(",") if q.strip()]
+            for queue in queues:
+                assert queue in compose_queues, (
+                    f"{compose_file}'s WORKER_QUEUES default {compose_queues} is "
+                    f"missing {queue!r} that Settings' default now carries — a "
+                    "worker built from this release never dequeues a job Compose "
+                    "routes to it, and nothing ever fails that job to say so"
+                )
+
+        env_example_pattern = re.compile(r"^# WORKER_QUEUES=(\S+)$", re.MULTILINE)
+        env_text = (repo_root / ".env.example").read_text()
+        env_match = env_example_pattern.search(env_text)
+        assert env_match is not None, ".env.example: no commented WORKER_QUEUES= line"
+        env_queues = [q.strip() for q in env_match.group(1).split(",") if q.strip()]
+        for queue in queues:
+            assert queue in env_queues, (
+                f".env.example's WORKER_QUEUES example {env_queues} is missing "
+                f"{queue!r} that Settings' default now carries"
+            )
+
+    async def test_a_new_shape_job_lands_on_the_versioned_queue(self) -> None:
+        from procrastinate import App, testing
+
+        from app.platform.service_auth import HEADER_AUTH_JOB_QUEUE
+
+        connector = testing.InMemoryConnector()
+        app = App(connector=connector)
+
+        @app.task(name="demo.ingest_service", queue="ingest")
+        async def ingest_service(**kwargs):
+            return "ran"
+
+        async with app.open_async():
+            await ingest_service.configure(queue=HEADER_AUTH_JOB_QUEUE).defer_async(
+                job_id="j1"
+            )
+
+        (row,) = connector.jobs.values()
+        assert row["queue_name"] == HEADER_AUTH_JOB_QUEUE
+
+    async def test_an_old_worker_never_dequeues_it(self) -> None:
+        """The three queues a worker built before this release ships with —
+        `settings.worker_queues`' old default, unchanged — never name it, so
+        `fetch_job` never selects the row and it is never spent on a header
+        line the old worker cannot parse."""
+        from procrastinate import App, testing
+        from procrastinate.worker import Worker
+
+        from app.platform.service_auth import HEADER_AUTH_JOB_QUEUE
+
+        connector = testing.InMemoryConnector()
+        app = App(connector=connector)
+
+        @app.task(name="demo.ingest_service", queue="ingest")
+        async def ingest_service(**kwargs):
+            return "ran"
+
+        async with app.open_async():
+            await ingest_service.configure(queue=HEADER_AUTH_JOB_QUEUE).defer_async(
+                job_id="j1"
+            )
+
+            await Worker(
+                app,
+                queues=["priority", "ingest", "raster"],
+                wait=False,
+                listen_notify=False,
+                install_signal_handlers=False,
+            ).run()
+
+        (row,) = connector.jobs.values()
+        assert row["status"] == "todo", "an old worker must never claim it"
+        assert row["attempts"] == 0
+
+    async def test_an_upgraded_worker_drains_both_the_old_and_new_queue(self) -> None:
+        """The shipped default (`priority,ingest,ingest-auth-v2,raster`)
+        drains a header-auth job alongside an ordinary one on `ingest` — the
+        new queue is additive, not a replacement for the old one."""
+        from procrastinate import App, testing
+        from procrastinate.worker import Worker
+
+        from app.core.config import Settings
+        from app.platform.service_auth import HEADER_AUTH_JOB_QUEUE
+
+        connector = testing.InMemoryConnector()
+        app = App(connector=connector)
+
+        @app.task(name="demo.ingest_service", queue="ingest")
+        async def ingest_service(**kwargs):
+            return "ran"
+
+        @app.task(name="demo.ingest_file", queue="ingest")
+        async def ingest_file(**kwargs):
+            return "ran"
+
+        async with app.open_async():
+            await ingest_service.configure(queue=HEADER_AUTH_JOB_QUEUE).defer_async(
+                job_id="j1"
+            )
+            await ingest_file.defer_async(job_id="j2")
+
+            default = Settings.model_fields["worker_queues"].default
+            queues = [q.strip() for q in default.split(",") if q.strip()]
+
+            await Worker(
+                app,
+                queues=queues,
+                wait=False,
+                listen_notify=False,
+                install_signal_handlers=False,
+            ).run()
+
+        for row in connector.jobs.values():
+            assert row["status"] == "succeeded", row["task_name"]
+
+
+class TestALoneSurrogateFeatureIsAPageRefusalNotA500:
+    """fix(#1770 round 47 P2, `service_items.py:~844` "Translate lone-surrogate
+    features into a page refusal").
+
+    A JSON escape for an unpaired surrogate (`"\\ud800"`) is syntactically
+    legal and `json.loads` accepts it as a Python `str` holding that lone
+    surrogate code point. UTF-8 has no representation for one, so
+    `json.dumps(feature, ensure_ascii=False).encode("utf-8")` -- the
+    re-serialisation this module does to write a compact extract to disk --
+    raised an uncaught `UnicodeEncodeError`, bypassing the `ItemFetchFailedError`
+    handling every other malformed page gets: preview 500s, imports die with
+    an internal exception instead of the normal coded refusal.
+
+    Not fixed with `errors="surrogatepass"`/`"surrogateescape"`: either would
+    write bytes that are not valid UTF-8 onto disk, for GDAL/PostGIS to read
+    back -- trading a coded refusal for silent corruption. Caught and
+    translated to the same `ItemFetchFailedError` instead.
+    """
+
+    def _transport(self, monkeypatch, feature_property: object):
+        recorded: list[httpx.Request] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            if not request.url.path.endswith("/items"):
+                return _as_stream(httpx.Response(200, json=_collection_doc(None)))
+            feature = {
+                "type": "Feature",
+                "id": "f0",
+                "geometry": {"type": "Point", "coordinates": [0, 0]},
+                "properties": {"name": feature_property},
+            }
+            page = {
+                "type": "FeatureCollection",
+                "features": [feature],
+                "links": [],
+            }
+            # A lone surrogate (`\ud800`) is not representable in UTF-8, so
+            # httpx's OWN `json=` kwarg -- which serialises with
+            # `ensure_ascii=False` internally -- raises `UnicodeEncodeError`
+            # right here, before this handler even returns, which is a
+            # crash in the TEST's wire encoding, not in the module under
+            # test. `ensure_ascii=True` escapes it to the six-character
+            # ASCII sequence `\ud800` instead -- pure ASCII on the wire,
+            # exactly the shape the finding describes ("a JSON escape for
+            # an unpaired surrogate... passes json.loads") -- so the
+            # module's own re-serialisation, not this mock, is what the
+            # tests below are actually pinning.
+            body = json.dumps(page, ensure_ascii=True).encode("utf-8")
+            return _as_stream(
+                httpx.Response(
+                    200, content=body, headers={"content-type": "application/json"}
+                )
+            )
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def test_the_worker_path_refuses_the_page_not_an_internal_exception(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        self._transport(monkeypatch, "\ud800")
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+
+        with pytest.raises(ItemFetchFailedError) as raised:
+            await materialise_oapif_items(
+                _SVC_OAPIF,
+                "c1",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                staging_dir=tmp_path,
+            )
+
+        assert raised.value.code == "endpoint_check_failed"
+
+    async def test_the_preview_path_returns_the_coded_error_not_a_500(
+        self, monkeypatch
+    ) -> None:
+        from fastapi import HTTPException
+
+        self._transport(monkeypatch, "\ud800")
+        credential, _value_ = _header_key()
+
+        with pytest.raises(HTTPException) as raised:
+            await preview_mod.run_service_preview(
+                f"OAPIF:{_SVC_OAPIF}", "c1", credential=credential
+            )
+
+        assert raised.value.status_code == 422
+        assert raised.value.detail["code"] == "endpoint_check_failed"
+
+    async def test_a_valid_astral_character_still_round_trips(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Positive control: this is about the LONE surrogate specifically,
+        not about non-ASCII text in general. A real astral-plane character
+        (outside the BMP, represented as one Python code point, not a
+        surrogate) still writes and materialises normally."""
+        self._transport(monkeypatch, "\U0001f600")
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+
+        extract = await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+        )
+
+        document = json.loads(pathlib.Path(extract.path).read_text())
+        assert document["features"][0]["properties"]["name"] == "\U0001f600"

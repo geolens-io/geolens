@@ -1863,7 +1863,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # is all the PATCH needs: the field is a plain scalar on the record, so
         # _apply_simple_field_assignments already gives it PATCH semantics and
         # explicit-null clearing. Cap 478 -> 479, exact.
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 479,
+        # fix(#1746 B2b review r24): +9. `row_count_delta` is null when either
+        # count is unknown rather than a subtraction against a coerced zero,
+        # which invented a delta the size of whichever side was known. The
+        # case that reaches it is a service preview whose collection size the
+        # service never published.
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 488,
         # fix(#435 codex r1): +6 LOC in get_dataset_rows to probe schema existence
         # before degrading a 42P01 to an empty page. Postgres reports a missing
         # tenant data schema with the same code as a raster dataset's synthetic
@@ -2524,6 +2529,94 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     generated). Leaving them was the worse option — a reader who trusts a
 #     stale precondition unwinds the wrong defence.
 _MODULE_LOC_CAPS: dict[str, int] = {
+    # fix(#1770 round 43 P1): crossed _RATCHET_INCLUSION_LOC on the XML
+    # streaming preflight (`_xml_preflight`, `MAX_DOCUMENT_ATTRIBUTES`,
+    # `MAX_DOCUMENT_DEPTH`) that closes the attribute-bomb/deep-nesting-bomb/
+    # text-bomb class `structural_elements`'s per-element byte-scan could not
+    # see -- a single tag carrying an enormous number of attributes, or a
+    # document nested one element inside another thousands of times over,
+    # both stayed under the element budget while costing real memory or
+    # real recursion. Most of the added lines are the docstring explaining
+    # why the byte-scan stays as a cheap first pass rather than being
+    # replaced outright, and why the preflight has to refuse an entity
+    # declaration itself (it runs on raw `expat`, before `defusedxml`'s own
+    # `forbid_dtd` ever gets a turn).
+    # fix(#1770 round 44 P2): +13. `_parsed_json` now also catches
+    # `RecursionError` (a JSON depth bomb raises that, not `ValueError`, and
+    # was escaping every except chain that named only the latter). Cap
+    # 1042 -> 1055, exact.
+    # fix(#1770 round 46 P2): +61. `_OGCAPI_OPERATION_RELS` split into
+    # `_LANDING_RELS`/`_COLLECTION_RELS`, `_ogcapi_link_hrefs` gained a
+    # `rels` parameter, and the four `_check_ogcapi` call sites gained a
+    # `# fix` comment each explaining which document type they scope to.
+    # Most of the added lines are the docstring tracing which document type
+    # dereferences which rel, and why a collections listing page/entry
+    # dereference neither. Cap 1055 -> 1116, exact.
+    # fix(#1770 round 46b): +29. The pre-trigger audit's four fixes: the
+    # module comment correcting which paths actually reach `_COLLECTION_
+    # RELS` (none of preview/worker do; only the probe, which never passes
+    # a collection), naming the actual structural tests that now guard the
+    # rel scoping, and a one-line "deliberate no-op" comment at each of the
+    # two `frozenset()` call sites. Cap 1116 -> 1145, exact.
+    # fix(#1770 round 47): +113. Three closed classes: `bounded_service_url`/
+    # `bounded_parse_qsl`/`MAX_SERVICE_HREF_BYTES`/`MAX_QUERY_FIELDS` (the P1
+    # advertised-href/query-field-count bound, wired into `_next_page` and
+    # `_assert_same_origin`), `_wfs_operation_hrefs`'s walk made iterative
+    # (no depth of its own to exceed) with a `RecursionError` last line of
+    # defense in `_check_wfs`, and `MAX_DOCUMENT_DEPTH` lowered 1,000 -> 256
+    # with a comment correcting round 43's own claim. Most of the added
+    # lines are the docstrings recording why each bound is the number it is.
+    # Cap 1145 -> 1258, exact.
+    # fix(#1770 round 47b): +52. The pre-trigger audit's P1 (`HrefTooLongError`,
+    # a `ValueError` subclass so the length refusal gets its own wording at
+    # every catch site with no new except clause required at the ones that
+    # don't bother) and the low-priority fixes: a warning on `_next_page`'s
+    # silent stop, and a docstring note on `_wfs_operation_hrefs`'s own
+    # O(breadth) stack-memory tradeoff. Cap 1258 -> 1310, exact.
+    # fix(#1770 round 47c): +6. `_capabilities_url` moved from
+    # `max_num_fields=` back to `# parse_qs: unbounded` -- see the
+    # function's own docstring for why round 47b's bound here was wrong.
+    # Net growth is the corrected, longer docstring. Cap 1310 -> 1316,
+    # exact.
+    # fix(#1770 rebase audit nit): +1. The marker line sat at exactly 88
+    # chars; split the `parse_qs` call onto its own line so the trailing
+    # `# parse_qs: unbounded` comment has room. Cap 1316 -> 1317, exact.
+    # fix(#1770 rebase audit nit): +2. `_capabilities_url`'s docstring now
+    # distinguishes `/probe`'s fresh schema field from preview/the worker's
+    # persisted `origin_ref["url"]`, the same fix `adapters/wfs.py::build_
+    # capabilities_url`'s docstring already got. Cap 1317 -> 1319, exact.
+    # fix(#1770 round 49 P3): +11. Corrected the `_check_ogcapi` listing-walk
+    # comment that claimed the probe's own `/collections` pagination is
+    # "credential-free exploration" -- it is not; `_check_ogcapi` shares the
+    # caller's real `headers`, and the soft stop is safe because `_next_page`
+    # itself refuses a cross-origin/unparseable `next`, not because the
+    # pages are anonymous. Cap 1319 -> 1330, exact.
+    "backend/app/platform/service_endpoints.py": 1330,
+    # fix(#1770 round 42): first entry, crossed _RATCHET_INCLUSION_LOC on the
+    # completeness-predicate unification. `_page_proves_complete` is the one
+    # function round 41's full-walk-only proof and round 42's sampled-preview
+    # mirror of it both call now, and `_end_of_chain`/`_sample_truncated` are
+    # the extractions that keep `_walk_pages` itself under ruff's C901
+    # ceiling rather than adding another exemption (the same reason
+    # `_resolve_conformance` was pulled out of `probe_ogcapi` in #1746).
+    # Most of the added lines are the docstrings recording the round 38-42
+    # history so a future reader does not re-derive it from the diff.
+    # fix(#1770 round 44 P2): +8. The items-page JSON parse also catches
+    # `RecursionError` now, same reasoning as `service_endpoints.py::
+    # _parsed_json`. Cap 1033 -> 1041, exact.
+    # fix(#1770 round 47): +49. Two closed classes: every advertised-href
+    # site (`_advertised_items_href`/`_with_page_size`/`_next_href`) now
+    # runs through `bounded_service_url`/`bounded_parse_qsl`, and
+    # `_walk_pages`'s per-feature re-serialisation catches `UnicodeEncode
+    # Error` from an unpaired JSON surrogate escape rather than letting it
+    # escape as an internal exception. Cap 1041 -> 1090, exact (`ruff
+    # format` wrapped one `urljoin(base, bounded_service_url(...))` call
+    # onto three lines after the round-47 diff landed).
+    # fix(#1770 round 47b): +16. `HrefTooLongError` handling at the three
+    # `bounded_service_url` catch sites, each getting its own wording
+    # distinct from the generic "unparseable" refusal. Cap 1090 -> 1106,
+    # exact.
+    "backend/app/platform/service_items.py": 1106,
     # fix(#1758): the ArcGIS sign-in protocol, which crossed 1000 lines over
     # nine review rounds. What the growth bought, in order: the two-phase
     # split that resolves WHERE a password would go before any lock or budget
@@ -2573,6 +2666,58 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # opposite, which is why it now cites the line it was checked against.
     # Cap 1293 -> 1301, exact.
     "backend/app/modules/catalog/sources/arcgis_signin.py": 1301,
+    # feat(#1746 B2b): first explicit entry for this file, which rode the 1500
+    # default until the service-auth wave. #1758 added the ArcGIS sign-in
+    # endpoint and its rate-limit wiring, and this lane added the credential
+    # conversion at the probe and preview doors, the CRS fallback's own
+    # credential handling, and the cross-origin endpoint check after detection
+    # (review r13). Ratcheted rather than decomposed because the split that
+    # pays here is connector-versus-service, which is #1755 item 13's queue
+    # and bigger than any one lane. Cap 1500 -> 1528, exact.
+    # fix(#1746 B2b review r14): +33. `_probe_credential_line` composes the
+    # line the endpoint check sends, bound to the format detection just
+    # established, because reading a protected service's description
+    # anonymously learned nothing and approved it. The rest is the second
+    # refusal code on the same handler and the note on why the log line reads
+    # `origin` defensively. Cap 1528 -> 1561, exact.
+    # fix(#1746 B2b review r24): +9. `/probe` passes a monotonic deadline to
+    # the endpoint check. It had omitted one, so the check ran unbounded and a
+    # description delivered slowly but steadily across up to twenty listing
+    # pages held an API request open for as long as the service liked.
+    # fix(#1746 B2b review r27): +9. The door no longer decides from the URL
+    # text whether a credential's method can be carried; it binds by method
+    # alone and `service_carries_method` answers the transport question after
+    # detection. The lines are the comment recording why reading the URL there
+    # was wrong, since `/FeatureServer/wfs` is a WFS and the door had refused
+    # it a credential it supports.
+    # fix(#1770 round 40 P2): +4. The credentialed CRS fallback fetch's
+    # `error=str(exc)` becomes `error=redact_exception_text(exc)`, plus the
+    # new import. Cap 1579 -> 1583, exact.
+    # fix(#1770 round 43 P1): +28. `_fetch_ogcapi_collection_srid` now reads
+    # through `bounded_probe_read` under `DEFAULT_CHECK_TIMEOUT` instead of a
+    # bare `client.get`, the same shape round 41 already gave the four probe
+    # adapters -- new imports (`json`, `urlencode`, `bounded_probe_read`,
+    # `OGC_JSON_ACCEPT`), the query folded into the URL since the helper
+    # takes no `params=`, the `asyncio.timeout` wrapper, and a widened except
+    # clause plus its comment. Cap 1583 -> 1611, exact.
+    # fix(#1770 round 44 P1/P2): +18. The ArcGIS layer-preview except clause
+    # widened for `EndpointCheckFailedError`/`TimeoutError` (P1, ArcGIS
+    # reads now bounded), the CRS-fallback except clause gained
+    # `RecursionError` (P2, JSON depth bomb), plus their comments. Cap
+    # 1611 -> 1629, exact.
+    # fix(#1770 rebase onto main, post-#1820/#1821): re-pinned by direct
+    # `wc -l` measurement of the post-rebase file, not arithmetic on either
+    # side's number. #1820 (merged first) removed 28 lines from this file
+    # reserving the ArcGIS sign-in attempt before the mint; this lane's own
+    # rounds 45 through 47c added lines back on top through the normal
+    # ArcGIS-bound/non-dict-guard/conformance-seed fixes. Net: 1629 -> 1625,
+    # exact.
+    # fix(#1770 round 49 P3): +14. The mid-probe `SSRFError` handler no
+    # longer reflects `SSRFResolutionError`'s interpolated redirect-target
+    # hostname into the 400 body or the persisted audit reason -- both now
+    # carry a fixed policy string; the raw text stays in the server-side log
+    # line only. Cap 1625 -> 1639, exact.
+    "backend/app/modules/catalog/sources/router.py": 1639,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against
@@ -2740,7 +2885,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # reach a backup, while /tmp is a per-container 512m tmpfs. Re-baselined on
     # the rebase across #1753, which raised the same cap for the token purge.
     # Cap 1789 -> 1796, exact.
-    "backend/app/api/main.py": 1883,
+    # fix(#1770 round 44 P2): +14. `CredentialScrubASGIMiddleware` registered
+    # as the innermost middleware, plus the import and the comment on why it
+    # has to be registered first and be a plain ASGI callable. Cap
+    # 1883 -> 1897, exact.
+    "backend/app/api/main.py": 1897,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -3111,7 +3260,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # still-pending job that could never be replayed. Most of the lines are the
     # comment recording that, and why `service_type` is readable before the
     # merge. Cap 2565 -> 2582, exact.
-    "backend/app/processing/ingest/router.py": 2582,
+    # feat(#1746 B2b): +20 — `commit_import` converts the structured `auth`
+    # object the way the other four doors do, judges it against the job's own
+    # service format before the metadata write, and hands the resulting
+    # credential to `queue_ingest_job` rather than a bare token. Most of the
+    # lines are the comment saying why `auth` joins `token` in the model_dump
+    # exclusion: user_metadata is a durable JSONB column and that dump is a
+    # whitelist by omission. Cap 2582 -> 2602, exact.
+    "backend/app/processing/ingest/router.py": 2602,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -3317,7 +3473,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # feature-edit routers roll the counter through a plain read-modify-write
     # and never take one, so one side locking does not serialize a race the
     # other side is not playing. Cap 2495 -> 2533, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2533,
+    # fix(#1770 round 43 P2): +8. `_bind_task_log_context` now also resets
+    # the credential-secret registry (`core/service_tokens.register_
+    # credential_secret`) at the same boundary it already clears structlog's
+    # own contextvars, so a re-used worker cannot scrub a later job's log
+    # lines with an earlier job's secret. Cap 2533 -> 2541, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2541,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -3400,7 +3561,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # why. Holding the `dataset_refresh_runs` row lock across the staging
     # download made every cancel in that window a 409 that also rolled back the
     # job cancellation it had already written. Cap 1283 -> 1291, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1291,
+    # fix(#1746 B2b review r1): +6 — rebased onto #1778 above. The worker's
+    # authentication-failure copy names the `auth` object rather than the
+    # deprecated `token` field, which always means a bearer credential and so
+    # could not authenticate the basic or named-key origin that produced the
+    # failure. Same finding as the refresh door's 422, one layer down; the
+    # lines are the comment recording that the two messages have to agree.
+    # Cap 1291 -> 1297, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1297,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -3464,7 +3632,25 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the same value and a method this build cannot carry is refused before any
     # origin is contacted. Two of the lines are the import and the rest is the
     # comment saying why the conversion is first. Cap 1344 -> 1353, exact.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1353,
+    # feat(#1746 B2b): -8. The post-reservation charset check is now one call
+    # to `wire_credential` against the binding that is actually going to be
+    # dispatched, which both judges the inputs and composes the wire value, so
+    # the hand-rolled refusal block it replaced is gone. Ratcheted down rather
+    # than left with headroom. Cap 1353 -> 1345, exact.
+    # fix(#1746 B2b review r1): +19. The credential is composed AFTER the
+    # write-access gate, because it reads `dataset.source_format` and a refusal
+    # ahead of the gate answered 422 for a dataset the caller may not touch
+    # while a nonexistent one answered 404. And the `service_token_required`
+    # message names the `auth` object rather than only the deprecated `token`,
+    # which always means bearer and so could not authenticate the basic origin
+    # that raised it. Most of the lines are the two comments recording those.
+    # Cap 1345 -> 1364, exact.
+    # fix(#1770 round 35): +10 — the refresh door judges header_auth_job_queue
+    # on the composed credential line, before the store lease may swap it for
+    # a reference, and configures the deferred task's queue with the verdict
+    # so a worker from the release before this PR never dequeues a header
+    # line its own validator cannot parse. Cap 1364 -> 1374, exact.
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1374,
     # fix(#1335): stac_resolve.py's 1040 lines were split along their natural
     # seams — verdict taxonomy, identity checks, the asset gate (SSRF + COG
     # probe), and the by-search fallback each moved into a sibling module,
@@ -3840,7 +4026,23 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # from app.modules.*, so the number is restated here rather than imported
     # from password_policy.py; tests/test_oversized_password_1778.py pins the
     # two together. Cap 1513 -> 1537, exact.
-    "backend/app/core/config.py": 1537,
+    # fix(#1770 round 35, rebased onto #1778 above): worker_queues' default
+    # gains "ingest-auth-v2" beside the three original queues, so a worker
+    # built from this release drains the header-auth jobs a rolling deploy's
+    # upgraded API enqueues on it, alongside the comment recording why.
+    # fix(#1770 round 36): the P1 finding was that the round-35 comment was
+    # wrong: both compose files DO set WORKER_QUEUES (their own fallback value
+    # shadows this class default entirely), so they needed the new queue too,
+    # and the correction plus the pointer to the structural test that now
+    # guards it is most of the growth. Re-measured with wc -l after all three
+    # fixes landed together through the rebase. Cap 1537 -> 1562, exact.
+    # fix(#1770 round 47b P2 class): +27. `# parse_qs: unbounded` at the
+    # five `DATABASE_URL_OVERRIDE` `parse_qs` sites -- an operator-supplied
+    # BOOT-TIME env var, never a runtime service-advertised value, so
+    # exempted with a reason rather than bound (see
+    # `test_every_parse_qsl_call_bounds_its_field_count`'s own docstring).
+    # Cap 1562 -> 1589, exact.
+    "backend/app/core/config.py": 1589,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of
@@ -4081,6 +4283,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # The rest is the note on why `auth` joins `token` in the model_dump
     # exclusion: user_metadata is a durable JSONB column and that dump is a
     # whitelist by omission. Cap 1282 -> 1294, exact.
+    # feat(#1746 B2b): +12. `_service_format` and `_job_service_format` resolve
+    # the origin's canonical format once for both service doors, the commit
+    # door composes its wire value from it before anything is written or
+    # reserved (replacing the hand-rolled charset block), and the service
+    # preview door converts its own `auth` object the way the four siblings
+    # do. Cap 1294 -> 1306, exact.
     # fix(#1768): +61. `_refuse_if_origin_changed` re-reads the dataset's
     # origin after the run row takes the one-active-run slot and refuses a
     # stale `expected_origin_kind` with 409 `origin_changed`. It is a helper
@@ -4089,8 +4297,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # exists. Most of the lines are its docstring: which window the condition
     # closes, why the reservation is what makes the re-read decisive instead of
     # one more racing read, and why an absent value asserts nothing.
-    # Cap 1294 -> 1355, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1355,
+    # Cap 1306 -> 1367, exact.
+    # fix(#1770 round 35): the reupload door judges header_auth_job_queue on
+    # the composed line before the store lease, and _dispatch_reupload_task
+    # grows a service_queue parameter so the verdict reaches the configure()
+    # call that used to hardcode the task's own queue. Cap 1367 -> 1386,
+    # exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1386,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
@@ -4346,7 +4559,82 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # with it (the helper owns creating its own 0700 directory) and the rest is
     # the comment saying why a credential file does not belong on a volume
     # scripts/backup-entrypoint.sh archives. Cap 1096 -> 1104, exact.
-    "backend/app/processing/ingest/ogr.py": 1104,
+    # feat(#1746 B2b): +74. `_sanitize_authorization_token` became a header
+    # LINE validator, because under plan D9 what crosses the queue is the
+    # finished line rather than a bare token: it checks the shape, the field
+    # name and the value charset, and keeps the base64url charset and the
+    # length floor on the bearer branch alone. Most of the lines are the three
+    # policy constants (each a full sentence, none of them naming any part of
+    # a credential) and the docstring recording which branch may still name an
+    # offending character and why the other branches may not. The rest is the
+    # writer dropping its own `Authorization: Bearer ` prefix and pinning the
+    # Authorization redirect rule on the env that carries the header file.
+    # Cap 1104 -> 1178, exact.
+    # fix(#1746 B2b review r3): +57. A value with no separator is the
+    # PRE-#1770 wire format, and a worker starting on a queue that already
+    # holds authenticated jobs reads exactly that; refusing it would fail every
+    # one of them deterministically at the next deploy and spend the
+    # single-use credential before ogr2ogr started. `_legacy_bearer_line`
+    # composes it through `build_credential_header`, so this module still
+    # produces no header of its own, and the charset it accepts is the one the
+    # previous version already enforced. Most of the lines are the two
+    # docstrings recording that and the `service_format` parameter that keeps
+    # the builder the authority on which formats may carry a header.
+    # Cap 1178 -> 1235, exact.
+    # fix(#1746 B2b review r4): +2. The redirect-rule comment at the header
+    # file's env says which value is set and why it is IF_SAME_HOST rather
+    # than NO: NO drops the credential on a same-host canonical redirect too,
+    # which a protected service answers with a 401. Cap 1235 -> 1237, exact.
+    # fix(#1746 B2b review r13): +14. Before the header file is written, the
+    # source's own service description is checked for an operation endpoint on
+    # another origin: GDAL applies the header file to whatever that document
+    # advertises, and those are fresh requests no redirect rule can see. The
+    # check itself is `platform/service_endpoints.py`, shared with the door,
+    # because the two callers are in layers that may not import each other.
+    # Cap 1237 -> 1251, exact.
+    # fix(#1746 B2b review r14): +5. The endpoint check is handed the finished
+    # header line rather than only the header NAME, because a protected
+    # service answers an anonymous description read with a 401 and the check
+    # then learned nothing, and it is scoped to the layer being imported so a
+    # collection past the listing's first page is still the one checked.
+    # Cap 1251 -> 1256, exact.
+    # fix(#1746 B2b review r16): +36. A protected OGC API collection is read
+    # in-process and handed to ogr2ogr as a local file, because GDAL applies a
+    # header file to every request it makes and an items page names its own
+    # successor, so the credential would follow a service-chosen `next` to any
+    # origin. GDAL 3.10.3 has no per-origin header scope; that was measured.
+    # The reader is `platform/service_items.py`; these lines are the branch,
+    # the argv swap and the extract's cleanup. WFS is untouched.
+    # Cap 1256 -> 1292, exact.
+    # fix(#1746 B2b review r17): +22. One clock now covers the in-process page
+    # walk and the subprocess, because the walk ran before `timeout` began and
+    # the HTTP client's timeout is per inactivity, so a service answering
+    # slowly forever held a worker and then still got the full half-hour. The
+    # lines are the deadline, the remaining-budget arithmetic with its floor,
+    # and arming the origin-contact callback at the first page rather than at a
+    # spawn that no longer happens first.
+    # Cap 1292 -> 1314, exact.
+    # fix(#1746 B2b review r23): +26. The WFS capabilities preflight
+    # authenticates against the origin before the subprocess exists, so it now
+    # arms the origin-contact callback and runs under the caller's deadline;
+    # a 401, malformed XML or cross-origin endpoint used to leave
+    # `last_checked_at` stale. One `fire_once` callback is shared by the page
+    # walk, the preflight and the spawn, so no site has to assume another one
+    # fired it, and the remaining-budget arithmetic moved to just before the
+    # spawn where it accounts for both preflights.
+    # Cap 1314 -> 1340, exact.
+    # fix(#1746 B2b review r24): +2. The materialiser returns a described
+    # extract rather than a bare path, so the preview can report the
+    # collection's own size instead of the sample it was handed.
+    # Cap 1340 -> 1342, exact.
+    # fix(#1770 round 49 P3): +12. `_sanitize_authorization_token`'s D9
+    # (separator-present) branch now calls `register_credential_secret`
+    # on the validated value before returning it -- previously only
+    # `_legacy_bearer_line`'s bare-token branch reached `build_credential_
+    # header`, the registry's only other producer, so the exact-value scrub
+    # pass was inert for the whole worker service-import path on the
+    # format every current job actually uses. Cap 1342 -> 1354, exact.
+    "backend/app/processing/ingest/ogr.py": 1354,
     # fix(#1778): +157 for two audit findings that both land in JIT
     # provisioning. One is the REGISTRATION_ENABLED gate plus its exception
     # class, so enabling a provider stops being a way to reopen signup while
@@ -4537,14 +4825,34 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # and turn one layer's failure into a 500. The parent is reloaded in the
     # same breath, and the log line reads a snapshotted id rather than the
     # instance it just expired. Cap 1500 -> 1513, exact.
+    # feat(#1746 B2b): +25. `job_service_format` is extracted so the queue-time
+    # check and the composition read the same answer, and `queue_ingest_job`
+    # composes the wire value (plan D9) from whichever spelling its caller
+    # used: the structured credential of plan D2, or the flat bearer token the
+    # import-commit door still carries because `ServiceCommitRequest` has no
+    # `auth` object yet. Cap 1465 -> 1490, exact.
+    # fix(#1746 B2b review r1): +9. The legacy-token pre-check runs only when
+    # the flat token is the credential being dispatched: the signature promises
+    # the structured one wins when both are given, and the check judged the
+    # losing one, so a stale legacy token refused a valid credential. Most of
+    # the lines are the comment saying which value is judged where.
+    # Cap 1490 -> 1499, exact.
+    # Rebased across #1774: that branch's three raises (1465 -> 1482 -> 1500
+    # -> 1513) and this one's two (1465 -> 1490 -> 1499) are edits to
+    # different parts of the module, so the merged file carries both. Measured
+    # rather than added up. Cap 1513 -> 1547, exact.
+    # fix(#1770 round 35): +13 — the import door judges header_auth_job_queue
+    # on the line job_service_format/wire_credential just composed, before
+    # the credential-store lease may swap it for a reference, and configures
+    # ingest_service's queue with the verdict. Cap 1547 -> 1560, exact.
     # fix(#1738): +8 of docstring, no code. register_existing_table's stated
     # contract was "linearize once, do not police the table afterward", which
     # a reader could take as "the owner's writes are picked up somehow". They
     # are not: they are picked up by Refresh, which now re-derives geom_4326.
     # The paragraph says which writes go stale and what recovers them, so the
     # next reader does not have to find that out from a broken dataset.
-    # Cap 1513 -> 1521, exact.
-    "backend/app/processing/ingest/service.py": 1521,
+    # Cap 1560 -> 1568, exact.
+    "backend/app/processing/ingest/service.py": 1568,
     # fix(#1738): first entry, crossed _RATCHET_INCLUSION_LOC (842 -> 1019) on
     # the change that gave this task a repair phase. What the growth bought:
     # `geom_4326` on a registered table was written once, at registration, and
@@ -4734,12 +5042,20 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # deprecated `token` at once. Both are imported from the sources schema
     # rather than restated here, so the four doors cannot describe the same
     # credential four ways. Cap 1483 -> 1499, exact.
+    # feat(#1746 B2b): +17. `ReuploadServicePreviewRequest` is the fifth model
+    # to carry the `auth` object, declared last like the other four. #1760 left
+    # it out because no transport composed a header for the methods it adds;
+    # with one in place, leaving it out would mean a basic-protected service
+    # could be re-uploaded but not previewed first. Cap 1499 -> 1516, exact.
+    # fix(#1746 B2b review r24): +8. `row_count_delta` is nullable (and still
+    # required), with the reason recorded where the field is declared.
+    # Cap 1516 -> 1524, exact.
     # fix(#1768): +12. `ReuploadCommitRequest.expected_origin_kind`, typed with
     # the shared `OriginKind` literal from platform/dataset_origin.py rather
     # than a second spelling of the vocabulary, plus the description telling a
     # client author what the field buys and that omitting it is supported.
-    # Cap 1499 -> 1511, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1511,
+    # Cap 1524 -> 1536, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1536,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch
@@ -5100,7 +5416,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the active path explicitly rather than relying on inf/nan's
     # comparison behavior to fail the existing bound check.
     # Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2706,
+    # fix(#1770 round 40 P2): +1. The raster tile proxy's two retry-path
+    # `error=str(exc)` sites become `error=redact_exception_text(exc)`,
+    # net +1 after the new import. Cap 2706 -> 2707, exact.
+    # fix(#1770 round 47b P2 class): +14. `max_num_fields=MAX_QUERY_FIELDS`
+    # on the `{fmt}` buried-query recovery parse, the one attacker-reachable
+    # site in this round's sweep (unauthenticated, no source registration
+    # needed), with a `try/except ValueError` degrading to "no buried
+    # params recovered" rather than a raw 500. Cap 2707 -> 2721, exact.
+    "backend/app/processing/tiles/router.py": 2721,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),
@@ -6823,6 +7147,129 @@ def test_no_unjustified_broad_except_sites() -> None:
             "sites found. Add `# broad: <reason>` (or `# noqa: BLE001 "
             "<reason>`) on the SAME line as the `except`, OR tighten the "
             "catch to a specific exception class.\n"
+            "Offending lines:\n" + "\n".join(violations)
+        )
+
+
+def test_every_parse_qsl_call_bounds_its_field_count() -> None:
+    """fix(#1770 round 47 P1 class, `service_endpoints.py:bounded_parse_qsl`).
+
+    `parse_qsl()`/`parse_qs()` have no field-count bound of their own: a
+    service-advertised href can pack millions of short `key=value` pairs
+    into a query string that stays comfortably under every byte/structural-
+    token budget (the separators live inside one JSON string), and either
+    function materialises every pair it finds before a caller's own
+    comprehension or `urlencode()` copies the list again.
+    `bounded_parse_qsl` in `service_endpoints.py` is the one call site every
+    read of a service-advertised query string should share.
+
+    fix(#1770 round 47b P2): round 47's own version of this test greped
+    `parse_qsl\\(` only, missing `parse_qs\\(` -- same unbounded semantics,
+    same `max_num_fields` fix, a different function name. Widened to
+    `parse_qsl?\\(` (the trailing `l` optional), which matches both.
+
+    Not every site gets the bound, and the exceptions are real:
+    `url_redaction.py`'s two sites and `preview.py`'s one scrub or resolve
+    the CALLER's own already-bounded input, and a redactor specifically must
+    never itself raise (`max_num_fields` raises `ValueError` past the
+    count, which would turn scrubbing an oversized credential out of an
+    exception message into a crash INSIDE exception handling);
+    `core/config.py`'s five sites all parse `DATABASE_URL_OVERRIDE`, an
+    operator-supplied BOOT-TIME environment variable, never a runtime
+    service-advertised value -- the operator already has arbitrary control
+    over their own deployment, and a `ValueError` there surfaces as the
+    existing boot-time config-validation failure, not a runtime refusal, so
+    bounding it buys no security and a local literal would just duplicate
+    `MAX_QUERY_FIELDS` across a layering boundary `config.py` cannot import
+    across (it has no `app.*` imports at all, and importing `platform.
+    service_endpoints` into it would very likely create an import cycle).
+
+    fix(#1770 round 47c): `adapters/wfs.py::build_capabilities_url` and
+    `service_endpoints.py::_capabilities_url` moved from the BOUND list to
+    this exempted one. Round 47b bound them reasoning `_header_auth_probe`
+    (`probe.py`) catches every `ValueError` from an adapter -- true for the
+    `probe_wfs` caller, but not the only one: `origin_probe.py::service_
+    probe_target` calls `build_capabilities_url` for the periodic health
+    check (`GET /datasets/{id}/health`) with NO surrounding `except
+    ValueError` at all, and `_capabilities_url` is reached from `preview.py`
+    and the worker (`processing/ingest/ogr.py`) through `assert_endpoints_
+    stay_on_origin`, both of which catch only `(CrossOriginEndpointError,
+    EndpointCheckFailedError)`. A `ValueError` past the field count on
+    either function reached three of five real callers as an uncaught
+    exception -- a raw 500 on the health route, an unclassified failure on
+    preview and the worker -- the exact class this whole test exists to
+    close, reintroduced by "one caller checked, the rest assumed" reasoning.
+    Both take the caller's own submitted service URL (`ProbeRequest`/
+    `ServicePreviewRequest` cap it at 2048 chars, ~350 fields of `a=1&` at
+    that length), never a value read out of a THIRD-PARTY response, so
+    exempting them is the correct answer, not auditing five call sites for
+    a bound that was never the fix.
+
+    Every exempted site carries `# parse_qs: unbounded` on the same line,
+    the same same-line-annotation discipline `test_no_unjustified_broad_
+    except_sites` already uses for a broad `except`.
+
+    Every OTHER site must carry `max_num_fields=` -- via `bounded_parse_qsl`
+    itself, a call to it (`bounded_parse_qsl(` also matches the grep, since
+    `bounded_parse_qsl(` contains the substring `parse_qsl(`), or an inline
+    `max_num_fields=` on a native `parse_qs`/`parse_qsl` call where the
+    caller needs that function's own return shape and EVERY real caller
+    already degrades a `ValueError` past the count to a coded refusal
+    (`processing/tiles/router.py`'s buried-query recovery is the one
+    remaining example: attacker-reachable, unauthenticated, and its own
+    `try/except ValueError` degrades to "no buried params recovered") --
+    so a new second call site cannot silently reintroduce the unbounded
+    class the finding named.
+
+    Positive control: this repo has more than zero matching call sites
+    today (asserted below), so an empty match list means the grep pattern
+    itself broke, not that the class is closed.
+
+    Negative-control: temporarily add a bare `parse_qsl(some_query)` call
+    (or `parse_qs(...)`) with neither annotation to a sandbox file under
+    `backend/app/`, run this test, confirm it fails naming the offending
+    line. Revert.
+    """
+    result = subprocess.run(
+        ["git", "grep", "-n", "-P", r"parse_qsl?\(", "--", "backend/app/"],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode not in (0, 1):
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+    lines = [line for line in result.stdout.splitlines() if line]
+    assert lines, (
+        "positive control failed: no `parse_qsl(`/`parse_qs(` call sites "
+        "found at all -- the grep pattern is broken, not that the class is "
+        "closed"
+    )
+
+    violations: list[str] = []
+    for line in lines:
+        if (
+            "max_num_fields=" in line
+            or "bounded_parse_qsl(" in line
+            or "# parse_qs: unbounded" in line
+        ):
+            continue
+        violations.append(line)
+
+    if violations:
+        pytest.fail(
+            "fix(#1770 round 47 P1 class) invariant violated: a "
+            "`parse_qsl(`/`parse_qs(` call site with no field-count bound "
+            "and no unbounded justification. Route it through "
+            "`bounded_parse_qsl` (`service_endpoints.py`), add "
+            "`max_num_fields=` inline, OR mark it `# parse_qs: unbounded` "
+            "on the SAME line with a comment above explaining why this "
+            "specific site must never raise on field count.\n"
             "Offending lines:\n" + "\n".join(violations)
         )
 

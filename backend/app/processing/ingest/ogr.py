@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from collections.abc import Callable
 from typing import TypedDict
 
@@ -11,8 +12,29 @@ import structlog
 
 from app.core.config import settings
 from app.core.crs_uri import parse_crs_uri
-from app.core.runtime.staging import gdal_header_dir
-from app.core.service_tokens import HEADER_TOKEN_CHARSET, HEADER_TOKEN_MIN_LENGTH
+from app.core.runtime.staging import (
+    GDAL_HEADER_FILE_REDIRECT_ENV,
+    ensure_staging_ready,
+    gdal_header_dir,
+)
+from app.platform.service_items import materialise_oapif_items
+from app.platform.service_endpoints import (
+    assert_endpoints_stay_on_origin,
+    fire_once,
+)
+from app.core.service_tokens import (
+    BEARER_SCHEME,
+    HEADER_LINE_SEPARATOR,
+    HEADER_LINE_VALUE_CHARSET,
+    HEADER_NAME_CHARSET,
+    HEADER_TOKEN_CHARSET,
+    HEADER_TOKEN_MIN_LENGTH,
+    CredentialMethod,
+    ServiceCredential,
+    build_credential_header,
+    credential_header_line,
+    register_credential_secret,
+)
 from app.core.url_redaction import redact_url_credentials
 
 
@@ -110,32 +132,148 @@ def _friendly_open_failure_message(original_filename: "str | None") -> str:
     )
 
 
-def _sanitize_authorization_token(token: "str | None") -> "str | None":
-    """SEC-FU-04: pin an Authorization bearer token to the shared header policy.
+# fix(#1746): the worker's own refusals, as constants rather than composed
+# strings. Each one becomes `IngestJob.error_message`, a log record, a
+# notification reason and the exception the queue records, so none of them may
+# name any part of the credential being judged. No brace in any of them, so
+# none can grow an interpolation later.
+HEADER_LINE_SHAPE_POLICY = (
+    "SEC-FU-04: the service credential did not arrive as one header line "
+    "(a header name, a colon and a space, then a value). Nothing was sent."
+)
 
-    A token containing CR/LF or arbitrary unicode could let an attacker inject
-    additional HTTP headers via the GDAL_HTTP_HEADERS env-var → libcurl
-    pipeline, so the charset and the length floor are a security boundary
+HEADER_LINE_NAME_POLICY = (
+    "SEC-FU-04: the service credential named a header this build will not "
+    "write. A header name may use only letters, digits and the characters "
+    "! # $ % & ' * + - . ^ _ ` | ~ ."
+)
+
+HEADER_LINE_VALUE_POLICY = (
+    "SEC-FU-04: the service credential's value contains a character that "
+    "cannot be written into an HTTP header. Only printable ASCII is "
+    "permitted, so that no line break can smuggle a second header through "
+    "libcurl."
+)
+
+
+def _legacy_bearer_line(token: str, service_format: str) -> str:
+    """The line a pre-#1770 queued job's bare bearer token would have become.
+
+    Composed by ``build_credential_header``, not here: this module writes the
+    header file and validates what it is given, and the single-producer rule
+    (``tests/test_credential_producer_structural.py``) exists so no second
+    place in the tree can grow a prefix of its own. The builder applies the
+    same base64url charset and length floor the previous version enforced on
+    this exact value, so a token it refuses was never dispatchable anyway and
+    the answer is the shape policy rather than a bearer-specific message: from
+    here the two cases are indistinguishable, and the value is not named.
+    """
+    try:
+        pair = build_credential_header(
+            ServiceCredential(
+                method=CredentialMethod.BEARER,
+                service_format=service_format,
+                token=token,
+            )
+        )
+    except ValueError:
+        raise ValueError(HEADER_LINE_SHAPE_POLICY) from None
+    if pair is None:
+        # A service format that carries no header at all. The caller gates on
+        # the two that do, so this is unreachable from the one call site and
+        # exists because a silent empty line would be worse than a refusal.
+        raise ValueError(HEADER_LINE_SHAPE_POLICY)
+    return credential_header_line(pair)
+
+
+def _sanitize_authorization_token(
+    header_line: "str | None", *, service_format: str
+) -> "str | None":
+    """SEC-FU-04: pin the credential header line to the shared policy.
+
+    What crosses from the door to this worker is one finished header line
+    (plan D9), not a bare token, so this judges a LINE: printable ASCII, no CR
+    or LF, exactly one ``": "`` separator, and a name that passes
+    ``header_name_rejection_reason``. A character outside that shape could let
+    an attacker inject additional HTTP headers through the
+    GDAL_HTTP_HEADER_FILE to libcurl pipeline, so this is a security boundary
     rather than a formatting preference.
 
-    fix(#1277 review round 6): the charset and the floor come from
-    ``app.core.service_tokens``, which the refresh endpoint applies at the door
-    too — a caller now learns immediately instead of after their single-use
-    credential has been spent. This check stays regardless: the guarantee is
-    about what reaches libcurl, and it must not come to rest on a validator
-    running in another process.
+    fix(#1277 review round 6): the rules come from ``app.core.service_tokens``,
+    which every door applies as well — a caller learns immediately instead of
+    after their single-use credential has been spent. This check stays
+    regardless: the guarantee is about what reaches libcurl, and it must not
+    come to rest on a validator running in another process.
 
-    The MESSAGE is deliberately not shared. This one names the offending
-    character because a worker-side ValueError is read by whoever is debugging
-    a failed job, and the API's is policy-only because an HTTP body must never
-    echo any part of a submitted credential. Same rule, two audiences.
+    The bearer branch keeps the base64url charset and the length floor, so
+    nothing about today's bearer guarantee weakens. It also keeps NAMING the
+    offending character, because a bearer token is the one credential shape
+    whose every character is already constrained to a set that carries no
+    secret structure, and a worker-side ValueError is read by whoever is
+    debugging a failed job.
 
-    Returns the token unchanged when it satisfies the policy, raises ValueError
-    with a SEC-FU-04-prefixed message otherwise. None passes through.
+    fix(#1746): every OTHER branch is policy-only. This exception becomes
+    ``IngestJob.error_message``, a log record, a notification reason and the
+    re-raise the queue records — ``scrub_secret_from_exception`` mutates it in
+    place precisely so all four see the same text. Under basic authentication
+    the value being judged is an encoded username and password, and naming a
+    character of a password across all four sinks is not a debugging aid worth
+    having.
+
+    fix(#1746 B2b review r3): a value with no separator is the PRE-#1770 wire
+    format, and it has to keep working. A worker that starts while
+    authenticated WFS or OGC API jobs are already queued reads a bare bearer
+    token out of ``procrastinate_jobs.args``, or out of the credential store
+    behind a reference the old door stashed. Refusing it would fail every one
+    of those deterministically at the next deploy or restart, which is worse
+    than the skew #1689 accepted at this door: that one degraded to a 401 the
+    operator could retry, and this would spend the single-use credential and
+    fail before ogr2ogr started. So a bare value that satisfies the charset the
+    previous version enforced is composed into the line it would have produced,
+    through the same builder every other caller uses rather than by a second
+    prefix in this module. Anything that is neither a valid line nor a valid
+    bare token still raises the shape policy.
+
+    ``service_format`` selects the builder's allowlist branch. Both header-auth
+    formats compose an identical bearer line, so it changes no output; passing
+    the caller's real value rather than a constant is what keeps the builder
+    the authority on which formats may carry a header at all.
+
+    Returns the line the file should hold, raises ValueError with a
+    SEC-FU-04-prefixed message otherwise. None passes through.
     """
-    if token is None:
+    if header_line is None:
         return None
-    if not token or len(token) < HEADER_TOKEN_MIN_LENGTH:
+    name, separator, value = header_line.partition(HEADER_LINE_SEPARATOR)
+    if not separator:
+        return _legacy_bearer_line(header_line, service_format)
+    if not value or HEADER_LINE_SEPARATOR in value:
+        raise ValueError(HEADER_LINE_SHAPE_POLICY)
+    if not name or any(character not in HEADER_NAME_CHARSET for character in name):
+        # The field-name GRAMMAR, and deliberately not the door's denylist of
+        # reserved names: that one refuses a name a CALLER chose, and the
+        # builder's own output for bearer and basic is `Authorization`, which
+        # the denylist exists to keep a caller from claiming. Applying it here
+        # would refuse every line this codebase composes.
+        raise ValueError(HEADER_LINE_NAME_POLICY)
+    if any(character not in HEADER_LINE_VALUE_CHARSET for character in value):
+        raise ValueError(HEADER_LINE_VALUE_POLICY)
+    # fix(#1770 round 49 P3): the D9 line -- what actually crosses the queue
+    # for a modern job -- never touches `build_credential_header`, the
+    # registry's only other producer (`_legacy_bearer_line` above calls it
+    # for the pre-#1770 bare-token shape, which is why that path was already
+    # covered). Without this, the whole worker service-import path relied on
+    # the two explicit `scrub_secret_from_exception` calls and nothing else
+    # -- no log line this function's own caller emits was scrubbed by exact
+    # value. Registers the VALUE (`Bearer <token>`/`Basic <blob>`/a named
+    # key's own value), never `name`: the header name is not the secret and
+    # is often a word ("Authorization") worth leaving visible in a log.
+    register_credential_secret(value)
+    if not value.startswith(BEARER_SCHEME):
+        return header_line
+
+    token = value[len(BEARER_SCHEME) :]
+    if len(token) < HEADER_TOKEN_MIN_LENGTH:
         raise ValueError(
             "SEC-FU-04: Authorization token is empty or implausibly short "
             f"(minimum {HEADER_TOKEN_MIN_LENGTH} characters required to "
@@ -149,7 +287,7 @@ def _sanitize_authorization_token(token: "str | None") -> "str | None":
             f"(first offender: {sample!r}); only [A-Za-z0-9._\\-=] are permitted "
             "to prevent CRLF header smuggling via GDAL_HTTP_HEADERS env var."
         )
-    return token
+    return header_line
 
 
 def _strip_ogr_driver_list(stderr_text: str) -> str:
@@ -238,6 +376,13 @@ def validate_layer_name_argv(layer_name: str) -> None:
 # Wall-clock limits protect the Procrastinate worker from hanging on a bad
 # file or a slow/hung upstream service. Tune via settings if your datasets
 # are routinely large.
+
+# fix(#1746 B2b review r17): what is left for ogr2ogr when the in-process
+# materialisation used the whole clock. A second rather than zero, so the
+# conversion fails through the ordinary timeout path with the ordinary
+# message rather than through an arithmetic edge; the same floor
+# `export_subprocess_timeout_seconds` keeps, for the same reason.
+_SUBPROCESS_FLOOR_SECONDS = 1.0
 
 OGRINFO_TIMEOUT_SECONDS = 300  # 5 min — metadata probe, should be fast
 OGR2OGR_FILE_TIMEOUT_SECONDS = 3600  # 1 hour — large files legitimately take a while
@@ -924,6 +1069,51 @@ async def run_ogr2ogr_service(
 
     _validate_table_name(table_name)
     _validate_table_name(schema)
+
+    # fix(#1746 B2b review r16): a protected OGC API collection is read HERE
+    # rather than by GDAL, and the credential never becomes a header file at
+    # all. Its pages choose the next one, GDAL follows that link, and the
+    # header file applies to every request the process makes, so a collection
+    # whose first page is same-origin can hand the credential to any origin it
+    # names on page two. GDAL 3.10.3 offers no way to scope the header to one
+    # origin; that was measured, and `platform/service_items` carries the
+    # result and the command. WFS is untouched: its driver pages by startIndex
+    # against the endpoint the capabilities advertise, and ignores a `next`
+    # attribute outright, which was measured the same way.
+    items_path: str | None = None
+    # fix(#1746 B2b review r17): one clock over the materialisation AND the
+    # subprocess. The page walk used to run before `timeout` began, so a
+    # service trickling pages inside the client's per-read timeout could hold a
+    # worker for hours and then still be handed the full half-hour to convert.
+    deadline = time.monotonic() + timeout
+    # fix(#1746 B2b review r23): ONE callback, wrapped so it fires at most
+    # once, handed to every site that might reach the origin first: the
+    # in-process page walk, the endpoint-check preflight, and the spawn.
+    # Nulling it out after whichever one is expected to fire it would be an
+    # assumption about a callee, and a callee that returns early (or is
+    # stubbed) would silently lose the contact date.
+    arm_origin_contact = fire_once(on_spawn)
+    if token and service_type == "ogcapi_features":
+        items_path = (
+            await materialise_oapif_items(
+                gdal_source.split(":", 1)[1],
+                layer_name,
+                credential_line=_sanitize_authorization_token(
+                    token, service_format=service_type
+                )
+                or "",
+                staging_dir=ensure_staging_ready(settings.upload_staging_dir),
+                deadline=deadline,
+                # fix(#1746 B2b review r17): the origin is contacted by the walk
+                # now rather than by the subprocess, so a materialisation that
+                # fails on its first page has still reached the service and the
+                # caller that dates contacts has to hear about it. Fired at most
+                # once: the spawn below skips it when the walk already did.
+                on_first_request=arm_origin_contact,
+            )
+        ).path
+        gdal_source, layer_name, token = items_path, "", None
+
     if layer_name:
         validate_layer_name_argv(layer_name)
     cmd = [
@@ -1031,9 +1221,44 @@ async def run_ogr2ogr_service(
         )
         assert env is not None  # base_env is always returned in single-tenant mode
         if token and service_type in ("wfs", "ogcapi_features"):
-            safe_token = _sanitize_authorization_token(
-                token
+            # fix(#1746) plan D9: for these two formats `token` IS the finished
+            # header line the door composed, so this validates a line and
+            # writes it verbatim. It used to compose `Authorization: Bearer `
+            # here, and keeping that while being handed a finished line would
+            # have produced `Authorization: Bearer Authorization: Basic <blob>`
+            # — a working-looking string that 401s at the origin and reads in a
+            # log like a credential problem rather than a bug. The one composer
+            # is `build_credential_header`, and it ran at the door.
+            header_line = _sanitize_authorization_token(
+                token, service_format=service_type
             )  # SEC-FU-04: raises ValueError before subprocess
+
+            # fix(#1746 B2b review r13): GDAL applies the header file to the
+            # operation endpoints the service's own description advertises,
+            # and those are fresh requests no redirect rule can see. Checked
+            # here as well as at the door because the document can change
+            # between a preview and the import it leads to, and this is the
+            # side that actually spends the credential.
+            await assert_endpoints_stay_on_origin(
+                gdal_source.split(":", 1)[1],
+                service_format=service_type,
+                # fix(#1746 B2b review r14): sent WITH the credential, so a
+                # protected service answers with the document this import will
+                # act on rather than a 401 that told the check nothing. And
+                # scoped to the layer being imported, which is the collection
+                # whose own document names the endpoint that gets the header.
+                credential_line=header_line,
+                collection=layer_name or None,
+                # fix(#1746 B2b review r23): under the same clock as the
+                # subprocess it precedes, and arming the origin-contact
+                # callback. The preflight authenticates against the origin, so
+                # a 401, malformed XML or cross-origin endpoint has reached the
+                # service; firing only at the spawn below left
+                # `origin_contact_attempted` false and `last_checked_at` stale
+                # for exactly the failures this check exists to produce.
+                deadline=deadline,
+                on_first_request=arm_origin_contact,
+            )
             # Write the header to a 0600 tempfile under the staging dir
             # (predictable owner, ephemeral). Using tempfile + os.chmod 0o600
             # (NamedTemporaryFile already creates owner-only on POSIX, but
@@ -1056,26 +1281,51 @@ async def run_ogr2ogr_service(
                 prefix="gdal_auth_", suffix=".hdr", dir=gdal_header_dir()
             )
             try:
-                os.write(fd, f"Authorization: Bearer {safe_token}\n".encode("ascii"))
+                os.write(fd, f"{header_line}\n".encode("ascii"))
             finally:
                 os.close(fd)
             os.chmod(header_file_path, 0o600)
             env["GDAL_HTTP_HEADER_FILE"] = header_file_path
+            # Plan rule A: GDAL forwards `Authorization` only to the host it
+            # was given to, and forwards every other header name verbatim even
+            # across hosts, so a service-chosen API key is redirect-exposed on
+            # this path and cannot be protected from inside (bounded
+            # operationally, AGENTS.md Rule 2). The value is stated rather than
+            # inherited, and it is IF_SAME_HOST rather than NO: a same-host
+            # canonical redirect, such as one adding a trailing slash, must
+            # keep the credential or a protected service answers 401.
+            env.update(GDAL_HEADER_FILE_REDIRECT_ENV)
 
+        # fix(#1746 B2b review r23): computed HERE rather than at each place
+        # that spends the budget, so it accounts for all of them: the
+        # in-process page walk for a protected OGC API collection, and the
+        # endpoint-check preflight. Floored so a preflight that used the whole
+        # budget still fails through the ordinary subprocess timeout rather
+        # than through an arithmetic edge.
+        timeout = max(deadline - time.monotonic(), _SUBPROCESS_FLOOR_SECONDS)
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
         )
-        if on_spawn is not None:
-            on_spawn()
+        if arm_origin_contact is not None:
+            # A no-op when the walk or the preflight already reached the
+            # origin, which is the point of wrapping it.
+            arm_origin_contact()
 
         # Use the shared helper for graceful kill-on-timeout (R-9).
         stdout, stderr = await _communicate_with_timeout(
             proc, timeout, tool_name="ogr2ogr (service)"
         )
     finally:
+        if items_path is not None:
+            try:
+                os.unlink(items_path)
+            except OSError:
+                # Already gone is the outcome this wanted; the staging sweep
+                # reclaims one a SIGKILL leaves behind.
+                pass
         if header_file_path is not None:
             try:
                 os.unlink(header_file_path)

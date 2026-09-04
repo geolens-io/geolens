@@ -100,8 +100,10 @@ target or import carries no provenance at all.
 
 Both allowlists are asserted EXACT in both directions and by count, so an
 entry whose site disappears fails loudly instead of going stale. Four of the
-five mapping entries are the compositions lane B2b deletes; this test is what
-tells it when the last one is gone.
+six entries were the hand-rolled compositions lane B2b deleted, and this test
+is what told it when each one was gone. The two that remain are named
+individually: an OAuth access token the builder cannot produce by design, and
+the one write whose value crosses a process boundary before it arrives.
 
 **Known limits, which are deliberate and are not defects.** This gate is one
 layer beside the runtime validation inside ``build_credential_header`` itself,
@@ -176,6 +178,14 @@ WRITE_CALL_NAMES = frozenset({"write", "writelines", "write_text", "write_bytes"
 # Calls that SEND a request. A header mapping handed to one of these leaves
 # the process; one handed to Response/StreamingResponse/HTTPException does
 # not, and cannot carry a credential to a third party.
+#
+# fix(#1770 round 41 P1): `bounded_probe_read` (`platform/probe_bounds.py`)
+# joins the list. It is the probe adapters' own thin wrapper around
+# `client.stream` -- the walk is scope-local and does not trace into a
+# callee's body, so without this entry a header mapping handed to it (as
+# `wfs.py`/`ogcapi.py` now do) reads as though it never left the scope that
+# built it, and every credential-header site in those two files silently
+# dropped out of the count this rule exists to keep honest.
 OUTBOUND_REQUEST_CALLS = frozenset(
     {
         "get",
@@ -189,6 +199,7 @@ OUTBOUND_REQUEST_CALLS = frozenset(
         "stream",
         "send",
         "build_request",
+        "bounded_probe_read",
     }
 )
 
@@ -221,33 +232,23 @@ NON_CREDENTIAL_HEADERS = frozenset(
 HEADER_FILE_WRITE_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
     ("processing/ingest/ogr.py", "run_ogr2ogr_service"): (
         1,
-        "fix(#1746 service-auth B2b removes this): composes "
-        "`Authorization: Bearer <token>` inline for the commit path",
-    ),
-    ("modules/catalog/sources/preview.py", "run_service_preview"): (
-        1,
-        "fix(#1746 service-auth B2b removes this): composes the same line "
-        "inline for the preview path",
+        "composes nothing: under plan D9 the finished header line crosses the "
+        "queue as the `token` task argument, so it arrives in this scope as a "
+        "PARAMETER and has no lexical provenance for this rule to read. What "
+        "guards it instead is `_sanitize_authorization_token` in the same "
+        "module, which judges the LINE (printable ASCII, no CR or LF, one "
+        "`: ` separator, an RFC 7230 field name, and the base64url charset on "
+        "the bearer branch) before the write. This is the one hop that cannot "
+        "compose at the write site, which is why the queue is the only place "
+        "a finished line travels. fix(#1746 B2b r3): that validator also "
+        "composes the line for a PRE-#1770 queued job, whose kwarg still holds "
+        "a bare bearer token, and it does so through `build_credential_header` "
+        "in `_legacy_bearer_line` rather than by a prefix of its own, so this "
+        "module still produces no credential header itself",
     ),
 }
 
 CREDENTIAL_HEADER_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
-    ("modules/catalog/sources/adapters/wfs.py", "probe_wfs"): (
-        1,
-        "fix(#1746 service-auth B2b removes this): composes the bearer header "
-        "for the WFS GetCapabilities probe",
-    ),
-    ("modules/catalog/sources/adapters/ogcapi.py", "probe_ogcapi"): (
-        1,
-        "fix(#1746 service-auth B2b removes this): composes the bearer header "
-        "for the OGC API Features landing-page probe",
-    ),
-    ("modules/catalog/sources/router.py", "_fetch_ogcapi_collection_srid"): (
-        1,
-        "fix(#1746 service-auth B2b removes this): composes the bearer header "
-        "for the collection CRS fallback fetch, which is the same service "
-        "credential the two probe adapters carry",
-    ),
     ("modules/auth/oauth/service.py", "_resolve_github_identity"): (
         1,
         "not a service credential and not B2b's to move: this is the OAuth "
@@ -905,12 +906,18 @@ class _Scan:
     def __init__(self) -> None:
         self.unguarded_writes: Counter[tuple[str, str]] = Counter()
         self.unguarded_headers: Counter[tuple[str, str]] = Counter()
+        # Every site the walk judged, guarded or not. The coverage control
+        # below reads this rather than the unguarded counters, which went
+        # empty for the converted modules the moment B2b landed and would
+        # otherwise have made the control assert that the fix had not shipped.
+        self.seen_headers: Counter[tuple[str, str]] = Counter()
         self.write_sites = 0
         self.header_sites = 0
 
     def absorb(self, other: _Scan) -> None:
         self.unguarded_writes.update(other.unguarded_writes)
         self.unguarded_headers.update(other.unguarded_headers)
+        self.seen_headers.update(other.seen_headers)
         self.write_sites += other.write_sites
         self.header_sites += other.header_sites
 
@@ -969,6 +976,7 @@ def _scan_module(rel: str, tree: ast.Module) -> _Scan:
             node, credential_path=credential_path, outbound=facts.outbound
         ):
             scan.header_sites += 1
+            scan.seen_headers[site] += 1
             if not _mapping_write_is_clean(write, facts.ctx):
                 scan.unguarded_headers[site] += 1
 
@@ -1047,9 +1055,15 @@ def test_the_walk_actually_covers_the_backend() -> None:
     # The scan reaches outside the sources package, which is the gap codex
     # round 1 found: the rule used to be scoped to sources/adapters/ and so
     # never looked at sources/router.py or anything else.
-    scanned = {site[0] for site in _scan_backend().unguarded_headers}
+    scan = _scan_backend()
+    scanned = {site[0] for site in scan.seen_headers}
     assert "modules/catalog/sources/router.py" in scanned
     assert any(not rel.startswith("modules/catalog/sources/") for rel in scanned)
+    # And it still judges the two probe adapters, which are the sites the
+    # every-key rule exists for: a header-key credential travels under a name
+    # the SERVICE chose, so nothing about the key says it is a credential.
+    assert "modules/catalog/sources/adapters/wfs.py" in scanned
+    assert "modules/catalog/sources/adapters/ogcapi.py" in scanned
 
 
 # The import every synthetic module needs, because provenance now requires the
@@ -1699,3 +1713,146 @@ def test_guard_a_self_reference_terminates() -> None:
         '    os.write(fd, f"{line}\\n".encode("ascii"))\n'
     )
     assert sum(scan.unguarded_writes.values()) == 1
+
+
+class TestBuildCredentialHeaderRegistersEverythingItProduces:
+    """fix(#1770 round 43 P2).
+
+    `redact_exception_text`/the structlog `_scrub_text` processor used to
+    redact a credential only by PATTERN -- a known query-parameter name, or
+    userinfo -- so a reflection into the URL path, or into a query key
+    neither recognises, reached a log line untouched. `register_credential_
+    secret` (`core/service_tokens.py`) closes that by having the single
+    producer of a credential header, `build_credential_header`, register the
+    exact line it composes, so an exact-value scrub finds it regardless of
+    where it gets reflected.
+
+    That guarantee only holds while EVERY branch that returns a real pair
+    also registers it. This is the structural half of that: it does not read
+    the synthetic fixtures the guard tests above use (those exercise the
+    OUTBOUND-header-mapping question, a different rule from this file's
+    docstring), it reads `build_credential_header`'s own real source and
+    counts the two shapes against each other. A regression that adds a
+    fourth branch, or that adds a `return` without the matching
+    registration, changes one count without the other and fails here rather
+    than waiting for a review round to notice the new reflection surface.
+    """
+
+    @staticmethod
+    def _build_credential_header_function() -> ast.FunctionDef:
+        source = (APP_ROOT / "core" / "service_tokens.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.FunctionDef)
+                and node.name == "build_credential_header"
+            ):
+                return node
+        raise AssertionError(
+            "build_credential_header not found -- positive control failed"
+        )
+
+    @staticmethod
+    def _pair_assignments(func: ast.FunctionDef) -> list[ast.Assign]:
+        """Every ``<name> = (<header-name>, <header-value>)`` assignment.
+
+        Each producing branch assigns the composed pair to a name (`pair =
+        (...)`) rather than returning a tuple literal directly, so this is
+        the shape that actually identifies "a branch that composed a
+        header" -- not the `Return` node, which just holds the name.
+        """
+        return [
+            node
+            for node in ast.walk(func)
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Tuple)
+        ]
+
+    def test_every_pair_producing_branch_registers_its_own_secret(self) -> None:
+        func = self._build_credential_header_function()
+
+        pair_assignments = self._pair_assignments(func)
+        registration_calls = [
+            node
+            for node in ast.walk(func)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "register_credential_secret"
+        ]
+
+        # Positive control: neither list is vacuous. `build_credential_header`
+        # has three methods that compose a real pair (bearer, basic, header
+        # key) -- a change to that shape is real news, not a broken walk.
+        assert len(pair_assignments) >= 3, pair_assignments
+        assert registration_calls, (
+            "no register_credential_secret call found -- positive control failed"
+        )
+        assert len(registration_calls) == len(pair_assignments), (
+            "build_credential_header composes a header pair on "
+            f"{len(pair_assignments)} branch(es) but registers a secret on "
+            f"{len(registration_calls)} -- every branch that composes a "
+            "header must also register it (see this class's docstring)."
+        )
+
+    def test_each_composed_pair_is_registered_immediately_after_it_is_assigned(
+        self,
+    ) -> None:
+        """Not just equal counts: paired one-for-one, in source order.
+
+        Catches the shape where a stray extra registration call and a stray
+        unregistered pair both exist and cancel out in the count above --
+        e.g. a copy-pasted branch that registers a DIFFERENT pair than the
+        one it just assigned.
+        """
+        func = self._build_credential_header_function()
+        checked = 0
+        for assign in self._pair_assignments(func):
+            assert len(assign.targets) == 1 and isinstance(assign.targets[0], ast.Name)
+            pair_name = assign.targets[0].id
+
+            body = _enclosing_body(func, assign)
+            index = body.index(assign)
+            assert index + 1 < len(body), "a pair assignment has nothing after it"
+            registration = body[index + 1]
+            assert (
+                isinstance(registration, ast.Expr)
+                and isinstance(registration.value, ast.Call)
+                and isinstance(registration.value.func, ast.Name)
+                and registration.value.func.id == "register_credential_secret"
+            ), (
+                "the statement immediately after a pair assignment is not a "
+                "register_credential_secret(...) call"
+            )
+            # And it has to register THIS pair, via `credential_header_line`,
+            # not some other name left over from a copy-pasted branch.
+            (arg,) = registration.value.args
+            assert (
+                isinstance(arg, ast.Call)
+                and isinstance(arg.func, ast.Name)
+                and arg.func.id == "credential_header_line"
+                and len(arg.args) == 1
+                and isinstance(arg.args[0], ast.Name)
+                and arg.args[0].id == pair_name
+            ), (
+                f"register_credential_secret after `{pair_name} = (...)` does "
+                f"not register `credential_header_line({pair_name})`"
+            )
+
+            assert index + 2 < len(body), "a registered pair has no return after it"
+            returned = body[index + 2]
+            assert (
+                isinstance(returned, ast.Return)
+                and isinstance(returned.value, ast.Name)
+                and returned.value.id == pair_name
+            ), f"the statement after registering `{pair_name}` does not return it"
+            checked += 1
+        assert checked >= 3, checked
+
+
+def _enclosing_body(func: ast.FunctionDef, target: ast.AST) -> list[ast.stmt]:
+    """The flat statement list directly containing *target* within *func*."""
+    for node in ast.walk(func):
+        body = getattr(node, "body", None)
+        if isinstance(body, list) and any(isinstance(item, ast.stmt) for item in body):
+            if target in body:
+                return body
+    raise AssertionError("target statement not found in any enclosing body")

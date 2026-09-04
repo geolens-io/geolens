@@ -17,7 +17,7 @@ from httpx import AsyncClient
 
 from app.modules.catalog.sources.probe import ServiceNotRecognized
 from app.modules.catalog.sources.schemas import LayerInfo, ProbeResponse
-from app.platform.security import SSRFError
+from app.platform.security import SSRFError, SSRFResolutionError
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +210,38 @@ class TestProbeEndpoint:
                 headers=admin_auth_header,
             )
             assert resp.status_code == 400
+
+    async def test_probe_mid_probe_redirect_ssrf_does_not_echo_the_host(
+        self, client: AsyncClient, admin_auth_header: dict, mock_validate_ssrf
+    ) -> None:
+        """fix(#1770 round 49 P3, `sources/router.py` mid-probe `SSRFError`).
+
+        `SSRFResolutionError` (`platform/security.py`) interpolates the raw,
+        unresolved hostname into its own message -- every other `SSRFError`
+        raise site is a fixed policy string. Mid-probe (this except clause,
+        not the door-level one at Step 1), that hostname is chosen by the
+        SERVICE via its own redirect `Location` header, not by the caller,
+        so reflecting it into the 400 body or the persisted audit reason is
+        a provider-controlled reflection this codebase refuses everywhere
+        else a document-chosen href/host could reach a response.
+        """
+        from unittest.mock import patch
+
+        redirect_host = "attacker-chosen-redirect-target.invalid"
+        with patch(
+            "app.modules.catalog.sources.router.detect_service_type",
+            side_effect=SSRFResolutionError(
+                f"Could not resolve hostname: {redirect_host}"
+            ),
+        ):
+            resp = await client.post(
+                "/services/probe/",
+                json={"url": "https://example.com/wfs"},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 400
+        assert redirect_host not in resp.text
 
     async def test_probe_timeout(
         self,
@@ -691,18 +723,35 @@ class TestPreviewEndpoint:
             }
 
         # Mock the OGC API collection metadata response with URI-form CRS84.
-        mock_response = MagicMock()
-        mock_response.raise_for_status = MagicMock()
-        mock_response.json = MagicMock(
-            return_value={
+        #
+        # fix(#1770 round 44): `_fetch_ogcapi_collection_srid` reads through
+        # `bounded_probe_read` (round 43 P1), which calls `client.stream(...)`
+        # rather than `client.get(...)`. A bare `MagicMock` for the client and
+        # a `MagicMock` response (this test's shape before round 43) supports
+        # neither the async-context-manager protocol `.stream()` returns nor a
+        # real streaming read, so this is now a real `httpx.AsyncClient` over
+        # `httpx.MockTransport`, with the response body served from a
+        # generator so `aiter_raw()` can actually stream it rather than
+        # raising `StreamConsumed` on an already-read double (see
+        # `_as_stream`'s docstring in `test_service_auth_transport_1746.py`
+        # for the same fix applied there in round 41).
+        collection_body = httpx.Response(
+            200,
+            json={
                 "id": "lakes",
                 "crs": ["http://www.opengis.net/def/crs/OGC/1.3/CRS84"],
-            }
+            },
+        ).content
+
+        def _handle_collection_request(request: httpx.Request) -> httpx.Response:
+            async def _chunks():
+                yield collection_body
+
+            return httpx.Response(200, content=_chunks())
+
+        mock_client = httpx.AsyncClient(
+            transport=httpx.MockTransport(_handle_collection_request)
         )
-        mock_client = MagicMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
 
         with (
             patch(

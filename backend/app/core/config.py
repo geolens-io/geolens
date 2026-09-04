@@ -583,7 +583,32 @@ class Settings(BaseSettings):
     # fix(#448): queues this worker listens to. Lets a deployment run a second
     # worker service dedicated to e.g. WORKER_QUEUES=raster so long raster jobs
     # never stall vector ingests.
-    worker_queues: str = "priority,ingest,raster"
+    #
+    # fix(#1770 round 35): "ingest-auth-v2" added beside the three original
+    # ones. It is `app.platform.service_auth.HEADER_AUTH_JOB_QUEUE`
+    # (`test_service_auth_transport_1746.py` pins that this default names it)
+    # — a worker on this release has to drain it as well as "ingest", or a
+    # header-auth WFS/OGC API job never gets picked up at all.
+    #
+    # fix(#1770 round 36): round 35 stopped here, reasoning that neither
+    # template SETS the variable, so this default reaches every stock
+    # install untouched. Wrong for Compose: both docker-compose.yml and
+    # docker-compose.prod.yml interpolate
+    # `WORKER_QUEUES: "${WORKER_QUEUES:-priority,ingest,raster}"`, and a
+    # Compose-supplied env var — even one that is itself only a fallback —
+    # still reaches the container and shadows this class default entirely.
+    # Both compose files' fallbacks now list "ingest-auth-v2" too, kept in
+    # sync with this one by
+    # `TestAHeaderAuthJobGoesOnTheVersionedQueue::test_docker_compose_and_env_example_name_every_queue_in_the_default`
+    # in `test_service_auth_transport_1746.py`. The Helm chart genuinely
+    # does not set WORKER_QUEUES anywhere (checked the sibling
+    # geolens-deployments repo's templates, values.yaml and configmap.yaml),
+    # so it is unaffected and needs no chart change for this specific gap.
+    # A deployment that overrides WORKER_QUEUES itself (the
+    # dedicated-raster-worker case this comment already describes, on either
+    # Compose or the chart's `worker.extraEnv`) must add the new queue to
+    # that override by hand.
+    worker_queues: str = "priority,ingest,ingest-auth-v2,raster"
 
     # CONF-04 (Phase 277 / M-39): replaces raw os.environ.get("ENV_ONLY_CONFIG") in core/public_urls.py
     # Security-relevant: when true, the PersistentConfig DB layer is bypassed for reads
@@ -899,7 +924,14 @@ class Settings(BaseSettings):
         if not parsed.path or parsed.path == "/":
             raise ValueError("DATABASE_URL_OVERRIDE must include a database name")
 
-        query_hosts = parse_qs(parsed.query, keep_blank_values=True).get("host", [])
+        # fix(#1770 round 47b P2 class): DATABASE_URL_OVERRIDE is an
+        # operator-supplied BOOT-TIME env var, never a runtime
+        # service-advertised value -- see `bounded_parse_qsl`'s docstring
+        # (`platform/service_endpoints.py`) for the sites that DO need the
+        # field-count bound.
+        query_hosts = parse_qs(  # parse_qs: unbounded
+            parsed.query, keep_blank_values=True
+        ).get("host", [])
         if parsed.hostname and query_hosts:
             raise ValueError(
                 "DATABASE_URL_OVERRIDE must not combine authority and query hosts"
@@ -1271,7 +1303,9 @@ class Settings(BaseSettings):
         from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
         parts = urlsplit(url)
-        params = parse_qs(parts.query, keep_blank_values=True)
+        # fix(#1770 round 47b P2 class): same reasoning as `database_url_
+        # override`'s validator above -- operator-supplied boot-time config.
+        params = parse_qs(parts.query, keep_blank_values=True)  # parse_qs: unbounded
         params.pop("sslmode", None)
         new_query = urlencode(params, doseq=True)
         return urlunsplit(
@@ -1377,7 +1411,14 @@ class Settings(BaseSettings):
                 raw = raw.replace("postgres://", "postgresql://", 1)
             parsed = urlparse(raw)
             parts = []
-            host = parsed.hostname or parse_qs(parsed.query).get("host", [None])[0]
+            # fix(#1770 round 47b P2 class): same reasoning as
+            # `database_url_override`'s validator -- operator boot-time config.
+            host = (
+                parsed.hostname
+                or parse_qs(parsed.query).get(  # parse_qs: unbounded
+                    "host", [None]
+                )[0]
+            )
             if host:
                 parts.append(f"host={libpq_value(host)}")
             if parsed.port:
@@ -1410,7 +1451,11 @@ class Settings(BaseSettings):
             # worker start). Re-add it, preserving any caller-supplied
             # ?options= — our search_path is applied last so it always wins.
             search_path_opt = f"-c search_path={self.procrastinate_schema},public"
-            caller_options = parse_qs(parsed.query).get("options", [""])[0]
+            # fix(#1770 round 47b P2 class): same reasoning -- operator
+            # boot-time config, not a runtime service-advertised value.
+            caller_options = parse_qs(parsed.query).get(  # parse_qs: unbounded
+                "options", [""]
+            )[0]
             combined_options = (
                 f"{caller_options} {search_path_opt}".strip()
                 if caller_options.strip()
@@ -1443,7 +1488,14 @@ class Settings(BaseSettings):
                 raw = raw.replace("postgres://", "postgresql://", 1)
             parsed = urlparse(raw)
             parts = ["PG:"]
-            host = parsed.hostname or parse_qs(parsed.query).get("host", [None])[0]
+            # fix(#1770 round 47b P2 class): same reasoning as
+            # `database_url_override`'s validator -- operator boot-time config.
+            host = (
+                parsed.hostname
+                or parse_qs(parsed.query).get(  # parse_qs: unbounded
+                    "host", [None]
+                )[0]
+            )
             if host:
                 parts.append(f"host={libpq_value(host)}")
             if parsed.port:

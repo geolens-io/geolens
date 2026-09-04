@@ -129,6 +129,13 @@ async def _dispatch_harness():
     """
     task = MagicMock()
     task.defer_async = AsyncMock(return_value=None)
+    # fix(#1770 round 35): a header-auth credential (the default source_format
+    # here is "wfs") routes the dispatch through task.configure(queue=...)
+    # before defer_async. Returning the SAME mock from configure() keeps every
+    # existing `task.defer_async` assertion in this file valid whichever path
+    # the dispatch actually takes, and a test that cares about the queue
+    # verdict can still assert on `task.configure.call_args` directly.
+    task.configure = MagicMock(return_value=task)
     port = MagicMock()
     port.reupload_service_task.return_value = task
     with (
@@ -674,7 +681,10 @@ class TestAuthRequiredRefusal:
 
         message = resp.json()["detail"]["message"]
         assert "re-upload" in message
-        assert "without a token" in message
+        # fix(#1746 B2b review r1): "a credential" rather than "a token" — the
+        # dialog takes all three methods now, and the marker is set by any of
+        # them.
+        assert "without a credential" in message
 
     # ---------------------------------------------------------------- #
     # Session handling across the probe
@@ -1354,6 +1364,81 @@ class TestRefreshRefusals:
         assert resp.status_code in (403, 404)
         assert await _run_for(test_db_session, dataset.id) is None
 
+    async def test_a_non_owner_is_refused_before_the_credential_is_judged(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        editor_auth_header: dict,
+        test_db_session,
+    ) -> None:
+        """fix(#1746 B2b review r1): every refusal behind the same gate.
+
+        The credential policy is chosen by `dataset.source_format`, so judging
+        it before the write-access check answered 422 for a dataset the caller
+        may not touch while a nonexistent one answered 404. That difference is
+        the dataset's existence and the family of source it came from, told to
+        someone with no access to either.
+
+        A basic credential on an ArcGIS origin is the sharpest case: it is a
+        422 the moment the source format is read, and nothing else about the
+        request is wrong.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(
+            test_db_session,
+            created_by=admin_id,
+            source_format="arcgis_featureserver",
+            visibility="private",
+        )
+
+        async with _dispatch_harness():
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh",
+                json={
+                    "auth": {
+                        "method": "basic",
+                        "username": "u" + uuid.uuid4().hex,
+                        "password": "p" + uuid.uuid4().hex,
+                    }
+                },
+                headers=editor_auth_header,
+            )
+
+        assert resp.status_code in (403, 404), resp.text
+        assert "unsupported_auth_method" not in resp.text
+        assert await _run_for(test_db_session, dataset.id) is None
+
+    async def test_the_marked_origin_refusal_names_the_structured_field(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ) -> None:
+        """fix(#1746 B2b review r1): `token` alone is not advice a basic user can take.
+
+        A WFS origin last pulled with a username and password is marked by the
+        same `auth_required` flag as a bearer one, and the deprecated `token`
+        field always means a bearer credential, so a caller who followed the
+        old message could not authenticate and the refresh kept failing.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(
+            test_db_session, created_by=admin_id, auth_required=True
+        )
+
+        async with _dispatch_harness():
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+            )
+
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["detail"]
+        # The code is unchanged: a client keying on it is answering the same
+        # question, and A3's dialog handling keeps working.
+        assert detail["code"] == "service_token_required"
+        assert "`auth`" in detail["message"]
+        assert "`token`" in detail["message"]
+
     async def test_anonymous_callers_are_refused(
         self, client: AsyncClient, test_db_session
     ) -> None:
@@ -1423,7 +1508,13 @@ class TestCredentialHandoff:
         )
 
         # And the secret really is retrievable by the reference, once.
-        assert await creds.claim_service_credential(kwargs["credential_ref"]) == secret
+        # feat(#1746 B2b) plan D9: what a header-auth service stages is the
+        # finished header line the door composed, not the bare token, so one
+        # wire format reaches the worker whatever method the caller used.
+        assert (
+            await creds.claim_service_credential(kwargs["credential_ref"])
+            == f"Authorization: Bearer {secret}"
+        )
 
     async def test_a_token_without_a_shared_store_is_refused_at_the_door(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
@@ -2300,38 +2391,70 @@ class TestServiceTokenPolicy:
         from app.core import service_tokens
         from app.modules.catalog.datasets.api import router_refresh, router_reupload
         from app.modules.catalog.sources import preview
+        from app.platform import service_auth
         from app.processing.ingest import ogr, service
 
+        # The worker judges a LINE now (plan D9), and keeps the base64url
+        # charset and the length floor on the bearer branch of it, so nothing
+        # about today's bearer guarantee weakens.
         worker_source = inspect.getsource(ogr._sanitize_authorization_token)
         assert "HEADER_TOKEN_CHARSET" in worker_source
         assert "HEADER_TOKEN_MIN_LENGTH" in worker_source
+        assert "HEADER_LINE_SEPARATOR" in worker_source
         # No private copy of the charset survives anywhere in the module.
         assert "_BASE64URL_CHARSET" not in inspect.getsource(ogr)
 
-        # Every door that can hand a service token to the worker, by the name
-        # whoever adds the next one will search for. The import door's check is
-        # a named helper (inline pushed `queue_ingest_job` past ruff's C901
-        # ceiling), so the call site is asserted alongside it.
+        # Every door that can hand a service credential to the worker, by the
+        # name whoever adds the next one will search for.
+        #
+        # fix(#1746 B2b): the name changed and the test follows it rather than
+        # being deleted. A door no longer applies one charset rule to one bare
+        # token: it hands the whole credential to `wire_credential`, which
+        # selects the policy by service format, judges the inputs and composes
+        # the line. So the chain is asserted end to end — the entry point in
+        # each door body, and the four rules inside that entry point — which is
+        # strictly more than the two literals this used to look for.
         for door in (
             router_refresh.refresh_dataset,
             router_reupload.reupload_commit,
-            service._assert_header_token_dispatchable,
+            service.queue_ingest_job,
         ):
             door_source = inspect.getsource(door)
-            assert "header_token_rejection_reason" in door_source, door.__name__
-            assert "requires_header_token_policy" in door_source, door.__name__
+            assert "wire_credential" in door_source, door.__name__
+        # The import door keeps its own named pre-check as well, because
+        # `commit_import` calls it before writing a row that makes the job
+        # un-retryable, which is earlier than the queue.
+        assert "requires_header_token_policy" in inspect.getsource(
+            service._assert_header_token_dispatchable
+        )
+        assert "header_token_rejection_reason" in inspect.getsource(
+            service._assert_header_token_dispatchable
+        )
         assert "_assert_header_token_dispatchable" in inspect.getsource(
             service.queue_ingest_job
         )
+
+        # And the entry point every door now routes through names all four
+        # rules, so a method added without a rule fails here rather than
+        # silently composing an unjudged header.
+        gate_source = inspect.getsource(service_auth)
+        for rule in (
+            "header_token_rejection_reason",
+            "credential_input_rejection_reason",
+            "header_name_rejection_reason",
+            "requires_header_token_policy",
+        ):
+            assert rule in gate_source, rule
 
         # Preview is the fourth consumer and selects the header-auth case
         # differently: it holds a composed GDAL source string, not a stored
         # `source_format`, so the `WFS:`/`OAPIF:` prefix IS the selector and
         # `requires_header_token_policy` has nothing to answer for it. It must
-        # still judge the token by the shared rule — it used to accept anything
-        # printable, so a token that could never import previewed cleanly.
+        # still judge the credential by the shared rule — it used to accept
+        # anything printable, so a token that could never import previewed
+        # cleanly.
         preview_source = inspect.getsource(preview.run_service_preview)
-        assert "header_token_rejection_reason" in preview_source
+        assert "credential_input_rejection" in preview_source
 
         # And the policy text itself never interpolates the token. The
         # worker's message DOES name the offending character, deliberately —

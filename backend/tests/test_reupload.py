@@ -16,6 +16,8 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+from app.core.service_tokens import CredentialMethod, ServiceCredential
 from fastapi import HTTPException, UploadFile
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -829,6 +831,10 @@ class TestServiceReuploadPreview:
         assert any(col["name"] == "new_col" for col in diff["columns_added"])
         assert any(change["name"] == "value" for change in diff["type_changes"])
 
+        # feat(#1746 B2b): the GDAL source builder takes a bare token, which
+        # only its ArcGIS branch reads; the preview takes the whole credential
+        # and composes the header itself. For a WFS layer the token is None
+        # here because the credential travels as a header instead.
         mock_build_source.assert_called_once_with(
             "WFS 2.0.0",
             "https://example.com/wfs",
@@ -841,7 +847,11 @@ class TestServiceReuploadPreview:
         mock_run_preview.assert_awaited_once_with(
             "WFS:https://example.com/wfs",
             "roads",
-            token="secret-token",
+            credential=ServiceCredential(
+                method=CredentialMethod.BEARER,
+                service_format="wfs",
+                token="secret-token",
+            ),
         )
 
         job_id = uuid.UUID(data["job_id"])
@@ -1160,11 +1170,18 @@ class TestSchemaDiffComputation:
         assert result["row_count_delta"] == 0
 
     def test_schema_diff_null_counts(self):
-        """Null feature counts handled gracefully."""
+        """Null feature counts are UNKNOWN, and the delta says so.
+
+        fix(#1746 B2b review r24): this asserted a delta of 0, which is what
+        `(new or 0) - (old or 0)` produced and what the review called out: an
+        unknown count coerced to zero invents a delta the size of whichever
+        side is known, and two unknowns read as "no change" rather than as
+        "not known". The field is nullable now, and still required.
+        """
         result = compute_schema_diff([], [], None, None)
         assert result["row_count_old"] is None
         assert result["row_count_new"] is None
-        assert result["row_count_delta"] == 0
+        assert result["row_count_delta"] is None
 
     def test_schema_diff_case_insensitive(self):
         """Column matching is case-insensitive (ogr2ogr lowercases on import)."""

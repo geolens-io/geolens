@@ -20,6 +20,7 @@ import httpx
 import structlog
 
 from app.core.geo import pixel_size_from_affine
+from app.core.url_redaction import redact_exception_text
 from app.platform.storage.titiler_url import build_titiler_cog_url
 
 logger = structlog.get_logger(__name__)
@@ -280,5 +281,9 @@ async def fetch_cog_info(url: str) -> dict | None:
                 **geotransform,
             }
     except Exception as exc:  # broad: Titiler info call — httpx/JSON parse can throw varied errors; degrade to None
-        logger.debug("Failed to fetch COG info from Titiler", url=url, error=str(exc))
+        logger.debug(
+            "Failed to fetch COG info from Titiler",
+            url=url,
+            error=redact_exception_text(exc),
+        )
         return None

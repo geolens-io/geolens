@@ -48,13 +48,48 @@ EXPORTS_PERIODIC_SWEEP_AGE_SECONDS = 4 * EXPORTS_SWEEP_AGE_SECONDS  # 4 hours
 # and repeated crashes ate the shared staging volume.
 _LOCAL_TMP_RE = re.compile(r"\.[0-9a-f]{32}\.tmp$")
 
+# fix(#1746 B2b review r28): the local extract of a protected OGC API
+# collection. `materialise_oapif_items` removes it in a `finally` and on every
+# exception, but a SIGKILL or an OOM skips both and leaves up to `MAX_BYTES`
+# (2 GiB) of it in the shared staging directory forever. It carries no
+# credential -- the header never becomes a file on that path -- but it is data
+# read with one, and it is the largest thing this codebase writes there.
+#
+# The writer imports these rather than spelling the prefix again, so the sweep
+# and the `mkstemp` call cannot describe different files; `test_layering`'s
+# sibling suite pins that.
+OAPIF_ITEMS_SCRATCH_PREFIX = "oapif_items_"
+OAPIF_ITEMS_SCRATCH_SUFFIX = ".geojson"
+_OAPIF_ITEMS_RE = re.compile(
+    rf"^{re.escape(OAPIF_ITEMS_SCRATCH_PREFIX)}.*{re.escape(OAPIF_ITEMS_SCRATCH_SUFFIX)}$"
+)
+
+# Every scratch name this codebase creates under the staging root. A new one
+# belongs HERE, in the same commit that starts writing it, rather than being
+# found later as a leak: that is the sibling-site class r28 asked to close, and
+# the reason this is a list rather than a second sweeper.
+#
+# NOT included, deliberately: `gdal_auth_*.hdr`. Those live on the container
+# tmpfs under `GDAL_HEADER_DIR`, never under the staging root, and
+# `sweep_stale_gdal_header_files` reclaims them on a one-hour horizon because
+# they hold a credential and this one waits four.
+_STAGING_SCRATCH_RES = (_LOCAL_TMP_RE, _OAPIF_ITEMS_RE)
+
+
+def _is_staging_scratch(name: str) -> bool:
+    return any(pattern.search(name) for pattern in _STAGING_SCRATCH_RES)
+
 
 def sweep_orphaned_write_scratch(
     root: Path,
     *,
     age_threshold_seconds: int = EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
 ) -> int:
-    """Reclaim atomic-write scratch files anywhere under ``root``. Returns how many.
+    """Reclaim orphaned scratch files anywhere under ``root``. Returns how many.
+
+    Covers every name in ``_STAGING_SCRATCH_RES``: the atomic-write pattern
+    ``LocalStorageProvider.put`` leaves behind, and the OGC API extract
+    `service_items` writes for a protected collection.
 
     Aged by MTIME, which is the right signal here and not everywhere: these
     files never move, so nothing resets it, and unlike the export cache's keys
@@ -71,7 +106,7 @@ def sweep_orphaned_write_scratch(
     cutoff = time.time() - age_threshold_seconds
     removed = 0
     for entry in root.rglob("*"):
-        if not _LOCAL_TMP_RE.search(entry.name):
+        if not _is_staging_scratch(entry.name):
             continue
         try:
             if entry.is_file() and entry.stat().st_mtime < cutoff:
@@ -243,6 +278,36 @@ _GDAL_AUTH_HEADER_SUFFIX = ".hdr"
 # backups. A hardcoded path rather than a setting: an operator who repointed it
 # at a persistent volume would silently undo exactly that.
 GDAL_HEADER_DIR = Path("/tmp/gdal-auth")
+
+
+# feat(#1746) plan section 5 rule A. Measured on GDAL 3.10.3 (the worker
+# image) and re-verified on 3.13.0: on a cross-host 302 libcurl under GDAL
+# drops `Authorization` and forwards every other header name verbatim. Two
+# things follow, and only one of them is fixable from inside the process.
+# Prefer `Authorization` framing wherever the provider accepts it, because a
+# service-chosen API-key header IS forwarded across a cross-host redirect and
+# no GDAL option exists that would stop that; that residual is bounded
+# operationally (AGENTS.md Rule 2, worker egress firewall), and it is why the
+# httpx probe path refuses a cross-origin redirect outright for a header-key
+# credential. And state the `Authorization` half here rather than inherit it.
+#
+# fix(#1746 B2b review r4): the value is IF_SAME_HOST, not NO. NO blocks
+# forwarding after ANY redirect, so a protected WFS or OAPIF endpoint that
+# redirects to its own canonical path -- adding a trailing slash is the common
+# one -- would lose the header and answer 401. That would have regressed
+# bearer imports that work today, for no gain: a same-host redirect reaches
+# the host that was already validated at submission time, which is the host
+# the credential is for. IF_SAME_HOST is also GDAL's current default, and it
+# is set explicitly so a later change to that default cannot silently widen
+# what this credential follows.
+#
+# This is NOT `GDAL_HTTP_FOLLOWLOCATION`, which is not a GDAL option at all
+# (#937), never stopped a redirect, and must never be re-added anywhere: it
+# reads as a defense and is a no-op. This one is a real config option, read by
+# GDAL's /vsicurl and http drivers.
+GDAL_HEADER_FILE_REDIRECT_ENV: dict[str, str] = {
+    "CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT": "IF_SAME_HOST",
+}
 
 
 def gdal_header_dir() -> Path:

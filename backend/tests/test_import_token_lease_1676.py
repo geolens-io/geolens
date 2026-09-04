@@ -147,6 +147,11 @@ async def _import_harness(defer_side_effect=None):
     """
     task = MagicMock()
     task.defer_async = AsyncMock(return_value=None, side_effect=defer_side_effect)
+    # fix(#1770 round 35): a header-auth credential routes the dispatch
+    # through task.configure(queue=...) before defer_async. Returning the
+    # mock itself from configure() keeps `task` the object every assertion
+    # here already checks, whether or not that branch fires.
+    task.configure = MagicMock(return_value=task)
     with (
         patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
         patch("app.processing.ingest.tasks.ingest_service", task),
@@ -158,6 +163,7 @@ async def _import_harness(defer_side_effect=None):
 async def _reupload_harness(defer_side_effect=None):
     task = MagicMock()
     task.defer_async = AsyncMock(return_value=None, side_effect=defer_side_effect)
+    task.configure = MagicMock(return_value=task)
     file_task = MagicMock()
     file_task.defer_async = AsyncMock(return_value=None)
     port = MagicMock()
@@ -444,7 +450,14 @@ class TestReuploadCommitDoor:
         assert secret not in str((run.error_message, run.error_code, run.origin_kind))
         assert secret not in str(captured)
 
-        assert await creds.claim_service_credential(kwargs["credential_ref"]) == secret
+        # feat(#1746 B2b) plan D9: this job's origin is a WFS service, whose
+        # credential travels as a header, so what is staged is the composed
+        # line. The import door above stages a bare token because its job is
+        # an ArcGIS one, and an ArcGIS credential goes into the URL.
+        assert (
+            await creds.claim_service_credential(kwargs["credential_ref"])
+            == f"Authorization: Bearer {secret}"
+        )
 
     async def test_without_a_store_the_reupload_still_runs_on_the_durable_argument(
         self,
@@ -476,7 +489,10 @@ class TestReuploadCommitDoor:
 
         assert resp.status_code == 202, resp.text
         kwargs = task.defer_async.call_args.kwargs
-        assert kwargs["token"] == secret
+        # The durable argument is the same wire value the lease would have
+        # staged: a composed header line, because this job's origin is a WFS
+        # service.
+        assert kwargs["token"] == f"Authorization: Bearer {secret}"
         assert kwargs["credential_ref"] is None
 
         fallbacks = [

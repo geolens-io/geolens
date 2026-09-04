@@ -26,7 +26,7 @@ class SchemaDiff:
         type_changes (list[TypeChange]): Columns whose data type changed
         row_count_old (int | None):
         row_count_new (int | None):
-        row_count_delta (int): row_count_new minus row_count_old
+        row_count_delta (int | None): row_count_new minus row_count_old, or null when either side is unknown
     """
 
     columns_added: list[ColumnChange]
@@ -34,7 +34,7 @@ class SchemaDiff:
     type_changes: list[TypeChange]
     row_count_old: int | None
     row_count_new: int | None
-    row_count_delta: int
+    row_count_delta: int | None
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -59,6 +59,7 @@ class SchemaDiff:
         row_count_new: int | None
         row_count_new = self.row_count_new
 
+        row_count_delta: int | None
         row_count_delta = self.row_count_delta
 
         field_dict: dict[str, Any] = {}
@@ -117,7 +118,12 @@ class SchemaDiff:
 
         row_count_new = _parse_row_count_new(d.pop("row_count_new"))
 
-        row_count_delta = d.pop("row_count_delta")
+        def _parse_row_count_delta(data: object) -> int | None:
+            if data is None:
+                return data
+            return cast(int | None, data)
+
+        row_count_delta = _parse_row_count_delta(d.pop("row_count_delta"))
 
         schema_diff = cls(
             columns_added=columns_added,

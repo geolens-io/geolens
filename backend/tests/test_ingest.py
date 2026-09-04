@@ -1547,11 +1547,16 @@ class TestCommitImportDispatch:
             )
         assert resp.status_code == 202, resp.text
         assert mock_ingest_task.await_count == 1
-        # Token must be forwarded via kwarg, not persisted to metadata
+        # The credential must be forwarded as a kwarg, not persisted to
+        # metadata. feat(#1746 B2b): as a `ServiceCredential` rather than a
+        # bare token, so the queue composes the wire value against the job's
+        # own service format; the flat `token` field still means a bearer one.
         call_kwargs = mock_ingest_task.await_args.kwargs
-        assert call_kwargs["token"] == "bearer-abc"
+        assert call_kwargs["credential"].token == "bearer-abc"
+        assert call_kwargs["credential"].method == "bearer"
         await test_db_session.refresh(job)
         assert "token" not in (job.user_metadata or {})
+        assert "auth" not in (job.user_metadata or {})
         assert job.user_metadata["service_auth_required"] is True
 
     async def test_vector_job_with_kitchen_sink_body_silently_ignores_extras(

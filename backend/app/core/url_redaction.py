@@ -11,6 +11,7 @@ recognise as a URL at all.
 
 from __future__ import annotations
 
+import base64
 import re
 import unicodedata
 from urllib.parse import (
@@ -21,6 +22,12 @@ from urllib.parse import (
     urlencode,
     urlsplit,
     urlunsplit,
+)
+
+from app.core.service_tokens import (
+    BASIC_SCHEME,
+    HEADER_LINE_SEPARATOR,
+    registered_credential_secrets,
 )
 
 REDACTED_QUERY_VALUE = "<redacted>"
@@ -71,10 +78,14 @@ def query_has_credentials(query: str) -> bool:
     """Return True if a raw query string contains known credential parameters."""
     if query.startswith("?"):
         query = query[1:]
-    return any(
-        _is_sensitive_query_param(key)
-        for key, _ in parse_qsl(query, keep_blank_values=True)
-    )
+    # fix(#1770 round 47 P1 class): a redactor must never raise on the string
+    # it is asked to scrub -- `max_num_fields` turns an oversized query in an
+    # exception message into a crash INSIDE exception handling, worse than
+    # the field count this already tolerates. See
+    # `service_endpoints.bounded_parse_qsl`'s docstring for the sites that DO
+    # need the bound.
+    pairs = parse_qsl(query, keep_blank_values=True)  # parse_qs: unbounded
+    return any(_is_sensitive_query_param(key) for key, _ in pairs)
 
 
 def has_url_credentials(url: str) -> bool:
@@ -140,7 +151,9 @@ def redact_query_credentials(query: str) -> str:
         return query
     prefix = "?" if query.startswith("?") else ""
     raw_query = query[1:] if prefix else query
-    pairs = parse_qsl(raw_query, keep_blank_values=True)
+    # fix(#1770 round 47 P1 class): same reasoning as `query_has_credentials`
+    # above -- a redactor must never raise on its own input.
+    pairs = parse_qsl(raw_query, keep_blank_values=True)  # parse_qs: unbounded
     if not any(_is_sensitive_query_param(key) for key, _ in pairs):
         return query
     return prefix + urlencode(
@@ -319,6 +332,97 @@ def redact_url_credentials(url: str) -> str:
     )
 
 
+def scrub_registered_credentials(text: str) -> str:
+    """Exact-scrub every credential secret registered so far in this
+    request/job's context.
+
+    fix(#1770 round 43 P2). The pattern-based helpers in this module
+    (``redact_url_credentials`` and, in ``core/logging_config.py``,
+    ``_scrub_text``) only ever redact a KNOWN shape: a query parameter whose
+    NAME is in ``SENSITIVE_QUERY_PARAMS``, or userinfo. A same-origin
+    redirect that reflects the credential into the URL PATH, or into an
+    arbitrary query key not on that list (``?echo=<value>``, say), carries
+    the secret straight through either pattern untouched, and each new
+    reflection SHAPE used to cost its own review round rather than closing
+    as a class.
+
+    ``app.core.service_tokens.register_credential_secret`` is called at the
+    one place a credential header is ever composed
+    (``build_credential_header``), so by the time anything downstream calls
+    this, every secret in play for this request/job is already registered --
+    exact-value redaction (``scrub_secret_value``, which also expands to the
+    Basic cleartext and every URL-encoded form) then finds it wherever it
+    was reflected, independent of shape.
+    """
+    for secret in registered_credential_secrets():
+        text = scrub_secret_value(text, secret)
+    return text
+
+
+def redact_exception_text(exc: BaseException) -> str:
+    """``str(exc)``, with any URL-shaped substring redacted.
+
+    fix(#1770 round 39): ``httpx.HTTPStatusError`` -- what ``raise_for_status``
+    raises -- puts the WHOLE request URL, query string included, into its own
+    message: ``"Client error '401 Unauthorized' for url '<url>'"``. A caller
+    that reads a response chosen by an untrusted service and logs the caught
+    exception's text was logging that URL verbatim, so a service that
+    reflects a query parameter shaped like a credential into its own error
+    page gets it echoed straight into the log -- the free-text sibling of the
+    ``href=`` leak `redact_url_credentials` already closes for a value read
+    directly off a link.
+
+    ``redact_url_credentials`` already redacts a URL embedded in arbitrary
+    text (its ``URL_LIKE_RE`` fallback for anything that is not, as a WHOLE
+    string, a bare ``http``/``https`` URL), so this is that function applied
+    to the one shape an exception's text actually has. Safe to call
+    unconditionally: an exception whose message carries no URL at all --
+    ``httpx.RequestError`` and its connection-level subclasses generally
+    don't, the address lives on ``exc.request.url`` instead and is never read
+    here -- passes through unchanged.
+
+    fix(#1770 round 43 P2): ``scrub_registered_credentials`` runs second, so a
+    reflection the pattern-based pass above cannot see by shape (an arbitrary
+    query key, or the URL path) is still caught by exact value.
+    """
+    return scrub_registered_credentials(redact_url_credentials(str(exc)))
+
+
+def _basic_cleartext(blob: str) -> set[str]:
+    """The username and password inside a base64 basic credential.
+
+    fix(#1746 B2b review r11). Empty on anything it cannot read, and it never
+    raises: the value reaching here is whatever a worker was handed, so a blob
+    that is truncated, re-encoded, not base64 at all, or not a colon-separated
+    pair must degrade to "nothing extra to scrub" rather than replacing a
+    failure message with a decoder traceback.
+
+    Padding is restored before decoding because a caller that stripped it is
+    the ordinary case for base64 carried in text, and ``validate=True`` so a
+    blob with characters outside the alphabet is refused here rather than
+    silently decoding to something that is not the credential.
+
+    Nothing is logged, here or by the caller. The whole point of the return
+    value is that it is a secret; a decode failure that named the blob would
+    put a credential in a log line to explain why it could not be kept out of
+    one.
+    """
+    try:
+        decoded = base64.b64decode(blob + "=" * (-len(blob) % 4), validate=True).decode(
+            "utf-8"
+        )
+    except (ValueError, TypeError):
+        # binascii.Error and UnicodeDecodeError are both ValueError subclasses;
+        # TypeError is belt to those braces for a non-str blob.
+        return set()
+    username, separator, password = decoded.partition(":")
+    if not separator:
+        return set()
+    # Empties dropped: a blank half scrubs nothing and `str.replace` with an
+    # empty needle would insert the marker between every character.
+    return {half for half in (username, password) if half}
+
+
 def _secret_variants(secret: str) -> list[str]:
     """Every spelling of *secret* that could appear in a captured string.
 
@@ -332,8 +436,39 @@ def _secret_variants(secret: str) -> list[str]:
     Longest first, so a variant that contains another (``a%2Fb`` and its raw
     ``a/b`` share no prefix, but ``quote`` and ``quote_plus`` often agree)
     cannot leave a partial match behind after the first replacement.
+
+    fix(#1746) plan D9: what a worker holds for a header-auth service is a
+    finished header line, so the exact value it would scrub is
+    ``Authorization: Bearer abc``. An origin that echoes the credential back
+    echoes the credential, not the line GeoLens wrapped it in, so the halves
+    are scrubbed too: everything after the first ``": "``, and then everything
+    after the authentication scheme. The second one restores exactly what this
+    function scrubbed before the wire format changed, which is the bare token.
+    A secret containing ``": "`` is a line by construction — a username,
+    password, header value and bearer token may none of them contain
+    whitespace — so this cannot mistake a bare credential for one.
+
+    fix(#1746 B2b review r11): and for basic authentication the encoded blob is
+    not the only spelling that can come back. The credential the ORIGIN knows
+    is a username and a password, so its own error text says so: "authentication
+    failed for user alice", "bad password for alice". GDAL propagates that body
+    to stderr, the preview path logs it and the worker paths carry it into
+    ``IngestJob.error_message`` and the queue's recorded exception, and base64
+    of the pair matches none of it. So the pair is decoded and both halves join
+    the variants, alongside every encoded form.
     """
-    variants = {secret, quote(secret, safe=""), quote_plus(secret)}
+    forms = {secret}
+    _, separator, tail = secret.partition(HEADER_LINE_SEPARATOR)
+    if separator and tail:
+        forms.add(tail)
+        _, space, rest = tail.partition(" ")
+        if space and rest:
+            forms.add(rest)
+        if tail.startswith(BASIC_SCHEME):
+            forms.update(_basic_cleartext(tail[len(BASIC_SCHEME) :]))
+    variants = set()
+    for form in forms:
+        variants.update({form, quote(form, safe=""), quote_plus(form)})
     return sorted(variants, key=len, reverse=True)
 
 
@@ -373,10 +508,109 @@ def scrub_secret_from_exception(exc: BaseException, secret: str | None) -> None:
     downstream reader of that exception — the persisted ``error_message``, the
     log record, the notification reason, and the re-raise the queue records —
     sees the scrubbed text, without each of them having to remember to scrub.
+
+    Covers the whole chain (fix(#1746 B2b review r32)): ``__context__``,
+    ``__cause__``, the members of a ``BaseExceptionGroup``, and ``__notes__``
+    on each. A traceback renders all of them, so scrubbing only the outermost
+    ``args`` left the secret visible in exactly the case that produces a chain
+    here — a WFS import that fails, retries unqualified, and fails again.
     """
-    if not secret or not exc.args:
+    if not secret:
         return
-    exc.args = tuple(
-        scrub_secret_value(arg, secret) if isinstance(arg, str) else arg
-        for arg in exc.args
-    )
+    # fix(#1746 B2b review r32): the WHOLE chain, not just the top. A
+    # namespace-qualified WFS import that fails twice leaves the first
+    # attempt's `IngestionError` as the retry's `__context__`, and the retry's
+    # `__cause__` when the auth hint replaces it. Scrubbing only the outermost
+    # `args` left a username or password the first GDAL attempt echoed sitting
+    # in the chained traceback that exception logging renders and the queue's
+    # bare re-raise records. Every reader of the outer exception is a reader of
+    # its chain.
+    #
+    # `id()` rather than the exception itself: `__eq__` is not defined for most
+    # exception types, and a set of them would compare by identity anyway, but
+    # saying so removes the question. A cycle is not hypothetical -- assigning
+    # `e.__context__ = e` is legal and `raise X from Y` inside a handler for Y
+    # builds a two-node one -- so the visited set is what terminates this, and
+    # the depth bound is a second floor under a chain that is merely long.
+    seen: set[int] = set()
+    pending: list[tuple[BaseException, int]] = [(exc, 0)]
+    while pending:
+        current, depth = pending.pop()
+        if id(current) in seen or depth > _MAX_EXCEPTION_CHAIN_DEPTH:
+            continue
+        seen.add(id(current))
+        _scrub_one_exception(current, secret)
+        for linked in (
+            current.__context__,
+            current.__cause__,
+            *(
+                # A group carries its members beside the chain rather than in
+                # it, so following only `__context__`/`__cause__` walks past
+                # them. `anyio` and `asyncio.TaskGroup` raise these, and this
+                # module's callers run under both.
+                getattr(current, "exceptions", None) or ()
+                if isinstance(current, BaseExceptionGroup)
+                else ()
+            ),
+        ):
+            if isinstance(linked, BaseException):
+                pending.append((linked, depth + 1))
+
+
+def scrub_registered_credentials_from_exception(exc: BaseException) -> None:
+    """Scrub every credential secret registered so far in this request/job's
+    context out of *exc*, in place, over its whole chain.
+
+    fix(#1770 round 44 P2). ``scrub_registered_credentials`` (the string
+    form, used by ``redact_exception_text`` and the structlog processor)
+    reads ``registered_credential_secrets()`` from a plain ``ContextVar`` --
+    which only ever answers correctly for a caller in the SAME async task
+    that registered a secret via ``register_credential_secret``. Starlette's
+    ``BaseHTTPMiddleware.dispatch`` runs ``call_next`` (and everything it
+    calls, including the route handler) in a SEPARATE spawned task, so an
+    unhandled exception that escapes the handler is read back by
+    ``RequestLoggingMiddleware``'s own ``except`` clause, and by any
+    ``@app.exception_handler(Exception)``, in the ORIGINAL parent task --
+    where the registry is always the empty default, no matter what the
+    handler registered. Measured directly (a contextvar set inside a
+    ``BaseHTTPMiddleware``-wrapped route handler that raises reads back as
+    unset in both the middleware's own except clause and an app-level
+    ``Exception`` handler, which Starlette routes through
+    ``ServerErrorMiddleware`` -- outside even the user middleware stack).
+
+    This is what closes it instead: called from
+    ``CredentialScrubASGIMiddleware`` (``api/middleware/credential_scrub.py``),
+    a plain ASGI callable rather than a ``BaseHTTPMiddleware`` -- it spawns no
+    task of its own, so as long as it is registered as the INNERMOST
+    middleware (added first; see that module's own docstring), it shares the
+    route handler's exact task and can read the registry the handler
+    populated. Exact-value mutation, same as ``scrub_secret_from_exception``,
+    so the SAME exception object -- unwound normally up through every outer
+    context afterward -- already carries the scrubbed text by the time
+    anything outside this task reads it, independent of which context does
+    the reading.
+    """
+    for secret in registered_credential_secrets():
+        scrub_secret_from_exception(exc, secret)
+
+
+# A chain longer than this is a runaway rather than a diagnosis, and walking it
+# is work done while a job is already failing.
+_MAX_EXCEPTION_CHAIN_DEPTH = 50
+
+
+def _scrub_one_exception(exc: BaseException, secret: str) -> None:
+    """Scrub the two places an exception carries text of its own."""
+    if exc.args:
+        exc.args = tuple(
+            scrub_secret_value(arg, secret) if isinstance(arg, str) else arg
+            for arg in exc.args
+        )
+    # `add_note` text is rendered by the traceback machinery exactly like the
+    # message is, and nothing else scrubs it.
+    notes = getattr(exc, "__notes__", None)
+    if isinstance(notes, list):
+        exc.__notes__ = [
+            scrub_secret_value(note, secret) if isinstance(note, str) else note
+            for note in notes
+        ]

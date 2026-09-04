@@ -180,6 +180,102 @@ def test_every_codeql_marker_in_backend_app_binds_to_the_line_it_covers() -> Non
     )
 
 
+# fix(#1770 round 43): alert #113 (py/full-ssrf, critical). Round 41 moved
+# the probe adapters' actual sink -- a `client.stream(` call -- out of each
+# adapter (`adapters/ogcapi.py`, `adapters/wfs.py`, `adapters/arcgis.py`,
+# `adapters/stac.py`) and into one shared helper, `bounded_probe_read`
+# (`platform/probe_bounds.py`). The `# codeql[py/full-ssrf]` marker that used
+# to sit directly above the adapter's own call stayed there, one hop away
+# from the sink CodeQL's dataflow analysis actually reports at -- inert,
+# exactly the trap the placement test above exists for, except that test
+# only catches prose wedged BETWEEN a marker and the line it covers, not a
+# marker sitting confidently above the WRONG line entirely. The two tests
+# below close that: one enumerates the sinks a caller-validated URL reaches
+# and demands each carries its own marker (a false negative -- an unmarked
+# sink); the other demands no `py/full-ssrf` marker exists anywhere that is
+# not directly above a real sink (a false positive -- exactly alert #113's
+# shape).
+SSRF_MARKER_RE = re.compile(r"\bcodeql\s*\[\s*py/full-ssrf\s*\]", re.IGNORECASE)
+
+# The two modules whose sinks a caller-validated URL is expected to reach
+# today: `probe_bounds.py`'s single `bounded_probe_read` (round 41-43, the
+# probe adapters' own shared read) and `service_endpoints.py`'s single
+# `fetch_document` (#1746, the door's own description read). A genuinely new
+# sink gets its own marker and its own entry here, not a marker that merely
+# resembles one.
+SSRF_SINK_MODULES = (
+    "backend/app/platform/probe_bounds.py",
+    "backend/app/platform/service_endpoints.py",
+)
+
+SINK_CALL_RE = re.compile(
+    r"\bclient\.(get|post|put|patch|delete|head|options|request|stream|send)\("
+)
+
+
+def _sink_lines(source: str) -> list[int]:
+    """1-based line numbers of every ``client.<verb>(`` sink call."""
+    return [
+        index + 1
+        for index, line in enumerate(source.splitlines())
+        if SINK_CALL_RE.search(line)
+    ]
+
+
+@pytest.mark.parametrize("rel_path", SSRF_SINK_MODULES)
+def test_every_ssrf_sink_in_the_shared_readers_carries_its_own_marker(
+    rel_path: str,
+) -> None:
+    """Every ``client.<verb>(`` sink in the two shared bounded-read helpers
+    carries a ``# codeql[py/full-ssrf]`` marker on the line directly above.
+
+    The sink is asserted to exist first (`assert sinks`) so this cannot pass
+    vacuously the way it would if `SINK_CALL_RE` ever stopped matching --
+    the absence-claim trap: silence here would otherwise look identical to
+    "already covered."
+    """
+    path = REPO_ROOT / rel_path
+    lines = (path).read_text(encoding="utf-8").splitlines()
+    sinks = _sink_lines("\n".join(lines))
+    assert sinks, f"{rel_path}: no client.<verb>( sink found -- positive control failed"
+    missing = [
+        line_no
+        for line_no in sinks
+        if line_no < 2 or not SSRF_MARKER_RE.search(lines[line_no - 2])
+    ]
+    assert not missing, (
+        f"{rel_path}: sink(s) at line(s) {missing} carry no "
+        "`# codeql[py/full-ssrf]` marker on the line directly above"
+    )
+
+
+def test_no_full_ssrf_marker_sits_above_a_non_sink_line() -> None:
+    """No ``# codeql[py/full-ssrf]`` marker anywhere under ``backend/app``
+    covers anything other than a real ``client.<verb>(`` sink.
+
+    Tree-wide rather than scoped to `SSRF_SINK_MODULES`: a marker left
+    behind at an OLD call site after the real sink moves elsewhere (alert
+    #113's exact shape, at what was `adapters/ogcapi.py:159`) is inert
+    there regardless of which module it is in, and this is the check that
+    would have caught it before the alert reopened on `main` after merge.
+    """
+    stray: list[str] = []
+    for path in sorted((REPO_ROOT / "backend/app").rglob("*.py")):
+        rel = str(path.relative_to(REPO_ROOT))
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for index, line in enumerate(lines):
+            if not SSRF_MARKER_RE.search(line):
+                continue
+            following = lines[index + 1] if index + 1 < len(lines) else ""
+            if not SINK_CALL_RE.search(following):
+                stray.append(f"{rel}:{index + 1}")
+
+    assert not stray, (
+        "`# codeql[py/full-ssrf]` marker(s) that do not sit directly above a "
+        "`client.<verb>(` sink, so they suppress nothing:\n  " + "\n  ".join(stray)
+    )
+
+
 def _codeql_workflow() -> dict:
     return yaml.safe_load(CODEQL_WORKFLOW.read_text(encoding="utf-8"))
 

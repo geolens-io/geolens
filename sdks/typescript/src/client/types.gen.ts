@@ -2323,6 +2323,10 @@ export type CommitRequest = {
      * CSV/Excel only: name of the WKT geometry column (alternative to x_column/y_column).
      */
     geom_column?: string | null;
+    /**
+     * Structured credential for a protected service. Mutually exclusive with the token field.
+     */
+    auth?: ServiceAuthRequest | null;
 };
 
 /**
@@ -8473,12 +8477,18 @@ export type ReuploadServicePreviewRequest = {
     layer_id?: number | string | null;
     /**
      * Token
+     *
+     * Deprecated: use the auth object with method bearer.
      */
     token?: string | null;
     /**
      * Object Id Field
      */
     object_id_field?: string | null;
+    /**
+     * Structured credential for a protected service. Mutually exclusive with the token field.
+     */
+    auth?: ServiceAuthRequest | null;
 };
 
 /**
@@ -8772,9 +8782,9 @@ export type SchemaDiff = {
     /**
      * Row Count Delta
      *
-     * row_count_new minus row_count_old
+     * row_count_new minus row_count_old, or null when either side is unknown
      */
-    row_count_delta: number;
+    row_count_delta: number | null;
 };
 
 /**

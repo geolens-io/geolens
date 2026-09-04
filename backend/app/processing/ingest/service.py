@@ -1279,6 +1279,26 @@ async def restore_fan_out_parent_pending(
     await session.commit()
 
 
+def job_service_format(job: IngestJob) -> str | None:
+    """The canonical service format this job's origin resolves to, or None.
+
+    None for a label nothing recognizes, which is the worker's error to report
+    and not this module's: an unrecognized label composes no header, so the
+    credential degrades to the bare token the ArcGIS path takes and the worker
+    still explains what it could not read.
+    """
+    from app.processing.ingest.ogr import IngestionError
+    from app.processing.ingest.tasks import resolve_service_type
+
+    try:
+        _, source_format = resolve_service_type(
+            str((job.user_metadata or {}).get("service_type") or "")
+        )
+    except IngestionError:
+        return None
+    return source_format
+
+
 def _assert_header_token_dispatchable(job: IngestJob, token: str | None) -> None:
     """fix(#1746): refuse a header-auth token the worker is going to reject.
 
@@ -1295,21 +1315,15 @@ def _assert_header_token_dispatchable(job: IngestJob, token: str | None) -> None
     decision and not this function's: an ArcGIS token is a urlencoded query
     parameter, never a header line, so the strict charset would reject valid
     tokens for a danger that path does not have.
+
+    Judges the BARE token only, which is what the import-commit door still
+    carries: ``ServiceCommitRequest`` has no structured ``auth`` object, so
+    that door cannot describe a basic or header-key credential at all. The
+    composition into a wire value happens in ``queue_ingest_job``.
     """
     if not token:
         return
-    from app.processing.ingest.ogr import IngestionError
-    from app.processing.ingest.tasks import resolve_service_type
-
-    try:
-        _, source_format = resolve_service_type(
-            str((job.user_metadata or {}).get("service_type") or "")
-        )
-    except IngestionError:
-        # An unrecognized service label is the worker's error to report; this
-        # check does not take that decision away from it.
-        return
-    if not requires_header_token_policy(source_format):
+    if not requires_header_token_policy(job_service_format(job)):
         return
     rejection = header_token_rejection_reason(token)
     if rejection is not None:
@@ -1350,16 +1364,19 @@ async def queue_ingest_job(
     thing, and it is a parameter in its own right so a caller with no HTTP
     layer, an overlay scheduler that has resolved a stored credential, can
     queue an authenticated ingest without assembling a request body for a door
-    to take apart. It wins over ``token`` when both are set, and a method this
-    build cannot send is refused here with 422 ``unsupported_auth_method``
-    rather than dispatched as an unauthenticated fetch.
+    to take apart. It wins over ``token`` when both are set. A method the
+    job's own service cannot carry is refused here with 422
+    ``unsupported_auth_method`` rather than dispatched as an unauthenticated
+    fetch, which for an ArcGIS origin means a username and password or a named
+    API key: that transport has room for a token and nothing else.
     """
     import os
 
-    from app.platform.service_auth import bearer_token_for_credential
-
-    if credential is not None:
-        token = bearer_token_for_credential(credential)
+    from app.platform.service_auth import (
+        bearer_credential,
+        header_auth_job_queue,
+        wire_credential,
+    )
 
     from app.platform.refresh.credentials import (
         CredentialStoreUnavailable,
@@ -1378,7 +1395,34 @@ async def queue_ingest_job(
 
         # fix(#1746): BEFORE the stash below, so a token the worker will refuse
         # never burns a single-use credential.
-        _assert_header_token_dispatchable(job, token)
+        #
+        # fix(#1746 B2b review r1): only when the flat token is the credential
+        # this call is going to send. The docstring promises the structured
+        # `credential` wins over `token` when both are given, and this check
+        # judged the losing one, so an in-process caller of plan D2 holding a
+        # stale legacy token could be refused for a credential it had already
+        # replaced. `wire_credential` below applies the same rule to the value
+        # that is actually dispatched, whichever spelling it came from.
+        if credential is None:
+            _assert_header_token_dispatchable(job, token)
+
+        # feat(#1746) plan D9: what crosses to the worker under the kwarg
+        # `token` is one finished header line for the two header-auth formats,
+        # and the bare token for ArcGIS. Composed here rather than in the
+        # worker because the queue hop has no site at which to compose it
+        # later, and composed from whichever spelling the caller used: the
+        # structured credential of plan D2, or the flat bearer token the
+        # import-commit door still carries.
+        service_format = job_service_format(job)
+        token = wire_credential(
+            credential if credential is not None else bearer_credential(token),
+            service_format=service_format,
+        )
+        # fix(#1770 round 35): judged on the line just composed, before the
+        # lease below may swap it for a store reference — see
+        # `service_auth.header_auth_job_queue` for why that ordering is what
+        # makes this apply to either spelling.
+        service_queue = header_auth_job_queue(token, service_format=service_format)
 
         # feat(#1676): the import door's half of the lease. On an install with
         # a shared credential store this returns (None, ref) and the secret
@@ -1413,8 +1457,11 @@ async def queue_ingest_job(
             ) from exc
 
         async def _defer_service() -> None:
+            task = ingest_service
+            if service_queue is not None:
+                task = task.configure(queue=service_queue)
             await defer_async_with_tenant(
-                ingest_service,
+                task,
                 job_id=str(job.id),
                 attempt_id=str(job.attempt_id),
                 source_url=source_url,

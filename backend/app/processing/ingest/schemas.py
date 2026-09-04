@@ -4,7 +4,13 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from app.platform.service_auth import (
+    SERVICE_AUTH_FIELD_DESCRIPTION,
+    ServiceAuthRequest,
+    reject_service_auth_conflict,
+)
 
 Visibility = Literal["private", "restricted", "internal", "public"]
 
@@ -230,8 +236,19 @@ class ServiceCommitRequest(BaseCommitRequest):
 
     token: str | None = Field(
         default=None,
-        description="Optional auth token for protected services. Never persisted to the database.",
+        description=(
+            "Optional auth token for protected services. Never persisted to "
+            "the database. Deprecated: use the auth object with method bearer."
+        ),
     )
+    # feat(#1746 B2b): declared LAST, like every other model that gained this
+    # field, because the generated Python SDK gives each field a positional
+    # slot in declaration order and appending cannot move a slot that already
+    # exists. Pinned by test_service_auth_contract_1746.
+    auth: ServiceAuthRequest | None = Field(
+        default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
+    )
+    _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
 
 
 class CommitRequest(BaseModel):
@@ -309,6 +326,13 @@ class CommitRequest(BaseModel):
         default=None,
         description="CSV/Excel only: name of the WKT geometry column (alternative to x_column/y_column).",
     )
+    # feat(#1746 B2b): the handler re-validates ServiceCommitRequest from THIS
+    # model's dump, so a field absent here is dropped before the subclass ever
+    # sees it. Declared last for the positional-slot reason above.
+    auth: ServiceAuthRequest | None = Field(
+        default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
+    )
+    _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
 
 
 class CommitResponse(BaseModel):

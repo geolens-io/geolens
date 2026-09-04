@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, TYPE_CHECKING
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
@@ -13,6 +13,9 @@ from ..models.commit_request_visibility import CommitRequestVisibility
 from dateutil.parser import isoparse
 from typing import cast
 import datetime
+
+if TYPE_CHECKING:
+    from ..models.service_auth_request import ServiceAuthRequest
 
 
 T = TypeVar("T", bound="CommitRequest")
@@ -58,6 +61,8 @@ class CommitRequest:
             y_column (None | str | Unset): CSV/Excel only: name of the latitude/Y coordinate column.
             geom_column (None | str | Unset): CSV/Excel only: name of the WKT geometry column (alternative to
                 x_column/y_column).
+            auth (None | ServiceAuthRequest | Unset): Structured credential for a protected service. Mutually exclusive with
+                the token field.
     """
 
     title: str
@@ -74,9 +79,12 @@ class CommitRequest:
     x_column: None | str | Unset = UNSET
     y_column: None | str | Unset = UNSET
     geom_column: None | str | Unset = UNSET
+    auth: None | ServiceAuthRequest | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.service_auth_request import ServiceAuthRequest
+
         title = self.title
 
         summary: None | str | Unset
@@ -159,6 +167,14 @@ class CommitRequest:
         else:
             geom_column = self.geom_column
 
+        auth: dict[str, Any] | None | Unset
+        if isinstance(self.auth, Unset):
+            auth = UNSET
+        elif isinstance(self.auth, ServiceAuthRequest):
+            auth = self.auth.to_dict()
+        else:
+            auth = self.auth
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -192,11 +208,15 @@ class CommitRequest:
             field_dict["y_column"] = y_column
         if geom_column is not UNSET:
             field_dict["geom_column"] = geom_column
+        if auth is not UNSET:
+            field_dict["auth"] = auth
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.service_auth_request import ServiceAuthRequest
+
         d = dict(src_dict)
         title = d.pop("title")
 
@@ -331,6 +351,23 @@ class CommitRequest:
 
         geom_column = _parse_geom_column(d.pop("geom_column", UNSET))
 
+        def _parse_auth(data: object) -> None | ServiceAuthRequest | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                auth_type_0 = ServiceAuthRequest.from_dict(data)
+
+                return auth_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | ServiceAuthRequest | Unset, data)
+
+        auth = _parse_auth(d.pop("auth", UNSET))
+
         commit_request = cls(
             title=title,
             summary=summary,
@@ -346,6 +383,7 @@ class CommitRequest:
             x_column=x_column,
             y_column=y_column,
             geom_column=geom_column,
+            auth=auth,
         )
 
         commit_request.additional_properties = d

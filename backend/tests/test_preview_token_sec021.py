@@ -61,6 +61,15 @@ def test_none_token_accepted(model):
     assert m.token is None
 
 
+def _bearer(token: str):
+    """The structured credential the preview path takes (fix(#1746))."""
+    from app.core.service_tokens import CredentialMethod, ServiceCredential
+
+    return ServiceCredential(
+        method=CredentialMethod.BEARER, service_format="wfs", token=token
+    )
+
+
 @pytest.mark.anyio
 async def test_preview_passes_bearer_via_header_file_not_env(monkeypatch, client):
     """The WFS/OAPIF bearer must travel through a 0600 GDAL_HTTP_HEADER_FILE,
@@ -105,7 +114,9 @@ async def test_preview_passes_bearer_via_header_file_not_env(monkeypatch, client
 
     token = "averylongbearertoken1234567890"
     await preview_mod.run_service_preview(
-        "WFS:https://example.com/wfs", "layer", token=token
+        "WFS:https://example.com/wfs",
+        "layer",
+        credential=_bearer(token),
     )
 
     env = captured["env"]
@@ -117,7 +128,16 @@ async def test_preview_passes_bearer_via_header_file_not_env(monkeypatch, client
     assert "GDAL_HTTP_FOLLOWLOCATION" not in env
     assert "GDAL_HTTP_HEADER_FILE" in env, "expected the 0600 header-file pattern"
     assert captured.get("mode") == 0o600
-    assert f"Authorization: Bearer {token}" in captured.get("content", "")
+    # fix(#1746 B2b): byte-identical to what this path wrote before the
+    # composition moved into the shared builder. The prefix used to be
+    # composed here; the parity is the point.
+    assert captured.get("content") == f"Authorization: Bearer {token}\n"
+    # Plan rule A: the Authorization header follows only to the host it was
+    # given to, stated explicitly rather than inherited, and not "NO" -- see
+    # test_service_auth_transport_1746 for why (fix(#1746 B2b review r4)).
+    assert (
+        env["CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT"] == "IF_SAME_HOST"
+    )
 
 
 @pytest.mark.anyio
@@ -167,7 +187,7 @@ async def test_fetch_arcgis_layer_preview_maps_fields_crs_and_attributes():
     used to always report feature_count=None even though the probe already
     showed a real count for the same layer).
     """
-    from unittest.mock import AsyncMock, MagicMock
+    import httpx
 
     from app.modules.catalog.sources.adapters.arcgis import fetch_arcgis_layer_preview
 
@@ -190,18 +210,23 @@ async def test_fetch_arcgis_layer_preview_maps_fields_crs_and_attributes():
     }
     count = {"count": 9567}
 
-    meta_resp = MagicMock()
-    meta_resp.raise_for_status = MagicMock()
-    meta_resp.json = MagicMock(return_value=meta)
-    sample_resp = MagicMock()
-    sample_resp.raise_for_status = MagicMock()
-    sample_resp.json = MagicMock(return_value=sample)
-    count_resp = MagicMock()
-    count_resp.raise_for_status = MagicMock()
-    count_resp.json = MagicMock(return_value=count)
+    # fix(#1770 round 44 P1): fetch_arcgis_layer_preview now reads through
+    # bounded_probe_read, i.e. client.stream(...), which a bare MagicMock
+    # client (this test's shape before round 44) cannot support -- see
+    # `_as_stream`'s docstring in test_service_auth_transport_1746.py for the
+    # same fix applied there in round 41. A real MockTransport, dispatched by
+    # call order to mirror the removed `side_effect=[...]` list exactly.
+    responses = iter([meta, sample, count])
 
-    client = MagicMock()
-    client.get = AsyncMock(side_effect=[meta_resp, sample_resp, count_resp])
+    def _handle(request: httpx.Request) -> httpx.Response:
+        body = httpx.Response(200, json=next(responses)).content
+
+        async def _chunks():
+            yield body
+
+        return httpx.Response(200, content=_chunks())
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(_handle))
 
     result = await fetch_arcgis_layer_preview(
         "https://services.arcgis.com/x/rest/services/Parcels/FeatureServer",
@@ -224,8 +249,6 @@ async def test_fetch_arcgis_layer_preview_maps_fields_crs_and_attributes():
 async def test_fetch_arcgis_layer_preview_count_failure_degrades_to_none():
     """fix(#1746): a returnCountOnly=true failure must degrade feature_count
     to None, not fail the whole preview."""
-    from unittest.mock import AsyncMock, MagicMock
-
     import httpx
 
     from app.modules.catalog.sources.adapters.arcgis import fetch_arcgis_layer_preview
@@ -238,17 +261,24 @@ async def test_fetch_arcgis_layer_preview_count_failure_degrades_to_none():
     }
     sample = {"features": []}
 
-    meta_resp = MagicMock()
-    meta_resp.raise_for_status = MagicMock()
-    meta_resp.json = MagicMock(return_value=meta)
-    sample_resp = MagicMock()
-    sample_resp.raise_for_status = MagicMock()
-    sample_resp.json = MagicMock(return_value=sample)
+    # fix(#1770 round 44 P1): see the sibling test above for why this is a
+    # real MockTransport now rather than a MagicMock client. The third call
+    # (the feature-count read) raises a transport error to exercise the same
+    # degrade-to-None path the removed `side_effect=[...]` list did.
+    responses = iter([meta, sample])
 
-    client = MagicMock()
-    client.get = AsyncMock(
-        side_effect=[meta_resp, sample_resp, httpx.TransportError("connection reset")]
-    )
+    def _handle(request: httpx.Request) -> httpx.Response:
+        try:
+            body = httpx.Response(200, json=next(responses)).content
+        except StopIteration:
+            raise httpx.TransportError("connection reset") from None
+
+        async def _chunks():
+            yield body
+
+        return httpx.Response(200, content=_chunks())
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(_handle))
 
     result = await fetch_arcgis_layer_preview(
         "https://services.arcgis.com/x/rest/services/Parcels/FeatureServer",

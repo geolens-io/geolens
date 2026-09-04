@@ -47,10 +47,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.dependencies import get_db
 from app.core.identity import Identity
-from app.core.service_tokens import (
-    header_token_rejection_reason,
-    requires_header_token_policy,
-)
 from app.modules.auth.dependencies import require_permission
 from app.modules.catalog.authorization import check_dataset_write_access
 from app.modules.catalog.datasets.domain.schemas import (
@@ -61,7 +57,7 @@ from app.modules.catalog.datasets.domain.service import get_dataset
 from app.platform.security import SSRFError, validate_url_for_ssrf
 from app.modules.catalog.sources.schemas import service_credential_from_request
 from app.modules.catalog.sources.stac_resolve import states_verifiable_identity
-from app.platform.service_auth import bearer_token_for_credential
+from app.platform.service_auth import header_auth_job_queue, wire_credential
 from app.modules.catalog.sources.origin_probe import (
     AUTH_CHALLENGE_DETAILS,
     probe_arcgis_origin,
@@ -229,18 +225,29 @@ def _resolve_service_origin(dataset) -> _ServiceOrigin:
 
 
 def _service_token_required() -> HTTPException:
-    """The one 422 both refusal paths raise, so the wording cannot fork."""
+    """The one 422 both refusal paths raise, so the wording cannot fork.
+
+    fix(#1746 B2b review r1): the message used to name only the deprecated
+    `token` field, which always means a bearer credential. A WFS or OGC API
+    Features origin last pulled with a username and password or a named API
+    key is marked by the same flag, so following that advice could not
+    authenticate it and the refresh kept failing for a caller who had done
+    exactly what they were told. The code is unchanged, because a client
+    keying on it is answering the same question.
+    """
     return HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         detail={
             "code": "service_token_required",
             "message": (
-                "This dataset's source needed a service token the last time "
-                "it was imported or refreshed, and this request carries "
-                "none. Send the token again in the request body's `token` "
-                "field; tokens are request-only and are never stored between "
-                "runs. If the source is public now, re-import it through the "
-                "re-upload dialog without a token to clear the requirement."
+                "This dataset's source needed a credential the last time it "
+                "was imported or refreshed, and this request carries none. "
+                "Send it again in the request body's `auth` object, using the "
+                "same method the source needs; the deprecated `token` field "
+                "still works and means a bearer token. Credentials are "
+                "request-only and are never stored between runs. If the "
+                "source is public now, re-import it through the re-upload "
+                "dialog without a credential to clear the requirement."
             ),
         },
     )
@@ -937,12 +944,8 @@ async def refresh_dataset(
     """
     body = request or DatasetRefreshRequest()
     # feat(#1746): the structured credential is what the service layer takes;
-    # `body.token` is its deprecated bearer spelling. Converted once, ahead of
-    # every branch below, so a method this build cannot carry is refused before
-    # any origin is contacted and before any row is written.
-    service_token = bearer_token_for_credential(
-        service_credential_from_request(body.auth, body.token)
-    )
+    # `body.token` is its deprecated bearer spelling.
+    credential = service_credential_from_request(body.auth, body.token)
 
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
@@ -953,6 +956,22 @@ async def refresh_dataset(
     # Rule 1: this endpoint replaces the dataset's data. One gate, before the
     # strategy split below, so neither strategy can be reached without it.
     await check_dataset_write_access(db, dataset, dataset_id, user)
+
+    # Judged and composed as soon as the origin is known, which is what selects
+    # the transport: a header line for WFS and OGC API Features, a bare token
+    # for ArcGIS, and a 422 for a method the origin cannot carry. Before any
+    # origin is contacted and before any row is written, so a credential that
+    # cannot work never probes, reserves or stashes. The dispatched binding is
+    # re-read after the reservation and the value is re-derived from it below,
+    # because an unchanged binding is not the same fact as an unchanged one.
+    #
+    # fix(#1746 B2b review r1): AFTER the write-access gate, never before it.
+    # This reads `dataset.source_format`, so a refusal that ran first would
+    # answer 422 for a dataset the caller may not touch while a nonexistent one
+    # answers 404 — telling them the dataset exists, and which family of source
+    # it came from. Every refusal about the credential now sits behind the same
+    # gate as every other answer this endpoint gives.
+    service_token = wire_credential(credential, service_format=dataset.source_format)
 
     # The strategy split. `classify_origin` is the derivation ADR-002
     # Decision 2 keeps pure, so this dispatch cannot disagree with the
@@ -1189,38 +1208,37 @@ async def refresh_dataset(
         db, dataset_id
     )
 
-    # fix(#1277 review round 6): the token is judged by the policy the WORKER
-    # will apply, selected by the service type of the binding that is actually
-    # going to be dispatched. That is why it happens HERE, after the re-read,
-    # rather than in the request model: the model cannot know the service type,
-    # and the pre-check binding is not guaranteed to be the dispatched one.
+    # fix(#1277 review round 6): the credential is judged by the policy the
+    # WORKER will apply, selected by the service type of the binding that is
+    # actually going to be dispatched. That is why it happens HERE as well as
+    # at the top, after the re-read, rather than in the request model: the
+    # model cannot know the service type, and the pre-check binding is not
+    # guaranteed to be the dispatched one.
     #
-    # Header-auth services (WFS, OGC API) pin their token to the base64url
+    # Header-auth services (WFS, OGC API) pin a bearer token to the base64url
     # charset because it becomes an Authorization header line reaching libcurl
     # through GDAL — a character outside that set is a header-smuggling
     # primitive. ArcGIS is deliberately exempt: its token is a urlencoded query
     # parameter, so its vocabulary is legitimately wider and applying the
-    # strict policy up front would reject valid ArcGIS tokens for a danger
-    # that path does not have.
+    # strict policy to it would reject valid ArcGIS tokens for a danger that
+    # path does not have.
     #
-    # Before the stash, so a rejected token never burns a credential — which is
-    # the whole failure this closes: a 202 followed by a deterministic
-    # background failure and a spent single-use secret.
-    if service_token and requires_header_token_policy(origin.source_format):
-        rejection = header_token_rejection_reason(service_token)
-        if rejection is not None:
-            await db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail={
-                    "code": "invalid_service_token",
-                    # The policy, never the input. The caller has the token and
-                    # can compare it against the rule; echoing any part of a
-                    # credential into a response, a log and a job row is the
-                    # cost of a marginally friendlier message.
-                    "message": rejection,
-                },
-            )
+    # Before the stash, so a rejected credential never burns one — which is the
+    # whole failure this closes: a 202 followed by a deterministic background
+    # failure and a spent single-use secret. The refusal releases the
+    # reservation the way every other post-reservation refusal does.
+    try:
+        service_token = wire_credential(credential, service_format=origin.source_format)
+    except HTTPException:
+        await db.rollback()
+        raise
+    # fix(#1770 round 35): judged on the line just composed, before the
+    # stash below may hand the worker a store reference instead — see
+    # `service_auth.header_auth_job_queue` for why that ordering is what
+    # makes this apply to either spelling.
+    service_queue = header_auth_job_queue(
+        service_token, service_format=origin.source_format
+    )
 
     # Step 4. Refusing on ANY change rather than dispatching the new binding
     # is the deliberate choice: the caller asked to refresh the source they
@@ -1298,8 +1316,11 @@ async def refresh_dataset(
         await discard_service_credential(credential_ref)
 
     async def _defer_refresh() -> None:
+        task = get_catalog_port().reupload_service_task()
+        if service_queue is not None:
+            task = task.configure(queue=service_queue)
         await defer_async_with_tenant(
-            get_catalog_port().reupload_service_task(),
+            task,
             job_id=str(job_id),
             attempt_id=str(attempt_id),
             dataset_id=str(dataset_id),

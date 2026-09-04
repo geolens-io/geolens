@@ -2820,3 +2820,82 @@ ls -t ./backups/pre-upgrade/*.dump | head -1
 Re-pin the previous `GEOLENS_VERSION` in `.env`, restore that dump with
 `scripts/restore.sh` (§2), and bring the stack up. `alembic downgrade` is not a
 supported rollback; see §7 for why.
+
+### Rolling back a release that shipped the header-auth job queue
+
+fix(#1770 round 48): a release note in this window can say a WFS or OGC API
+Features import now carries a Basic or named-header credential across the job
+queue, on a dedicated queue named `ingest-auth-v2`
+(`app.platform.service_auth.HEADER_AUTH_JOB_QUEUE`). A worker from the release
+*before* that one has no code that reads a job off that queue at all, so
+rolling the API and worker back to that release — following the recipe above
+— leaves any job still sitting there permanently undequeued. Those jobs are
+not merely delayed: the old worker cannot compose the header line either, so
+requeuing them onto an old-release worker's queue would not recover the
+import, it would just move the same failure to a worker that additionally
+cannot log why.
+
+**Before rolling back**, if you can still reach the release you are leaving:
+pause new service imports (or accept that any submitted after this point will
+need the same treatment) and check whether anything is on the queue —
+
+```bash
+docker compose -f docker-compose.prod.yml exec -T db \
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
+  "SELECT count(*) FROM catalog.procrastinate_jobs WHERE queue_name = 'ingest-auth-v2' AND status = 'todo'"
+```
+
+(Procrastinate's jobs table lives under the `catalog` schema in this install —
+`Settings.procrastinate_schema`, `core/config.py` — not the bare
+`procrastinate_jobs` name Procrastinate's own docs default to.)
+
+**After rolling back**, mark every `todo` row on that queue `failed` rather
+than leaving it queued or trying to move it:
+
+```bash
+docker compose -f docker-compose.prod.yml exec -T db \
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
+  "UPDATE catalog.procrastinate_jobs SET status = 'failed' WHERE queue_name = 'ingest-auth-v2' AND status = 'todo'"
+```
+
+Two things worth knowing before you run it or read back what it did:
+
+- Procrastinate's own `status`-change trigger
+  (`procrastinate_trigger_function_status_events_update_v1`, in the installed
+  package's `sql/schema.sql`) logs a direct `todo` → `failed` transition as a
+  `cancelled` event in `procrastinate_events`, not a `failed` one — that table
+  only ever records `failed` for a `doing` → `failed` transition, i.e. a job a
+  worker actually picked up and then errored on. The row's own `status` column
+  reads `failed` correctly; only the event-history label differs. Do not read
+  an absence of `failed` events here as evidence the UPDATE did not land —
+  check `status` on `procrastinate_jobs` directly.
+- This does **not** immediately free the refresh/re-upload one-active-run
+  admission those jobs were holding. `sweep_abandoned_refresh_runs`
+  (`app/platform/refresh/service.py`) only cancels a `dataset_refresh_runs` row
+  once its bound Procrastinate job is out of `todo`/`doing` **and** the row's
+  `started_at` is older than `ABANDONED_RUN_CUTOFF_SECONDS` (3,600 seconds —
+  same module) — a cutoff measured from when the run started, not from when
+  you ran this UPDATE. The sweep itself runs every
+  `CREDENTIAL_RENEWAL_INTERVAL_SECONDS` (300 seconds,
+  `app/platform/refresh/credentials.py`) as a background task inside the API
+  process, so once both conditions are met the admission clears within one
+  sweep interval on its own — no separate reset command exists or is needed.
+  A run still short of the one-hour mark shows as busy until it crosses it;
+  that is the existing abandoned-run policy working as designed; it is not
+  specific to this rollback.
+- Failing these rows also lets `purge_terminal_job_tokens`
+  (`app/platform/jobs/sweep.py`) strip the composed credential line out of
+  `procrastinate_jobs.args`. That purge only ever touches a row whose
+  `status` is NOT `todo`/`doing` (its own SQL reads
+  `WHERE status NOT IN ('todo', 'doing') AND args ? 'token'`), so a job left
+  queued indefinitely on `ingest-auth-v2` — this rollback scenario, or an
+  operator override that dropped the queue from `WORKER_QUEUES` without
+  draining it first — keeps that credential sitting in the jobs table
+  forever otherwise. It runs in the same background sweep cycle named
+  above, so no separate step is needed beyond the UPDATE itself.
+
+Either way, the affected imports do not resume on their own: the credential
+that would have carried them across the queue was never in a form the old
+worker could read, so the user who started each one has to resubmit it once
+the instance is back on a release that supports the format they are
+importing.
