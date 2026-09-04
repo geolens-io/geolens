@@ -16,6 +16,7 @@ import {
   getMapShareToken,
   updateShareTokenExpiration,
   publishMap,
+  nonPublicDatasetsFromError,
   createShareToken,
   revokeShareToken,
   duplicateMap,
@@ -283,7 +284,14 @@ export function usePublishMap() {
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
       invalidateMapHistory(qc, variables.id);
     },
-    onError: () => { toast.error(i18n.t('builder:toasts.visibilityFailed')); },
+    // fix(#1831 review): the non-public-datasets refusal gets its own inline
+    // message in SharePanel, which would otherwise double up with this
+    // generic toast on every such attempt. Every other publishMap failure
+    // still gets it.
+    onError: (err) => {
+      if (nonPublicDatasetsFromError(err)) return;
+      toast.error(i18n.t('builder:toasts.visibilityFailed'));
+    },
   });
 }
 

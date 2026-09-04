@@ -42,7 +42,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { usePublishMap, useCreateShareToken, useRevokeShareToken, useMapShareToken, useUpdateShareToken } from '@/hooks/use-maps';
-import { checkMapVisibility } from '@/api/maps';
+import { checkMapVisibility, nonPublicDatasetsFromError } from '@/api/maps';
 import { useCreateEmbedToken, useMapEmbedTokens, useUpdateEmbedToken, useRevokeEmbedToken } from '@/components/builder/hooks/use-embed-tokens';
 import { normalizeOrigin, WildcardOriginError } from '@/lib/builder/url-normalize';
 // fix(#430 V-17): reuse the same audience-visibility check as the layer-stack badge.
@@ -1050,6 +1050,24 @@ export function ShareDialog({
   // cancelling leaves the old selection intact.
   const [pendingVisibility, setPendingVisibility] = useState<MapVisibility | null>(null);
 
+  // fix(#1831): the backend refuses PUT /maps/{id} with 400 when a map is
+  // switched to public while it still holds non-public dataset layers
+  // (validate_public_visibility in maps/router.py). That refusal used to
+  // vanish silently — the dataset names were read off the already-translated
+  // `err.message` (a fallback string, not JSON) and JSON.parse'd there,
+  // instead of off the raw `err.body` the backend actually sent. This holds
+  // the refusal so it renders as a persistent inline message under the
+  // visibility control, since the confirm dialog is already closed by the
+  // time the response comes back.
+  const [publishBlocked, setPublishBlocked] = useState<string | null>(null);
+
+  // fix(#1831): the dialog stays mounted across open/close (BuilderDialogs.tsx
+  // keeps it alive as long as a map is loaded), so a refusal from one visit
+  // would otherwise still be showing the next time this dialog opens.
+  useEffect(() => {
+    if (!open) setPublishBlocked(null);
+  }, [open]);
+
   // fix(#778): layers hidden from the audience of the visibility being confirmed
   // (not the current one — before a private→public change the current-visibility
   // list is always empty). Same predicate as the post-change warning below.
@@ -1065,6 +1083,8 @@ export function ShareDialog({
 
   function handleVisibilitySelect(newVisibility: MapVisibility) {
     if (newVisibility === visibility) return;
+    // fix(#1831): a fresh attempt clears any stale refusal from a previous one.
+    setPublishBlocked(null);
     // fix(#778): transitions that cross the public boundary need explicit
     // confirmation — going public exposes the map to anyone with a link, and
     // leaving public kills existing share links (clearSharedState below).
@@ -1084,6 +1104,7 @@ export function ShareDialog({
 
   async function handleVisibilityChange(newVisibility: MapVisibility) {
     if (newVisibility === visibility) return;
+    setPublishBlocked(null);
     try {
       await publishMap.mutateAsync({ id: mapId, visibility: newVisibility });
       if (newVisibility === 'public') {
@@ -1097,18 +1118,16 @@ export function ShareDialog({
         tokens.clearSharedState();
       }
     } catch (err) {
-      if (err instanceof ApiError && err.status === 400) {
-        let datasets = err.message;
-        try {
-          const parsed = JSON.parse(err.message);
-          if (parsed.datasets) datasets = parsed.datasets.join(', ');
-        } catch {
-          // Legacy format or unparseable — use raw message
-        }
-        toast.error(t('share.cannotPublish', { datasets }));
-      } else {
-        toast.error(t('toasts.visibilityFailed'));
-      }
+      // fix(#1831): the mutation never touched `visibility` on failure (the
+      // toggle only follows the server response above), so the previous
+      // value is already what's on screen — nothing to snap back here. What
+      // was missing was WHY: the raw error detail (`err.body`) carries
+      // `{ message, datasets }` for this specific refusal, extracted here via
+      // the same helper `usePublishMap` uses to skip its own generic
+      // "failed to update" toast for this one case (every other failure
+      // still gets that toast — see use-maps.ts).
+      const datasets = nonPublicDatasetsFromError(err);
+      if (datasets) setPublishBlocked(datasets);
     }
   }
 
@@ -1272,6 +1291,19 @@ export function ShareDialog({
             </div>
             {!isPublic && (
               <p className="text-xs text-muted-foreground mt-2">{t('share.makePublicHint', { defaultValue: 'Make this map public to generate a share link' })}</p>
+            )}
+            {/* fix(#1831): the server-side refusal to publish a map that still
+                holds non-public dataset layers, surfaced inline instead of
+                vanishing — see handleVisibilityChange above. */}
+            {publishBlocked && (
+              <div
+                data-testid="share-publish-blocked-error"
+                role="alert"
+                className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-foreground mt-2"
+              >
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden="true" />
+                <p>{t('share.cannotPublish', { datasets: publishBlocked })}</p>
+              </div>
             )}
           </div>
 

@@ -3,6 +3,9 @@ import { renderHook as renderHookWithWrapper, act } from '@testing-library/react
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { vi } from 'vitest';
+import { toast } from 'sonner';
+
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 vi.mock('@/api/maps', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/maps')>();
@@ -12,17 +15,20 @@ vi.mock('@/api/maps', async (importOriginal) => {
     getMap: vi.fn(),
     deleteMap: vi.fn(),
     createMap: vi.fn(),
+    publishMap: vi.fn(),
   };
 });
 
-import { listMaps, getMap, deleteMap, createMap } from '@/api/maps';
-import { useMaps, useMap, useDeleteMap, useCreateMap } from '@/hooks/use-maps';
+import { ApiError } from '@/api/client';
+import { listMaps, getMap, deleteMap, createMap, publishMap } from '@/api/maps';
+import { useMaps, useMap, useDeleteMap, useCreateMap, usePublishMap } from '@/hooks/use-maps';
 import { queryKeys } from '@/lib/query-keys';
 
 const mockListMaps = vi.mocked(listMaps);
 const mockGetMap = vi.mocked(getMap);
 const mockDeleteMap = vi.mocked(deleteMap);
 const mockCreateMap = vi.mocked(createMap);
+const mockPublishMap = vi.mocked(publishMap);
 
 describe('useMaps', () => {
   beforeEach(() => {
@@ -193,5 +199,60 @@ describe('useMaps – empty list', () => {
     const { result } = renderHook(() => useMaps());
 
     await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+});
+
+// fix(#1831 review): usePublishMap's onError used to fire the generic
+// "failed to update visibility" toast on EVERY rejection, including the
+// non-public-datasets 400 that SharePanel now surfaces inline — so that one
+// case showed both a generic toast and the specific inline message. The hook
+// skips its own toast only for that one case (via the shared
+// `nonPublicDatasetsFromError` predicate); every other failure still gets it.
+describe('usePublishMap', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function makeQc() {
+    return new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+    });
+  }
+
+  function wrapperFor(qc: QueryClient) {
+    return ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    );
+  }
+
+  it('fires the generic toast on an ordinary failure', async () => {
+    mockPublishMap.mockRejectedValueOnce(new ApiError('Internal Server Error', 500));
+    const qc = makeQc();
+    const { result } = renderHookWithWrapper(() => usePublishMap(), { wrapper: wrapperFor(qc) });
+
+    await act(async () => {
+      await expect(
+        result.current.mutateAsync({ id: 'map-1', visibility: 'public' }),
+      ).rejects.toThrow();
+    });
+
+    expect(vi.mocked(toast.error)).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fire the generic toast when the map holds non-public datasets', async () => {
+    mockPublishMap.mockRejectedValueOnce(
+      new ApiError('Cannot set visibility to public: map contains non-public datasets', 400, {
+        message: 'Cannot set visibility to public: map contains non-public datasets',
+        datasets: 'Large Lakes',
+      }),
+    );
+    const qc = makeQc();
+    const { result } = renderHookWithWrapper(() => usePublishMap(), { wrapper: wrapperFor(qc) });
+
+    await act(async () => {
+      await expect(
+        result.current.mutateAsync({ id: 'map-1', visibility: 'public' }),
+      ).rejects.toThrow();
+    });
+
+    expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
   });
 });

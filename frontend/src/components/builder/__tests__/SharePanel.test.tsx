@@ -28,9 +28,16 @@ vi.mock('@/hooks/use-edition', () => ({
   useEdition: vi.fn(),
 }));
 
-vi.mock('@/api/maps', () => ({
-  checkMapVisibility: vi.fn(),
-}));
+vi.mock('@/api/maps', async (importOriginal) => {
+  // fix(#1831 review): keep the real `nonPublicDatasetsFromError` — it's the
+  // shared predicate SharePanel uses to detect the blocked-publish refusal;
+  // only `checkMapVisibility` needs stubbing here.
+  const actual = await importOriginal<typeof import('@/api/maps')>();
+  return {
+    ...actual,
+    checkMapVisibility: vi.fn(),
+  };
+});
 
 vi.mock('@/hooks/use-maps', () => ({
   usePublishMap: vi.fn(),
@@ -652,6 +659,87 @@ describe('SHARE-02 chip-based allowed-origins input', () => {
     });
     // Toast with updateFailed key
     expect(vi.mocked(toast.error)).toHaveBeenCalled();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  fix(#1831): the visibility PUT's 400 refusal (map holds non-public  */
+/*  dataset layers) used to vanish — the dataset names were read off    */
+/*  the already-translated `err.message` (a fallback string, not JSON)  */
+/*  and JSON.parse'd there, instead of off the raw `err.body` the       */
+/*  backend actually sent. Now it renders as a persistent inline        */
+/*  message under the visibility control, naming the datasets, and the  */
+/*  toggle never leaves its previous value (the mutation only ever      */
+/*  applies it on success).                                             */
+/* ------------------------------------------------------------------ */
+describe('#1831 publish blocked by non-public datasets', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function nonPublicDatasetsRefusal(datasets = 'Large Lakes') {
+    const detail = {
+      message: 'Cannot set visibility to public: map contains non-public datasets',
+      datasets,
+    };
+    // Mirrors apiFetch: message is already localized, body carries the raw detail.
+    return new ApiError(translateApiErrorDetail(detail, 400), 400, detail);
+  }
+
+  it('test_publish_refusal_shows_dataset_names_inline_and_keeps_toggle_private', async () => {
+    const user = userEvent.setup();
+    const publishMapFn = vi.fn().mockRejectedValue(nonPublicDatasetsRefusal('Large Lakes'));
+    setup({ visibility: 'private', publishMapFn });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await user.click(screen.getByRole('button', { name: /^make public$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('share-publish-blocked-error')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('share-publish-blocked-error')).toHaveTextContent('Large Lakes');
+    // fix(#1831 review P2): role="alert" so it's announced the way the toast
+    // it replaces would have been.
+    expect(screen.getByRole('alert')).toBe(screen.getByTestId('share-publish-blocked-error'));
+
+    // The toggle stays on its previous value — the mutation never resolved,
+    // so nothing "snaps back": it never moved in the first place.
+    expect(screen.getByRole('radio', { name: /only you/i })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: /anyone with the link/i })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+  });
+
+  it('test_publish_refusal_survives_the_confirm_dialog_closing_first', async () => {
+    // The confirm AlertDialog closes as soon as "Make public" is clicked
+    // (setPendingVisibility(null) runs before the mutation), so the message
+    // has to persist somewhere that outlives it — not inside the dialog.
+    const user = userEvent.setup();
+    const publishMapFn = vi.fn().mockRejectedValue(nonPublicDatasetsRefusal('Large Lakes'));
+    setup({ visibility: 'private', publishMapFn });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await user.click(screen.getByRole('button', { name: /^make public$/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('alertdialog', { name: /make this map public/i }),
+      ).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId('share-publish-blocked-error')).toBeInTheDocument();
+  });
+
+  it('test_publish_success_does_not_show_the_refusal_message', async () => {
+    const user = userEvent.setup();
+    const publishMapFn = vi.fn().mockResolvedValue({});
+    setup({ visibility: 'private', publishMapFn });
+
+    await user.click(screen.getByRole('radio', { name: /anyone with the link/i }));
+    await user.click(screen.getByRole('button', { name: /^make public$/i }));
+
+    await waitFor(() => expect(publishMapFn).toHaveBeenCalled());
+    expect(screen.queryByTestId('share-publish-blocked-error')).not.toBeInTheDocument();
   });
 });
 
