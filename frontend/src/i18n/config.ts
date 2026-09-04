@@ -1,7 +1,7 @@
 export const defaultNS = 'common';
 export const fallbackLng = 'en';
 
-export const supportedLngs = ['en', 'es', 'fr', 'de'] as const;
+export const supportedLngs = ['en', 'es', 'fr', 'de', 'zh'] as const;
 export type SupportedLng = (typeof supportedLngs)[number];
 
 export const namespaces = [
@@ -22,6 +22,7 @@ export const languageNames: Record<SupportedLng, string> = {
   es: 'Español',
   fr: 'Français',
   de: 'Deutsch',
+  zh: '简体中文',
 };
 
 export const languageOptions = supportedLngs.map((value) => ({

@@ -1,0 +1,55 @@
+{
+  "button": {
+    "tooltip": "报告问题",
+    "aria": "报告问题",
+    "ariaWithCount": "报告问题（检测到 {{count}} 个错误）"
+  },
+  "title": "报告问题",
+  "description": "告诉我们出了什么问题——我们会为你附上技术细节。",
+  "stepIndicator": "第 {{current}} 步，共 {{total}} 步",
+  "noticed": "检测到 {{count}} 个问题。相关细节将附在你的报告中。",
+  "noticedNone": "未自动检测到任何内容——你的描述最为重要。",
+  "technicalDetails": "技术细节（{{count}}）",
+  "technicalEmpty": "尚未捕获任何内容。",
+  "technicalSuppressed": "（已隐藏）",
+  "technicalCopy": "复制技术细节",
+  "technicalCopied": "技术细节已复制到剪贴板",
+  "technicalClear": "清除",
+  "technicalClearAria": "清除已捕获的信号",
+  "step1": {
+    "heading": "发生了什么？",
+    "areaLabel": "这发生在哪里？",
+    "titleLabel": "简短摘要",
+    "titlePlaceholder": "例如：放大时图层会消失",
+    "descriptionLabel": "出了什么问题？",
+    "descriptionPlaceholder": "描述你看到的现象…",
+    "stepsLabel": "你当时在做什么？",
+    "stepsPlaceholder": "1. \n2. \n3. ",
+    "expectedLabel": "你期望发生什么？",
+    "expectedPlaceholder": "例如：图层应保持可见"
+  },
+  "step2": {
+    "heading": "检查我们将发送的内容",
+    "subtitle": "以下内容均为可选——取消勾选你不想包含的项目。",
+    "includeErrors": "已捕获的错误（{{count}}）",
+    "includePage": "你当前所在的页面",
+    "includeEnv": "你的浏览器和屏幕尺寸",
+    "includeVersion": "应用版本（{{version}}）",
+    "privacyNote": "在任何数据离开你的浏览器之前，我们会自动移除你的登录令牌和个人信息。",
+    "privacyMore": "会移除哪些内容？",
+    "privacyDetail": "登录令牌、API 密钥和电子邮箱地址会在报告发送前被移除。"
+  },
+  "step3": {
+    "heading": "发送你的报告",
+    "subtitle": "我们会打开一个预先填好的 GitHub issue。请检查后再提交。",
+    "openIssue": "打开 GitHub issue",
+    "copyReport": "复制报告",
+    "copied": "报告已复制到剪贴板",
+    "truncatedToast": "日志太长，无法放入链接——完整报告已复制到你的剪贴板。请将其粘贴到 issue 中。"
+  },
+  "nav": {
+    "back": "上一步",
+    "next": "下一步",
+    "cancel": "取消"
+  }
+}
