@@ -100,6 +100,25 @@ and releases use semantic versioning.
   `backend/openapi.json`, both SDKs, and the frontend's generated API types
   (#1805).
 
+- **Three more error responses are now declared in the OpenAPI contract, both
+  SDKs, and the frontend's generated API types.** All three were already
+  raised at runtime, only undocumented: 409 on `POST /admin/api-keys/` for a
+  pending, suspended, or deactivated target user, and 412 on both `GET
+  /datasets/{dataset_id}/export` and `GET /datasets/{dataset_id}/download/cog`
+  for a failed conditional-request precondition. No behavior changed; a
+  generated client can now see these outcomes in its own types (#1783).
+
+- **A new `DB_STATEMENT_TIMEOUT_SECONDS` setting bounds how long a single
+  database statement can run inside an API request, default 300 seconds, 0
+  disables it.** Nothing bounded statement execution before this; only
+  checkout from the connection pool was bounded, not the query itself. It
+  applies to every API transaction (the worker keeps running unbounded, since
+  it legitimately runs a single statement for minutes while indexing or
+  reprojecting a freshly ingested table). Operators: a query that previously
+  ran to completion no matter how long it took now fails after five minutes by
+  default; raise or disable the setting if a workload genuinely needs longer
+  (#1804).
+
 - **A new `/health/live` endpoint answers the process's own liveness, separate
   from `/health`,** which still checks the database, object store, and cache
   and answers unhealthy if any of them is down. The shipped api container
@@ -147,21 +166,26 @@ and releases use semantic versioning.
   start over or retry. That view can also cancel the job directly now:
   cancellation was previously reachable only from the admin job list and a
   dataset's refresh history, not from the view a user is actually watching
-  while the import runs. Client timeouts are also raised to match what the
-  server can actually take: a dataset re-upload's request used to time out
-  client-side at 30 seconds well before a large, up to 500 MB, transfer could
-  finish, and a file or service-import preview could similarly be aborted
-  while its 60- to 300-second backend operation was still running; both now
-  use a timeout matched to the server-side budget. A multipart upload's
-  individual part upload had no stall detection at all, so a part stuck on a
-  half-open connection could hang forever; it now aborts once progress stalls,
-  rather than waiting on a flat deadline that a slow-but-active transfer could
-  miss. An upload abandoned at the preview step, the owner simply walks away,
-  is now recorded as cancelled instead of failed, so it stops appearing in the
-  admin failed-jobs list for work that was never actually attempted. `geolens
-  publish --wait` now exits non-zero and reports the real outcome for a
-  failed, cancelled, or timed-out job, instead of printing "Published:"
-  regardless (#1774, #1777, #1800).
+  while the import runs. Cancelling a re-upload while its file is still
+  downloading to staging is now honored immediately instead of being silently
+  discarded: a lock held for the whole download made every cancel attempt
+  during that window fail and roll back the cancellation already recorded, so
+  the job ran on for minutes after the user asked it to stop. Client timeouts
+  are also raised to match what the server can actually take: a dataset
+  re-upload's request used to time out client-side at 30 seconds well before a
+  large, up to 500 MB, transfer could finish, and a file or service-import
+  preview could similarly be aborted while its 60- to 300-second backend
+  operation was still running; both now use a timeout matched to the
+  server-side budget. A multipart upload's individual part upload had no stall
+  detection at all, so a part stuck on a half-open connection could hang
+  forever; it now aborts once progress stalls, rather than waiting on a flat
+  deadline that a slow-but-active transfer could miss. An upload abandoned at
+  the preview step, the owner simply walks away, is now recorded as cancelled
+  instead of failed, so it stops appearing in the admin failed-jobs list for
+  work that was never actually attempted. `geolens publish --wait` now exits
+  non-zero and reports the real outcome for a failed, cancelled, or timed-out
+  job, instead of printing "Published:" regardless (#1774, #1777, #1800,
+  #1803).
 
 - **Dataset and OGC API correctness fixes.** The table browser and the OGC
   Features and native feature-list endpoints raised a 500 or 503 for a
@@ -199,13 +223,34 @@ and releases use semantic versioning.
   layer set, undoing the other editor's work. A stale save now refetches
   the map and retries with the reconciled layer list instead (#1794).
 
+- **Three more map builder rendering bugs are fixed.** Deleting one of two
+  layers that share a deduplicated data source left the deleted layer's map
+  graphics behind: no stack row, no legend entry, unclickable, and still baked
+  into any capture taken afterward. A layer styled with per-category icons
+  rendered every feature with the fallback icon below zoom 10, snapping to the
+  correct icon only once zoom 10 was reached. And a layout or visibility edit
+  made during a basemap swap could be dropped entirely, or replayed out of
+  order once the swap settled, so a toggle made and then reverted during the
+  swap could still land on the map showing the wrong state (#1794).
+
+- **Two line-drawing and editing bugs are fixed.** A line layer's gradient
+  could be edited into a non-ascending stop order, which maplibre-gl rejects
+  outright and drops the whole gradient expression rather than the one bad
+  stop; stop positions are now kept strictly ascending as they are edited. And
+  the undo history kept while drawing or editing a feature grew without any
+  limit, so a long drag or a long editing session held an ever-growing stack
+  of snapshots in memory; it is now capped (#1795).
+
 - **Admin settings fixes.** The Appearance tab's "Show Powered by GeoLens"
   toggle sent the wrong settings key and always failed with a 400. Two
-  metadata option lists, update frequency and sensitivity, offered values
-  the database rejects outright, so picking one lost an entire batch of
-  staged metadata edits to an unhandled server error with no indication
-  which field caused it; both lists now only offer values the database
-  accepts (#1769, #1776).
+  metadata option lists, update frequency and sensitivity, offered values the
+  database rejects outright, so picking one lost an entire batch of staged
+  metadata edits to an unhandled server error with no indication which field
+  caused it; both lists now only offer values the database accepts. Saving
+  only the login page's privacy-policy link, with no other branding change
+  alongside it, silently saved nothing while still reporting success, because
+  the save helper only ever forwarded one of the two branding fields it
+  declared (#1769, #1776, #1790).
 
 - **Accessibility fixes across the admin console and map builder.** The
   destructive button and badge styles failed WCAG contrast in dark mode.
@@ -228,7 +273,12 @@ and releases use semantic versioning.
   during a large or slow export. Every export format, GeoParquet included, is
   now bounded to the same deadline as the edge proxy's read timeout, instead
   of a synchronous export running for up to an hour behind a ten-minute proxy
-  window (#1781, #1791, #1804).
+  window. The raster tile proxy had the same connection-pool problem on a
+  smaller scale: it held its database connection open across up to three
+  30-second attempts against Titiler, so an anonymous caller varying the tile
+  cache-busting parameter could hold a connection for well over a minute and
+  starve unrelated requests in the same worker; the connection is now released
+  before that upstream call (#1781, #1785, #1791, #1804).
 
 - **Two data-loss bugs in the raster and VRT publish path are fixed.** A lost
   commit acknowledgement or a cancellation during a raster replace or VRT
@@ -313,6 +363,17 @@ and releases use semantic versioning.
   `--clean --if-exists` warnings) and grant reconciliation has run and been
   verified; a failed restore leaves both services stopped with an explicit
   message instead (#1798).
+
+- **Two more upgrade-safety fixes.** `scripts/upgrade.sh` now rebuilds the
+  database image when its Dockerfile is synced from the release, so a release
+  that bumps the PostGIS or pgvector base actually takes effect on upgrade
+  instead of silently continuing to run the previous image, which could leave
+  a migration depending on the newer base failing mid-run with no earlier
+  warning. And a failure propagating a commercial extension's migration paths
+  at boot now aborts the migration run instead of only logging the error and
+  continuing, which previously let `alembic upgrade heads` report success
+  while silently applying only the core schema and skipping the extension's
+  own migrations (#1798).
 
 - **CLI and TypeScript SDK reliability fixes from an internal audit.** CLI
   requests now time out instead of hanging indefinitely against an
