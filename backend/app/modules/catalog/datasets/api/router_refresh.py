@@ -328,11 +328,13 @@ async def _require_service_token_if_marked(db, dataset, dataset_id, token):
     fix(#1746 codex r2): "where it is possible" is the whole of this function,
     and it is not every service.
 
-    ArcGIS is asked. Its probe target IS the resource the worker reads: the
-    layer's ``?f=json``, which answers 499 "Token Required" for an org-only
-    layer and 498 for a token it rejected. A healthy answer there is real
-    evidence the token-less refresh will work, so a false marker costs one
-    probe and never a refusal.
+    ArcGIS is asked. fix(#1755 item 15): its probe target is no longer the
+    layer's ``?f=json`` — since #1754 round 6, ``probe_arcgis_origin`` reads
+    ``<layer>/query`` (composed by ``build_arcgis_count_query_url``), the
+    same resource the worker's ``build_gdal_source`` fetches, which answers
+    499 "Token Required" for an org-only layer and 498 for a token it
+    rejected. A healthy answer there is real evidence the token-less refresh
+    will work, so a false marker costs one probe and never a refusal.
 
     WFS and OGC API Features are refused outright, with no probe. Their probe
     target is the capabilities document or the landing page, which is a
