@@ -857,8 +857,24 @@
           "tokenExpired": "El token expiró. Inicia sesión de nuevo para continuar."
         },
         "wfs": {
-          "intro": "Esta fuente rechazó la actualización sin condiciones porque necesita una credencial. Vuelve a enviar el token abajo.",
-          "escapeHatch": "Si la fuente ya es pública, vuelve a importarla desde el cuadro de diálogo Volver a subir sin token para eliminar este requisito."
+          "intro": "Esta fuente rechazó la actualización sin condiciones porque necesita una credencial. Vuelve a enviarla abajo.",
+          "escapeHatch": "Si la fuente ya es pública, vuelve a importarla desde el cuadro de diálogo Volver a subir sin credencial para eliminar este requisito."
+        },
+        "service": {
+          "methodLabel": "Autenticación",
+          "methodNone": "Sin autenticación",
+          "methodBearer": "Token bearer",
+          "methodBasic": "Usuario y contraseña",
+          "methodHeader": "Clave API en un encabezado",
+          "tokenLabel": "Token bearer",
+          "tokenPlaceholder": "Pegue su token bearer",
+          "usernameLabel": "Usuario",
+          "passwordLabel": "Contraseña",
+          "headerNameLabel": "Nombre del encabezado",
+          "headerNamePlaceholder": "p. ej. X-API-Key",
+          "headerValueLabel": "Valor del encabezado",
+          "headerValuePlaceholder": "Su clave API",
+          "helpText": "Un token bearer se envía como encabezado Authorization; un usuario y contraseña se envían como autenticación HTTP Basic; una clave API puede enviarse bajo el nombre de encabezado que especifique el proveedor, por ejemplo X-API-Key, Ocp-Apim-Subscription-Key o key."
         }
       },
       "history": {

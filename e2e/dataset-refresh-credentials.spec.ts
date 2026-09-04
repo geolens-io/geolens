@@ -116,17 +116,68 @@ test.describe('Refresh-door credential prompt on service_token_required', () => 
 
     await expect(
       page.getByText(
-        'This source refused the refresh outright because it needs a credential. Send the token again below.',
+        'This source refused the refresh outright because it needs a credential. Send it again below.',
       ),
     ).toBeVisible();
     await expect(
       page.getByText(
-        'If the source is public now, re-import it through the Re-Upload dialog with no token to clear this requirement.',
+        'If the source is public now, re-import it through the Re-Upload dialog with no credential to clear this requirement.',
       ),
     ).toBeVisible();
     await expect(page.getByRole('dialog')).toBeVisible();
     await expect(page.getByLabel('Authentication method')).toHaveCount(0);
     await expect(page.locator('body')).not.toContainText(RAW_SERVICE_TOKEN_MESSAGE);
+  });
+
+  // feat(#1746 B4): the WFS/OGC API Features credential prompt is the
+  // four-way `ServiceCredentialBlock` select (none/bearer/basic/header), in
+  // place of the bearer-only field this door offered before B2b (#1770,
+  // merged to main before this lane started).
+  test('WFS origin: a Basic-auth retry sends the structured auth object, not the deprecated token field', async ({
+    page,
+  }) => {
+    await mockDataset(page, 'wfs');
+
+    let refreshCalls = 0;
+    let secondCallBody: unknown;
+    await page.route(`**/api/datasets/${seed.id}/refresh`, async (route: Route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      refreshCalls += 1;
+      if (refreshCalls === 1) {
+        return route.fulfill({
+          status: 422,
+          json: {
+            detail: { code: 'service_token_required', message: RAW_SERVICE_TOKEN_MESSAGE },
+          },
+        });
+      }
+      secondCallBody = route.request().postDataJSON();
+      return route.fulfill({
+        json: {
+          run_id: 'e2e-run-2',
+          job_id: 'e2e-job-2',
+          dataset_id: seed.id,
+          origin_kind: 'service',
+          trigger: 'api',
+          status: 'pending',
+          message: 'Refresh queued from the stored source',
+        },
+      });
+    });
+
+    await openRefreshDialogAndSubmit(page);
+
+    await page.getByLabel('Authentication', { exact: true }).selectOption('basic');
+    await page.getByLabel('Username', { exact: true }).fill('e2e-user');
+    await page.getByLabel('Password', { exact: true }).fill('e2e-password');
+    await page.getByRole('button', { name: 'Start refresh' }).click();
+
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    expect(refreshCalls).toBe(2);
+    expect(secondCallBody).toMatchObject({
+      auth: { method: 'basic', username: 'e2e-user', password: 'e2e-password' },
+    });
+    expect((secondCallBody as { token?: unknown }).token).toBeFalsy();
   });
 
   test('ArcGIS origin: dialog stays open and offers the sign-in taxonomy, distinct from the WFS copy', async ({

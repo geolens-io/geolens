@@ -10,6 +10,7 @@ import {
   isExpired,
   type ArcgisCredentialBlockHandle,
 } from '@/components/dataset/ArcgisCredentialBlock';
+import { ServiceCredentialBlock } from '@/components/dataset/ServiceCredentialBlock';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,7 +23,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import type { DatasetOrigin, DatasetResponse } from '@/types/api';
+import type { DatasetOrigin, DatasetResponse, ServiceAuthRequest } from '@/types/api';
 import type { DatasetRefreshWatch } from '@/components/dataset/hooks/use-dataset';
 
 // fix(#1285 codex round 1): refresh-door origins. router_refresh.py dispatches
@@ -77,6 +78,11 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // feat(#1746 B4): the non-ArcGIS credential, built by ServiceCredentialBlock.
+  // `token` above stays the ArcGIS-only field; the two are mutually
+  // exclusive on the wire (reject_service_auth_conflict), matching
+  // `isArcgisOrigin` below picking exactly one of the two blocks to render.
+  const [serviceAuth, setServiceAuth] = useState<ServiceAuthRequest | undefined>(undefined);
   // fix(#1755 item 4, plan 3.7): set on a 422 `service_token_required`
   // refusal so the dialog stays open and reveals a credential block keyed to
   // the token field above, instead of rendering that refusal as a generic
@@ -131,6 +137,12 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
       setToken('');
       setError(null);
       setServiceTokenRequired(false);
+      // fix(#1746 B4): the non-ArcGIS credential is controlled by
+      // ServiceCredentialBlock's own internal state, but that state resets
+      // for free — Radix Dialog unmounts DialogContent on close, so a
+      // remount starts the block fresh. This clears the PARENT's copy of
+      // it, which does not unmount along with the child.
+      setServiceAuth(undefined);
     }
   };
 
@@ -154,14 +166,17 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
       return;
     }
     const submittedToken = token.trim() || undefined;
+    const submittedAuth = serviceAuth;
     // Cleared before the request settles. Once handed to mutateAsync the
     // token lives only in the in-flight request body; this component never
     // reconstructs it from state again, on either the success or error path.
     setToken('');
+    setServiceAuth(undefined);
     try {
       const result = await refreshMutation.mutateAsync({
         datasetId: dataset.id,
-        token: submittedToken,
+        token: isArcgisOrigin ? submittedToken : undefined,
+        auth: isArcgisOrigin ? undefined : submittedAuth,
       });
       // Reported to the page-level watch rather than a local ref — this call
       // is safe even if the user has already switched away from the Source
@@ -232,13 +247,8 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
               </div>
             )}
 
-            {supportsToken && !(serviceTokenRequired && isArcgisOrigin) && (
+            {supportsToken && !(serviceTokenRequired && isArcgisOrigin) && isArcgisOrigin && (
               <div className="space-y-2">
-                {serviceTokenRequired && (
-                  <p className="text-sm text-foreground">
-                    {t('sourcePanel.refresh.credential.wfs.intro')}
-                  </p>
-                )}
                 <Label htmlFor="source-refresh-token">{t('sourcePanel.refresh.tokenLabel')}</Label>
                 <Input
                   id="source-refresh-token"
@@ -257,6 +267,23 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
                   disabled={refreshMutation.isPending}
                 />
                 <p className="text-xs text-muted-foreground">{t('sourcePanel.refresh.tokenHint')}</p>
+              </div>
+            )}
+
+            {/* fix(#1746 B4): WFS and OGC API Features now get the same
+                four-way credential choice the import wizard offers, in
+                place of the bearer-only field above. */}
+            {supportsToken && !isArcgisOrigin && (
+              <div className="space-y-2">
+                {serviceTokenRequired && (
+                  <p className="text-sm text-foreground">
+                    {t('sourcePanel.refresh.credential.wfs.intro')}
+                  </p>
+                )}
+                <ServiceCredentialBlock
+                  onAuthChange={setServiceAuth}
+                  disabled={refreshMutation.isPending}
+                />
                 {serviceTokenRequired && (
                   <p className="text-xs text-muted-foreground">
                     {t('sourcePanel.refresh.credential.wfs.escapeHatch')}

@@ -857,8 +857,24 @@
           "tokenExpired": "Le jeton a expiré. Reconnectez-vous pour continuer."
         },
         "wfs": {
-          "intro": "Cette source a refusé l'actualisation sans condition car elle nécessite un identifiant. Renvoyez le jeton ci-dessous.",
-          "escapeHatch": "Si la source est désormais publique, réimportez-la depuis la fenêtre Recharger sans jeton pour lever cette exigence."
+          "intro": "Cette source a refusé l'actualisation sans condition car elle nécessite un identifiant. Renvoyez-le ci-dessous.",
+          "escapeHatch": "Si la source est désormais publique, réimportez-la depuis la fenêtre Recharger sans identifiant pour lever cette exigence."
+        },
+        "service": {
+          "methodLabel": "Authentification",
+          "methodNone": "Aucune authentification",
+          "methodBearer": "Jeton bearer",
+          "methodBasic": "Nom d'utilisateur et mot de passe",
+          "methodHeader": "Clé API dans un en-tête",
+          "tokenLabel": "Jeton bearer",
+          "tokenPlaceholder": "Collez votre jeton bearer",
+          "usernameLabel": "Nom d'utilisateur",
+          "passwordLabel": "Mot de passe",
+          "headerNameLabel": "Nom de l'en-tête",
+          "headerNamePlaceholder": "p. ex. X-API-Key",
+          "headerValueLabel": "Valeur de l'en-tête",
+          "headerValuePlaceholder": "Votre clé API",
+          "helpText": "Un jeton bearer est envoyé comme en-tête Authorization ; un nom d'utilisateur et un mot de passe sont envoyés en authentification HTTP Basic ; une clé API peut être envoyée sous le nom d'en-tête que le fournisseur indique, par exemple X-API-Key, Ocp-Apim-Subscription-Key ou key."
         }
       },
       "history": {

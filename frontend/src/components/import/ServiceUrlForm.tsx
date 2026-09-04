@@ -5,13 +5,21 @@ import { Globe, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatDateTimeSmart } from '@/lib/format';
 import { ApiError } from '@/api/client';
-import { probeService, previewServiceLayer, commitImport, arcgisSignin } from '@/api/ingest';
+import { probeService, commitImport, arcgisSignin } from '@/api/ingest';
+import {
+  startServicePreview,
+  attachServiceCommit,
+  peekServiceImport,
+  clearServiceImport,
+  type ServiceImportSession,
+} from '@/api/service-url-session';
 import type {
   ProbeResponse,
   LayerInfo,
   ServicePreviewResponse,
   ServicePreviewRequest,
   CommitImportRequest,
+  ServiceAuthRequest,
 } from '@/types/api';
 import { ImportPreview } from './ImportPreview';
 import { ImportMetadataForm } from './ImportMetadataForm';
@@ -44,6 +52,16 @@ type ServiceStep =
 // service is public"), not a blank state.
 type ArcgisAuthMethod = 'none' | 'token' | 'signin';
 
+// feat(#1746 B4, plan 3.1): for a non-ArcGIS-shaped URL (WFS, OGC API
+// Features), B2b widened the door beyond a bearer token to the same
+// four-way choice the backend's CredentialMethod enum names. ArcGIS itself
+// stays bearer-only (an ArcGIS token is percent-encoded into the query, so
+// build_credential_header refuses to compose a header for it), which is why
+// this is a separate type from ArcgisAuthMethod above rather than a shared
+// one — the two select different sets of methods for reasons that live in
+// the transport, not in this form.
+type ServiceCredentialMethod = 'none' | 'bearer' | 'basic' | 'header';
+
 // codex review #1757 round 4 P2: the ONE margin shared by the proactive
 // timer (scheduleExpiryTimer) and the synchronous fallback (isPast,
 // checked by expireStaleTokenIfPast/isTokenExpiredOrPast). The timer
@@ -73,6 +91,17 @@ export function ServiceUrlForm() {
   const [signinError, setSigninError] = useState<string | null>(null);
   const [tokenExpired, setTokenExpired] = useState(false);
 
+  // Non-ArcGIS credential method (plan 3.1 / lane B4). `token` above is
+  // reused for the bearer branch here, same as it is for ArcGIS's own
+  // 'token' method — the two are mutually exclusive branches of the same
+  // ternary below, so nothing can read the other's value into a request.
+  const [serviceCredentialMethod, setServiceCredentialMethod] =
+    useState<ServiceCredentialMethod>('none');
+  const [basicUsername, setBasicUsername] = useState('');
+  const [basicPassword, setBasicPassword] = useState('');
+  const [headerName, setHeaderName] = useState('');
+  const [headerValue, setHeaderValue] = useState('');
+
   // codex review #1757 P1: a stale in-flight sign-in response must never
   // resurrect a token or run after the auth context it belongs to is gone.
   // Bumped on every full auth-state reset below (method switch, URL origin
@@ -81,6 +110,18 @@ export function ServiceUrlForm() {
   const signinGenerationRef = useRef(0);
   const authOrigin = originOf(url);
   const isArcGisShaped = looksLikeArcGisServiceUrl(url);
+  // fix(#1712): guards every `setState` reached after an `await` in the
+  // preview/commit session helpers below, mirroring UrlImportForm's
+  // identical ref (`url-import-session.ts`'s consumer) — the module-scoped
+  // session keeps running regardless of mount state, but this component
+  // must not write into a tree that is no longer live.
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const lastAuthOriginRef = useRef(authOrigin);
   const lastAuthShapeRef = useRef(isArcGisShaped);
 
@@ -198,6 +239,16 @@ export function ServiceUrlForm() {
     setUsername('');
     setPassword('');
     setSigninError(null);
+    // fix(#1746 B4): the non-ArcGIS credential branch is the other half of
+    // the same hazard — a username/password or header key typed for one
+    // origin or shape must not survive being pointed at another, same as
+    // the ArcGIS fields above. `token` itself is already covered by
+    // invalidateMintedCredential.
+    setServiceCredentialMethod('none');
+    setBasicUsername('');
+    setBasicPassword('');
+    setHeaderName('');
+    setHeaderValue('');
     // invalidateMintedCredential is a fresh closure each render, and the
     // ref checks above already guard this effect so it does real work
     // only on a genuine origin or shape change; including it here is for
@@ -211,8 +262,16 @@ export function ServiceUrlForm() {
   // and so clears the timer, so this effect only needs to cover unmount.
   useEffect(() => clearExpiryTimer, [clearExpiryTimer]);
 
+  // fix(#1712): mirrors url-import-session.ts's identical guard — reset is
+  // available from every terminal state, but clearing the session mid-commit
+  // orphans a commit that then succeeds untracked, with nothing left to
+  // adopt it back.
+  const commitInFlight = step === 'committing';
+
   const reset = () => {
+    if (commitInFlight) return;
     invalidateMintedCredential();
+    clearServiceImport();
     setStep('idle');
     setUrl('');
     setProbeResult(null);
@@ -225,7 +284,47 @@ export function ServiceUrlForm() {
     setPassword('');
     setSigningIn(false);
     setSigninError(null);
+    setServiceCredentialMethod('none');
+    setBasicUsername('');
+    setBasicPassword('');
+    setHeaderName('');
+    setHeaderValue('');
   };
+
+  // Switching methods discards the other branches' fields rather than
+  // half-honouring them, same rule as handleAuthMethodChange below (plan
+  // 3.4 / the backend's own oneOf-shaped `auth` object).
+  const handleServiceCredentialMethodChange = (next: ServiceCredentialMethod) => {
+    setServiceCredentialMethod(next);
+    setToken('');
+    setBasicUsername('');
+    setBasicPassword('');
+    setHeaderName('');
+    setHeaderValue('');
+  };
+
+  // The `ServiceAuthRequest` this form's non-ArcGIS credential branch
+  // currently describes, or undefined for 'none' or an incomplete method
+  // (mirrors the backend's own requirement that basic/header be complete —
+  // rather than send a body the door will 422, this just stays anonymous
+  // until both fields are filled, the same way the plain optional token
+  // field always behaved when left blank).
+  function buildServiceAuth(): ServiceAuthRequest | undefined {
+    switch (serviceCredentialMethod) {
+      case 'bearer':
+        return token.trim() ? { method: 'bearer', token: token.trim() } : undefined;
+      case 'basic':
+        return basicUsername.trim() && basicPassword
+          ? { method: 'basic', username: basicUsername.trim(), password: basicPassword }
+          : undefined;
+      case 'header':
+        return headerName.trim() && headerValue
+          ? { method: 'header', header_name: headerName.trim(), header_value: headerValue }
+          : undefined;
+      default:
+        return undefined;
+    }
+  }
 
   // Switching methods discards the other branch's fields rather than
   // half-honouring them (mirrors the backend's own `auth` object rule,
@@ -333,7 +432,13 @@ export function ServiceUrlForm() {
     setError(null);
 
     try {
-      const result = await probeService(trimmed, currentToken || undefined);
+      // fix(#1746 B4): ArcGIS keeps forwarding a bare bearer token the way
+      // it always has; a non-ArcGIS-shaped URL now forwards the structured
+      // `auth` object instead, since it can also describe basic or a named
+      // header.
+      const result = isArcGisShaped
+        ? await probeService(trimmed, currentToken || undefined)
+        : await probeService(trimmed, undefined, buildServiceAuth());
       setProbeResult(result);
       setStep('layer-select');
     } catch (err) {
@@ -343,6 +448,51 @@ export function ServiceUrlForm() {
       toast.error(msg);
     }
   };
+
+  // fix(#1712): the session is owned by the module (`service-url-session.ts`),
+  // so a tab switch mid-preview cannot strand the job. Everything below only
+  // decides what THIS mount displays; `session.promise` keeps running
+  // regardless. Mirrors UrlImportForm's `runSession` (`url-import-session.ts`).
+  const runPreviewSession = useCallback(
+    async (session: ServiceImportSession) => {
+      setStep('previewing');
+      setError(null);
+      try {
+        const result = await session.promise;
+        if (!mountedRef.current) return;
+        setPreviewData(result);
+        setStep('review');
+      } catch (err) {
+        if (!mountedRef.current) return;
+        if (err instanceof ApiError && err.status === 409) {
+          const body = err.body as { code?: string; existing_dataset_id?: string; existing_title?: string } | undefined;
+          if (body?.code === 'duplicate_source' && body.existing_dataset_id) {
+            const title = body.existing_title ?? t('serviceUrl.unknownDataset');
+            const msg = t('serviceUrl.alreadyRegistered', { title });
+            setError(msg);
+            // fix(#1712): `probeResult` is only available when THIS mount
+            // started the preview — a mount adopting a session that failed
+            // while unmounted never probed, so there is no layer list to go
+            // back to. Falls back to idle rather than rendering a
+            // layer-select with no layers.
+            setStep(probeResult ? 'layer-select' : 'idle');
+            toast.error(msg, {
+              action: {
+                label: t('serviceUrl.viewExisting'),
+                onClick: () => { window.location.href = `/datasets/${body.existing_dataset_id}`; },
+              },
+            });
+            return;
+          }
+        }
+        const msg = err instanceof ApiError ? err.message : t('serviceUrl.previewFailed');
+        setError(msg);
+        setStep(probeResult ? 'layer-select' : 'idle');
+        toast.error(msg);
+      }
+    },
+    [t, probeResult],
+  );
 
   const handleLayerSelect = async (layer: LayerInfo) => {
     if (!probeResult) return;
@@ -363,45 +513,22 @@ export function ServiceUrlForm() {
       return;
     }
 
-    setStep('previewing');
-    setError(null);
-
+    // fix(#1746 B4): same split as Probe above — ArcGIS forwards its bearer
+    // token under the deprecated `token` field, a non-ArcGIS service under
+    // the structured `auth` object. The two are mutually exclusive on the
+    // wire (`reject_service_auth_conflict`), so only one is ever set here.
     const request: ServicePreviewRequest = {
       url: probeResult.url,
       service_type: probeResult.service_type,
       layer_name: layer.name,
       layer_title: layer.title,
       layer_id: layer.layer_id,
-      token: token || undefined,
+      token: isArcGisShaped ? token || undefined : undefined,
+      auth: isArcGisShaped ? undefined : buildServiceAuth(),
       object_id_field: layer.object_id_field,
     };
 
-    try {
-      const result = await previewServiceLayer(request);
-      setPreviewData(result);
-      setStep('review');
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
-        const body = err.body as { code?: string; existing_dataset_id?: string; existing_title?: string } | undefined;
-        if (body?.code === 'duplicate_source' && body.existing_dataset_id) {
-          const title = body.existing_title ?? t('serviceUrl.unknownDataset');
-          const msg = t('serviceUrl.alreadyRegistered', { title });
-          setError(msg);
-          setStep('layer-select');
-          toast.error(msg, {
-            action: {
-              label: t('serviceUrl.viewExisting'),
-              onClick: () => { window.location.href = `/datasets/${body.existing_dataset_id}`; },
-            },
-          });
-          return;
-        }
-      }
-      const msg = err instanceof ApiError ? err.message : t('serviceUrl.previewFailed');
-      setError(msg);
-      setStep('layer-select');
-      toast.error(msg);
-    }
+    await runPreviewSession(startServicePreview(request));
   };
 
   const handleCommit = async (metadata: CommitImportRequest) => {
@@ -423,18 +550,73 @@ export function ServiceUrlForm() {
 
     setStep('committing');
 
+    // fix(#1746 B4): same split as Probe/Preview above.
+    const auth = isArcGisShaped ? undefined : buildServiceAuth();
+
+    const commitPromise = commitImport(previewData.job_id, {
+      ...metadata,
+      ...(isArcGisShaped && token ? { token } : {}),
+      ...(auth ? { auth } : {}),
+    });
+    // fix(#1712): attached BEFORE this awaits, so an unmount mid-commit
+    // still leaves the operation reachable for the next mount to subscribe
+    // to — mirrors `attachUrlImportCommit` (`url-import-session.ts`).
+    attachServiceCommit(commitPromise);
+
     try {
-      await commitImport(previewData.job_id, { ...metadata, ...(token && { token }) });
+      await commitPromise;
+      if (!mountedRef.current) return;
       setJobId(previewData.job_id);
       setStep('tracking');
       toast.success(t('serviceUrl.importStarted'));
     } catch (err) {
+      if (!mountedRef.current) return;
       const msg = err instanceof ApiError ? err.message : t('serviceUrl.commitFailed');
       setError(msg);
       setStep('review');
       toast.error(msg);
     }
   };
+
+  // fix(#1712): re-attach to a preview or commit that was running (or
+  // finished) while this form was unmounted — a tab switch away and back.
+  // Without this, the job id the server returned to a dead component would
+  // be unreachable, plus a pending commit issued against it. Mount-only,
+  // mirroring UrlImportForm's identical effect: a later session start is
+  // driven by user actions, not by this effect re-running.
+  useEffect(() => {
+    const session = peekServiceImport();
+    if (!session) return;
+    if (session.commit && session.jobId) {
+      setStep('committing');
+      void (async () => {
+        try {
+          await session.commit;
+          if (!mountedRef.current) return;
+          setJobId(session.jobId);
+          setStep('tracking');
+        } catch (err) {
+          if (!mountedRef.current) return;
+          // The commit failed, so the job is still `pending` and genuinely
+          // previewable: rebuild review from the session's own retained
+          // preview data (no re-fetch needed — it never changes once the
+          // preview succeeded) rather than stranding the user on a
+          // committing spinner for a job nothing will finish.
+          const msg = err instanceof ApiError ? err.message : t('serviceUrl.commitFailed');
+          setError(msg);
+          if (session.previewData) {
+            setPreviewData(session.previewData);
+            setStep('review');
+          } else {
+            setStep('idle');
+          }
+        }
+      })();
+      return;
+    }
+    void runPreviewSession(session);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Loading states ──
   if (step === 'probing' || step === 'previewing') {
@@ -552,7 +734,7 @@ export function ServiceUrlForm() {
           onCommit={handleCommit}
           isCommitting={step === 'committing'}
         />
-        <Button variant="outline" onClick={reset}>
+        <Button variant="outline" onClick={reset} disabled={commitInFlight}>
           {t('serviceUrl.startOver')}
         </Button>
       </div>
@@ -793,27 +975,151 @@ export function ServiceUrlForm() {
             )}
           </div>
         ) : (
-          <div className="space-y-2">
-            <Label htmlFor="access-token" className="text-xs text-muted-foreground">
-              {t('serviceUrl.tokenLabel')}
-            </Label>
-            <Input
-              id="access-token"
-              type="password"
-              placeholder={t('serviceUrl.tokenPlaceholder')}
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              className="font-mono text-sm"
-              // fix(#1746): this is a request-only service token, not a login
-              // credential — autocomplete="off" alone does not stop Chrome from
-              // offering a saved password here, so opt out of every password
-              // manager explicitly.
-              autoComplete="new-password"
-              data-1p-ignore
-              data-lpignore="true"
-              data-bwignore
-            />
-            <p className="text-xs text-muted-foreground">{t('serviceUrl.tokenHelpText')}</p>
+          <div className="space-y-3" data-testid="service-credential-block">
+            <div className="space-y-2">
+              <Label htmlFor="service-credential-method" className="text-xs text-muted-foreground">
+                {t('serviceUrl.credentialMethodLabel', { defaultValue: 'Authentication' })}
+              </Label>
+              <Select
+                value={serviceCredentialMethod}
+                onValueChange={(value) =>
+                  handleServiceCredentialMethodChange(value as ServiceCredentialMethod)
+                }
+              >
+                <SelectTrigger
+                  id="service-credential-method"
+                  aria-label={t('serviceUrl.credentialMethodLabel', { defaultValue: 'Authentication' })}
+                  className="w-full"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">
+                    {t('serviceUrl.credentialMethodNone', { defaultValue: 'No authentication' })}
+                  </SelectItem>
+                  <SelectItem value="bearer">
+                    {t('serviceUrl.credentialMethodBearer', { defaultValue: 'Bearer token' })}
+                  </SelectItem>
+                  <SelectItem value="basic">
+                    {t('serviceUrl.credentialMethodBasic', { defaultValue: 'Username and password' })}
+                  </SelectItem>
+                  <SelectItem value="header">
+                    {t('serviceUrl.credentialMethodHeader', { defaultValue: 'API key in a header' })}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {serviceCredentialMethod === 'bearer' && (
+              <div className="space-y-2">
+                <Label htmlFor="service-credential-token" className="text-xs text-muted-foreground">
+                  {t('serviceUrl.credentialTokenLabel', { defaultValue: 'Bearer token' })}
+                </Label>
+                <Input
+                  id="service-credential-token"
+                  type="password"
+                  placeholder={t('serviceUrl.credentialTokenPlaceholder', {
+                    defaultValue: 'Paste your bearer token',
+                  })}
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  className="font-mono text-sm"
+                  // fix(#1746): this is a request-only service token, not a login
+                  // credential — autocomplete="off" alone does not stop Chrome from
+                  // offering a saved password here, so opt out of every password
+                  // manager explicitly.
+                  autoComplete="new-password"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  data-bwignore
+                />
+              </div>
+            )}
+
+            {serviceCredentialMethod === 'basic' && (
+              <div className="space-y-3 rounded-lg border border-border bg-surface-0 p-3.5">
+                <div className="space-y-2">
+                  <Label htmlFor="service-credential-username" className="text-xs text-muted-foreground">
+                    {t('serviceUrl.usernameLabel', { defaultValue: 'Username' })}
+                  </Label>
+                  <Input
+                    id="service-credential-username"
+                    type="text"
+                    autoComplete="username"
+                    placeholder={t('serviceUrl.usernamePlaceholder', { defaultValue: 'Username' })}
+                    value={basicUsername}
+                    onChange={(e) => setBasicUsername(e.target.value)}
+                    className="text-sm"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="service-credential-password" className="text-xs text-muted-foreground">
+                    {t('serviceUrl.passwordLabel', { defaultValue: 'Password' })}
+                  </Label>
+                  <Input
+                    id="service-credential-password"
+                    type="password"
+                    placeholder={t('serviceUrl.passwordPlaceholder', { defaultValue: 'Password' })}
+                    value={basicPassword}
+                    onChange={(e) => setBasicPassword(e.target.value)}
+                    className="text-sm"
+                    // A genuine service login, same reasoning as the ArcGIS
+                    // sign-in fields above (#1750): opt every password
+                    // manager out rather than let it offer to save a
+                    // third-party credential against the GeoLens origin.
+                    autoComplete="new-password"
+                    data-1p-ignore
+                    data-lpignore="true"
+                    data-bwignore
+                  />
+                </div>
+              </div>
+            )}
+
+            {serviceCredentialMethod === 'header' && (
+              <div className="space-y-3 rounded-lg border border-border bg-surface-0 p-3.5">
+                <div className="space-y-2">
+                  <Label htmlFor="service-credential-header-name" className="text-xs text-muted-foreground">
+                    {t('serviceUrl.headerNameLabel', { defaultValue: 'Header name' })}
+                  </Label>
+                  <Input
+                    id="service-credential-header-name"
+                    type="text"
+                    autoComplete="off"
+                    placeholder={t('serviceUrl.headerNamePlaceholder', { defaultValue: 'e.g. X-API-Key' })}
+                    value={headerName}
+                    onChange={(e) => setHeaderName(e.target.value)}
+                    className="font-mono text-sm"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="service-credential-header-value" className="text-xs text-muted-foreground">
+                    {t('serviceUrl.headerValueLabel', { defaultValue: 'Header value' })}
+                  </Label>
+                  <Input
+                    id="service-credential-header-value"
+                    type="password"
+                    placeholder={t('serviceUrl.headerValuePlaceholder', { defaultValue: 'Your API key' })}
+                    value={headerValue}
+                    onChange={(e) => setHeaderValue(e.target.value)}
+                    className="font-mono text-sm"
+                    autoComplete="new-password"
+                    data-1p-ignore
+                    data-lpignore="true"
+                    data-bwignore
+                  />
+                </div>
+              </div>
+            )}
+
+            {serviceCredentialMethod !== 'none' && (
+              <p className="text-xs text-muted-foreground">
+                {t('serviceUrl.credentialHelpText', {
+                  defaultValue:
+                    'Choose the method your service documents. A bearer token is sent as an Authorization header; a username and password are sent as HTTP Basic auth; an API key can go under whatever header name the provider specifies — for example X-API-Key, Ocp-Apim-Subscription-Key, or key.',
+                })}
+              </p>
+            )}
           </div>
         )}
 

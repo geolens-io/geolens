@@ -857,8 +857,24 @@
           "tokenExpired": "Das Token ist abgelaufen. Melden Sie sich erneut an, um fortzufahren."
         },
         "wfs": {
-          "intro": "Diese Quelle hat die Aktualisierung rundweg abgelehnt, da sie eine Anmeldeinformation benötigt. Senden Sie das Token unten erneut.",
-          "escapeHatch": "Falls die Quelle inzwischen öffentlich ist, importieren Sie sie über den Dialog Erneut hochladen ohne Token neu, um diese Anforderung aufzuheben."
+          "intro": "Diese Quelle hat die Aktualisierung rundweg abgelehnt, da sie eine Anmeldeinformation benötigt. Senden Sie sie unten erneut.",
+          "escapeHatch": "Falls die Quelle inzwischen öffentlich ist, importieren Sie sie über den Dialog Erneut hochladen ohne Anmeldeinformation neu, um diese Anforderung aufzuheben."
+        },
+        "service": {
+          "methodLabel": "Authentifizierung",
+          "methodNone": "Keine Authentifizierung",
+          "methodBearer": "Bearer-Token",
+          "methodBasic": "Benutzername und Passwort",
+          "methodHeader": "API-Schlüssel in einem Header",
+          "tokenLabel": "Bearer-Token",
+          "tokenPlaceholder": "Bearer-Token einfügen",
+          "usernameLabel": "Benutzername",
+          "passwordLabel": "Passwort",
+          "headerNameLabel": "Header-Name",
+          "headerNamePlaceholder": "z. B. X-API-Key",
+          "headerValueLabel": "Header-Wert",
+          "headerValuePlaceholder": "Ihr API-Schlüssel",
+          "helpText": "Ein Bearer-Token wird als Authorization-Header gesendet; Benutzername und Passwort werden als HTTP-Basic-Authentifizierung gesendet; ein API-Schlüssel kann unter dem vom Anbieter angegebenen Header-Namen gesendet werden, zum Beispiel X-API-Key, Ocp-Apim-Subscription-Key oder key."
         }
       },
       "history": {

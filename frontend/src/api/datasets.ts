@@ -27,6 +27,7 @@ import type {
   PresignedUploadResponse,
   UploadResponse,
   StatusUpdateResponse,
+  ServiceAuthRequest,
 } from '@/types/api';
 
 export async function createDataset(data: CreateDatasetRequest): Promise<DatasetResponse> {
@@ -300,8 +301,13 @@ export async function getDatasetVersions(
 export async function refreshDataset(
   datasetId: string,
   token?: string,
+  auth?: ServiceAuthRequest,
 ): Promise<DatasetRefreshResponse> {
-  const payload: DatasetRefreshRequest = { token: token ?? null };
+  // feat(#1746 B4): the door refuses a body naming both spellings
+  // (reject_service_auth_conflict), so send at most one.
+  const payload: DatasetRefreshRequest = auth
+    ? { auth }
+    : { token: token ?? null };
   return apiFetch<DatasetRefreshResponse>(`/datasets/${datasetId}/refresh`, {
     method: 'POST',
     body: JSON.stringify(payload),

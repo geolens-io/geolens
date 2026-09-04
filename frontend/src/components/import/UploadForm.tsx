@@ -11,6 +11,9 @@ import {
   getUploadSessionEntry,
   removeUploadSessionEntry,
   clearUploadBatch,
+  queuePendingUploadFiles,
+  peekPendingUploadFiles,
+  clearPendingUploadFiles,
   type UploadSessionEntry,
 } from '@/api/upload-session';
 import { useUploadConfig } from '@/components/import/hooks/use-ingest';
@@ -163,6 +166,8 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
     // explicit reset means the user is done with this batch, not switching
     // tabs mid-flight.
     clearUploadBatch();
+    // fix(#1832): same reasoning for the config-fetch queue.
+    clearPendingUploadFiles();
     // Refresh remaining_dataset_quota so "Upload More" after an import reflects
     // the new dataset count instead of the cached pre-import value (Codex P2 on
     // PR #274). invalidate matches the user-scoped key by prefix.
@@ -186,27 +191,38 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   // values. Idempotent, not cumulative.
   useEffect(() => {
     const adopted = peekUploadBatch();
-    if (!adopted || adopted.length === 0) return;
-    setEntries(
-      adopted.map((se) => ({
-        id: se.id,
-        file: null,
-        fileName: se.fileName,
-        status: se.status,
-        jobId: se.jobId,
-        previewData: se.previewData,
-        error: deriveSessionEntryError(se, t, setQuotaNotice),
-        progress: se.progress,
-        submittedTitle: null,
-        submittedVisibility: null,
-        submittedKind: null,
-      })),
-    );
-    setPhase(
-      adopted.every((se) => se.status === 'preview' || se.status === 'upload-failed')
-        ? 'reviewing'
-        : 'uploading',
-    );
+    if (adopted && adopted.length > 0) {
+      setEntries(
+        adopted.map((se) => ({
+          id: se.id,
+          file: null,
+          fileName: se.fileName,
+          status: se.status,
+          jobId: se.jobId,
+          previewData: se.previewData,
+          error: deriveSessionEntryError(se, t, setQuotaNotice),
+          progress: se.progress,
+          submittedTitle: null,
+          submittedVisibility: null,
+          submittedKind: null,
+        })),
+      );
+      setPhase(
+        adopted.every((se) => se.status === 'preview' || se.status === 'upload-failed')
+          ? 'reviewing'
+          : 'uploading',
+      );
+    }
+    // fix(#1832): rehydrate a drop that was still waiting on the
+    // upload-config query when this form unmounted — see
+    // `queuePendingUploadFiles`'s doc comment in upload-session.ts for the
+    // race this closes. The flush effect below re-runs on this same mount
+    // once `pendingFiles` becomes non-null here, so no separate flush call
+    // is needed at this site.
+    const queued = peekPendingUploadFiles();
+    if (queued && queued.length > 0) {
+      setPendingFiles(queued);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -339,10 +355,17 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   // Queue drops that land mid-fetch instead of processing them against an
   // unresolved/stale quota; merge (not replace) so a second drop in the same
   // window can't swallow the first (PR #274 follow-up).
+  //
+  // fix(#1832): the queue itself is now module-scoped (`upload-session.ts`),
+  // not just this component's state — a tab switch that unmounts the form
+  // before `configFetching` settles used to discard the drop outright, since
+  // nothing had reached `startUploadEntry`'s session yet for a remount to
+  // adopt. `setPendingFiles` still runs too, so this mount's own render
+  // reflects the queue immediately; the module copy is what a remount reads.
   const handleFilesAccepted = (files: File[]) => {
     if (phase !== 'idle') return;
     if (configFetching) {
-      setPendingFiles((prev) => (prev ? [...prev, ...files] : files));
+      setPendingFiles(queuePendingUploadFiles(files));
       return;
     }
     void processFiles(files);
@@ -359,6 +382,10 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
   useEffect(() => {
     if (configFetching || !pendingFiles || phase !== 'idle') return;
     setPendingFiles(null);
+    // fix(#1832): release the module-scoped copy in step with the local
+    // one — this effect is the only consumer, so nothing else needs it
+    // once the flush it is about to do below has claimed the files.
+    clearPendingUploadFiles();
     const files = pendingFiles.filter((f) => {
       if (
         allowedExtensions?.length &&
