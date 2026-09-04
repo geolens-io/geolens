@@ -77,6 +77,39 @@ and releases use semantic versioning.
   credential is used for this refresh only and is not stored with the
   dataset (#1759).
 
+- **The reported match count on a large feature or record listing can now be
+  an estimate, not an exact count.** Native feature listing and OGC Features
+  `numberMatched` count exactly up to 20,000 matching rows; past that, the
+  response reports the database planner's row estimate instead of paying for
+  an exact count on every page. A response carrying an estimate sets a new
+  `X-GeoLens-Number-Matched: estimated` header, so a client that needs to know
+  can check for it. This is not an OpenAPI or SDK change (`numberMatched`
+  keeps its existing place in both response schemas), but it is a contract
+  change API consumers should know about: pagination follows the rows GeoLens
+  actually fetched, not the reported count, so a `next` link is still reliable
+  even when the total beside it is approximate (#1799).
+
+- **`GET /search/datasets/` now declares a raster dataset's projection, grid,
+  band, and nodata metadata on its response schema.** `proj:code`,
+  `proj:shape`, `raster:bands`, `res_x`, and `res_y` were already computed and
+  written onto the response, but were absent from the declared response model,
+  so FastAPI silently stripped them before a client ever saw them; every
+  compatibility check the map builder's VRT creator ran against those fields,
+  CRS, grid alignment, band count, dtype, and nodata, was dead code against
+  the real endpoint. The fields are now declared and regenerated
+  `backend/openapi.json`, both SDKs, and the frontend's generated API types
+  (#1805).
+
+- **A new `/health/live` endpoint answers the process's own liveness, separate
+  from `/health`,** which still checks the database, object store, and cache
+  and answers unhealthy if any of them is down. The shipped api container
+  healthcheck and the compose healthcheck now target `/health/live`. Operators
+  with their own orchestrator and a liveness probe pointed at `/health` should
+  move it to `/health/live`: a database, MinIO, or Valkey outage should not
+  restart-loop an otherwise healthy api pod, which is what pointing liveness
+  at a dependency-readiness endpoint causes. Readiness checks should stay on
+  `/health` (#1804).
+
 ### Removed
 
 - **Two undocumented search compatibility forms are gone.** `?cql2_filter_lang=...`
@@ -109,15 +142,26 @@ and releases use semantic versioning.
   (#1754).
 
 - **Import job status reliability fixes.** A failed status check on the job
-  progress view previously left it spinning forever instead of showing an
-  error; it now shows the failure with a way to start over. The job's owner
-  can now cancel it from that same view; before this, only the admin job list
-  offered a cancel button. An upload abandoned at the preview step, the owner
-  simply walks away, is now recorded as cancelled instead of failed, so it
-  stops appearing in the admin failed-jobs list for work that was never
-  actually attempted. `geolens publish --wait` now exits non-zero and reports
-  the real outcome for a failed, cancelled, or timed-out job, instead of
-  printing "Published:" regardless (#1774, #1777, #1800).
+  progress view shown during an active import previously left it spinning
+  forever instead of showing an error; it now shows the failure with a way to
+  start over or retry. That view can also cancel the job directly now:
+  cancellation was previously reachable only from the admin job list and a
+  dataset's refresh history, not from the view a user is actually watching
+  while the import runs. Client timeouts are also raised to match what the
+  server can actually take: a dataset re-upload's request used to time out
+  client-side at 30 seconds well before a large, up to 500 MB, transfer could
+  finish, and a file or service-import preview could similarly be aborted
+  while its 60- to 300-second backend operation was still running; both now
+  use a timeout matched to the server-side budget. A multipart upload's
+  individual part upload had no stall detection at all, so a part stuck on a
+  half-open connection could hang forever; it now aborts once progress stalls,
+  rather than waiting on a flat deadline that a slow-but-active transfer could
+  miss. An upload abandoned at the preview step, the owner simply walks away,
+  is now recorded as cancelled instead of failed, so it stops appearing in the
+  admin failed-jobs list for work that was never actually attempted. `geolens
+  publish --wait` now exits non-zero and reports the real outcome for a
+  failed, cancelled, or timed-out job, instead of printing "Published:"
+  regardless (#1774, #1777, #1800).
 
 - **Dataset and OGC API correctness fixes.** The table browser and the OGC
   Features and native feature-list endpoints raised a 500 or 503 for a
@@ -131,6 +175,14 @@ and releases use semantic versioning.
   Records `datetime=` filter also matched every record with no temporal
   extent regardless of the date queried; it now only matches when the
   record's own timestamp does (#1793, #1799).
+
+- **A raster dataset's published STAC metadata now matches the STAC Raster
+  Extension's own shape.** A locally ingested raster serialized its band
+  nodata value as a numeric string instead of a number, and a remotely
+  described Cloud-Optimized GeoTIFF could publish an empty `raster:bands` band
+  object instead of omitting one GeoLens has no data for; both violate the
+  extension's schema and could break a strict STAC consumer such as pystac or
+  rio-stac reading the item (#1803).
 
 - **Editing a feature with an unclosed polygon ring no longer poisons every
   later bounding-box read of the dataset.** The write path validated
@@ -251,12 +303,28 @@ and releases use semantic versioning.
   the retention pruner or a later restore mistakes for a good backup
   (#1798).
 
+- **`scripts/restore.sh` no longer restarts the api and worker against a
+  database a failed restore left half-populated.** A hard `pg_restore` failure
+  or a failed post-restore grant reconciliation left the database
+  `--clean`-dropped and only partly repopulated, with no ACLs re-applied, but
+  the script's cleanup step restarted the api and worker regardless, and their
+  boot-time migration run then applied against that wreckage. The restart now
+  runs only once `pg_restore` has succeeded (or exited with the expected
+  `--clean --if-exists` warnings) and grant reconciliation has run and been
+  verified; a failed restore leaves both services stopped with an explicit
+  message instead (#1798).
+
 - **CLI and TypeScript SDK reliability fixes from an internal audit.** CLI
   requests now time out instead of hanging indefinitely against an
   unresponsive host; `geolens login --api-key` now clears a stale session
   token instead of leaving it to silently outrank the new key; a stored
-  refresh token is now used to renew an expired session on `geolens status`
-  as well as `whoami`, instead of only the latter (#1802).
+  refresh token is now used to renew an expired session on `geolens status` as
+  well as `whoami`, instead of only the latter. On the TypeScript SDK side,
+  `createGeolensClient()` now builds a client scoped to each call instead of
+  reconfiguring one shared module-level client, so two concurrent callers, a
+  client built per request in a Node server, say, no longer overwrite each
+  other's base URL, bearer token, or API key on the object the first caller is
+  still holding (#1802).
 
 ### Security
 
@@ -273,6 +341,15 @@ and releases use semantic versioning.
   the existing `api_key` and `token` entries, closing a gap where either
   could appear in the clear in a stored service pointer or a composed GDAL
   query string (#1830).
+
+- **`restore.sh`, `check-env.sh`, and `upgrade.sh` no longer read `.env` by
+  shell-sourcing it.** Shell-sourcing runs the file as a script, so an
+  operator-typed value containing a bare space, a backtick, or a `$(...)`
+  sequence, an admin password prompt accepts any of those, ran as a command
+  with the operator's own privileges instead of being read as a value. All
+  three scripts now read only the keys they need through a dedicated parser.
+  RUNBOOK.md's own restore and role-rotation instructions, which told an
+  operator to source `.env` directly, are corrected to match (#1798).
 
 - **The embed viewer no longer sends the signed-in user's session token
   with raster tile requests.** A bare embed link, no embed token, opened by
