@@ -30,6 +30,14 @@ an operator to replace data that is still sitting there.
 ``healthy`` is a status below 400, matching what the VRT probe has always
 meant by "the file is there".
 
+fix(#1755 item 7): the ArcGIS branch (:func:`probe_arcgis_origin`) reads
+past the status code, because ArcGIS reports its own auth refusals as an
+error envelope inside an HTTP 200 body rather than a 401/403. It parses the
+JSON body's ``error.code`` field and maps ``498``/``499`` (a rejected or
+required token) onto ``inaccessible``/``auth_required`` — the same verdict
+the generic 401/403 split above reaches for every other origin, reached
+here by reading the provider body instead of the status line.
+
 ### Why ``detail`` is a code and not a sentence
 
 ``source_health_detail`` is persisted and served on ordinary dataset reads

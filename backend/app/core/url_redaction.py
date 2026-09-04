@@ -51,9 +51,17 @@ SENSITIVE_QUERY_PARAMS = frozenset(
         "api-key",
         "api_key",
         "apikey",
+        # fix(#1755 item 7 lane B3): ArcGIS's own query-parameter name for a
+        # token, distinct from the generic "api_key"/"token" already here —
+        # a stored ArcGIS pointer or a GDAL-composed query can carry it and
+        # it needs the same redaction the others already get.
+        "authkey",
         "client_secret",
         "code",
         "key",
+        # fix(#1755 item 7 lane B3): Maxar's named API key query parameter,
+        # for the same reason as "authkey" above.
+        "maxar_api_key",
         "password",
         "refresh_token",
         "sig",

@@ -3650,7 +3650,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # a reference, and configures the deferred task's queue with the verdict
     # so a worker from the release before this PR never dequeues a header
     # line its own validator cannot parse. Cap 1364 -> 1374, exact.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1374,
+    # fix(#1755 item 15): +2 — corrected the `_require_service_token_if_marked`
+    # docstring, which still described the ArcGIS probe reading the layer's
+    # `?f=json`; since #1754 round 6 it reads `<layer>/query` via
+    # `build_arcgis_count_query_url`. Cap 1374 -> 1376, exact.
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1376,
     # fix(#1335): stac_resolve.py's 1040 lines were split along their natural
     # seams — verdict taxonomy, identity checks, the asset gate (SSRF + COG
     # probe), and the by-search fallback each moved into a sibling module,

@@ -370,6 +370,40 @@ def test_redact_query_credentials_preserves_non_sensitive_query() -> None:
     assert redact_query_credentials("f=json&where=1%3D1") == "f=json&where=1%3D1"
 
 
+# fix(#1755 item 7 lane B3): "authkey" (ArcGIS) and "maxar_api_key" (Maxar)
+# joined SENSITIVE_QUERY_PARAMS alongside the existing generic names. One
+# case per name, plus the mixed-case spelling since matching is
+# case-insensitive (_is_sensitive_query_param lowercases before comparing).
+@pytest.mark.parametrize(
+    "param_name",
+    [
+        "authkey",
+        "AuthKey",
+        "AUTHKEY",
+        "maxar_api_key",
+        "Maxar_Api_Key",
+        "MAXAR_API_KEY",
+    ],
+)
+def test_redact_query_credentials_masks_authkey_and_maxar_api_key(
+    param_name: str,
+) -> None:
+    redacted = redact_query_credentials(f"f=json&{param_name}=secret")
+
+    assert "secret" not in redacted
+    assert "f=json" in redacted
+
+
+def test_redact_query_credentials_leaves_unrelated_param_untouched() -> None:
+    # Positive control: a param name that merely contains "key" as a
+    # substring ("keyword") must not be treated as sensitive by the new
+    # entries, and its value must survive redaction unchanged.
+    assert (
+        redact_query_credentials("keyword=roads&authkey=secret")
+        == "keyword=roads&authkey=%3Credacted%3E"
+    )
+
+
 def test_has_url_credentials_detects_blank_sensitive_param() -> None:
     assert has_url_credentials("https://example.com/arcgis?token=")
 
