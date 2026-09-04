@@ -51,6 +51,7 @@ from app.modules.catalog.sources.arcgis_signin import (
     signin_account_key,
     signin_referer,
 )
+from app.modules.catalog.sources.signin_guard import _settle_failure
 from app.platform.ratelimit import limiter
 from app.platform.security import (
     SSRFError,
@@ -2309,6 +2310,124 @@ async def test_a_signin_cancelled_mid_mint_is_already_counted(
     )
     # Three counted attempts and no more: the refusal spends nothing.
     assert ledger == 3
+
+
+async def test_a_settle_that_outruns_the_drain_still_leaves_cancellederror(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    allow_ssrf,
+    test_db_session,
+    monkeypatch,
+    caplog,
+):
+    """fix(#1775 audit): the drain deadline path, which nothing else reaches.
+
+    The test above covers the fast path, where the shielded write finishes and
+    the loop ends on its own. This one covers the other exit: the write is
+    still going when `_SETTLE_DRAIN_SECONDS` runs out, so the finaliser
+    cancels it and gives up.
+
+    Two things must hold on that path, and the first is why this test exists.
+    `Task.cancel()` only REQUESTS cancellation: the task is still pending on
+    the very next line, so `done()` is False, `cancelled()` is False, and
+    `Future.exception()` raises `InvalidStateError`. Reading the outcome
+    without checking pending FIRST therefore threw out of the finaliser, and
+    since the route awaits it inside `except asyncio.CancelledError:` before
+    a bare `raise`, the handler propagated `InvalidStateError` instead of the
+    cancellation it was re-raising — on the one path the ceiling exists for.
+    So: the caller still sees a cancellation, and the warning that says the
+    row was lost is actually logged.
+
+    The ledger is the third assertion and the one that matters operationally.
+    It is committed before the credential POST, so it does not care that the
+    audit write was abandoned: the attempt is counted either way.
+    """
+    monkeypatch.setattr(signin_guard, "_SETTLE_DRAIN_SECONDS", 0.05)
+
+    entered_mint = asyncio.Event()
+    never = asyncio.Event()
+
+    async def _hanging_mint(_self, _username, _password):
+        entered_mint.set()
+        await never.wait()
+        raise AssertionError("unreachable: the wait above is never released")
+
+    async def _hanging_audit(*_args, **_kwargs):
+        # Far longer than the ceiling, and on the settle's OWN session, so
+        # abandoning it cannot fault against the request session.
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(signin_guard, "_signin_audit", _hanging_audit)
+
+    exchange = _Exchange(
+        {
+            "info": _json_response(_info_payload()),
+            "generateToken": _json_response(_token_payload()),
+        }
+    )
+    with _install(exchange):
+        with patch.object(arcgis_signin.PortalSignIn, "mint", _hanging_mint):
+            with caplog.at_level(logging.WARNING):
+                call = asyncio.create_task(
+                    client.post(SIGNIN_URL, json=_body(), headers=admin_auth_header)
+                )
+                async with asyncio.timeout(30):
+                    await entered_mint.wait()
+                call.cancel()
+                # The assertion the P1 was hiding: a cancellation leaves the
+                # handler, not an InvalidStateError from reading a pending
+                # task's exception.
+                with pytest.raises(asyncio.CancelledError):
+                    await call
+
+    assert any(
+        "cancelled before its outcome could be recorded" in record.getMessage()
+        for record in caplog.records
+    ), [record.getMessage() for record in caplog.records]
+
+    # The count survives the abandoned write, because it was never in it.
+    ledger = await test_db_session.scalar(
+        select(func.count())
+        .select_from(ArcGISSignInAttempt)
+        .where(
+            ArcGISSignInAttempt.account_key
+            == signin_account_key(_scope(), FIXTURE_USERNAME)
+        )
+    )
+    assert ledger == 1
+    # And no audit row, which is the honest outcome of a write that was cut
+    # off rather than a silently invented one.
+    assert await _audit_rows(test_db_session) == []
+
+
+def test_the_settle_outcome_reader_treats_pending_as_cancelled():
+    """fix(#1775 audit): the unit-level pin, with no event loop in the way.
+
+    `_settle_failure` is the whole of the P1 fix, and the state it has to get
+    right is one that lasts a single event-loop turn, so pinning it directly
+    is what keeps a later simplification from reintroducing the crash.
+    """
+    loop = asyncio.new_event_loop()
+    try:
+        pending = loop.create_future()
+        # A future asked to cancel is neither done nor cancelled yet, and
+        # asking it for an exception raises. `_settle_failure` must not.
+        assert _settle_failure(pending) == "CancelledError"
+
+        cancelled = loop.create_future()
+        cancelled.cancel()
+        assert cancelled.cancelled()
+        assert _settle_failure(cancelled) == "CancelledError"
+
+        failed = loop.create_future()
+        failed.set_exception(RuntimeError("boom"))
+        assert _settle_failure(failed) == "RuntimeError"
+
+        landed = loop.create_future()
+        landed.set_result(None)
+        assert _settle_failure(landed) is None
+    finally:
+        loop.close()
 
 
 async def test_both_advisory_locks_are_released_when_the_body_raises(

@@ -168,11 +168,30 @@ async def _sweep_expired_signin_attempts(db: AsyncSession) -> None:
     deletes is already outside the window, so it can never remove one a
     concurrent count would have seen, and the rate limits bound how often
     this runs to a handful of times per account per window.
+
+    fix(#1775 audit): the rows are picked in a fixed order and any a
+    concurrent sweep already holds are SKIPPED. Two sign-ins for different
+    scopes hold different advisory locks, so their sweeps run concurrently and
+    a bare ``DELETE ... WHERE attempted_at < ...`` let them take the same
+    expired rows in whatever order the plan chose — deadlock (40P01) on a
+    statement whose whole job is housekeeping, failing a sign-in that had
+    nothing wrong with it. ``ORDER BY id`` gives every sweeper one order, and
+    ``SKIP LOCKED`` means the loser of a race drops the row rather than
+    queueing for it. Dropping it costs nothing: the row is already expired and
+    the other sweeper is deleting it.
     """
-    await db.execute(
-        delete(ArcGISSignInAttempt).where(
+    expired = (
+        select(ArcGISSignInAttempt.id)
+        .where(
             ArcGISSignInAttempt.attempted_at
             < datetime.now(tz=UTC) - _ARCGIS_SIGNIN_WINDOW
+        )
+        .order_by(ArcGISSignInAttempt.id)
+        .with_for_update(skip_locked=True)
+    )
+    await db.execute(
+        delete(ArcGISSignInAttempt).where(
+            ArcGISSignInAttempt.id.in_(expired.scalar_subquery())
         )
     )
 
@@ -276,7 +295,9 @@ async def _signin_reserve(
     in flight.
 
     The attempt is counted BEFORE the credential POST rather than after it. A
-    ``CancelledError`` during the POST — uvicorn shutting a worker down —
+    ``CancelledError`` during the POST — a worker shutting down, or a client
+    disconnecting, which Starlette's ``BaseHTTPMiddleware`` also turns into a
+    cancellation (fix(#1775 audit)) —
     bypasses both ``PortalSignIn.mint``'s ``except Exception`` and the route's
     ``except ArcGISSignInError``, so under write-at-settle the audit row and
     the ledger row were both lost while ArcGIS may well have counted the
@@ -309,8 +330,59 @@ async def _signin_reserve(
         await db.commit()
 
 
+async def _write_cancelled_outcome(
+    user_id: uuid.UUID,
+    target: SignInTarget,
+    note: str | None = None,
+) -> None:
+    """Write the cancelled attempt's audit row on a session of its OWN.
+
+    fix(#1775 audit): NOT the request's session. The caller below stops
+    waiting at a deadline and the route then re-raises, so FastAPI runs
+    ``get_db``'s teardown and closes the request session — which, if this
+    write were still in flight on it, closes the connection out from under a
+    live statement and turns a lost audit row into an ``InterfaceError`` or a
+    greenlet error on a shutting-down worker. A session this coroutine opens
+    and closes in its own frame cannot be closed by anybody else, so the
+    abandoned case is a task that finishes quietly rather than one that
+    faults.
+
+    Late-bound import, per the rule ``test_layering.py`` enforces (fix(#909)):
+    a module-scope binding snapshots the dev-DB factory before the test
+    fixture rebinds ``app.core.db.async_session``.
+    """
+    from app.core.db import async_session
+
+    async with async_session() as session:
+        await _signin_audit(
+            session, user_id, target, AUDIT_CANCELLED, note, reserved=True
+        )
+
+
+def _settle_failure(settle: asyncio.Future) -> str | None:
+    """What stopped the settle write, by name, or ``None`` when it landed.
+
+    fix(#1775 audit): PENDING is its own answer and it is checked FIRST. A
+    task that has only just been asked to cancel is neither done nor
+    cancelled, and ``Future.exception()`` on a pending task raises
+    ``InvalidStateError`` — which would have escaped the finaliser on the one
+    path the drain deadline exists for, so the route's ``raise`` would have
+    propagated an ``InvalidStateError`` instead of the ``CancelledError`` it
+    was re-raising, and the warning would never have been logged. Verified
+    with a plain asyncio repro: after ``cancel()``, ``done()`` is False,
+    ``cancelled()`` is False, and ``exception()`` raises.
+
+    A cancellation this module asked for reads as ``CancelledError`` whether
+    the task has finished unwinding yet or not, because that is what stopped
+    the write either way.
+    """
+    if not settle.done() or settle.cancelled():
+        return "CancelledError"
+    exc = settle.exception()
+    return None if exc is None else type(exc).__name__
+
+
 async def _signin_settle_cancelled(
-    db: AsyncSession,
     user_id: uuid.UUID,
     target: SignInTarget,
     note: str | None = None,
@@ -344,34 +416,39 @@ async def _signin_settle_cancelled(
     it ends the moment that write finishes, and a wall-clock deadline ends it
     anyway. One local INSERT and COMMIT is milliseconds against a one-second
     ceiling, and this runs at most once per request in flight when a worker
-    shuts down.
+    shuts down or a client disconnects.
 
     Why not a ``finally`` covering all three outcomes: success and a classified
     refusal have to raise or return through their own paths, and the
     single-exit refusal helper #1758 built (:func:`_signin_refusal`) would have
     to be unpicked to route them through one block, for no gain.
 
-    Still best effort, and it says so by swallowing. The loop may be closing
-    under the write, and there is nothing useful to do about that from inside
-    a cancelled request; re-raising would only replace a cancellation with a
-    database error in the logs. Durability lives in the reservation.
+    Still best effort, and it says so by swallowing. The database may be
+    unreachable under a shutting-down worker, and there is nothing useful to do
+    about that from inside a cancelled request; re-raising would only replace a
+    cancellation with a database error. Durability lives in the reservation.
     """
     loop = asyncio.get_running_loop()
     deadline = loop.time() + _SETTLE_DRAIN_SECONDS
-    settle = asyncio.ensure_future(
-        _signin_audit(db, user_id, target, AUDIT_CANCELLED, note, reserved=True)
-    )
-    while not settle.done():
-        if loop.time() >= deadline:
-            settle.cancel()
-            break
-        # Every outcome is handled by the loop condition instead: a completed
-        # write ends it, a failed one ends it with `settle.done()` true and is
-        # reported below, and a re-armed cancellation is the thing this exists
-        # to absorb.
+    settle = asyncio.ensure_future(_write_cancelled_outcome(user_id, target, note))
+    while not settle.done() and loop.time() < deadline:
+        # One shield future per event-loop turn, which is the price of
+        # surviving anyio's re-arm and is only paid while a re-arm is
+        # happening: with no cancel scope re-arming this awaits ONCE and
+        # blocks there until the write finishes. Every outcome is handled by
+        # the loop condition rather than here — a completed write ends it, a
+        # failed one ends it with `settle.done()` true and is reported below,
+        # and a re-armed cancellation is the thing this exists to absorb.
         with contextlib.suppress(BaseException):  # broad: the loop decides
             await asyncio.shield(settle)
-    if settle.cancelled() or settle.exception() is not None:
+    if not settle.done():
+        # fix(#1775 audit): the task keeps a session of its own, so leaving it
+        # to unwind after this returns cannot fault against a session somebody
+        # else closed. Cancelling is still right: a write that lands after the
+        # request is gone is a row nobody is waiting for.
+        settle.cancel()
+    failure = _settle_failure(settle)
+    if failure is not None:
         # No credential, no token and no username in this line: the scope is
         # the destination host that every other row here already carries, and
         # the exception TYPE, which is the same thing `PortalSignIn.mint` logs
@@ -380,11 +457,7 @@ async def _signin_settle_cancelled(
         logger.warning(
             "ArcGIS sign-in cancelled before its outcome could be recorded",
             token_service_host=target.host,
-            error_type=(
-                "CancelledError"
-                if settle.cancelled()
-                else type(settle.exception()).__name__
-            ),
+            error_type=failure,
         )
 
 

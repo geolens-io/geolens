@@ -191,12 +191,16 @@ AUDIT_DISCOVERY_TIMEOUT = "discovery_timeout"
 # this instance would not follow.
 AUDIT_DISCOVERY_UNTRUSTED_DELEGATE = "discovery_untrusted_delegate"
 # fix(#1775): the outcome of an attempt whose credential POST was interrupted
-# by external task cancellation, which is a uvicorn shutdown rather than
-# anything a client can trigger. GeoLens does not know whether ArcGIS counted
-# it, so it is recorded as its own outcome rather than guessed at, and it is
-# absent from UNCOUNTED_SIGNIN_RESULTS below because the password was already
-# on the wire. The row is best effort; what makes the attempt count is the
-# reservation the route commits BEFORE the POST.
+# by external task cancellation. fix(#1775 audit): a worker shutdown is one
+# source and NOT the only one — Starlette's `BaseHTTPMiddleware` cancels the
+# downstream task when the client disconnects, so a caller who hangs up can
+# reach this too. That is why the reservation, not this row, is what counts
+# the attempt: a client cannot make a credential POST free by disconnecting.
+# GeoLens does not know whether ArcGIS counted it, so it is recorded as its
+# own outcome rather than guessed at, and it is absent from
+# UNCOUNTED_SIGNIN_RESULTS below because the password was already on the wire.
+# The row is best effort; what makes the attempt count is the reservation the
+# route commits BEFORE the POST.
 AUDIT_CANCELLED = "cancelled"
 
 # The outcomes above that are NOT an attempt against ArcGIS, because GeoLens

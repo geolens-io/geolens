@@ -1339,12 +1339,17 @@ async def arcgis_signin(
             except ArcGISSignInError as exc:
                 await _signin_refusal(db, user_id, target, exc, note, reserved=True)
             except asyncio.CancelledError:
-                # fix(#1775): uvicorn cancelling this task during shutdown
-                # bypasses `mint`'s `except Exception` and the clause above.
+                # fix(#1775): a cancelled task bypasses `mint`'s `except
+                # Exception` and the clause above. fix(#1775 audit): the
+                # source is a worker shutting down OR a client disconnecting,
+                # which Starlette's `BaseHTTPMiddleware` also turns into a
+                # cancellation — and a disconnecting client spends a
+                # reservation for it, which is the conservative direction.
                 # The count is already durable; what this recovers is the
-                # operator-facing row saying a password went out. Shielded and
-                # best effort, and it re-raises either way — see the helper.
-                await _signin_settle_cancelled(db, user_id, target, note)
+                # operator-facing row saying a password went out. It takes a
+                # session of its own, is best effort, and re-raises either
+                # way — see the helper.
+                await _signin_settle_cancelled(user_id, target, note)
                 raise
 
             # fix(#1775): SETTLE. A second short transaction, and the only one
