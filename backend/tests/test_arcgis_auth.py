@@ -602,6 +602,11 @@ class TestArcGISNonDictResponsesDoNotCrash:
     catches `TypeError`/`AttributeError`, so a probe (`enrich_arcgis_
     feature_counts` under `asyncio.gather`) or a preview returned a bare
     500 instead of a degraded result.
+
+    fix(#1770 round 49 P3, `adapters/arcgis.py:462`): the whole-diff audit
+    caught the fifth sibling this round missed --
+    `fetch_arcgis_pagination_info`, same shape (`"error" in data` with no
+    local `except`), same class, same fix.
     """
 
     pytestmark = pytest.mark.asyncio
@@ -641,6 +646,25 @@ class TestArcGISNonDictResponsesDoNotCrash:
             )
 
         assert result is None
+
+    @pytest.mark.parametrize("body", _NON_DICT_ARCGIS_BODIES)
+    async def test_fetch_arcgis_pagination_info_site(self, body: str) -> None:
+        from app.modules.catalog.sources.adapters.arcgis import (
+            fetch_arcgis_pagination_info,
+        )
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            async def _chunks():
+                yield body.encode()
+
+            return httpx.Response(200, content=_chunks())
+
+        async with _mock_transport_client(handle) as client:
+            result = await fetch_arcgis_pagination_info(
+                "https://services.arcgis.com/svc/FeatureServer", 0, client
+            )
+
+        assert result == (None, False, None)
 
     @pytest.mark.parametrize("body", _NON_DICT_ARCGIS_BODIES)
     async def test_fetch_arcgis_layer_preview_metadata_site(self, body: str) -> None:

@@ -2883,6 +2883,16 @@ Two things worth knowing before you run it or read back what it did:
   A run still short of the one-hour mark shows as busy until it crosses it;
   that is the existing abandoned-run policy working as designed; it is not
   specific to this rollback.
+- Failing these rows also lets `purge_terminal_job_tokens`
+  (`app/platform/jobs/sweep.py`) strip the composed credential line out of
+  `procrastinate_jobs.args`. That purge only ever touches a row whose
+  `status` is NOT `todo`/`doing` (its own SQL reads
+  `WHERE status NOT IN ('todo', 'doing') AND args ? 'token'`), so a job left
+  queued indefinitely on `ingest-auth-v2` — this rollback scenario, or an
+  operator override that dropped the queue from `WORKER_QUEUES` without
+  draining it first — keeps that credential sitting in the jobs table
+  forever otherwise. It runs in the same background sweep cycle named
+  above, so no separate step is needed beyond the UPDATE itself.
 
 Either way, the affected imports do not resume on their own: the credential
 that would have carried them across the queue was never in a form the old

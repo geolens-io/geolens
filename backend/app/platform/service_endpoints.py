@@ -191,9 +191,20 @@ ENDPOINT_CHECK_FAILED_POLICY = (
 # (`test_a_cross_origin_next_is_refused_before_it_is_fetched`,
 # `TestAPagedCollectionCannotWalkOffTheOrigin`). The one place THIS module
 # reads a `next` -- the probe's own `/collections` listing walk, via
-# `_next_page` -- is credential-free exploration bounded by
-# `_MAX_COLLECTION_PAGES`, and r16 deliberately made a cross-origin or
-# unparseable `next` there STOP the walk rather than refuse the whole probe
+# `_next_page` -- IS credentialed: `_check_ogcapi` receives the same
+# `headers` `assert_endpoints_stay_on_origin` built from the caller's real
+# `credential_line` (that function returns early when there is none), and
+# every `_fetch` the listing walk makes, including each page it follows
+# `next` to, sends it (fix(#1770 round 49 P3): this paragraph used to say
+# "credential-free exploration", which was simply wrong -- verified by
+# reading the call chain, not assumed). The soft stop is safe for a
+# different reason: `_next_page` itself already refuses to resolve a
+# cross-origin or unparseable `next` (returning `None` rather than a URL,
+# same guard `_assert_same_origin` applies elsewhere), so the credential
+# this walk carries never reaches a foreign host regardless of whether the
+# WALK stops hard or soft here -- bounded by `_MAX_COLLECTION_PAGES`, and
+# r16 deliberately made reaching that bound (or an unparseable `next`)
+# STOP the walk rather than refuse the whole probe
 # (`test_a_listing_next_that_will_not_parse_stops_the_walk` pins it). Routing
 # that page's `next` through either set as well would turn `_next_page`'s
 # soft stop into a hard `CrossOriginEndpointError` and directly contradict

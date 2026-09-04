@@ -902,9 +902,23 @@ async def probe_service_url(
         # fix(#1746): raised mid-probe rather than at the door — either a
         # redirect hop resolving to a blocked address, or a cross-origin hop
         # that would have forwarded a service-chosen credential header. Both
-        # are the same answer the pre-flight check gives, and the message is a
-        # policy string that carries no part of the credential. Without this
+        # are the same answer the pre-flight check gives. Without this
         # clause the broad handler below would rewrite it into a 500.
+        #
+        # fix(#1770 round 49 P3): `str(exc)` is a fixed policy string for
+        # every `SSRFError` EXCEPT one subclass -- `SSRFResolutionError`
+        # (`platform/security.py`) interpolates the raw, unresolved hostname
+        # into its message, and that hostname is chosen by the SERVICE, via
+        # its own mid-probe redirect `Location` header, not by the caller.
+        # The `#1746` comment this replaces claimed "carries no part of the
+        # credential", which is true but was never the whole question: a
+        # provider-chosen hostname reflected into the 400 body and the
+        # persisted audit reason is the same class of thing this codebase
+        # refuses everywhere else an href/hostname a document chose could
+        # reach a response. A fixed message for both; the raw text stays
+        # only in the log line below, which is server-side and already
+        # subject to `_redact_sensitive_fields`.
+        ssrf_policy_message = "redirect target refused by SSRF policy"
         logger.warning("SSRF blocked mid-probe", url=safe_url, reason=str(exc))
         await _probe_audit_fail(
             db,
@@ -912,8 +926,8 @@ async def probe_service_url(
             request.url,
             "ssrf_blocked",
             status.HTTP_400_BAD_REQUEST,
-            str(exc),
-            reason=str(exc),
+            ssrf_policy_message,
+            reason=ssrf_policy_message,
         )
 
     except httpx.TimeoutException:

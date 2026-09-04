@@ -156,6 +156,21 @@ RESERVED_HEADER_NAMES: frozenset[str] = frozenset(
         "authorization",
         "x-esri-authorization",
         "accept",
+        # fix(#1770 round 49 P2): both `service_endpoints.py::credential_
+        # headers` and `probe_bounds.py::bounded_probe_read` build their
+        # request headers as `{name: value, "Accept-Encoding": "identity"}`
+        # -- the caller's pair FIRST, GeoLens's own encoding pin SECOND, so a
+        # credential named exactly `Accept-Encoding` (any case; the dict
+        # keys collide because both call sites spell the literal the same
+        # way) is silently overwritten by `"identity"` before the request
+        # goes out. The credentialed read then reaches the origin with no
+        # real credential value at all -- an anonymous read on exactly the
+        # path r14's fail-closed design exists to keep from happening, and
+        # `next(iter(headers))` still names the right header for `make_safe_
+        # client`'s cross-origin strip, which is what made this reachable
+        # without a single obviously-wrong log line anywhere in the request
+        # path. Refused at input instead of ever reaching those dicts.
+        "accept-encoding",
         "content-type",
         "content-length",
         "host",

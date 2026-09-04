@@ -1204,3 +1204,50 @@ class TestSecFu04SanitizeAuthorizationToken:
         with pytest.raises(ValueError) as exc_info:
             _sanitize("Authorization: Bearer valid.jwt.sig!")
         assert "!" in str(exc_info.value)
+
+    def test_sec_fu_04_a_d9_line_registers_the_value_for_exact_scrub(self) -> None:
+        """fix(#1770 round 49 P3, `core/service_tokens.py`/`ogr.py`).
+
+        `register_credential_secret` (`core/service_tokens.py`) is only
+        called from `build_credential_header` -- the whole reason the
+        registry closes the exact-value-reflection class for every OTHER
+        producer. On the D9 wire format (a finished header line WITH a
+        separator, what a modern job actually carries), this function
+        validates the line and returns it unchanged without ever calling
+        that builder: `_legacy_bearer_line` above is the only branch that
+        does, for the pre-#1770 bare-token shape. So the registry stayed
+        empty for the whole worker service-import path on the format every
+        current job actually uses, and only the two explicit
+        `scrub_secret_from_exception` calls covered exceptions -- an
+        ordinary log line calling `_scrub_text` directly was not covered at
+        all. Counterfactual: remove the `register_credential_secret(value)`
+        call from `_sanitize_authorization_token` and the secret below
+        survives `_scrub_text` untouched.
+        """
+        from app.core.logging_config import _scrub_text
+        from app.core.service_tokens import reset_registered_credential_secrets
+
+        secret = "s3cret-d9-header-value"
+        reset_registered_credential_secrets()
+        try:
+            line = _sanitize(f"X-Api-Key: {secret}")
+            assert line == f"X-Api-Key: {secret}"
+
+            rendered = _scrub_text(f"worker received header line ...{secret}...")
+        finally:
+            reset_registered_credential_secrets()
+
+        assert secret not in rendered
+
+    def test_sec_fu_04_an_unregistered_value_is_not_scrubbed(self) -> None:
+        """Positive control: the mechanism above is not vacuously passing."""
+        from app.core.logging_config import _scrub_text
+        from app.core.service_tokens import reset_registered_credential_secrets
+
+        reset_registered_credential_secrets()
+        try:
+            rendered = _scrub_text("worker received header line ...never-sanitized...")
+        finally:
+            reset_registered_credential_secrets()
+
+        assert "never-sanitized" in rendered

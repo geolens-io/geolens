@@ -2585,7 +2585,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # distinguishes `/probe`'s fresh schema field from preview/the worker's
     # persisted `origin_ref["url"]`, the same fix `adapters/wfs.py::build_
     # capabilities_url`'s docstring already got. Cap 1317 -> 1319, exact.
-    "backend/app/platform/service_endpoints.py": 1319,
+    # fix(#1770 round 49 P3): +11. Corrected the `_check_ogcapi` listing-walk
+    # comment that claimed the probe's own `/collections` pagination is
+    # "credential-free exploration" -- it is not; `_check_ogcapi` shares the
+    # caller's real `headers`, and the soft stop is safe because `_next_page`
+    # itself refuses a cross-origin/unparseable `next`, not because the
+    # pages are anonymous. Cap 1319 -> 1330, exact.
+    "backend/app/platform/service_endpoints.py": 1330,
     # fix(#1770 round 42): first entry, crossed _RATCHET_INCLUSION_LOC on the
     # completeness-predicate unification. `_page_proves_complete` is the one
     # function round 41's full-walk-only proof and round 42's sampled-preview
@@ -2706,7 +2712,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # rounds 45 through 47c added lines back on top through the normal
     # ArcGIS-bound/non-dict-guard/conformance-seed fixes. Net: 1629 -> 1625,
     # exact.
-    "backend/app/modules/catalog/sources/router.py": 1625,
+    # fix(#1770 round 49 P3): +14. The mid-probe `SSRFError` handler no
+    # longer reflects `SSRFResolutionError`'s interpolated redirect-target
+    # hostname into the 400 body or the persisted audit reason -- both now
+    # carry a fixed policy string; the raw text stays in the server-side log
+    # line only. Cap 1625 -> 1639, exact.
+    "backend/app/modules/catalog/sources/router.py": 1639,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against
@@ -4616,7 +4627,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # extract rather than a bare path, so the preview can report the
     # collection's own size instead of the sample it was handed.
     # Cap 1340 -> 1342, exact.
-    "backend/app/processing/ingest/ogr.py": 1342,
+    # fix(#1770 round 49 P3): +12. `_sanitize_authorization_token`'s D9
+    # (separator-present) branch now calls `register_credential_secret`
+    # on the validated value before returning it -- previously only
+    # `_legacy_bearer_line`'s bare-token branch reached `build_credential_
+    # header`, the registry's only other producer, so the exact-value scrub
+    # pass was inert for the whole worker service-import path on the
+    # format every current job actually uses. Cap 1342 -> 1354, exact.
+    "backend/app/processing/ingest/ogr.py": 1354,
     # fix(#1778): +157 for two audit findings that both land in JIT
     # provisioning. One is the REGISTRATION_ENABLED gate plus its exception
     # class, so enabling a provider stops being a way to reopen signup while

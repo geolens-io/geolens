@@ -17,7 +17,7 @@ from httpx import AsyncClient
 
 from app.modules.catalog.sources.probe import ServiceNotRecognized
 from app.modules.catalog.sources.schemas import LayerInfo, ProbeResponse
-from app.platform.security import SSRFError
+from app.platform.security import SSRFError, SSRFResolutionError
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +210,38 @@ class TestProbeEndpoint:
                 headers=admin_auth_header,
             )
             assert resp.status_code == 400
+
+    async def test_probe_mid_probe_redirect_ssrf_does_not_echo_the_host(
+        self, client: AsyncClient, admin_auth_header: dict, mock_validate_ssrf
+    ) -> None:
+        """fix(#1770 round 49 P3, `sources/router.py` mid-probe `SSRFError`).
+
+        `SSRFResolutionError` (`platform/security.py`) interpolates the raw,
+        unresolved hostname into its own message -- every other `SSRFError`
+        raise site is a fixed policy string. Mid-probe (this except clause,
+        not the door-level one at Step 1), that hostname is chosen by the
+        SERVICE via its own redirect `Location` header, not by the caller,
+        so reflecting it into the 400 body or the persisted audit reason is
+        a provider-controlled reflection this codebase refuses everywhere
+        else a document-chosen href/host could reach a response.
+        """
+        from unittest.mock import patch
+
+        redirect_host = "attacker-chosen-redirect-target.invalid"
+        with patch(
+            "app.modules.catalog.sources.router.detect_service_type",
+            side_effect=SSRFResolutionError(
+                f"Could not resolve hostname: {redirect_host}"
+            ),
+        ):
+            resp = await client.post(
+                "/services/probe/",
+                json={"url": "https://example.com/wfs"},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 400
+        assert redirect_host not in resp.text
 
     async def test_probe_timeout(
         self,

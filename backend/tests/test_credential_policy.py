@@ -156,6 +156,7 @@ class TestHeaderNameRejection:
             "authorization",
             "x-esri-authorization",
             "accept",
+            "accept-encoding",
             "content-type",
             "content-length",
             "host",
@@ -202,6 +203,24 @@ class TestHeaderNameRejection:
         for an invalid character that is not there.
         """
         assert header_name_rejection_reason("AUTHORIZATION") != HEADER_NAME_POLICY
+
+    def test_accept_encoding_is_refused(self) -> None:
+        """fix(#1770 round 49 P2, `service_tokens.py` `RESERVED_HEADER_NAMES`).
+
+        `service_endpoints.py::credential_headers` and `probe_bounds.py::
+        bounded_probe_read` both build `{name: value, "Accept-Encoding":
+        "identity"}` -- the caller's pair first, GeoLens's own encoding pin
+        second -- so a credential named exactly this (any case) was silently
+        overwritten by the literal `"identity"` before those in-process
+        checks ever made the request, turning a credentialed capabilities
+        read into an anonymous one. Counterfactual: remove `"accept-
+        encoding"` from `RESERVED_HEADER_NAMES` and this returns `None`
+        (accepted) instead of the reserved-name policy.
+        """
+        assert (
+            header_name_rejection_reason("Accept-Encoding")
+            == RESERVED_HEADER_NAME_POLICY
+        )
 
     @pytest.mark.parametrize(
         "name", [":authority", ":method", ":Path", ":SCHEME", ":status"]

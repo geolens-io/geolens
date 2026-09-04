@@ -459,6 +459,14 @@ async def fetch_arcgis_pagination_info(
     ):
         return None, False, None
 
+    # fix(#1770 round 49 P3): same reasoning as `_fetch_count`/`fetch_arcgis_
+    # feature_count` above -- a `200 5`/`200 "x"` response is valid JSON but
+    # not a dict, and this function has no local `except` around the checks
+    # below, so an uncaught `TypeError`/`AttributeError` propagated straight
+    # to the caller instead of the ordinary "no pagination info" degrade.
+    if not isinstance(data, dict):
+        return None, False, None
+
     if "error" in data:
         error_info = data["error"]
         code = error_info.get("code", 0)

@@ -33,6 +33,7 @@ from app.core.service_tokens import (
     ServiceCredential,
     build_credential_header,
     credential_header_line,
+    register_credential_secret,
 )
 from app.core.url_redaction import redact_url_credentials
 
@@ -257,6 +258,17 @@ def _sanitize_authorization_token(
         raise ValueError(HEADER_LINE_NAME_POLICY)
     if any(character not in HEADER_LINE_VALUE_CHARSET for character in value):
         raise ValueError(HEADER_LINE_VALUE_POLICY)
+    # fix(#1770 round 49 P3): the D9 line -- what actually crosses the queue
+    # for a modern job -- never touches `build_credential_header`, the
+    # registry's only other producer (`_legacy_bearer_line` above calls it
+    # for the pre-#1770 bare-token shape, which is why that path was already
+    # covered). Without this, the whole worker service-import path relied on
+    # the two explicit `scrub_secret_from_exception` calls and nothing else
+    # -- no log line this function's own caller emits was scrubbed by exact
+    # value. Registers the VALUE (`Bearer <token>`/`Basic <blob>`/a named
+    # key's own value), never `name`: the header name is not the secret and
+    # is often a word ("Authorization") worth leaving visible in a log.
+    register_credential_secret(value)
     if not value.startswith(BEARER_SCHEME):
         return header_line
 

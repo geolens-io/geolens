@@ -871,7 +871,12 @@ async def main() -> None:
                     "reupload, or refresh dispatched with a credential will "
                     "sit pending indefinitely rather than fail -- add it to "
                     "WORKER_QUEUES (or the chart's worker.extraEnv) to "
-                    "process those jobs."
+                    "process those jobs. A row left queued this way also "
+                    "keeps its composed credential in procrastinate_jobs.args "
+                    "indefinitely (purge_terminal_job_tokens only touches a "
+                    "terminal row); see RUNBOOK.md section 10, 'Rolling back "
+                    "a release that shipped the header-auth job queue', for "
+                    "the operator SQL to fail and purge it."
                 ),
             )
         async with task_app.open_async():
