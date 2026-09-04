@@ -12,6 +12,9 @@ every failure point the helper's own docstring claims to tolerate:
 
 - _discard_unpaired_refresh_token() -- keyring deletes AND the file
   read/write, all raising.
+- _delete_keyring_refresh_entries() -- its keyring half, which
+  fix(#1807) factored out for try_refresh()'s backend-fallback path
+  and which carries the same contract.
 - _restore_credentials() -- keyring deletes/sets AND the file
   read/write, all raising.
 - delete_credentials()'s own keyring loop -- all four accounts raising
@@ -108,3 +111,26 @@ class TestDeleteCredentialsKeyringLoopNeverRaises:
         # Must not raise -- the file is healthy, so _clear_credential_
         # section() at the end completes normally too.
         _auth.delete_credentials(INSTANCE)
+
+
+class TestDeleteKeyringRefreshEntriesNeverRaises:
+    """fix(#1807): the keyring half of _discard_unpaired_refresh_token(),
+    factored out because try_refresh() needs exactly that half on its
+    own when a rotation falls back to the file (the file side there
+    holds the copy that must survive). It inherits the same
+    never-raises contract, so it is enumerated here too."""
+
+    def test_both_keyring_deletes_raise(
+        self, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        monkeypatch.setattr("keyring.delete_password", _raise_keyring_error)
+        # Must not raise.
+        _auth._delete_keyring_refresh_entries(INSTANCE)
+
+    def test_keyring_deletes_raise_os_error(
+        self, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        monkeypatch.setattr("keyring.delete_password", _raise_os_error)
+        # Must not raise -- some keyring backends surface an OSError
+        # rather than a KeyringError.
+        _auth._delete_keyring_refresh_entries(INSTANCE)
