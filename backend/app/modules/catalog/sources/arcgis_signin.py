@@ -191,11 +191,15 @@ AUDIT_DISCOVERY_TIMEOUT = "discovery_timeout"
 # this instance would not follow.
 AUDIT_DISCOVERY_UNTRUSTED_DELEGATE = "discovery_untrusted_delegate"
 # fix(#1775): the outcome of an attempt whose credential POST was interrupted
-# by external task cancellation. fix(#1775 audit): a worker shutdown is one
-# source and NOT the only one — Starlette's `BaseHTTPMiddleware` cancels the
-# downstream task when the client disconnects, so a caller who hangs up can
-# reach this too. That is why the reservation, not this row, is what counts
-# the attempt: a client cannot make a credential POST free by disconnecting.
+# by external task cancellation. fix(#1775 audit): a WORKER SHUTDOWN is the
+# only source that reaches this on the pinned Starlette 1.6.0. A client
+# disconnect does not: it arrives as an `http.disconnect` MESSAGE on the
+# receive channel, which a non-streaming route never reads, and the one
+# `cancel()` in `BaseHTTPMiddleware` (middleware/base.py:121) ends the sibling
+# `response_sent.wait` race inside `receive_or_disconnect` rather than the
+# downstream coroutine. What makes this path safe whatever the source is — on
+# this Starlette or a later one — is the reservation: the attempt is counted
+# before the POST, so no cancellation can make a credential POST free.
 # GeoLens does not know whether ArcGIS counted it, so it is recorded as its
 # own outcome rather than guessed at, and it is absent from
 # UNCOUNTED_SIGNIN_RESULTS below because the password was already on the wire.

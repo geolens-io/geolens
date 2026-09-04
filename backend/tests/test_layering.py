@@ -2563,11 +2563,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # credential POST and writes the audit row after it, so a cancelled
     # request leaves no audit row to count), and AUDIT_CANCELLED, the outcome
     # of an attempt whose POST was interrupted. Cap 1253 -> 1293, exact.
-    # fix(#1775 audit): +4. AUDIT_CANCELLED's comment claimed only a worker
-    # shutdown reaches it; BaseHTTPMiddleware cancels on client disconnect
-    # too, so the comment now says which, and why the reservation rather than
-    # that row is what counts the attempt. Cap 1293 -> 1297, exact.
-    "backend/app/modules/catalog/sources/arcgis_signin.py": 1297,
+    # fix(#1775 audit): +8. AUDIT_CANCELLED's comment now says which external
+    # cancellation actually reaches the route and which does not — a worker
+    # shutdown does, a client disconnect does not, because it arrives as an
+    # `http.disconnect` message a non-streaming route never reads and the one
+    # `cancel()` in BaseHTTPMiddleware ends a sibling wait rather than the
+    # downstream coroutine — and why the reservation makes the path safe
+    # whichever it is. An earlier revision of this comment asserted the
+    # opposite, which is why it now cites the line it was checked against.
+    # Cap 1293 -> 1301, exact.
+    "backend/app/modules/catalog/sources/arcgis_signin.py": 1301,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against

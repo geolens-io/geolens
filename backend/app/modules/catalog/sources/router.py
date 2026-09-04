@@ -1340,15 +1340,16 @@ async def arcgis_signin(
                 await _signin_refusal(db, user_id, target, exc, note, reserved=True)
             except asyncio.CancelledError:
                 # fix(#1775): a cancelled task bypasses `mint`'s `except
-                # Exception` and the clause above. fix(#1775 audit): the
-                # source is a worker shutting down OR a client disconnecting,
-                # which Starlette's `BaseHTTPMiddleware` also turns into a
-                # cancellation — and a disconnecting client spends a
-                # reservation for it, which is the conservative direction.
-                # The count is already durable; what this recovers is the
-                # operator-facing row saying a password went out. It takes a
-                # session of its own, is best effort, and re-raises either
-                # way — see the helper.
+                # Exception` and the clause above. fix(#1775 audit): on the
+                # pinned Starlette the source is a WORKER SHUTDOWN and nothing
+                # else — a client hanging up arrives as an `http.disconnect`
+                # message a non-streaming route never reads, not as a
+                # cancellation. The reservation is what keeps this path safe
+                # regardless: the attempt was counted before the POST, so it
+                # stands whatever cancelled the request. What this clause
+                # recovers is the operator-facing row saying a password went
+                # out. It takes a session of its own, is best effort, and
+                # re-raises either way — see the helper.
                 await _signin_settle_cancelled(user_id, target, note)
                 raise
 

@@ -57,6 +57,11 @@ logger = structlog.stdlib.get_logger(__name__)
 _ARCGIS_SIGNIN_ATTEMPT_LIMIT = 3
 _ARCGIS_SIGNIN_WINDOW = timedelta(minutes=15)
 
+# fix(#1775 audit): the strong references that keep an in-flight settle write
+# alive. `asyncio` holds tasks weakly, and this one is deliberately left
+# running when the drain gives up on it, so nothing else would.
+_SETTLE_TASKS: set[asyncio.Task] = set()
+
 # fix(#1775): how long _signin_settle_cancelled will keep handing the event
 # loop a turn so its shielded audit write can finish. One local INSERT and
 # COMMIT, so a second is three orders of magnitude of headroom; the ceiling is
@@ -295,9 +300,10 @@ async def _signin_reserve(
     in flight.
 
     The attempt is counted BEFORE the credential POST rather than after it. A
-    ``CancelledError`` during the POST — a worker shutting down, or a client
-    disconnecting, which Starlette's ``BaseHTTPMiddleware`` also turns into a
-    cancellation (fix(#1775 audit)) —
+    ``CancelledError`` during the POST — a worker shutting down, which on the
+    pinned Starlette is the only source that reaches the route, since a client
+    hanging up arrives as an ``http.disconnect`` message a non-streaming route
+    never reads (fix(#1775 audit)) —
     bypasses both ``PortalSignIn.mint``'s ``except Exception`` and the route's
     ``except ArcGISSignInError``, so under write-at-settle the audit row and
     the ledger row were both lost while ArcGIS may well have counted the
@@ -403,20 +409,21 @@ async def _signin_settle_cancelled(
     reaches here from ``except asyncio.CancelledError``, and a plain await
     would simply be cancelled again. Measured rather than assumed: a bare
     ``await asyncio.shield(...)`` here returns ``CancelledError``, not the
-    written row, because every request runs inside the anyio task groups that
-    Starlette's four ``BaseHTTPMiddleware`` layers open, and an anyio cancel
-    scope re-arms cancellation on EVERY await a task makes inside it while the
-    scope is cancelled. The same call under a bare ``asyncio.Task.cancel()``,
-    with no middleware, completes first time. So the shield is necessary and
-    not sufficient: it keeps the write itself alive across those re-arms, and
-    the loop is what waits for it.
+    written row. Every request runs as a child of the anyio task group each
+    ``BaseHTTPMiddleware`` layer starts the downstream app in
+    (``task_group.start_soon(coro)``, middleware/base.py:148), and an anyio
+    cancel scope re-arms cancellation on EVERY await a task makes inside it
+    while the scope is cancelled. The same call under a bare
+    ``asyncio.Task.cancel()``, with no middleware, completes first time. So
+    the shield is necessary and not sufficient: it keeps the write itself
+    alive across those re-arms, and the loop is what waits for it.
 
     The loop is a bounded drain, not a spin. Each pass awaits, so each pass
     hands the event loop a turn and the shielded write is what makes progress;
     it ends the moment that write finishes, and a wall-clock deadline ends it
     anyway. One local INSERT and COMMIT is milliseconds against a one-second
-    ceiling, and this runs at most once per request in flight when a worker
-    shuts down or a client disconnects.
+    ceiling, and this runs at most once per request still in flight when a
+    worker shuts down.
 
     Why not a ``finally`` covering all three outcomes: success and a classified
     refusal have to raise or return through their own paths, and the
@@ -431,6 +438,13 @@ async def _signin_settle_cancelled(
     loop = asyncio.get_running_loop()
     deadline = loop.time() + _SETTLE_DRAIN_SECONDS
     settle = asyncio.ensure_future(_write_cancelled_outcome(user_id, target, note))
+    # fix(#1775 audit): the event loop keeps only a WEAK reference to a task,
+    # so a settle this function stops awaiting at the deadline could be
+    # collected mid-write. Held here until it finishes, whichever way it
+    # finishes, which is also what keeps the abandoned case a task that
+    # completes rather than one that vanishes.
+    _SETTLE_TASKS.add(settle)
+    settle.add_done_callback(_SETTLE_TASKS.discard)
     while not settle.done() and loop.time() < deadline:
         # One shield future per event-loop turn, which is the price of
         # surviving anyio's re-arm and is only paid while a re-arm is
