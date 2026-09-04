@@ -399,10 +399,15 @@ and releases use semantic versioning.
   (#1752).
 
 - **The ArcGIS import preview now shows the layer's feature count**, the same
-  number probe already reported but preview previously left blank. Separately,
-  the GDAL bearer-token header file used during import is written to the
-  staging directory instead of the system temp directory, and a periodic
-  sweep now removes one left behind by a crashed worker after an hour (#1751).
+  number probe already reported but preview previously left blank.
+  Separately, the GDAL bearer-token header file used during import now
+  lives on a container-private tmpfs instead of an untracked spot in the
+  system temp directory, so it disappears the moment the container
+  restarts and is never archived by the job that backs up the staging
+  volume. The worker clears any file a crashed run left behind at its own
+  next boot; it runs no periodic sweep of its own, and the API's periodic
+  sweep looks at its own container's tmpfs, not the worker's, so it cannot
+  reach one (#1751).
 
 - **Several small service-import fixes from an internal audit.** The service
   token field in the import wizard, the reupload dialog, and the refresh
