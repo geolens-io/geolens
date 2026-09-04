@@ -122,8 +122,12 @@ def _ds(record_type: str):
 def raster_storage(tmp_path, monkeypatch):
     """A real LocalStorageProvider on a tmp dir, installed on every lookup path.
 
-    Both the task and the reapers resolve ``get_storage`` from
-    ``app.platform.storage`` at call time, so one patch covers all of them.
+    Most callers resolve ``get_storage`` from ``app.platform.storage`` at call
+    time, so one patch would cover them. Two modules bind the name at import
+    time instead and need their own patch or they keep reading the real
+    process-wide storage singleton (``app.platform.storage.provider._storage``,
+    set for the test by the ``client`` fixture to ITS OWN tmp dir, a different
+    one than this fixture's) rather than the object this fixture hands back.
     """
     storage = LocalStorageProvider(str(tmp_path / "objects"))
     monkeypatch.setattr(
@@ -135,6 +139,21 @@ def raster_storage(tmp_path, monkeypatch):
     # outside tmp_path.
     monkeypatch.setattr(
         "app.processing.ingest.tasks_common.get_storage", lambda: storage, raising=True
+    )
+    # fix(#1813): `tasks_vrt` ALSO binds get_storage at module import (its own
+    # `from app.platform.storage import get_storage`, used by `regenerate_vrt`).
+    # Without this, every VRT-stamp test that drives a real regeneration
+    # (`_run_regeneration`) writes and reaps generation objects against
+    # whatever storage the `client` fixture's tmp dir currently is, not this
+    # fixture's — silently, since `LocalStorageProvider.delete` no-ops on a
+    # missing key and the mismatched writes still succeed. Harmless for these
+    # tests' own assertions (they only read `last_regenerated_at`), but it is
+    # the same class of import-time-binding gap `tasks_common` already needed
+    # patched above, and leaves the seed VRT this fixture wrote never actually
+    # reaped. `test_regenerate_vrt_integration.py`'s own `local_storage`
+    # fixture documents the identical rule for the identical reason.
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_vrt.get_storage", lambda: storage, raising=True
     )
     return storage
 

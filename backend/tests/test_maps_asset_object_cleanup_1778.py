@@ -434,9 +434,14 @@ class TestAStalledUploadDoesNotBlockOtherWriters:
         ``delete_map_endpoint`` takes ``lock_map_for_asset_write`` itself, so
         this also proves two DIFFERENT requests' calls into the same helper
         do not deadlock or serialize on an unrelated stalled write.
-        """
-        import time
 
+        fix(#1809): this used to assert a wall-clock bound (``elapsed < 2``),
+        which failed under CI load with no product bug (2.147s observed on
+        #1798). The property under test isn't "fast" but "does not wait on
+        the stalled PUT", so assert ordering instead: the delete's response
+        is observed while the PUT is still parked on ``release_put``, proven
+        by the upload task still being unfinished at that point.
+        """
         map_id = await _create_map(client, admin_auth_header)
 
         storage = _storage()
@@ -461,12 +466,16 @@ class TestAStalledUploadDoesNotBlockOtherWriters:
         )
         await asyncio.wait_for(put_entered.wait(), timeout=10)
 
-        started = time.monotonic()
         delete_resp = await client.delete(f"/maps/{map_id}", headers=admin_auth_header)
-        elapsed = time.monotonic() - started
 
         assert delete_resp.status_code == 204, delete_resp.text
-        assert elapsed < 2, elapsed
+        # The upload is still blocked on release_put here: if the delete had
+        # instead waited on the stalled PUT (e.g. serialized behind it), the
+        # only way to reach this line is for the PUT to have already been
+        # released, which it has not been.
+        assert not upload.done(), (
+            "the delete waited on the stalled PUT instead of running independently"
+        )
 
         release_put.set()
         # The map is gone by the time the stalled PUT's lock acquisition
