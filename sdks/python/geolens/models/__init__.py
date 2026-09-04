@@ -606,6 +606,9 @@ from .resend_verification_request import ResendVerificationRequest
 from .reserved_rename_detail import ReservedRenameDetail
 from .reserved_rename_warning import ReservedRenameWarning
 from .reupload_commit_request import ReuploadCommitRequest
+from .reupload_commit_request_expected_origin_kind_type_0 import (
+    ReuploadCommitRequestExpectedOriginKindType0,
+)
 from .reupload_commit_response import ReuploadCommitResponse
 from .reupload_preview_request import ReuploadPreviewRequest
 from .reupload_preview_response import ReuploadPreviewResponse
@@ -1196,6 +1199,7 @@ __all__ = (
     "ReservedRenameDetail",
     "ReservedRenameWarning",
     "ReuploadCommitRequest",
+    "ReuploadCommitRequestExpectedOriginKindType0",
     "ReuploadCommitResponse",
     "ReuploadPreviewRequest",
     "ReuploadPreviewResponse",

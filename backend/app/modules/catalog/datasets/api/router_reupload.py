@@ -60,6 +60,7 @@ from app.platform.refresh.service import (
     create_pending_run,
     make_refresh_run_failed_rollback,
 )
+from app.platform.dataset_origin import classify_origin
 from app.platform.extensions import get_catalog_port
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
 from app.modules.quota.service import check_replacement_quota
@@ -593,6 +594,60 @@ def _require_reupload_source(job, is_service_refresh: bool) -> None:
         )
 
 
+async def _refuse_if_origin_changed(
+    db: AsyncSession, dataset, expected_origin_kind: str | None
+) -> None:
+    """Refuse a commit whose expected origin is no longer the dataset's.
+
+    fix(#1768): `geolens replace` and the web re-upload dialog both refuse to
+    replace a dataset bound to a service, a STAC item, or a registered table,
+    and both decide that from a SINGLE read taken before the upload. Between
+    that read and the commit the user confirms sits an upload, a preview and a
+    human — and a service or STAC re-upload committing in that window rebinds
+    the dataset invisibly to them. The swap the commit queues then rebinds it
+    to `upload` unconditionally (`_apply_reupload_swap` in tasks_reupload.py),
+    severing the binding that was just established.
+
+    Called AFTER `create_pending_run`, which is what makes the re-read
+    decisive rather than one more racing read: with the one-active-run slot
+    held, no other run for this dataset can be in flight, so any origin change
+    is already committed and a READ COMMITTED re-read sees it. Same shape as
+    the refresh door's own re-read (`router_refresh.py`) and deliberately the
+    same `origin_changed` code, so a client learns one word for "the source
+    moved under you".
+
+    ``None`` asserts nothing and returns: the field is optional, so a client
+    that sends none — an older CLI or SDK — gets exactly the pre-#1768
+    behaviour. Only ``record_type`` is left unrefreshed, because no path
+    changes a dataset's record type; ``source_format`` is the half that moves.
+    """
+    if expected_origin_kind is None:
+        return
+    await db.refresh(dataset, ["source_format"])
+    current_origin_kind = classify_origin(
+        dataset.source_format, dataset.record.record_type
+    )
+    if current_origin_kind == expected_origin_kind:
+        return
+    # Releases the reservation along with the merged job metadata: a leaked run
+    # row would refuse every refresh of this dataset until the stale-run
+    # sweep's cutoff.
+    await db.rollback()
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "origin_changed",
+            "message": (
+                "This dataset's source changed after this replacement was "
+                "staged, so nothing was queued. Re-check the dataset's source "
+                "and start the replacement again."
+            ),
+            "origin_kind": current_origin_kind,
+            "expected_origin_kind": expected_origin_kind,
+        },
+    )
+
+
 async def _dispatch_reupload_task(
     db: AsyncSession,
     *,
@@ -841,6 +896,12 @@ async def reupload_commit(
                 ),
             },
         ) from exc
+
+    # fix(#1768): the origin door, and it has to be HERE — after the run row
+    # took the one-active-run admission slot, not before it. See
+    # `_refuse_if_origin_changed` for why the reservation is what makes the
+    # re-read decisive.
+    await _refuse_if_origin_changed(db, dataset, request.expected_origin_kind)
 
     # feat(#1676): staged before the commit, exactly as the refresh door
     # stages its own, so a configured-but-unreachable store rolls the whole

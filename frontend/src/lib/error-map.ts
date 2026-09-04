@@ -116,6 +116,14 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
     'errors.refreshDatasetBusy',
   "This dataset's source changed while the refresh was being queued, so it was not started. Check the new source and try again.":
     'errors.refreshOriginChanged',
+  // fix(#1768): the re-upload commit door's own `origin_changed`. Same code,
+  // different literal and a different key, because the two refusals describe
+  // different windows: the refresh one is "between your click and the queue",
+  // this one is "between the upload you staged and the commit you just
+  // confirmed", and the action it asks for is to look at the source before
+  // replacing anything, not to retry.
+  "This dataset's source changed after this replacement was staged, so nothing was queued. Re-check the dataset's source and start the replacement again.":
+    'errors.reuploadOriginChanged',
   'This dataset is backed by a registered table in this instance, which needs no service credential. Send the request without a token.':
     'errors.refreshCredentialNotApplicable',
   // fix(#1332): the STAC door's wordings of the same taxonomy states,

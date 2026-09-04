@@ -1412,6 +1412,12 @@ def replace(
             dataset_resp, expected=_replace.GET_DATASET_OK_STATUS
         )
 
+        # fix(#1768): captured HERE, at the same read the refusal below is
+        # decided from, and sent with the commit. The gate is a client-side
+        # precheck and everything after it — upload, preview, confirm — is a
+        # window the server has to referee.
+        expected_origin_kind = _replace.captured_origin_kind(dataset)
+
         refusal = _replace.origin_refusal_message(getattr(dataset, "origin", None))
         if refusal is not None:
             state.output.error(refusal)
@@ -1482,7 +1488,11 @@ def replace(
             dataset_id=dataset_uuid,
             job_id=job_id,
             client=sdk.client,
-            body=_replace.build_commit_request(layer_name=layer, srid_override=srid),
+            body=_replace.build_commit_request(
+                layer_name=layer,
+                srid_override=srid,
+                expected_origin_kind=expected_origin_kind,
+            ),
         )
         commit = _replace.unwrap_or_raise(commit_resp, expected=_replace.COMMIT_OK_STATUS)
     except _replace.ReplaceRequestError as exc:

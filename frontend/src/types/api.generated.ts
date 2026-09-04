@@ -11510,6 +11510,11 @@ export interface components {
             /** Srid Override */
             srid_override?: number | null;
             /**
+             * Expected Origin Kind
+             * @description The dataset origin the client saw when it staged this replacement. When set, the commit is refused with 409 `origin_changed` if the dataset's origin no longer matches, so a service, STAC or registered-table binding established after the upload is not silently rebound to an upload. Optional: a client that omits it keeps the pre-#1768 behaviour.
+             */
+            expected_origin_kind?: ("upload" | "postgis" | "service" | "stac" | "created") | null;
+            /**
              * Token
              * @description Deprecated: use the auth object with method bearer.
              */

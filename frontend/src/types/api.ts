@@ -1003,6 +1003,13 @@ export interface ReuploadCommitRequest {
   token?: string;
   // GPKG-01 Phase 1058: user-chosen layer for multi-layer GPKG files
   layer_name?: string;
+  /** fix(#1768): the dataset origin the client saw when it staged this
+   *  replacement. The commit door compares it against the dataset's current
+   *  origin and refuses with 409 `origin_changed` when they differ, so a
+   *  service, STAC or registered-table binding established during the
+   *  upload/preview/confirm window is not silently rebound to an upload.
+   *  Optional — omitting it is the pre-#1768 contract. */
+  expected_origin_kind?: DatasetOrigin | null;
 }
 
 export interface DatasetVersionResponse {

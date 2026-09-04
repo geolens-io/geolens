@@ -1,6 +1,10 @@
 import { apiFetch } from '@/api/client';
-import { reuploadDataset, setTargetStatus } from '@/api/datasets';
-import type { ReuploadResponse, StatusUpdateResponse } from '@/types/api';
+import { reuploadCommit, reuploadDataset, setTargetStatus } from '@/api/datasets';
+import type {
+  ReuploadCommitResponse,
+  ReuploadResponse,
+  StatusUpdateResponse,
+} from '@/types/api';
 
 vi.mock('@/api/client', () => ({
   apiFetch: vi.fn(),
@@ -57,4 +61,44 @@ describe('reuploadDataset timeout', () => {
     const [, options] = mockApiFetch.mock.calls[0];
     expect(options?.timeoutMs).toBeGreaterThan(30_000);
   });
+});
+
+// fix(#1768): the commit body's expected-origin condition. `expected_origin_kind`
+// is optional server-side, and an ABSENT key is the pre-#1768 contract — so the
+// caller must omit it rather than send null when it has no captured origin.
+describe('reuploadCommit expected-origin condition', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('sends the captured origin kind when one is given', async () => {
+    mockApiFetch.mockResolvedValueOnce({
+      job_id: 'job-1',
+      status: 'pending',
+      message: 'Re-upload queued',
+    } satisfies ReuploadCommitResponse);
+
+    await reuploadCommit('dataset-1', 'job-1', null, undefined, undefined, 'service');
+
+    const [, options] = mockApiFetch.mock.calls[0];
+    expect(JSON.parse(String(options?.body))).toMatchObject({
+      expected_origin_kind: 'service',
+    });
+  });
+
+  it.each([[undefined], [null]])(
+    'omits the key entirely when the origin is %s',
+    async (origin) => {
+      mockApiFetch.mockResolvedValueOnce({
+        job_id: 'job-1',
+        status: 'pending',
+        message: 'Re-upload queued',
+      } satisfies ReuploadCommitResponse);
+
+      await reuploadCommit('dataset-1', 'job-1', null, undefined, undefined, origin);
+
+      const [, options] = mockApiFetch.mock.calls[0];
+      expect(JSON.parse(String(options?.body))).not.toHaveProperty(
+        'expected_origin_kind',
+      );
+    },
+  );
 });

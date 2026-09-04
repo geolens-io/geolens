@@ -10,6 +10,8 @@ import {
 } from '@/components/dataset/hooks/use-dataset';
 import { useJobStatus, useUploadConfig } from '@/components/import/hooks/use-ingest';
 import { probeService } from '@/api/ingest';
+import { ApiError } from '@/api/client';
+import { queryKeys } from '@/lib/query-keys';
 import { ReuploadDialog } from '../ReuploadDialog';
 import type { DatasetResponse, ProbeResponse, ReuploadPreviewResponse } from '@/types/api';
 
@@ -501,6 +503,178 @@ describe('ReuploadDialog', () => {
     expect(screen.getByText('Parcels')).toBeInTheDocument();
     // There should be NO "File:" header line in service-URL preview
     expect(screen.queryByText(/^File:/)).not.toBeInTheDocument();
+  });
+
+  // fix(#1768): the commit carries the origin the dialog SAW when it staged
+  // the replacement, so the server can refuse a dataset rebound mid-flow
+  // instead of severing the new binding on the swap.
+  it('sends the origin it saw with a file-source commit', async () => {
+    const user = userEvent.setup();
+    render(
+      <ReuploadDialog
+        dataset={{ ...makeDataset(), origin: 'upload' }}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await openFileSource(user);
+    await dropFile();
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => {
+      expect(commitMutateAsync).toHaveBeenCalled();
+    });
+    expect(commitMutateAsync.mock.calls[0][0].expectedOriginKind).toBe('upload');
+  });
+
+  it('sends the origin it saw with a service-source commit', async () => {
+    const user = userEvent.setup();
+    render(
+      <ReuploadDialog
+        dataset={{ ...makeDataset(), origin: 'service' }}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await openServicePreview(user);
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => {
+      expect(commitMutateAsync).toHaveBeenCalled();
+    });
+    expect(commitMutateAsync.mock.calls[0][0].expectedOriginKind).toBe('service');
+  });
+
+  it('asserts no origin when the dataset reports none', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await openFileSource(user);
+    await dropFile();
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => {
+      expect(commitMutateAsync).toHaveBeenCalled();
+    });
+    expect(commitMutateAsync.mock.calls[0][0].expectedOriginKind).toBeNull();
+  });
+
+  it('sends the staged origin, not the origin the live dataset now reports', async () => {
+    // The point of the condition: `dataset` is a live query result, so a
+    // rebinding that lands mid-flow updates the prop. Reading it at confirm
+    // time would send the changed value and always agree with the server,
+    // which is exactly the race #1768 is about.
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <ReuploadDialog
+        dataset={{ ...makeDataset(), origin: 'upload' }}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await openFileSource(user);
+    await dropFile();
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+
+    rerender(
+      <ReuploadDialog
+        dataset={{ ...makeDataset(), origin: 'service' }}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => {
+      expect(commitMutateAsync).toHaveBeenCalled();
+    });
+    expect(commitMutateAsync.mock.calls[0][0].expectedOriginKind).toBe('upload');
+  });
+
+  // fix(#1768 round 1): the refusal tells the user to start the replacement
+  // again, and `handleRetry` clears the captured origin — but the origin is
+  // re-captured from the `dataset` prop, which is served from the cache the
+  // server just disagreed with. Without the invalidation the retry re-sends
+  // the same stale kind and 409s forever.
+  it('invalidates the dataset detail query when the commit reports origin_changed', async () => {
+    const user = userEvent.setup();
+    commitMutateAsync.mockRejectedValueOnce(
+      new ApiError('This dataset’s source changed', 409, {
+        code: 'origin_changed',
+        origin_kind: 'service',
+        expected_origin_kind: 'upload',
+      }),
+    );
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+    });
+    const invalidate = vi
+      .spyOn(queryClient, 'invalidateQueries')
+      .mockResolvedValue(undefined);
+
+    rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <ReuploadDialog
+          dataset={{ ...makeDataset(), origin: 'upload' }}
+          open
+          onOpenChange={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    await openFileSource(user);
+    await dropFile();
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => {
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: queryKeys.datasets.detail('dataset-1'),
+      });
+    });
+  });
+
+  it('does not invalidate the dataset detail query for an unrelated commit failure', async () => {
+    // The counterfactual's other half: the invalidation is keyed on the
+    // refusal code, not fired on every commit error.
+    const user = userEvent.setup();
+    commitMutateAsync.mockRejectedValueOnce(
+      new ApiError('A refresh is already running', 409, { code: 'dataset_busy' }),
+    );
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+    });
+    const invalidate = vi
+      .spyOn(queryClient, 'invalidateQueries')
+      .mockResolvedValue(undefined);
+
+    rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <ReuploadDialog
+          dataset={{ ...makeDataset(), origin: 'upload' }}
+          open
+          onOpenChange={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    await openFileSource(user);
+    await dropFile();
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await screen.findByText('A refresh is already running');
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: queryKeys.datasets.detail('dataset-1'),
+    });
   });
 });
 

@@ -312,6 +312,7 @@
     "arcgisPortalHostInvalid": "That portal address isn't a usable hostname. Check the URL, for example https://your-org.maps.arcgis.com.",
     "refreshServiceTokenRequired": "This dataset's source needs a service credential to refresh. Provide one below to continue.",
     "refreshSourceUrlBlocked": "This dataset's stored source URL failed a safety check and can't be refreshed automatically. Contact an administrator.",
+    "reuploadOriginChanged": "This dataset's source changed while the replacement was being prepared, so nothing was queued. Check the dataset's source before replacing its data.",
     "unknownLayers": "These layers were not found in the uploaded file: {{layers}}.",
     "sourceValidationCrsMismatch": "Source {{source}}'s coordinate reference system doesn't match the other sources.",
     "sourceValidationBandCountMismatch": "Source {{source}}'s band count doesn't match the other sources.",

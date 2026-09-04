@@ -169,6 +169,21 @@ def origin_refusal_message(origin: Optional[str]) -> Optional[str]:
     return by_kind[origin]
 
 
+def captured_origin_kind(dataset: Any) -> Optional[str]:
+    """The origin kind to assert at commit, or None to assert nothing.
+
+    fix(#1768): normalizes what the generated model can hand back — a kind,
+    ``None``, or the SDK's ``UNSET`` sentinel for a reader the server redacts
+    the field from — down to "a kind this CLI recognizes, or nothing". A kind
+    the server added after this build is deliberately dropped rather than
+    forwarded: the server would 422 a value its own enum does not carry, and
+    turning a stale CLI into a hard failure is worse than leaving the flow at
+    its pre-#1768 behaviour.
+    """
+    origin = getattr(dataset, "origin", None)
+    return origin if origin in KNOWN_ORIGIN_KINDS else None
+
+
 # ---------------------------------------------------------------------------
 # Request builders
 # ---------------------------------------------------------------------------
@@ -185,15 +200,33 @@ def build_preview_request(layer_name: Optional[str]) -> Any:
 
 
 def build_commit_request(
-    *, layer_name: Optional[str], srid_override: Optional[int]
+    *,
+    layer_name: Optional[str],
+    srid_override: Optional[int],
+    expected_origin_kind: Optional[str] = None,
 ) -> Any:
-    """Build a ReuploadCommitRequest. No ``token``; replace is file-only."""
+    """Build a ReuploadCommitRequest. No ``token``; replace is file-only.
+
+    fix(#1768): ``expected_origin_kind`` is the origin ``origin_refusal_message``
+    above read and allowed, sent back so the commit door can refuse if it is no
+    longer the dataset's origin. Everything between that read and this request
+    — the upload, the preview, the confirmation prompt — is a window in which a
+    service or STAC re-upload can bind the dataset to a remote source, and the
+    swap this commit queues would rebind it to ``upload`` and sever it. An
+    origin the CLI could not classify (``None``, or a kind the server added
+    after this build) is left UNSET rather than guessed: the server treats an
+    absent value as "no condition", which is the pre-#1768 behaviour and the
+    right answer when the client has no captured origin to assert.
+    """
     from geolens.models.reupload_commit_request import ReuploadCommitRequest
     from geolens.types import UNSET
 
     return ReuploadCommitRequest(
         layer_name=layer_name if layer_name is not None else UNSET,
         srid_override=srid_override if srid_override is not None else UNSET,
+        expected_origin_kind=(
+            expected_origin_kind if expected_origin_kind in KNOWN_ORIGIN_KINDS else UNSET
+        ),
     )
 
 
@@ -267,6 +300,15 @@ _REFUSAL_MESSAGES: dict[str, str] = {
     "refresh_not_applicable": (
         "This dataset's data comes from a remote service origin, not an "
         "upload. Run `geolens refresh <dataset-id>` to update it instead."
+    ),
+    # fix(#1768): the commit door found a different origin than the one the
+    # Stage 0 read allowed. Nothing was queued and nothing was severed; the
+    # user has to look at the dataset again before deciding, which is why this
+    # does not suggest re-running the same command.
+    "origin_changed": (
+        "This dataset's source changed while the replacement was being "
+        "prepared, so nothing was queued. Check the dataset's source before "
+        "replacing its data."
     ),
     "dataset_busy": (
         "A refresh or re-upload is already running for this dataset. Wait "

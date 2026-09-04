@@ -187,6 +187,7 @@
     "arcgisPortalHostInvalid": "Cette adresse de portail n'est pas un nom d'hôte utilisable. Vérifiez l'URL, par exemple https://votre-org.maps.arcgis.com.",
     "refreshServiceTokenRequired": "La source de ce jeu de données nécessite un identifiant de service pour être actualisée. Fournissez-en un ci-dessous pour continuer.",
     "refreshSourceUrlBlocked": "L'URL source enregistrée de ce jeu de données a échoué à un contrôle de sécurité et ne peut pas être actualisée automatiquement. Contactez un administrateur.",
+    "reuploadOriginChanged": "La source de ce jeu de données a changé pendant la préparation du remplacement, rien n'a donc été mis en file d'attente. Vérifiez la source du jeu de données avant de remplacer ses données.",
     "unknownLayers": "Ces couches sont introuvables dans le fichier importé : {{layers}}.",
     "sourceValidationCrsMismatch": "Le système de référence de coordonnées de la source {{source}} ne correspond pas aux autres sources.",
     "sourceValidationBandCountMismatch": "Le nombre de bandes de la source {{source}} ne correspond pas aux autres sources.",

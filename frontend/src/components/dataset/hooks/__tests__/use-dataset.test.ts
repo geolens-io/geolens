@@ -152,7 +152,8 @@ describe('useReuploadCommit', () => {
     });
   });
 
-  it('passes datasetId, jobId, sridOverride, token, layerName through to reuploadCommit', async () => {
+  // fix(#1768): expectedOriginKind joined the positional tail.
+  it('passes datasetId, jobId, sridOverride, token, layerName, expectedOriginKind through to reuploadCommit', async () => {
     mockReuploadCommit.mockResolvedValueOnce({ message: 'ok' } as never);
     const { result } = renderWithClient();
 
@@ -162,9 +163,33 @@ describe('useReuploadCommit', () => {
       sridOverride: 4326,
       token: 'tok',
       layerName: 'layer-a',
+      expectedOriginKind: 'service',
     });
 
-    expect(mockReuploadCommit).toHaveBeenCalledWith('ds-1', 'j1', 4326, 'tok', 'layer-a');
+    expect(mockReuploadCommit).toHaveBeenCalledWith(
+      'ds-1',
+      'j1',
+      4326,
+      'tok',
+      'layer-a',
+      'service',
+    );
+  });
+
+  it('forwards an absent expectedOriginKind as undefined, asserting nothing', async () => {
+    mockReuploadCommit.mockResolvedValueOnce({ message: 'ok' } as never);
+    const { result } = renderWithClient();
+
+    await result.current.mutateAsync({ datasetId: 'ds-1', jobId: 'j1' });
+
+    expect(mockReuploadCommit).toHaveBeenCalledWith(
+      'ds-1',
+      'j1',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
   });
 
   it('does NOT invalidate jobStatusByDataset when reuploadCommit rejects', async () => {

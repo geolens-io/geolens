@@ -110,6 +110,36 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.refreshDatasetBusy' });
   });
 
+  // fix(#1768): the re-upload commit door returns the SAME `origin_changed`
+  // code as the refresh door with different copy, so the two must land on
+  // different keys — a shared key would tell a user replacing a file that a
+  // refresh was queued.
+  it('maps the re-upload door origin_changed apart from the refresh one', () => {
+    expect(
+      classifyApiError(
+        {
+          code: 'origin_changed',
+          message:
+            "This dataset's source changed after this replacement was staged, so nothing was queued. Re-check the dataset's source and start the replacement again.",
+          origin_kind: 'service',
+          expected_origin_kind: 'upload',
+        },
+        409,
+      ),
+    ).toEqual({ key: 'errors.reuploadOriginChanged' });
+
+    expect(
+      classifyApiError(
+        {
+          code: 'origin_changed',
+          message:
+            "This dataset's source changed while the refresh was being queued, so it was not started. Check the new source and try again.",
+        },
+        409,
+      ),
+    ).toEqual({ key: 'errors.refreshOriginChanged' });
+  });
+
   it('maps the STAC door refusal wordings introduced by #1266 (#1332)', () => {
     expect(
       classifyApiError(
