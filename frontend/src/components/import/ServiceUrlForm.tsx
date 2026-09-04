@@ -528,7 +528,7 @@ export function ServiceUrlForm() {
       object_id_field: layer.object_id_field,
     };
 
-    await runPreviewSession(startServicePreview(request));
+    await runPreviewSession(startServicePreview(request, isArcGisShaped));
   };
 
   const handleCommit = async (metadata: CommitImportRequest) => {
@@ -578,6 +578,49 @@ export function ServiceUrlForm() {
     }
   };
 
+  // fix(#1834 round 1 P2): restore the credential CONTEXT a resumed
+  // session was requested under — `url`, the ArcGIS/non-ArcGIS shape, and
+  // whichever of `token`/`auth` that shape used — so a commit issued AFTER
+  // this remount rebuilds the same request the original mount would have
+  // sent, instead of `buildServiceAuth()`/`isArcGisShaped` reading fresh
+  // component defaults.
+  //
+  // The origin/shape-change effect below (`lastAuthOriginRef`/
+  // `lastAuthShapeRef`) exists to WIPE credential state exactly when `url`
+  // changes across a render — the correct behavior for a user EDITING the
+  // URL. Restoring `url` here would trigger the very same effect and undo
+  // this restoration in the next render, so the refs are seeded to the
+  // resumed URL's origin/shape FIRST: by the time that effect's own
+  // `authOrigin`/`isArcGisShaped` (computed from the just-set `url` state)
+  // are compared against these refs, they already agree, and the effect
+  // sees no change to react to.
+  const restoreSessionCredential = useCallback((session: ServiceImportSession) => {
+    lastAuthOriginRef.current = originOf(session.url);
+    lastAuthShapeRef.current = session.isArcGisShaped;
+    setUrl(session.url);
+    if (session.isArcGisShaped) {
+      setToken(session.token ?? '');
+      return;
+    }
+    const auth = session.auth;
+    if (!auth) {
+      setServiceCredentialMethod('none');
+      return;
+    }
+    if (auth.method === 'bearer') {
+      setServiceCredentialMethod('bearer');
+      setToken(auth.token ?? '');
+    } else if (auth.method === 'basic') {
+      setServiceCredentialMethod('basic');
+      setBasicUsername(auth.username ?? '');
+      setBasicPassword(auth.password ?? '');
+    } else if (auth.method === 'header') {
+      setServiceCredentialMethod('header');
+      setHeaderName(auth.header_name ?? '');
+      setHeaderValue(auth.header_value ?? '');
+    }
+  }, []);
+
   // fix(#1712): re-attach to a preview or commit that was running (or
   // finished) while this form was unmounted — a tab switch away and back.
   // Without this, the job id the server returned to a dead component would
@@ -587,6 +630,7 @@ export function ServiceUrlForm() {
   useEffect(() => {
     const session = peekServiceImport();
     if (!session) return;
+    restoreSessionCredential(session);
     if (session.commit && session.jobId) {
       setStep('committing');
       void (async () => {
@@ -616,7 +660,7 @@ export function ServiceUrlForm() {
     }
     void runPreviewSession(session);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [restoreSessionCredential]);
 
   // ── Loading states ──
   if (step === 'probing' || step === 'previewing') {

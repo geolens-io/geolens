@@ -217,4 +217,64 @@ describe('ServiceUrlForm unmount survival (#1712)', () => {
     expect(mockPreviewServiceLayer).toHaveBeenCalledTimes(1);
     expect(mockCommitImport).toHaveBeenCalledTimes(1);
   });
+
+  // fix(#1834 round 1 P2): a remount used to restore only `previewData` —
+  // `url`, the credential method, and its fields all came back at
+  // component defaults, so a resumed review's eventual `handleCommit`
+  // rebuilt `auth` from EMPTY state and the recovered import failed
+  // against a protected service. Pins that a Basic credential entered
+  // before the preview survives an unmount and reaches the SAME commit
+  // request after remounting.
+  test('a resumed session after a Basic-auth preview still sends the same auth on commit', async () => {
+    const user = userEvent.setup();
+    const view = render(<ServiceUrlForm />);
+    mockProbeService.mockResolvedValue(WFS_PROBE);
+
+    await user.type(screen.getByPlaceholderText('serviceUrl.placeholder'), 'https://example.test/wfs');
+    await user.click(screen.getByRole('combobox', { name: 'Authentication' }));
+    await user.click(await screen.findByRole('option', { name: 'Username and password' }));
+    await user.type(screen.getByLabelText('Username', { exact: true }), 'alice');
+    await user.type(screen.getByLabelText('Password', { exact: true }), 'hunter2');
+    await user.click(screen.getByRole('button', { name: 'Probe →' }));
+    await screen.findByText('Roads');
+
+    let resolvePreview!: (v: typeof VECTOR_PREVIEW) => void;
+    mockPreviewServiceLayer.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePreview = resolve;
+      }),
+    );
+    await user.click(screen.getByRole('button', { name: /Roads/i }));
+    await waitFor(() => expect(mockPreviewServiceLayer).toHaveBeenCalledTimes(1));
+    expect(mockPreviewServiceLayer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        auth: { method: 'basic', username: 'alice', password: 'hunter2' },
+      }),
+    );
+
+    // Switch tabs before the preview even settles.
+    view.unmount();
+    resolvePreview(VECTOR_PREVIEW);
+    await waitFor(() => expect(peekServiceImport()?.status).toBe('fulfilled'));
+
+    // Coming back reaches the metadata form directly (the resumed review),
+    // with no memory of the credential visible in any form field — the
+    // fix is that `handleCommit` still has it internally.
+    render(<ServiceUrlForm />);
+    await waitFor(() => expect(screen.getByTestId('import-metadata-form')).toBeInTheDocument());
+
+    mockCommitImport.mockResolvedValue({ job_id: 'job-survives', status: 'queued', message: 'ok' });
+    await user.click(screen.getByRole('button', { name: 'Commit (test)' }));
+
+    await waitFor(() => expect(mockCommitImport).toHaveBeenCalledTimes(1));
+    expect(mockCommitImport).toHaveBeenCalledWith(
+      'job-survives',
+      expect.objectContaining({
+        auth: { method: 'basic', username: 'alice', password: 'hunter2' },
+      }),
+    );
+    // Never the deprecated bearer field alongside the structured object —
+    // this session's shape was 'basic', not ArcGIS bearer.
+    expect(mockCommitImport.mock.calls[0][1].token).toBeFalsy();
+  });
 });

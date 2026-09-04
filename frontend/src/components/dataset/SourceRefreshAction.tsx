@@ -167,11 +167,23 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
     }
     const submittedToken = token.trim() || undefined;
     const submittedAuth = serviceAuth;
-    // Cleared before the request settles. Once handed to mutateAsync the
-    // token lives only in the in-flight request body; this component never
-    // reconstructs it from state again, on either the success or error path.
+    // fix(#1834 round 1 P2): `token` is cleared before the request settles
+    // because ArcgisCredentialBlock's own "Signed in" display is DERIVED
+    // from this same `token` prop — clearing it immediately (and
+    // correctly) blanks that display too, so nothing stale is left visible.
+    //
+    // `serviceAuth` does NOT get the same treatment. ServiceCredentialBlock
+    // is uncontrolled for its own username/password/header fields — it
+    // only calls `onAuthChange` when ITS internal state changes, and has no
+    // prop to resync it if the parent clears `serviceAuth` out from under
+    // it. Clearing it here left the block still showing a filled-in
+    // credential (a 422 keeps the dialog open) while `serviceAuth` itself
+    // had already gone back to undefined, so a same-click retry with the
+    // form visually unchanged silently sent `auth: undefined`. Retained
+    // until the request actually succeeds (cleared there, and on cancel or
+    // close via `handleOpenChange`) so a retry after a failure resends
+    // exactly what the block is still displaying.
     setToken('');
-    setServiceAuth(undefined);
     try {
       const result = await refreshMutation.mutateAsync({
         datasetId: dataset.id,
@@ -183,6 +195,7 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
       // tab (and this component has unmounted) by the time the 202 arrives,
       // because `watch` is owned by the still-mounted page.
       watch.trackDispatchedRun(result.run_id);
+      setServiceAuth(undefined);
       setOpen(false);
       toast.success(t('sourcePanel.refresh.toastAccepted', { runId: result.run_id }));
     } catch (err) {

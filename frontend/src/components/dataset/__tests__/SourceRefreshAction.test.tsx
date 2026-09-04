@@ -277,6 +277,60 @@ describe('SourceRefreshAction', () => {
     expect(screen.getByLabelText('Authentication')).toHaveValue('none');
   });
 
+  // fix(#1834 round 1 P2): `serviceAuth` used to be cleared unconditionally
+  // before every request, win or lose. ServiceCredentialBlock is
+  // uncontrolled for its own fields (it only calls back when THEY change),
+  // so a failed submission left the block still showing the typed
+  // credential while the parent's copy of it had already gone back to
+  // undefined -- a same-click retry, with the form visually unchanged,
+  // silently sent `auth: undefined`. Pins that a retry after a non-422
+  // refusal (dialog stays open, no field is touched) resends the identical
+  // credential rather than dropping it.
+  it('resends the same credential on retry after a failed refresh, without the user retyping it', async () => {
+    mutateAsync
+      .mockRejectedValueOnce(new ApiError('A refresh is already running for this dataset. Wait for it to finish, then try again.', 409))
+      .mockResolvedValueOnce({
+        run_id: 'run-10',
+        job_id: 'job-10',
+        dataset_id: 'dataset-1',
+        origin_kind: 'service',
+        trigger: 'api',
+        status: 'pending',
+        message: 'Refresh queued from the stored source',
+      });
+    const user = userEvent.setup();
+    render(<SourceRefreshAction dataset={makeDataset({ source_format: 'wfs' })} watch={makeWatch()} />);
+
+    await openDialog(user);
+    await user.selectOptions(screen.getByLabelText('Authentication'), 'Username and password');
+    await user.type(screen.getByLabelText('Username', { exact: true }), 'alice');
+    await user.type(screen.getByLabelText('Password', { exact: true }), 'hunter2');
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    expect(mutateAsync).toHaveBeenNthCalledWith(1, {
+      datasetId: 'dataset-1',
+      token: undefined,
+      auth: { method: 'basic', username: 'alice', password: 'hunter2' },
+    });
+
+    // The dialog stays open on this (non-422) refusal, and the credential
+    // block still shows exactly what was typed — nothing prompted the user
+    // to retype anything.
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByLabelText('Username', { exact: true })).toHaveValue('alice');
+    expect(screen.getByLabelText('Password', { exact: true })).toHaveValue('hunter2');
+
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2));
+    expect(mutateAsync).toHaveBeenNthCalledWith(2, {
+      datasetId: 'dataset-1',
+      token: undefined,
+      auth: { method: 'basic', username: 'alice', password: 'hunter2' },
+    });
+  });
+
   it.each([
     [
       'dataset_busy',
