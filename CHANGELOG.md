@@ -26,17 +26,16 @@ and releases use semantic versioning.
   section (§10) first, or affected imports are left stuck rather than picked
   up by the older worker (#1770, #1756, #1760, #1834).
 
-- **Sign in to ArcGIS Online or an ArcGIS Enterprise portal directly from the
-  import wizard, instead of pasting a token.** For an ArcGIS FeatureServer or
-  MapServer URL, the Service tab and the refresh dialog now offer a
+- **Sign in to ArcGIS Online or a Portal for ArcGIS deployment directly from
+  the import wizard, instead of pasting a token.** For an ArcGIS FeatureServer
+  or MapServer URL, the Service tab and the refresh dialog now offer a
   username-and-password sign-in alongside the existing token field. GeoLens
   exchanges the credentials for a short-lived token through the portal's own
-  sign-in service; the password is held only for that one request and
-  cleared the moment it settles, success or failure. Repeated sign-in
-  attempts against one ArcGIS account, or from one GeoLens user, are
-  rate-limited, since an unlimited retry here would let one GeoLens user
-  lock a colleague out of their own ArcGIS account (#1757, #1758, #1759,
-  #1820).
+  sign-in service; the password is held only for that one request and cleared
+  the moment it settles, success or failure. Repeated sign-in attempts against
+  one ArcGIS account, or from one GeoLens user, are rate-limited, since an
+  unlimited retry here would let one GeoLens user lock a colleague out of
+  their own ArcGIS account (#1757, #1758, #1759, #1820).
 
 - **The CLI can replace an uploaded dataset's data directly.** `geolens
   replace <dataset-id> <file>` wraps the same reupload flow the web app's
