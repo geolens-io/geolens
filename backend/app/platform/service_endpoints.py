@@ -81,7 +81,15 @@ import json
 import time
 import xml.parsers.expat
 from collections.abc import Callable
-from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import (
+    parse_qs,
+    parse_qsl,
+    quote,
+    urlencode,
+    urljoin,
+    urlparse,
+    urlunparse,
+)
 
 import defusedxml.ElementTree as ET
 from defusedxml.common import DefusedXmlException
@@ -276,12 +284,82 @@ MAX_DOCUMENT_ATTRIBUTES = 500_000
 # document built to nest one nominal element inside another, over and over,
 # stays cheap on every other budget above -- one element and no attributes
 # per level -- while still costing one Python object and one parser
-# callback per level of depth. 1,000 levels is well over two orders of
-# magnitude past anything a real capabilities document nests, and well
-# under the interpreter's own default recursion ceiling, so a pathologically
-# deep document is refused by this budget before it can cost anything
-# downstream that walks the tree recursively.
-MAX_DOCUMENT_DEPTH = 1_000
+# callback per level of depth.
+#
+# fix(#1770 round 47 P2): the round-43 comment's claim that 1,000 was "well
+# under the interpreter's own default recursion ceiling" was the bug, not a
+# safety margin: `sys.getrecursionlimit()`'s default IS 1,000, and this
+# preflight is not the only thing that ever visits a parsed document's
+# depth -- `_wfs_operation_hrefs`'s tree walk did, recursively, with no
+# depth check of its own, so a document nested to exactly this budget
+# passed the preflight and then blew the interpreter's own stack with an
+# uncaught `RecursionError` before that walk (now made iterative, see its
+# own docstring) ever got a turn. 256 is still well over an order of
+# magnitude past anything a real capabilities or OGC API document nests --
+# `OperationsMetadata > Operation > DCP > HTTP > Get` above is five, and the
+# deepest measured real document (a WFS capabilities listing five thousand
+# feature types) never exceeds a few dozen -- and leaves real headroom
+# under the interpreter's ceiling for whatever else is already on the stack
+# (this preflight's own caller chain, asyncio, the test runner) by the time
+# any code visits a parsed document's depth, iteratively or not.
+MAX_DOCUMENT_DEPTH = 256
+
+# fix(#1770 round 47 P1). A service-ADVERTISED href -- an `items`/`next`/
+# `conformance` link, a WFS operation endpoint -- sits inside a document
+# already bounded by `MAX_DOCUMENT_BYTES`/`MAX_DOCUMENT_TOKENS`/
+# `MAX_DOCUMENT_ELEMENTS`, but a query string is free real estate none of
+# those budgets price correctly: the separators between millions of short
+# `key=value` pairs live INSIDE one JSON string, so `structural_tokens`
+# (which counts commas and brackets outside strings) answers ~0 for it, the
+# same blind spot that motivated `MAX_DOCUMENT_ELEMENTS` for XML. `parse_qsl`
+# has no length bound of its own and materialises every pair it finds before
+# a caller's own comprehension or `urlencode()` copies the list again --
+# three or more full passes over a value already sitting comfortably under
+# every existing cap.
+#
+# 8192 is the conventional ~8 KiB server/proxy limit on a request line
+# (RFC 7230 leaves the number to implementations; Apache's default
+# `LimitRequestLine`, nginx's default `large_client_header_buffers`, and most
+# CDNs all sit at or below it). Nothing this codebase advertises legitimately
+# needs a longer one, so refusing anything over this length BEFORE any
+# parsing at all is the real bound -- `MAX_QUERY_FIELDS` below is the second,
+# independent one for a query string that slips past this length check by
+# packing many SHORT pairs into few bytes.
+MAX_SERVICE_HREF_BYTES = 8192
+
+# fix(#1770 round 47 P1): the second, independent bound -- a query string
+# `MAX_SERVICE_HREF_BYTES` bytes long can still pack over a thousand `a=1&`
+# pairs. No real service-advertised URL in this codebase's own vocabulary
+# (an OGC API/STAC/WFS/ArcGIS operation link) carries more than a handful to
+# a few dozen query parameters; 256 is well past that with room to spare and
+# well short of costing real memory or CPU to parse, filter, and re-encode.
+MAX_QUERY_FIELDS = 256
+
+
+def bounded_service_url(href: str, *, what: str) -> str:
+    """*href*, refused before any parsing if it is unusually long.
+
+    Every caller here already catches `ValueError` from `urljoin` on the
+    same href (an unparseable address the document named), so raising the
+    same type lets this length check flow through each caller's EXISTING
+    coded refusal with no new except clause -- see the call sites in
+    `_next_page`/`_assert_same_origin` below, `_advertised_items_href`/
+    `_next_href`/`_with_page_size` in `service_items.py`, and
+    `_resolve_conformance` in `adapters/ogcapi.py`.
+    """
+    if len(href.encode("utf-8", errors="surrogatepass")) > MAX_SERVICE_HREF_BYTES:
+        raise ValueError(f"{what} href exceeds {MAX_SERVICE_HREF_BYTES} bytes")
+    return href
+
+
+def bounded_parse_qsl(query: str) -> list[tuple[str, str]]:
+    """`parse_qsl`, with `max_num_fields` applied -- the one bounded call
+    site every other read of a service-advertised query string should
+    share, so `test_every_parse_qsl_call_bounds_its_field_count` has one
+    place to point at instead of one exception to write per call site.
+    """
+    return parse_qsl(query, max_num_fields=MAX_QUERY_FIELDS)
+
 
 # How long an endpoint check may take when the caller has a clock. `None`
 # means no caller deadline, which is the direct-call and offline case.
@@ -444,7 +522,22 @@ def _wfs_operation_hrefs(xml_bytes: bytes) -> list[str]:
     def _local(tag: str) -> str:
         return tag.split("}")[-1] if "}" in tag else tag
 
-    def _walk(element, operation: str | None) -> None:
+    # fix(#1770 round 47 P2): iterative, not recursive. `_xml_preflight`
+    # (`require_decodable`'s XML branch, which runs before this ever does)
+    # only bounds NESTING depth to `MAX_DOCUMENT_DEPTH` -- a document AT that
+    # depth still reaches here, and it was Python's OWN call-stack limit,
+    # not this module's budget, that decided whether walking it recursively
+    # blew up: `MAX_DOCUMENT_DEPTH` used to be 1,000, `sys.
+    # getrecursionlimit()`'s default IS 1,000, and this walk's own frames
+    # were not the only ones already on the stack by the time it ran. An
+    # explicit stack has no recursion limit of its own to hit, so this is
+    # unconditionally safe at any depth `_xml_preflight` admits, independent
+    # of how low `MAX_DOCUMENT_DEPTH` is or ever needs to be. Preserves the
+    # same pre-order traversal the recursive version walked in: a LIFO stack
+    # visits document order when children are pushed in reverse.
+    stack: list[tuple[object, str | None]] = [(root, None)]
+    while stack:
+        element, operation = stack.pop()
         tag = _local(element.tag)
         if tag == "Operation":
             # 1.1/2.0: `ows:Operation name="GetFeature"`. A missing or blank
@@ -461,10 +554,8 @@ def _wfs_operation_hrefs(xml_bytes: bytes) -> list[str]:
                 local = _local(name).lower()
                 if local in _WFS_ENDPOINT_ATTRIBUTES and value:
                     hrefs.append(value)
-        for child in element:
-            _walk(child, operation)
+        stack.extend((child, operation) for child in reversed(list(element)))
 
-    _walk(root, None)
     return hrefs
 
 
@@ -495,7 +586,12 @@ def _next_page(document: object, base: str) -> str | None:
     for link in document.get("links", []) or []:
         if isinstance(link, dict) and link.get("rel") == "next" and link.get("href"):
             try:
-                resolved = urljoin(base, str(link["href"]))
+                # fix(#1770 round 47 P1): refused before `urljoin` even runs,
+                # not just before whatever eventually calls `parse_qsl` on
+                # the result -- see `bounded_service_url`'s own docstring.
+                resolved = urljoin(
+                    base, bounded_service_url(str(link["href"]), what="next")
+                )
             except ValueError:
                 # fix(#1746 B2b review r16): same guard as `_assert_same_origin`
                 # below, and the sibling of the site the review named. An
@@ -518,6 +614,13 @@ def _assert_same_origin(url: str, hrefs: list[str], base: str | None = None) -> 
     """
     for href in hrefs:
         try:
+            # fix(#1770 round 47 P1): the same length gate `_next_page`
+            # applies, before `urljoin` -- this is the shared sink both
+            # `_ogcapi_link_hrefs` (OGC API) and `_wfs_operation_hrefs`
+            # (WFS, including its 1.0 `onlineResource` spelling) feed into,
+            # so gating it here closes the class for both formats in one
+            # place.
+            href = bounded_service_url(href, what="operation")
             # fix(#1746 B2b review r19): relative to the document, which after
             # a canonical redirect is not the URL that was asked for. The
             # origin compared against is still the submitted one.
@@ -987,6 +1090,16 @@ async def _check_wfs(
         # document carrying an entity declaration escape as an uncaught
         # exception and surface as a 500. It is a refusal like any other
         # unreadable description.
+        raise EndpointCheckFailedError(str(exc)) from None
+    except RecursionError as exc:
+        # fix(#1770 round 47 P2): last line of defense, not the primary fix
+        # -- `_wfs_operation_hrefs`'s own walk is iterative now and cannot
+        # raise this itself. Kept because `ET.fromstring` (defusedxml) is
+        # not this module's code, and this is the one place a document that
+        # passed every other budget still reaches an unhandled exception if
+        # something in that dependency ever does recurse. Translated to the
+        # same coded refusal every other unreadable description gets, same
+        # as `_parsed_json`'s own `RecursionError` handling (round 44).
         raise EndpointCheckFailedError(str(exc)) from None
     _assert_same_origin(url, hrefs, from_url)
 

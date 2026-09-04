@@ -78,10 +78,14 @@ def query_has_credentials(query: str) -> bool:
     """Return True if a raw query string contains known credential parameters."""
     if query.startswith("?"):
         query = query[1:]
-    return any(
-        _is_sensitive_query_param(key)
-        for key, _ in parse_qsl(query, keep_blank_values=True)
-    )
+    # fix(#1770 round 47 P1 class): a redactor must never raise on the string
+    # it is asked to scrub -- `max_num_fields` turns an oversized query in an
+    # exception message into a crash INSIDE exception handling, worse than
+    # the field count this already tolerates. See
+    # `service_endpoints.bounded_parse_qsl`'s docstring for the sites that DO
+    # need the bound.
+    pairs = parse_qsl(query, keep_blank_values=True)  # parse_qsl: unbounded
+    return any(_is_sensitive_query_param(key) for key, _ in pairs)
 
 
 def has_url_credentials(url: str) -> bool:
@@ -147,7 +151,9 @@ def redact_query_credentials(query: str) -> str:
         return query
     prefix = "?" if query.startswith("?") else ""
     raw_query = query[1:] if prefix else query
-    pairs = parse_qsl(raw_query, keep_blank_values=True)
+    # fix(#1770 round 47 P1 class): same reasoning as `query_has_credentials`
+    # above -- a redactor must never raise on its own input.
+    pairs = parse_qsl(raw_query, keep_blank_values=True)  # parse_qsl: unbounded
     if not any(_is_sensitive_query_param(key) for key, _ in pairs):
         return query
     return prefix + urlencode(

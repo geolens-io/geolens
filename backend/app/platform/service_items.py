@@ -58,7 +58,7 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import NamedTuple
-from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
+from urllib.parse import quote, urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx
 import structlog
@@ -77,6 +77,8 @@ from app.platform.service_endpoints import (
     MAX_DOCUMENT_TOKENS,
     EndpointCheckFailedError,
     OGC_JSON_ACCEPT,
+    bounded_parse_qsl,
+    bounded_service_url,
     credential_headers,
     deadline_budget,
     fetch_document,
@@ -361,7 +363,11 @@ def _advertised_items_href(document: dict, base: str) -> str | None:
         candidates[0],
     )
     try:
-        return urljoin(base, str(chosen["href"]))
+        # fix(#1770 round 47 P1): refused before `urljoin`, and again inside
+        # `_with_page_size` below before that function's own `parse_qsl` --
+        # see `bounded_service_url`'s docstring for why both callers reuse
+        # the SAME `ValueError` this except clause already exists to catch.
+        return urljoin(base, bounded_service_url(str(chosen["href"]), what="items"))
     except ValueError:
         # Same rule as `next`: an address that will not parse cannot be shown
         # to stay on the origin, and the href is never echoed.
@@ -373,9 +379,21 @@ def _with_page_size(href: str) -> str:
 
     Every other parameter the service put on its own link is kept: a
     `f=json` or a fixed filter is part of where it said the items are.
+
+    fix(#1770 round 47 P1): `href` already passed `bounded_service_url` in
+    `_advertised_items_href` above, but this is also the module's one
+    `parse_qsl` call site on a service-advertised query string, so it gates
+    its own length again (defence in depth against a future second caller)
+    and bounds the field count directly -- see `bounded_service_url`'s and
+    `bounded_parse_qsl`'s own docstrings. Raises `ValueError`, which
+    `_resolve_items_url` below now catches the same way its sibling calls
+    already do.
     """
+    href = bounded_service_url(href, what="items")
     parts = urlsplit(href)
-    query = [(key, value) for key, value in parse_qsl(parts.query) if key != "limit"]
+    query = [
+        (key, value) for key, value in bounded_parse_qsl(parts.query) if key != "limit"
+    ]
     query.append(("limit", str(PAGE_SIZE)))
     return urlunsplit(parts._replace(query=urlencode(query)))
 
@@ -403,7 +421,11 @@ def _next_href(document: object, base: str) -> str | None:
     for link in document.get("links", []) or []:
         if isinstance(link, dict) and link.get("rel") == "next" and link.get("href"):
             try:
-                return urljoin(base, str(link["href"]))
+                # fix(#1770 round 47 P1): the same length gate `service_
+                # endpoints.py::_next_page` applies, before `urljoin`.
+                return urljoin(
+                    base, bounded_service_url(str(link["href"]), what="next")
+                )
             except ValueError:
                 # fix(#1746 B2b review r16): the page that named this address
                 # is the one this module exists to distrust, and an address
@@ -500,7 +522,16 @@ async def _resolve_items_url(
         # chose this address and does not get to choose a different service to
         # be paid with this credential.
         raise ItemFetchFailedError("items link leaves the origin")
-    return _with_page_size(href), size
+    try:
+        # fix(#1770 round 47 P1): `_with_page_size` re-parses `href`'s query
+        # to drop/replace `limit`, and now bounds both its length and its
+        # field count -- see that function's own docstring. `href` already
+        # passed the same length gate once in `_advertised_items_href`
+        # above, so only an adversarial query packed with many short pairs
+        # (comfortably under that length) reaches this except in practice.
+        return _with_page_size(href), size
+    except ValueError:
+        raise ItemFetchFailedError("unparseable items link") from None
 
 
 def _sample_truncated(
@@ -839,9 +870,27 @@ async def _walk_pages(
             # was wrong. A JSON round trip can grow: `1e15` is four bytes on
             # the wire and eighteen written. The bound on disk is measured now
             # rather than inferred.
-            encoded = json.dumps(
-                feature, separators=(",", ":"), ensure_ascii=False
-            ).encode("utf-8")
+            try:
+                # fix(#1770 round 47 P2): a JSON escape for an unpaired
+                # surrogate (`"\ud800"`) is syntactically legal and
+                # `json.loads` accepts it as a Python `str` containing that
+                # lone surrogate code point -- UTF-8 has no representation
+                # for one, so `.encode("utf-8")` below raises
+                # `UnicodeEncodeError`, uncaught here before this round,
+                # which bypassed the `ItemFetchFailedError` handling every
+                # other malformed page gets: preview 500s, imports die with
+                # an internal exception. Not `errors="surrogatepass"`/
+                # `"surrogateescape"`: either would write bytes GDAL/PostGIS
+                # cannot read back as UTF-8, trading a coded refusal for
+                # silent corruption on disk. A refusal is the correct
+                # answer for a service that emits fundamentally
+                # unrepresentable text, the same as any other malformed
+                # page.
+                encoded = json.dumps(
+                    feature, separators=(",", ":"), ensure_ascii=False
+                ).encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise ItemFetchFailedError(f"unencodable feature: {exc}") from None
             chunk = b"," + encoded if written else encoded
             # fix(#1746 B2b review r21): compared BEFORE the write. Checking
             # afterwards let the extract exceed the cap by one expanded

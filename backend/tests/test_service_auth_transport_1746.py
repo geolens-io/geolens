@@ -30,6 +30,7 @@ import base64
 import inspect
 import re
 import json
+import sys
 import pathlib
 import time
 import os
@@ -2205,6 +2206,158 @@ class TestAWfsCheckOnlyValidatesTheOperationsTheReadPathUses:
             )
 
 
+class TestADeeplyNestedWfsBranchNeverBecomesARecursionError:
+    """fix(#1770 round 47 P2, `service_endpoints.py:481`/`:1062`).
+
+    `_xml_preflight` only refused a document deeper than `MAX_DOCUMENT_DEPTH`
+    -- at 1,000, exactly Python's own default recursion ceiling
+    (`sys.getrecursionlimit()`) -- and `_wfs_operation_hrefs`'s tree walk was
+    recursive, with no depth check of its own. An otherwise recognisable WFS
+    capabilities response carrying one unrelated branch nested to that depth
+    passed the preflight and then blew the interpreter's own stack: an
+    uncaught `RecursionError` where every other unreadable shape here gets a
+    coded refusal instead. Closed two ways -- the walk is iterative now (no
+    stack frame per level of document nesting, so no depth of its own can
+    ever raise this), and `MAX_DOCUMENT_DEPTH` is lowered to 256, well below
+    the interpreter's ceiling with headroom for whatever else already sits
+    on the stack, and still an order of magnitude past the deepest real
+    document measured (a WFS capabilities listing five thousand feature
+    types, a few dozen deep).
+
+    Depth is the deepest point in the WHOLE document, not just the
+    read-relevant branch: the `<Junk>` chain below is deliberately the
+    deepest part, alongside an ordinary same-origin `GetFeature` the walk
+    still has to find and check correctly once it gets past the junk.
+    """
+
+    def _document(self, depth: int, get_href: str) -> str:
+        """A WFS 1.0 capabilities document with a normal `GetFeature` and an
+        unrelated `<Junk>` chain nested so the document's DEEPEST point is
+        exactly *depth* (the root `<WFS_Capabilities>` element is depth 1).
+
+        WFS_Capabilities(1) > FeatureTypeList(2) > Junk*N(3..2+N) > Deep(3+N).
+        """
+        levels = max(depth - 3, 0)
+        junk = "<Junk>" * levels + "<Deep/>" + "</Junk>" * levels
+        return f"""<?xml version="1.0"?>
+<WFS_Capabilities version="1.0.0" xmlns="http://www.opengis.net/wfs">
+  <Capability><Request>
+    <GetFeature><DCPType><HTTP>
+      <Get onlineResource="{get_href}"/>
+    </HTTP></DCPType></GetFeature>
+  </Request></Capability>
+  <FeatureTypeList>{junk}</FeatureTypeList>
+</WFS_Capabilities>"""
+
+    def _transport(self, monkeypatch, document: str) -> None:
+        def _handle(request: httpx.Request) -> httpx.Response:
+            return _as_stream(httpx.Response(200, text=document))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+
+    async def test_a_document_at_the_depth_budget_never_raises_recursionerror(
+        self, monkeypatch
+    ) -> None:
+        """Run under the DEFAULT recursion limit deliberately: the fix must
+        hold at whatever ceiling Python ships with, not one this test raised
+        to make room for.
+        """
+        from app.platform.service_endpoints import (
+            MAX_DOCUMENT_DEPTH,
+            assert_endpoints_stay_on_origin,
+        )
+
+        assert sys.getrecursionlimit() == 1000, (
+            "this test's whole point is 'no RecursionError at the "
+            "interpreter's default ceiling' -- a raised limit would hide "
+            "the exact bug it exists to pin"
+        )
+        document = self._document(MAX_DOCUMENT_DEPTH, _SVC_WFS)
+        self._transport(monkeypatch, document)
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        # Coded refusal or a clean pass are both fine here -- a
+        # RecursionError escaping either way is the one outcome this pins
+        # against.
+        try:
+            await assert_endpoints_stay_on_origin(
+                _SVC_WFS,
+                service_format="wfs",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                collection=None,
+                deadline=None,
+            )
+        except EndpointCheckFailedError:
+            pass
+
+    def test_the_walk_itself_never_recurses_at_any_depth(self) -> None:
+        """Pure-function pin, one level below the async pipeline: calls
+        `_wfs_operation_hrefs` directly at a depth (5,000) far past
+        `MAX_DOCUMENT_DEPTH` -- `_xml_preflight` would refuse a document
+        this deep long before this ever ran in production, but the walk's
+        OWN safety must not depend on that outer gate. An explicit stack has
+        no recursion depth of its own to exceed, at any nesting at all.
+        """
+        from app.platform.service_endpoints import _wfs_operation_hrefs
+
+        document = self._document(5_000, _SVC_WFS)
+
+        hrefs = _wfs_operation_hrefs(document.encode())
+
+        assert hrefs == [_SVC_WFS]
+
+    async def test_a_shallow_document_still_passes_normally(self, monkeypatch) -> None:
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        document = self._document(50, _SVC_WFS)
+        self._transport(monkeypatch, document)
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        await assert_endpoints_stay_on_origin(
+            _SVC_WFS,
+            service_format="wfs",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            collection=None,
+            deadline=None,
+        )
+
+    async def test_one_level_over_the_budget_is_refused_by_the_preflight(
+        self, monkeypatch
+    ) -> None:
+        """Refused before `_wfs_operation_hrefs` ever runs -- `_xml_preflight`
+        (inside `fetch_document`/`require_decodable`) trips first, on the
+        document's raw bytes, with no tree built at all.
+        """
+        from app.platform.service_endpoints import (
+            MAX_DOCUMENT_DEPTH,
+            assert_endpoints_stay_on_origin,
+        )
+
+        document = self._document(MAX_DOCUMENT_DEPTH + 1, _SVC_WFS)
+        self._transport(monkeypatch, document)
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        with pytest.raises(EndpointCheckFailedError):
+            await assert_endpoints_stay_on_origin(
+                _SVC_WFS,
+                service_format="wfs",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                collection=None,
+                deadline=None,
+            )
+
+
 class TestAnOgcApiCheckOnlyValidatesRelsSomethingDereferences:
     """fix(#1770 round 37 P2, `service_endpoints.py:126`) and
     fix(#1770 round 46 P2, `service_endpoints.py:986`).
@@ -4064,6 +4217,158 @@ class TestOnePageCannotCostTheWholeProcess:
         # running to MAX_PAGES on an empty output file.
         assert pages == 3
         assert list(tmp_path.iterdir()) == []
+
+
+class TestAnAdvertisedHrefCannotCostTheWholeProcess:
+    """fix(#1770 round 47 P1, `service_items.py:378` "Bound parsing of
+    advertised items-query parameters").
+
+    A collection document's own `rel=items` link is a JSON STRING, so its
+    query can pack millions of short `key=value` pairs while costing almost
+    no `structural_tokens` budget (the separators live inside one string,
+    which is exactly the blind spot `MAX_DOCUMENT_ELEMENTS` closed for XML
+    attributes in round 43) and staying comfortably under
+    `MAX_DOCUMENT_BYTES`. `parse_qsl()` has no length or field-count bound
+    of its own and materialises the whole list before `_with_page_size`'s
+    own comprehension and `urlencode()` copy it again -- three or more full
+    passes over a value a hostile collection document chose, all BEFORE a
+    single request for the items page it names is ever made.
+
+    `bounded_service_url` (`service_endpoints.py`) closes it: refused by
+    length, before any parsing, at every site that resolves a
+    service-advertised href (`_advertised_items_href`, `_with_page_size`,
+    `_next_href` here; `_next_page`/`_assert_same_origin` in
+    `service_endpoints.py`; `_resolve_conformance` in `adapters/ogcapi.py`);
+    `bounded_parse_qsl` additionally caps the field count on the one
+    `parse_qsl` call this module makes on a service-advertised query.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    async def test_an_items_href_with_millions_of_query_params_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The finding itself: ~2 million short pairs, under the document
+        cap, refused with the coded error and NO request for the items page
+        the href names."""
+        bomb_query = "&".join(f"a{n}=1" for n in range(2_000_000))
+        bomb_href = f"{_SVC_OAPIF}/collections/c1/items?{bomb_query}"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            assert not request.url.path.endswith("/items"), (
+                "the items page must never be requested"
+            )
+            return httpx.Response(200, json=_collection_doc(bomb_href))
+
+        from app.platform.service_endpoints import MAX_DOCUMENT_BYTES
+
+        assert len(bomb_href.encode()) < MAX_DOCUMENT_BYTES
+
+        recorded = self._transport(monkeypatch, handle)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert not any(r.url.path.endswith("/items") for r in recorded)
+
+    async def test_an_href_one_byte_over_the_length_cap_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        from app.platform.service_endpoints import MAX_SERVICE_HREF_BYTES
+
+        # One query param whose value pads the whole href to exactly
+        # MAX_SERVICE_HREF_BYTES + 1 bytes.
+        base = f"{_SVC_OAPIF}/collections/c1/items?a="
+        pad_len = MAX_SERVICE_HREF_BYTES + 1 - len(base.encode())
+        oversized_href = base + ("x" * pad_len)
+        assert len(oversized_href.encode()) == MAX_SERVICE_HREF_BYTES + 1
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            assert not request.url.path.endswith("/items")
+            return httpx.Response(200, json=_collection_doc(oversized_href))
+
+        self._transport(monkeypatch, handle)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+    async def test_many_short_params_under_the_length_cap_are_refused_by_field_count(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Isolates `bounded_parse_qsl`'s own bound from `bounded_service_url`'s:
+        this href is short enough to clear the LENGTH cap on its own (unlike
+        the millions-of-pairs href above, which the length cap alone already
+        refuses) but still packs more than `MAX_QUERY_FIELDS` short pairs --
+        the exact "many short params, few bytes" shape the finding named.
+        """
+        from app.platform.service_endpoints import (
+            MAX_QUERY_FIELDS,
+            MAX_SERVICE_HREF_BYTES,
+        )
+
+        field_count = MAX_QUERY_FIELDS + 100
+        bomb_query = "&".join(f"a{n}=1" for n in range(field_count))
+        bomb_href = f"{_SVC_OAPIF}/collections/c1/items?{bomb_query}"
+        assert len(bomb_href.encode()) < MAX_SERVICE_HREF_BYTES, (
+            "this href must clear the LENGTH cap on its own, so a failure "
+            "here can only be the field-count cap"
+        )
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            assert not request.url.path.endswith("/items")
+            return httpx.Response(200, json=_collection_doc(bomb_href))
+
+        recorded = self._transport(monkeypatch, handle)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert not any(r.url.path.endswith("/items") for r in recorded)
+
+    async def test_an_ordinary_href_with_ten_params_still_resolves(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Positive control: this class's refusals are not vacuous."""
+        ordinary_query = "&".join(f"a{n}=1" for n in range(10))
+        ordinary_href = f"{_SVC_OAPIF}/collections/c1/items?{ordinary_query}"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/items"):
+                return _streamed(
+                    {"type": "FeatureCollection", "features": [], "links": []}
+                )
+            return httpx.Response(200, json=_collection_doc(ordinary_href))
+
+        recorded = self._transport(monkeypatch, handle)
+
+        await self._materialise(tmp_path)
+
+        assert any(r.url.path.endswith("/items") for r in recorded)
 
 
 class TestTheCallersClockCoversTheDownload:
@@ -9503,3 +9808,123 @@ class TestAHeaderAuthJobGoesOnTheVersionedQueue:
 
         for row in connector.jobs.values():
             assert row["status"] == "succeeded", row["task_name"]
+
+
+class TestALoneSurrogateFeatureIsAPageRefusalNotA500:
+    """fix(#1770 round 47 P2, `service_items.py:~844` "Translate lone-surrogate
+    features into a page refusal").
+
+    A JSON escape for an unpaired surrogate (`"\\ud800"`) is syntactically
+    legal and `json.loads` accepts it as a Python `str` holding that lone
+    surrogate code point. UTF-8 has no representation for one, so
+    `json.dumps(feature, ensure_ascii=False).encode("utf-8")` -- the
+    re-serialisation this module does to write a compact extract to disk --
+    raised an uncaught `UnicodeEncodeError`, bypassing the `ItemFetchFailedError`
+    handling every other malformed page gets: preview 500s, imports die with
+    an internal exception instead of the normal coded refusal.
+
+    Not fixed with `errors="surrogatepass"`/`"surrogateescape"`: either would
+    write bytes that are not valid UTF-8 onto disk, for GDAL/PostGIS to read
+    back -- trading a coded refusal for silent corruption. Caught and
+    translated to the same `ItemFetchFailedError` instead.
+    """
+
+    def _transport(self, monkeypatch, feature_property: object):
+        recorded: list[httpx.Request] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            if not request.url.path.endswith("/items"):
+                return _as_stream(httpx.Response(200, json=_collection_doc(None)))
+            feature = {
+                "type": "Feature",
+                "id": "f0",
+                "geometry": {"type": "Point", "coordinates": [0, 0]},
+                "properties": {"name": feature_property},
+            }
+            page = {
+                "type": "FeatureCollection",
+                "features": [feature],
+                "links": [],
+            }
+            # A lone surrogate (`\ud800`) is not representable in UTF-8, so
+            # httpx's OWN `json=` kwarg -- which serialises with
+            # `ensure_ascii=False` internally -- raises `UnicodeEncodeError`
+            # right here, before this handler even returns, which is a
+            # crash in the TEST's wire encoding, not in the module under
+            # test. `ensure_ascii=True` escapes it to the six-character
+            # ASCII sequence `\ud800` instead -- pure ASCII on the wire,
+            # exactly the shape the finding describes ("a JSON escape for
+            # an unpaired surrogate... passes json.loads") -- so the
+            # module's own re-serialisation, not this mock, is what the
+            # tests below are actually pinning.
+            body = json.dumps(page, ensure_ascii=True).encode("utf-8")
+            return _as_stream(
+                httpx.Response(
+                    200, content=body, headers={"content-type": "application/json"}
+                )
+            )
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def test_the_worker_path_refuses_the_page_not_an_internal_exception(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        self._transport(monkeypatch, "\ud800")
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+
+        with pytest.raises(ItemFetchFailedError) as raised:
+            await materialise_oapif_items(
+                _SVC_OAPIF,
+                "c1",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                staging_dir=tmp_path,
+            )
+
+        assert raised.value.code == "endpoint_check_failed"
+
+    async def test_the_preview_path_returns_the_coded_error_not_a_500(
+        self, monkeypatch
+    ) -> None:
+        from fastapi import HTTPException
+
+        self._transport(monkeypatch, "\ud800")
+        credential, _value_ = _header_key()
+
+        with pytest.raises(HTTPException) as raised:
+            await preview_mod.run_service_preview(
+                f"OAPIF:{_SVC_OAPIF}", "c1", credential=credential
+            )
+
+        assert raised.value.status_code == 422
+        assert raised.value.detail["code"] == "endpoint_check_failed"
+
+    async def test_a_valid_astral_character_still_round_trips(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Positive control: this is about the LONE surrogate specifically,
+        not about non-ASCII text in general. A real astral-plane character
+        (outside the BMP, represented as one Python code point, not a
+        surrogate) still writes and materialises normally."""
+        self._transport(monkeypatch, "\U0001f600")
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+
+        extract = await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+        )
+
+        document = json.loads(pathlib.Path(extract.path).read_text())
+        assert document["features"][0]["properties"]["name"] == "\U0001f600"

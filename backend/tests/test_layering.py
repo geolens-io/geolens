@@ -2558,7 +2558,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # a collection), naming the actual structural tests that now guard the
     # rel scoping, and a one-line "deliberate no-op" comment at each of the
     # two `frozenset()` call sites. Cap 1116 -> 1145, exact.
-    "backend/app/platform/service_endpoints.py": 1145,
+    # fix(#1770 round 47): +113. Three closed classes: `bounded_service_url`/
+    # `bounded_parse_qsl`/`MAX_SERVICE_HREF_BYTES`/`MAX_QUERY_FIELDS` (the P1
+    # advertised-href/query-field-count bound, wired into `_next_page` and
+    # `_assert_same_origin`), `_wfs_operation_hrefs`'s walk made iterative
+    # (no depth of its own to exceed) with a `RecursionError` last line of
+    # defense in `_check_wfs`, and `MAX_DOCUMENT_DEPTH` lowered 1,000 -> 256
+    # with a comment correcting round 43's own claim. Most of the added
+    # lines are the docstrings recording why each bound is the number it is.
+    # Cap 1145 -> 1258, exact.
+    "backend/app/platform/service_endpoints.py": 1258,
     # fix(#1770 round 42): first entry, crossed _RATCHET_INCLUSION_LOC on the
     # completeness-predicate unification. `_page_proves_complete` is the one
     # function round 41's full-walk-only proof and round 42's sampled-preview
@@ -2571,7 +2580,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1770 round 44 P2): +8. The items-page JSON parse also catches
     # `RecursionError` now, same reasoning as `service_endpoints.py::
     # _parsed_json`. Cap 1033 -> 1041, exact.
-    "backend/app/platform/service_items.py": 1041,
+    # fix(#1770 round 47): +49. Two closed classes: every advertised-href
+    # site (`_advertised_items_href`/`_with_page_size`/`_next_href`) now
+    # runs through `bounded_service_url`/`bounded_parse_qsl`, and
+    # `_walk_pages`'s per-feature re-serialisation catches `UnicodeEncode
+    # Error` from an unpaired JSON surrogate escape rather than letting it
+    # escape as an internal exception. Cap 1041 -> 1090, exact (`ruff
+    # format` wrapped one `urljoin(base, bounded_service_url(...))` call
+    # onto three lines after the round-47 diff landed).
+    "backend/app/platform/service_items.py": 1090,
     # fix(#1758): the ArcGIS sign-in protocol, which crossed 1000 lines over
     # nine review rounds. What the growth bought, in order: the two-phase
     # split that resolves WHERE a password would go before any lock or budget
@@ -6937,6 +6954,84 @@ def test_no_unjustified_broad_except_sites() -> None:
             "sites found. Add `# broad: <reason>` (or `# noqa: BLE001 "
             "<reason>`) on the SAME line as the `except`, OR tighten the "
             "catch to a specific exception class.\n"
+            "Offending lines:\n" + "\n".join(violations)
+        )
+
+
+def test_every_parse_qsl_call_bounds_its_field_count() -> None:
+    """fix(#1770 round 47 P1 class, `service_endpoints.py:bounded_parse_qsl`).
+
+    `parse_qsl()` has no field-count bound of its own: a service-advertised
+    href can pack millions of short `key=value` pairs into a query string
+    that stays comfortably under every byte/structural-token budget (the
+    separators live inside one JSON string), and `parse_qsl` materialises
+    every one of them before a caller's own comprehension or `urlencode()`
+    copies the list again. `bounded_parse_qsl` in `service_endpoints.py` is
+    the one call site every read of a service-advertised query string
+    should share.
+
+    Not every `parse_qsl(` call gets the bound, and the exceptions are real:
+    `url_redaction.py`'s two sites and `preview.py`'s one scrub or resolve
+    the CALLER's own already-bounded input, and a redactor specifically must
+    never itself raise (`max_num_fields` raises `ValueError` past the
+    count, which would turn scrubbing an oversized credential out of an
+    exception message into a crash INSIDE exception handling). Those sites
+    carry `# parse_qsl: unbounded` on the same line instead, the same
+    same-line-annotation discipline `test_no_unjustified_broad_except_sites`
+    already uses for a broad `except`.
+
+    Every OTHER site must carry `max_num_fields=` -- via `bounded_parse_qsl`
+    itself, or a call to it (`bounded_parse_qsl(` also matches the grep,
+    since `bounded_parse_qsl(` contains the substring `parse_qsl(`) -- so a
+    new second call site cannot silently reintroduce the unbounded class
+    the finding named.
+
+    Positive control: this repo has more than zero `parse_qsl(` call sites
+    today (asserted below), so an empty match list means the grep pattern
+    itself broke, not that the class is closed.
+
+    Negative-control: temporarily add a bare `parse_qsl(some_query)` call
+    with neither annotation to a sandbox file under `backend/app/`, run this
+    test, confirm it fails naming the offending line. Revert.
+    """
+    result = subprocess.run(
+        ["git", "grep", "-n", "-P", r"parse_qsl\(", "--", "backend/app/"],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode not in (0, 1):
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+    lines = [line for line in result.stdout.splitlines() if line]
+    assert lines, (
+        "positive control failed: no `parse_qsl(` call sites found at all -- "
+        "the grep pattern is broken, not that the class is closed"
+    )
+
+    violations: list[str] = []
+    for line in lines:
+        if (
+            "max_num_fields=" in line
+            or "bounded_parse_qsl(" in line
+            or "# parse_qsl: unbounded" in line
+        ):
+            continue
+        violations.append(line)
+
+    if violations:
+        pytest.fail(
+            "fix(#1770 round 47 P1 class) invariant violated: a `parse_qsl(` "
+            "call site with no field-count bound and no unbounded "
+            "justification. Route it through `bounded_parse_qsl` "
+            "(`service_endpoints.py`), OR mark it `# parse_qsl: unbounded` "
+            "on the SAME line with a comment above explaining why this "
+            "specific site must never raise on field count.\n"
             "Offending lines:\n" + "\n".join(violations)
         )
 

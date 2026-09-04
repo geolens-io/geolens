@@ -45,6 +45,7 @@ from app.platform.service_endpoints import (
     DEFAULT_CHECK_TIMEOUT,
     OGC_JSON_ACCEPT,
     EndpointCheckFailedError,
+    bounded_service_url,
 )
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -127,7 +128,14 @@ async def _resolve_conformance(
         # (`urlparse` defers that until the attribute is read) but not for an
         # unclosed IPv6 bracket, which raises during resolution. The whole
         # answer degrades together or none of it does.
-        abs_href = urljoin(url, conformance_href)
+        # fix(#1770 round 47 P1): refused before `urljoin`, same as every
+        # other service-advertised href -- see `bounded_service_url`'s own
+        # docstring. The broad `except Exception` below already degrades a
+        # `ValueError` from this the same way it degrades one from
+        # `urljoin` itself, so no new except clause is needed here.
+        abs_href = urljoin(
+            url, bounded_service_url(conformance_href, what="conformance")
+        )
         # The same rule the redirect refusal applies, for a link the document
         # chose rather than a Location header. Not followed at all rather than
         # followed anonymously: an anonymous answer about a service the caller

@@ -41,7 +41,12 @@ def _encode_url_for_gdal(url: str) -> str:
     """Percent-encode URL paths so GDAL/libcurl accepts ArcGIS service names."""
     parts = urlsplit(url)
     encoded_path = quote(parts.path, safe="/%:@!$&'()*+,;=")
-    encoded_query = urlencode(parse_qsl(parts.query, keep_blank_values=True))
+    # fix(#1770 round 47 P1 class): the caller's OWN submitted service URL,
+    # not a service-advertised href read out of a third-party response --
+    # different threat model, already bounded by request-body size limits
+    # and Pydantic field validation on the way in.
+    pairs = parse_qsl(parts.query, keep_blank_values=True)  # parse_qsl: unbounded
+    encoded_query = urlencode(pairs)
     return urlunsplit(
         (parts.scheme, parts.netloc, encoded_path, encoded_query, parts.fragment)
     )
