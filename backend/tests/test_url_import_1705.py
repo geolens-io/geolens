@@ -17,6 +17,7 @@ import inspect
 import time
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import httpx
@@ -96,6 +97,28 @@ def _install_transport(monkeypatch, handler, *, validate=None):
         validate if validate is not None else AsyncMock(),
     )
     return recorded
+
+
+def _freeze_router_clock(monkeypatch) -> None:
+    """Pin the ``time.monotonic()`` the router sees to one fixed instant.
+
+    fix(#1808): every stage-budget check in the handler measures a
+    deadline set once at request start, so the tiny artificial budgets
+    below are also racing real elapsed time. Under load, work ahead of
+    the check a test means to exercise can exhaust the budget first, and
+    a budget refusal (502) wins instead — observed in CI as
+    ``assert 502 == 413``. Frozen, every check sees the same instant and
+    the ordering is the one the test states.
+
+    Only the name bound in the router's module namespace is replaced;
+    the real ``time`` module (which asyncio's timers read) is untouched,
+    so bounded waits still time out on real wall-clock time.
+    """
+    frozen_at = time.monotonic()
+    monkeypatch.setattr(
+        "app.processing.ingest.router.time",
+        SimpleNamespace(monotonic=lambda: frozen_at),
+    )
 
 
 async def _get_job(test_db_session, job_id: str) -> IngestJob | None:
@@ -1640,6 +1663,11 @@ class TestUrlImportDegradedS3Failure:
         actually ends. Modeled with a delete that would hang for minutes:
         the response must arrive anyway."""
         monkeypatch.setattr(settings, "storage_provider", "s3")
+        # fix(#1808): this budget is tighter still (1s). If real elapsed
+        # time eats it before `_stage_put_bounded` runs, that call raises
+        # `_StagePutAbandoned` without ever creating `put_task`, and the
+        # reaper this test asserts on is never attached.
+        _freeze_router_clock(monkeypatch)
         monkeypatch.setattr(
             "app.processing.ingest.router.stage_total_budget_seconds",
             lambda: 1,
@@ -1709,6 +1737,11 @@ class TestUrlImportDegradedS3Failure:
         rejects the file (plenty of budget left) and the delete hangs: the
         response must still arrive, and the job must still be stamped."""
         monkeypatch.setattr(settings, "storage_provider", "s3")
+        # fix(#1808): freeze before the budget is derived. Otherwise a
+        # stall anywhere ahead of the quota race this test sets up — a
+        # slow pool checkout, a loaded runner — exhausts the 2s budget
+        # and `_remaining_fetch_budget` answers 502 in place of the 413.
+        _freeze_router_clock(monkeypatch)
         # Small budget so the bounded wait resolves fast in the test; the
         # production value is the joint stage budget's remainder.
         monkeypatch.setattr(
