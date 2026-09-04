@@ -7,6 +7,128 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- **WFS and OGC API Features service imports now accept a username and
+  password, or an API key in a custom header, instead of only a bearer
+  token.** The import wizard's Service tab and the dataset refresh dialog both
+  offer a method select: none, bearer token, username and password, or a named
+  header. The credential is not stored with the dataset: it is validated,
+  carried to the worker for that one job, and a refresh still asks for it
+  again rather than remembering it. Job arguments carrying it are purged by
+  the existing cleanup sweep once the job reaches a terminal state, the same
+  way a bearer token's arguments already were. On the backend, the same four
+  entry points that already handled a bearer token (probe, preview, commit,
+  refresh) now compose the credential into the request GDAL and the OGC client
+  actually send, and it is redacted from logs the same way a bearer token
+  already was. Operators: this release renames the ingest job queue these
+  imports run on to `ingest-auth-v2`. If you ever need to roll back to a
+  release before this one, follow the queue-draining steps in RUNBOOK.md's
+  upgrade-and-rollback section (§10) first, or affected imports are left stuck
+  rather than picked up by the older worker (#1770, #1756, #1760, #1834).
+
+- **Sign in to ArcGIS Online or a Portal for ArcGIS deployment directly from
+  the import wizard, instead of pasting a token.** For an ArcGIS FeatureServer
+  or MapServer URL, the Service tab and the refresh dialog now offer a
+  username-and-password sign-in alongside the existing token field. GeoLens
+  exchanges the credentials for a short-lived token through the portal's own
+  sign-in service; the password is held only for that one request and cleared
+  the moment it settles, success or failure. Repeated sign-in attempts against
+  one ArcGIS account, or from one GeoLens user, are rate-limited, since an
+  unlimited retry here would let one GeoLens user lock a colleague out of
+  their own ArcGIS account (#1757, #1758, #1759, #1820).
+
+- **The CLI can replace an uploaded dataset's data directly.** `geolens
+  replace <dataset-id> <file>` wraps the same reupload flow the web app's
+  Re-upload dialog already uses: it uploads the file, previews the detected
+  layer, SRID and feature count, and asks for confirmation before
+  committing. `--layer` picks a layer out of a multi-layer file instead of
+  silently taking the first one, `--srid` overrides the detected SRID, and
+  `--wait` polls the job to a terminal state and exits non-zero on failure.
+  It refuses a dataset bound to a service, a STAC item, or a registered
+  table, the same way the web dialog does, and points at `geolens refresh`
+  instead (#1767).
+
+- **An admin can reset another user's password.** A "Reset password" action
+  on the user row opens a one-field dialog. The login page already told a
+  locked-out user to contact an administrator, but until now an
+  administrator had no way to actually do it. The reset revokes the
+  account's existing sessions, refresh tokens, and API keys, the same way a
+  self-service password change already does, so a leaked old password stops
+  working immediately. The action is also available on an admin's own row,
+  since it is the only in-app way back for an admin who is signed in but
+  has forgotten their password (#1741, #1772).
+
+- **A manifest source can declare a checksum to force re-import when a file
+  changes under a stable URL.** `geolens apply` fingerprints a manifest
+  entry from its declared fields, so a source that always points at the
+  same URL, an ETL job's `latest.gpkg`, say, classified as up to date
+  forever once imported, with no way to force a refresh short of renaming
+  the file. A new `checksum` field on the source now feeds into that
+  fingerprint, so bumping it reclassifies the entry for re-import. The
+  field is declared, not verified: GeoLens does not fetch the source to
+  check the declared digest against the file's actual bytes (#1773).
+
+### Changed
+
+- **The refresh dialog's token hint no longer promises a credential is
+  "never stored."** A crashed worker can leave a failed job's arguments
+  briefly readable before the cleanup sweep runs, so the copy now says the
+  credential is used for this refresh only and is not stored with the
+  dataset (#1759).
+
+- **The reported match count on a large feature or record listing can now be
+  an estimate, not an exact count.** Native feature listing and OGC Features
+  `numberMatched` count exactly up to 20,000 matching rows; past that, the
+  response reports the database planner's row estimate instead of paying for
+  an exact count on every page. A response carrying an estimate sets a new
+  `X-GeoLens-Number-Matched: estimated` header, so a client that needs to know
+  can check for it. This is not an OpenAPI or SDK change (`numberMatched`
+  keeps its existing place in both response schemas), but it is a contract
+  change API consumers should know about: pagination follows the rows GeoLens
+  actually fetched, not the reported count, so a `next` link is still reliable
+  even when the total beside it is approximate (#1799).
+
+- **`GET /search/datasets/` now declares a raster dataset's projection, grid,
+  band, and nodata metadata on its response schema.** `proj:code`,
+  `proj:shape`, `raster:bands`, `res_x`, and `res_y` were already computed and
+  written onto the response, but were absent from the declared response model,
+  so FastAPI silently stripped them before a client ever saw them; every
+  compatibility check the map builder's VRT creator ran against those fields,
+  CRS, grid alignment, band count, dtype, and nodata, was dead code against
+  the real endpoint. The fields are now declared and regenerated
+  `backend/openapi.json`, both SDKs, and the frontend's generated API types
+  (#1805).
+
+- **Three more error responses are now declared in the OpenAPI contract, both
+  SDKs, and the frontend's generated API types.** All three were already
+  raised at runtime, only undocumented: 409 on `POST /admin/api-keys/` for a
+  pending, suspended, or deactivated target user, and 412 on both `GET
+  /datasets/{dataset_id}/export` and `GET /datasets/{dataset_id}/download/cog`
+  for a failed conditional-request precondition. No behavior changed; a
+  generated client can now see these outcomes in its own types (#1783).
+
+- **A new `DB_STATEMENT_TIMEOUT_SECONDS` setting bounds how long a single
+  database statement can run inside an API request, default 300 seconds, 0
+  disables it.** Nothing bounded statement execution before this; only
+  checkout from the connection pool was bounded, not the query itself. It
+  applies to every API transaction (the worker keeps running unbounded, since
+  it legitimately runs a single statement for minutes while indexing or
+  reprojecting a freshly ingested table). Operators: a query that previously
+  ran to completion no matter how long it took now fails after five minutes by
+  default; raise or disable the setting if a workload genuinely needs longer
+  (#1804).
+
+- **A new `/health/live` endpoint answers the process's own liveness, separate
+  from `/health`,** which still checks the database, object store, and cache
+  and answers unhealthy if any of them is down. The shipped api container
+  healthcheck and the compose healthcheck now target `/health/live`. Operators
+  with their own orchestrator and a liveness probe pointed at `/health` should
+  move it to `/health/live`: a database, MinIO, or Valkey outage should not
+  restart-loop an otherwise healthy api pod, which is what pointing liveness
+  at a dependency-readiness endpoint causes. Readiness checks should stay on
+  `/health` (#1804).
+
 ### Removed
 
 - **Two undocumented search compatibility forms are gone.** `?cql2_filter_lang=...`
@@ -17,6 +139,412 @@ and releases use semantic versioning.
   published, and the deprecation window has passed since #1666 shipped in
   1.16.0. A client generated from a pre-1.16.0 contract must regenerate
   against the current one. (#1671)
+
+### Fixed
+
+- **Switching import tabs no longer strands an in-progress upload, STAC
+  import, or service import.** None of the Upload, STAC, or Service tabs
+  kept their work alive across a tab switch: unmounting the form left the
+  server's job running with nothing in the UI able to reconnect to it. All
+  three now adopt an in-flight or already-finished attempt on remount
+  instead of starting a duplicate. The same lane also closed a related race
+  on the Upload tab, where a file dropped while a background query was
+  still loading could be silently discarded by a fast tab switch (#1763,
+  #1834).
+
+- **Refreshing a dataset that needs a credential now fails immediately with
+  a clear reason, instead of accepting the request and failing later in the
+  background.** A dataset imported with a service token carried no record
+  on its own row that it needed one, so a credential-less refresh was
+  accepted and then failed inside the worker with copy meant for the
+  original import, not a refresh. The refusal now happens at the door
+  (#1754).
+
+- **Import job status reliability fixes.** A failed status check on the job
+  progress view shown during an active import previously left it spinning
+  forever instead of showing an error; it now shows the failure with a way to
+  start over or retry. That view can also cancel the job directly now:
+  cancellation was previously reachable only from the admin job list and a
+  dataset's refresh history, not from the view a user is actually watching
+  while the import runs. Cancelling a re-upload while its file is still
+  downloading to staging is now honored immediately instead of being silently
+  discarded: a lock held for the whole download made every cancel attempt
+  during that window fail and roll back the cancellation already recorded, so
+  the job ran on for minutes after the user asked it to stop. Client timeouts
+  are also raised to match what the server can actually take: a dataset
+  re-upload's request used to time out client-side at 30 seconds well before a
+  large, up to 500 MB, transfer could finish, and a file or service-import
+  preview could similarly be aborted while its 60- to 300-second backend
+  operation was still running; both now use a timeout matched to the
+  server-side budget. A multipart upload's individual part upload had no stall
+  detection at all, so a part stuck on a half-open connection could hang
+  forever; it now aborts once progress stalls, rather than waiting on a flat
+  deadline that a slow-but-active transfer could miss. An upload abandoned at
+  the preview step, the owner simply walks away, is now recorded as cancelled
+  instead of failed, so it stops appearing in the admin failed-jobs list for
+  work that was never actually attempted. `geolens publish --wait` now exits
+  non-zero and reports the real outcome for a failed, cancelled, or timed-out
+  job, instead of printing "Published:" regardless (#1774, #1777, #1800,
+  #1803).
+
+- **Dataset and OGC API correctness fixes.** The table browser and the OGC
+  Features and native feature-list endpoints raised a 500 or 503 for a
+  dataset whose column happened to share a name with a SQL keyword (`desc`,
+  `order`, `user`, and similar, common in ogr2ogr output from DBF fields),
+  and the same endpoints raised a 503 for any property filter on a
+  non-text column. Both now work correctly. STAC and OGC `/collections`
+  paginated listings had no defined row order beyond the page's own
+  contents, so a harvesting client following `rel=next` links could see a
+  row twice or miss one; results are now consistently ordered. An OGC
+  Records `datetime=` filter also matched every record with no temporal
+  extent regardless of the date queried; it now only matches when the
+  record's own timestamp does (#1793, #1799).
+
+- **A raster dataset's published STAC metadata now matches the STAC Raster
+  Extension's own shape.** A locally ingested raster serialized its band
+  nodata value as a numeric string instead of a number, and a remotely
+  described Cloud-Optimized GeoTIFF could publish an empty `raster:bands` band
+  object instead of omitting one GeoLens has no data for; both violate the
+  extension's schema and could break a strict STAC consumer such as pystac or
+  rio-stac reading the item (#1803).
+
+- **Editing a feature with an unclosed polygon ring no longer poisons every
+  later bounding-box read of the dataset.** The write path validated
+  geometry with a library that silently repairs an unclosed ring, then
+  stored the caller's original, unrepaired GeoJSON. Every later request
+  whose bounding box touched that feature raised an unhandled server error,
+  reaching anonymous viewers of public datasets too. Feature writes now
+  store the repaired geometry (#1780).
+
+- **Map builder save conflicts are handled correctly instead of silently
+  overwriting another editor's changes.** A save that failed because
+  someone else had changed the map's layers in the meantime was misread as
+  an unsupported request and escalated to a full overwrite of the server's
+  layer set, undoing the other editor's work. A stale save now refetches
+  the map and retries with the reconciled layer list instead (#1794).
+
+- **Three more map builder rendering bugs are fixed.** Deleting one of two
+  layers that share a deduplicated data source left the deleted layer's map
+  graphics behind: no stack row, no legend entry, unclickable, and still baked
+  into any capture taken afterward. A layer styled with per-category icons
+  rendered every feature with the fallback icon below zoom 10, snapping to the
+  correct icon only once zoom 10 was reached. And a layout or visibility edit
+  made during a basemap swap could be dropped entirely, or replayed out of
+  order once the swap settled, so a toggle made and then reverted during the
+  swap could still land on the map showing the wrong state (#1794).
+
+- **Two line-drawing and editing bugs are fixed.** A line layer's gradient
+  could be edited into a non-ascending stop order, which maplibre-gl rejects
+  outright and drops the whole gradient expression rather than the one bad
+  stop; stop positions are now kept strictly ascending as they are edited. And
+  the undo history kept while drawing or editing a feature grew without any
+  limit, so a long drag or a long editing session held an ever-growing stack
+  of snapshots in memory; it is now capped (#1795).
+
+- **Admin settings fixes.** The Appearance tab's "Show Powered by GeoLens"
+  toggle sent the wrong settings key and always failed with a 400. Two
+  metadata option lists, update frequency and sensitivity, offered values the
+  database rejects outright, so picking one lost an entire batch of staged
+  metadata edits to an unhandled server error with no indication which field
+  caused it; both lists now only offer values the database accepts. Saving
+  only the login page's privacy-policy link, with no other branding change
+  alongside it, silently saved nothing while still reporting success, because
+  the save helper only ever forwarded one of the two branding fields it
+  declared (#1769, #1776, #1790).
+
+- **Accessibility fixes across the admin console and map builder.** The
+  destructive button and badge styles failed WCAG contrast in dark mode.
+  Several controls, including role selects, basemap toggles, and filter
+  inputs, had no accessible name for a screen reader. The admin API key
+  list silently hid any key past the first 50 and could reorder between
+  refreshes (#1782, #1805).
+
+- **Drawing and search state no longer leak between users signing in and
+  out in the same browser tab.** A logout followed by a login with no page
+  reload could leave the previous user's in-progress edit target, selected
+  feature, or typed search carried into the next signed-in session (#1761).
+
+- **Raster tile and export reliability fixes.** A vector tile query with no
+  defined row order beyond its feature cap could return a different result on
+  every rebuild, so different app servers could serve inconsistent tiles for
+  the same request; tile queries are now consistently ordered. The dataset
+  export endpoint no longer holds a pooled database connection open for the
+  full duration of the conversion, which could otherwise starve other requests
+  during a large or slow export. Every export format, GeoParquet included, is
+  now bounded to the same deadline as the edge proxy's read timeout, instead
+  of a synchronous export running for up to an hour behind a ten-minute proxy
+  window. The raster tile proxy had the same connection-pool problem on a
+  smaller scale: it held its database connection open across up to three
+  30-second attempts against Titiler, so an anonymous caller varying the tile
+  cache-busting parameter could hold a connection for well over a minute and
+  starve unrelated requests in the same worker; the connection is now released
+  before that upstream call (#1781, #1785, #1791, #1804).
+
+- **Two data-loss bugs in the raster and VRT publish path are fixed.** A lost
+  commit acknowledgement or a cancellation during a raster replace or VRT
+  publish could leave the terminal cleanup believing the publish had failed,
+  so it deleted the storage objects the already-committed dataset row now
+  pointed at, leaving the dataset naming bytes that no longer existed with no
+  way in the product to restore them. Separately, on a local-storage install,
+  a worker-side validation failure (a lowered upload size limit catching a
+  file already queued, for example) deleted the user's only copy of the
+  uploaded file instead of leaving it in place (#1784).
+
+- **A registered PostGIS table now picks up writes made outside GeoLens
+  again.** The render column GeoLens derives for a registered table was only
+  ever written once, at registration. A row moved, deleted and reloaded, or
+  reloaded wholesale by an owner's own ETL job, went invisible on every map,
+  tile, export and query that reads that column, with no error anywhere.
+  Refresh now re-derives it, so the fix arrives the next time the dataset is
+  refreshed, including after the owner's tool drops and recreates the table
+  outright (#1823).
+
+- **Registering a PostGIS table whose geometry column is not named `geom`
+  is now refused with a clear reason, instead of silently cataloguing it as
+  a non-spatial table.** `ogr2ogr -f PostgreSQL` names its geometry column
+  `wkb_geometry` by default, which made the most ordinary way of loading a
+  table into the data schema produce a dataset that rendered nothing and
+  explained nothing. GeoLens now looks for a geometry column under another
+  name and, if it finds one, names it in the refusal and points at the fix
+  (#1740).
+
+- **Replacing a dataset's file can no longer silently overwrite a service or
+  STAC binding that changed underneath it.** A replacement started against a
+  dataset bound to an upload is refused up front if the dataset is bound to
+  a remote source instead, but that check only ran once, before the file was
+  staged. If the dataset's origin changed in the time it took a person to
+  review and confirm the replacement, the commit went through anyway and
+  silently rebound the dataset to the uploaded file. The commit now
+  re-checks the origin immediately before it takes effect and refuses if it
+  no longer matches what the client last saw (#1821).
+
+- **The CLI stops looping between "logged in" and "please log in again"
+  when the OS keyring refuses a write.** When a bearer token landed in the
+  credentials file because the keyring write failed, a companion refresh
+  token could still end up in the keyring, so the next command read half a
+  session from each location and never converged. The refresh token now
+  follows the bearer token to wherever it actually landed (#1815).
+
+- **A refused service preview returns a clear, coded error instead of a
+  generic server failure.** Preview requests that failed for a known reason,
+  such as a cross-origin redirect, an SSRF refusal, or a malformed
+  credential, could still fall through to a plain 500 if the failure didn't
+  match one of the narrower cases already handled. Every documented refusal
+  reason now maps to its own 4xx status and message (#1833).
+
+- **Several map-editing bugs from an internal audit are fixed:** a layer
+  saved at zero opacity came back fully opaque; `POST /maps/import` had no
+  cap on the number of layers it would accept; a filter with no size cap
+  could be stored and re-serialized on every read at several megabytes; a
+  filter with no depth cap crashed the write with a 500 during validation,
+  before it was ever saved; a layer's zoom range and popup configuration
+  were both lost on export and re-import; and a deleted map's thumbnail and
+  social-preview image were never removed from storage. The map gallery
+  listing also no longer scans the entire layer table to compute per-map
+  layer counts, which showed up as measurably slower gallery loads on
+  catalogs with many maps and layers (#1801).
+
+- **Backup and restore operational fixes.** Offsite S3 backup copies were
+  never pruned, so a long-running instance with S3 backups enabled grew that
+  bucket without bound; they now follow the same retention as local backups.
+  The weekly database dump and the staging archives used during a restore
+  are now written atomically (to a temporary name, then renamed on success),
+  so a container killed mid-write can no longer leave a truncated file that
+  the retention pruner or a later restore mistakes for a good backup
+  (#1798).
+
+- **`scripts/restore.sh` no longer restarts the api and worker against a
+  database a failed restore left half-populated.** A hard `pg_restore` failure
+  or a failed post-restore grant reconciliation left the database
+  `--clean`-dropped and only partly repopulated, with no ACLs re-applied, but
+  the script's cleanup step restarted the api and worker regardless, and their
+  boot-time migration run then applied against that wreckage. The restart now
+  runs only once `pg_restore` has succeeded (or exited with the expected
+  `--clean --if-exists` warnings) and grant reconciliation has run and been
+  verified; a failed restore leaves both services stopped with an explicit
+  message instead (#1798).
+
+- **Two more upgrade-safety fixes.** `scripts/upgrade.sh` now rebuilds the
+  database image when its Dockerfile is synced from the release, so a release
+  that bumps the PostGIS or pgvector base actually takes effect on upgrade
+  instead of silently continuing to run the previous image, which could leave
+  a migration depending on the newer base failing mid-run with no earlier
+  warning. And a failure propagating a commercial extension's migration paths
+  at boot now aborts the migration run instead of only logging the error and
+  continuing, which previously let `alembic upgrade heads` report success
+  while silently applying only the core schema and skipping the extension's
+  own migrations (#1798).
+
+- **CLI and TypeScript SDK reliability fixes from an internal audit.** CLI
+  requests now time out instead of hanging indefinitely against an
+  unresponsive host; `geolens login --api-key` now clears a stale session
+  token instead of leaving it to silently outrank the new key; a stored
+  refresh token is now used to renew an expired session on `geolens status` as
+  well as `whoami`, instead of only the latter. On the TypeScript SDK side,
+  `createGeolensClient()` now builds a client scoped to each call instead of
+  reconfiguring one shared module-level client, so two concurrent callers, a
+  client built per request in a Node server, say, no longer overwrite each
+  other's base URL, bearer token, or API key on the object the first caller is
+  still holding (#1802).
+
+### Security
+
+- **ArcGIS sign-in attempts are now counted before the credential is sent,
+  not after.** A sign-in request cancelled mid-flight could previously go
+  uncounted against the rate limit even though the password may already
+  have reached ArcGIS, understating how many attempts were actually made
+  against an account. This release adds migration `0058`, which adds a
+  `user_scope` column to the sign-in attempt ledger; it runs automatically
+  as part of the normal upgrade (#1820).
+
+- **Two more sensitive query parameters are now redacted from logs and
+  stored source URLs.** `authkey` (ArcGIS) and `maxar_api_key` (Maxar) join
+  the existing `api_key` and `token` entries, closing a gap where either
+  could appear in the clear in a stored service pointer or a composed GDAL
+  query string (#1830).
+
+- **`restore.sh`, `check-env.sh`, and `upgrade.sh` no longer read `.env` by
+  shell-sourcing it.** Shell-sourcing runs the file as a script, so an
+  operator-typed value containing a bare space, a backtick, or a `$(...)`
+  sequence, an admin password prompt accepts any of those, ran as a command
+  with the operator's own privileges instead of being read as a value. All
+  three scripts now read only the keys they need through a dedicated parser.
+  RUNBOOK.md's own restore and role-rotation instructions, which told an
+  operator to source `.env` directly, are corrected to match (#1798).
+
+- **The embed viewer no longer sends the signed-in user's session token
+  with raster tile requests.** A bare embed link, no embed token, opened by
+  a signed-in user on the same browser leaked that user's own bearer token
+  to raster tile requests, defeating the anonymity an embed view is
+  supposed to guarantee. The raw embed token is also now redacted from
+  generated diagnostic reports (#1795).
+
+- **A revoked embed token could still be served from cache for a request
+  racing the revocation, or during a Redis outage.** A request that read the
+  token as still active in the instant before a revocation committed could
+  cache it again as valid, and a token cached during a Redis outage could
+  survive a revocation issued once Redis recovered. Both are now fail-closed:
+  a revocation now wins the race and survives an outage on either side. This
+  release adds migration `0057`, which adds the revocation-tracking table
+  backing this; it runs automatically as part of the normal upgrade (#1796).
+
+- **A password over 72 bytes could crash the login endpoint, and the same
+  input could crash-loop the API container on first boot.** bcrypt hashes
+  at most 72 bytes and raises rather than truncating; `/auth/login` and the
+  change-password endpoint took an unbounded password straight to the
+  hasher, and an operator-generated `GEOLENS_ADMIN_PASSWORD` longer than 72
+  bytes made the API container fail to start at all. An over-long password
+  is now treated as a non-match rather than a crash, and the same bound is
+  checked at boot for the admin password. The CSRF cookie also gained the
+  same duplicate-cookie hardening its paired refresh-token cookie already
+  had (#1796).
+
+- **CORS could be tricked into trusting a client-controlled Host header.**
+  When an incoming request's Origin failed the configured allowlist, both CORS
+  resolvers fell back to reading the request's Host header instead of
+  refusing, and the proxy forwards Host verbatim, so a request naming an
+  arbitrary Host both failed and passed the allowlist check on the same call.
+  The fallback no longer runs after an explicit rejection (#1796).
+
+- **Two OAuth and SAML sign-in gaps closed.** Signing in through an OAuth or
+  OIDC provider no longer creates an account while self-service registration
+  is disabled: JIT provisioning never read the "Registration enabled" switch,
+  so an operator who added a provider without also restricting it by email
+  domain had, in effect, open signup, and any account at that identity
+  provider could sign in and be created as a viewer, who can list and export
+  every internal dataset. Existing users are unaffected. Separately, an
+  installation using the group-role-mapping extension now re-evaluates an
+  OAuth-mapped role on every login instead of binding it once at account
+  creation. Before this, the mapping could only add a role, never take one
+  away: removing someone from a mapped group at the identity provider now
+  revokes the GeoLens role that membership had granted (#1796).
+
+- **Service tokens no longer appear in plaintext in application logs.**
+  httpx's own request logging and Procrastinate's worker job logging both
+  wrote the composed request URL or job arguments at INFO, including the
+  token, past the existing structured-log redaction, which only inspected
+  known field keys rather than the rendered message text. Both loggers are
+  now scrubbed (#1749).
+
+- **Application error logs no longer leak query values or share-link tokens.**
+  Database errors logged the full failing statement together with its bound
+  parameters, which the existing log redaction could not see because it only
+  inspects known field keys, not rendered text. A 500 or a database outage on
+  a shared-map link also logged its share token in the clear, unlike the
+  access log line beside it, which has redacted it since #821. Both are now
+  redacted (#1804).
+
+- **Vector tiles could return columns outside a dataset's declared column
+  allowlist.** The `cols=` request parameter was documented as bounded by the
+  dataset's `tile_columns` allowlist, but actually unioned any column past it,
+  so a client could read a column the allowlist was meant to keep out of the
+  tile. It now only ever narrows the projection the allowlist already permits.
+  Operators with a narrow allowlist and a data-driven style keyed on a column
+  outside it will need to add that column to the allowlist (#1804).
+
+- **Dataset CSV downloads are hardened against spreadsheet formula
+  execution.** An attribute value written by anyone with edit access to a
+  public dataset reached an anonymous downloader's CSV file byte for byte;
+  opening it in Excel or a similar tool could execute the value if it parsed
+  as a formula. A cell that could be read as a formula is now escaped; an
+  ordinary negative number is left alone (#1804).
+
+- **Private Cloud-Optimized GeoTIFF downloads no longer stay valid for an hour
+  after the token that authorized them expires.** The signed redirect for a
+  COG download was valid for a flat hour regardless of the caller's own access
+  token, so a private or internal dataset's download URL, once issued, kept
+  working long after the short-lived token behind it should have. The signed
+  URL's lifetime is now capped to what remains of the caller's own token
+  (#1804).
+
+- **The SQL sandbox closes several parsing edge cases that could bypass its
+  access checks or leak a query in an error response.** A handful of
+  PostgreSQL's built-in functions, `user`, `current_role`, and similar,
+  parsed in a shape the access allowlist did not recognize as a function
+  call, letting them slip past it. Some malformed SQL raised the wrong
+  exception type and reached the client as a raw 500 with the full query
+  logged. A query ending in a `--` comment could also be spliced with
+  GeoLens's own row-limit wrapper in a way that broke the limit (#1797).
+
+- **AI chat trust-boundary fixes.** The chat surface's `query_data` tool sat
+  behind the same permission as the hardened raw-SQL endpoint but skipped its
+  capacity limit, self-join cap, and row and column caps; it now shares all of
+  them. Dataset content reaching the model, including sample values from
+  another user's public dataset, and every tool result handed back to the
+  model are now fenced as untrusted data with an explicit instruction that it
+  cannot be treated as an instruction, closing a cross-user path into a
+  prompt-injection surface (#1797).
+
+- **AI chat quota and error-disclosure fixes.** A chat request that failed,
+  timed out, or was cancelled after already spending provider tokens recorded
+  no usage against the caller's daily AI token budget, so a caller who could
+  reliably force one of those outcomes could exceed it for free; usage is now
+  recorded on every exit path. Error responses also no longer leak raw
+  exception text, including SQL statements and AI-provider connection details,
+  to the browser (#1797).
+
+- **Two raster and VRT worker hardening fixes close resource-exhaustion
+  paths.** Generating a quicklook for a malformed or adversarially crafted
+  Cloud-Optimized GeoTIFF could read an unbounded array into memory; the read
+  is now clamped to a fixed multiple of the target size. A stalled remote
+  raster source could hang a worker indefinitely during VRT metadata reads and
+  quicklook rendering, a hazard reintroduced after an earlier fix; GDAL
+  connect and read timeouts are applied again on those paths (#1803).
+
+- **The admin-configurable global rate limit now actually limits by caller.**
+  It was keyed by client IP and URL path rather than IP and endpoint, so a
+  caller could multiply their effective budget by varying a path parameter, a
+  dataset id or a tile coordinate, that the route table was supposed to fix in
+  place, not the limiter (#1785).
+
+- **Two more gaps let an anonymous caller cost more than the deployment's rate
+  limits allow.** The `/api/tiles/raster-proxy/` URL answered every request
+  with no rate limit at all, bypassing the one nginx enforced on the same
+  handler's other URL spelling. And the vector tile `cols=` parameter fed
+  unvalidated into the tile cache key, so a wide public table could be cached
+  under an unbounded number of keys for the one set of bytes those requests
+  actually returned, evicting legitimate tiles from the cache on a Valkey-less
+  install (#1785).
 
 ## [1.17.0] - 2026-08-30
 
