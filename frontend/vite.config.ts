@@ -50,6 +50,7 @@ function manualChunks(id: string) {
     if (id.includes('/locales/de/')) return 'i18n-de'
     if (id.includes('/locales/es/')) return 'i18n-es'
     if (id.includes('/locales/fr/')) return 'i18n-fr'
+    if (id.includes('/locales/zh/')) return 'i18n-zh'
     return 'i18n-en'
   }
 
