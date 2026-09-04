@@ -15,6 +15,7 @@ import userEvent from '@testing-library/user-event';
 import { ServiceUrlForm } from '../ServiceUrlForm';
 import type { ProbeResponse } from '@/types/api';
 import { ApiError } from '@/api/client';
+import { clearServiceImport } from '@/api/service-url-session';
 
 const mockProbeService = vi.fn();
 const mockPreviewServiceLayer = vi.fn();
@@ -54,6 +55,15 @@ vi.mock('../JobProgress', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // fix(#1712): the preview/commit session (service-url-session.ts) is
+  // module-scoped, same reasoning as url-import-session.ts's own test
+  // hygiene — without this, a session left behind by one test's mid-preview
+  // or mid-commit unmount is adopted by the next test's fresh render.
+  clearServiceImport();
+});
+
+afterEach(() => {
+  clearServiceImport();
 });
 
 // Radix Select needs these in jsdom.
@@ -117,9 +127,15 @@ async function connectToDuplicateNameService() {
 }
 
 describe('ServiceUrlForm token input', () => {
-  it('opts every password manager out of the service token field', () => {
+  it('opts every password manager out of the service token field', async () => {
+    const user = userEvent.setup();
     render(<ServiceUrlForm />);
-    const input = screen.getByLabelText('serviceUrl.tokenLabel');
+    // feat(#1746 B4): the non-ArcGIS credential field is now behind a
+    // method select; Bearer token is the method that reuses a plain
+    // password-type input.
+    await user.click(screen.getByRole('combobox', { name: 'Authentication' }));
+    await user.click(await screen.findByRole('option', { name: 'Bearer token' }));
+    const input = screen.getByLabelText('Bearer token');
 
     expect(input).toHaveAttribute('type', 'password');
     expect(input).toHaveAttribute('autocomplete', 'new-password');
@@ -272,7 +288,12 @@ describe('ServiceUrlForm ArcGIS auth method select', () => {
 
     const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
     await user.type(urlInput, 'https://example.test/wfs');
-    await user.type(screen.getByLabelText('serviceUrl.tokenLabel'), 'stale-wfs-token');
+    // feat(#1746 B4): the non-ArcGIS bearer field is now behind its own
+    // method select, sharing the `token` state with ArcGIS's 'token'
+    // method — the very thing this test proves does not carry across.
+    await user.click(screen.getByRole('combobox', { name: 'Authentication' }));
+    await user.click(await screen.findByRole('option', { name: 'Bearer token' }));
+    await user.type(screen.getByLabelText('Bearer token'), 'stale-wfs-token');
 
     await user.clear(urlInput);
     await user.type(urlInput, ARCGIS_URL);
@@ -312,7 +333,9 @@ describe('ServiceUrlForm ArcGIS auth method select', () => {
     const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
     const sameOriginNonArcGis = 'https://services6.arcgis.com/some/wfs/endpoint';
     await user.type(urlInput, sameOriginNonArcGis);
-    await user.type(screen.getByLabelText('serviceUrl.tokenLabel'), 'stale-token');
+    await user.click(screen.getByRole('combobox', { name: 'Authentication' }));
+    await user.click(await screen.findByRole('option', { name: 'Bearer token' }));
+    await user.type(screen.getByLabelText('Bearer token'), 'stale-token');
 
     // Path-only edit, SAME origin, now ArcGIS-shaped (matches ARCGIS_URL's
     // origin exactly).
@@ -335,7 +358,7 @@ describe('ServiceUrlForm ArcGIS auth method select', () => {
     expect(mockProbeService).toHaveBeenCalledWith(ARCGIS_URL, undefined);
   });
 
-  it('clears the token when a same-origin path edit turns an ArcGIS-shaped URL non-ArcGIS-shaped', async () => {
+  it('replaces the ArcGIS select with the WFS/OGC credential select, reset to none, when a same-origin path edit turns an ArcGIS-shaped URL non-ArcGIS-shaped', async () => {
     const user = await typeArcGisUrl(userEvent.setup());
 
     await chooseAuthMethod(user, 'Paste a token or API key');
@@ -346,10 +369,14 @@ describe('ServiceUrlForm ArcGIS auth method select', () => {
     await user.clear(urlInput);
     await user.type(urlInput, sameOriginNonArcGis);
 
-    // No longer ArcGIS-shaped: the method select disappears entirely, and
-    // the plain optional token field takes its place, empty.
-    expect(screen.queryByRole('combobox', { name: 'Authentication' })).not.toBeInTheDocument();
-    expect(screen.getByLabelText('serviceUrl.tokenLabel')).toHaveValue('');
+    // No longer ArcGIS-shaped: the ArcGIS-specific method (and its pasted
+    // token) is gone, replaced by the four-way WFS/OGC API Features select
+    // (feat #1746 B4), reset to its own 'none' default rather than
+    // carrying the ArcGIS token across.
+    expect(screen.queryByLabelText('Token or API key')).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Authentication' })).toHaveTextContent(
+      'No authentication',
+    );
   });
 });
 

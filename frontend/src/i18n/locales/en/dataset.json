@@ -808,8 +808,24 @@
           "tokenExpired": "The token expired. Sign in again to continue."
         },
         "wfs": {
-          "intro": "This source refused the refresh outright because it needs a credential. Send the token again below.",
-          "escapeHatch": "If the source is public now, re-import it through the Re-Upload dialog with no token to clear this requirement."
+          "intro": "This source refused the refresh outright because it needs a credential. Send it again below.",
+          "escapeHatch": "If the source is public now, re-import it through the Re-Upload dialog with no credential to clear this requirement."
+        },
+        "service": {
+          "methodLabel": "Authentication",
+          "methodNone": "No authentication",
+          "methodBearer": "Bearer token",
+          "methodBasic": "Username and password",
+          "methodHeader": "API key in a header",
+          "tokenLabel": "Bearer token",
+          "tokenPlaceholder": "Paste your bearer token",
+          "usernameLabel": "Username",
+          "passwordLabel": "Password",
+          "headerNameLabel": "Header name",
+          "headerNamePlaceholder": "e.g. X-API-Key",
+          "headerValueLabel": "Header value",
+          "headerValuePlaceholder": "Your API key",
+          "helpText": "A bearer token is sent as an Authorization header; a username and password are sent as HTTP Basic auth; an API key can go under whatever header name the provider specifies — for example X-API-Key, Ocp-Apim-Subscription-Key, or key."
         }
       },
       "history": {

@@ -210,6 +210,14 @@ export type SourceFreshness = 'fresh' | 'due' | 'overdue' | 'unknown';
 /** Response returned by dataset publication-status mutation endpoints. */
 export type StatusUpdateResponse = components['schemas']['StatusUpdateResponse'];
 
+// feat(#1746 B4): structured credential for a protected service, mirroring
+// backend `ServiceAuthRequest` (app/platform/service_auth.py). Mutually
+// exclusive with the deprecated `token` field on every request that carries
+// both — see `reject_service_auth_conflict`. Aliased from the generated
+// schema rather than hand-mirrored, since this one is already in the OpenAPI
+// snapshot (unlike ArcgisSigninRequest below, which predates its regen).
+export type ServiceAuthRequest = components['schemas']['ServiceAuthRequest'];
+
 /** Mirrors backend `DerivedFromResponse` (datasets/domain/schemas.py).
  *
  * fix(#765 review): a named type here too, matching the backend model the
@@ -918,6 +926,9 @@ export interface CommitImportRequest {
   x_column?: string | null;
   y_column?: string | null;
   geom_column?: string | null;
+  // feat(#1746 B4): structured credential, mutually exclusive with `token`
+  // above — see `ServiceAuthRequest`.
+  auth?: ServiceAuthRequest | null;
 }
 
 export interface CommitImportResponse {
@@ -1038,6 +1049,9 @@ export interface DatasetVersionListResponse {
 export interface DatasetRefreshRequest {
   /** Transient credential for a protected service; never persisted. */
   token?: string | null;
+  // feat(#1746 B4): structured credential, mutually exclusive with `token`
+  // above — see `ServiceAuthRequest`.
+  auth?: ServiceAuthRequest | null;
 }
 
 export interface DatasetRefreshResponse {
@@ -1762,6 +1776,9 @@ export interface ServicePreviewRequest {
   layer_id: number | string | null;
   token?: string;
   object_id_field?: string | null;
+  // feat(#1746 B4): structured credential, mutually exclusive with `token`
+  // above — see `ServiceAuthRequest`.
+  auth?: ServiceAuthRequest | null;
 }
 
 export interface ServicePreviewResponse {

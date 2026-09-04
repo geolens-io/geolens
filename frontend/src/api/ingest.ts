@@ -24,6 +24,7 @@ import type {
   VrtCreateResponse,
   ArcgisSigninRequest,
   ArcgisSigninResponse,
+  ServiceAuthRequest,
 } from '@/types/api';
 
 /** Byte-transfer progress callback (0–1). */
@@ -270,10 +271,18 @@ export async function cancelJob(jobId: string): Promise<JobCancelResponse> {
   });
 }
 
-export async function probeService(url: string, token?: string): Promise<ProbeResponse> {
+// feat(#1746 B4): `auth` is a third, optional argument rather than a
+// replacement for `token` — ReuploadDialog.tsx still calls this with the
+// two-argument bearer-only form, and the backend itself refuses a body that
+// sets both (`reject_service_auth_conflict`), so a caller passes at most one.
+export async function probeService(
+  url: string,
+  token?: string,
+  auth?: ServiceAuthRequest,
+): Promise<ProbeResponse> {
   return apiFetch<ProbeResponse>('/services/probe/', {
     method: 'POST',
-    body: JSON.stringify({ url, ...(token && { token }) }),
+    body: JSON.stringify({ url, ...(auth ? { auth } : token ? { token } : {}) }),
   });
 }
 

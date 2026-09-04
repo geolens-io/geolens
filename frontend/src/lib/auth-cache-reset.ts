@@ -3,7 +3,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { clearReportEntries } from '@/lib/report';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { useSearchStore } from '@/stores/search-store';
-import { clearUploadBatch } from '@/api/upload-session';
+import { clearUploadBatch, clearPendingUploadFiles } from '@/api/upload-session';
 import { clearStacImport } from '@/api/stac-import-session';
 
 /**
@@ -59,5 +59,10 @@ export function wireAuthCacheReset(queryClient: QueryClient): () => void {
     // mounts next, rather than leaving it to be caught lazily.
     clearUploadBatch();
     clearStacImport();
+    // fix(#1832): the queue a drop sits in before the upload-config query
+    // settles is the same identity-scoped residue as the batch above, and
+    // deserves the same choke point rather than only the ownerId check the
+    // batch's own peek already does.
+    clearPendingUploadFiles();
   });
 }

@@ -28,6 +28,7 @@ import type {
   AttributeMetadataUpdate,
   ReuploadServicePreviewRequest,
   DatasetRefreshRunResponse,
+  ServiceAuthRequest,
 } from '@/types/api';
 
 export function useCreateDataset() {
@@ -210,8 +211,15 @@ export function useDatasetVersions(datasetId: string, skip = 0, limit = 50) {
 export function useRefreshDataset() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ datasetId, token }: { datasetId: string; token?: string }) =>
-      refreshDataset(datasetId, token),
+    mutationFn: ({
+      datasetId,
+      token,
+      auth,
+    }: {
+      datasetId: string;
+      token?: string;
+      auth?: ServiceAuthRequest;
+    }) => refreshDataset(datasetId, token, auth),
     // The dispatched run belongs in history immediately (status "pending"),
     // and dataset-detail health/freshness change once the worker finishes —
     // both queries are cheap enough to just invalidate rather than patch.

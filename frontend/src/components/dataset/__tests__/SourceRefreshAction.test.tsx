@@ -130,13 +130,16 @@ describe('SourceRefreshAction', () => {
     drawingStoreState.targetDatasetId = null;
   });
 
-  it('opens a confirm dialog with an optional token field for a service origin', async () => {
+  // feat(#1746 B4): the plain bearer-only field is now ArcGIS-only; a
+  // 'service'-origin WFS/OGC API Features dataset gets the four-way
+  // credential method select instead (ServiceCredentialBlock).
+  it('opens a confirm dialog with a credential method select for a service origin', async () => {
     const user = userEvent.setup();
     render(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
 
     await openDialog(user);
 
-    expect(screen.getByLabelText('Access token (optional)')).toBeInTheDocument();
+    expect(screen.getByLabelText('Authentication')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start refresh' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
   });
@@ -145,13 +148,14 @@ describe('SourceRefreshAction', () => {
   // autoComplete="off" alone does not stop Chrome from offering a saved
   // password on a password-type field, so every password manager needs an
   // explicit opt-out.
-  it('opts every password manager out of the refresh token field', async () => {
+  it('opts every password manager out of the bearer token field', async () => {
     const user = userEvent.setup();
     render(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
 
     await openDialog(user);
+    await user.selectOptions(screen.getByLabelText('Authentication'), 'Bearer token');
 
-    const input = screen.getByLabelText('Access token (optional)');
+    const input = screen.getByLabelText('Bearer token');
     expect(input).toHaveAttribute('autocomplete', 'new-password');
     expect(input).toHaveAttribute('data-1p-ignore');
     expect(input).toHaveAttribute('data-lpignore', 'true');
@@ -193,7 +197,7 @@ describe('SourceRefreshAction', () => {
     });
   });
 
-  it('dispatches the refresh, closes the dialog, reports the run to the watch, and clears the token from rendered output and state', async () => {
+  it('dispatches the refresh, closes the dialog, reports the run to the watch, and clears the credential from rendered output and state', async () => {
     mutateAsync.mockResolvedValue({
       run_id: 'run-42',
       job_id: 'job-42',
@@ -208,27 +212,33 @@ describe('SourceRefreshAction', () => {
 
     await openDialog(user);
     const secretToken = 'super-secret-token-value';
-    await user.type(screen.getByLabelText('Access token (optional)'), secretToken);
+    await user.selectOptions(screen.getByLabelText('Authentication'), 'Bearer token');
+    await user.type(screen.getByLabelText('Bearer token'), secretToken);
     await user.click(screen.getByRole('button', { name: 'Start refresh' }));
 
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
-    expect(mutateAsync).toHaveBeenCalledWith({ datasetId: 'dataset-1', token: secretToken });
+    expect(mutateAsync).toHaveBeenCalledWith({
+      datasetId: 'dataset-1',
+      token: undefined,
+      auth: { method: 'bearer', token: secretToken },
+    });
     // fix(#1285 codex round 4): the component no longer tracks the dispatched
     // run itself — it must hand the run_id to the page-level watch instead.
     expect(trackDispatchedRun).toHaveBeenCalledWith('run-42');
-    // The token must not survive anywhere reachable from the DOM once the
-    // request has been dispatched — not in a toast, not in the closed
+    // The credential must not survive anywhere reachable from the DOM once
+    // the request has been dispatched — not in a toast, not in the closed
     // dialog's last-known markup.
     expect(document.body.textContent).not.toContain(secretToken);
     expect(screen.queryByDisplayValue(secretToken)).not.toBeInTheDocument();
 
     // Reopening proves the field was reset in component state, not just
-    // hidden by the dialog closing.
+    // hidden by the dialog closing (and by ServiceCredentialBlock's own
+    // remount, since Radix unmounts DialogContent on close).
     await openDialog(user);
-    expect(screen.getByLabelText('Access token (optional)')).toHaveValue('');
+    expect(screen.getByLabelText('Authentication')).toHaveValue('none');
   });
 
   it('sends no token when the field is left blank', async () => {
@@ -252,18 +262,73 @@ describe('SourceRefreshAction', () => {
     });
   });
 
-  it('clears a typed token on cancel without submitting it', async () => {
+  it('clears a typed credential on cancel without submitting it', async () => {
     const user = userEvent.setup();
     render(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
 
     await openDialog(user);
-    await user.type(screen.getByLabelText('Access token (optional)'), 'abandoned-token');
+    await user.selectOptions(screen.getByLabelText('Authentication'), 'Bearer token');
+    await user.type(screen.getByLabelText('Bearer token'), 'abandoned-token');
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
     expect(mutateAsync).not.toHaveBeenCalled();
     expect(trackDispatchedRun).not.toHaveBeenCalled();
     await openDialog(user);
-    expect(screen.getByLabelText('Access token (optional)')).toHaveValue('');
+    expect(screen.getByLabelText('Authentication')).toHaveValue('none');
+  });
+
+  // fix(#1834 round 1 P2): `serviceAuth` used to be cleared unconditionally
+  // before every request, win or lose. ServiceCredentialBlock is
+  // uncontrolled for its own fields (it only calls back when THEY change),
+  // so a failed submission left the block still showing the typed
+  // credential while the parent's copy of it had already gone back to
+  // undefined -- a same-click retry, with the form visually unchanged,
+  // silently sent `auth: undefined`. Pins that a retry after a non-422
+  // refusal (dialog stays open, no field is touched) resends the identical
+  // credential rather than dropping it.
+  it('resends the same credential on retry after a failed refresh, without the user retyping it', async () => {
+    mutateAsync
+      .mockRejectedValueOnce(new ApiError('A refresh is already running for this dataset. Wait for it to finish, then try again.', 409))
+      .mockResolvedValueOnce({
+        run_id: 'run-10',
+        job_id: 'job-10',
+        dataset_id: 'dataset-1',
+        origin_kind: 'service',
+        trigger: 'api',
+        status: 'pending',
+        message: 'Refresh queued from the stored source',
+      });
+    const user = userEvent.setup();
+    render(<SourceRefreshAction dataset={makeDataset({ source_format: 'wfs' })} watch={makeWatch()} />);
+
+    await openDialog(user);
+    await user.selectOptions(screen.getByLabelText('Authentication'), 'Username and password');
+    await user.type(screen.getByLabelText('Username', { exact: true }), 'alice');
+    await user.type(screen.getByLabelText('Password', { exact: true }), 'hunter2');
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    expect(mutateAsync).toHaveBeenNthCalledWith(1, {
+      datasetId: 'dataset-1',
+      token: undefined,
+      auth: { method: 'basic', username: 'alice', password: 'hunter2' },
+    });
+
+    // The dialog stays open on this (non-422) refusal, and the credential
+    // block still shows exactly what was typed — nothing prompted the user
+    // to retype anything.
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByLabelText('Username', { exact: true })).toHaveValue('alice');
+    expect(screen.getByLabelText('Password', { exact: true })).toHaveValue('hunter2');
+
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(2));
+    expect(mutateAsync).toHaveBeenNthCalledWith(2, {
+      datasetId: 'dataset-1',
+      token: undefined,
+      auth: { method: 'basic', username: 'alice', password: 'hunter2' },
+    });
   });
 
   it.each([
@@ -480,7 +545,7 @@ describe('SourceRefreshAction', () => {
       await user.click(screen.getByRole('button', { name: 'Start refresh' }));
 
       await screen.findByText(
-        'This source refused the refresh outright because it needs a credential. Send the token again below.',
+        'This source refused the refresh outright because it needs a credential. Send it again below.',
       );
       expect(screen.getByRole('dialog')).toBeInTheDocument();
       expect(document.body.textContent).not.toContain(RAW_SERVICE_TOKEN_MESSAGE);
@@ -515,12 +580,12 @@ describe('SourceRefreshAction', () => {
 
       expect(
         await screen.findByText(
-          'This source refused the refresh outright because it needs a credential. Send the token again below.',
+          'This source refused the refresh outright because it needs a credential. Send it again below.',
         ),
       ).toBeInTheDocument();
       expect(
         screen.getByText(
-          'If the source is public now, re-import it through the Re-Upload dialog with no token to clear this requirement.',
+          'If the source is public now, re-import it through the Re-Upload dialog with no credential to clear this requirement.',
         ),
       ).toBeInTheDocument();
       expect(screen.queryByLabelText('Authentication method')).not.toBeInTheDocument();
@@ -544,16 +609,18 @@ describe('SourceRefreshAction', () => {
       await openDialog(user);
       await user.click(screen.getByRole('button', { name: 'Start refresh' }));
       await screen.findByText(
-        'This source refused the refresh outright because it needs a credential. Send the token again below.',
+        'This source refused the refresh outright because it needs a credential. Send it again below.',
       );
 
-      await user.type(screen.getByLabelText('Access token (optional)'), 'fresh-bearer-token');
+      await user.selectOptions(screen.getByLabelText('Authentication'), 'Bearer token');
+      await user.type(screen.getByLabelText('Bearer token'), 'fresh-bearer-token');
       await user.click(screen.getByRole('button', { name: 'Start refresh' }));
 
       await waitFor(() => {
         expect(mutateAsync).toHaveBeenLastCalledWith({
           datasetId: 'dataset-1',
-          token: 'fresh-bearer-token',
+          token: undefined,
+          auth: { method: 'bearer', token: 'fresh-bearer-token' },
         });
       });
     });
