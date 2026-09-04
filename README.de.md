@@ -1,6 +1,6 @@
 # GeoLens
 
-[English](README.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md)
+[English](README.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [简体中文](README.zh.md)
 
 **Der selbst gehostete Geodaten-Hub Ihres Teams: an einem Ort durchsuchen, kartieren und teilen.**
 
@@ -139,7 +139,7 @@ Für jedes Beispiel gibt es eine vollständige Anleitung in der [Dokumentation](
 - Direkte Kachel-URLs und benutzerspezifische API-Schlüssel für QGIS, ArcGIS, MapLibre und jeden OGC-Client
 - Vektorkacheln lassen unter Zoomstufe 10 Attributspalten weg, damit Kacheln klein bleiben; fügen Sie `cols=<column>,<column>` an die URL an, um bestimmte Spalten bei jeder Zoomstufe einzuschließen (Namen werden mit den Datensatzspalten abgeglichen, unbekannte verworfen)
 - JWT + OAuth 2.0/OIDC, RBAC mit datensatzbezogenen Berechtigungen
-- Oberfläche auf Englisch, Spanisch, Französisch und Deutsch
+- Oberfläche auf Englisch, Spanisch, Französisch, Deutsch und Chinesisch
 
 <details>
 <summary>Sicherheit</summary>
