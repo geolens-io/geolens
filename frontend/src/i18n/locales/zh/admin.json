@@ -138,7 +138,7 @@
     },
     "placeholders": {
       "username": "用户名",
-      "email": "user@example.com",
+      "email": "user@example.cn",
       "password": "至少 12 个字符"
     },
     "roles": {
@@ -160,7 +160,7 @@
       "active": "活跃"
     },
     "placeholder": {
-      "email": "user@example.com"
+      "email": "user@example.cn"
     },
     "roles": {
       "viewer": "查看者",
@@ -648,7 +648,7 @@
       "allowedEmailDomains": "允许的电子邮箱域名",
       "allowedEmailDomainsDescription": "将注册和登录限制为这些域名的电子邮箱地址。留空则允许任何域名。",
       "allowedEmailDomainsUnrestricted": "无限制——允许所有电子邮箱域名。",
-      "addDomainPlaceholder": "example.com",
+      "addDomainPlaceholder": "example.cn",
       "addDomain": "添加",
       "removeDomain": "移除域名 {{domain}}"
     },
