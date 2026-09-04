@@ -90,6 +90,7 @@ from app.platform.service_endpoints import (
     OGC_JSON_ACCEPT,
     CrossOriginEndpointError,
     EndpointCheckFailedError,
+    HrefTooLongError,
     assert_endpoints_stay_on_origin,
 )
 from app.platform.security import (
@@ -659,6 +660,134 @@ async def _fail_preview(
         status_code=status.HTTP_502_BAD_GATEWAY,
         detail="Failed to preview remote layer. The service may be unavailable or the layer format is unsupported.",
     )
+
+
+# fix(#1755 item 9): every typed refusal `run_service_preview` and its
+# callees can raise, mapped to a coded 4xx here rather than at the bottom of
+# `preview_service_layer`'s broad `except Exception`. The preview pipeline
+# (`preview.py`, `service_endpoints.py::assert_endpoints_stay_on_origin`,
+# `service_items.py::materialise_oapif_items`) already converts every one of
+# these into an `HTTPException` at its own raise site, and both of those
+# functions' docstrings commit to raising nothing else — so in the code as it
+# stands today, this map is never consulted. It exists for the day one of
+# those internal contracts is broken by a future edit: without it, the only
+# thing standing between a typed refusal and a 500 would be that a callee
+# happened to keep its promise. `tests/test_services_endpoints.py`'s
+# `TestPreviewEndpoint` pins each branch by mocking `run_service_preview`
+# directly, bypassing the internal wrapping the same way a regression would.
+#
+# Ordered specific-to-general because `SSRFError` and `HrefTooLongError` are
+# both `ValueError` subclasses (`platform/security.py`,
+# `platform/service_endpoints.py`): an `isinstance(exc, ValueError)` branch
+# placed first would swallow both under the generic message and lose their
+# more specific one.
+def _preview_refusal_response(exc: Exception) -> HTTPException | None:
+    """Map a typed preview refusal to its coded 4xx, or None if unrecognized.
+
+    Returns None for anything this does not recognize, so the caller's own
+    `except Exception` remains the last resort for a genuine bug rather than
+    this function guessing at a status code for it.
+
+    No branch here echoes `str(exc)`: `CrossOriginEndpointError.policy` and
+    `EndpointCheckFailedError.policy` (which `ItemFetchFailedError` inherits)
+    are themselves fixed per-class strings — the same ones `/probe` already
+    returns for the identical classes — never the httpx error text a
+    provider's response could shape (kept off `.policy` and off `.reason`
+    instead, per those classes' own docstrings). The other three branches use
+    a message composed here, for the same reason.
+    """
+    if isinstance(exc, (CrossOriginEndpointError, EndpointCheckFailedError)):
+        # Covers `ItemFetchFailedError` too: it subclasses
+        # `EndpointCheckFailedError` (`platform/service_items.py`) so every
+        # door that already answers the description-check refusal answers
+        # the items-page one the same way.
+        return HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": exc.code, "message": exc.policy, "field": exc.field},
+        )
+    if isinstance(exc, SSRFError):
+        # fix(#1770 round 49 P3) reasoning mirrored here: `str(exc)` can carry
+        # a redirect-chosen hostname (`SSRFResolutionError`), so the client
+        # gets the fixed policy phrase `/probe` already uses instead.
+        return HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="redirect target refused by SSRF policy",
+        )
+    if isinstance(exc, HrefTooLongError):
+        # A malformed-but-safe class of the same "provider named an address
+        # this cannot act on" refusal as the two above; the href itself is
+        # never in this exception's own message either
+        # (`bounded_service_url`'s docstring).
+        return HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="A service-advertised link exceeded the length limit.",
+        )
+    if isinstance(exc, ValueError):
+        # The remaining source is `build_credential_header`
+        # (`core/service_tokens.py`), which raises `ValueError` with one of a
+        # handful of fixed policy strings when a credential reaches it in a
+        # shape the door in front of it should have already refused — never
+        # a value the caller submitted or a provider chose.
+        return HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The request could not be processed with the given credential.",
+        )
+    return None
+
+
+async def _run_service_preview_or_refuse(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    url: str,
+    layer: str,
+    gdal_source: str,
+    layer_arg: str,
+    *,
+    credential: ServiceCredential | None,
+) -> dict:
+    """`run_service_preview`, with every typed refusal mapped before it escapes.
+
+    `IngestionError` and `HTTPException` pass through unchanged: the caller
+    uses `IngestionError` to trigger the WFS namespace retry, and an
+    `HTTPException` — the header-token-charset refusal `run_service_preview`
+    itself already raises as one (#1746) — is already a finished answer.
+    Anything else is checked against `_preview_refusal_response`; a match is
+    audited and raised as the coded HTTPException, and anything that map does
+    not recognize is re-raised untouched for the caller's broad
+    `except Exception` to turn into a logged 500, same as before this
+    function existed.
+    """
+    try:
+        return await run_service_preview(gdal_source, layer_arg, credential=credential)
+    except (IngestionError, HTTPException):
+        raise
+    except Exception as exc:  # broad: classifying every typed refusal `run_service_preview` and its callees can raise, so none of them falls through to the 500 below
+        http_exc = _preview_refusal_response(exc)
+        if http_exc is None:
+            raise
+        safe_url = redact_url_credentials(url)
+        logger.warning(
+            "Preview refused",
+            url=safe_url,
+            layer=layer,
+            reason_class=type(exc).__name__,
+        )
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user_id,
+                action="preview_service_layer",
+                resource_type="service_url",
+                details={
+                    "url": safe_url,
+                    "layer": layer,
+                    "result": "refused",
+                    "reason_class": type(exc).__name__,
+                },
+            ),
+        )
+        await db.commit()
+        raise http_exc from None
 
 
 async def _create_preview_job(
@@ -1289,8 +1418,14 @@ async def preview_service_layer(
 
     # Step 3: Run ogrinfo preview
     try:
-        preview_data = await run_service_preview(
-            gdal_source, layer_arg, credential=service_credential
+        preview_data = await _run_service_preview_or_refuse(
+            db,
+            user.id,
+            request.url,
+            request.layer_name,
+            gdal_source,
+            layer_arg,
+            credential=service_credential,
         )
     except IngestionError:
         # Step 4: WFS namespace retry -- if layer_name has a colon prefix, retry without it
@@ -1311,8 +1446,14 @@ async def preview_service_layer(
                     order_field=None,
                     result_limit=5,
                 )
-                preview_data = await run_service_preview(
-                    retry_source, retry_layer, credential=service_credential
+                preview_data = await _run_service_preview_or_refuse(
+                    db,
+                    user.id,
+                    request.url,
+                    request.layer_name,
+                    retry_source,
+                    retry_layer,
+                    credential=service_credential,
                 )
             except (IngestionError, ValueError):
                 logger.warning(

@@ -119,6 +119,101 @@ class TestDeferWithOrphanGuard:
 
         asyncio.run(_check())
 
+    def test_defer_failed_cause_class_names_the_defer_call_exception(self):
+        """fix(#1755 item 10): the 503 body carries the CLASS of whatever made
+        the guard raise, coded and redacted -- never the exception's own
+        message, which can carry a credential or provider-chosen text.
+        """
+
+        async def _check():
+            from app.platform.jobs.defer_guard import (
+                DeferFailed,
+                defer_with_orphan_guard,
+            )
+
+            mock_db = AsyncMock()
+            mock_db.commit = AsyncMock()
+
+            class _QueueOutage(RuntimeError):
+                pass
+
+            async def _defer() -> None:
+                raise _QueueOutage("connection refused: 10.0.0.9:5432 secret=abc123")
+
+            async def _rollback(exc: BaseException) -> None:
+                return None
+
+            with pytest.raises(DeferFailed) as exc_info:
+                await defer_with_orphan_guard(
+                    _defer, rollback=_rollback, db=mock_db, job=_job()
+                )
+
+            assert exc_info.value.status_code == 503
+            assert exc_info.value.cause_class == "_QueueOutage"
+            assert exc_info.value.detail["cause_class"] == "_QueueOutage"
+            # The raw message -- including the address and the fake
+            # credential-shaped substring above -- never reaches the body.
+            assert "10.0.0.9" not in str(exc_info.value.detail)
+            assert "secret=abc123" not in str(exc_info.value.detail)
+            assert (
+                exc_info.value.detail["message"]
+                == "Task queue unavailable, please retry"
+            )
+
+        asyncio.run(_check())
+
+    def test_defer_failed_cause_class_names_the_dispatch_marker_exception(self):
+        """fix(#1755 item 10): a failure BEFORE the defer call -- the #1744
+        dispatch-attempted marker write -- gets a DIFFERENT `cause_class`
+        than a `defer_call` failure, even though both produce the identical
+        503 status and fixed message. This is what makes the two shapes
+        (a bug in the closure that built the dispatch vs. the queue itself
+        being unreachable) distinguishable without ever inspecting the raw
+        exception text.
+        """
+
+        async def _check():
+            from app.platform.jobs.defer_guard import (
+                DeferFailed,
+                defer_with_orphan_guard,
+            )
+
+            class _ClosureBug(ValueError):
+                pass
+
+            mock_db = AsyncMock()
+            mock_db.commit = AsyncMock()
+            mock_db.execute = AsyncMock(side_effect=_ClosureBug("bad argument shape"))
+            mock_db.rollback = AsyncMock()
+            mock_db.refresh = AsyncMock()
+
+            async def _defer() -> None:  # pragma: no cover - never reached
+                raise AssertionError(
+                    "defer_call must not run: the marker write failed first"
+                )
+
+            async def _rollback(exc: BaseException) -> None:
+                return None
+
+            with pytest.raises(DeferFailed) as exc_info:
+                await defer_with_orphan_guard(
+                    _defer, rollback=_rollback, db=mock_db, job=_job()
+                )
+
+            assert exc_info.value.status_code == 503
+            assert exc_info.value.cause_class == "_ClosureBug"
+            assert exc_info.value.detail["cause_class"] == "_ClosureBug"
+            assert "bad argument shape" not in str(exc_info.value.detail)
+            # Same fixed body shape as a defer_call-stage failure -- only
+            # `cause_class` tells the two apart.
+            assert (
+                exc_info.value.detail["message"]
+                == "Task queue unavailable, please retry"
+            )
+            assert exc_info.value.detail["code"] == "queue_unavailable"
+
+        asyncio.run(_check())
+
     def test_rollback_failure_still_raises_503(self):
         """If rollback itself raises, helper still surfaces the 503 to the client."""
 

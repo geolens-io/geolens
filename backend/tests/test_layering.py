@@ -2717,7 +2717,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # hostname into the 400 body or the persisted audit reason -- both now
     # carry a fixed policy string; the raw text stays in the server-side log
     # line only. Cap 1625 -> 1639, exact.
-    "backend/app/modules/catalog/sources/router.py": 1639,
+    # fix(#1755 item 9): +141. `_preview_refusal_response` and
+    # `_run_service_preview_or_refuse` map every typed refusal
+    # `run_service_preview` and its callees can raise to a coded 4xx before
+    # `preview_service_layer`'s broad `except Exception`, so a future edit
+    # that breaks one of those callees' "raises only HTTPException" contracts
+    # degrades to a coded 4xx instead of a 500. Cap 1639 -> 1780, exact.
+    "backend/app/modules/catalog/sources/router.py": 1780,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against
@@ -3568,7 +3574,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # failure. Same finding as the refresh door's 422, one layer down; the
     # lines are the comment recording that the two messages have to agree.
     # Cap 1291 -> 1297, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1297,
+    # fix(#1755 item 11): +36. `reupload_service`'s `finally` block routes
+    # both cleanup calls through the new shared `_finally_cleanup` helper, so
+    # a heartbeat-stop or staging-drop failure logs (redacted, exc_info)
+    # rather than replacing the ingest exception in flight; the #1753 token
+    # purge still runs, since the helper never re-raises. Cap 1297 -> 1333,
+    # exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1333,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -4536,7 +4548,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # paused, not-dead worker from running the whole finalize pipeline
     # against a doomed row in the first place, for consistency with the
     # raster tails. Cap 1333 -> 1356, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1356,
+    # fix(#1755 item 11): +36. `ingest_service`'s `finally` block routes both
+    # cleanup calls through the new shared `_finally_cleanup` helper, so a
+    # heartbeat-stop or staging-drop failure logs (redacted, exc_info)
+    # rather than replacing the ingest exception in flight; the #1753 token
+    # purge still runs, since the helper never re-raises. Cap 1356 -> 1392,
+    # exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1392,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern

@@ -25,15 +25,22 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.platform.jobs.heartbeat import (
+    stop_ingest_job_heartbeat as _real_stop_heartbeat,
+)
+from app.platform.jobs.models import IngestJob
 from app.platform.jobs.sweep import purge_terminal_job_tokens
 from app.processing.ingest import tasks_reupload, tasks_vector
 from app.processing.ingest.tasks_common import (
     purge_queued_job_token,
     purge_token_on_failure,
 )
+from tests.factories import get_user_id
 
 pytestmark = pytest.mark.anyio
 
@@ -279,3 +286,235 @@ class TestBothServiceTasksAreWired:
             assert "token" not in await _read_args(test_db_session, row_id)
         finally:
             await _drop_queue(test_db_session, queue)
+
+
+class TestCleanupFailuresDoNotMaskTheOriginalException:
+    """fix(#1755 item 11): a `finally`-block cleanup failure must not replace
+    the ingest exception, and the #1753 token purge must still run.
+
+    Each test fails the task with a distinctive exception from well past
+    staging-table setup (so `stop_ingest_job_heartbeat` and
+    `_drop_attempt_staging_table` both have real state to act on), then makes
+    BOTH cleanup calls in the `finally` block also raise. The mocked cleanup
+    still runs the real cleanup underneath (cancels the real heartbeat task,
+    drops the real staging table) before raising, so this pins the wrapping
+    itself rather than merely skipping the cleanup work. Without the item-11
+    fix, the ingest exception raised below is replaced by whichever cleanup
+    call runs first — `pytest.raises` would see `ValueError`/`KeyError`
+    instead of the ingest exception, which is exactly what these tests
+    refuse.
+    """
+
+    async def test_ingest_service_cleanup_failure_does_not_mask_the_original(
+        self,
+        client: AsyncClient,  # ensures app.core.db.async_session points at the test DB
+        test_db_session: AsyncSession,
+        monkeypatch,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = IngestJob(
+            source_filename="Cleanup Failure Service",
+            source_url="https://services.example.com/svc/FeatureServer",
+            source_layer="0",
+            created_by=admin_id,
+            status="pending",
+            user_metadata={
+                "title": "Cleanup Failure Service",
+                "visibility": "private",
+                "service_type": "ArcGIS FeatureServer",
+                "layer_id": "0",
+                "geometry_type": None,
+                "source_columns": [],
+            },
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+        job_id = job.id
+        attempt_id = job.attempt_id
+        assert attempt_id is not None
+
+        queue = f"tok-purge-{uuid.uuid4().hex[:12]}"
+        args = {
+            "job_id": str(job_id),
+            "attempt_id": str(attempt_id),
+            "source_url": job.source_url,
+            "source_layer": "0",
+            "user_id": str(admin_id),
+            "token": FAKE_TOKEN,
+        }
+        row_id = await _queue_row(
+            test_db_session, status="doing", queue_name=queue, args=args
+        )
+
+        async def _validate_url_noop(_url: str) -> None:
+            return None
+
+        async def _boom_credential(*_args, **_kwargs) -> str | None:
+            raise RuntimeError("simulated ingest failure")
+
+        async def _stop_heartbeat_and_raise(task) -> None:
+            # Real cleanup first (cancels the real background task), THEN the
+            # simulated failure — proves the wrapping, not merely that
+            # cleanup was skipped.
+            await _real_stop_heartbeat(task)
+            raise ValueError("cleanup boom: heartbeat")
+
+        real_drop_staging = tasks_vector._drop_attempt_staging_table
+
+        async def _drop_staging_and_raise(staging_table: str) -> None:
+            await real_drop_staging(staging_table)
+            raise KeyError("cleanup boom: staging")
+
+        monkeypatch.setattr(
+            "app.platform.security.validate_url_for_ssrf", _validate_url_noop
+        )
+        monkeypatch.setattr(
+            "app.platform.refresh.credentials.resolve_worker_credential",
+            _boom_credential,
+        )
+        monkeypatch.setattr(
+            tasks_vector, "stop_ingest_job_heartbeat", _stop_heartbeat_and_raise
+        )
+        monkeypatch.setattr(
+            tasks_vector, "_drop_attempt_staging_table", _drop_staging_and_raise
+        )
+
+        try:
+            context = SimpleNamespace(job=SimpleNamespace(id=row_id))
+            with pytest.raises(RuntimeError, match="simulated ingest failure"):
+                await tasks_vector.ingest_service(
+                    context,
+                    job_id=str(job_id),
+                    attempt_id=str(attempt_id),
+                    source_url=job.source_url,
+                    source_layer="0",
+                    user_id=str(admin_id),
+                    token=FAKE_TOKEN,
+                )
+
+            after = await _read_args(test_db_session, row_id)
+            assert "token" not in after, "the #1753 purge must still run"
+        finally:
+            await _drop_queue(test_db_session, queue)
+
+    async def test_reupload_service_cleanup_failure_does_not_mask_the_original(
+        self,
+        client: AsyncClient,  # ensures app.core.db.async_session points at the test DB
+        test_db_session: AsyncSession,
+        monkeypatch,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        table_name = f"ds_cleanup_{uuid.uuid4().hex[:12]}"
+        record = Record(
+            title="Cleanup Failure Reupload",
+            summary="fix(#1755 item 11) fixture",
+            visibility="private",
+            record_status="published",
+            created_by=admin_id,
+        )
+        test_db_session.add(record)
+        await test_db_session.flush()
+        dataset = Dataset(
+            record_id=record.id,
+            table_name=table_name,
+            feature_count=1,
+            source_format="arcgis_featureserver",
+            source_filename="quakes",
+            source_url="https://services.example.com/svc/FeatureServer/0",
+        )
+        test_db_session.add(dataset)
+        await test_db_session.commit()
+        await test_db_session.refresh(dataset)
+        dataset_id = dataset.id
+
+        job = IngestJob(
+            dataset_id=dataset_id,
+            source_filename="quakes",
+            source_url="https://services.example.com/svc/FeatureServer/0",
+            source_layer="0",
+            created_by=admin_id,
+            status="pending",
+            user_metadata={
+                "reupload": True,
+                "dataset_id": str(dataset_id),
+                "service_type": "ArcGIS FeatureServer",
+                "layer_id": 0,
+                "source_type": "service_url",
+            },
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+        job_id = job.id
+        attempt_id = job.attempt_id
+        assert attempt_id is not None
+
+        queue = f"tok-purge-{uuid.uuid4().hex[:12]}"
+        args = {
+            "job_id": str(job_id),
+            "attempt_id": str(attempt_id),
+            "dataset_id": str(dataset_id),
+            "source_url": job.source_url,
+            "source_layer": "0",
+            "user_id": str(admin_id),
+            "token": FAKE_TOKEN,
+        }
+        row_id = await _queue_row(
+            test_db_session, status="doing", queue_name=queue, args=args
+        )
+
+        async def _validate_url_noop(_url: str) -> None:
+            return None
+
+        def _boom_service_type(_raw: str):
+            raise RuntimeError("simulated reupload failure")
+
+        async def _stop_heartbeat_and_raise(task) -> None:
+            await _real_stop_heartbeat(task)
+            raise ValueError("cleanup boom: heartbeat")
+
+        real_drop_staging = tasks_reupload._drop_attempt_staging_table
+
+        async def _drop_staging_and_raise(staging_table: str) -> None:
+            await real_drop_staging(staging_table)
+            raise KeyError("cleanup boom: staging")
+
+        monkeypatch.setattr(
+            "app.platform.security.validate_url_for_ssrf", _validate_url_noop
+        )
+        # fix(#1755 item 11) test: `resolve_service_type` runs AFTER
+        # `staging_tn`/`heartbeat_task` are both set, so failing here (rather
+        # than at credential resolution, which runs before either) is what
+        # gives both cleanup calls real state to act on.
+        monkeypatch.setattr(tasks_reupload, "resolve_service_type", _boom_service_type)
+        monkeypatch.setattr(
+            tasks_reupload, "stop_ingest_job_heartbeat", _stop_heartbeat_and_raise
+        )
+        monkeypatch.setattr(
+            tasks_reupload, "_drop_attempt_staging_table", _drop_staging_and_raise
+        )
+
+        try:
+            context = SimpleNamespace(job=SimpleNamespace(id=row_id))
+            with pytest.raises(RuntimeError, match="simulated reupload failure"):
+                await tasks_reupload.reupload_service(
+                    context,
+                    job_id=str(job_id),
+                    attempt_id=str(attempt_id),
+                    dataset_id=str(dataset_id),
+                    source_url=job.source_url,
+                    source_layer="0",
+                    user_id=str(admin_id),
+                    token=FAKE_TOKEN,
+                )
+
+            after = await _read_args(test_db_session, row_id)
+            assert "token" not in after, "the #1753 purge must still run"
+        finally:
+            await _drop_queue(test_db_session, queue)
+            await test_db_session.rollback()
+            await test_db_session.execute(
+                text(f'DROP TABLE IF EXISTS data."{table_name}" CASCADE')
+            )
+            await test_db_session.commit()

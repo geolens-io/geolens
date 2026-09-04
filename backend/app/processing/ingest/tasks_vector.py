@@ -10,7 +10,7 @@ import structlog
 from sqlalchemy import or_, text, update
 
 from app.core.db.tenant_session import tenant_task
-from app.core.url_redaction import scrub_secret_from_exception
+from app.core.url_redaction import redact_exception_text, scrub_secret_from_exception
 from app.platform.dataset_origin import service_layer_identity
 from app.platform.jobs.heartbeat import (
     attempt_scoped_staging_table,
@@ -115,6 +115,28 @@ async def _drop_attempt_staging_table(staging_table: str) -> None:
             "attempt_staging_cleanup_failed",
             staging_table=staging_table,
             exc_info=True,
+        )
+
+
+async def _finally_cleanup(coro, *, what: str, job_id: str) -> None:
+    """Run one `finally`-block cleanup step; log rather than raise a failure.
+
+    fix(#1755 item 11): `ingest_service`'s `finally` block used to await
+    `stop_ingest_job_heartbeat` and `_drop_attempt_staging_table` bare, so an
+    exception from either replaced whatever the `try`/`except` above it was
+    already propagating -- silently turning an ingest failure into an
+    unrelated cleanup error in the queue row and the caller's `except`.
+    `_drop_attempt_staging_table` already swallows everything it raises
+    internally; routing it through here too is defence in depth against that
+    contract changing without this call site noticing.
+    """
+    try:
+        await coro
+    except Exception as exc:  # broad: a finally-block cleanup must never replace the exception it is propagating past
+        structlog.get_logger().exception(
+            f"{what} cleanup failed",
+            job_id=job_id,
+            error=redact_exception_text(exc),
         )
 
 
@@ -1352,5 +1374,19 @@ async def ingest_service(
                 )
         raise
     finally:
-        await stop_ingest_job_heartbeat(heartbeat_task)
-        await _drop_attempt_staging_table(staging_table_name)
+        # fix(#1755 item 11): routed through `_finally_cleanup` so a failure
+        # in either call logs rather than replacing the ingest exception
+        # `raise` above is propagating (or the OTHER cleanup call, since each
+        # runs regardless of whether its sibling failed). `purge_token_on_
+        # failure` (`tasks_common.py`), the decorator around this task, still
+        # sees whatever exception `ingest_service` itself raised.
+        await _finally_cleanup(
+            stop_ingest_job_heartbeat(heartbeat_task),
+            what="ingest_service heartbeat",
+            job_id=job_id,
+        )
+        await _finally_cleanup(
+            _drop_attempt_staging_table(staging_table_name),
+            what="ingest_service staging",
+            job_id=job_id,
+        )
