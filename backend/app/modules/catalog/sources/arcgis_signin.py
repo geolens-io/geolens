@@ -190,6 +190,22 @@ AUDIT_DISCOVERY_TIMEOUT = "discovery_timeout"
 # what this records is that the portal tried to send the password somewhere
 # this instance would not follow.
 AUDIT_DISCOVERY_UNTRUSTED_DELEGATE = "discovery_untrusted_delegate"
+# fix(#1775): the outcome of an attempt whose credential POST was interrupted
+# by external task cancellation. fix(#1775 audit): a WORKER SHUTDOWN is the
+# only source that reaches this on the pinned Starlette 1.6.0. A client
+# disconnect does not: it arrives as an `http.disconnect` MESSAGE on the
+# receive channel, which a non-streaming route never reads, and the one
+# `cancel()` in `BaseHTTPMiddleware` (middleware/base.py:121) ends the sibling
+# `response_sent.wait` race inside `receive_or_disconnect` rather than the
+# downstream coroutine. What makes this path safe whatever the source is — on
+# this Starlette or a later one — is the reservation: the attempt is counted
+# before the POST, so no cancellation can make a credential POST free.
+# GeoLens does not know whether ArcGIS counted it, so it is recorded as its
+# own outcome rather than guessed at, and it is absent from
+# UNCOUNTED_SIGNIN_RESULTS below because the password was already on the wire.
+# The row is best effort; what makes the attempt count is the reservation the
+# route commits BEFORE the POST.
+AUDIT_CANCELLED = "cancelled"
 
 # The outcomes above that are NOT an attempt against ArcGIS, because GeoLens
 # refused before any credential left the process. The route's shared attempt
@@ -675,6 +691,38 @@ def signin_account_key(host: str, username: str) -> str:
     """
     normalized = username.strip().casefold()
     message = f"{len(host)}:{host}:{len(normalized)}:{normalized}".encode()
+    return hmac.new(_account_digest_key(), message, hashlib.sha256).hexdigest()
+
+
+def signin_user_key(user_id: object, scope: str) -> str:
+    """A keyed handle for the CALLER half of the budget, and its destination.
+
+    fix(#1775): the per-user budget used to be counted from ``audit_logs``,
+    filtered on ``user_id`` and on the ``token_service_host`` detail. Under
+    reserve-then-settle the attempt is committed to the ledger BEFORE the
+    credential POST and the audit row is only written afterwards, so a
+    cancelled request writes no audit row and an ``audit_logs`` count would
+    undercount exactly the attempts that matter most. The ledger carries the
+    budget instead.
+
+    Keyed and length-prefixed like :func:`signin_account_key`, under the same
+    derived key, because ``arcgis_signin_attempts`` is deliberately outside
+    the tenant RLS boundary and must therefore hold no plaintext identifier of
+    a caller or a tenant (fix(#1758 codex r4)).
+
+    Both the user id AND the token-service scope go into the digest. #1775
+    writes this as ``HMAC(user_id)``, but the budget it carries has always
+    been per (caller, token-service scope): the advisory lock is taken on
+    ``user:<id>:host:<scope>`` and the audit query it replaces filtered on
+    both. Digesting the id alone would silently tighten a per-destination
+    limit into a global one, which is a different limit, not this one.
+
+    The domain tag distinguishes this construction from
+    :func:`signin_account_key`'s, so no ArcGIS username can be spelled to
+    collide with a GeoLens user id.
+    """
+    ident = str(user_id)
+    message = f"signin-user:{len(ident)}:{ident}:{len(scope)}:{scope}".encode()
     return hmac.new(_account_digest_key(), message, hashlib.sha256).hexdigest()
 
 

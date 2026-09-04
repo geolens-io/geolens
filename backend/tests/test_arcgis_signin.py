@@ -25,6 +25,7 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs, urlsplit
 
@@ -50,6 +51,7 @@ from app.modules.catalog.sources.arcgis_signin import (
     signin_account_key,
     signin_referer,
 )
+from app.modules.catalog.sources.signin_guard import _settle_failure
 from app.platform.ratelimit import limiter
 from app.platform.security import (
     SSRFError,
@@ -1547,67 +1549,6 @@ def test_an_unresolved_separator_is_refused_rather_than_guessed_at(raw):
     assert arcgis_signin.usable_service_url(raw) is None
 
 
-async def test_the_worker_wide_bound_refuses_rather_than_queues(
-    client: AsyncClient, admin_auth_header: dict, allow_ssrf, test_db_session
-):
-    """fix(#1758 codex r17): sign-ins cannot take the whole database pool.
-
-    Production runs 10 pooled connections plus 3 overflow, and a sign-in holds
-    its request connection across discovery and the mint, so thirteen
-    concurrent ones for distinct scopes could occupy the pool and time out
-    unrelated API requests. The bound is four, below the pool, and a caller
-    that arrives when it is full is refused rather than queued: waiting would
-    hold the very connection the bound protects.
-
-    Exhausting the semaphore directly is the only way to observe this from a
-    single-request test, and it is the real object the handler checks.
-    """
-    await _clear_unknown_host_rows(test_db_session)
-    exchange = _Exchange(
-        {
-            "info": _json_response(_info_payload()),
-            "generateToken": _json_response(_token_payload()),
-        }
-    )
-    held = [
-        await sources_router._signin_slots.acquire()
-        for _ in range(sources_router._ARCGIS_SIGNIN_CONCURRENCY)
-    ]
-    assert held is not None  # the acquires above, kept for the release below
-    try:
-        with _install(exchange):
-            # A deadline, because the regression this guards against is a
-            # HANG, not a wrong answer: without the check the handler waits on
-            # `async with _signin_slots` for a slot nobody will free, holding
-            # the connection the bound exists to protect. Failing in five
-            # seconds beats burning the job's whole timeout.
-            async with asyncio.timeout(5):
-                resp = await client.post(
-                    SIGNIN_URL, json=_body(), headers=admin_auth_header
-                )
-    except TimeoutError:  # pragma: no cover - only on regression
-        pytest.fail(
-            "the sign-in queued on a full semaphore instead of refusing, "
-            "which holds a pooled connection while it waits"
-        )
-    finally:
-        for _ in range(sources_router._ARCGIS_SIGNIN_CONCURRENCY):
-            sources_router._signin_slots.release()
-
-    assert resp.status_code == 429
-    assert resp.json()["detail"]["code"] == "rate_limited"
-    # Refused before any network I/O, and nothing charged to a real account.
-    assert exchange.requests == []
-    assert await _audit_rows(test_db_session) == []
-    rows = await _audit_rows(test_db_session, host="unknown")
-    assert [row.details["result"] for row in rows] == ["rate_limited"]
-
-
-def test_the_concurrency_bound_sits_below_the_database_pool():
-    """The number is the point: above the pool it would protect nothing."""
-    assert sources_router._ARCGIS_SIGNIN_CONCURRENCY < 10 + 3
-
-
 async def test_a_refusal_is_never_retried(
     client: AsyncClient, admin_auth_header: dict, allow_ssrf
 ):
@@ -2078,11 +2019,11 @@ async def test_the_advisory_lock_is_held_by_one_caller_at_a_time(
     )
 
     async def _try(session, user, account) -> bool:
-        async with sources_router._signin_locks(session, user, account) as held:
+        async with signin_guard._signin_locks(session, user, account) as held:
             return held
 
     async with async_session() as holder:
-        async with sources_router._signin_locks(
+        async with signin_guard._signin_locks(
             holder, user_scope, account_scope
         ) as first:
             assert first
@@ -2183,6 +2124,312 @@ async def test_a_signin_holds_exactly_one_pooled_connection(
     )
 
 
+async def test_concurrent_signins_hold_no_pooled_connection_across_the_mint(
+    client: AsyncClient, admin_auth_header: dict, allow_ssrf
+):
+    """fix(#1775): the acceptance criterion. No connection is held across the mint.
+
+    The test above pins ONE sign-in at a peak of one connection. This one pins
+    the other half: how many of those connections are held AT ONCE, while the
+    credential POSTs are in flight. Before reserve-then-settle the request
+    transaction was open from `require_permission` through discovery, both
+    advisory locks and the mint, for up to the 45-second network budget, so
+    N concurrent sign-ins for distinct scopes held N connections for the whole
+    of it and 13 of them could take a 10+3 production pool and time out
+    unrelated API requests. That is what the removed `asyncio.Semaphore(4)`
+    bounded rather than fixed.
+
+    Five sign-ins, each against its own portal so each resolves its own token
+    service and no two contend on a lock or a budget. Every mint blocks on one
+    event; when all five are inside it the pool is sampled. Sampled at the
+    POOL, not at the session factory, because the pool is what production runs
+    out of, and by checkout-minus-checkin so a connection released and
+    re-acquired in sequence — which reserve-then-settle does exactly once, on
+    purpose — reads as one at a time rather than as two (see #1786).
+    """
+    from sqlalchemy import event
+
+    import app.core.db as db_module
+
+    signins = 5
+    live = 0
+    peak = 0
+    in_mint = 0
+    all_minting = asyncio.Event()
+    finish_mints = asyncio.Event()
+
+    def _acquired(*_args) -> None:
+        nonlocal live, peak
+        live += 1
+        peak = max(peak, live)
+
+    def _released(*_args) -> None:
+        nonlocal live
+        live = max(0, live - 1)
+
+    async def _blocking_mint(_self, _username, _password):
+        nonlocal in_mint
+        in_mint += 1
+        if in_mint == signins:
+            all_minting.set()
+        await finish_mints.wait()
+        return arcgis_signin.MintedToken(
+            token=FIXTURE_TOKEN,
+            expires_at=datetime.now(tz=UTC) + timedelta(minutes=60),
+        )
+
+    portals = [
+        f"https://c{uuid.uuid4().hex}.signin-fixture.test" for _ in range(signins)
+    ]
+    exchange = _Exchange({"info": _json_response(_info_payload())})
+    sync_engine = db_module.engine.sync_engine
+    event.listen(sync_engine, "checkout", _acquired)
+    event.listen(sync_engine, "checkin", _released)
+    try:
+        with (
+            _install(exchange),
+            patch.object(arcgis_signin.PortalSignIn, "mint", _blocking_mint),
+        ):
+            calls = [
+                asyncio.create_task(
+                    client.post(
+                        SIGNIN_URL,
+                        json={
+                            "portal_url": portal,
+                            "username": FIXTURE_USERNAME,
+                            "password": FIXTURE_SECRET,
+                        },
+                        headers=admin_auth_header,
+                    )
+                )
+                for portal in portals
+            ]
+            try:
+                async with asyncio.timeout(30):
+                    await all_minting.wait()
+                # Every credential POST is on the wire and none has answered.
+                held_while_minting = live
+                finish_mints.set()
+                responses = await asyncio.gather(*calls)
+            finally:
+                finish_mints.set()
+                for call in calls:
+                    call.cancel()
+    finally:
+        event.remove(sync_engine, "checkout", _acquired)
+        event.remove(sync_engine, "checkin", _released)
+
+    assert [resp.status_code for resp in responses] == [200] * signins
+    assert held_while_minting == 0, (
+        f"{held_while_minting} pooled connections were held while {signins} "
+        "credential POSTs were in flight; the reservation must commit and "
+        "give its connection back before the mint"
+    )
+    # The positive control: the counter was wired to a pool that was actually
+    # used, so the zero above is a measurement rather than a dead listener.
+    assert peak >= 1
+
+
+async def test_a_signin_cancelled_mid_mint_is_already_counted(
+    client: AsyncClient, admin_auth_header: dict, allow_ssrf, test_db_session
+):
+    """fix(#1775): the second defect. A cancelled POST must not be a free attempt.
+
+    `CancelledError` is not an `Exception`, so it passes straight through
+    `PortalSignIn.mint`'s handler and the route's `except ArcGISSignInError`.
+    Under write-at-settle that lost both the audit row and the ledger row for
+    a password that had already gone to ArcGIS, and Esri counts what GeoLens
+    then did not: cancellation plus retry could walk an account past the five
+    failures that lock it. The attempt is now committed BEFORE the POST, so
+    the count survives the cancellation whatever else does.
+
+    Cancelled from outside, which is what uvicorn does to an in-flight handler
+    on shutdown, rather than by a deadline — the deadlines were already fixed
+    in #1758 round 11 and are not what this covers.
+    """
+    entered_mint = asyncio.Event()
+    never = asyncio.Event()
+
+    async def _hanging_mint(_self, _username, _password):
+        entered_mint.set()
+        await never.wait()
+        raise AssertionError("unreachable: the wait above is never released")
+
+    exchange = _Exchange(
+        {
+            "info": _json_response(_info_payload()),
+            "generateToken": _json_response(_token_payload()),
+        }
+    )
+    with _install(exchange):
+        with patch.object(arcgis_signin.PortalSignIn, "mint", _hanging_mint):
+            call = asyncio.create_task(
+                client.post(SIGNIN_URL, json=_body(), headers=admin_auth_header)
+            )
+            async with asyncio.timeout(30):
+                await entered_mint.wait()
+            call.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await call
+
+        account_key = signin_account_key(_scope(), FIXTURE_USERNAME)
+        ledger = await test_db_session.scalar(
+            select(func.count())
+            .select_from(ArcGISSignInAttempt)
+            .where(ArcGISSignInAttempt.account_key == account_key)
+        )
+        # The reservation, committed before the password went out.
+        assert ledger == 1
+        # And the operator-facing half, written by the shielded finaliser. Its
+        # own outcome, because GeoLens does not know whether ArcGIS counted
+        # the POST and must not claim either way.
+        rows = await _audit_rows(test_db_session)
+        assert [row.details["result"] for row in rows] == ["cancelled"]
+        assert rows[0].details["account_key"] == account_key
+
+        # The budget moved: two attempts left, and the fourth is refused. This
+        # is the half that a lost ledger row silently took away.
+        for _ in range(2):
+            assert (
+                await client.post(SIGNIN_URL, json=_body(), headers=admin_auth_header)
+            ).status_code == 200
+        refused = await client.post(SIGNIN_URL, json=_body(), headers=admin_auth_header)
+
+    assert refused.status_code == 429
+    assert refused.json()["detail"]["code"] == "rate_limited"
+    assert [row.details["result"] for row in await _audit_rows(test_db_session)] == [
+        "cancelled",
+        "success",
+        "success",
+        "rate_limited",
+    ]
+    ledger = await test_db_session.scalar(
+        select(func.count())
+        .select_from(ArcGISSignInAttempt)
+        .where(ArcGISSignInAttempt.account_key == account_key)
+    )
+    # Three counted attempts and no more: the refusal spends nothing.
+    assert ledger == 3
+
+
+async def test_a_settle_that_outruns_the_drain_still_leaves_cancellederror(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    allow_ssrf,
+    test_db_session,
+    monkeypatch,
+    caplog,
+):
+    """fix(#1775 audit): the drain deadline path, which nothing else reaches.
+
+    The test above covers the fast path, where the shielded write finishes and
+    the loop ends on its own. This one covers the other exit: the write is
+    still going when `_SETTLE_DRAIN_SECONDS` runs out, so the finaliser
+    cancels it and gives up.
+
+    Two things must hold on that path, and the first is why this test exists.
+    `Task.cancel()` only REQUESTS cancellation: the task is still pending on
+    the very next line, so `done()` is False, `cancelled()` is False, and
+    `Future.exception()` raises `InvalidStateError`. Reading the outcome
+    without checking pending FIRST therefore threw out of the finaliser, and
+    since the route awaits it inside `except asyncio.CancelledError:` before
+    a bare `raise`, the handler propagated `InvalidStateError` instead of the
+    cancellation it was re-raising — on the one path the ceiling exists for.
+    So: the caller still sees a cancellation, and the warning that says the
+    row was lost is actually logged.
+
+    The ledger is the third assertion and the one that matters operationally.
+    It is committed before the credential POST, so it does not care that the
+    audit write was abandoned: the attempt is counted either way.
+    """
+    monkeypatch.setattr(signin_guard, "_SETTLE_DRAIN_SECONDS", 0.05)
+
+    entered_mint = asyncio.Event()
+    never = asyncio.Event()
+
+    async def _hanging_mint(_self, _username, _password):
+        entered_mint.set()
+        await never.wait()
+        raise AssertionError("unreachable: the wait above is never released")
+
+    async def _hanging_audit(*_args, **_kwargs):
+        # Far longer than the ceiling, and on the settle's OWN session, so
+        # abandoning it cannot fault against the request session.
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(signin_guard, "_signin_audit", _hanging_audit)
+
+    exchange = _Exchange(
+        {
+            "info": _json_response(_info_payload()),
+            "generateToken": _json_response(_token_payload()),
+        }
+    )
+    with _install(exchange):
+        with patch.object(arcgis_signin.PortalSignIn, "mint", _hanging_mint):
+            with caplog.at_level(logging.WARNING):
+                call = asyncio.create_task(
+                    client.post(SIGNIN_URL, json=_body(), headers=admin_auth_header)
+                )
+                async with asyncio.timeout(30):
+                    await entered_mint.wait()
+                call.cancel()
+                # The assertion the P1 was hiding: a cancellation leaves the
+                # handler, not an InvalidStateError from reading a pending
+                # task's exception.
+                with pytest.raises(asyncio.CancelledError):
+                    await call
+
+    assert any(
+        "cancelled before its outcome could be recorded" in record.getMessage()
+        for record in caplog.records
+    ), [record.getMessage() for record in caplog.records]
+
+    # The count survives the abandoned write, because it was never in it.
+    ledger = await test_db_session.scalar(
+        select(func.count())
+        .select_from(ArcGISSignInAttempt)
+        .where(
+            ArcGISSignInAttempt.account_key
+            == signin_account_key(_scope(), FIXTURE_USERNAME)
+        )
+    )
+    assert ledger == 1
+    # And no audit row, which is the honest outcome of a write that was cut
+    # off rather than a silently invented one.
+    assert await _audit_rows(test_db_session) == []
+
+
+def test_the_settle_outcome_reader_treats_pending_as_cancelled():
+    """fix(#1775 audit): the unit-level pin, with no event loop in the way.
+
+    `_settle_failure` is the whole of the P1 fix, and the state it has to get
+    right is one that lasts a single event-loop turn, so pinning it directly
+    is what keeps a later simplification from reintroducing the crash.
+    """
+    loop = asyncio.new_event_loop()
+    try:
+        pending = loop.create_future()
+        # A future asked to cancel is neither done nor cancelled yet, and
+        # asking it for an exception raises. `_settle_failure` must not.
+        assert _settle_failure(pending) == "CancelledError"
+
+        cancelled = loop.create_future()
+        cancelled.cancel()
+        assert cancelled.cancelled()
+        assert _settle_failure(cancelled) == "CancelledError"
+
+        failed = loop.create_future()
+        failed.set_exception(RuntimeError("boom"))
+        assert _settle_failure(failed) == "RuntimeError"
+
+        landed = loop.create_future()
+        landed.set_result(None)
+        assert _settle_failure(landed) is None
+    finally:
+        loop.close()
+
+
 async def test_both_advisory_locks_are_released_when_the_body_raises(
     client: AsyncClient,
 ):
@@ -2199,12 +2446,12 @@ async def test_both_advisory_locks_are_released_when_the_body_raises(
     account_scope = f"account:{signin_account_key(_scope(), FIXTURE_USERNAME)}"
 
     async def _try(session, user, account) -> bool:
-        async with sources_router._signin_locks(session, user, account) as held:
+        async with signin_guard._signin_locks(session, user, account) as held:
             return held
 
     async with async_session() as holder:
         with pytest.raises(RuntimeError):
-            async with sources_router._signin_locks(
+            async with signin_guard._signin_locks(
                 holder, user_scope, account_scope
             ) as held:
                 assert held
@@ -2238,7 +2485,7 @@ async def test_the_account_lock_scope_is_the_account_and_not_the_geolens_caller(
         yield False
 
     exchange = _Exchange({})
-    with patch("app.modules.catalog.sources.router._signin_locks", _record):
+    with patch("app.modules.catalog.sources.signin_guard._signin_locks", _record):
         with _install(exchange):
             for headers in (admin_auth_header, editor_auth_header):
                 resp = await client.post(SIGNIN_URL, json=_body(), headers=headers)
@@ -2414,7 +2661,7 @@ async def test_a_discovery_failure_takes_no_lock_and_writes_no_ledger_row(
     await _clear_unknown_host_rows(test_db_session)
 
     locks_taken = 0
-    real_locks = sources_router._signin_locks
+    real_locks = signin_guard._signin_locks
 
     @contextlib.asynccontextmanager
     async def _counting_locks(db, user_scope, account_scope):
@@ -2431,7 +2678,7 @@ async def test_a_discovery_failure_takes_no_lock_and_writes_no_ledger_row(
     # conventional `/generateToken` is the documented fallback, so the sign-in
     # goes on to try it and any failure there is the mint's.
     exchange = _Exchange({})
-    with patch.object(sources_router, "_signin_locks", _counting_locks):
+    with patch.object(signin_guard, "_signin_locks", _counting_locks):
         with patch(
             "app.modules.catalog.sources.arcgis_signin.validate_url_for_ssrf",
             new_callable=AsyncMock,
@@ -2613,7 +2860,7 @@ async def test_a_signin_while_one_is_in_flight_is_refused_before_the_portal(
     async def _lock_taken(_db, _user_scope, _account_scope):
         yield False
 
-    with patch("app.modules.catalog.sources.router._signin_locks", _lock_taken):
+    with patch("app.modules.catalog.sources.signin_guard._signin_locks", _lock_taken):
         with _install(exchange):
             resp = await client.post(
                 SIGNIN_URL, json=_body(), headers=admin_auth_header
@@ -2698,7 +2945,7 @@ async def test_one_caller_serializes_across_accounts_on_one_portal(
 
         async with (
             async_session() as holder,
-            sources_router._signin_locks(
+            signin_guard._signin_locks(
                 holder,
                 f"user:{caller_id}:host:{_scope()}",
                 f"account:{signin_account_key(_scope(), 'someone-else')}",

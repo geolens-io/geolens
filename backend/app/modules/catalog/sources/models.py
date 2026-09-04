@@ -33,9 +33,16 @@ class ArcGISSignInAttempt(Base):
     username, no password, no token, no portal URL, no user id and no tenant
     id, and rows are swept fifteen minutes after they are written.
 
-    The per-GeoLens-user half of the limit stays on ``audit_logs`` and stays
-    tenant-scoped, which is correct: that budget only ever needs to see the
-    caller's own rows.
+    fix(#1775): the per-GeoLens-user half of the limit moved here too, as
+    ``user_scope``. It used to be counted from ``audit_logs``, but under
+    reserve-then-settle the attempt is committed BEFORE the credential POST
+    and the audit row is written after it, so a cancelled request leaves no
+    audit row and that count would miss the attempt that already went out.
+    ``user_scope`` is the same kind of value as ``account_key`` — a keyed
+    HMAC-SHA256 digest, here of the caller's id and the token-service scope
+    (``arcgis_signin.signin_user_key``) — so the no-plaintext-identifier rule
+    above still holds: there is no user id and no tenant id in this table, and
+    a digest is readable only by the instance that wrote it.
     """
 
     __tablename__ = "arcgis_signin_attempts"
@@ -47,6 +54,12 @@ class ArcGISSignInAttempt(Base):
             "account_key",
             "attempted_at",
         ),
+        # fix(#1775): the same shape for the per-caller budget's own count.
+        Index(
+            "ix_catalog_arcgis_signin_attempts_user_time",
+            "user_scope",
+            "attempted_at",
+        ),
         Index("ix_catalog_arcgis_signin_attempts_attempted_at", "attempted_at"),
         {"schema": "catalog"},
     )
@@ -55,6 +68,10 @@ class ArcGISSignInAttempt(Base):
         UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
     )
     account_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    # fix(#1775): nullable because rows written before this column existed
+    # have no caller digest and must not be charged to one. They age out of
+    # the fifteen-minute window on their own, so the gap closes itself.
+    user_scope: Mapped[str | None] = mapped_column(String(64), nullable=True)
     attempted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
