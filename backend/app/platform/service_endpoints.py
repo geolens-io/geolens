@@ -444,16 +444,22 @@ def _capabilities_url(url: str) -> str:
     which is that the service and request parameters win over whatever the
     caller's URL carried.
 
-    fix(#1770 round 47b P2 class): `max_num_fields=MAX_QUERY_FIELDS`, the
-    same bound `bounded_parse_qsl` applies to a service-advertised query.
-    `url` here is the caller's own submitted service URL, not the live
-    shape the finding named, but closing it costs nothing.
+    fix(#1770 round 47c): round 47b's `max_num_fields=MAX_QUERY_FIELDS` here
+    was wrong. This function is the `_check_wfs` capabilities read, reached
+    from `assert_endpoints_stay_on_origin` for EVERY WFS caller --
+    `preview.py`, `sources/router.py`'s `/probe`, and the worker
+    (`processing/ingest/ogr.py`) -- and every one of those three catches
+    only `(CrossOriginEndpointError, EndpointCheckFailedError)`, not a bare
+    `ValueError`. A `ValueError` past the field count therefore escaped
+    preview and `/probe` as an unclassified exception and killed a worker
+    job unclassified, the exact class rounds 44 and 47 both closed
+    elsewhere. `url` here really is the caller's own submitted service URL
+    (`ProbeRequest`/`ServicePreviewRequest` cap it at 2048 chars, ~350
+    fields of `a=1&` at that length), never a value read out of a
+    THIRD-PARTY response, so `# parse_qs: unbounded` is the correct answer.
     """
     parsed = urlparse(url)
-    params = {
-        k: v[0]
-        for k, v in parse_qs(parsed.query, max_num_fields=MAX_QUERY_FIELDS).items()
-    }
+    params = {k: v[0] for k, v in parse_qs(parsed.query).items()}  # parse_qs: unbounded
     params["service"] = "WFS"
     params["request"] = "GetCapabilities"
     return urlunparse(parsed._replace(query=urlencode(params)))

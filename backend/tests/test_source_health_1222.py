@@ -1252,6 +1252,43 @@ class TestServiceOriginProbe:
         # body-reading fetch; a WFS origin has no error envelope to read.
         assert recorded[0].headers["Range"] == "bytes=0-0"
 
+    async def test_a_many_param_service_url_still_probes_not_a_500(
+        self, client, admin_auth_header, test_db_session, probe_transport
+    ) -> None:
+        """fix(#1770 round 47c). `build_capabilities_url`
+        (`adapters/wfs.py`) is reached here via `origin_probe.py::service_
+        probe_target`, with NO surrounding `except ValueError` anywhere on
+        this path -- unlike `probe_wfs`'s own caller (`_header_auth_probe`
+        in `probe.py`), which does catch it. Round 47b bound this function's
+        query parse with `max_num_fields`, reasoning every caller degraded
+        the refusal gracefully; it checked one caller and this route was the
+        one it missed, so a many-param `origin_ref.url` (schema-capped at
+        2048 chars, well under the field count that reasoning bound at)
+        would have reached this route as a raw 500 rather than the healthy
+        (or unhealthy) probe result an ordinary URL gets. Counterfactual:
+        restoring round 47b's `max_num_fields=MAX_QUERY_FIELDS` at
+        `build_capabilities_url` turns this into a 500.
+        """
+        install, recorded = probe_transport
+        install(_status_map({}, default=200))
+        admin_id = await get_user_id(test_db_session, "admin")
+        many_params = "&".join(f"a{n}=1" for n in range(257))
+        dataset = await _service_dataset(
+            test_db_session,
+            created_by=admin_id,
+            service_type="wfs",
+            origin_uri="https://origin.test/wfs/topp:roads",
+            service_url=f"https://origin.test/wfs?{many_params}",
+            layer_id="topp:roads",
+        )
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/source-health/", headers=admin_auth_header
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["source_health"] == HEALTHY
+        assert len(recorded) == 1
+
     async def test_legacy_wfs_row_without_a_base_url_refuses_to_probe(
         self, client, admin_auth_header, test_db_session, probe_transport
     ) -> None:

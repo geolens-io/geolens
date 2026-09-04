@@ -2573,7 +2573,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # don't bother) and the low-priority fixes: a warning on `_next_page`'s
     # silent stop, and a docstring note on `_wfs_operation_hrefs`'s own
     # O(breadth) stack-memory tradeoff. Cap 1258 -> 1310, exact.
-    "backend/app/platform/service_endpoints.py": 1310,
+    # fix(#1770 round 47c): +6. `_capabilities_url` moved from
+    # `max_num_fields=` back to `# parse_qs: unbounded` -- see the
+    # function's own docstring for why round 47b's bound here was wrong.
+    # Net growth is the corrected, longer docstring. Cap 1310 -> 1316,
+    # exact.
+    "backend/app/platform/service_endpoints.py": 1316,
     # fix(#1770 round 42): first entry, crossed _RATCHET_INCLUSION_LOC on the
     # completeness-predicate unification. `_page_proves_complete` is the one
     # function round 41's full-walk-only proof and round 42's sampled-preview
@@ -7011,20 +7016,43 @@ def test_every_parse_qsl_call_bounds_its_field_count() -> None:
     `MAX_QUERY_FIELDS` across a layering boundary `config.py` cannot import
     across (it has no `app.*` imports at all, and importing `platform.
     service_endpoints` into it would very likely create an import cycle).
-    Those sites carry `# parse_qs: unbounded` on the same line instead, the
-    same same-line-annotation discipline `test_no_unjustified_broad_except_
-    sites` already uses for a broad `except`.
+
+    fix(#1770 round 47c): `adapters/wfs.py::build_capabilities_url` and
+    `service_endpoints.py::_capabilities_url` moved from the BOUND list to
+    this exempted one. Round 47b bound them reasoning `_header_auth_probe`
+    (`probe.py`) catches every `ValueError` from an adapter -- true for the
+    `probe_wfs` caller, but not the only one: `origin_probe.py::service_
+    probe_target` calls `build_capabilities_url` for the periodic health
+    check (`GET /datasets/{id}/health`) with NO surrounding `except
+    ValueError` at all, and `_capabilities_url` is reached from `preview.py`
+    and the worker (`processing/ingest/ogr.py`) through `assert_endpoints_
+    stay_on_origin`, both of which catch only `(CrossOriginEndpointError,
+    EndpointCheckFailedError)`. A `ValueError` past the field count on
+    either function reached three of five real callers as an uncaught
+    exception -- a raw 500 on the health route, an unclassified failure on
+    preview and the worker -- the exact class this whole test exists to
+    close, reintroduced by "one caller checked, the rest assumed" reasoning.
+    Both take the caller's own submitted service URL (`ProbeRequest`/
+    `ServicePreviewRequest` cap it at 2048 chars, ~350 fields of `a=1&` at
+    that length), never a value read out of a THIRD-PARTY response, so
+    exempting them is the correct answer, not auditing five call sites for
+    a bound that was never the fix.
+
+    Every exempted site carries `# parse_qs: unbounded` on the same line,
+    the same same-line-annotation discipline `test_no_unjustified_broad_
+    except_sites` already uses for a broad `except`.
 
     Every OTHER site must carry `max_num_fields=` -- via `bounded_parse_qsl`
     itself, a call to it (`bounded_parse_qsl(` also matches the grep, since
     `bounded_parse_qsl(` contains the substring `parse_qsl(`), or an inline
     `max_num_fields=` on a native `parse_qs`/`parse_qsl` call where the
-    caller needs that function's own return shape (`adapters/wfs.py`,
-    `service_endpoints.py::_capabilities_url`, and
-    `processing/tiles/router.py`'s buried-query recovery, all read a value
-    with attacker or operator reach and none of them need `bounded_parse_
-    qsl`'s specific `list[tuple]` shape) -- so a new second call site cannot
-    silently reintroduce the unbounded class the finding named.
+    caller needs that function's own return shape and EVERY real caller
+    already degrades a `ValueError` past the count to a coded refusal
+    (`processing/tiles/router.py`'s buried-query recovery is the one
+    remaining example: attacker-reachable, unauthenticated, and its own
+    `try/except ValueError` degrades to "no buried params recovered") --
+    so a new second call site cannot silently reintroduce the unbounded
+    class the finding named.
 
     Positive control: this repo has more than zero matching call sites
     today (asserted below), so an empty match list means the grep pattern

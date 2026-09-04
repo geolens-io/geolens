@@ -2206,13 +2206,24 @@ class TestAWfsCheckOnlyValidatesTheOperationsTheReadPathUses:
             )
 
 
-class TestTheCapabilitiesUrlBuilderBoundsItsFieldCount:
-    """fix(#1770 round 47b P2 class, `service_endpoints.py::_capabilities_url`).
+class TestTheCapabilitiesUrlBuilderIsNotFieldCountBounded:
+    """fix(#1770 round 47c, `service_endpoints.py::_capabilities_url`).
 
-    Same bound `bounded_parse_qsl` applies to a service-advertised query,
-    on the module's own `_capabilities_url` -- see that function's
-    docstring for why a caller-submitted site gets it too even though it
-    is not the live shape the finding named.
+    Round 47b bound this with `max_num_fields=MAX_QUERY_FIELDS`, reasoning
+    it "costs nothing to close" since `url` is caller-submitted rather than
+    the finding's live shape -- true, but wrong about the cost. This
+    function is `_check_wfs`'s capabilities read, reached from
+    `assert_endpoints_stay_on_origin` for EVERY WFS caller: `preview.py`,
+    `sources/router.py`'s `/probe` (below), and the worker
+    (`processing/ingest/ogr.py`). All three catch only
+    `(CrossOriginEndpointError, EndpointCheckFailedError)`, not a bare
+    `ValueError`, so a many-param caller URL reached each of them as an
+    escaping exception rather than the coded refusal or normal result an
+    ordinary URL gets -- the exact class this whole finding exists to
+    close, reintroduced by binding a function whose real callers were
+    never audited. `url` is the caller's own submitted service URL
+    (`ProbeRequest`/`ServicePreviewRequest` cap it at 2048 chars), so it is
+    exempted (`# parse_qs: unbounded`) rather than bound.
     """
 
     def test_a_few_params_still_resolve(self) -> None:
@@ -2223,12 +2234,59 @@ class TestTheCapabilitiesUrlBuilderBoundsItsFieldCount:
         assert "service=WFS" in url
         assert "request=GetCapabilities" in url
 
-    def test_a_query_over_the_field_count_bound_is_refused(self) -> None:
+    def test_a_query_over_the_old_field_count_bound_still_resolves(self) -> None:
         from app.platform.service_endpoints import MAX_QUERY_FIELDS, _capabilities_url
 
-        bomb = "&".join(f"a{n}=1" for n in range(MAX_QUERY_FIELDS + 1))
-        with pytest.raises(ValueError):
-            _capabilities_url(f"{_SVC_ORIGIN}/geoserver/wfs?{bomb}")
+        query = "&".join(f"a{n}=1" for n in range(MAX_QUERY_FIELDS + 1))
+        url = _capabilities_url(f"{_SVC_ORIGIN}/geoserver/wfs?{query}")
+        assert "service=WFS" in url
+        assert "request=GetCapabilities" in url
+
+    async def test_a_many_param_probe_url_gets_a_coded_result_not_a_500(
+        self, monkeypatch
+    ) -> None:
+        """`assert_endpoints_stay_on_origin` is exactly what `sources/
+        router.py`'s `/probe` handler calls, catching only
+        `(CrossOriginEndpointError, EndpointCheckFailedError)`. A raw
+        `ValueError` escaping here is what reached that handler as an
+        unclassified exception before this round's fix. Counterfactual:
+        restoring round 47b's `max_num_fields=MAX_QUERY_FIELDS` at
+        `_capabilities_url` makes this raise a bare `ValueError` instead
+        of returning cleanly.
+        """
+        from app.platform.service_endpoints import (
+            MAX_QUERY_FIELDS,
+            assert_endpoints_stay_on_origin,
+        )
+
+        query = "&".join(f"a{n}=1" for n in range(MAX_QUERY_FIELDS + 1))
+        many_param_svc = f"{_SVC_WFS}?{query}"
+        document = _capabilities(_SVC_WFS)
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            return _as_stream(httpx.Response(200, text=document))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        # No exception at all, coded or otherwise: the capabilities URL this
+        # builds from `many_param_svc` still resolves, so the walk proceeds
+        # to the ordinary same-origin check exactly as it would for a
+        # normal URL.
+        await assert_endpoints_stay_on_origin(
+            many_param_svc,
+            service_format="wfs",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            collection=None,
+            deadline=None,
+        )
 
 
 class TestADeeplyNestedWfsBranchNeverBecomesARecursionError:

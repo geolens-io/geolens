@@ -38,7 +38,6 @@ from app.core.url_redaction import redact_exception_text
 from app.platform.probe_bounds import bounded_probe_read
 from app.platform.service_endpoints import (
     DEFAULT_CHECK_TIMEOUT,
-    MAX_QUERY_FIELDS,
     WFS_XML_ACCEPT,
     EndpointCheckFailedError,
 )
@@ -111,18 +110,23 @@ def parse_wfs_capabilities(xml_text: str | bytes) -> tuple[str, list[dict]]:
 def build_capabilities_url(url: str) -> str:
     """Build a GetCapabilities URL, preserving existing query params.
 
-    fix(#1770 round 47b P2 class): `max_num_fields=MAX_QUERY_FIELDS`, same
-    bound `bounded_parse_qsl` applies to a service-advertised query
-    (`service_endpoints.py`). `url` here is the caller's own submitted
-    service URL rather than one read out of a response body, so this is not
-    the live shape the finding named, but it costs nothing to close for
-    consistency: a `ValueError` past the field count is already caught by
-    `_header_auth_probe` (`probe.py`) the same way a `build_credential_
-    header` refusal is, and degrades to "try the next adapter" rather than
-    a 500.
+    fix(#1770 round 47c): round 47b's `max_num_fields=MAX_QUERY_FIELDS` here
+    was wrong -- `_header_auth_probe` (`probe.py`) is not the only caller.
+    `origin_probe.py::service_probe_target` calls this for the periodic
+    health check (`GET /datasets/{id}/health`, `router_health.py`) with NO
+    surrounding `except ValueError` at all, so a `ValueError` past the
+    field count reached that route as a bare 500 -- the exact class rounds
+    44 and 47 both closed elsewhere, reintroduced by round 47b's own "costs
+    nothing to close" reasoning, which checked one caller and assumed the
+    rest. `url` here really is the caller's own submitted service URL
+    (`SourceCreate`'s schema caps it at 2048 chars, ~350 fields of `a=1&` at
+    that length), never a value read out of a THIRD-PARTY response, so
+    `# parse_qs: unbounded` is the correct answer, matching
+    `preview.py::_encode_url_for_gdal`'s existing exemption for the same
+    reason.
     """
     parsed = urlparse(url)
-    existing_params = parse_qs(parsed.query, max_num_fields=MAX_QUERY_FIELDS)
+    existing_params = parse_qs(parsed.query)  # parse_qs: unbounded
 
     # Merge required WFS params (overwrite if present)
     existing_params["service"] = ["WFS"]
