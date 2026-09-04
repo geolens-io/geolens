@@ -2581,7 +2581,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1770 rebase audit nit): +1. The marker line sat at exactly 88
     # chars; split the `parse_qs` call onto its own line so the trailing
     # `# parse_qs: unbounded` comment has room. Cap 1316 -> 1317, exact.
-    "backend/app/platform/service_endpoints.py": 1317,
+    # fix(#1770 rebase audit nit): +2. `_capabilities_url`'s docstring now
+    # distinguishes `/probe`'s fresh schema field from preview/the worker's
+    # persisted `origin_ref["url"]`, the same fix `adapters/wfs.py::build_
+    # capabilities_url`'s docstring already got. Cap 1317 -> 1319, exact.
+    "backend/app/platform/service_endpoints.py": 1319,
     # fix(#1770 round 42): first entry, crossed _RATCHET_INCLUSION_LOC on the
     # completeness-predicate unification. `_page_proves_complete` is the one
     # function round 41's full-walk-only proof and round 42's sampled-preview
@@ -2901,10 +2905,26 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # (str | list[MapSpriteEntry]), so exported styles (which always emit the
     # array form) round-trip through /maps/import instead of 422ing.
     # Cap 1377 -> 1396, exact.
-    # fix(#1770 rebase onto main): +69, from upstream main growth this lane
-    # never touched, landed between this branch's fork point and its rebase.
-    # Re-pinned by direct `wc -l` measurement of the post-rebase file. Cap
-    # 1396 -> 1465, exact.
+    # fix(#1778): +28 — `filter` picks up the byte cap the other open JSONB
+    # columns carry. The byte check moved into `_reject_oversize_json` so the
+    # dict and list callers share one policy, and `_validate_filter_field`
+    # records the ordering that matters: the grammar validator carries the
+    # nesting bound and has to run first, because `json.dumps` recurses and a
+    # RecursionError is not something Pydantic turns into a 422.
+    # Cap 1396 -> 1424, exact.
+    # fix(#1778): +27 — the style-import door picks up `max_length=
+    # _MAX_LAYERS_PER_MAP` like its three siblings, with the comment saying
+    # what its absence cost (an over-cap imported map that apply_layer_diff
+    # then refused to save), and MapStyleImportSummary gains add_warning plus
+    # the truncation counter, because one warning per unmatched source over an
+    # unbounded `sources` object put the whole list in the 201 response.
+    # Cap 1424 -> 1451, exact.
+    # fix(#1778 round 1): +14 — _MAX_STYLE_DOCUMENT_LAYERS replaces the per-map
+    # cap on the raw `layers` array, which counted the companions an export
+    # emits and so refused valid GeoLens documents from about 50 polygons up.
+    # The lines are the derivation: four style layers per logical layer, worst
+    # case, measured, times the per-map cap, plus headroom for the layers an
+    # import skips. Cap 1451 -> 1465, exact.
     "backend/app/modules/catalog/maps/schemas.py": 1465,
     # fix(#1042): decomposed. The file reached 2151 lines with five carve-outs
     # on this cap, each one a correctness fix that had to argue for its lines:
@@ -2928,7 +2948,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # threshold, so none needs an entry here yet. What is left below is the
     # re-export façade every existing importer and mock.patch target resolves
     # against. Cap 2151 -> 144, exact.
-    "backend/app/processing/ingest/metadata.py": 144,
+    # fix(#1738): +10 — the re-exports the repair path resolves against
+    # (rederive_geom_4326, the Geom4326Repair it returns, and its three
+    # outcome constants) plus their __all__ entries. Cap 144 -> 154, exact.
+    # fix(#1738 round 1): +4 — probe_geom_4326 and the Geom4326State it
+    # returns, split out so the caller can tell a non-spatial table from a
+    # repairable one BEFORE resolving the SRID. Cap 154 -> 158, exact.
+    "backend/app/processing/ingest/metadata.py": 158,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining runway to the cliff
     # cannot be spent silently.
@@ -3430,12 +3456,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the docstring stating why `NO KEY UPDATE` over plain `UPDATE`, and
     # pointing at the sweep-side fixes that now have to contend with this
     # lock instead of racing past it. Cap 2470 -> 2495, exact.
+    # fix(#1738 round 1): +38 — bump_tile_cache_version_atomic, the sibling of
+    # Dataset.bump_tile_cache_version for a writer that holds no row lock.
+    # Most of it is the docstring arguing why the lock is not the fix: the
+    # feature-edit routers roll the counter through a plain read-modify-write
+    # and never take one, so one side locking does not serialize a race the
+    # other side is not playing. Cap 2495 -> 2533, exact.
     # fix(#1770 round 43 P2): +8. `_bind_task_log_context` now also resets
     # the credential-secret registry (`core/service_tokens.register_
     # credential_secret`) at the same boundary it already clears structlog's
     # own contextvars, so a re-used worker cannot scrub a later job's log
-    # lines with an earlier job's secret. Cap 2495 -> 2503, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2503,
+    # lines with an earlier job's secret. Cap 2533 -> 2541, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2541,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -4246,19 +4278,20 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # reserved (replacing the hand-rolled charset block), and the service
     # preview door converts its own `auth` object the way the four siblings
     # do. Cap 1294 -> 1306, exact.
-    # fix(#1770 round 35): +19 — the reupload door judges
-    # header_auth_job_queue on the composed line before the store lease, and
-    # _dispatch_reupload_task grows a service_queue parameter so the verdict
-    # reaches the configure() call that used to hardcode the task's own
-    # queue. Cap 1306 -> 1325, exact.
-    # fix(#1770 rebase onto main): +61, from #1768's `_refuse_if_origin_
-    # changed` (merged as part of #1821 before this branch's rebase). An
-    # earlier rebase conflict resolution on this same dict entry took this
-    # lane's own stale pre-#1768 number instead of the upstream one, so the
-    # comment history above this line does not mention #1768 by name even
-    # though its lines are counted here -- re-pinned by direct `wc -l`
-    # measurement of the post-rebase file to correct that gap. Cap 1325 ->
-    # 1386, exact.
+    # fix(#1768): +61. `_refuse_if_origin_changed` re-reads the dataset's
+    # origin after the run row takes the one-active-run slot and refuses a
+    # stale `expected_origin_kind` with 409 `origin_changed`. It is a helper
+    # rather than an inline block because two more branches in the handler
+    # crossed the McCabe gate, which is the same reason `_dispatch_reupload_task`
+    # exists. Most of the lines are its docstring: which window the condition
+    # closes, why the reservation is what makes the re-read decisive instead of
+    # one more racing read, and why an absent value asserts nothing.
+    # Cap 1306 -> 1367, exact.
+    # fix(#1770 round 35): the reupload door judges header_auth_job_queue on
+    # the composed line before the store lease, and _dispatch_reupload_task
+    # grows a service_queue parameter so the verdict reaches the configure()
+    # call that used to hardcode the task's own queue. Cap 1367 -> 1386,
+    # exact.
     "backend/app/modules/catalog/datasets/api/router_reupload.py": 1386,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
@@ -4794,7 +4827,52 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # on the line job_service_format/wire_credential just composed, before
     # the credential-store lease may swap it for a reference, and configures
     # ingest_service's queue with the verdict. Cap 1547 -> 1560, exact.
-    "backend/app/processing/ingest/service.py": 1560,
+    # fix(#1738): +8 of docstring, no code. register_existing_table's stated
+    # contract was "linearize once, do not police the table afterward", which
+    # a reader could take as "the owner's writes are picked up somehow". They
+    # are not: they are picked up by Refresh, which now re-derives geom_4326.
+    # The paragraph says which writes go stale and what recovers them, so the
+    # next reader does not have to find that out from a broken dataset.
+    # Cap 1560 -> 1568, exact.
+    "backend/app/processing/ingest/service.py": 1568,
+    # fix(#1738): first entry, crossed _RATCHET_INCLUSION_LOC (842 -> 1019) on
+    # the change that gave this task a repair phase. What the growth bought:
+    # `geom_4326` on a registered table was written once, at registration, and
+    # never re-derived, so an `UPDATE geom`, a DELETE+INSERT reload, or an
+    # `ogr2ogr -overwrite` left rows that every reader filters out — silently
+    # invisible, because `NULL && <envelope>` is NULL. Phase 1.5 re-applies
+    # the invariant from outside the table, which is the only shape that
+    # survives -overwrite dropping it. Most of the added lines are the
+    # docstring and the constant comments carrying the two properties a later
+    # reader would otherwise simplify away: the phase runs BEFORE the
+    # read-only measurement (which declares postgresql_readonly=True precisely
+    # so a write from it fails), and it installs its own statement deadline
+    # because `install_api_statement_timeout` is an API-process concern and a
+    # worker UPDATE on a customer's relation would otherwise be unbounded.
+    # The second bound is the one measurement forced: ADD COLUMN takes ACCESS
+    # EXCLUSIVE, a QUEUED lock request already blocks every reader behind it,
+    # and the first version of this phase sat on that queue for the full five
+    # minutes in a test. `_REPAIR_LOCK_TIMEOUT_MS` gives the position back
+    # after five seconds instead. Cap 842 -> 1061, exact.
+    # fix(#1738 round 1): +43 for two review findings and the defect the first
+    # of them uncovered. The reader GRANT is now re-issued whatever the
+    # geometry turned out to be — it is the third thing -overwrite destroys
+    # and losing it does not depend on the render column needing a rewrite, so
+    # gating it on the re-derive let a recreated table with a generated
+    # geom_4326 pass a refresh unreadable. Probing the columns before
+    # resolving the SRID is what that exposed: Find_SRID RAISES for a table
+    # with no geometry, so every refresh of a registered non-spatial dataset
+    # was a logged repair failure that also skipped the grant. And the version
+    # bump moved to the atomic helper, because this transaction holds no row
+    # lock. Cap 1061 -> 1104, exact.
+    # fix(#1738 round 2): +24 — the GiST index restore moves onto the same
+    # rule as the grant: every outcome where the column exists, not only the
+    # one where it had to be rewritten. `rederive_geom_4326` was the only
+    # caller of the index helper, so an overwrite that recreated the table
+    # with a valid STORED GENERATED `geom_4326` left the dataset with no
+    # spatial index and every `geom_4326 && <envelope>` predicate the readers
+    # issue fell back to a sequential scan. Cap 1104 -> 1128, exact.
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1128,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.
@@ -4954,12 +5032,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1746 B2b review r24): +8. `row_count_delta` is nullable (and still
     # required), with the reason recorded where the field is declared.
     # Cap 1516 -> 1524, exact.
-    # fix(#1770 rebase onto main): +12, from #1768's `ReuploadCommitRequest.
-    # expected_origin_kind` (merged as part of #1821 before this branch's
-    # rebase; lost from the comment trail the same way `router_reupload.py`'s
-    # entry above was, by an earlier rebase conflict resolution taking this
-    # lane's stale number). Re-pinned by direct `wc -l` measurement of the
-    # post-rebase file. Cap 1524 -> 1536, exact.
+    # fix(#1768): +12. `ReuploadCommitRequest.expected_origin_kind`, typed with
+    # the shared `OriginKind` literal from platform/dataset_origin.py rather
+    # than a second spelling of the vocabulary, plus the description telling a
+    # client author what the field buys and that omitting it is supported.
+    # Cap 1524 -> 1536, exact.
     "backend/app/modules/catalog/datasets/domain/schemas.py": 1536,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
@@ -5118,10 +5195,49 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # feat(#1691): +9 — the check_public_visibility_allowed gate on the map
     # update route (a non-admin may not move a map TO public when
     # restrict_public_visibility is on). Cap 1460 -> 1469, exact.
-    # fix(#1770 rebase onto main): +103, from upstream main growth this lane
-    # never touched, landed between this branch's fork point and its rebase.
-    # Re-pinned by direct `wc -l` measurement of the post-rebase file. Cap
-    # 1469 -> 1572, exact.
+    # fix(#1778): +19 — the three call sites that discard a map's stored
+    # thumbnail / OG-image objects, plus the comments recording why each key is
+    # snapshotted before the write commits (after it, every attribute on
+    # map_obj is expired and a lazy refresh would raise) and why the extension
+    # flip strands a key at all. Cap 1469 -> 1488, exact.
+    # fix(#1778 round 1): +9 — the import route answers 422 for the per-map
+    # layer limit, above the generic ValueError arm it subclasses, with the
+    # comment saying why that order is load-bearing. Cap 1488 -> 1497, exact.
+    # fix(#1778 round 2): +12 — the three asset call sites take the row lock
+    # that serializes a map's thumbnail and OG-image replacements, plus the
+    # comments recording what the race produced (a committed URI pointing at an
+    # object the other request had already deleted, both requests 204, the
+    # endpoint 404 from then on) and why the lock is taken after payload
+    # validation rather than at the top of each handler. The 404 for a
+    # concurrently deleted map lives in the helper, not repeated three times.
+    # This crosses the 1500 glob default the allowlist overrides, which is what
+    # this entry is for. The seam if it grows again is the asset surface: the
+    # thumbnail and OG-image routes move to router_assets.py, which already
+    # exists and holds 142 lines. Cap 1497 -> 1509, exact.
+    # fix(#1778 round 3): +1 — the two image keys come from new_map_asset_key,
+    # which never returns a name twice. Cap 1509 -> 1510, exact.
+    # fix(#1778 round 4): +16 — both upload handlers publish the object and the
+    # row that names it inside one rollback scope, so a failure between the put
+    # and the commit does not leave an undiscoverable object under maps/.
+    # Cap 1510 -> 1526, exact.
+    # fix(#1778 round 5): +8 — both handlers settle the publication on the
+    # commit inside _record_image_capture, so a failure after it cannot roll
+    # back an object the committed row names. Cap 1526 -> 1534, exact.
+    # fix(#1778 round 6): +11 — the commit moved out of _record_image_capture so
+    # each handler can mark its publication immediately before awaiting it, and
+    # a commit that made the row durable but never acknowledged it deletes
+    # nothing. Cap 1534 -> 1545, exact.
+    # fix(#1778 round 7): +9 — the ledger entry moved above the write it covers,
+    # with the comment saying why that is free: object storage can durably
+    # accept a PUT and still fail the client, and the key is never reused, so a
+    # rollback delete either cleans up or no-ops. Cap 1545 -> 1554, exact.
+    # fix(#1778 round 9): +18 — lock_map_for_asset_write moved to after storage.put
+    # in both image handlers, so a stalled write no longer holds the map row
+    # locked; previous_key is now read under the lock, after the write, so two
+    # concurrent uploads reap each other's key correctly instead of racing on
+    # a stale read. Most of the growth is the docstring explaining why the
+    # lock has to move rather than just gaining a shorter timeout of its own.
+    # Cap 1554 -> 1572, exact.
     "backend/app/modules/catalog/maps/router.py": 1572,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,

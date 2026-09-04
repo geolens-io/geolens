@@ -453,9 +453,11 @@ def _capabilities_url(url: str) -> str:
     `ValueError`. A `ValueError` past the field count therefore escaped
     preview and `/probe` as an unclassified exception and killed a worker
     job unclassified, the exact class rounds 44 and 47 both closed
-    elsewhere. `url` here really is the caller's own submitted service URL
-    (`ProbeRequest`/`ServicePreviewRequest` cap it at 2048 chars, ~350
-    fields of `a=1&` at that length), never a value read out of a
+    elsewhere. On `/probe`, `url` is a fresh `ProbeRequest`/
+    `ServicePreviewRequest.url` field, schema-capped at 2048 chars; on
+    preview and the worker it is `origin_ref["url"]` instead -- caller-
+    derived JSONB persisted from that same submission one hop earlier, not a
+    fresh field itself. Either way it is never a value read out of a
     THIRD-PARTY response, so `# parse_qs: unbounded` is the correct answer.
     """
     parsed = urlparse(url)
