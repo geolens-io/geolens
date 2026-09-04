@@ -6,7 +6,8 @@ make a landed table readable by the tile, feature and analysis surfaces.
 index); ``linearize_existing_4326`` enforces that same invariant on a column
 the pipeline never wrote, since registration skips ``add_4326_column`` when a
 BYO table already carries one; ``rederive_geom_4326`` re-applies the whole
-invariant to a registered table its owner has written to since (#1738);
+invariant to a registered table its owner has written to since (#1738), over
+the column state ``probe_geom_4326`` reads;
 ``grant_reader_access`` hands the finished table to the reader role.
 """
 
@@ -100,6 +101,56 @@ REPAIR_NO_GEOMETRY = "no_geometry"
 REPAIR_GENERATED = "generated"
 
 
+class Geom4326State(NamedTuple):
+    """What the two geometry columns look like right now.
+
+    Split out of :func:`rederive_geom_4326` (#1738 round 1) so the caller can
+    decide what to do BEFORE resolving the source SRID. ``get_table_srid``
+    wraps PostGIS ``Find_SRID``, which RAISES for a table with no registered
+    geometry column rather than returning NULL — so a registered non-spatial
+    table (#1359 admits them) reached the repair as an exception, was reported
+    as a failure, and skipped the reader grant that follows it.
+    """
+
+    source_is_geometry: bool
+    has_render: bool
+    render_generated: bool
+
+    @property
+    def rederivable(self) -> bool:
+        """Whether re-deriving the render column is possible at all."""
+        return self.source_is_geometry and not self.render_generated
+
+
+async def probe_geom_4326(
+    session: AsyncSession, table_name: str, *, schema: str = "data"
+) -> Geom4326State:
+    """Read the state of ``geom`` and ``geom_4326`` in one query.
+
+    The same pair of column names registration looks for. ``udt_name`` is
+    checked because a plain column that happens to be called ``geom`` is not a
+    geometry: ``Find_SRID`` would raise on it, and the UPDATE would too.
+    """
+    rows = (
+        await session.execute(
+            text(
+                "SELECT column_name, udt_name, is_generated "
+                "FROM information_schema.columns "
+                "WHERE table_schema = :schema AND table_name = :table "
+                "  AND column_name IN ('geom', 'geom_4326')"
+            ).bindparams(schema=schema, table=table_name)
+        )
+    ).all()
+    columns = {row.column_name: row for row in rows}
+    source = columns.get("geom")
+    render = columns.get("geom_4326")
+    return Geom4326State(
+        source_is_geometry=source is not None and source.udt_name == "geometry",
+        has_render=render is not None,
+        render_generated=render is not None and render.is_generated == "ALWAYS",
+    )
+
+
 class Geom4326Repair(NamedTuple):
     """What one re-derive pass did to a table, for the run to report.
 
@@ -120,6 +171,7 @@ async def rederive_geom_4326(
     source_srid: int,
     *,
     schema: str = "data",
+    state: Geom4326State | None = None,
 ) -> Geom4326Repair:
     """Re-apply the geom_4326 invariant to a table written to outside GeoLens.
 
@@ -174,31 +226,19 @@ async def rederive_geom_4326(
     """
     tref = _qtable(table_name, schema=schema)
 
-    # One probe for all three questions, and the same pair of column names
-    # registration looks for. ``udt_name`` is checked because a plain column
-    # that happens to be called ``geom`` is not a geometry: Find_SRID would
-    # raise on it, and the UPDATE below would too.
-    probe = (
-        await session.execute(
-            text(
-                "SELECT column_name, udt_name, is_generated "
-                "FROM information_schema.columns "
-                "WHERE table_schema = :schema AND table_name = :table "
-                "  AND column_name IN ('geom', 'geom_4326')"
-            ).bindparams(schema=schema, table=table_name)
-        )
-    ).all()
-    columns = {row.column_name: row for row in probe}
+    # ``state`` is accepted rather than always probed because the caller has
+    # to know these answers first anyway: whether to resolve the source SRID
+    # at all depends on them (see Geom4326State). Probed here when absent so
+    # the function still stands on its own.
+    if state is None:
+        state = await probe_geom_4326(session, table_name, schema=schema)
 
-    source = columns.get("geom")
-    if source is None or source.udt_name != "geometry":
+    if not state.source_is_geometry:
         return Geom4326Repair(REPAIR_NO_GEOMETRY, False, False, 0)
-
-    render = columns.get("geom_4326")
-    if render is not None and render.is_generated == "ALWAYS":
+    if state.render_generated:
         return Geom4326Repair(REPAIR_GENERATED, False, False, 0)
 
-    if render is None:
+    if not state.has_render:
         # Gated on the probe, NOT left to ``IF NOT EXISTS``: ALTER TABLE takes
         # ACCESS EXCLUSIVE whether or not it changes anything, and a lock
         # request that is merely QUEUED already blocks every reader arriving
@@ -226,7 +266,7 @@ async def rederive_geom_4326(
     index_added = await ensure_geom_4326_gist_index(session, table_name, schema=schema)
     return Geom4326Repair(
         REPAIR_APPLIED,
-        render is None,
+        not state.has_render,
         index_added,
         result.rowcount if result.rowcount and result.rowcount > 0 else 0,
     )

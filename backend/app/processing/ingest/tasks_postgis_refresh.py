@@ -66,6 +66,7 @@ from app.processing.ingest.tasks_common import (
     _derived_record_type,
     _effective_geometry_type,
     _retire_geometry_attribute_row,
+    bump_tile_cache_version_atomic,
     invalidate_tile_cache_for_table,
     stamp_failed_origin_health,
     task_app,
@@ -149,6 +150,10 @@ class _RepairReport(NamedTuple):
     rows_rewritten: int = 0
     column_added: bool = False
     index_added: bool = False
+    # The version the bump actually published, read back from the increment
+    # rather than computed here (fix(#1738 round 1)); None when nothing was
+    # rewritten and so nothing was bumped.
+    tile_cache_version: int | None = None
 
 
 class _Verdict(NamedTuple):
@@ -394,6 +399,13 @@ async def _repair_geom_4326(
     different hazards on a relation GeoLens does not own — see
     ``_REPAIR_STATEMENT_TIMEOUT_MS`` and ``_REPAIR_LOCK_TIMEOUT_MS``.
 
+    **The reader GRANT is re-issued whatever the geometry turned out to be**
+    (fix(#1738 round 1)). It is the third thing ``-overwrite`` destroys, and
+    losing it does not depend on the render column needing a rewrite: a table
+    recreated with a valid STORED GENERATED ``geom_4326``, or one with no
+    geometry at all, needs no re-derive and still cannot be read by
+    ``geolens_reader`` until the grant comes back.
+
     **Never fatal.** A refresh whose repair could not run still has a
     measurement to take, and that measurement is what the user asked for; the
     outcome is returned and logged instead. This is also what keeps the change
@@ -403,9 +415,9 @@ async def _repair_geom_4326(
     """
     from app.core.db import async_session
     from app.processing.ingest.metadata import (
-        REPAIR_APPLIED,
         get_table_srid,
         grant_reader_access,
+        probe_geom_4326,
         rederive_geom_4326,
     )
 
@@ -430,11 +442,21 @@ async def _repair_geom_4326(
                     "lock_ms": str(_REPAIR_LOCK_TIMEOUT_MS),
                 },
             )
-            dataset = await session.get(Dataset, dataset_uuid)
-            if dataset is None:
+            # Columns rather than the ORM instance: the only thing needed off
+            # the row is the binding, and the version bump below is a SQL
+            # increment, so this session never holds a Dataset whose
+            # `tile_cache_version` could go stale under it.
+            binding = (
+                await session.execute(
+                    select(Dataset.origin_ref, Dataset.table_name).where(
+                        Dataset.id == dataset_uuid
+                    )
+                )
+            ).first()
+            if binding is None:
                 return _RepairReport(_REPAIR_NOT_APPLICABLE)
             try:
-                table_name = _resolve_bound_table(dataset, schema=schema)
+                table_name = _resolve_bound_table(binding, schema=schema)
             except PostgisRefreshError:
                 # A binding fault is phase 2's to report, with the message and
                 # the error code it already owns. Repairing nothing here keeps
@@ -444,40 +466,60 @@ async def _repair_geom_4326(
                 # Same: the "missing" verdict belongs to the measurement.
                 return _RepairReport(_REPAIR_NOT_APPLICABLE)
 
-            srid = await get_table_srid(session, table_name, schema=schema)
-            repair = await rederive_geom_4326(
-                session, table_name, srid or 4326, schema=schema
-            )
-            if repair.outcome != REPAIR_APPLIED:
-                await session.rollback()
-                return _RepairReport(_REPAIR_NOT_APPLICABLE)
+            # fix(#1738 round 1): probed BEFORE the SRID is resolved, rather
+            # than inside the re-derive. `get_table_srid` wraps PostGIS
+            # `Find_SRID`, which RAISES rather than returning NULL for a table
+            # with no registered geometry column — so a registered non-spatial
+            # table (#1359 admits them) used to reach this as an exception, be
+            # reported as a repair failure on every refresh, and skip the
+            # grant below.
+            state = await probe_geom_4326(session, table_name, schema=schema)
+            repair = None
+            if state.rederivable:
+                srid = await get_table_srid(session, table_name, schema=schema)
+                repair = await rederive_geom_4326(
+                    session, table_name, srid or 4326, schema=schema, state=state
+                )
 
-            # Idempotent, and the other half of what `-overwrite` destroys:
-            # the recreated table carries no GRANT, and a split runtime role
-            # would then read nothing through it.
+            # fix(#1738 round 1): unconditionally, not only when the render
+            # column was rewritten. The GRANT is the third thing `-overwrite`
+            # destroys, and it is destroyed whatever the recreated table's
+            # geometry looks like — including the two shapes that need no
+            # re-derive at all: a valid STORED GENERATED `geom_4326`, and a
+            # non-spatial table. Gating it on the re-derive let both pass a
+            # refresh while `geolens_reader` still could not read them.
+            # Idempotent, and the same call registration makes.
             await grant_reader_access(session, table_name, schema=schema, role=role)
 
-            if repair.rows_rewritten:
+            tile_version = None
+            if repair is not None and repair.rows_rewritten:
                 # Gated on rewritten ROWS, not on the column or the index.
                 # Restoring an index changes how a tile is computed and not
                 # what it contains, and a column added to a table with nothing
                 # in it renders the same nothing; a table that had rows and
                 # lost the column has all of them in this count anyway. The
-                # contract on this method is that it is bumped in the same
+                # contract on the bump is that it happens in the same
                 # transaction as a change to tile CONTENT, so anything looser
                 # would bust every cached tile of every registered dataset on
                 # the first refresh after this ships.
                 #
-                # It busts browser and CDN copies through the `_v=` parameter,
-                # which the server-side purge below cannot reach.
-                dataset.bump_tile_cache_version()
+                # fix(#1738 round 1): the ATOMIC spelling, because this
+                # transaction holds no lock on the datasets row and the
+                # feature-edit routers write the counter without one either —
+                # see `bump_tile_cache_version_atomic`. It busts browser and
+                # CDN copies through the `_v=` parameter, which the
+                # server-side purge below cannot reach.
+                tile_version = await bump_tile_cache_version_atomic(
+                    session, Dataset, dataset_uuid
+                )
                 purge_table = table_name
             await session.commit()
             report = _RepairReport(
-                _REPAIR_REPAIRED,
-                repair.rows_rewritten,
-                repair.column_added,
-                repair.index_added,
+                _REPAIR_REPAIRED if repair is not None else _REPAIR_NOT_APPLICABLE,
+                repair.rows_rewritten if repair is not None else 0,
+                repair.column_added if repair is not None else False,
+                repair.index_added if repair is not None else False,
+                tile_version,
             )
         except Exception as exc:  # broad: the repair is best-effort — see the docstring
             await session.rollback()
@@ -713,6 +755,7 @@ async def refresh_postgis(
             rows_rewritten=repair.rows_rewritten,
             column_added=repair.column_added,
             index_added=repair.index_added,
+            tile_cache_version=repair.tile_cache_version,
         )
 
         async with async_session() as session:

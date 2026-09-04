@@ -2798,7 +2798,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1738): +10 — the re-exports the repair path resolves against
     # (rederive_geom_4326, the Geom4326Repair it returns, and its three
     # outcome constants) plus their __all__ entries. Cap 144 -> 154, exact.
-    "backend/app/processing/ingest/metadata.py": 154,
+    # fix(#1738 round 1): +4 — probe_geom_4326 and the Geom4326State it
+    # returns, split out so the caller can tell a non-spatial table from a
+    # repairable one BEFORE resolving the SRID. Cap 154 -> 158, exact.
+    "backend/app/processing/ingest/metadata.py": 158,
     # ingest/router.py is also scanned by the router-glob gate; this exact
     # ratchet overrides its 1500 default so the remaining runway to the cliff
     # cannot be spent silently.
@@ -3293,7 +3296,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the docstring stating why `NO KEY UPDATE` over plain `UPDATE`, and
     # pointing at the sweep-side fixes that now have to contend with this
     # lock instead of racing past it. Cap 2470 -> 2495, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2495,
+    # fix(#1738 round 1): +38 — bump_tile_cache_version_atomic, the sibling of
+    # Dataset.bump_tile_cache_version for a writer that holds no row lock.
+    # Most of it is the docstring arguing why the lock is not the fix: the
+    # feature-edit routers roll the counter through a plain read-modify-write
+    # and never take one, so one side locking does not serialize a race the
+    # other side is not playing. Cap 2495 -> 2533, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2533,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -4531,7 +4540,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # and the first version of this phase sat on that queue for the full five
     # minutes in a test. `_REPAIR_LOCK_TIMEOUT_MS` gives the position back
     # after five seconds instead. Cap 842 -> 1061, exact.
-    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1061,
+    # fix(#1738 round 1): +43 for two review findings and the defect the first
+    # of them uncovered. The reader GRANT is now re-issued whatever the
+    # geometry turned out to be — it is the third thing -overwrite destroys
+    # and losing it does not depend on the render column needing a rewrite, so
+    # gating it on the re-derive let a recreated table with a generated
+    # geom_4326 pass a refresh unreadable. Probing the columns before
+    # resolving the SRID is what that exposed: Find_SRID RAISES for a table
+    # with no geometry, so every refresh of a registered non-spatial dataset
+    # was a logged repair failure that also skipped the grant. And the version
+    # bump moved to the atomic helper, because this transaction holds no row
+    # lock. Cap 1061 -> 1104, exact.
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1104,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

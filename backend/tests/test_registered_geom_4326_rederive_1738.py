@@ -247,6 +247,19 @@ async def _has_gist_index(session, table_name: str) -> bool:
     )
 
 
+async def _stored_version(session, dataset_id: uuid.UUID) -> int:
+    """The dataset's `tile_cache_version` as the database holds it.
+
+    Read as a column, past this session's identity map: the worker rolls the
+    counter from its own transaction, so an ORM instance loaded here could
+    answer from before it.
+    """
+    await session.rollback()
+    return await session.scalar(
+        select(Dataset.tile_cache_version).where(Dataset.id == dataset_id)
+    )
+
+
 async def _reader_can_select(session, table_name: str) -> bool:
     await session.rollback()
     return bool(
@@ -633,6 +646,187 @@ async def test_the_repair_gives_up_its_lock_queue_position_on_a_busy_table(
         assert elapsed < 30
         await test_db_session.rollback()
         assert not await _column_exists(test_db_session, table_name, "geom_4326")
+    finally:
+        await _drop(test_db_session, table_name)
+
+
+# ---------------------------------------------------------------------------
+# The grant is not conditional on the re-derive
+# ---------------------------------------------------------------------------
+
+
+async def test_a_recreated_generated_column_still_gets_its_reader_grant_back(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    """fix(#1738 round 1): the GRANT is the third thing `-overwrite` destroys.
+
+    Losing it does not depend on the render column needing a rewrite. A table
+    recreated with a valid STORED GENERATED `geom_4326` re-derives itself on
+    every write, so the repair has nothing to do to the column — and gating
+    the grant on the re-derive let exactly that table pass a refresh while
+    `geolens_reader` still could not read a row of it.
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    table_name = f"rd_gengr_{uuid.uuid4().hex[:8]}"
+    await _create_source_table(test_db_session, table_name, lon=_HERE[0], lat=_HERE[1])
+
+    try:
+        dataset = await _register(test_db_session, table_name, admin_id)
+
+        # -overwrite, into a table whose render column is generated.
+        await test_db_session.execute(text(f'DROP TABLE data."{table_name}" CASCADE'))
+        await test_db_session.execute(
+            text(
+                f'CREATE TABLE data."{table_name}" ('
+                f"  gid serial PRIMARY KEY, name text,"
+                f"  geom geometry(Point, 4326),"
+                f"  geom_4326 geometry(Geometry, 4326) GENERATED ALWAYS AS "
+                f"    (ST_Force2D(ST_CurveToLine(ST_SetSRID(geom, 4326)))) STORED)"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f'INSERT INTO data."{table_name}" (name, geom) '  # noqa: S608
+                f"VALUES ('generated', ST_SetSRID(ST_MakePoint(:lon, :lat), 4326))"
+            ),
+            {"lon": _THERE[0], "lat": _THERE[1]},
+        )
+        await test_db_session.execute(
+            text(f'REVOKE ALL ON data."{table_name}" FROM geolens_reader')
+        )
+        await test_db_session.commit()
+
+        assert not await _reader_can_select(test_db_session, table_name)
+
+        report = await tasks_postgis_refresh._repair_geom_4326(
+            dataset.id, Dataset, schema="data", role="geolens_reader"
+        )
+        # Nothing to re-derive, and the grant restored anyway.
+        assert report.code == tasks_postgis_refresh._REPAIR_NOT_APPLICABLE
+        assert report.rows_rewritten == 0
+        assert await _reader_can_select(test_db_session, table_name)
+
+        # And through the real refresh, which must not fail on it either.
+        await _refresh(test_db_session, client, admin_auth_header, dataset.id)
+        assert await _reader_can_select(test_db_session, table_name)
+        assert await _features_at(test_db_session, table_name, _THERE) == 1
+    finally:
+        await _drop(test_db_session, table_name)
+
+
+async def test_a_registered_non_spatial_table_is_not_a_repair_failure(
+    test_db_session,
+) -> None:
+    """fix(#1738 round 1): `Find_SRID` raises; it does not return NULL.
+
+    Registration admits tables with no geometry (#1359), and resolving the
+    source SRID before knowing whether there IS one turned every refresh of
+    such a dataset into a logged repair failure — which also skipped the
+    reader grant. The SRID is resolved only once the probe says there is a
+    geometry column to resolve it for.
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    table_name = f"rd_flatreg_{uuid.uuid4().hex[:8]}"
+    await test_db_session.execute(
+        text(
+            f'CREATE TABLE data."{table_name}" '
+            f"(gid serial PRIMARY KEY, code text, population integer)"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            f'INSERT INTO data."{table_name}" (code, population) '  # noqa: S608
+            f"VALUES ('a', 1)"
+        )
+    )
+    await test_db_session.commit()
+
+    try:
+        dataset = await _register(test_db_session, table_name, admin_id)
+        await test_db_session.execute(
+            text(f'REVOKE ALL ON data."{table_name}" FROM geolens_reader')
+        )
+        await test_db_session.commit()
+
+        report = await tasks_postgis_refresh._repair_geom_4326(
+            dataset.id, Dataset, schema="data", role="geolens_reader"
+        )
+        assert report.code == tasks_postgis_refresh._REPAIR_NOT_APPLICABLE
+        assert report.code != tasks_postgis_refresh._REPAIR_FAILED
+        # The grant reaches an attribute table too — registration grants it.
+        assert await _reader_can_select(test_db_session, table_name)
+        assert not await _column_exists(test_db_session, table_name, "geom_4326")
+    finally:
+        await _drop(test_db_session, table_name)
+
+
+# ---------------------------------------------------------------------------
+# The version bump survives a writer that does not lock
+# ---------------------------------------------------------------------------
+
+
+async def test_the_version_bump_does_not_lose_a_concurrent_increment(
+    test_db_session,
+) -> None:
+    """fix(#1738 round 1): the counter is incremented in the database.
+
+    The repair holds no lock on the datasets row, and the feature-edit
+    routers roll the counter through a plain read-modify-write without one
+    either — so an absolute value computed from an earlier read lands on top
+    of whatever committed in between. Staged here as that exact shape: a
+    stale in-memory value written after the repair's increment, then the
+    repair again. `tile_cache_version = tile_cache_version + 1` evaluated at
+    write time cannot be clobbered by the read it never took.
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    table_name = f"rd_bump_{uuid.uuid4().hex[:8]}"
+    await _create_source_table(test_db_session, table_name, lon=_HERE[0], lat=_HERE[1])
+
+    try:
+        dataset = await _register(test_db_session, table_name, admin_id)
+
+        await test_db_session.execute(
+            text(
+                f'UPDATE data."{table_name}" '  # noqa: S608
+                f"SET geom = ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)"
+            ),
+            {"lon": _THERE[0], "lat": _THERE[1]},
+        )
+        await test_db_session.commit()
+
+        before = await _stored_version(test_db_session, dataset.id)
+        first = await tasks_postgis_refresh._repair_geom_4326(
+            dataset.id, Dataset, schema="data", role="geolens_reader"
+        )
+        # The report carries the version the increment actually published,
+        # read back from the UPDATE rather than computed in Python.
+        assert first.rows_rewritten == 1
+        assert first.tile_cache_version == before + 1
+        assert await _stored_version(test_db_session, dataset.id) == before + 1
+
+        # A second drifting write, and a repair whose increment is evaluated
+        # against the row as it stands rather than against `before`.
+        await test_db_session.execute(
+            text(
+                f'UPDATE data."{table_name}" '  # noqa: S608
+                f"SET geom = ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)"
+            ),
+            {"lon": _HERE[0], "lat": _HERE[1]},
+        )
+        await test_db_session.commit()
+
+        second = await tasks_postgis_refresh._repair_geom_4326(
+            dataset.id, Dataset, schema="data", role="geolens_reader"
+        )
+        assert second.tile_cache_version == before + 2
+        assert await _stored_version(test_db_session, dataset.id) == before + 2
+
+        # And a pass that rewrites nothing publishes no new version.
+        third = await tasks_postgis_refresh._repair_geom_4326(
+            dataset.id, Dataset, schema="data", role="geolens_reader"
+        )
+        assert (third.rows_rewritten, third.tile_cache_version) == (0, None)
+        assert await _stored_version(test_db_session, dataset.id) == before + 2
     finally:
         await _drop(test_db_session, table_name)
 

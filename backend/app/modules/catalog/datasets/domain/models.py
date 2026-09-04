@@ -622,6 +622,10 @@ class Dataset(Base):
         content (feature edits, column DDL, tile_columns, reupload) — the
         post-commit Valkey purge cannot reach CDN/browser caches keyed on the
         tile URL. fix(#525 B-038)
+
+        Writes an ABSOLUTE value read off this instance, so it is correct only
+        while the caller holds this row; one that does not must use
+        ``bump_tile_cache_version_atomic`` (ingest/tasks_common). #1738 r1
         """
         self.tile_cache_version = (self.tile_cache_version or 1) + 1
 
