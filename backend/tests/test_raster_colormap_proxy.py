@@ -832,3 +832,37 @@ class TestRasterColormapProxy:
         resp = await client.get(f"/tiles/raster-proxy/{_DATASET_ID}/0/0/0.exe")
         assert resp.status_code == 400
         assert not self._tile_titiler_calls, "Titiler must not be called for a bad fmt"
+
+    async def test_a_buried_query_over_the_field_count_bound_degrades_not_500(
+        self, client
+    ):
+        """fix(#1770 round 47b P2 class): `{fmt}` is attacker-reachable on an
+        unauthenticated tile URL, with no credential or source registration
+        needed -- a live path, unlike most of this round's other sites.
+        `max_num_fields=MAX_QUERY_FIELDS` on the buried-query recovery
+        parse, with the resulting `ValueError` degrading to "no buried
+        params recovered" (the same outcome an unpolluted request
+        produces), not a raw 500.
+        """
+        from app.platform.service_endpoints import MAX_QUERY_FIELDS
+
+        # A real `stretch=percentile` is IN the bomb, past the field-count
+        # bound: without the fix, `parse_qs` still recovers it (this exact
+        # shape is what `test_proxy_polluted_fmt_query_in_path_is_sanitized`
+        # above proves triggers a `/cog/statistics` lookup) -- so a
+        # discriminating test needs a recognized key present, not just an
+        # oversized field count with no key the recovery logic reads at all.
+        filler = "%26".join(f"a{n}=1" for n in range(MAX_QUERY_FIELDS))
+        bomb = f"stretch=percentile%26{filler}"
+        resp = await client.get(f"/tiles/raster-proxy/{_DATASET_ID}/0/0/0.png%3F{bomb}")
+        assert resp.status_code in (200, 204)
+        # No buried recovery ran, so this rendered as the plain default tile:
+        # a single '?', no stats lookup, the buried `stretch=percentile`
+        # NOT applied despite being present in the bomb.
+        assert self._tile_titiler_calls
+        url = self._tile_titiler_calls[0]
+        assert url.count("?") == 1
+        assert not self._stats_titiler_calls, (
+            "the field-count bound should have refused this parse before "
+            "the buried stretch=percentile was ever recovered"
+        )

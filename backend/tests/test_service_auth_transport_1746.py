@@ -2206,6 +2206,31 @@ class TestAWfsCheckOnlyValidatesTheOperationsTheReadPathUses:
             )
 
 
+class TestTheCapabilitiesUrlBuilderBoundsItsFieldCount:
+    """fix(#1770 round 47b P2 class, `service_endpoints.py::_capabilities_url`).
+
+    Same bound `bounded_parse_qsl` applies to a service-advertised query,
+    on the module's own `_capabilities_url` -- see that function's
+    docstring for why a caller-submitted site gets it too even though it
+    is not the live shape the finding named.
+    """
+
+    def test_a_few_params_still_resolve(self) -> None:
+        from app.platform.service_endpoints import _capabilities_url
+
+        query = "&".join(f"a{n}=1" for n in range(10))
+        url = _capabilities_url(f"{_SVC_ORIGIN}/geoserver/wfs?{query}")
+        assert "service=WFS" in url
+        assert "request=GetCapabilities" in url
+
+    def test_a_query_over_the_field_count_bound_is_refused(self) -> None:
+        from app.platform.service_endpoints import MAX_QUERY_FIELDS, _capabilities_url
+
+        bomb = "&".join(f"a{n}=1" for n in range(MAX_QUERY_FIELDS + 1))
+        with pytest.raises(ValueError):
+            _capabilities_url(f"{_SVC_ORIGIN}/geoserver/wfs?{bomb}")
+
+
 class TestADeeplyNestedWfsBranchNeverBecomesARecursionError:
     """fix(#1770 round 47 P2, `service_endpoints.py:481`/`:1062`).
 
@@ -2272,11 +2297,22 @@ class TestADeeplyNestedWfsBranchNeverBecomesARecursionError:
             assert_endpoints_stay_on_origin,
         )
 
-        assert sys.getrecursionlimit() == 1000, (
-            "this test's whole point is 'no RecursionError at the "
-            "interpreter's default ceiling' -- a raised limit would hide "
-            "the exact bug it exists to pin"
-        )
+        # fix(#1770 round 47b, low-priority): a hard `== 1000` failed for the
+        # wrong reason wherever the interpreter's default ever legitimately
+        # differs (a future CPython release, a pytest plugin or conftest
+        # that raises the limit for its own purposes) -- a confusing
+        # "recursion limit isn't 1000" failure instead of the actual bug
+        # this test exists to pin. Skipped rather than asserted: a RAISED
+        # limit specifically defeats the point (this test could pass with a
+        # buggy recursive reimplementation under enough headroom), so it is
+        # the one direction worth refusing to run under rather than
+        # silently passing.
+        if sys.getrecursionlimit() > 1000:
+            pytest.skip(
+                "recursion limit raised above the interpreter default "
+                f"(got {sys.getrecursionlimit()}) -- this test cannot prove "
+                "anything about the DEFAULT ceiling under a raised one"
+            )
         document = self._document(MAX_DOCUMENT_DEPTH, _SVC_WFS)
         self._transport(monkeypatch, document)
 
@@ -8523,6 +8559,81 @@ class TestAResponseProvidedUrlNeverReachesALogUnredacted:
         # round 38 already pins (this href is same-origin).
         assert "conformance fetch failed" in rendered
         assert "another origin" not in rendered
+
+    async def test_an_oversized_conformance_href_reaches_the_redactor_bounded(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1770 round 47b P1, `adapters/ogcapi.py:123`).
+
+        Round 47's own P1 fix (`bounded_service_url`) can now FAIL because
+        `conformance_href` is huge -- exactly the shape this round's own
+        finding is about -- and `abs_href` was seeded from the full raw
+        href before the guard, so the three log/exception sites below all
+        still had the entire multi-megabyte string when resolution never
+        got a chance to shrink it. Every one of them hands its `href=` to
+        `redact_url_credentials`, which is itself backed by an UNBOUNDED
+        `parse_qsl` (`url_redaction.py`, deliberately: a redactor must never
+        raise on the string it scrubs). So the exact cost `bounded_
+        service_url` exists to refuse was paid anyway, on every refused
+        attempt, from a LOGGING call with no request in flight to time out
+        -- worse than doing nothing, since a probe now pays this on the
+        request that is supposed to be the cheap, fast refusal.
+
+        Fixed by seeding `abs_href` from a bounded preview
+        (`conformance_href[:MAX_SERVICE_HREF_BYTES]`) rather than the full
+        raw href, so it is safe to redact/log at every point in the
+        function by construction.
+        """
+        from app.core import url_redaction
+        from app.platform.service_endpoints import MAX_SERVICE_HREF_BYTES
+
+        credential, _value_ = _header_key()
+        bomb_query = "&".join(f"a{n}=1" for n in range(2_000_000))
+        bomb_href = f"{_OTHER_ORIGIN}/conformance?{bomb_query}"
+        assert len(bomb_href) > MAX_SERVICE_HREF_BYTES, (
+            "this must be the oversized shape bounded_service_url refuses"
+        )
+
+        landing = {
+            "links": [
+                {"rel": "data", "href": f"{_SERVICE_ORIGIN}/oapif/collections"},
+                {"rel": "conformance", "href": bomb_href},
+            ]
+        }
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/collections"):
+                return httpx.Response(200, json={"collections": [{"id": "c1"}]})
+            return httpx.Response(200, json=landing)
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+            AsyncMock(),
+        )
+
+        seen_lengths: list[int] = []
+        real_redact = url_redaction.redact_url_credentials
+
+        def _spy(value: str) -> str:
+            seen_lengths.append(len(value))
+            return real_redact(value)
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.adapters.ogcapi.redact_url_credentials",
+            _spy,
+        )
+
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda r: _as_stream(handle(r)))
+        ) as client:
+            await probe_ogcapi(
+                f"{_SERVICE_ORIGIN}/oapif",
+                client,
+                credential=replace(credential, service_format="ogcapi_features"),
+            )
+
+        assert seen_lengths, "the redactor must have been called at least once"
+        assert all(n <= MAX_SERVICE_HREF_BYTES for n in seen_lengths), seen_lengths
 
     async def test_a_same_origin_redirect_reflecting_the_credential_is_not_logged(
         self, monkeypatch

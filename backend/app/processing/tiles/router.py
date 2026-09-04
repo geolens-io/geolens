@@ -53,6 +53,7 @@ from app.platform.extensions import (
     get_data_serving_extension,
     get_processing_port,
 )
+from app.platform.service_endpoints import MAX_QUERY_FIELDS
 from app.platform.storage.titiler_url import build_titiler_cog_url, resolve_open_path
 from app.processing.raster.models import RasterAsset
 from app.core.db.tenant_schema import tenant_data_schema
@@ -1258,7 +1259,20 @@ async def raster_tile_proxy(
         # path-encodes the query without also forwarding it as a real query string).
         # Recover them into the typed params they were parsed-as-None for, so styling
         # is preserved rather than silently rendering the default tile (Codex P2).
-        _buried = parse_qs(fmt.split("?", 1)[1])
+        #
+        # fix(#1770 round 47b P2 class): `max_num_fields=MAX_QUERY_FIELDS`,
+        # the same bound `bounded_parse_qsl` applies to a service-advertised
+        # query (`service_endpoints.py`). Unlike that shape, `{fmt}` is
+        # attacker-reachable on an unauthenticated tile URL with no
+        # credential or source registration needed, so this is a live path,
+        # not a defense-in-depth one. `ValueError` past the count degrades
+        # to "no buried params recovered" -- the same outcome a proxy that
+        # never buried anything produces -- rather than a raw 500, matching
+        # `_buried_float` below's own catch for exactly this reason.
+        try:
+            _buried = parse_qs(fmt.split("?", 1)[1], max_num_fields=MAX_QUERY_FIELDS)
+        except ValueError:
+            _buried = {}
         if stretch is None and _buried.get("stretch"):
             _s = _buried["stretch"][0]
             if _s in ("minmax", "percentile", "stddev"):

@@ -45,7 +45,7 @@ def _encode_url_for_gdal(url: str) -> str:
     # not a service-advertised href read out of a third-party response --
     # different threat model, already bounded by request-body size limits
     # and Pydantic field validation on the way in.
-    pairs = parse_qsl(parts.query, keep_blank_values=True)  # parse_qsl: unbounded
+    pairs = parse_qsl(parts.query, keep_blank_values=True)  # parse_qs: unbounded
     encoded_query = urlencode(pairs)
     return urlunsplit(
         (parts.scheme, parts.netloc, encoded_path, encoded_query, parts.fragment)

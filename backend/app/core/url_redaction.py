@@ -84,7 +84,7 @@ def query_has_credentials(query: str) -> bool:
     # the field count this already tolerates. See
     # `service_endpoints.bounded_parse_qsl`'s docstring for the sites that DO
     # need the bound.
-    pairs = parse_qsl(query, keep_blank_values=True)  # parse_qsl: unbounded
+    pairs = parse_qsl(query, keep_blank_values=True)  # parse_qs: unbounded
     return any(_is_sensitive_query_param(key) for key, _ in pairs)
 
 
@@ -153,7 +153,7 @@ def redact_query_credentials(query: str) -> str:
     raw_query = query[1:] if prefix else query
     # fix(#1770 round 47 P1 class): same reasoning as `query_has_credentials`
     # above -- a redactor must never raise on its own input.
-    pairs = parse_qsl(raw_query, keep_blank_values=True)  # parse_qsl: unbounded
+    pairs = parse_qsl(raw_query, keep_blank_values=True)  # parse_qs: unbounded
     if not any(_is_sensitive_query_param(key) for key, _ in pairs):
         return query
     return prefix + urlencode(

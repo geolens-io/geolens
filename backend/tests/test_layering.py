@@ -2567,7 +2567,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # with a comment correcting round 43's own claim. Most of the added
     # lines are the docstrings recording why each bound is the number it is.
     # Cap 1145 -> 1258, exact.
-    "backend/app/platform/service_endpoints.py": 1258,
+    # fix(#1770 round 47b): +52. The pre-trigger audit's P1 (`HrefTooLongError`,
+    # a `ValueError` subclass so the length refusal gets its own wording at
+    # every catch site with no new except clause required at the ones that
+    # don't bother) and the low-priority fixes: a warning on `_next_page`'s
+    # silent stop, and a docstring note on `_wfs_operation_hrefs`'s own
+    # O(breadth) stack-memory tradeoff. Cap 1258 -> 1310, exact.
+    "backend/app/platform/service_endpoints.py": 1310,
     # fix(#1770 round 42): first entry, crossed _RATCHET_INCLUSION_LOC on the
     # completeness-predicate unification. `_page_proves_complete` is the one
     # function round 41's full-walk-only proof and round 42's sampled-preview
@@ -2588,7 +2594,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # escape as an internal exception. Cap 1041 -> 1090, exact (`ruff
     # format` wrapped one `urljoin(base, bounded_service_url(...))` call
     # onto three lines after the round-47 diff landed).
-    "backend/app/platform/service_items.py": 1090,
+    # fix(#1770 round 47b): +16. `HrefTooLongError` handling at the three
+    # `bounded_service_url` catch sites, each getting its own wording
+    # distinct from the generic "unparseable" refusal. Cap 1090 -> 1106,
+    # exact.
+    "backend/app/platform/service_items.py": 1106,
     # fix(#1758): the ArcGIS sign-in protocol, which crossed 1000 lines over
     # nine review rounds. What the growth bought, in order: the two-phase
     # split that resolves WHERE a password would go before any lock or budget
@@ -3964,7 +3974,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # and the correction plus the pointer to the structural test that now
     # guards it is most of the growth. Re-measured with wc -l after all three
     # fixes landed together through the rebase. Cap 1537 -> 1562, exact.
-    "backend/app/core/config.py": 1562,
+    # fix(#1770 round 47b P2 class): +27. `# parse_qs: unbounded` at the
+    # five `DATABASE_URL_OVERRIDE` `parse_qs` sites -- an operator-supplied
+    # BOOT-TIME env var, never a runtime service-advertised value, so
+    # exempted with a reason rather than bound (see
+    # `test_every_parse_qsl_call_bounds_its_field_count`'s own docstring).
+    # Cap 1562 -> 1589, exact.
+    "backend/app/core/config.py": 1589,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of
@@ -5231,7 +5247,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1770 round 40 P2): +1. The raster tile proxy's two retry-path
     # `error=str(exc)` sites become `error=redact_exception_text(exc)`,
     # net +1 after the new import. Cap 2706 -> 2707, exact.
-    "backend/app/processing/tiles/router.py": 2707,
+    # fix(#1770 round 47b P2 class): +14. `max_num_fields=MAX_QUERY_FIELDS`
+    # on the `{fmt}` buried-query recovery parse, the one attacker-reachable
+    # site in this round's sweep (unauthenticated, no source registration
+    # needed), with a `try/except ValueError` degrading to "no buried
+    # params recovered" rather than a raw 500. Cap 2707 -> 2721, exact.
+    "backend/app/processing/tiles/router.py": 2721,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),
@@ -6961,41 +6982,61 @@ def test_no_unjustified_broad_except_sites() -> None:
 def test_every_parse_qsl_call_bounds_its_field_count() -> None:
     """fix(#1770 round 47 P1 class, `service_endpoints.py:bounded_parse_qsl`).
 
-    `parse_qsl()` has no field-count bound of its own: a service-advertised
-    href can pack millions of short `key=value` pairs into a query string
-    that stays comfortably under every byte/structural-token budget (the
-    separators live inside one JSON string), and `parse_qsl` materialises
-    every one of them before a caller's own comprehension or `urlencode()`
-    copies the list again. `bounded_parse_qsl` in `service_endpoints.py` is
-    the one call site every read of a service-advertised query string
-    should share.
+    `parse_qsl()`/`parse_qs()` have no field-count bound of their own: a
+    service-advertised href can pack millions of short `key=value` pairs
+    into a query string that stays comfortably under every byte/structural-
+    token budget (the separators live inside one JSON string), and either
+    function materialises every pair it finds before a caller's own
+    comprehension or `urlencode()` copies the list again.
+    `bounded_parse_qsl` in `service_endpoints.py` is the one call site every
+    read of a service-advertised query string should share.
 
-    Not every `parse_qsl(` call gets the bound, and the exceptions are real:
+    fix(#1770 round 47b P2): round 47's own version of this test greped
+    `parse_qsl\\(` only, missing `parse_qs\\(` -- same unbounded semantics,
+    same `max_num_fields` fix, a different function name. Widened to
+    `parse_qsl?\\(` (the trailing `l` optional), which matches both.
+
+    Not every site gets the bound, and the exceptions are real:
     `url_redaction.py`'s two sites and `preview.py`'s one scrub or resolve
     the CALLER's own already-bounded input, and a redactor specifically must
     never itself raise (`max_num_fields` raises `ValueError` past the
     count, which would turn scrubbing an oversized credential out of an
-    exception message into a crash INSIDE exception handling). Those sites
-    carry `# parse_qsl: unbounded` on the same line instead, the same
-    same-line-annotation discipline `test_no_unjustified_broad_except_sites`
-    already uses for a broad `except`.
+    exception message into a crash INSIDE exception handling);
+    `core/config.py`'s five sites all parse `DATABASE_URL_OVERRIDE`, an
+    operator-supplied BOOT-TIME environment variable, never a runtime
+    service-advertised value -- the operator already has arbitrary control
+    over their own deployment, and a `ValueError` there surfaces as the
+    existing boot-time config-validation failure, not a runtime refusal, so
+    bounding it buys no security and a local literal would just duplicate
+    `MAX_QUERY_FIELDS` across a layering boundary `config.py` cannot import
+    across (it has no `app.*` imports at all, and importing `platform.
+    service_endpoints` into it would very likely create an import cycle).
+    Those sites carry `# parse_qs: unbounded` on the same line instead, the
+    same same-line-annotation discipline `test_no_unjustified_broad_except_
+    sites` already uses for a broad `except`.
 
     Every OTHER site must carry `max_num_fields=` -- via `bounded_parse_qsl`
-    itself, or a call to it (`bounded_parse_qsl(` also matches the grep,
-    since `bounded_parse_qsl(` contains the substring `parse_qsl(`) -- so a
-    new second call site cannot silently reintroduce the unbounded class
-    the finding named.
+    itself, a call to it (`bounded_parse_qsl(` also matches the grep, since
+    `bounded_parse_qsl(` contains the substring `parse_qsl(`), or an inline
+    `max_num_fields=` on a native `parse_qs`/`parse_qsl` call where the
+    caller needs that function's own return shape (`adapters/wfs.py`,
+    `service_endpoints.py::_capabilities_url`, and
+    `processing/tiles/router.py`'s buried-query recovery, all read a value
+    with attacker or operator reach and none of them need `bounded_parse_
+    qsl`'s specific `list[tuple]` shape) -- so a new second call site cannot
+    silently reintroduce the unbounded class the finding named.
 
-    Positive control: this repo has more than zero `parse_qsl(` call sites
+    Positive control: this repo has more than zero matching call sites
     today (asserted below), so an empty match list means the grep pattern
     itself broke, not that the class is closed.
 
     Negative-control: temporarily add a bare `parse_qsl(some_query)` call
-    with neither annotation to a sandbox file under `backend/app/`, run this
-    test, confirm it fails naming the offending line. Revert.
+    (or `parse_qs(...)`) with neither annotation to a sandbox file under
+    `backend/app/`, run this test, confirm it fails naming the offending
+    line. Revert.
     """
     result = subprocess.run(
-        ["git", "grep", "-n", "-P", r"parse_qsl\(", "--", "backend/app/"],
+        ["git", "grep", "-n", "-P", r"parse_qsl?\(", "--", "backend/app/"],
         cwd=str(REPO_ROOT),
         capture_output=True,
         text=True,
@@ -7010,8 +7051,9 @@ def test_every_parse_qsl_call_bounds_its_field_count() -> None:
 
     lines = [line for line in result.stdout.splitlines() if line]
     assert lines, (
-        "positive control failed: no `parse_qsl(` call sites found at all -- "
-        "the grep pattern is broken, not that the class is closed"
+        "positive control failed: no `parse_qsl(`/`parse_qs(` call sites "
+        "found at all -- the grep pattern is broken, not that the class is "
+        "closed"
     )
 
     violations: list[str] = []
@@ -7019,17 +7061,18 @@ def test_every_parse_qsl_call_bounds_its_field_count() -> None:
         if (
             "max_num_fields=" in line
             or "bounded_parse_qsl(" in line
-            or "# parse_qsl: unbounded" in line
+            or "# parse_qs: unbounded" in line
         ):
             continue
         violations.append(line)
 
     if violations:
         pytest.fail(
-            "fix(#1770 round 47 P1 class) invariant violated: a `parse_qsl(` "
-            "call site with no field-count bound and no unbounded "
-            "justification. Route it through `bounded_parse_qsl` "
-            "(`service_endpoints.py`), OR mark it `# parse_qsl: unbounded` "
+            "fix(#1770 round 47 P1 class) invariant violated: a "
+            "`parse_qsl(`/`parse_qs(` call site with no field-count bound "
+            "and no unbounded justification. Route it through "
+            "`bounded_parse_qsl` (`service_endpoints.py`), add "
+            "`max_num_fields=` inline, OR mark it `# parse_qs: unbounded` "
             "on the SAME line with a comment above explaining why this "
             "specific site must never raise on field count.\n"
             "Offending lines:\n" + "\n".join(violations)

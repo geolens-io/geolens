@@ -924,7 +924,14 @@ class Settings(BaseSettings):
         if not parsed.path or parsed.path == "/":
             raise ValueError("DATABASE_URL_OVERRIDE must include a database name")
 
-        query_hosts = parse_qs(parsed.query, keep_blank_values=True).get("host", [])
+        # fix(#1770 round 47b P2 class): DATABASE_URL_OVERRIDE is an
+        # operator-supplied BOOT-TIME env var, never a runtime
+        # service-advertised value -- see `bounded_parse_qsl`'s docstring
+        # (`platform/service_endpoints.py`) for the sites that DO need the
+        # field-count bound.
+        query_hosts = parse_qs(  # parse_qs: unbounded
+            parsed.query, keep_blank_values=True
+        ).get("host", [])
         if parsed.hostname and query_hosts:
             raise ValueError(
                 "DATABASE_URL_OVERRIDE must not combine authority and query hosts"
@@ -1296,7 +1303,9 @@ class Settings(BaseSettings):
         from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
         parts = urlsplit(url)
-        params = parse_qs(parts.query, keep_blank_values=True)
+        # fix(#1770 round 47b P2 class): same reasoning as `database_url_
+        # override`'s validator above -- operator-supplied boot-time config.
+        params = parse_qs(parts.query, keep_blank_values=True)  # parse_qs: unbounded
         params.pop("sslmode", None)
         new_query = urlencode(params, doseq=True)
         return urlunsplit(
@@ -1402,7 +1411,14 @@ class Settings(BaseSettings):
                 raw = raw.replace("postgres://", "postgresql://", 1)
             parsed = urlparse(raw)
             parts = []
-            host = parsed.hostname or parse_qs(parsed.query).get("host", [None])[0]
+            # fix(#1770 round 47b P2 class): same reasoning as
+            # `database_url_override`'s validator -- operator boot-time config.
+            host = (
+                parsed.hostname
+                or parse_qs(parsed.query).get(  # parse_qs: unbounded
+                    "host", [None]
+                )[0]
+            )
             if host:
                 parts.append(f"host={libpq_value(host)}")
             if parsed.port:
@@ -1435,7 +1451,11 @@ class Settings(BaseSettings):
             # worker start). Re-add it, preserving any caller-supplied
             # ?options= — our search_path is applied last so it always wins.
             search_path_opt = f"-c search_path={self.procrastinate_schema},public"
-            caller_options = parse_qs(parsed.query).get("options", [""])[0]
+            # fix(#1770 round 47b P2 class): same reasoning -- operator
+            # boot-time config, not a runtime service-advertised value.
+            caller_options = parse_qs(parsed.query).get(  # parse_qs: unbounded
+                "options", [""]
+            )[0]
             combined_options = (
                 f"{caller_options} {search_path_opt}".strip()
                 if caller_options.strip()
@@ -1468,7 +1488,14 @@ class Settings(BaseSettings):
                 raw = raw.replace("postgres://", "postgresql://", 1)
             parsed = urlparse(raw)
             parts = ["PG:"]
-            host = parsed.hostname or parse_qs(parsed.query).get("host", [None])[0]
+            # fix(#1770 round 47b P2 class): same reasoning as
+            # `database_url_override`'s validator -- operator boot-time config.
+            host = (
+                parsed.hostname
+                or parse_qs(parsed.query).get(  # parse_qs: unbounded
+                    "host", [None]
+                )[0]
+            )
             if host:
                 parts.append(f"host={libpq_value(host)}")
             if parsed.port:

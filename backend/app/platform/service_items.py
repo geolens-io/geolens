@@ -76,6 +76,7 @@ from app.platform.service_endpoints import (
     MAX_DOCUMENT_BYTES,
     MAX_DOCUMENT_TOKENS,
     EndpointCheckFailedError,
+    HrefTooLongError,
     OGC_JSON_ACCEPT,
     bounded_parse_qsl,
     bounded_service_url,
@@ -368,6 +369,10 @@ def _advertised_items_href(document: dict, base: str) -> str | None:
         # see `bounded_service_url`'s docstring for why both callers reuse
         # the SAME `ValueError` this except clause already exists to catch.
         return urljoin(base, bounded_service_url(str(chosen["href"]), what="items"))
+    except HrefTooLongError:
+        # fix(#1770 round 47b, low-priority): its own wording -- see
+        # `service_endpoints.py::_assert_same_origin`'s matching site.
+        raise ItemFetchFailedError("items link exceeds the length limit") from None
     except ValueError:
         # Same rule as `next`: an address that will not parse cannot be shown
         # to stay on the origin, and the href is never echoed.
@@ -426,6 +431,11 @@ def _next_href(document: object, base: str) -> str | None:
                 return urljoin(
                     base, bounded_service_url(str(link["href"]), what="next")
                 )
+            except HrefTooLongError:
+                # fix(#1770 round 47b, low-priority): its own wording.
+                raise ItemFetchFailedError(
+                    "next link exceeds the length limit"
+                ) from None
             except ValueError:
                 # fix(#1746 B2b review r16): the page that named this address
                 # is the one this module exists to distrust, and an address
@@ -530,6 +540,12 @@ async def _resolve_items_url(
         # above, so only an adversarial query packed with many short pairs
         # (comfortably under that length) reaches this except in practice.
         return _with_page_size(href), size
+    except HrefTooLongError:
+        # fix(#1770 round 47b, low-priority): its own wording, even though
+        # `_advertised_items_href` above already makes this branch
+        # practically unreachable for `href` itself -- kept for the same
+        # reason that check is defence in depth rather than trusted alone.
+        raise ItemFetchFailedError("items link exceeds the length limit") from None
     except ValueError:
         raise ItemFetchFailedError("unparseable items link") from None
 

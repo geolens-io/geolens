@@ -38,6 +38,7 @@ from app.core.url_redaction import redact_exception_text
 from app.platform.probe_bounds import bounded_probe_read
 from app.platform.service_endpoints import (
     DEFAULT_CHECK_TIMEOUT,
+    MAX_QUERY_FIELDS,
     WFS_XML_ACCEPT,
     EndpointCheckFailedError,
 )
@@ -108,9 +109,20 @@ def parse_wfs_capabilities(xml_text: str | bytes) -> tuple[str, list[dict]]:
 
 
 def build_capabilities_url(url: str) -> str:
-    """Build a GetCapabilities URL, preserving existing query params."""
+    """Build a GetCapabilities URL, preserving existing query params.
+
+    fix(#1770 round 47b P2 class): `max_num_fields=MAX_QUERY_FIELDS`, same
+    bound `bounded_parse_qsl` applies to a service-advertised query
+    (`service_endpoints.py`). `url` here is the caller's own submitted
+    service URL rather than one read out of a response body, so this is not
+    the live shape the finding named, but it costs nothing to close for
+    consistency: a `ValueError` past the field count is already caught by
+    `_header_auth_probe` (`probe.py`) the same way a `build_credential_
+    header` refusal is, and degrades to "try the next adapter" rather than
+    a 500.
+    """
     parsed = urlparse(url)
-    existing_params = parse_qs(parsed.query)
+    existing_params = parse_qs(parsed.query, max_num_fields=MAX_QUERY_FIELDS)
 
     # Merge required WFS params (overwrite if present)
     existing_params["service"] = ["WFS"]

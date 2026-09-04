@@ -336,19 +336,32 @@ MAX_SERVICE_HREF_BYTES = 8192
 MAX_QUERY_FIELDS = 256
 
 
+class HrefTooLongError(ValueError):
+    """Raised by `bounded_service_url` for an href over the length cap.
+
+    fix(#1770 round 47b, low-priority wording fix): a `ValueError` subclass
+    rather than a plain one, so a caller that wants distinct wording for
+    "too long" versus "unparseable" (an ordinary `urljoin` failure) can add
+    ONE specific `except HrefTooLongError:` ahead of its existing
+    `except ValueError:`, which still catches this too (a subclass IS its
+    parent) -- so a caller that does not bother stays correct with no
+    change at all, same as before this class existed.
+    """
+
+
 def bounded_service_url(href: str, *, what: str) -> str:
     """*href*, refused before any parsing if it is unusually long.
 
     Every caller here already catches `ValueError` from `urljoin` on the
-    same href (an unparseable address the document named), so raising the
-    same type lets this length check flow through each caller's EXISTING
-    coded refusal with no new except clause -- see the call sites in
-    `_next_page`/`_assert_same_origin` below, `_advertised_items_href`/
-    `_next_href`/`_with_page_size` in `service_items.py`, and
-    `_resolve_conformance` in `adapters/ogcapi.py`.
+    same href (an unparseable address the document named), so raising a
+    `ValueError` subclass lets this length check flow through each
+    caller's EXISTING coded refusal with no new except clause required --
+    see the call sites in `_next_page`/`_assert_same_origin` below,
+    `_advertised_items_href`/`_next_href`/`_with_page_size` in
+    `service_items.py`, and `_resolve_conformance` in `adapters/ogcapi.py`.
     """
     if len(href.encode("utf-8", errors="surrogatepass")) > MAX_SERVICE_HREF_BYTES:
-        raise ValueError(f"{what} href exceeds {MAX_SERVICE_HREF_BYTES} bytes")
+        raise HrefTooLongError(f"{what} href exceeds {MAX_SERVICE_HREF_BYTES} bytes")
     return href
 
 
@@ -430,9 +443,17 @@ def _capabilities_url(url: str) -> str:
     this module may not reach. The two agree on the only thing that matters,
     which is that the service and request parameters win over whatever the
     caller's URL carried.
+
+    fix(#1770 round 47b P2 class): `max_num_fields=MAX_QUERY_FIELDS`, the
+    same bound `bounded_parse_qsl` applies to a service-advertised query.
+    `url` here is the caller's own submitted service URL, not the live
+    shape the finding named, but closing it costs nothing.
     """
     parsed = urlparse(url)
-    params = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+    params = {
+        k: v[0]
+        for k, v in parse_qs(parsed.query, max_num_fields=MAX_QUERY_FIELDS).items()
+    }
     params["service"] = "WFS"
     params["request"] = "GetCapabilities"
     return urlunparse(parsed._replace(query=urlencode(params)))
@@ -535,6 +556,17 @@ def _wfs_operation_hrefs(xml_bytes: bytes) -> list[str]:
     # of how low `MAX_DOCUMENT_DEPTH` is or ever needs to be. Preserves the
     # same pre-order traversal the recursive version walked in: a LIFO stack
     # visits document order when children are pushed in reverse.
+    #
+    # fix(#1770 round 47b, low-priority): this is not a pure upside. The
+    # recursive version's OWN call stack was bounded by DEPTH, one frame per
+    # level; this explicit stack is bounded by the WIDEST single level's
+    # BREADTH instead, since every child of a level is pushed before any of
+    # them is popped. `MAX_DOCUMENT_ELEMENTS` (500,000) still bounds the
+    # total regardless of shape, so a document built to be one enormous flat
+    # level rather than one long chain can put on the order of 500,000
+    # `(Element, str | None)` tuples on this stack at once -- tens of bytes
+    # each, so tens of MB, not unbounded, but a real memory cost this walk's
+    # OWN docstring did not previously name.
     stack: list[tuple[object, str | None]] = [(root, None)]
     while stack:
         element, operation = stack.pop()
@@ -592,12 +624,25 @@ def _next_page(document: object, base: str) -> str | None:
                 resolved = urljoin(
                     base, bounded_service_url(str(link["href"]), what="next")
                 )
-            except ValueError:
+            except ValueError as exc:
                 # fix(#1746 B2b review r16): same guard as `_assert_same_origin`
                 # below, and the sibling of the site the review named. An
                 # address the parser cannot read is not one to walk to, and the
                 # walk already stops rather than refuses when `next` leaves the
                 # origin.
+                #
+                # fix(#1770 round 47b, low-priority): warned now, same as the
+                # sibling stop at `_MAX_COLLECTION_PAGES` below -- this used
+                # to end the walk with no signal at all, indistinguishable
+                # from an ordinary last page. `isinstance` rather than a
+                # second `except`, so the log line and the return both stay
+                # in one place. The href is never in the message, same
+                # reason as `_assert_same_origin`.
+                logger.warning(
+                    "OGC API listing: `next` link could not be resolved, "
+                    "stopping the walk",
+                    too_long=isinstance(exc, HrefTooLongError),
+                )
                 return None
             return resolved if same_origin(base, resolved) else None
     return None
@@ -625,6 +670,13 @@ def _assert_same_origin(url: str, hrefs: list[str], base: str | None = None) -> 
             # a canonical redirect is not the URL that was asked for. The
             # origin compared against is still the submitted one.
             resolved = urljoin(base or url, href)
+        except HrefTooLongError:
+            # fix(#1770 round 47b, low-priority): its own wording, distinct
+            # from the generic `urljoin` failure below -- both used to say
+            # "unparseable", which is true of a malformed address but not of
+            # one that is merely too long to have been parsed at all. The
+            # raw href is never echoed either way.
+            raise CrossOriginEndpointError("href exceeds the length limit") from None
         except ValueError:
             # fix(#1746 B2b review r16): `urljoin` raises on some malformed
             # absolute references, and the href comes out of a document this

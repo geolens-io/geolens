@@ -43,6 +43,7 @@ from app.platform.security import SSRFError, same_origin, validate_url_for_ssrf
 from app.platform.probe_bounds import bounded_probe_read
 from app.platform.service_endpoints import (
     DEFAULT_CHECK_TIMEOUT,
+    MAX_SERVICE_HREF_BYTES,
     OGC_JSON_ACCEPT,
     EndpointCheckFailedError,
     bounded_service_url,
@@ -120,7 +121,23 @@ async def _resolve_conformance(
     # below, never to `abs_href` itself: the unredacted value is what
     # `same_origin`, `validate_url_for_ssrf` and the actual GET must keep
     # using.
-    abs_href = conformance_href
+    #
+    # fix(#1770 round 47b P1): truncated to `MAX_SERVICE_HREF_BYTES`
+    # characters at the seed, not the full raw href. `bounded_service_url`
+    # below can now fail BECAUSE `conformance_href` is huge (the round 47 P1
+    # class), and this variable is what every log/exception site below
+    # passes to `redact_url_credentials`, which itself calls the unbounded
+    # `parse_qsl` this codebase deliberately keeps unbounded (a redactor must
+    # never raise on the string it scrubs -- see that function's own
+    # comment). A 20 MB query string reaching an unbounded `parse_qsl` from
+    # a LOGGING call defeats the whole point of bounding the fetch path: the
+    # cost this round exists to refuse would be paid anyway, on every
+    # refused attempt, from a code path with no request in flight to time
+    # out. Truncating here makes `abs_href` safe to redact/log at every
+    # point in this function BY CONSTRUCTION, rather than trusting each
+    # call site to shrink it again -- the same reasoning as `# broad:`
+    # annotations existing at the catch site rather than being inferred.
+    abs_href = conformance_href[:MAX_SERVICE_HREF_BYTES]
     try:
         # fix(#1746 B2b review r19): resolution itself is inside the guard now.
         # r6 moved the `same_origin` call in and left the `urljoin` outside,
