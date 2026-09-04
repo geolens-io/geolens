@@ -41,6 +41,7 @@ import { reuploadPresigned } from '@/api/datasets';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { formatNumber } from '@/lib/format';
 import type {
+  DatasetOrigin,
   DatasetResponse,
   ReuploadPreviewResponse,
   ReuploadSourceType,
@@ -134,6 +135,13 @@ export function ReuploadDialog({
   const [step, setStep] = useState<ReuploadStep>('source-select');
   const [sourceType, setSourceType] = useState<ReuploadSourceType | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
+  // fix(#1768): the dataset's origin as it was when this replacement was
+  // staged, captured beside the job id and sent with the commit. Between
+  // staging and the user's confirmation a service or STAC re-upload can bind
+  // this dataset to a remote source; the swap the commit queues would rebind
+  // it to `upload` and sever that binding, so the server refuses the commit
+  // when the origin it reads is no longer this one.
+  const [stagedOriginKind, setStagedOriginKind] = useState<DatasetOrigin | null>(null);
   const [preview, setPreview] = useState<ReuploadPreviewResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -167,6 +175,7 @@ export function ReuploadDialog({
     setStep('source-select');
     setSourceType(null);
     setJobId(null);
+    setStagedOriginKind(null);
     setPreview(null);
     setError(null);
     setSelectedFile(null);
@@ -255,6 +264,7 @@ export function ReuploadDialog({
     setError(null);
     setPreview(null);
     setJobId(null);
+    setStagedOriginKind(null);
     setProbeResult(null);
     setSelectedLayer(null);
     if (nextSource === 'file') {
@@ -282,6 +292,7 @@ export function ReuploadDialog({
           });
         }
         setJobId(uploadResult.job_id);
+        setStagedOriginKind(dataset.origin ?? null);
 
         // #1289: raster has no schema-preview step — the preview endpoint
         // returns 400 for raster by design (nothing for ogrinfo to diff a
@@ -325,7 +336,7 @@ export function ReuploadDialog({
         setStep('error');
       }
     },
-    [dataset.id, isRaster, uploadMutation, previewMutation, uploadConfig?.presigned_uploads, t],
+    [dataset.id, dataset.origin, isRaster, uploadMutation, previewMutation, uploadConfig?.presigned_uploads, t],
   );
 
   const handleServiceConnect = useCallback(
@@ -389,6 +400,7 @@ export function ReuploadDialog({
           },
         });
         setJobId(previewResult.job_id);
+        setStagedOriginKind(dataset.origin ?? null);
         setPreview(previewResult);
         setStep('preview');
       } catch (err) {
@@ -405,7 +417,7 @@ export function ReuploadDialog({
         setStep('layer-select');
       }
     },
-    [dataset.id, probeResult, servicePreviewMutation, serviceToken, t, appendRetryGuidance],
+    [dataset.id, dataset.origin, probeResult, servicePreviewMutation, serviceToken, t, appendRetryGuidance],
   );
 
   // GPKG-01 Phase 1058: handler for file-path layer selection.
@@ -451,6 +463,10 @@ export function ReuploadDialog({
         jobId,
         token,
         ...(selectedFileLayer !== null ? { layerName: selectedFileLayer } : {}),
+        // fix(#1768): the origin as of staging, not as of now — `dataset` is a
+        // live query result, so reading it here would re-read the very change
+        // this condition exists to catch and always agree with the server.
+        expectedOriginKind: stagedOriginKind,
       });
       setStep('tracking');
     } catch (err) {
@@ -462,12 +478,13 @@ export function ReuploadDialog({
       );
       setStep('error');
     }
-  }, [dataset.id, jobId, sourceType, serviceToken, selectedFileLayer, commitMutation, appendRetryGuidance, t]);
+  }, [dataset.id, jobId, stagedOriginKind, sourceType, serviceToken, selectedFileLayer, commitMutation, appendRetryGuidance, t]);
 
   const handleRetry = useCallback(() => {
     setError(null);
     setPreview(null);
     setJobId(null);
+    setStagedOriginKind(null);
     if (sourceType === 'service_url') {
       setProbeResult(null);
       setSelectedLayer(null);

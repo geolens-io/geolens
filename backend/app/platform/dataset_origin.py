@@ -33,7 +33,7 @@ layer may import.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 
@@ -81,6 +81,13 @@ _ORIGINLESS_RECORD_TYPES: frozenset[str] = frozenset({"collection", "vrt_dataset
 ORIGIN_KINDS: frozenset[str] = frozenset(
     {"upload", "postgis", "service", "stac", "created"}
 )
+
+# fix(#1768): the same vocabulary as a request-model annotation, so a door that
+# takes an origin kind as INPUT rejects an unknown one at the schema boundary
+# and publishes the closed set in OpenAPI. Kept beside the frozenset it
+# mirrors; `test_reupload_expected_origin_1768.py` asserts the two agree, so a
+# kind added to one alone fails a test rather than a request.
+OriginKind = Literal["upload", "postgis", "service", "stac", "created"]
 
 # The response-boundary spelling of "never determined". Deliberately absent
 # from chk_datasets_source_health / chk_datasets_schema_drift_status: with

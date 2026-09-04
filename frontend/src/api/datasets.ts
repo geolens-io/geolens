@@ -6,6 +6,7 @@ import { uploadChunks } from './_presignedUpload';
 import { pushReportEntry, reportNetworkError } from '@/lib/report';
 import type {
   CreateDatasetRequest,
+  DatasetOrigin,
   DatasetResponse,
   DatasetRowsResponse,
   DatasetUpdateRequest,
@@ -231,11 +232,18 @@ export async function reuploadCommit(
   token?: string,
   // GPKG-01 Phase 1058: user-chosen layer for multi-layer GPKG files
   layerName?: string,
+  // fix(#1768): the dataset origin the dialog saw when it staged this
+  // replacement. The commit door refuses with 409 `origin_changed` if the
+  // dataset was rebound to a service, STAC or registered-table source while
+  // the user was uploading and confirming. Optional server-side, so omitting
+  // it is the pre-#1768 behaviour rather than an error.
+  expectedOriginKind?: DatasetOrigin | null,
 ): Promise<ReuploadCommitResponse> {
   const payload: ReuploadCommitRequest = {
     srid_override: sridOverride ?? null,
     ...(token ? { token } : {}),
     ...(layerName !== undefined ? { layer_name: layerName } : {}),
+    ...(expectedOriginKind ? { expected_origin_kind: expectedOriginKind } : {}),
   };
 
   return apiFetch<ReuploadCommitResponse>(`/datasets/${datasetId}/reupload/${jobId}/commit`, {

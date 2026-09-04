@@ -187,6 +187,7 @@
     "arcgisPortalHostInvalid": "Esa dirección de portal no es un nombre de host utilizable. Verifique la URL, por ejemplo https://tu-org.maps.arcgis.com.",
     "refreshServiceTokenRequired": "La fuente de este conjunto de datos necesita una credencial de servicio para actualizarse. Proporciona una a continuación para continuar.",
     "refreshSourceUrlBlocked": "La URL de origen almacenada de este conjunto de datos no superó una comprobación de seguridad y no se puede actualizar automáticamente. Contacta con un administrador.",
+    "reuploadOriginChanged": "La fuente de este conjunto de datos cambió mientras se preparaba el reemplazo, así que no se puso nada en cola. Revisa la fuente del conjunto de datos antes de reemplazar sus datos.",
     "unknownLayers": "No se encontraron estas capas en el archivo subido: {{layers}}.",
     "sourceValidationCrsMismatch": "El sistema de referencia de coordenadas de la fuente {{source}} no coincide con las demás fuentes.",
     "sourceValidationBandCountMismatch": "El número de bandas de la fuente {{source}} no coincide con las demás fuentes.",

@@ -1089,3 +1089,119 @@ class TestReplaceRasterDataset:
 
         assert result.exit_code == EXIT_USAGE, result.output
         assert "--layer" in result.output
+
+
+class TestReplaceSendsTheOriginItSaw:
+    """fix(#1768): the origin gate above is a client-side precheck. The commit
+    carries the origin that gate read, so the server can refuse if the dataset
+    was rebound during the upload/preview/confirm window."""
+
+    def test_commit_carries_the_origin_from_the_pre_fetch(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset(origin="upload"))
+        _patch_upload(monkeypatch, _ok_upload())
+        _patch_preview(monkeypatch, _ok_preview())
+
+        seen: dict[str, object] = {}
+
+        def _capture(**kw):
+            seen["body"] = kw["body"]
+            return _ok_commit()
+
+        monkeypatch.setattr(
+            "geolens.api.datasets_reupload."
+            "reupload_commit_datasets_dataset_id_reupload_job_id_commit_post."
+            "sync_detailed",
+            _capture,
+        )
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson), "--yes"]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert seen["body"].expected_origin_kind == "upload"
+
+    def test_an_origin_changed_409_is_actionable(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset(origin="upload"))
+        _patch_upload(monkeypatch, _ok_upload())
+        _patch_preview(monkeypatch, _ok_preview())
+        _patch_commit(
+            monkeypatch,
+            _problem(
+                409,
+                {
+                    "code": "origin_changed",
+                    "message": "backend detail",
+                    "origin_kind": "service",
+                    "expected_origin_kind": "upload",
+                },
+            ),
+        )
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson), "--yes"]
+        )
+
+        assert result.exit_code == 1, result.output
+        assert "source changed" in result.output
+
+
+class TestCapturedOriginKind:
+    def test_a_known_kind_is_asserted(self) -> None:
+        from types import SimpleNamespace
+
+        from geolens_cli.replace import captured_origin_kind
+
+        assert captured_origin_kind(SimpleNamespace(origin="stac")) == "stac"
+
+    @pytest.mark.parametrize("origin", [None, "sftp"])
+    def test_an_unclassifiable_origin_asserts_nothing(self, origin) -> None:
+        from types import SimpleNamespace
+
+        from geolens_cli.replace import captured_origin_kind
+
+        assert captured_origin_kind(SimpleNamespace(origin=origin)) is None
+
+    def test_the_sdk_unset_sentinel_asserts_nothing(self) -> None:
+        """A reader the server redacts `origin` from gets UNSET, not a kind —
+        forwarding that sentinel would 422 the commit."""
+        from types import SimpleNamespace
+
+        from geolens.types import UNSET
+
+        from geolens_cli.replace import captured_origin_kind
+
+        assert captured_origin_kind(SimpleNamespace(origin=UNSET)) is None
+
+
+class TestBuildCommitRequestOrigin:
+    def test_a_known_kind_is_sent(self) -> None:
+        from geolens_cli.replace import build_commit_request
+
+        req = build_commit_request(
+            layer_name=None, srid_override=None, expected_origin_kind="service"
+        )
+        assert req.expected_origin_kind == "service"
+
+    @pytest.mark.parametrize("kind", [None, "sftp"])
+    def test_an_unknown_or_missing_kind_is_left_unset(self, kind) -> None:
+        """UNSET, not null: the field is optional server-side and an absent
+        value is the pre-#1768 contract an older client already gets."""
+        from geolens.types import UNSET
+
+        from geolens_cli.replace import build_commit_request
+
+        req = build_commit_request(
+            layer_name=None, srid_override=None, expected_origin_kind=kind
+        )
+        assert req.expected_origin_kind is UNSET

@@ -24,6 +24,7 @@ from app.modules.catalog.sources.schemas import (
     reject_service_auth_conflict,
 )
 from app.platform.analysis_sql import MAX_SPATIAL_JOIN_FIELDS
+from app.platform.dataset_origin import OriginKind
 
 
 # feat(#1222): built from the probe's own closed vocabulary rather than
@@ -782,6 +783,17 @@ class ReuploadPreviewRequest(BaseModel):
 
 class ReuploadCommitRequest(BaseModel):
     srid_override: int | None = Field(default=None, ge=1, le=998999)
+    expected_origin_kind: OriginKind | None = Field(
+        default=None,
+        description=(
+            "The dataset origin the client saw when it staged this "
+            "replacement. When set, the commit is refused with 409 "
+            "`origin_changed` if the dataset's origin no longer matches, so a "
+            "service, STAC or registered-table binding established after the "
+            "upload is not silently rebound to an upload. Optional: a client "
+            "that omits it keeps the pre-#1768 behaviour."
+        ),
+    )
     token: str | None = Field(
         default=None, max_length=1000, description=DEPRECATED_TOKEN_SUFFIX.strip()
     )

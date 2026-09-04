@@ -4054,7 +4054,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # The rest is the note on why `auth` joins `token` in the model_dump
     # exclusion: user_metadata is a durable JSONB column and that dump is a
     # whitelist by omission. Cap 1282 -> 1294, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1294,
+    # fix(#1768): +61. `_refuse_if_origin_changed` re-reads the dataset's
+    # origin after the run row takes the one-active-run slot and refuses a
+    # stale `expected_origin_kind` with 409 `origin_changed`. It is a helper
+    # rather than an inline block because two more branches in the handler
+    # crossed the McCabe gate, which is the same reason `_dispatch_reupload_task`
+    # exists. Most of the lines are its docstring: which window the condition
+    # closes, why the reservation is what makes the re-read decisive instead of
+    # one more racing read, and why an absent value asserts nothing.
+    # Cap 1294 -> 1355, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1355,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
@@ -4653,7 +4662,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # deprecated `token` at once. Both are imported from the sources schema
     # rather than restated here, so the four doors cannot describe the same
     # credential four ways. Cap 1483 -> 1499, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1499,
+    # fix(#1768): +12. `ReuploadCommitRequest.expected_origin_kind`, typed with
+    # the shared `OriginKind` literal from platform/dataset_origin.py rather
+    # than a second spelling of the vocabulary, plus the description telling a
+    # client author what the field buys and that omitting it is supported.
+    # Cap 1499 -> 1511, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1511,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

@@ -502,6 +502,98 @@ describe('ReuploadDialog', () => {
     // There should be NO "File:" header line in service-URL preview
     expect(screen.queryByText(/^File:/)).not.toBeInTheDocument();
   });
+
+  // fix(#1768): the commit carries the origin the dialog SAW when it staged
+  // the replacement, so the server can refuse a dataset rebound mid-flow
+  // instead of severing the new binding on the swap.
+  it('sends the origin it saw with a file-source commit', async () => {
+    const user = userEvent.setup();
+    render(
+      <ReuploadDialog
+        dataset={{ ...makeDataset(), origin: 'upload' }}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await openFileSource(user);
+    await dropFile();
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => {
+      expect(commitMutateAsync).toHaveBeenCalled();
+    });
+    expect(commitMutateAsync.mock.calls[0][0].expectedOriginKind).toBe('upload');
+  });
+
+  it('sends the origin it saw with a service-source commit', async () => {
+    const user = userEvent.setup();
+    render(
+      <ReuploadDialog
+        dataset={{ ...makeDataset(), origin: 'service' }}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await openServicePreview(user);
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => {
+      expect(commitMutateAsync).toHaveBeenCalled();
+    });
+    expect(commitMutateAsync.mock.calls[0][0].expectedOriginKind).toBe('service');
+  });
+
+  it('asserts no origin when the dataset reports none', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await openFileSource(user);
+    await dropFile();
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => {
+      expect(commitMutateAsync).toHaveBeenCalled();
+    });
+    expect(commitMutateAsync.mock.calls[0][0].expectedOriginKind).toBeNull();
+  });
+
+  it('sends the staged origin, not the origin the live dataset now reports', async () => {
+    // The point of the condition: `dataset` is a live query result, so a
+    // rebinding that lands mid-flow updates the prop. Reading it at confirm
+    // time would send the changed value and always agree with the server,
+    // which is exactly the race #1768 is about.
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <ReuploadDialog
+        dataset={{ ...makeDataset(), origin: 'upload' }}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await openFileSource(user);
+    await dropFile();
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+
+    rerender(
+      <ReuploadDialog
+        dataset={{ ...makeDataset(), origin: 'service' }}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await waitFor(() => {
+      expect(commitMutateAsync).toHaveBeenCalled();
+    });
+    expect(commitMutateAsync.mock.calls[0][0].expectedOriginKind).toBe('upload');
+  });
 });
 
 // GPKG-01 Phase 1058: multi-layer file path tests

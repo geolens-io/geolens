@@ -8,6 +8,12 @@ from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
 
+from ..models.reupload_commit_request_expected_origin_kind_type_0 import (
+    check_reupload_commit_request_expected_origin_kind_type_0,
+)
+from ..models.reupload_commit_request_expected_origin_kind_type_0 import (
+    ReuploadCommitRequestExpectedOriginKindType0,
+)
 from typing import cast
 
 if TYPE_CHECKING:
@@ -22,6 +28,10 @@ class ReuploadCommitRequest:
     """
     Attributes:
         srid_override (int | None | Unset):
+        expected_origin_kind (None | ReuploadCommitRequestExpectedOriginKindType0 | Unset): The dataset origin the
+            client saw when it staged this replacement. When set, the commit is refused with 409 `origin_changed` if the
+            dataset's origin no longer matches, so a service, STAC or registered-table binding established after the upload
+            is not silently rebound to an upload. Optional: a client that omits it keeps the pre-#1768 behaviour.
         token (None | str | Unset): Deprecated: use the auth object with method bearer.
         layer_name (None | str | Unset):
         auth (None | ServiceAuthRequest | Unset): Structured credential for a protected service. Mutually exclusive with
@@ -29,6 +39,9 @@ class ReuploadCommitRequest:
     """
 
     srid_override: int | None | Unset = UNSET
+    expected_origin_kind: (
+        None | ReuploadCommitRequestExpectedOriginKindType0 | Unset
+    ) = UNSET
     token: None | str | Unset = UNSET
     layer_name: None | str | Unset = UNSET
     auth: None | ServiceAuthRequest | Unset = UNSET
@@ -42,6 +55,14 @@ class ReuploadCommitRequest:
             srid_override = UNSET
         else:
             srid_override = self.srid_override
+
+        expected_origin_kind: None | str | Unset
+        if isinstance(self.expected_origin_kind, Unset):
+            expected_origin_kind = UNSET
+        elif isinstance(self.expected_origin_kind, str):
+            expected_origin_kind = self.expected_origin_kind
+        else:
+            expected_origin_kind = self.expected_origin_kind
 
         token: None | str | Unset
         if isinstance(self.token, Unset):
@@ -68,6 +89,8 @@ class ReuploadCommitRequest:
         field_dict.update({})
         if srid_override is not UNSET:
             field_dict["srid_override"] = srid_override
+        if expected_origin_kind is not UNSET:
+            field_dict["expected_origin_kind"] = expected_origin_kind
         if token is not UNSET:
             field_dict["token"] = token
         if layer_name is not UNSET:
@@ -91,6 +114,31 @@ class ReuploadCommitRequest:
             return cast(int | None | Unset, data)
 
         srid_override = _parse_srid_override(d.pop("srid_override", UNSET))
+
+        def _parse_expected_origin_kind(
+            data: object,
+        ) -> None | ReuploadCommitRequestExpectedOriginKindType0 | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                expected_origin_kind_type_0 = (
+                    check_reupload_commit_request_expected_origin_kind_type_0(data)
+                )
+
+                return expected_origin_kind_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(
+                None | ReuploadCommitRequestExpectedOriginKindType0 | Unset, data
+            )
+
+        expected_origin_kind = _parse_expected_origin_kind(
+            d.pop("expected_origin_kind", UNSET)
+        )
 
         def _parse_token(data: object) -> None | str | Unset:
             if data is None:
@@ -129,6 +177,7 @@ class ReuploadCommitRequest:
 
         reupload_commit_request = cls(
             srid_override=srid_override,
+            expected_origin_kind=expected_origin_kind,
             token=token,
             layer_name=layer_name,
             auth=auth,
