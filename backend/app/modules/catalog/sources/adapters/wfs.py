@@ -118,9 +118,11 @@ def build_capabilities_url(url: str) -> str:
     field count reached that route as a bare 500 -- the exact class rounds
     44 and 47 both closed elsewhere, reintroduced by round 47b's own "costs
     nothing to close" reasoning, which checked one caller and assumed the
-    rest. `url` here really is the caller's own submitted service URL
-    (`SourceCreate`'s schema caps it at 2048 chars, ~350 fields of `a=1&` at
-    that length), never a value read out of a THIRD-PARTY response, so
+    rest. On the health-check path, `url` is `origin_ref["url"]` -- caller-
+    derived JSONB persisted from a probe/preview submission one hop earlier
+    (`ProbeRequest`/`ServicePreviewRequest` cap that submission at 2048
+    chars, ~350 fields of `a=1&` at that length), not a fresh schema field
+    itself and never a value read out of a THIRD-PARTY response, so
     `# parse_qs: unbounded` is the correct answer, matching
     `preview.py::_encode_url_for_gdal`'s existing exemption for the same
     reason.

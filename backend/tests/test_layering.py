@@ -2578,7 +2578,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # function's own docstring for why round 47b's bound here was wrong.
     # Net growth is the corrected, longer docstring. Cap 1310 -> 1316,
     # exact.
-    "backend/app/platform/service_endpoints.py": 1316,
+    # fix(#1770 rebase audit nit): +1. The marker line sat at exactly 88
+    # chars; split the `parse_qs` call onto its own line so the trailing
+    # `# parse_qs: unbounded` comment has room. Cap 1316 -> 1317, exact.
+    "backend/app/platform/service_endpoints.py": 1317,
     # fix(#1770 round 42): first entry, crossed _RATCHET_INCLUSION_LOC on the
     # completeness-predicate unification. `_page_proves_complete` is the one
     # function round 41's full-walk-only proof and round 42's sampled-preview
@@ -2692,7 +2695,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # reads now bounded), the CRS-fallback except clause gained
     # `RecursionError` (P2, JSON depth bomb), plus their comments. Cap
     # 1611 -> 1629, exact.
-    "backend/app/modules/catalog/sources/router.py": 1629,
+    # fix(#1770 rebase onto main, post-#1820/#1821): re-pinned by direct
+    # `wc -l` measurement of the post-rebase file, not arithmetic on either
+    # side's number. #1820 (merged first) removed 28 lines from this file
+    # reserving the ArcGIS sign-in attempt before the mint; this lane's own
+    # rounds 45 through 47c added lines back on top through the normal
+    # ArcGIS-bound/non-dict-guard/conformance-seed fixes. Net: 1629 -> 1625,
+    # exact.
+    "backend/app/modules/catalog/sources/router.py": 1625,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against
@@ -2891,7 +2901,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # (str | list[MapSpriteEntry]), so exported styles (which always emit the
     # array form) round-trip through /maps/import instead of 422ing.
     # Cap 1377 -> 1396, exact.
-    "backend/app/modules/catalog/maps/schemas.py": 1396,
+    # fix(#1770 rebase onto main): +69, from upstream main growth this lane
+    # never touched, landed between this branch's fork point and its rebase.
+    # Re-pinned by direct `wc -l` measurement of the post-rebase file. Cap
+    # 1396 -> 1465, exact.
+    "backend/app/modules/catalog/maps/schemas.py": 1465,
     # fix(#1042): decomposed. The file reached 2151 lines with five carve-outs
     # on this cap, each one a correctness fix that had to argue for its lines:
     # #888 (+117, shift a 0..360 source instead of clipping it, plus the clip
@@ -4237,7 +4251,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # _dispatch_reupload_task grows a service_queue parameter so the verdict
     # reaches the configure() call that used to hardcode the task's own
     # queue. Cap 1306 -> 1325, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1325,
+    # fix(#1770 rebase onto main): +61, from #1768's `_refuse_if_origin_
+    # changed` (merged as part of #1821 before this branch's rebase). An
+    # earlier rebase conflict resolution on this same dict entry took this
+    # lane's own stale pre-#1768 number instead of the upstream one, so the
+    # comment history above this line does not mention #1768 by name even
+    # though its lines are counted here -- re-pinned by direct `wc -l`
+    # measurement of the post-rebase file to correct that gap. Cap 1325 ->
+    # 1386, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1386,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
@@ -4931,7 +4953,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # could be re-uploaded but not previewed first. Cap 1499 -> 1516, exact.
     # fix(#1746 B2b review r24): +8. `row_count_delta` is nullable (and still
     # required), with the reason recorded where the field is declared.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1524,
+    # Cap 1516 -> 1524, exact.
+    # fix(#1770 rebase onto main): +12, from #1768's `ReuploadCommitRequest.
+    # expected_origin_kind` (merged as part of #1821 before this branch's
+    # rebase; lost from the comment trail the same way `router_reupload.py`'s
+    # entry above was, by an earlier rebase conflict resolution taking this
+    # lane's stale number). Re-pinned by direct `wc -l` measurement of the
+    # post-rebase file. Cap 1524 -> 1536, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1536,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch
@@ -5089,7 +5118,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # feat(#1691): +9 — the check_public_visibility_allowed gate on the map
     # update route (a non-admin may not move a map TO public when
     # restrict_public_visibility is on). Cap 1460 -> 1469, exact.
-    "backend/app/modules/catalog/maps/router.py": 1469,
+    # fix(#1770 rebase onto main): +103, from upstream main growth this lane
+    # never touched, landed between this branch's fork point and its rebase.
+    # Re-pinned by direct `wc -l` measurement of the post-rebase file. Cap
+    # 1469 -> 1572, exact.
+    "backend/app/modules/catalog/maps/router.py": 1572,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.

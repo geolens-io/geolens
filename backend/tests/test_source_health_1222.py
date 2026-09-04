@@ -1288,6 +1288,12 @@ class TestServiceOriginProbe:
         assert resp.status_code == 200, resp.text
         assert resp.json()["source_health"] == HEALTHY
         assert len(recorded) == 1
+        # Not vacuous: proves `build_capabilities_url` actually ran on this
+        # many-param URL, so a future refactor that stops calling it (or
+        # calls it differently) cannot leave this passing on an unrelated
+        # code path that never reached the fixed function at all.
+        assert "service=WFS" in str(recorded[0].url)
+        assert "request=GetCapabilities" in str(recorded[0].url)
 
     async def test_legacy_wfs_row_without_a_base_url_refuses_to_probe(
         self, client, admin_auth_header, test_db_session, probe_transport

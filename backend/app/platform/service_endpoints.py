@@ -459,7 +459,8 @@ def _capabilities_url(url: str) -> str:
     THIRD-PARTY response, so `# parse_qs: unbounded` is the correct answer.
     """
     parsed = urlparse(url)
-    params = {k: v[0] for k, v in parse_qs(parsed.query).items()}  # parse_qs: unbounded
+    query = parse_qs(parsed.query)  # parse_qs: unbounded
+    params = {k: v[0] for k, v in query.items()}
     params["service"] = "WFS"
     params["request"] = "GetCapabilities"
     return urlunparse(parsed._replace(query=urlencode(params)))
