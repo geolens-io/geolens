@@ -121,6 +121,61 @@ _our_effective_value() {
   ( . "$REPO_ROOT/lib/common.sh" && effective_env_value_into _test_effective "$1" "$2" && printf '%s' "$_test_effective" )
 }
 
+# Loads FILE through real Compose with CONTROL as the probed key; Compose's
+# own rc, first stderr line on stdout.
+_compose_file_load() {
+  cat > "$COMPOSE_YML" <<YML
+services:
+  svc:
+    image: busybox
+    environment:
+      X: \${CONTROL}
+YML
+  docker compose -f "$COMPOSE_YML" --env-file "$1" config --format json >/dev/null 2>"$WORK/file-load.err"
+  _cfl_rc=$?
+  head -1 "$WORK/file-load.err"
+  return "$_cfl_rc"
+}
+
+# fix(#1899): whole-file loadability, env_file_first_refused_line against
+# Compose. Both must agree, and when Compose names the line of a key error
+# ours must name the same line.
+_assert_file_like_compose() {
+  _afl_file="$1"
+  _afl_desc="$2"
+  _afl_ours="$( ( . "$REPO_ROOT/lib/common.sh" && env_file_first_refused_line "$_afl_file" ) 2>"$WORK/file-ours.err" )"
+  _afl_ours_rc=$?
+  if [ -s "$WORK/file-ours.err" ]; then
+    bad "$_afl_desc (env_file_first_refused_line wrote to stderr: $(head -1 "$WORK/file-ours.err"))"
+    return
+  fi
+  _afl_err="$(_compose_file_load "$_afl_file")"
+  _afl_compose_rc=$?
+
+  if [ "$_afl_compose_rc" -eq 0 ] && [ "$_afl_ours_rc" -ne 0 ]; then
+    ok "$_afl_desc (both load the file)"
+    return
+  fi
+  if [ "$_afl_compose_rc" -eq 0 ]; then
+    bad "$_afl_desc (Compose loads the file, ours refuses it: [$_afl_ours])"
+    return
+  fi
+  if [ "$_afl_ours_rc" -ne 0 ]; then
+    bad "$_afl_desc (Compose refuses the file: [$_afl_err]; ours loads it)"
+    return
+  fi
+  case "$_afl_err" in
+    *"key cannot contain a space"*|*"unexpected character"*)
+      _afl_line="$(printf '%s' "$_afl_err" | sed -n 's/.*line \([0-9][0-9]*\):.*/\1/p')"
+      if [ -n "$_afl_line" ] && [ "$_afl_line" != "${_afl_ours%% *}" ]; then
+        bad "$_afl_desc (Compose names line $_afl_line, ours names [$_afl_ours])"
+        return
+      fi
+      ;;
+  esac
+  ok "$_afl_desc (both refuse: ours [$_afl_ours])"
+}
+
 # fix(#1886): a top-level ${KEY} resolves from the process environment first,
 # so this compares effective_env_value_into against the oracle (get_env_value
 # keeps its file-only contract and is not what preflight-env.sh reads).
@@ -511,6 +566,54 @@ printf 'TARGETVAR\n' > "$BARE_ENV"
 export TARGETVAR=fromenv
 _assert_effective_matches_compose TARGETVAR "$BARE_ENV"   "env set (fromenv) + a bare TARGETVAR line: the line inherits the export and is not refused"
 unset TARGETVAR
+
+# ============================================================================
+# fix(#1899): whole-file loadability, each shape judged by Compose and by ours.
+# ============================================================================
+FILE_DIR="$WORK/files"
+mkdir -p "$FILE_DIR"
+
+printf 'CONTROL=ok\nUNRELATED=${MISSING:?boom}\n' > "$FILE_DIR/unrelated"
+_assert_file_like_compose "$FILE_DIR/unrelated" "an unrelated line with \${MISSING:?boom} beside a valid key"
+
+printf 'CONTROL=${MISSING:?boom}\nCONTROL=ok\n' > "$FILE_DIR/earlier-dup"
+_assert_file_like_compose "$FILE_DIR/earlier-dup" "an earlier invalid duplicate of a key whose last definition is valid"
+
+printf '# comment\nCONTROL=ok\n\nexport EXPORTED=1\nQUOTED="with # hash" # note\nSINGLE='"'"'lit $x'"'"'\nBARE\nSPACED = value\nREF=${CONTROL}\nODD-KEY=x\n1ODD=x\nDOTTED.KEY=x\nBRACKET[0]=x\nCOLON:sep value\nTAB\t=x\nDOLLAR=$5\nJUNK="a"b\nMULTI="a\nb c\n"\n' > "$FILE_DIR/mixed-valid"
+_assert_file_like_compose "$FILE_DIR/mixed-valid" "a file of comments, export, quotes, a bare key, odd keys, a colon key, a ref, a bare \$ and a multiline value"
+
+printf '\357\273\277# bom\nCONTROL=ok\n' > "$FILE_DIR/bom"
+_assert_file_like_compose "$FILE_DIR/bom" "a BOM before a first-line comment"
+
+printf 'CONTROL=ok\nFOO # comment\n' > "$FILE_DIR/bare-comment"
+_assert_file_like_compose "$FILE_DIR/bare-comment" "a bare key followed by a comment"
+
+printf 'CONTROL=ok\nFOO BAR=x\n' > "$FILE_DIR/space-key"
+_assert_file_like_compose "$FILE_DIR/space-key" "a space inside a key"
+
+printf 'CONTROL=ok\ngarbage line\n' > "$FILE_DIR/garbage"
+_assert_file_like_compose "$FILE_DIR/garbage" "a line with a space and no ="
+
+printf 'CONTROL=ok\n- x=y\n' > "$FILE_DIR/odd-space"
+_assert_file_like_compose "$FILE_DIR/odd-space" "a space inside a key the tokenizer does not recognise"
+
+printf 'CONTROL=ok\nFOO#BAR=x\n' > "$FILE_DIR/hash-key"
+_assert_file_like_compose "$FILE_DIR/hash-key" "a # inside a key"
+
+printf 'CONTROL=ok\nFOO$=x\n' > "$FILE_DIR/dollar-key"
+_assert_file_like_compose "$FILE_DIR/dollar-key" "a \$ inside a key"
+
+printf 'CONTROL=ok\n"FOO"=x\n' > "$FILE_DIR/quoted-key"
+_assert_file_like_compose "$FILE_DIR/quoted-key" "a key wrapped in quotes"
+
+printf 'CONTROL=ok\nFOO="unterminated\nFOO=ok\n' > "$FILE_DIR/unterminated"
+_assert_file_like_compose "$FILE_DIR/unterminated" "an unterminated quote that swallows the rest of the file"
+
+printf 'CONTROL=ok\nFOO=${X\n' > "$FILE_DIR/unclosed-ref"
+_assert_file_like_compose "$FILE_DIR/unclosed-ref" "an unclosed \${ reference"
+
+printf 'CONTROL=ok\nFOO="a\nb c\n"\nBAR # after\n' > "$FILE_DIR/continuation"
+_assert_file_like_compose "$FILE_DIR/continuation" "a spaced continuation line is exempt and the key error after it is the one named"
 
 
 # ============================================================================

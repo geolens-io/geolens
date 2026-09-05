@@ -1582,8 +1582,12 @@ get_env_value() {
   # blind to `export`/bare-key/CRLF/whitespace-around-`=` lines (P2 #2 and
   # the rest of this round's grammar sweep — see _env_tokenize's own doc
   # comment for the full list, each verified against the oracle).
-  _gev_records="$(_env_tokenize "$file")" || return 1
-  _env_select_record "$_gev_records" "$key" 0
+  # fix(#1899): BEFORE ($3, default 0) keeps only records that start before
+  # that line, as _env_select_record does; RECORDS ($4) is _env_tokenize's
+  # stream for FILE when the caller already holds it, so FILE is read once.
+  _gev_records="${4:-}"
+  [ -n "$_gev_records" ] || _gev_records="$(_env_tokenize "$file")" || return 1
+  _env_select_record "$_gev_records" "$key" "${3:-0}"
   case "$_esr_found" in
     0) return 1 ;;
     2) return 1 ;;
@@ -1795,6 +1799,83 @@ effective_env_value_into() {
     return 0
   fi
   [ "$_eevi_in_file" -eq 1 ]
+}
+
+# fix(#1899): prints "LINE KEY REASON" for the first line of FILE that Compose
+# refuses to load (whitespace-in-key, unexpected-character, unterminated-quote
+# or unresolvable) with rc 0; rc 1 and no output when every line loads.
+env_file_first_refused_line() {
+  _efrl_file="$1"
+  [ -f "$_efrl_file" ] || return 1
+  _efrl_records="$(_env_tokenize "$_efrl_file")" || return 1
+
+  # Compose's parse phase: a key ends at `=` or `:`, holds letters, digits,
+  # `_.-[]` or a tab, never a space; a multiline value's continuation lines
+  # are exempt; bytes above 0x7f pass. ENVIRON carries the records, -v cannot.
+  _efrl_hit="$(_EFRL_RECORDS="$_efrl_records" LC_ALL=C awk '
+    BEGIN {
+      n = split(ENVIRON["_EFRL_RECORDS"], r, "\n")
+      for (i = 1; i <= n; i++) {
+        split(r[i], f, " ")
+        if (f[1] != "" && f[1] != "B" && f[3] > f[2]) { m++; lo[m] = f[2] + 1; hi[m] = f[3] }
+      }
+    }
+    {
+      line = $0
+      sub(/\r$/, "", line)
+      if (NR == 1 && substr(line, 1, 3) == "\357\273\277") line = substr(line, 4)
+      sub(/^[ \t]+/, "", line)
+      if (line == "" || substr(line, 1, 1) == "#") next
+      for (i = 1; i <= m; i++) if (NR >= lo[i] && NR <= hi[i]) next
+      sub(/^export[ \t]+/, "", line)
+      key = line
+      if (match(key, /[=:]/)) key = substr(key, 1, RSTART - 1)
+      sub(/[ \t]+$/, "", key)
+      name = key
+      sub("[ \t#\"$].*$", "", name)
+      if (name == "") name = "?"
+      if (index(key, " ") > 0) { print NR, name, "whitespace-in-key"; exit }
+      bad = key
+      gsub(/[]A-Za-z0-9_.[\t-]/, "", bad)
+      for (j = 1; j <= length(bad); j++) {
+        if (substr(bad, j, 1) < "\200") { print NR, name, "unexpected-character"; exit }
+      }
+    }' "$_efrl_file")" || fail "env_file_first_refused_line: could not scan $_efrl_file"
+  if [ -n "$_efrl_hit" ]; then
+    printf '%s' "$_efrl_hit"
+    return 0
+  fi
+
+  _efrl_hit="$(printf '%s' "$_efrl_records" | awk '$1 == "U" { print $2, $4, "unterminated-quote"; exit }')" \
+    || fail "env_file_first_refused_line: could not scan the records of $_efrl_file"
+  if [ -n "$_efrl_hit" ]; then
+    printf '%s' "$_efrl_hit"
+    return 0
+  fi
+
+  # Compose's interpolation phase. Only a value holding `$` can fail it, so
+  # only those records are resolved, each bounded by its own start line.
+  _efrl_list="$(_EFRL_RECORDS="$_efrl_records" LC_ALL=C awk '
+    BEGIN {
+      n = split(ENVIRON["_EFRL_RECORDS"], r, "\n")
+      for (i = 1; i <= n; i++) {
+        split(r[i], f, " ")
+        if (f[1] == "A") { m++; lo[m] = f[2]; hi[m] = f[3]; key[m] = f[4] }
+      }
+    }
+    index($0, "$") > 0 { for (i = 1; i <= m; i++) if (NR >= lo[i] && NR <= hi[i]) seen[i] = 1 }
+    END { for (i = 1; i <= m; i++) if (seen[i]) print lo[i], key[i] }' "$_efrl_file")" \
+    || fail "env_file_first_refused_line: could not scan the values of $_efrl_file"
+  _efrl_hit="$(printf '%s\n' "$_efrl_list" | while read -r _efrl_start _efrl_key; do
+      [ -n "$_efrl_start" ] || continue
+      get_env_value "$_efrl_key" "$_efrl_file" "$((_efrl_start + 1))" "$_efrl_records" >/dev/null 2>&1 \
+        || { printf '%s %s unresolvable' "$_efrl_start" "$_efrl_key"; break; }
+    done)"
+  if [ -n "$_efrl_hit" ]; then
+    printf '%s' "$_efrl_hit"
+    return 0
+  fi
+  return 1
 }
 
 # Replace `KEY=...` in .env (or append if missing). Pass the value via ENVIRON

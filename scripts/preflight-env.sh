@@ -18,6 +18,9 @@
 # Each value is read the way Compose resolves it: from the exported
 # environment when that sets the name (even to an empty string), else .env.
 #
+# The whole file is checked first: a line Compose cannot load stops
+# `docker compose up` whatever key it holds, so it is refused here by line.
+#
 # Run automatically by `make dev` unless SKIP_PREFLIGHT=1.
 
 set -euo pipefail
@@ -57,29 +60,41 @@ value_source() {
     fi
 }
 
-# fix(#1886): a line Compose cannot load stops `docker compose up` before any
-# override applies, so it is refused here whether or not $1 is exported.
-refuse_unloadable_line() {
+# fix(#1899): Compose loads every line of .env before anything else, so the
+# whole file is checked first and the first line it would refuse is named.
+check_env_file() {
+    local hit why
+    hit="$(env_file_first_refused_line "$ENV_FILE")" || return 0
+    # shellcheck disable=SC2086  # "LINE KEY REASON", none of which holds whitespace
+    set -- $hit
+    case "$3" in
+        whitespace-in-key) why="its key contains a space" ;;
+        unexpected-character) why="its key contains a character docker compose does not allow" ;;
+        unterminated-quote) why="its quoted value never closes" ;;
+        *) why="a \${NAME:?message} reference names a NAME that is not set, or a \${ never closes" ;;
+    esac
     cat >&2 <<EOF
-Pre-flight: the $1 line in .env cannot be loaded by docker compose.
+Pre-flight: .env line $1 ($2) cannot be loaded by docker compose: $why.
 
 Compose reads every line of .env before it applies your shell environment, so
-an unterminated quote, or a \${NAME:?message} reference to a NAME that is not
-set, stops \`docker compose up\` on this line even when $1 is exported. Fix or
-remove the line in .env.
+\`docker compose up\` stops on this line even if the key is not one GeoLens
+reads. Fix or remove the line in .env.
 EOF
     exit 1
 }
 
-# Sets \`value\` to what Compose will pass for $1, or refuses the .env line.
+# Sets \`value\` to what Compose will pass for $1. rc 2 (a line Compose
+# refuses) cannot occur once check_env_file has passed; it re-runs the check.
 read_effective() {
     value=""
     rc=0
     effective_env_value_into value "$1" "$ENV_FILE" || rc=$?
     if [ "$rc" -eq 2 ]; then
-        refuse_unloadable_line "$1"
+        check_env_file
     fi
 }
+
+check_env_file
 
 REQUIRED=(JWT_SECRET_KEY GEOLENS_ADMIN_USERNAME GEOLENS_ADMIN_PASSWORD)
 MISSING=()
