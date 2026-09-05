@@ -162,17 +162,21 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   (context managers enter left to right). Beyond that, a wrapped open
   passes even if a refactor later moves it into a helper called from
   outside the block. Reviewer territory.
-- Helper credit requires the name to be bound to the canonical module by an
-  import the resolver understands, resolved through LEXICAL SCOPES
+- Helper credit requires the name to be bound to one of the canonical modules
+  by an import the resolver understands, resolved through LEXICAL SCOPES
   innermost-first (see ``_scope_info`` / ``_resolve_credit``): a scope that
   rebinds the name (param, assignment, def, non-canonical import, loop or
   with target) kills credit for that scope and everything nested in it. A
   dotted ``import app.processing.raster.vrt`` used without an alias, a
-  re-export through an intermediate module, or a name both imported and
-  reassigned in one scope is NOT credited — the failure mode is a spurious
+  re-export through an UNNAMED intermediate module, or a name both imported
+  and reassigned in one scope is NOT credited — the failure mode is a spurious
   violation prompting a review, never silent credit for a shadow. Class
   bodies are not modeled as scopes, and ``global``/``nonlocal``
-  rebinding is not tracked.
+  rebinding is not tracked. fix(#1857 item 3): "unnamed" is doing the work
+  there. ``CANONICAL_HELPER_MODULES`` lists two import paths and, per path,
+  which helpers it may vouch for, so ``processing/raster/vrt.py``'s re-export
+  of the two driver clamps is credited because the map names that module
+  rather than because a chain was followed. Nothing chases a re-export.
 - CLI credit stops at the CALL level: a call to the canonical
   ``gdal_safe_env`` in an allowlisted position credits the argv, but whether
   that call's RESULT is the env handed to the subprocess is not verified.
@@ -342,6 +346,11 @@ SUBPROCESS_ENV_HELPERS = (
 )
 ENV_HELPERS = (SAFE_OPEN_ENV_HELPER, *SUBPROCESS_ENV_HELPERS)
 
+# fix(#1846): the two GDAL_SKIP driver clamps, which fix(#1857 item 3) moved
+# out to `app/platform/gdal_env.py`. Named as their own set because that is
+# the module's whole contents and the only thing it may vouch for.
+DRIVER_SKIP_HELPERS = (SAFE_VECTOR_ENV_HELPER, SAFE_SERVICE_ENV_HELPER)
+
 # fix(#1846, GHSA-hrf5-v3cq-frx5): the OTHER half of the vector clamp, and the
 # primary one. The env helper is a denylist -- it names drivers GDAL may not
 # register -- and a denylist can only exclude what somebody thought of, cannot
@@ -378,9 +387,33 @@ THREAD_OFFLOAD_HELPER = "run_in_thread_draining"
 # credited `from evil.processing.raster.vrt import ...`. The real tree
 # imports only the absolute form; relative imports (`from .vrt import ...`)
 # are not used and get no credit — the conservative failure direction.
-CANONICAL_HELPER_MODULE_REL = "processing/raster/vrt.py"
+#
+# fix(#1857 item 3): there are TWO canonical modules now, and the map says
+# which helpers each may vouch for rather than crediting any name imported
+# from either. The GDAL_SKIP driver clamps moved to app/platform/gdal_env.py
+# so `modules/catalog/sources/preview.py` could reach them at all, and
+# `processing/raster/vrt.py` re-exports them because every existing caller
+# imports from there. That re-export is credited because this map NAMES the
+# module, not because re-exports are credited in general: an unnamed
+# intermediate still earns nothing, which is the rule the paragraph above
+# describes and this does not relax.
 CANONICAL_HELPER_MODULE = "app.processing.raster.vrt"
+DRIVER_SKIP_MODULE = "app.platform.gdal_env"
 CANONICAL_HELPER_PARENT = "app.processing.raster"
+
+# import path -> the helpers that import path may credit.
+CANONICAL_HELPER_MODULES: dict[str, frozenset[str]] = {
+    CANONICAL_HELPER_MODULE: frozenset(ENV_HELPERS),
+    DRIVER_SKIP_MODULE: frozenset(DRIVER_SKIP_HELPERS),
+}
+# module path relative to backend/app -> the helpers DEFINED there, so a call
+# inside a defining module credits itself.
+CANONICAL_HELPER_MODULE_RELS: dict[str, frozenset[str]] = {
+    "processing/raster/vrt.py": frozenset(
+        h for h in ENV_HELPERS if h not in DRIVER_SKIP_HELPERS
+    ),
+    "platform/gdal_env.py": frozenset(DRIVER_SKIP_HELPERS),
+}
 
 # (module path relative to backend/app, enclosing function name) ->
 # (expected UNWRAPPED rasterio.open count, justification). Adding a new
@@ -448,22 +481,14 @@ RASTERIO_ENV_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
 # for one. Those sites now carry gdal_vector_safe_env plus the input-driver
 # allowlist, and are credited rather than excused. The two remaining
 # ogr2ogr/ogrinfo sites in ogr.py and export/ogr.py went the same way.
-GDAL_CLI_CALL_ALLOWLIST: dict[tuple[str, str, str], tuple[int, str]] = {
-    ("modules/catalog/sources/preview.py", "run_service_preview", "ogrinfo"): (
-        1,
-        "user-supplied service URL gated by validate_url_for_ssrf at "
-        "submission time (#937); the vsicurl extension clamps do not apply "
-        "to OGR service drivers. Not clamped by the helpers, and this is the "
-        "one site that cannot be: modules/catalog/ may not import "
-        "app.processing.* (test_layering.py), which is where the helpers "
-        "live. Two branches, and they are pinned differently (#1846): the "
-        "service branch by the WFS:/OAPIF:/ESRIJSON: prefix the source "
-        "string carries, and the localised branch -- where "
-        "_localise_protected_oapif swaps in a bare local staging path -- by "
-        "an explicit -if GeoJSON, which is honest because _walk_pages writes "
-        "its own FeatureCollection wrapper",
-    ),
-}
+# fix(#1857 item 3): EMPTY, and that is the point. The single entry that used
+# to live here was `run_service_preview`, justified on the grounds that
+# `modules/catalog/` may not import `app.processing.*` and the helpers lived
+# there. That describes a layering accident, not a property of the site, and a
+# justification is what you write when the code cannot be fixed. The clamps
+# moved to `app/platform/gdal_env.py`, the site calls one, and it is credited
+# rather than excused. Every GDAL CLI argv in `app/` now carries a safe env.
+GDAL_CLI_CALL_ALLOWLIST: dict[tuple[str, str, str], tuple[int, str]] = {}
 
 # Floors so a refactor that blinds the detector fails loudly instead of
 # passing on an empty scan (same trick as the Rule-1 route-count floor).
@@ -537,14 +562,17 @@ VECTOR_CLI_DRIVER_POLICY: dict[
     ("modules/catalog/sources/preview.py", "run_service_preview", "ogrinfo"): (
         1,
         OTHER_INPUT,
-        None,
+        SAFE_SERVICE_ENV_HELPER,
         "remote service. Prefix-pinned on the service branch like "
         "run_ogr2ogr_service, and -if GeoJSON on the localised branch, where "
-        "the source is a bare local path the page walker wrote (#1846). The "
-        "one site with no env helper at all, which is what the None records: "
-        "modules/catalog/ may not import app.processing.* (test_layering.py) "
-        "and that is where the helpers live. Carried by "
-        "GDAL_CLI_CALL_ALLOWLIST instead",
+        "the source is a bare local path the page walker wrote (#1846). Takes "
+        "the SERVICE env for the same reason run_ogr2ogr_service does: the "
+        "service branch exists to use WFS and OAPIF, which the vector variant "
+        "skips. fix(#1857 item 3): this used to be the one site with no env "
+        "helper at all, recorded here as None, because modules/catalog/ may "
+        "not import app.processing.* (test_layering.py) and that is where the "
+        "helpers lived. They live in app/platform/gdal_env.py now, so the "
+        "site is credited rather than excused",
     ),
 }
 
@@ -690,8 +718,8 @@ def _record_import_from(info: _ScopeInfo, node: ast.ImportFrom) -> None:
     # suffix credited `from evil.processing.raster.vrt import ...`. Relative
     # imports (node.level > 0) are not spellings the tree uses; their names
     # fall through to `bound` and earn no credit.
-    if node.level == 0 and module == CANONICAL_HELPER_MODULE:
-        kinds = {helper: helper for helper in ENV_HELPERS}
+    if node.level == 0 and module in CANONICAL_HELPER_MODULES:
+        kinds = {helper: helper for helper in CANONICAL_HELPER_MODULES[module]}
     elif node.level == 0 and module == DRIVER_ALLOWLIST_MODULE:
         # Only the direct `from ... import local_input_driver_args` spelling
         # earns credit. A module alias would need its own tracking and the tree
@@ -721,7 +749,7 @@ def _record_import_from(info: _ScopeInfo, node: ast.ImportFrom) -> None:
 
 def _record_plain_import(info: _ScopeInfo, node: ast.Import) -> None:
     for alias in node.names:
-        if alias.name == CANONICAL_HELPER_MODULE and alias.asname:
+        if alias.name in CANONICAL_HELPER_MODULES and alias.asname:
             info.canonical[_KIND_MODALIAS].add(alias.asname)
         elif alias.name == "rasterio":
             # codex round 5: `import rasterio as rs` must be tracked as a
@@ -832,17 +860,22 @@ def _record_assign_targets(info: _ScopeInfo, scope: ast.AST) -> set[int]:
 
 
 def _is_canonical_def(scope: ast.AST, node: ast.AST, rel: str) -> bool:
-    """True for the helper definitions inside the canonical module itself."""
+    """True for a helper definition inside the module that DEFINES it.
+
+    fix(#1857 item 3): keyed per module, so `processing/raster/vrt.py` vouches
+    for the two raster helpers it still defines and `platform/gdal_env.py` for
+    the two driver clamps. vrt.py's re-export of the latter pair is an import
+    and reaches credit through `_record_import_from` like any other caller's.
+    """
     return (
         isinstance(scope, ast.Module)
-        and rel == CANONICAL_HELPER_MODULE_REL
-        and getattr(node, "name", None) in ENV_HELPERS
+        and getattr(node, "name", None) in CANONICAL_HELPER_MODULE_RELS.get(rel, ())
         and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     )
 
 
 def _record_canonical_defs(info: _ScopeInfo, scope: ast.AST, rel: str) -> None:
-    if not (isinstance(scope, ast.Module) and rel == CANONICAL_HELPER_MODULE_REL):
+    if not (isinstance(scope, ast.Module) and rel in CANONICAL_HELPER_MODULE_RELS):
         return
     for stmt in scope.body:
         if _is_canonical_def(scope, stmt, rel):
