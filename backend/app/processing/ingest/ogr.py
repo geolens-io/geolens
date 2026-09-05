@@ -296,25 +296,35 @@ def _sanitize_authorization_token(
     # origin names in "authentication failed for user alice". Registering the
     # line expands to every shape and still never yields the bare word
     # `Authorization`, because the tail always starts after the `": "`.
-    register_credential_secret(header_line)
-    if not value.startswith(BEARER_SCHEME):
-        return header_line
+    #
+    # fix(#1844 codex r1): and it registers only AFTER the bearer grammar below
+    # has been checked. The registration used to sit here, above those checks,
+    # so a line this function goes on to REFUSE still seeded the registry --
+    # and `Authorization: Bearer e` seeds the one-character variant `e`, after
+    # which every `_scrub_text` for the rest of the job replaces every "e" in
+    # every log line with the redaction marker. That destroys the diagnostic
+    # exactly when something upstream has let a malformed credential through,
+    # which is when it is most needed. A refused line is not a secret in play,
+    # so nothing is registered for it.
+    if value.startswith(BEARER_SCHEME):
+        token = value[len(BEARER_SCHEME) :]
+        if len(token) < HEADER_TOKEN_MIN_LENGTH:
+            raise ValueError(
+                "SEC-FU-04: Authorization token is empty or implausibly short "
+                f"(minimum {HEADER_TOKEN_MIN_LENGTH} characters required to "
+                "prevent single-char attack payloads)."
+            )
+        bad = [c for c in token if c not in HEADER_TOKEN_CHARSET]
+        if bad:
+            sample = bad[0]
+            raise ValueError(
+                f"SEC-FU-04: Authorization token contains non-base64url "
+                f"character (first offender: {sample!r}); only "
+                "[A-Za-z0-9._\\-=] are permitted to prevent CRLF header "
+                "smuggling via GDAL_HTTP_HEADERS env var."
+            )
 
-    token = value[len(BEARER_SCHEME) :]
-    if len(token) < HEADER_TOKEN_MIN_LENGTH:
-        raise ValueError(
-            "SEC-FU-04: Authorization token is empty or implausibly short "
-            f"(minimum {HEADER_TOKEN_MIN_LENGTH} characters required to "
-            "prevent single-char attack payloads)."
-        )
-    bad = [c for c in token if c not in HEADER_TOKEN_CHARSET]
-    if bad:
-        sample = bad[0]
-        raise ValueError(
-            f"SEC-FU-04: Authorization token contains non-base64url character "
-            f"(first offender: {sample!r}); only [A-Za-z0-9._\\-=] are permitted "
-            "to prevent CRLF header smuggling via GDAL_HTTP_HEADERS env var."
-        )
+    register_credential_secret(header_line)
     return header_line
 
 

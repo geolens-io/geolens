@@ -1340,3 +1340,118 @@ class TestSecFu04SanitizeAuthorizationToken:
             reset_registered_credential_secrets()
 
         assert "CCCCCCCCCCCCCCCC" in rendered
+
+    def test_sec_fu_04_a_refused_short_bearer_registers_nothing(self) -> None:
+        """fix(#1844 codex r1): a line this function REFUSES is not a secret.
+
+        Registration used to run above the bearer grammar checks, so a refused
+        line still seeded the registry. `Authorization: Bearer e` seeded the
+        one-character variant `e`, and every later `_scrub_text` in the same
+        job then replaced every "e" in every log line with the redaction
+        marker -- destroying the diagnostic exactly when something upstream
+        had let a malformed credential through.
+        """
+        from app.core.logging_config import _scrub_text
+        from app.core.service_tokens import (
+            registered_credential_secrets,
+            reset_registered_credential_secrets,
+        )
+
+        reset_registered_credential_secrets()
+        try:
+            with pytest.raises(ValueError):
+                _sanitize("Authorization: Bearer e")
+
+            registered = set(registered_credential_secrets())
+            prose = _scrub_text("the feature set never loaded")
+        finally:
+            reset_registered_credential_secrets()
+
+        assert registered == set()
+        # The whole point: unrelated text is untouched afterwards.
+        assert prose == "the feature set never loaded"
+
+    def test_sec_fu_04_a_refused_bad_charset_bearer_registers_nothing(self) -> None:
+        """The other refusal on the same branch, for the same reason.
+
+        Both raises sit below the registration now, so neither can seed the
+        registry. Covering only the length one would leave the charset one to
+        regress on its own.
+        """
+        from app.core.service_tokens import (
+            registered_credential_secrets,
+            reset_registered_credential_secrets,
+        )
+
+        reset_registered_credential_secrets()
+        try:
+            with pytest.raises(ValueError):
+                _sanitize("Authorization: Bearer valid.jwt.sig!")
+            registered = set(registered_credential_secrets())
+        finally:
+            reset_registered_credential_secrets()
+
+        assert registered == set()
+
+    def test_sec_fu_04_an_accepted_line_is_still_registered(self) -> None:
+        """Positive control: moving the call must not disable it.
+
+        Both tests above are absence claims about the registry, and deleting
+        the registration entirely would satisfy both. A well-formed bearer
+        still registers and still expands to its bare token.
+        """
+        from app.core.logging_config import _scrub_text
+        from app.core.service_tokens import reset_registered_credential_secrets
+
+        token = "AAAAAAAAAAAAAAAAAAAA"
+
+        reset_registered_credential_secrets()
+        try:
+            _sanitize(f"Authorization: Bearer {token}")
+            reflected = _scrub_text(f"GDAL error on https://host/oops/{token}")
+        finally:
+            reset_registered_credential_secrets()
+
+        assert token not in reflected
+
+    def test_sec_fu_04_a_short_derived_variant_is_never_expanded(self) -> None:
+        """fix(#1844 codex r1): the floor covers forms nobody chose.
+
+        `_secret_variants` invents derived forms by splitting on `": "`, on a
+        space, and by base64-decoding a Basic blob. A two-character username
+        expands into a substring that occurs in ordinary English, so every
+        later scrub in the job would rewrite unrelated text. The registered
+        secret itself keeps its documented no-floor treatment: over-scrubbing
+        a short credential someone actually holds is the safe direction, while
+        over-scrubbing a fragment this module invented is not.
+        """
+        import base64
+
+        from app.core.url_redaction import _secret_variants
+
+        line = f"Authorization: Basic {base64.b64encode(b'a:b').decode()}"
+
+        variants = _secret_variants(line)
+
+        assert line in variants
+        assert "a" not in variants
+        assert "b" not in variants
+
+    def test_sec_fu_04_a_long_basic_pair_still_expands_to_both_halves(self) -> None:
+        """Positive control for the floor: it must not gut the real expansion.
+
+        The reason the halves are derived at all is that an origin's own error
+        text names them ("authentication failed for user ..."). A floor that
+        dropped every half would quietly undo the fix this PR makes.
+        """
+        import base64
+
+        from app.core.url_redaction import _secret_variants
+
+        user, other_half = "AAAAAAAAA", "BBBBBBBBB"
+        blob = base64.b64encode(f"{user}:{other_half}".encode()).decode()
+
+        variants = _secret_variants(f"Authorization: Basic {blob}")
+
+        assert user in variants
+        assert other_half in variants

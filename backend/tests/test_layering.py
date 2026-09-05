@@ -4700,7 +4700,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # lines are the comment saying why the earlier reasoning (keep the header
     # NAME out of the registry) is still satisfied by the line.
     # Cap 1371 -> 1382, exact.
-    "backend/app/processing/ingest/ogr.py": 1382,
+    # fix(#1844 codex r1): +10. The bearer length and charset checks moved
+    # above the registration, so a line this function REFUSES no longer seeds
+    # the exact-value registry -- `Authorization: Bearer e` used to register
+    # the variant `e` and turn every later log line into redaction markers.
+    # The lines are the guarded branch plus the comment saying which failure
+    # the ordering prevents.
+    # Cap 1382 -> 1392, exact.
+    "backend/app/processing/ingest/ogr.py": 1392,
     # fix(#1778): +157 for two audit findings that both land in JIT
     # provisioning. One is the REGISTRATION_ENABLED gate plus its exception
     # class, so enabling a provider stops being a way to reopen signup while
