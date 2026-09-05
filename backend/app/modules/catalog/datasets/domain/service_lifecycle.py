@@ -241,19 +241,9 @@ async def delete_dataset(
             raise RuntimeError(
                 "Dataset deletion is missing tenant context in multi-tenant mode"
             )
-        # fix(#1847 review r3): BEFORE the reap below, which permanently
-        # deletes objects. The acquisition can fail with 55P03 when another
-        # writer holds the dataset row past the request budget, and a failure
-        # after the reap would roll the transaction back with the objects
-        # already gone, leaving a catalog row pointing at nothing. Taking the
-        # rows first means the only outcome of losing that race is a 409 with
-        # everything still in place. It keeps this function's original promise
-        # too -- a storage failure prevents any DB change -- because the DROP
-        # and the row delete are transactional and roll back with it.
-        #
-        # AFTER the data-table work of each branch, not before it: the reupload
-        # swap takes ACCESS EXCLUSIVE on the data table ahead of its catalog
-        # rows, so leading with the catalog rows here would invert against it.
+        # fix(#1847): BEFORE the reap, which deletes objects permanently. A
+        # 55P03 after it would roll back with the bytes already gone. After the
+        # branch's data-table work, to match the reupload swap's order.
         await lock_catalog_rows_for_write(session, dataset)
 
         await _reap_managed_storage(prefixes, tenant_id)
@@ -311,8 +301,7 @@ async def delete_dataset(
         # the row is going), and the linearization is not reversible at all
         # since the pre-linear geometries are gone. Re-registering the table
         # re-applies all three idempotently.
-        # fix(#1847 review r3): see the sibling acquisition in the raster
-        # branch above for why this sits ahead of the reap and behind the DROP.
+        # fix(#1847): ahead of the reap, behind the DROP. See the raster branch.
         await lock_catalog_rows_for_write(session, dataset)
 
         await _reap_managed_storage(
@@ -416,11 +405,8 @@ async def delete_dataset(
             )
         )
 
-    # The DELETE below removes the records row and the datasets row goes with
-    # it by FK CASCADE, so the database takes the pair records-first. Both
-    # branches above have already acquired them in the house order, ahead of
-    # the storage reap that cannot be undone.
-    # Delete the record (CASCADE handles dataset deletion)
+    # Delete the record (CASCADE handles dataset deletion). The cascade takes
+    # the pair records-first; both branches above already hold it in order.
     await session.delete(dataset.record)
 
     if record_type not in RASTER_FAMILY_RECORD_TYPES:
@@ -441,17 +427,9 @@ async def delete_dataset(
         # and future callers get it from one place. Raster/VRT are excluded —
         # their tiles come from Titiler, and that branch drops no table.
         #
-        # fix(#1847 review r3): this Valkey round trip runs with the catalog
-        # pair held, and stays that way. Row locks are held to commit, so the
-        # only way to take it out from under them is to move it after the
-        # caller's commit -- which would undo the paragraph above, where one
-        # placement serves single delete, bulk delete and every future caller.
-        # The bound is one round trip to a cache the app already has a
-        # connection to, against a key set for one table, with no scan: the
-        # same call every sibling write path makes inside its own transaction.
-        # That is a different order of magnitude from the multi-GB upload the
-        # raster replace acquisition was moved below, and from the full-table
-        # scan the layers DDL now computes before it locks.
+        # fix(#1847): runs with the catalog pair held, and stays that way. Row
+        # locks last to commit, so moving it out means moving it past the
+        # caller's commit. Bound: one round trip, one table's keys, no scan.
         from app.platform.cache.provider import get_tile_cache
 
         tile_cache = get_tile_cache()

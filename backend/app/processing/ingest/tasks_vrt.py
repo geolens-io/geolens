@@ -1391,15 +1391,9 @@ async def regenerate_vrt(
                 )
                 vrt_dataset = dataset_result.scalar_one_or_none()
                 if vrt_dataset is not None:
-                    # fix(#1847 review r2): the writes below dirty the datasets
-                    # row AND vrt_dataset.record. The asset SELECT above joins
-                    # Dataset under a plain FOR UPDATE, so PostgreSQL already
-                    # locks this datasets row -- but incidentally, as a property
-                    # of the join rather than by intent, and nothing here says
-                    # so to the next reader. State it. Already held, so this
-                    # costs a no-op re-lock. `lock_timeout=None` keeps SET LOCAL
-                    # out of a worker transaction. See
-                    # app.platform.catalog_locks.lock_catalog_rows.
+                    # fix(#1847): the writes below dirty both rows. The asset
+                    # SELECT above already locks this datasets row through its
+                    # join, incidentally; state it. A no-op re-lock.
                     from app.platform.catalog_locks import lock_catalog_rows
 
                     await lock_catalog_rows(

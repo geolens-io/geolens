@@ -124,12 +124,9 @@ def _feature_write_db_error(exc: DBAPIError) -> HTTPException:
     read path reports it, and an unrecognized state (our own bad SQL, 42601) is
     an honest 500, not the caller's fault.
 
-    fix(#1847): a lock conflict is classified FIRST, because 40P01 is SQLSTATE
-    class 40 and `is_operational` would otherwise send it out as "database
-    temporarily unavailable". That is the wrong advice twice over: the database
-    is fine, and 503 asks the client to back off when this edit would succeed
-    on an immediate retry. 409 is already a declared response on every write
-    endpoint here (ERROR_RESPONSES_WRITE), so this adds no API surface.
+    fix(#1847): a lock conflict is classified FIRST. 40P01 is SQLSTATE class 40,
+    so `is_operational` would otherwise report a contended row as an outage.
+    409 is already declared on every write endpoint (ERROR_RESPONSES_WRITE).
     """
     if is_lock_conflict(exc):
         return HTTPException(
@@ -167,17 +164,11 @@ def _feature_write_db_error(exc: DBAPIError) -> HTTPException:
 async def _guard(db: AsyncSession, step) -> None:
     """Run one post-write catalog step with its database errors classified.
 
-    fix(#1847): every write handler here took its catalog row locks AFTER its
-    own `except DBAPIError` block had closed, so the one part of the request
-    that contends for rows was the one part whose database errors nothing
-    classified. A deadlock or a lock timeout escaped to the generic database
-    error handler as a bare 503, and the edit was lost with no message the
-    caller could act on. One classification for both entry points below, so a
-    conflict answers 409 whichever of them the handler reached.
+    fix(#1847): the handlers took their row locks after their own
+    `except DBAPIError` had closed, so a conflict escaped as a bare 503.
 
-    Deliberately narrower than the handlers' own guards: only `DBAPIError` is
-    caught, so a `ValueError` raised in here still surfaces as itself rather
-    than being reshaped into the 400 or the 404 the write above uses.
+    Narrower than the handlers' own guards on purpose: only `DBAPIError` is
+    caught, so a `ValueError` still surfaces as itself.
     """
     try:
         await step
@@ -189,10 +180,7 @@ async def _guard(db: AsyncSession, step) -> None:
 async def _refresh_metadata_guarded(db: AsyncSession, dataset, **kwargs) -> None:
     """Recompute feature_count and extent, holding the catalog rows.
 
-    Takes the (datasets, records) pair itself, so a handler that reaches this
-    needs nothing else. One helper rather than four copied try blocks, so the
-    next handler added here cannot pick up the old unguarded shape by
-    imitation.
+    Takes the pair itself, so a handler that reaches this needs nothing else.
     """
     await _guard(db, refresh_dataset_metadata(db, dataset, **kwargs))
 
@@ -200,18 +188,9 @@ async def _refresh_metadata_guarded(db: AsyncSession, dataset, **kwargs) -> None
 async def _lock_catalog_rows_guarded(db: AsyncSession, dataset) -> None:
     """Take the (datasets, records) pair for a write that skips the refresh.
 
-    fix(#1847 review r1): a write does not have to recompute anything to need
-    this. Every handler below stamps `record.updated_by` and rolls
-    `tile_cache_version` unconditionally, which dirties BOTH rows, and the ORM
-    flushes them at commit in records-then-datasets order. On the one path that
-    skips the metadata refresh -- a PATCH carrying properties and no geometry
-    -- that flush was the transaction's first touch of either row, so it
-    reinstated the exact inversion against `refresh_postgis` phase 3 that this
-    issue is about, and the abort landed at `commit()` where no handler was
-    classifying it.
-
-    Same acquisition as the refresh path, through the same service helper, so
-    the two cannot drift into taking the pair in two different orders.
+    fix(#1847): every handler stamps `record.updated_by` and rolls
+    `tile_cache_version`, which dirties both rows even when nothing is
+    recomputed. Same helper as the refresh path, so the two cannot drift.
     """
     await _guard(db, lock_catalog_rows_for_write(db, dataset))
 
@@ -912,10 +891,8 @@ async def patch_single_feature(
             ],
         )
     else:
-        # fix(#1847 review r1): properties changed and no geometry did, so
-        # there is nothing to recompute -- but the two lines below still dirty
-        # the records row and the datasets row, and something has to take them
-        # in the house order before the flush at commit takes them in the ORM's.
+        # fix(#1847): nothing to recompute, but the lines below still dirty
+        # both rows, so the pair has to be taken in the house order first.
         await _lock_catalog_rows_guarded(db, dataset)
     dataset.record.updated_by = user.id
     await audit_emit(

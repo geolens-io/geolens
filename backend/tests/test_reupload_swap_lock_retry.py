@@ -100,7 +100,7 @@ def _make_dataset_stub(table_name: str):
 def _make_port():
     """The ProcessingPort surface ``_apply_reupload_swap`` actually reaches for.
 
-    fix(#1847 review r3): the swap takes the (datasets, records) pair before it
+    fix(#1847): the swap takes the (datasets, records) pair before it
     writes either row, and it resolves both mapped classes through the port
     because ``processing/`` may not import ``app.modules.catalog``. A stub that
     offers only ``get_dataset_version_orm_class`` therefore AttributeErrors on
@@ -156,13 +156,11 @@ class _WriteRecorder:
 
 
 class TestSwapLocksBeforeItWrites:
-    """fix(#1847 review r3): the acquisition has to PRECEDE the first row write.
+    """The acquisition has to PRECEDE the first row write.
 
-    The mirror below drives the real swap against the real session and records
-    two things on one timeline: the SQL the session emits, and the moment an
-    attribute of the dataset or its record is first assigned. An acquisition
-    that lands after the writes is the round-1 defect again, and a count-based
-    assertion would not see it -- both orderings execute the same statements.
+    Drives the real swap against the real session and records two things on one
+    timeline: the SQL emitted, and the moment a field is first assigned. A
+    count-based assertion cannot separate the two orderings.
     """
 
     @pytest.fixture(autouse=True)

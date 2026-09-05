@@ -66,17 +66,8 @@ def _is_lock_timeout_error(exc: BaseException) -> bool:
     ``AsyncSession.execute`` wraps it in SQLAlchemy's ``DBAPIError`` with
     ``.orig`` pointing at that same exception. Both shapes have to be checked.
 
-    fix(#1847): that check now lives in ``app.core.db.sqlstate``, which is the
-    layer-legal home the round-8 note said did not exist -- it rejected the
-    ingest copy for sitting behind CatalogPort and the ``jobs.router`` copy for
-    being private, and `core.db` is neither. This wrapper stays so the call
-    site below reads the same, and because the name is local vocabulary.
-
-    Widened with it, deliberately: the shared predicate also matches 40P01, so
-    a deadlock victim here answers 409 like a lock timeout does instead of
-    escaping as a 500. Same argument ``jobs.router`` recorded for its own
-    cancel path -- nothing was written either way, and a retry is the correct
-    next action either way.
+    fix(#1847): the check moved to ``app.core.db.sqlstate``, and widened with
+    it to match 40P01 too, so a deadlock victim answers 409 rather than 500.
     """
     return is_lock_conflict(exc)
 

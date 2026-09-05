@@ -27,7 +27,7 @@ from app.modules.catalog.datasets.domain.service import DependentVrtError
 # delete_dataset's retired-name write (#1443) into an un-awaited coroutine
 # that records nothing and raises a RuntimeWarning at garbage-collection.
 #
-# fix(#1847 review r3): and every one of them needs ``execute`` to return a
+# fix(#1847): and every one of them needs ``execute`` to return a
 # result object rather than a coroutine. delete_dataset now takes the
 # (datasets, records) pair before it reaps storage, and that acquisition
 # reads the stored extent. On a bare AsyncMock, ``result.first()`` is a

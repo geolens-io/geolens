@@ -64,11 +64,8 @@ async def _raise_ddl_db_error(db: AsyncSession, exc: DBAPIError, action: str) ->
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database temporarily unavailable.",
         )
-    # fix(#1847 review r3): the SQLSTATE, not the driver object. Interpolating
-    # `exc.orig` put the asyncpg exception class name and its message straight
-    # into the response body, which tells a caller nothing they can act on and
-    # publishes the driver and schema internals to anyone who can provoke an
-    # error. The state goes to the log, where the operator needs it.
+    # fix(#1847): the SQLSTATE goes to the log, not the response. Interpolating
+    # `exc.orig` published the driver exception and its message to the caller.
     logger.warning(
         "layer.ddl failed", action=action, sqlstate=sqlstate(exc), exc_info=exc
     )

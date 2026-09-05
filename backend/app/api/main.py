@@ -994,15 +994,8 @@ async def _catalog_lock_conflict_handler(
 ) -> JSONResponse:
     """Map a contended catalog row to 409, from wherever it was reached.
 
-    fix(#1847 review r3): the acquisition in `app.platform.catalog_locks` is
-    now called from feature writes, metadata edits, layer DDL and dataset
-    deletion, and each of those classified a lost race differently -- 409, 503
-    and 400 for the same SQLSTATE. Handling the domain exception in one place
-    is what makes the answer the same everywhere, without every route growing
-    its own except clause.
-
-    Retryable and safe to retry: the helper rolled its transaction back before
-    raising, so nothing the request attempted survives.
+    fix(#1847): one handler so the answer does not depend on which route
+    reached the acquisition. Safe to retry: the helper rolled back first.
     """
     logger.info(
         "catalog row lock conflict",

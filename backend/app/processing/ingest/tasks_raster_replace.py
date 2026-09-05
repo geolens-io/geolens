@@ -620,11 +620,8 @@ async def reupload_raster(
             # that decides where this dataset lands on the map is which CRS
             # they are read under. `original_srid` is the one field still taken
             # from `source_meta`, and it wants the upload's answer by design.
-            # fix(#1847 review r3): this assigns attributes in memory and
-            # issues no SQL, so it is not yet a write to either catalog row.
-            # The pair is taken further down, immediately before the first
-            # statement that flushes them -- see the acquisition above
-            # `reserve_replacement_bytes`.
+            # fix(#1847): assigns in memory and issues no SQL, so the pair is
+            # taken further down, before the first statement that flushes it.
             new_version = _write_swapped_fields(
                 raster_asset,
                 dataset,
@@ -655,9 +652,8 @@ async def reupload_raster(
             # It runs HERE — before the reservation — because its bytes are
             # part of the total being admitted and because a genuinely new
             # object has to join the written set before anything can fail.
-            # See the acquisition below: the catalog rows are dirty in memory
-            # from `_write_swapped_fields` and must not be flushed out ahead of
-            # it (fix(#1847 review r3)).
+            # fix(#1847): the catalog rows are dirty in memory and must not be
+            # flushed out ahead of the acquisition below.
             with session.no_autoflush:
                 (
                     lossy_original_archived,
@@ -690,20 +686,9 @@ async def reupload_raster(
             # for why the ordering is load-bearing. Raises
             # StorageQuotaExceededError, which the task's broad handler records
             # as a failed run, leaving the previous raster serving.
-            # fix(#1847 review r3): HERE, not before `_write_swapped_fields`.
-            # Between the two sits `archive_lossy_original`, which PUTs the
-            # whole original raster to object storage. Holding both catalog
-            # rows across a multi-GB upload is the #1848 class: this worker
-            # passes `lock_timeout=None`, so it never gives the rows back, and
-            # every request-side waiter has a two-second budget. Nothing above
-            # writes either row -- the swap helper only assigns attributes --
-            # so the acquisition still precedes the first actual write, which
-            # is the autoflush `reserve_replacement_bytes` triggers below.
-            #
-            # `no_autoflush` around the archive is what makes that a guarantee
-            # rather than a measurement: without it, any statement added to the
-            # archive path later would flush the dirty attributes and take the
-            # rows records-first, ahead of this acquisition.
+            # fix(#1847): below `archive_lossy_original`, which PUTs the whole
+            # original raster; holding the pair across that upload is the #1848
+            # class. Still ahead of the first write, the autoflush below.
             from app.platform.catalog_locks import lock_catalog_rows
 
             await lock_catalog_rows(

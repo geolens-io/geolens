@@ -128,12 +128,9 @@ _DATASET_FIELD_MAP: dict[str, str] = {
 }
 
 
-# Request fields that reach the `catalog.datasets` row, so a body carrying any
-# of them makes this a two-row write and needs the house lock order
-# (fix(#1847 review r3)). `is_dem` is NOT here: it writes `raster_assets`,
-# a third table this pair's order says nothing about. `tile_columns` is,
-# because it writes the datasets row and because the router rolls
-# `tile_cache_version` on the same row when it changes.
+# fix(#1847): request fields that reach the `catalog.datasets` row, so a body
+# carrying one makes this a two-row write. `is_dem` is excluded: it writes
+# `raster_assets`, a third table this pair's order says nothing about.
 _DATASET_ROW_FIELDS = frozenset(_DATASET_FIELD_MAP) | {"tile_columns"}
 
 
@@ -313,20 +310,9 @@ async def update_user_metadata(
 
     record = dataset.record
 
-    # fix(#1847 review r2): BEFORE the first assignment below. This function
-    # writes record fields (title, visibility, record_status, updated_by) and
-    # dataset fields (quality_statement, source_url, tile_columns) and then
-    # flushes them together, so without this the flush took catalog.records
-    # ahead of catalog.datasets and deadlocked against any writer holding the
-    # dataset row. See app.platform.catalog_locks.lock_catalog_rows.
-    #
-    # fix(#1847 review r3): only when the body can reach the datasets row. A
-    # body that touches record fields alone writes ONE row, and a transaction
-    # that writes one row has no order to get wrong -- taking the datasets row
-    # for it would add contention to the most-used metadata endpoint to defend
-    # against a cycle it cannot be part of. Decided from `model_fields_set`
-    # rather than from what actually changed, because the acquisition has to
-    # happen before the comparisons that would tell us.
+    # fix(#1847): BEFORE the first assignment below, which is what orders this
+    # function's two-row flush. Only when the body can reach the datasets row:
+    # a record-only body writes one row and has no order to get wrong.
     if meta.model_fields_set & _DATASET_ROW_FIELDS:
         await lock_catalog_rows_for_write(session, dataset)
 

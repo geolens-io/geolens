@@ -294,7 +294,7 @@ class TestPropertyOnlyPatchTakesThePairToo:
     ):
         """End to end, over HTTP, with the worker holding the datasets row.
 
-        The request never recomputes an extent, so before fix(#1847 review r1)
+        The request never recomputes an extent, so before fix(#1847)
         it took no catalog lock at all and its first touch of either row was
         the flush at ``commit()`` -- records, then datasets. That is the
         original inversion, on the one handler whose refresh is conditional.
@@ -634,7 +634,7 @@ class TestEveryWriteHandlerGoesThroughTheGuard:
         )
 
     def test_every_write_handler_acquires_on_every_path(self):
-        """fix(#1847 review r1): unconditionally, or in BOTH arms of the if.
+        """fix(#1847): unconditionally, or in BOTH arms of the if.
 
         Three handlers refresh unconditionally, so they hold the pair before
         they stamp `record.updated_by` and roll `tile_cache_version`. The PATCH
@@ -694,7 +694,7 @@ class TestEveryWriteHandlerGoesThroughTheGuard:
 
 
 class TestMetadataPatchTakesThePairToo:
-    """fix(#1847 review r2): the class from the other side.
+    """fix(#1847): the class from the other side.
 
     `update_user_metadata` writes record fields and dataset fields and then
     flushes them together. Before this round it acquired nothing, so the flush
@@ -758,7 +758,7 @@ class TestMetadataPatchTakesThePairToo:
 
 
 class TestOneAnswerForAContendedRow:
-    """fix(#1847 review r3): 409 from every caller, not 409/503/400 by route.
+    """fix(#1847): 409 from every caller, not 409/503/400 by route.
 
     The acquisition is reached from feature writes, metadata edits, layer DDL
     and dataset deletion. Each classified a lost race differently until the
@@ -840,7 +840,7 @@ class TestOneAnswerForAContendedRow:
 
 
 class TestDeleteNeverReapsStorageItCannotCommit:
-    """fix(#1847 review r3): the irreversible step must be behind the lock.
+    """fix(#1847): the irreversible step must be behind the lock.
 
     `delete_dataset` deletes the managed objects permanently and relies on the
     transaction rolling back to keep the catalog consistent with them. An
@@ -926,19 +926,11 @@ class TestDeleteNeverReapsStorageItCannotCommit:
 
 
 class TestTheOtherSitesHoldTheOrderToo:
-    """fix(#1847 review r3 P2-5): DB-backed coverage for the sites that had none.
+    """The layers DDL, the delete and the metadata PATCH, against a held row.
 
-    Rounds 0 to 2 shipped concurrency tests for the feature paths and the
-    metadata PATCH; the layers DDL, the delete and the worker doors were
-    carried by the static gate alone, and P2-1 showed that gate accepting the
-    wrong position and the wrong branch. These drive the real endpoints against
-    a held dataset row.
-
-    None of them monkeypatches the budget. The round-2 tests raised
-    REQUEST_LOCK_TIMEOUT to 60s to keep the interleaving deterministic, and
-    that is what hid the 500 and the 400 the round-3 P2 reports. The barrier
-    below fires in milliseconds, so the production 2s budget is not reached --
-    and if it ever were, the answer is a 409, which these tests accept.
+    None of these monkeypatches REQUEST_LOCK_TIMEOUT: raising it hides how a
+    contended row is actually answered. The barrier fires in milliseconds, so
+    the 2s budget is not reached, and a 409 is accepted if it ever is.
     """
 
     async def _drive(self, holder, probe, dataset_id, request_coro):
@@ -1053,15 +1045,12 @@ class TestTheOtherSitesHoldTheOrderToo:
 
 
 class TestWorkerDoorsAcquireBeforeTheirWrites:
-    """The three worker sites, checked on emitted SQL rather than by racing.
+    """The three worker sites, checked on emitted order rather than by racing.
 
-    A reupload, a raster replace and a VRT publish each need a staged upload
-    and a live ingest job to reach their swap, which is a fixture an order of
-    magnitude larger than the property under test. What has to be true is an
-    ordering, and the ordering is visible in the statements the transaction
-    emits -- so these read it there, the way
-    `test_reupload_swap_lock_retry.py::TestSwapLocksBeforeItWrites` does end to
-    end for the reupload door with a real session.
+    Each needs a staged upload and a live ingest job to reach its swap, and the
+    property under test is an ordering.
+    `test_reupload_swap_lock_retry.py::TestSwapLocksBeforeItWrites` drives the
+    reupload door end to end against a real session.
     """
 
     SITES = [
@@ -1127,7 +1116,7 @@ class TestWorkerDoorsAcquireBeforeTheirWrites:
 
 
 # ---------------------------------------------------------------------------
-# The class gate (fix(#1847 review r2))
+# The class gate (fix(#1847))
 # ---------------------------------------------------------------------------
 
 # A function that writes BOTH catalog rows must acquire them in the house
@@ -1197,7 +1186,7 @@ def _module_qualname(rel) -> str:
 def _local_bindings(tree, module: str) -> dict[str, str]:
     """Local name -> qualified target, from this module's imports and defs.
 
-    fix(#1847 review r3 P2-1): the previous scan keyed everything on the bare
+    fix(#1847): the previous scan keyed everything on the bare
     function name and merged across files, so any function that happened to
     share a name with one of the real acquirers inherited its exemption. A
     call is resolved through the binding that is actually in scope where it
@@ -1256,7 +1245,7 @@ def _classify_base(base) -> str | None:
 def _core_statement_kind(node) -> str | None:
     """'record'/'dataset' for a Core ``update(X)`` / ``delete(X)`` on the pair.
 
-    fix(#1847 review r3 P2-1): latent rather than active today -- the two
+    fix(#1847): latent rather than active today -- the two
     ``update(Dataset)`` sites write the datasets row alone -- but a Core
     statement is a write the attribute scan cannot see at all, so the first one
     that touches both rows would have been invisible.
@@ -1312,7 +1301,7 @@ def _write_kinds(node) -> set[str]:
     # `session.delete(dataset.record)` removes the records row AND, by the FK
     # cascade on Dataset.record_id, the datasets row. Neither is an attribute
     # assignment, so without this the one endpoint that deletes a dataset is
-    # invisible to the scan (fix(#1847 review r3 P2-1)).
+    # invisible to the scan (fix(#1847)).
     if (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
@@ -1467,7 +1456,7 @@ def acquisition_dominates_writes(
 ) -> tuple[bool, str]:
     """Does an acquisition precede every write, on every path through *fn*?
 
-    fix(#1847 review r3 P2-1): the round-2 check accepted a call to the helper
+    fix(#1847): the round-2 check accepted a call to the helper
     ANYWHERE in the body, so an acquisition placed after the writes, or in one
     arm of an `if`, passed. Both are the defect this gate exists to catch.
 
@@ -1530,13 +1519,10 @@ def acquisition_dominates_writes(
 
 
 class TestEveryPairWriterTakesTheHouseOrder:
-    """fix(#1847 review r2): the class, not the four handlers that started it.
+    """Every transaction that writes both catalog rows must acquire first.
 
-    SQLAlchemy flushes catalog.records before catalog.datasets, so ANY
-    transaction that writes both rows and acquires nothing takes them in the
-    inverted order and can deadlock against a writer holding the dataset row.
-    Codex round 2 found `update_user_metadata` this way; this test is what
-    stops the next one being found in production instead.
+    SQLAlchemy flushes catalog.records before catalog.datasets, so one that
+    acquires nothing inverts against every writer holding the dataset row.
     """
 
     def test_every_pair_writer_acquires_or_is_exempt(self):
@@ -1558,7 +1544,7 @@ class TestEveryPairWriterTakesTheHouseOrder:
         )
 
     def test_the_acquisition_precedes_the_writes_on_every_path(self):
-        """fix(#1847 review r3 P2-1): position and branch, not mere presence.
+        """fix(#1847): position and branch, not mere presence.
 
         Calling the helper somewhere in the body proves nothing. After the
         writes it orders nothing, and in one arm of an `if` it orders nothing
@@ -1581,7 +1567,7 @@ class TestEveryPairWriterTakesTheHouseOrder:
             # datasets row and then acquires has already let the flush order
             # the pair, even though its own body never touches the record --
             # which is how the first version of this check missed
-            # `layers.service.add_column` (fix(#1847 review r3 P2-1)).
+            # `layers.service.add_column` (fix(#1847)).
             if key not in acquirers and key not in writers:
                 continue
             ok, why = acquisition_dominates_writes(fn, bindings, module, acquirers)
@@ -1624,11 +1610,9 @@ class TestEveryPairWriterTakesTheHouseOrder:
 
 
 class TestTheGateRejectsWhatItExistsToCatch:
-    """fix(#1847 review r3 P2-1): a negative fixture per probe.
+    """A negative fixture per shape the gate must reject.
 
-    An audit probed the round-2 gate by adding functions under `app/` and found
-    it silent on four shapes. Each is reproduced here as a synthetic module, so
-    the gate's blind spots fail this file rather than a future review.
+    Each is a synthetic module, so a blind spot fails this file.
     """
 
     MODULE = "app.fixture.probe"

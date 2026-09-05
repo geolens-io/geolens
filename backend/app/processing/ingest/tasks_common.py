@@ -2095,14 +2095,10 @@ async def bump_tile_cache_version_atomic(
     ``tile_cache_version = tile_cache_version + 1`` in the database does,
     because the increment is evaluated against the row as it is at write time.
 
-    fix(#1847): that paragraph used to add "and never lock the row", which
-    stopped being true: every feature-write handler now takes the datasets row
-    ``FOR UPDATE`` before it dirties either catalog row (see
-    ``lock_catalog_rows_for_write``). The conclusion above is unchanged all the
-    same, for a sharper reason than the original one. Those handlers read the
-    counter off an instance loaded BEFORE that lock, so the absolute value they
-    compute from it can still land on top of something committed in between. A
-    lock taken after the read does not make a read-modify-write atomic.
+    fix(#1847): the feature-write handlers DO lock the row now, and the
+    conclusion is unchanged anyway: they read the counter off an instance
+    loaded before that lock, and a lock taken after the read does not make a
+    read-modify-write atomic.
 
     Returns the new value, so the caller reports and logs the version it
     actually published rather than the one it hoped for. Still called in the
@@ -2429,13 +2425,9 @@ async def _apply_reupload_swap(
         await ensure_geom_4326_gist_index(session, table_name, schema=_tenant_schema)
 
     # Update dataset metadata in the same transaction as swap
-    # fix(#1847 review r2): the catalog writes start here. This function
-    # dirties the datasets row and dataset.record, and the flush would take
-    # them records-first, deadlocking against a request or a refresh holding
-    # the dataset row. `lock_timeout=None`: SET LOCAL applies for the rest of
-    # the transaction, and clamping an ingest swap to a request's two seconds
-    # would fail it on contention it is supposed to wait out. See
-    # app.platform.catalog_locks.lock_catalog_rows for the order.
+    # fix(#1847): the catalog writes start here, and this function dirties both
+    # rows. `lock_timeout=None` so SET LOCAL does not clamp an ingest swap to a
+    # request's budget.
     from app.platform.catalog_locks import lock_catalog_rows
     from app.platform.extensions import get_processing_port
 

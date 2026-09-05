@@ -974,11 +974,8 @@ def _is_lock_conflict(exc: DBAPIError) -> bool:
     costs one tuple member and turns a future ordering regression into a
     clean conflict instead of a 500.
 
-    fix(#1847): the pair moved to ``app.core.db.sqlstate`` when a third caller
-    needed it (the feature-write router). This wrapper is a rename, not a
-    policy: the shared predicate matches the same two states, and additionally
-    unwraps a bare asyncpg exception, which cannot reach this call site because
-    everything here goes through ``AsyncSession``.
+    fix(#1847): moved to ``app.core.db.sqlstate`` for a third caller. A rename,
+    not a policy change: the shared predicate matches the same two states.
     """
     return is_lock_conflict(exc)
 

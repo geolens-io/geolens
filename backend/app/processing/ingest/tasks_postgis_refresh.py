@@ -918,17 +918,9 @@ async def refresh_postgis(
             # Reading a single column keeps the statement off the joined
             # record, which PostgreSQL will not lock through an outer join.
             #
-            # This lock is also the FIRST half of the house lock order for the
-            # (datasets, records) pair: datasets first, records second. This
-            # transaction goes on to write the record row in `_apply_measurement`
-            # below, so the order is load-bearing rather than incidental, and it
-            # cannot be reversed without breaking the indivisibility above.
-            # fix(#1847): the feature-edit path used to take the records row
-            # first, which made an ordinary edit during this phase an ABBA
-            # deadlock. The authoritative statement of the order, and the
-            # reasoning behind choosing this one, is the docstring on
-            # `lock_catalog_rows` in `app/platform/catalog_locks.py` -- the
-            # module this layer may import, unlike the catalog-side wrapper.
+            # fix(#1847): also the first half of the house (datasets, records)
+            # order, since `_apply_measurement` writes the record row below.
+            # The order is stated in `app/platform/catalog_locks.py`.
             #
             # What this guard is NOT (review round 6): it does not detect the
             # OWNER writing to the table directly, because nothing outside

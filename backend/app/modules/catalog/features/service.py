@@ -1334,29 +1334,18 @@ async def lock_catalog_rows_for_write(
 ) -> Bounds | None:
     """Take this dataset's catalog rows in the house order, then read its extent.
 
-    Call this from ANY request path that will dirty the datasets row, the
-    records row, or both -- not only from the metadata refresh. Stamping
-    `record.updated_by` and rolling `tile_cache_version` is already a write to
-    both rows, and a transaction that acquires nothing takes them in the ORM's
-    records-then-datasets flush order.
+    The catalog-side entry point to `platform.catalog_locks.lock_catalog_rows`,
+    which states the order. Call it from ANY request path that will dirty
+    either row, not only from the metadata refresh.
 
-    THE ORDER, and why it is that one, is stated once in
-    `app.platform.catalog_locks.lock_catalog_rows`. This is the catalog-side
-    entry point: it supplies the two mapped classes and then reads the stored
-    extent, which the metadata refresh needs and other callers ignore.
+    Returns None unless the stored extent is a simple POLYGON: an
+    antimeridian-crossing dataset stores a two-ring MULTIPOLYGON (fix(#934))
+    whose ST_XMin/ST_XMax are -180/180, so a longitude in the gap would test as
+    inside a box the geometry never occupies.
 
-    None unless the stored extent is a simple POLYGON. An antimeridian-crossing
-    dataset stores the two-ring MULTIPOLYGON `seam_extent_wkt_for_table`
-    produces (fix(#934)), whose ST_XMin/ST_XMax are -180/180: a longitude in
-    the gap would test as inside a box the geometry never occupies.
-
-    fix(#1778 review r1): the lock is taken by BOTH metadata paths before
-    either reads the extent. Otherwise two writers on one dataset can interleave
-    read-decide-write: one skips the recompute because its geometry is inside
-    the extent it read, while the other shrinks that extent from an aggregate
-    taken before the first row landed. Every writer here goes on to update the
-    dataset row anyway, so it already serialized with its peers at commit; the
-    lock only moves that serialization ahead of the decision that depends on it.
+    fix(#1778 review r1): both metadata paths take the lock before either reads
+    the extent, or two writers interleave read-decide-write and one shrinks the
+    extent from an aggregate taken before the other's row landed.
     """
     from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
     from app.modules.catalog.datasets.domain.models import Record
@@ -1517,8 +1506,6 @@ async def refresh_dataset_metadata(
     """
     # fix(#1778 review r1): taken before EITHER branch reads the extent, so a
     # skip decision cannot be invalidated by a concurrent recompute.
-    # fix(#1847): datasets row first, then the records row. See
-    # lock_catalog_rows_for_write for the order and why it is that way.
     stored_box = await lock_catalog_rows_for_write(session, dataset)
 
     if count_delta is not None and await _apply_incremental_metadata(
@@ -1531,18 +1518,9 @@ async def refresh_dataset_metadata(
     ):
         return
 
-    # fix(#1847): this aggregate runs INSIDE the lock, deliberately, and the
-    # bound on what that costs a concurrent writer is the `lock_timeout` above
-    # rather than a shorter critical section. Hoisting it above the lock and
-    # re-checking a cheap predicate afterwards would reinstate exactly the
-    # interleaving fix(#1778 review r1) closed: this transaction's row is
-    # already in the table but uncommitted, so a peer's aggregate cannot see
-    # it; if that peer measured before taking the lock, it would then write a
-    # count and an extent computed as though this row did not exist. Holding
-    # the lock across the scan is what makes the loser re-decide against the
-    # extent the winner actually stored. The scan only runs when the fast path
-    # above declined, which for the digitizing case it was added for is the
-    # uncommon branch.
+    # fix(#1847): INSIDE the lock, deliberately. A peer that measured before
+    # taking the lock cannot see this transaction's uncommitted row, and would
+    # write a count and extent computed as though it did not exist.
     feature_count, extent_wkt = await _refresh_count_and_extent(
         session, dataset.table_name
     )

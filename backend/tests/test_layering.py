@@ -1522,10 +1522,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#1778 round 1): +3 - the layer block is fenced by the shared
         # helper instead of interpolating the marker tags here, so a layer id
         # or a serialized filter cannot forge a closing tag either.
-        # Cap 513 -> 516, exact.
+        # Cap 488 -> 502, exact.
         # fix(#1778 round 3): +3 - safe_rows re-exported through the facade
         # alongside _safe_value, per the module's import contract.
-        # Cap 516 -> 519, exact.
+        # Cap 483 -> 497, exact.
         "backend/app/processing/ai/chat_service.py": 519,
         # fix(#836): defaults.py is the facade over the extensions-defaults
         # split (defaults_*.py sub-modules discovered below). Pure re-exports —
@@ -1868,20 +1868,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # which invented a delta the size of whichever side was known. The
         # case that reaches it is a service preview whose collection size the
         # service never published.
-        # fix(#1847 review r2): +10. `update_user_metadata` writes record
-        # fields and dataset fields and flushes them together, so it has to
-        # take the (datasets, records) pair in the house order first. Codex
-        # round 2 on #1864 found this by reading; the gate in
-        # tests/test_feature_lock_order_1847.py now finds the next one.
-        # Cap 488 -> 498, exact.
-        # fix(#1847 review r3, audit P2-4): +18. The acquisition is now taken
-        # only when the request body can reach the datasets row. A body that
-        # touches record fields alone writes one row, and a one-row write has
-        # no order to get wrong, so locking for it added contention to the
-        # most-used metadata endpoint against a cycle it cannot join. The lines
-        # are `_DATASET_ROW_FIELDS` and why `is_dem` is not in it.
-        # Cap 498 -> 516, exact.
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 516,
+        # fix(#1847): +28. `update_user_metadata` writes record fields and
+        # dataset fields and flushes them together, so it takes the pair first
+        # -- and only when the body can reach the datasets row.
+        # Cap 488 -> 502, exact.
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 502,
         # fix(#435 codex r1): +6 LOC in get_dataset_rows to probe schema existence
         # before degrading a 42P01 to an empty page. Postgres reports a missing
         # tenant data schema with the same code as a raster dataset's synthetic
@@ -1951,22 +1942,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # the retirement set (whose whole API is set membership), with the
         # reasoning for the split and for the belt-and-braces oid guard.
         # Cap 451 -> 483, exact.
-        # fix(#1847 review r2): +8. `delete_dataset` deletes the records row
-        # and the datasets row follows by FK CASCADE, so the database takes the
-        # pair records-first. Acquire in the house order first.
-        # Cap 483 -> 491, exact.
-        # fix(#1847 review r3): +16. The acquisition moved AHEAD of
-        # `_reap_managed_storage` in both branches, because that reap deletes
-        # objects permanently and a lock timeout after it rolled the
-        # transaction back with the objects gone and the catalog row intact.
-        # Most of the lines are the note on why it sits ahead of the reap and
-        # behind the DROP. Cap 491 -> 507, exact.
-        # fix(#1847 review r3, audit P2-3): +12 recording that the Valkey tile
-        # purge runs with the pair held and stays that way. Row locks are held
-        # to commit, so the only way out is after the caller's commit, which
-        # would undo the one-placement-serves-every-caller argument above. The
-        # comment states the bound instead. Cap 507 -> 519, exact.
-        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 519,
+        # fix(#1847): +36. `delete_dataset` acquires ahead of the storage reap,
+        # which deletes objects permanently, and behind the DROP. The Valkey
+        # purge stays under the lock, with its bound. Cap 483 -> 497, exact.
+        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 497,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.
@@ -2982,7 +2961,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # row was answered 409, 503 and 400 depending on which route reached the
     # acquisition; the helper now raises one domain exception and this is the
     # single place that maps it. The lines are the handler plus why it lives
-    # here rather than in four route bodies. Cap 1903 -> 1935, exact.    "backend/app/api/main.py": 1935,
+    # here rather than in four route bodies. Cap 1903 -> 1935, exact.    # fix(#1847): +32 for one exception handler. A contended catalog row was
+    # answered 409, 503 and 400 depending on the route; the helper raises one
+    # domain exception and this maps it. Cap 1903 -> 1928, exact.    "backend/app/api/main.py": 1935,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -3604,7 +3585,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # deadlock against a request or a refresh holding the dataset row. The
     # lines are the acquisition plus why it passes `lock_timeout=None` (SET
     # LOCAL would clamp the rest of an ingest transaction to a request's
-    # budget). Cap 2559 -> 2579, exact.    "backend/app/processing/ingest/tasks_common.py": 2581,
+    # budget). Cap 2559 -> 2579, exact.    # fix(#1847): +28. `_apply_reupload_swap` writes both catalog rows and
+    # acquired nothing, and `bump_tile_cache_version_atomic`'s note had to stop
+    # saying the feature routers never lock. Cap 2551 -> 2571, exact.    "backend/app/processing/ingest/tasks_common.py": 2581,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -4484,7 +4467,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # from, and health compares what-is against what-was-built-from. Postgres
     # cannot stamp commit time from inside a transaction, so no clock scheme
     # could express "committed after my snapshot" — three rounds of timestamp
-    # fixes each left a window. Cap 1118 -> 1140, exact.
+    # fixes each left a window. Cap 1128 -> 1132, exact.
     # feat(#1267): +10 — the dataset's last_refreshed_at is stamped at the
     # generation's own completed_at instant, in the same transaction as the
     # generation swap, so source_freshness (#1224) reads a live signal for a
@@ -4580,7 +4563,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # explicit. The asset SELECT joins Dataset under a plain FOR UPDATE, so the
     # row was already locked -- incidentally, as a property of the join, with
     # nothing saying so before the writes to dataset.record below.
-    # Cap 1628 -> 1647, exact.    "backend/app/processing/ingest/tasks_vrt.py": 1647,
+    # Cap 1628 -> 1647, exact.    # fix(#1847): +19 making the publish transaction's datasets lock explicit.
+    # The asset SELECT locks that row through its join, incidentally, with
+    # nothing saying so before the record writes. Cap 1628 -> 1641, exact.    "backend/app/processing/ingest/tasks_vrt.py": 1647,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.
@@ -5151,7 +5136,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # than an incidental choice, and pointing at the docstring that states the
     # order. The feature-edit path used to take the records row first, which
     # made an ordinary edit during this phase an ABBA deadlock.
-    # Cap 1128 -> 1140, exact.    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1140,
+    # Cap 1128 -> 1140, exact.    # fix(#1847): +12 recording that the phase 3 `FOR UPDATE` is the first half
+    # of the house (datasets, records) order. Cap 1128 -> 1132, exact.    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1140,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.
@@ -5516,7 +5502,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # concurrent uploads reap each other's key correctly instead of racing on
     # a stale read. Most of the growth is the docstring explaining why the
     # lock has to move rather than just gaining a shorter timeout of its own.
-    # Cap 1554 -> 1572, exact.
+    # Cap 1541 -> 1550, exact.
     "backend/app/modules/catalog/maps/router.py": 1572,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
@@ -6117,28 +6103,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # is never raised, an empty page proves nothing, and a keyset page can
     # prove only the rows in hand. That reasoning is most of the added lines.
     # Cap 1507 -> 1541, exact.
-    # fix(#1847): +57 for the (datasets, records) lock order. The metadata
-    # refresh took the records row first while `refresh_postgis` phase 3 takes
-    # the datasets row first, so a feature edit during a refresh was an ABBA
-    # deadlock that surfaced as a 503 with the edit lost. Six of the added
-    # lines are the reordered acquisition, the `lock_timeout` and the
-    # `no_autoflush` that keeps the ORM from re-inverting the order at flush
-    # time; the rest is the docstring every other site now cites for the order,
-    # and the note on why the COUNT(*)/ST_Extent aggregate has to stay inside
-    # the lock rather than being hoisted above it. Cap 1541 -> 1598, exact.
-    # fix(#1847 review r1): +11 more. The acquisition became a public helper
-    # the write router calls directly, because a request does not have to
-    # recompute anything to need the pair: a property-only PATCH stamps
-    # `record.updated_by` and rolls `tile_cache_version`, which dirties both
-    # rows. The added lines are that contract stated in the docstring, so the
-    # next caller knows the helper is for any write and not only for the
-    # metadata refresh. Cap 1598 -> 1609, exact.
-    # fix(#1847 review r2): -37. The acquisition itself moved to
-    # app/platform/catalog_locks.py, where `processing/` can reach it too --
-    # that layer may not import app.modules.catalog, and the reupload doors
-    # needed the same order. What stays here is the catalog-side entry point
-    # and the extent read. Cap 1609 -> 1572, exact.
-    "backend/app/modules/catalog/features/service.py": 1572,
+    # fix(#1847): +65 for the (datasets, records) lock order, then -37 when the
+    # acquisition moved to app/platform/catalog_locks.py, which `processing/`
+    # can reach and this module is not. What stays is the catalog-side entry
+    # point and the extent read. Cap 1541 -> 1550, exact.
+    "backend/app/modules/catalog/features/service.py": 1550,
 }
 
 

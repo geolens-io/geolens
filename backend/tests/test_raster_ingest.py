@@ -471,6 +471,9 @@ class _MockDataset:
         self.source_format = source_format
         self.origin_ref = None
         self.record = _MockRecord(title, record_type)
+        # fix(#1847): delete_dataset takes the (datasets, records) pair before
+        # it reaps storage, and the acquisition reads this.
+        self.record_id = uuid.uuid4()
 
 
 class _MockStorage:
