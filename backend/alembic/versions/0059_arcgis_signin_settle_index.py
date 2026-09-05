@@ -9,10 +9,10 @@ so no other audit action is constrained, and rows written before #1887 carry
 no ``attempt_id`` and sit outside it. The finaliser's INSERT names this index
 in its ``ON CONFLICT`` clause; the model mirrors it for ``alembic check``.
 
-Plain rather than ``CONCURRENTLY``: ``env.py`` runs the upgrade as one
-transaction, which a concurrent build cannot join, and a failed concurrent
-build leaves an INVALID index behind. No tagged release writes ``attempt_id``
-yet, so no upgraded instance holds a row this index covers.
+Plain, as 0051 built its index on this table. An instance already holding
+two settle rows for one attempt fails this build, and that is the loud and
+correct outcome: it is the state the index exists to prevent, and an operator
+settles the duplicates first.
 
 Revision ID: 0059_arcgis_signin_settle_index
 Revises: 0058_arcgis_signin_user_scope

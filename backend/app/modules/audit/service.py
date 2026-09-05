@@ -12,6 +12,7 @@ from sqlalchemy.orm import aliased, joinedload
 from app.platform.audit import (
     AuditEvent,
     audit_emit,
+    extension_audit_sinks,
 )  # re-exported for ergonomic single-import
 from app.modules.audit.models import AuditLog
 from app.core.text import escape_ilike
@@ -20,6 +21,7 @@ __all__ = [
     "AuditEvent",
     "audit_emit",
     "audit_emit_durable",
+    "extension_audit_sinks",
     "log_action",
     "query_audit_logs",
     "query_column_ddl_history",

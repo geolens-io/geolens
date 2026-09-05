@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging_config import redact_nested
 from app.platform.extensions import get_audit_sinks
+from app.platform.extensions.defaults_extensions import DefaultAuditSink
 
 if TYPE_CHECKING:
     from app.platform.extensions.protocols import AuditSink
@@ -73,8 +75,27 @@ def _event_fields(event: AuditEvent) -> dict:
     }
 
 
-async def audit_emit(session: AsyncSession, event: AuditEvent) -> None:
+def extension_audit_sinks() -> list["AuditSink"]:
+    """Every registered sink except the one that writes ``audit_logs``.
+
+    For a caller that has written that row itself and needs the other sinks
+    to receive the same event.
+    """
+    return [
+        sink for sink in get_audit_sinks() if not isinstance(sink, DefaultAuditSink)
+    ]
+
+
+async def audit_emit(
+    session: AsyncSession,
+    event: AuditEvent,
+    *,
+    sinks: Sequence["AuditSink"] | None = None,
+) -> None:
     """Dispatch an audit event to every registered sink with failure isolation.
+
+    ``sinks`` narrows the dispatch to the given sinks; by default every
+    registered sink receives the event.
 
     AUDIT-03's contract is that an audit sink must never break the operation it
     records. The try/except below is only half of that: the default sink's
@@ -97,7 +118,7 @@ async def audit_emit(session: AsyncSession, event: AuditEvent) -> None:
     * Each event costs a SAVEPOINT / INSERT / RELEASE round trip that used to
       ride along with the caller's commit.
     """
-    sinks = get_audit_sinks()
+    sinks = get_audit_sinks() if sinks is None else list(sinks)
     if not sinks:
         return
 
