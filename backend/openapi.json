@@ -30026,7 +30026,7 @@
                 }
               }
             },
-            "description": "Bad request \u2014 invalid query parameters or payload"
+            "description": "Bad request. Either a query parameter is invalid, or the `filter` was refused. A CQL2 filter is refused when it names a queryable this collection does not publish, or uses an operator this server does not implement; when it is longer than 10,000 characters; when it nests deeper than the parser will walk; or when it expands to more than 1,000 bound parameters. The last two are resource bounds rather than syntax errors, so the filter can be valid CQL2 and still be declined: an `IN` list reaches the parameter ceiling well before the character limit, since `render_postcompile` expands it to one parameter per member. Both are answered deterministically, so a client that splits the filter and pages the results gets the same rows."
           },
           "401": {
             "content": {

@@ -1119,6 +1119,30 @@ class _LegacyRenameCollision(Exception):
     """
 
 
+def test_the_items_route_publishes_the_filter_refusals():
+    """The caps are a contract, so they belong in the schema (#1857 item 7).
+
+    Read off the app's own OpenAPI rather than the constant, because the route
+    is what ships. Interpolated from the caps so raising one cannot leave the
+    published number behind.
+    """
+    from app.api.main import app
+    from app.standards.ogc.filtering import (
+        MAX_FEATURE_FILTER_BINDS,
+        MAX_FEATURE_FILTER_LENGTH,
+    )
+
+    schema = app.openapi()
+    operation = schema["paths"]["/collections/{dataset_id}/items"]["get"]
+    description = operation["responses"]["400"]["description"]
+
+    assert f"{MAX_FEATURE_FILTER_LENGTH:,}" in description, description
+    assert f"{MAX_FEATURE_FILTER_BINDS:,}" in description, description
+    assert "nests deeper" in description, description
+    # The generic text alone is what this replaced.
+    assert description != "Bad request — invalid query parameters or payload"
+
+
 def _legacy_renamed_sql(compiled) -> str:
     """The pre-fix per-bind loop, kept verbatim as the equivalence oracle.
 
