@@ -1942,8 +1942,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # the retirement set (whose whole API is set membership), with the
         # reasoning for the split and for the belt-and-braces oid guard.
         # Cap 451 -> 483, exact.
-        # fix(#1847): the lock order, its gate and its 409 mapping. Cap 512, exact.
-        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 512,
+        # fix(#1847): the lock order, its gate and its 409 mapping, and the
+        # job rows ahead of the cascade. Cap 513, exact.
+        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.

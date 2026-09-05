@@ -187,6 +187,13 @@ async def delete_dataset(
     # never "no owner"; see the tombstone insert below.
     relation_oid: int | None = None
 
+    # fix(#1847): the job rows before the table and the pair; a worker holds
+    # its job row before either, and the record delete cascades into them.
+    from app.platform.catalog_locks import lock_ingest_jobs
+    from app.platform.jobs.models import IngestJob
+
+    await lock_ingest_jobs(session, job_cls=IngestJob, dataset_id=dataset.id)
+
     if record_type in RASTER_FAMILY_RECORD_TYPES:
         if record_type == "raster_dataset":
             # Guard: prevent deletion if any VRT still references this COG.

@@ -1446,6 +1446,104 @@ class TestTheRasterChildIsHeldBeforeTheReap:
         )
 
 
+class TestDeleteLeadsWithTheJobRows:
+    """A worker holds its job row before any data-table or catalog lock, and
+    the record delete cascades into that row: the delete takes it first.
+    """
+
+    def test_delete_takes_the_job_rows_before_the_table_and_the_pair(self):
+        import inspect
+
+        from app.modules.catalog.datasets.domain import service_lifecycle
+
+        src = inspect.getsource(service_lifecycle.delete_dataset)
+        jobs = src.index("await lock_ingest_jobs(")
+        assert jobs < src.index("DROP TABLE")
+        assert jobs < src.index("await lock_catalog_rows_for_write(")
+
+    async def test_delete_holds_no_catalog_row_while_waiting_for_the_job(
+        self,
+        locked_raster_dataset,
+        client: AsyncClient,
+        test_db_session,
+        admin_auth_header,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "60s")
+        import app.core.db as db_module
+        from app.modules.catalog.datasets.domain import service_lifecycle
+        from app.platform.jobs.models import IngestJob
+        from app.processing.raster.models import RasterAsset
+
+        async def _no_reap(prefixes, tenant_id):
+            return None
+
+        monkeypatch.setattr(service_lifecycle, "reap_managed_storage", _no_reap)
+
+        dataset_id = locked_raster_dataset.id
+        record_id = locked_raster_dataset.record_id
+        title = locked_raster_dataset.record.title
+        job = IngestJob(dataset_id=dataset_id, status="running")
+        test_db_session.add(job)
+        await test_db_session.commit()
+        job_id = job.id
+
+        async with (
+            db_module.async_session() as holder,
+            db_module.async_session() as probe,
+        ):
+            # What a phase-2 bracket holds across its upload: the job row.
+            await holder.execute(
+                select(IngestJob.id)
+                .where(IngestJob.id == job_id)
+                .with_for_update(key_share=True)
+            )
+            holder_xid = await holder.scalar(text("SELECT pg_current_xact_id()::text"))
+            delete = asyncio.create_task(
+                client.request(
+                    "DELETE",
+                    f"/datasets/{dataset_id}",
+                    json={"confirm_title": title},
+                    headers=admin_auth_header,
+                )
+            )
+            try:
+                await _await_waiter_on(probe, holder_xid)
+                assert not await _holds_record_lock(probe, record_id), (
+                    "the delete is parked on the job row while holding "
+                    "catalog.records, which deadlocks against a worker holding "
+                    "its job row and taking the pair next."
+                )
+                # The worker's next steps; NOWAIT so a held row fails instead
+                # of deadlocking the test itself.
+                await holder.execute(
+                    select(RasterAsset.dataset_id)
+                    .where(RasterAsset.dataset_id == dataset_id)
+                    .with_for_update(nowait=True)
+                )
+                await holder.execute(
+                    select(Dataset.id)
+                    .where(Dataset.id == dataset_id)
+                    .with_for_update(nowait=True)
+                )
+                await holder.execute(
+                    select(Record.id)
+                    .where(Record.id == record_id)
+                    .with_for_update(nowait=True)
+                )
+                await holder.commit()
+            except BaseException:
+                await holder.rollback()
+                raise
+            response = await delete
+
+        await test_db_session.execute(
+            text("DELETE FROM catalog.ingest_jobs WHERE id = :j"), {"j": job_id}
+        )
+        await test_db_session.commit()
+        assert response.status_code == 204, response.text
+
+
 class TestALaterLockWaitAnswersTheSameWay:
     """The timeout outlives the acquisition it was set for.
 

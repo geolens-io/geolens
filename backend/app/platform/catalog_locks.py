@@ -69,14 +69,7 @@ async def lock_catalog_rows(
 
     Raises ``CatalogLockConflict`` on 55P03 or 40P01, having rolled back.
     """
-    if lock_timeout is _USE_REQUEST_DEFAULT:
-        lock_timeout = REQUEST_LOCK_TIMEOUT
-    if lock_timeout is not None:
-        # `SET LOCAL` takes a literal; this value is a constant, never
-        # request-supplied.
-        await session.execute(text(f"SET LOCAL lock_timeout = '{lock_timeout}'"))
-        # Each request runs in its own task, so this cannot leak across them.
-        catalog_timeout_installed.set(True)
+    await _install_lock_timeout(session, lock_timeout)
 
     # `no_autoflush` so the order below is what reaches PostgreSQL: an
     # autoflush here emits the ORM's own order, which is the inversion.
@@ -104,10 +97,54 @@ async def lock_catalog_rows(
     except DBAPIError as exc:
         if not is_lock_conflict(exc):
             raise
-        # Roll back so the caller's retry is clean. Nothing is read off an ORM
-        # instance after this: rollback expires them, and a lazy load from the
-        # exception handler would raise MissingGreenlet instead of the 409.
-        await session.rollback()
-        raise CatalogLockConflict(
-            "Another operation is updating this dataset's catalog entry."
-        ) from exc
+        await _raise_rolled_back_conflict(session, exc)
+
+
+async def lock_ingest_jobs(
+    session: AsyncSession,
+    *,
+    job_cls: Any,
+    dataset_id: Any,
+    lock_timeout: str | None = _USE_REQUEST_DEFAULT,
+) -> None:
+    """Take a dataset's ingest-job rows, ahead of :func:`lock_catalog_rows`.
+
+    For a transaction whose delete cascades into ``ingest_jobs``: a worker
+    holds its job row before any data-table or catalog lock, so the deleter
+    takes those rows before either. Same timeout and exception contract.
+    """
+    await _install_lock_timeout(session, lock_timeout)
+    try:
+        with session.no_autoflush:
+            await session.execute(
+                select(job_cls.id)
+                .where(job_cls.dataset_id == dataset_id)
+                .with_for_update()
+            )
+    except DBAPIError as exc:
+        if not is_lock_conflict(exc):
+            raise
+        await _raise_rolled_back_conflict(session, exc)
+
+
+async def _install_lock_timeout(
+    session: AsyncSession, lock_timeout: str | None
+) -> None:
+    if lock_timeout is _USE_REQUEST_DEFAULT:
+        lock_timeout = REQUEST_LOCK_TIMEOUT
+    if lock_timeout is not None:
+        # `SET LOCAL` takes a literal; this value is a constant, never
+        # request-supplied.
+        await session.execute(text(f"SET LOCAL lock_timeout = '{lock_timeout}'"))
+        # Each request runs in its own task, so this cannot leak across them.
+        catalog_timeout_installed.set(True)
+
+
+async def _raise_rolled_back_conflict(session: AsyncSession, exc: DBAPIError) -> None:
+    # Roll back so the caller's retry is clean. Nothing is read off an ORM
+    # instance after this: rollback expires them, and a lazy load from the
+    # exception handler would raise MissingGreenlet instead of the 409.
+    await session.rollback()
+    raise CatalogLockConflict(
+        "Another operation is updating this dataset's catalog entry."
+    ) from exc

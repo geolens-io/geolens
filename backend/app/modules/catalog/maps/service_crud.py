@@ -60,15 +60,7 @@ def new_map_asset_key(prefix: str, map_id: uuid.UUID, ext: str) -> str:
 
 
 def _is_lock_timeout_error(exc: BaseException) -> bool:
-    """True when another transaction holds the map row this write needs.
-
-    fix(#1778 round 8): asyncpg raises ``LockNotAvailableError`` directly;
-    ``AsyncSession.execute`` wraps it in SQLAlchemy's ``DBAPIError`` with
-    ``.orig`` pointing at that same exception. Both shapes have to be checked.
-
-    fix(#1847): the check moved to ``app.core.db.sqlstate``, and widened with
-    it to match 40P01 too, so a deadlock victim answers 409 rather than 500.
-    """
+    """True for the shared lock-conflict states (55P03, 40P01), in either shape."""
     return is_lock_conflict(exc)
 
 
