@@ -746,6 +746,55 @@ def _preview_refusal_response(exc: Exception) -> HTTPException | None:
     return None
 
 
+async def _refuse_preview(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    url: str,
+    layer: str,
+    exc: Exception,
+) -> None:
+    """Audit a typed preview refusal and raise its coded 4xx, or return.
+
+    fix(#1858 audit P2-1): extracted from ``_run_service_preview_or_refuse``
+    so the ArcGIS preview branch, which does not go through that function at
+    all, answers a refusal the same way the WFS and OGC API branches of the
+    same door do. Returning rather than re-raising for an unrecognized class
+    leaves the bare ``raise`` with the caller, where the traceback is.
+
+    Nothing here echoes ``str(exc)``: the message comes from
+    ``_preview_refusal_response``, and the audit row records the exception's
+    CLASS NAME, which is a GeoLens fact rather than anything a provider
+    chose. That matters most for ``SSRFResolutionError``, whose own message
+    carries the redirect-chosen hostname.
+    """
+    http_exc = _preview_refusal_response(exc)
+    if http_exc is None:
+        return
+    safe_url = redact_url_credentials(url)
+    logger.warning(
+        "Preview refused",
+        url=safe_url,
+        layer=layer,
+        reason_class=type(exc).__name__,
+    )
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user_id,
+            action="preview_service_layer",
+            resource_type="service_url",
+            details={
+                "url": safe_url,
+                "layer": layer,
+                "result": "refused",
+                "reason_class": type(exc).__name__,
+            },
+        ),
+    )
+    await db.commit()
+    raise http_exc from None
+
+
 async def _run_service_preview_or_refuse(
     db: AsyncSession,
     user_id: uuid.UUID,
@@ -773,32 +822,8 @@ async def _run_service_preview_or_refuse(
     except (IngestionError, HTTPException):
         raise
     except Exception as exc:  # broad: classifying every typed refusal `run_service_preview` and its callees can raise, so none of them falls through to the 500 below
-        http_exc = _preview_refusal_response(exc)
-        if http_exc is None:
-            raise
-        safe_url = redact_url_credentials(url)
-        logger.warning(
-            "Preview refused",
-            url=safe_url,
-            layer=layer,
-            reason_class=type(exc).__name__,
-        )
-        await audit_emit(
-            db,
-            AuditEvent(
-                user_id=user_id,
-                action="preview_service_layer",
-                resource_type="service_url",
-                details={
-                    "url": safe_url,
-                    "layer": layer,
-                    "result": "refused",
-                    "reason_class": type(exc).__name__,
-                },
-            ),
-        )
-        await db.commit()
-        raise http_exc from None
+        await _refuse_preview(db, user_id, url, layer, exc)
+        raise
 
 
 async def _create_preview_job(
@@ -1359,6 +1384,21 @@ async def preview_service_layer(
                     "ArcGIS token and try again."
                 ),
             )
+        except SSRFError as exc:
+            # fix(#1858 audit P2-1): FIRST, because `SSRFError` subclasses
+            # `ValueError` (`platform/security.py`) and the tuple below reads
+            # a `ValueError` as "this layer could not be previewed".
+            # `fetch_arcgis_layer_preview`'s metadata read has no local
+            # `except`, so a hop refused by `_revalidate_redirect` or by the
+            # guard transport reached that tuple and became
+            # `_fail_preview`'s 502 `ogrinfo_failed` -- naming a tool that
+            # never ran, on a door whose WFS and OGC API branches answer the
+            # same event as a 400 through `_preview_refusal_response`. Same
+            # split this PR closed on `/probe` in `sources/probe.py`, left
+            # standing on this door: one event, one classification, whichever
+            # adapter met it.
+            await _refuse_preview(db, user.id, request.url, request.layer_name, exc)
+            raise  # unreachable: `_preview_refusal_response` maps every `SSRFError`
         except (
             httpx.HTTPError,
             ValueError,

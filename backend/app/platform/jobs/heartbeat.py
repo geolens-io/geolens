@@ -1,6 +1,7 @@
 """Worker lease helpers for long-running ingest jobs."""
 
 import asyncio
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -30,10 +31,40 @@ class StaleIngestAttempt(RuntimeError):
     """Raised when a worker no longer owns the job attempt it received."""
 
 
+# fix(#1858): the shape `attempt_scoped_staging_table` produces, written once
+# so the code that RECOGNISES one of these names cannot drift from the code
+# that makes one. Deliberately narrow: `_staging_` followed by exactly a
+# `uuid4().hex`, anchored at the end. `generate_table_name` slugifies a
+# user-chosen title, so `parcels_staging`, `parcels_old` and `parcels_staging_
+# area` are all names a person can legitimately ask for, and a predicate wide
+# enough to cover them would refuse their registration. The spelling is a
+# POSIX regular expression because PostgreSQL's `~` and Python's `re` agree on
+# exactly this subset, which is what lets one string serve the SQL half of the
+# rule and the Python half (`backend/tests/test_staging_table_names_1858.py`
+# checks the two engines against each other).
+ATTEMPT_STAGING_NAME_PATTERN = r"_staging_[0-9a-f]{32}$"
+
+_ATTEMPT_STAGING_NAME_RE = re.compile(ATTEMPT_STAGING_NAME_PATTERN)
+
+
 def attempt_scoped_staging_table(base_table: str, attempt_id: uuid.UUID) -> str:
     """Return a PostgreSQL-safe physical staging name owned by one attempt."""
     suffix = f"_staging_{attempt_id.hex}"
     return f"{base_table[: 63 - len(suffix)]}{suffix}"
+
+
+def is_attempt_scoped_staging_table(table_name: str) -> bool:
+    """Whether *table_name* is a physical staging table owned by an attempt.
+
+    fix(#1858): these are created inside an import and dropped in its
+    ``finally``, so one only survives a worker that was SIGKILLed or
+    OOM-killed between the two. Nothing reaps the survivor -- the sweeps in
+    ``platform/jobs/sweep.py`` cover storage objects, analysis outputs and VRT
+    generations, and none of them looks at PostGIS tables -- so table
+    discovery listed it and bulk registration bound a permanent dataset to a
+    table the next attempt is entitled to ``ALTER ... RENAME`` away.
+    """
+    return _ATTEMPT_STAGING_NAME_RE.search(table_name) is not None
 
 
 async def resolve_ingest_job_attempt(

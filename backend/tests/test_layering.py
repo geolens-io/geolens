@@ -2665,7 +2665,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # whichever it is. An earlier revision of this comment asserted the
     # opposite, which is why it now cites the line it was checked against.
     # Cap 1293 -> 1301, exact.
-    "backend/app/modules/catalog/sources/arcgis_signin.py": 1301,
+    # fix(#1858): +11. The capped read's JSON parse also catches
+    # `RecursionError` now (a depth bomb fits inside `_MAX_RESPONSE_BYTES`,
+    # and the decoder gives up on a stack overflow rather than a
+    # `ValueError`), with the arithmetic recorded so nobody re-derives which
+    # of the two bounds actually holds. A duplicated, unreachable copy of the
+    # same try/except is deleted in the same edit, which is why the net is
+    # smaller than the comment. Cap 1301 -> 1312, exact.
+    "backend/app/modules/catalog/sources/arcgis_signin.py": 1312,
     # feat(C2) / fix(#1840): crossed _RATCHET_INCLUSION_LOC when the ArcGIS
     # credential moved out of the request URL and into a header. What the
     # growth bought, in one list: the version gate Esri's own `currentVersion`
@@ -2681,7 +2688,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # are the comments carrying the measurements those decisions rest on;
     # without them the next reader re-derives the Esri version encoding and
     # the web-tier case from scratch. Cap set at 1015, exact.
-    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1015,
+    # fix(#1858): +33. `_arcgis_parsed_json` is the one place both of this
+    # module's remote-body parses go through, so a JSON depth bomb becomes
+    # the `EndpointCheckFailedError` every caller already handles instead of
+    # a `RecursionError` no caller catches. Most of the lines are the
+    # docstring recording why `ValueError` is deliberately left alone.
+    # Cap 1015 -> 1048, exact.
+    # fix(#1858 audit P2-2): +26. Comments only. Four best-effort clauses
+    # here catch `ValueError` and therefore `SSRFError`, and each now says
+    # why a refused hop stays a degrade rather than being raised: the read
+    # establishes one optional fact and the adapter answers without it. The
+    # rule and its converse are stated once at `_fetch_count` and referred to
+    # from the other three. Cap 1048 -> 1074, exact.
+    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1074,
     # feat(#1746 B2b): first explicit entry for this file, which rode the 1500
     # default until the service-auth wave. #1758 added the ArcGIS sign-in
     # endpoint and its rate-limit wiring, and this lane added the credential
@@ -2745,7 +2764,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the two stopped being equivalent when lane C2 taught the builder to
     # compose an ArcGIS header for the httpx transport. Cap 1780 -> 1791,
     # exact.
-    "backend/app/modules/catalog/sources/router.py": 1791,
+    # fix(#1858 audit P2-1): +40. `_refuse_preview` is extracted from
+    # `_run_service_preview_or_refuse` so the ArcGIS preview branch, which
+    # never went through that function, answers a refused redirect hop the
+    # way the WFS and OGC API branches of the same door already do, instead
+    # of reporting `ogrinfo_failed` for a tool that never ran. The extraction
+    # is net-neutral; the lines are the helper's own docstring and the new
+    # clause's comment. Cap 1791 -> 1831, exact.
+    "backend/app/modules/catalog/sources/router.py": 1831,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against
@@ -4990,7 +5016,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # The paragraph says which writes go stale and what recovers them, so the
     # next reader does not have to find that out from a broken dataset.
     # Cap 1560 -> 1568, exact.
-    "backend/app/processing/ingest/service.py": 1568,
+    # fix(#1858): +30. Table discovery and registration now read one
+    # expression for "this is an import staging table", where discovery's
+    # `NOT LIKE '%\\_staging'` matched neither shape
+    # `attempt_scoped_staging_table` produces. The lines are the refusal
+    # itself, its bound parameter, and the comment saying why only the
+    # attempt-scoped shape is refused rather than every `_staging`/`_old`
+    # name, since `generate_table_name` can produce those from a title.
+    # Cap 1568 -> 1598, exact.
+    "backend/app/processing/ingest/service.py": 1598,
     # fix(#1738): first entry, crossed _RATCHET_INCLUSION_LOC (842 -> 1019) on
     # the change that gave this task a repair phase. What the growth bought:
     # `geom_4326` on a registered table was written once, at registration, and

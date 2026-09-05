@@ -347,6 +347,35 @@ def _is_web_tier_refusal(exc: httpx.HTTPStatusError, requested_url: str) -> bool
     return same_origin(str(response.url), requested_url)
 
 
+def _arcgis_parsed_json(body: bytes) -> object:
+    """``json.loads(body)``, with a depth bomb turned into a typed refusal.
+
+    fix(#1858): a JSON depth bomb -- 300,000 nested ``[`` at under two bytes
+    each -- is a ~600 KB document, so it passes every byte and structural-token
+    cap ``bounded_probe_read`` applies (``structural_tokens`` counts brackets,
+    not nesting depth, so it cannot see this shape at all). ``json.loads`` then
+    raises ``RecursionError``, which is a ``RuntimeError`` and therefore caught
+    by none of this module's ``except (ValueError, TypeError)`` clauses nor by
+    any caller's. It reached ``/services/probe``, ``/services/preview`` and
+    ``GET /datasets/{id}/health`` as a bare 500 with no audit row, and killed
+    the ArcGIS worker reads unclassified. ``platform/service_endpoints.py``
+    (``_parsed_json``), ``platform/service_items.py`` and
+    ``sources/router.py`` each closed this on their own reads in #1770 round
+    44; these two were the sites that never adopted it.
+
+    ``ValueError`` is deliberately NOT converted. It is already part of
+    ``read_arcgis_json``'s published contract and every caller handles it, so
+    rewriting it would change the coded outcome of an ordinary unparseable
+    response for no gain. ``EndpointCheckFailedError`` is what
+    ``bounded_probe_read`` already raises out of these same two calls, so the
+    new class lands on a type every caller was written for.
+    """
+    try:
+        return json.loads(body)
+    except RecursionError as exc:
+        raise EndpointCheckFailedError(str(exc)) from None
+
+
 async def _read_with_query_token(
     client: httpx.AsyncClient,
     build_url: Callable[[str | None], str],
@@ -364,7 +393,7 @@ async def _read_with_query_token(
     body, _ = await bounded_probe_read(
         client, build_url(retry_token), headers=retry_headers, accept=OGC_JSON_ACCEPT
     )
-    return json.loads(body)
+    return _arcgis_parsed_json(body)
 
 
 async def read_arcgis_json(
@@ -399,7 +428,11 @@ async def read_arcgis_json(
       nothing.
 
     Raises whatever ``bounded_probe_read`` raises, plus ``ValueError`` from
-    ``json.loads``; every caller already handles both.
+    ``json.loads``; every caller already handles both. fix(#1858): a
+    ``RecursionError`` from a depth bomb is not a ``ValueError`` and no caller
+    handled it, so the parse runs through ``_arcgis_parsed_json``, which
+    reports it as the ``EndpointCheckFailedError`` this function already
+    raises for a body over the read bounds.
     """
     headers, query_token = arcgis_request_auth(token, current_version=current_version)
     requested_url = build_url(query_token)
@@ -411,7 +444,7 @@ async def read_arcgis_json(
         if not headers or not token or not _is_web_tier_refusal(exc, requested_url):
             raise
         return await _read_with_query_token(client, build_url, token)
-    data = json.loads(body)
+    data = _arcgis_parsed_json(body)
     if not headers or _arcgis_error_code(data) != _ARCGIS_TOKEN_REQUIRED_CODE:
         return data
     # `token` is truthy here: `headers` is non-empty, which only happens for a
@@ -671,6 +704,18 @@ async def enrich_arcgis_feature_counts(
                 ValueError,
                 KeyError,
             ):
+                # fix(#1858 audit P2-2): `SSRFError` is a `ValueError`, so a
+                # refused redirect hop lands here, and it stays here on
+                # purpose. This read establishes ONE OPTIONAL FACT about one
+                # layer, the probe answers 200 without it, and the import
+                # that follows fetches the same endpoint under the same
+                # guard. Raising would let a single layer's redirect end a
+                # probe of a service with fifty of them. The rule, shared
+                # with the three sibling clauses below and with
+                # `adapters/ogcapi.py`: a refusal on a read whose failure
+                # means "one optional fact is unknown" stays a degrade; a
+                # refusal on a read whose failure ends the adapter is raised,
+                # which is what `probe_arcgis_service` does.
                 return {**layer, "feature_count": None}
 
     enriched = await asyncio.gather(*[_fetch_count(layer) for layer in layers])
@@ -816,6 +861,11 @@ async def fetch_arcgis_pagination_info(
         EndpointCheckFailedError,
         TimeoutError,
     ):
+        # fix(#1858 audit P2-2): a refused hop degrades here for the reason
+        # given at `_fetch_count` above. The optional fact is "this layer
+        # supports pagination"; the one caller is the worker, whose own broad
+        # handler degrades identically, so raising would change nothing it
+        # reports and would remove the fallback an import relies on.
         return None, False, None
 
     # fix(#1770 round 49 P3): same reasoning as `_fetch_count`/`fetch_arcgis_
@@ -975,6 +1025,12 @@ async def fetch_arcgis_layer_preview(
         EndpointCheckFailedError,
         TimeoutError,
     ) as exc:
+        # fix(#1858 audit P2-2): a refused hop degrades here for the reason
+        # given at `_fetch_count` above. The optional fact is the sample
+        # rows; the preview is already usable without them, and the metadata
+        # read that decides whether this layer can be previewed at all runs
+        # above without a local handler, so a refusal there still reaches the
+        # door.
         logger.debug(
             "ArcGIS sample-row fetch failed for %s/%s: %s",
             base,
@@ -998,6 +1054,9 @@ async def fetch_arcgis_layer_preview(
         EndpointCheckFailedError,
         TimeoutError,
     ) as exc:
+        # fix(#1858 audit P2-2): a refused hop degrades here for the reason
+        # given at `_fetch_count` above. The optional fact is the row count
+        # shown beside the preview.
         logger.debug(
             "ArcGIS feature-count fetch failed for %s/%s: %s",
             base,

@@ -8,16 +8,53 @@ Requirements:
   - Alembic migrations must be applied
 """
 
+import json
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
+from app.modules.audit.models import AuditLog
 from app.modules.catalog.sources.probe import ServiceNotRecognized
 from app.modules.catalog.sources.schemas import LayerInfo, ProbeResponse
 from app.platform.security import SSRFError, SSRFResolutionError
+
+
+async def _preview_audit_rows(session, url: str) -> list[AuditLog]:
+    """This test's `preview_service_layer` audit rows, oldest first.
+
+    Scoped to the previewed URL for the same reason as `_probe_audit_rows`.
+    """
+    result = await session.execute(
+        select(AuditLog)
+        .where(
+            AuditLog.action == "preview_service_layer",
+            AuditLog.details["url"].astext == url,
+        )
+        .order_by(AuditLog.created_at)
+    )
+    return list(result.scalars().all())
+
+
+async def _probe_audit_rows(session, url: str) -> list[AuditLog]:
+    """This test's `probe_service` audit rows, oldest first.
+
+    Scoped to the probed URL: one database is shared across every test on an
+    xdist worker, so a query on the action alone would read rows written by
+    tests that ran before this one.
+    """
+    result = await session.execute(
+        select(AuditLog)
+        .where(
+            AuditLog.action == "probe_service",
+            AuditLog.details["url"].astext == url,
+        )
+        .order_by(AuditLog.created_at)
+    )
+    return list(result.scalars().all())
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +279,134 @@ class TestProbeEndpoint:
 
         assert resp.status_code == 400
         assert redirect_host not in resp.text
+
+    async def test_probe_header_auth_ssrf_is_not_a_credential_refusal(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_validate_ssrf,
+        test_db_session,
+    ) -> None:
+        """fix(#1858, `sources/probe.py::_header_auth_probe`).
+
+        `SSRFError` subclasses `ValueError`, and the two header-auth adapters
+        catch only httpx and endpoint-check failures, so a refused redirect
+        hop reached `_header_auth_probe`'s `except ValueError` and was
+        recorded as a credential refusal. This probe carries NO credential at
+        all, so the old answer -- 422 `invalid_service_token` -- was untrue
+        twice over, and `SSRFResolutionError`'s message put the
+        redirect-chosen hostname into both the response body and the
+        persisted audit reason, which is what the fixed `ssrf_policy_message`
+        one clause below exists to prevent.
+        """
+        redirect_host = "sec6-redirect-chosen-target.invalid"
+        probe_url = "https://sec6-header-auth.example.com/service"
+        with (
+            patch(
+                "app.modules.catalog.sources.probe.probe_ogcapi",
+                new_callable=AsyncMock,
+                side_effect=SSRFResolutionError(
+                    f"Could not resolve hostname: {redirect_host}"
+                ),
+            ),
+            patch(
+                "app.modules.catalog.sources.probe.probe_wfs",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "app.modules.catalog.sources.probe.probe_arcgis_service",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            resp = await client.post(
+                "/services/probe/",
+                json={"url": probe_url},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "redirect target refused by SSRF policy"
+        assert redirect_host not in resp.text
+
+        rows = await _probe_audit_rows(test_db_session, probe_url)
+        assert [row.details["result"] for row in rows] == ["ssrf_blocked"]
+        assert redirect_host not in json.dumps(rows[0].details)
+
+    async def test_probe_ogcapi_collections_ssrf_reaches_the_door(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_validate_ssrf,
+        test_db_session,
+    ) -> None:
+        """fix(#1858 audit P2-2, `adapters/ogcapi.py` `/collections` step).
+
+        That clause caught `SSRFError` and returned None, which is
+        `probe_ogcapi` saying "not an OGC API service". The probe then tried
+        WFS and ArcGIS against the same refused origin and the door answered
+        `ServiceNotRecognized`, so a blocked redirect on the collections
+        listing was indistinguishable from a URL that is simply not a
+        service. The clause ends the adapter either way, so re-raising costs
+        nothing and is the only truthful answer available.
+        """
+        redirect_host = "sec6-collections-redirect-target.invalid"
+        probe_url = "https://sec6-oapif.example.com/service"
+        landing = json.dumps(
+            {
+                "conformsTo": [
+                    "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+                ]
+            }
+        ).encode()
+
+        async def _read(_client, url, **_kwargs):
+            if url.endswith("/collections"):
+                raise SSRFResolutionError(
+                    f"Could not resolve hostname: {redirect_host}"
+                )
+            return landing, url
+
+        with (
+            patch(
+                "app.modules.catalog.sources.adapters.ogcapi.bounded_probe_read",
+                new=_read,
+            ),
+            patch(
+                "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+                new_callable=AsyncMock,
+            ),
+            # The two sibling adapters are silenced so this clause is the ONLY
+            # thing in the run that can raise `SSRFError`. Without that they
+            # reach the network with a hostname that does not resolve, the
+            # guard transport raises `SSRFResolutionError` of its own, and the
+            # door answers 400 whether or not the clause under test re-raises
+            # -- a test that passes on its own counterfactual.
+            patch(
+                "app.modules.catalog.sources.probe.probe_wfs",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "app.modules.catalog.sources.probe.probe_arcgis_service",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            resp = await client.post(
+                "/services/probe/",
+                json={"url": probe_url},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 400, resp.text
+        assert resp.json()["detail"] == "redirect target refused by SSRF policy"
+        assert redirect_host not in resp.text
+
+        rows = await _probe_audit_rows(test_db_session, probe_url)
+        assert [row.details["result"] for row in rows] == ["ssrf_blocked"]
+        assert redirect_host not in json.dumps(rows[0].details)
 
     async def test_probe_timeout(
         self,
@@ -823,6 +988,142 @@ class TestPreviewEndpoint:
         assert len(data["sample_rows"]) == 2
         # ArcGIS responses surface attributes (not GeoJSON properties).
         assert data["sample_rows"][0]["title"] == "Bulletin A"
+
+    async def test_preview_arcgis_ssrf_is_not_an_ogrinfo_failure(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_validate_ssrf,
+        test_db_session,
+    ):
+        """fix(#1858 audit P2-1, `sources/router.py` ArcGIS preview branch).
+
+        `fetch_arcgis_layer_preview`'s metadata read has no local `except`, so
+        an `SSRFError` from the redirect revalidation hook or the guard
+        transport reached the branch's `except (..., ValueError, ...)` tuple
+        and became `_fail_preview`'s 502 `ogrinfo_failed` -- naming a tool
+        that never ran. The WFS and OGC API branches of the SAME door answer
+        that event as a 400 with the fixed policy string, so one event was
+        classified two ways depending on which adapter met it, and an
+        operator grepping for blocked-redirect events saw neither.
+        """
+        redirect_host = "sec6-preview-redirect-target.invalid"
+        preview_url = (
+            "https://sec6-preview-ssrf.example.com/arcgis/rest/services/X/FeatureServer"
+        )
+
+        async def _refuse(*_args, **_kwargs):
+            raise SSRFResolutionError(f"Could not resolve hostname: {redirect_host}")
+
+        with patch(
+            "app.modules.catalog.sources.adapters.arcgis.bounded_probe_read",
+            new=_refuse,
+        ):
+            resp = await client.post(
+                "/services/preview/",
+                json={
+                    "url": preview_url,
+                    "service_type": "ArcGIS FeatureServer",
+                    "layer_name": "0",
+                    "layer_id": 0,
+                },
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 400, resp.text
+        assert resp.json()["detail"] == "redirect target refused by SSRF policy"
+        assert redirect_host not in resp.text
+
+        rows = await _preview_audit_rows(test_db_session, preview_url)
+        assert [row.details["result"] for row in rows] == ["refused"]
+        assert rows[0].details["reason_class"] == "SSRFResolutionError"
+        assert redirect_host not in json.dumps(rows[0].details)
+
+    async def test_preview_wfs_ssrf_answers_the_same_way(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_validate_ssrf,
+        mock_build_gdal_source,
+        test_db_session,
+    ):
+        """The other half of the door, pinned beside it.
+
+        Without this the test above could pass for a door that had started
+        answering 400 for everything. Both branches now reach one helper, so
+        the status, the message and the audit row are identical.
+        """
+        redirect_host = "sec6-wfs-redirect-target.invalid"
+        preview_url = "https://sec6-preview-wfs.example.com/wfs"
+
+        with patch(
+            "app.modules.catalog.sources.router.run_service_preview",
+            new_callable=AsyncMock,
+            side_effect=SSRFResolutionError(
+                f"Could not resolve hostname: {redirect_host}"
+            ),
+        ):
+            resp = await client.post(
+                "/services/preview/",
+                json={
+                    "url": preview_url,
+                    "service_type": "WFS 2.0.0",
+                    "layer_name": "buildings",
+                },
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 400, resp.text
+        assert resp.json()["detail"] == "redirect target refused by SSRF policy"
+        assert redirect_host not in resp.text
+
+        rows = await _preview_audit_rows(test_db_session, preview_url)
+        assert [row.details["result"] for row in rows] == ["refused"]
+        assert rows[0].details["reason_class"] == "SSRFResolutionError"
+
+    async def test_preview_arcgis_json_depth_bomb_is_coded_not_a_crash(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_validate_ssrf,
+        test_db_session,
+    ):
+        """fix(#1858, backend audit 2026-09-04 P2-2).
+
+        `read_arcgis_json` parsed the layer metadata document with a bare
+        `json.loads`. A balanced nesting 300,000 deep is a ~600 KB body, so it
+        clears every byte and structural-token bound the read applies, and
+        `json.loads` answers `RecursionError` -- a `RuntimeError`, caught by
+        neither this door's except chain nor the adapter's. The preview
+        answered 500 and wrote no audit row, contradicting the handler
+        docstring's promise that every attempt is audit-logged.
+        """
+        bomb = b"[" * 300_000 + b"]" * 300_000
+        preview_url = (
+            "https://sec6-bomb.example.com/arcgis/rest/services/X/FeatureServer"
+        )
+
+        async def _bomb_read(_client, url, **_kwargs):
+            return bomb, url
+
+        with patch(
+            "app.modules.catalog.sources.adapters.arcgis.bounded_probe_read",
+            new=_bomb_read,
+        ):
+            resp = await client.post(
+                "/services/preview/",
+                json={
+                    "url": preview_url,
+                    "service_type": "ArcGIS FeatureServer",
+                    "layer_name": "0",
+                    "layer_id": 0,
+                },
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 502, resp.text
+        rows = await _preview_audit_rows(test_db_session, preview_url)
+        assert [row.details["result"] for row in rows] == ["ogrinfo_failed"]
 
     async def test_preview_arcgis_persists_normalized_layer(
         self,

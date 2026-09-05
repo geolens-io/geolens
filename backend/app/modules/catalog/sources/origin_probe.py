@@ -486,11 +486,22 @@ async def fetch_json_document(
         return result, None, final_url
     try:
         return result, json.loads(raw), final_url
-    except ValueError:
+    except (ValueError, RecursionError):
         # Deliberately not folded into the handler above: a body that is not
         # JSON is not a transport failure, and classifying it as one would
         # report `network_error` for an origin that answered perfectly well
         # with an HTML error page.
+        #
+        # fix(#1858): `RecursionError` joins it. A JSON depth bomb -- 300,000
+        # nested `[` at under two bytes each -- is a ~600 KB body, so it is
+        # under `max_bytes` (2 MiB here) and there is no other cap on this
+        # path. It is a `RuntimeError`, not a `ValueError`, so it escaped both
+        # this clause and the broad transport handler above, which has already
+        # returned by the time the parse runs. `GET /datasets/{id}/health`
+        # answered 500 and wrote neither `last_checked_at` nor a verdict, and
+        # the three STAC resolve paths died unclassified. `unexpected_status`
+        # is the right verdict for both shapes: the origin answered, and what
+        # it answered with is not something GeoLens can act on.
         return _UNREADABLE_DOCUMENT, None, final_url
 
 
