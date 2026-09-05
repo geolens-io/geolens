@@ -11,6 +11,7 @@ import structlog
 
 from app.core.async_io import run_in_thread_draining
 from app.core.config import settings
+from app.processing.raster.vrt import gdal_vector_safe_env
 from app.core.csv_safety import escape_csv_formula
 
 # fix(#909): build_pg_conn_str is deliberately NOT imported at module scope.
@@ -537,14 +538,14 @@ async def run_ogr2ogr_export(
     # `receive()`. A departed client is therefore invisible here, and the
     # deadline below is what bounds the orphan.
     export_timeout = export_subprocess_timeout_seconds(deadline)
-    env = _tenant_reader_subprocess_env(
-        schema,
-        base_env={
-            **os.environ,
-            # Milliseconds, and libpq wants an integer.
-            "PGOPTIONS": f"-c statement_timeout={int(export_timeout * 1000)}",
-        },
-    )
+    # fix(#1846, GHSA-hrf5-v3cq-frx5): the input here is a PG connection, not
+    # a caller-supplied document, so this site was never the finding. It takes
+    # the clamp anyway so the whole vector CLI surface answers the same way and
+    # the structural gate has no site to make an exception for.
+    export_env = gdal_vector_safe_env()
+    # Milliseconds, and libpq wants an integer.
+    export_env["PGOPTIONS"] = f"-c statement_timeout={int(export_timeout * 1000)}"
+    env = _tenant_reader_subprocess_env(schema, base_env=export_env)
     assert env is not None  # base_env is always returned in single-tenant mode
     proc = await asyncio.create_subprocess_exec(
         *cmd,

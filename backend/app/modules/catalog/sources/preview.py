@@ -288,6 +288,15 @@ async def run_service_preview(
     layer_name = localised.layer_name
     credential = localised.credential
     items_path = localised.items_path
+    # fix(#1846, GHSA-hrf5-v3cq-frx5): on the service branch the driver is
+    # pinned by the WFS:/OAPIF:/ESRIJSON: prefix the source string carries. On
+    # the localised branch it is not: `_localise_protected_oapif` swaps the
+    # source for a bare local staging path, and a bare path is identified by
+    # content like any other file. `_walk_pages` re-encodes every feature into
+    # its own FeatureCollection wrapper, so those bytes are always JSON --
+    # which makes naming the driver free, and makes the claim true rather than
+    # merely true in practice.
+    driver_args = ["-if", "GeoJSON"] if items_path is not None else []
     cmd = [
         "ogrinfo",
         "-json",
@@ -297,6 +306,7 @@ async def run_service_preview(
         "--config",
         "GDAL_HTTP_TIMEOUT",
         "60",
+        *driver_args,
         gdal_source,
     ]
     if layer_name:

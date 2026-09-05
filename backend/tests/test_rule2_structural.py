@@ -74,6 +74,16 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   which ``subprocess.run`` is reviewer territory.
 - Argv built dynamically (``cmd = [tool_var, ...]``) is not matched. Every
   GDAL CLI call in the codebase starts from a string-literal argv head.
+- ARGV PASSED AS SEPARATE POSITIONAL ARGUMENTS is not matched either
+  (``create_subprocess_exec("ogrinfo", "-so", path)``). Detection keys on a
+  list or tuple DISPLAY whose first element names a GDAL tool, so a call that
+  never builds one is invisible to every rule here. No such site exists in
+  ``app/`` -- every GDAL CLI call builds an argv list first, which is why the
+  gate has always been written this way -- but a new one would pass silently
+  rather than loudly, and that is the wrong direction for this file. Closing it
+  means matching on the CALL's arguments as well as on displays, which changes
+  what "an argv site" means everywhere below; recorded here rather than done
+  under a security fix (#1846 review round 4).
 - A GDAL-headed literal counts as an argv only when its value ESCAPES —
   handed to a call, returned, or yielded (fix(#996)). The escape is followed
   directly, out of transparent wrappers (container literals, ternary, ``+``,
@@ -313,6 +323,47 @@ def _gdal_cli_tool_name(value: object) -> str | None:
 
 SAFE_SUBPROCESS_ENV_HELPER = "gdal_safe_env"
 SAFE_OPEN_ENV_HELPER = "gdal_safe_open_env"
+# fix(#1846, GHSA-hrf5-v3cq-frx5): the vector CLI surface needs a different
+# clamp from the raster one -- what matters for a vector source is which DRIVER
+# GDAL is allowed to pick, not which /vsicurl extensions it may fetch. Both
+# live in the same canonical module and both credit an argv the same way; a
+# site is credited by whichever one it actually calls.
+SAFE_VECTOR_ENV_HELPER = "gdal_vector_safe_env"
+SAFE_SERVICE_ENV_HELPER = "gdal_service_safe_env"
+SUBPROCESS_ENV_HELPERS = (
+    SAFE_SUBPROCESS_ENV_HELPER,
+    SAFE_VECTOR_ENV_HELPER,
+    SAFE_SERVICE_ENV_HELPER,
+)
+ENV_HELPERS = (SAFE_OPEN_ENV_HELPER, *SUBPROCESS_ENV_HELPERS)
+
+# fix(#1846, GHSA-hrf5-v3cq-frx5): the OTHER half of the vector clamp, and the
+# primary one. The env helper is a denylist -- it names drivers GDAL may not
+# register -- and a denylist can only exclude what somebody thought of, cannot
+# name a driver whose short name contains a space (GDAL_SKIP tokenises on
+# spaces), and says nothing about a driver a future base image adds. The
+# allowlist inverts that: the declared upload extension decides which drivers
+# may be ATTEMPTED, via repeated `-if`, so a driver nobody listed is excluded
+# by omission. A staged-upload argv needs both, and this gate says so.
+DRIVER_ALLOWLIST_HELPER = "local_input_driver_args"
+DRIVER_ALLOWLIST_MODULE = "app.processing.ingest.gdal_drivers"
+
+# fix(#1846, GHSA-hrf5-v3cq-frx5): and the THIRD layer, which is neither of the
+# other two. GPKG and SQLite are pointer-following drivers -- a SQLite schema
+# row can say "this table's rows come from that file over there" -- and neither
+# clamp can exclude them, because GPKG is the primary supported upload format
+# and the file really is a GeoPackage. What is left is to read the schema and
+# refuse the upload, so a staged-upload argv needs that call too.
+CONTENT_CHECK_HELPER = "validate_content_directives"
+CONTENT_CHECK_MODULE = "app.processing.ingest.validation"
+# The check is a linear schema walk, but a 4 MB schema is still real work and
+# it runs inside the request that uploaded the file, so the async call sites
+# hand it to a thread. That makes the helper an ARGUMENT rather than the head
+# of a call, and a gate that only recognises `helper(...)` would have gone
+# quiet on all three sites at once -- which is exactly what it did when the
+# offload landed, before this. Recognised narrowly: the offload helper by
+# name, with the guarded helper as its first positional argument.
+THREAD_OFFLOAD_HELPER = "run_in_thread_draining"
 
 # The one module whose definitions of the helpers are canonical. Credit for
 # using a helper requires the name to be BOUND to this module (imported from
@@ -381,37 +432,31 @@ RASTERIO_ENV_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
 # counts (codex P2 on #974): a module- or function-level pass may not absorb
 # a future hand-rolled subprocess — a new argv in a justified function, or a
 # new function in a covered module, must fail on its own.
+# fix(#1846, GHSA-hrf5-v3cq-frx5): five entries left this list, and the reason
+# they left is worth keeping. Three of them ("local staged file ... no HTTP
+# surface") were exemptions granted on a claim about the file's PATH. The path
+# was local. What GDAL did with it was not bounded by that: several OGR drivers
+# read a document as instructions naming somewhere else to go, so a staged
+# local file could name an arbitrary local path or an arbitrary URL, and the
+# gate passed while that was live. A justification that describes the input
+# rather than the driver set is not a proof, and this list is the wrong place
+# for one. Those sites now carry gdal_vector_safe_env plus the input-driver
+# allowlist, and are credited rather than excused. The two remaining
+# ogr2ogr/ogrinfo sites in ogr.py and export/ogr.py went the same way.
 GDAL_CLI_CALL_ALLOWLIST: dict[tuple[str, str, str], tuple[int, str]] = {
-    ("processing/ingest/ogr.py", "run_ogrinfo", "ogrinfo"): (
-        2,
-        "local staged file; two argvs are the -json path and the pre-GDAL-3.7 "
-        "text fallback — no HTTP surface",
-    ),
-    ("processing/ingest/ogr.py", "run_ogrinfo_preview", "ogrinfo"): (
-        1,
-        "local staged file preview; no HTTP surface",
-    ),
-    ("processing/ingest/ogr.py", "run_ogr2ogr", "ogr2ogr"): (
-        1,
-        "local file into PostGIS; no HTTP surface",
-    ),
-    ("processing/ingest/ogr.py", "run_ogr2ogr_service", "ogr2ogr"): (
-        1,
-        "user-supplied service URL gated by validate_url_for_ssrf at "
-        "submission time; the vsicurl extension clamps in gdal_safe_env do "
-        "not apply to OGR service drivers (SEC-008 documents the residual, "
-        "mitigated operationally)",
-    ),
-    ("processing/export/ogr.py", "run_ogr2ogr_export", "ogr2ogr"): (
-        1,
-        "PostGIS to local file; argv carries a DB connection string and a "
-        "local output path, never a user URL",
-    ),
     ("modules/catalog/sources/preview.py", "run_service_preview", "ogrinfo"): (
         1,
         "user-supplied service URL gated by validate_url_for_ssrf at "
         "submission time (#937); the vsicurl extension clamps do not apply "
-        "to OGR service drivers",
+        "to OGR service drivers. Not clamped by the helpers, and this is the "
+        "one site that cannot be: modules/catalog/ may not import "
+        "app.processing.* (test_layering.py), which is where the helpers "
+        "live. Two branches, and they are pinned differently (#1846): the "
+        "service branch by the WFS:/OAPIF:/ESRIJSON: prefix the source "
+        "string carries, and the localised branch -- where "
+        "_localise_protected_oapif swaps in a bare local staging path -- by "
+        "an explicit -if GeoJSON, which is honest because _walk_pages writes "
+        "its own FeatureCollection wrapper",
     ),
 }
 
@@ -419,6 +464,91 @@ GDAL_CLI_CALL_ALLOWLIST: dict[tuple[str, str, str], tuple[int, str]] = {
 # passing on an empty scan (same trick as the Rule-1 route-count floor).
 MIN_RASTERIO_OPEN_SITES = 5
 MIN_GDAL_CLI_ARGV_SITES = 6
+
+# Every ogrinfo/ogr2ogr argv in `app/`, and what its input is. Asserted EXACT
+# in both directions and by count, like the two allowlists above: a new vector
+# CLI site with no entry fails, and an entry whose site disappears fails.
+#
+# `staged_upload` means the argv opens a file a caller supplied. Those are the
+# sites the driver question is live for, and they must carry BOTH the input
+# allowlist (`local_input_driver_args`) and a subprocess env helper. Everything
+# else carries the env helper and names, in its justification, what pins its
+# driver instead.
+STAGED_UPLOAD = "staged_upload"
+OTHER_INPUT = "other_input"
+
+# (module, function, tool) -> (expected argv count, policy kind, the env
+# helper this site MUST use or None, justification).
+#
+# fix(#1846 codex P2, thread 3939092275): the env helper is named PER SITE
+# rather than taken from the kind, and the credit check demands that one
+# helper rather than any of the three. Accepting the family let the clamps
+# cross: a staged upload wired to `gdal_safe_env` passed this test while
+# carrying the RASTER clamps and no vector driver skip at all, and a raster
+# argv wired to `gdal_vector_safe_env` passed the older test without
+# CPL_VSIL_CURL_ALLOWED_EXTENSIONS or VRT_VIRTUAL_OVERVIEWS. Two helpers that
+# both "are a safe env" are not interchangeable; which one is the whole point.
+VECTOR_CLI_DRIVER_POLICY: dict[
+    tuple[str, str, str], tuple[int, str, str | None, str]
+] = {
+    ("processing/ingest/ogr.py", "run_ogrinfo", "ogrinfo"): (
+        2,
+        STAGED_UPLOAD,
+        SAFE_VECTOR_ENV_HELPER,
+        "the -json path and the pre-GDAL-3.7 text fallback, both reading the "
+        "staged file; one driver_args and one driver_env cover both",
+    ),
+    ("processing/ingest/ogr.py", "run_ogrinfo_preview", "ogrinfo"): (
+        1,
+        STAGED_UPLOAD,
+        SAFE_VECTOR_ENV_HELPER,
+        "the preview, which returns sample rows to the caller",
+    ),
+    ("processing/ingest/ogr.py", "run_ogr2ogr", "ogr2ogr"): (
+        1,
+        STAGED_UPLOAD,
+        SAFE_VECTOR_ENV_HELPER,
+        "the commit, which must select the same driver the preview did",
+    ),
+    ("processing/ingest/ogr.py", "run_ogr2ogr_service", "ogr2ogr"): (
+        1,
+        OTHER_INPUT,
+        SAFE_SERVICE_ENV_HELPER,
+        "remote service; the driver is pinned by the WFS:/OAPIF:/ESRIJSON: "
+        "prefix build_gdal_source puts on the source string, and the URL is "
+        "gated by validate_url_for_ssrf at submission time. The SERVICE env "
+        "variant specifically: it keeps WFS and OAPIF, which the vector one "
+        "skips, and this call exists to use them",
+    ),
+    ("processing/export/ogr.py", "run_ogr2ogr_export", "ogr2ogr"): (
+        1,
+        OTHER_INPUT,
+        SAFE_VECTOR_ENV_HELPER,
+        "reads a PG connection string, not a caller-supplied document, and "
+        "writes a local output path. Takes the VECTOR env, not the service "
+        "one: nothing here needs WFS or OAPIF, so the narrower skip list is "
+        "the right one and the surface answers uniformly",
+    ),
+    ("modules/catalog/sources/preview.py", "run_service_preview", "ogrinfo"): (
+        1,
+        OTHER_INPUT,
+        None,
+        "remote service. Prefix-pinned on the service branch like "
+        "run_ogr2ogr_service, and -if GeoJSON on the localised branch, where "
+        "the source is a bare local path the page walker wrote (#1846). The "
+        "one site with no env helper at all, which is what the None records: "
+        "modules/catalog/ may not import app.processing.* (test_layering.py) "
+        "and that is where the helpers live. Carried by "
+        "GDAL_CLI_CALL_ALLOWLIST instead",
+    ),
+}
+
+# Which policy kinds require the driver allowlist and the content check. The
+# env helper is not listed here on purpose -- it is per site, above.
+_POLICY_NEEDS_DRIVER_ALLOWLIST = {STAGED_UPLOAD}
+_POLICY_KINDS = {STAGED_UPLOAD, OTHER_INPUT}
+VECTOR_CLI_TOOLS = ("ogrinfo", "ogr2ogr")
+MIN_VECTOR_CLI_ARGV_SITES = 6
 
 
 def _app_modules() -> list[tuple[str, ast.Module]]:
@@ -456,6 +586,10 @@ def _call_name(func: ast.expr) -> str | None:
 # Sentinel keys for the credit/detection kinds a name can carry.
 _KIND_OPEN = SAFE_OPEN_ENV_HELPER
 _KIND_ENV = SAFE_SUBPROCESS_ENV_HELPER
+_KIND_VECTOR_ENV = SAFE_VECTOR_ENV_HELPER
+_KIND_SERVICE_ENV = SAFE_SERVICE_ENV_HELPER
+_KIND_DRIVER_ALLOWLIST = DRIVER_ALLOWLIST_HELPER
+_KIND_CONTENT_CHECK = CONTENT_CHECK_HELPER
 _KIND_MODALIAS = "__vrt_module_alias__"
 _KIND_RASTERIO_MOD = "__rasterio_module__"
 _KIND_RASTERIO_OPEN = "__rasterio_open__"
@@ -471,10 +605,16 @@ _RASTERIO_ATTR_KINDS = {"open": _KIND_RASTERIO_OPEN, "Env": _KIND_RASTERIO_ENV}
 _VRT_ATTR_KINDS = {
     SAFE_OPEN_ENV_HELPER: _KIND_OPEN,
     SAFE_SUBPROCESS_ENV_HELPER: _KIND_ENV,
+    SAFE_VECTOR_ENV_HELPER: _KIND_VECTOR_ENV,
+    SAFE_SERVICE_ENV_HELPER: _KIND_SERVICE_ENV,
 }
 _PROPAGATED_KINDS = (
     _KIND_OPEN,
     _KIND_ENV,
+    _KIND_VECTOR_ENV,
+    _KIND_SERVICE_ENV,
+    _KIND_DRIVER_ALLOWLIST,
+    _KIND_CONTENT_CHECK,
     _KIND_MODALIAS,
     _KIND_RASTERIO_MOD,
     _KIND_RASTERIO_OPEN,
@@ -510,6 +650,10 @@ class _ScopeInfo:
         self.canonical: dict[str, set[str]] = {
             _KIND_OPEN: set(),
             _KIND_ENV: set(),
+            _KIND_VECTOR_ENV: set(),
+            _KIND_SERVICE_ENV: set(),
+            _KIND_DRIVER_ALLOWLIST: set(),
+            _KIND_CONTENT_CHECK: set(),
             _KIND_MODALIAS: set(),
             _KIND_RASTERIO_MOD: set(),
             _KIND_RASTERIO_OPEN: set(),
@@ -542,10 +686,14 @@ def _record_import_from(info: _ScopeInfo, node: ast.ImportFrom) -> None:
     # imports (node.level > 0) are not spellings the tree uses; their names
     # fall through to `bound` and earn no credit.
     if node.level == 0 and module == CANONICAL_HELPER_MODULE:
-        kinds = {
-            SAFE_OPEN_ENV_HELPER: SAFE_OPEN_ENV_HELPER,
-            SAFE_SUBPROCESS_ENV_HELPER: SAFE_SUBPROCESS_ENV_HELPER,
-        }
+        kinds = {helper: helper for helper in ENV_HELPERS}
+    elif node.level == 0 and module == DRIVER_ALLOWLIST_MODULE:
+        # Only the direct `from ... import local_input_driver_args` spelling
+        # earns credit. A module alias would need its own tracking and the tree
+        # does not use one, so it falls through to `bound` and reports.
+        kinds = {DRIVER_ALLOWLIST_HELPER: _KIND_DRIVER_ALLOWLIST}
+    elif node.level == 0 and module == CONTENT_CHECK_MODULE:
+        kinds = {CONTENT_CHECK_HELPER: _KIND_CONTENT_CHECK}
     elif node.level == 0 and module == CANONICAL_HELPER_PARENT:
         kinds = {"vrt": _KIND_MODALIAS}
     elif node.level == 0:
@@ -683,8 +831,7 @@ def _is_canonical_def(scope: ast.AST, node: ast.AST, rel: str) -> bool:
     return (
         isinstance(scope, ast.Module)
         and rel == CANONICAL_HELPER_MODULE_REL
-        and getattr(node, "name", None)
-        in (SAFE_OPEN_ENV_HELPER, SAFE_SUBPROCESS_ENV_HELPER)
+        and getattr(node, "name", None) in ENV_HELPERS
         and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     )
 
@@ -1165,8 +1312,20 @@ def _credit_shape_is_named(call: ast.AST, scope: ast.AST) -> bool:
     )
 
 
-def _argv_has_safe_env_credit(argv: ast.AST, scope: ast.AST, rel: str) -> bool:
-    """True when an allowlisted gdal_safe_env shape covers ``argv``.
+def _argv_has_safe_env_credit(
+    argv: ast.AST, scope: ast.AST, rel: str, required_helpers: tuple[str, ...]
+) -> bool:
+    """True when an allowlisted shape of ``required_helpers`` covers ``argv``.
+
+    ``required_helpers`` is not optional and is deliberately not defaulted to
+    the whole family (fix(#1846 codex P2)). The three subprocess env helpers
+    clamp different things -- the raster one sets
+    CPL_VSIL_CURL_ALLOWED_EXTENSIONS and VRT_VIRTUAL_OVERVIEWS, the vector one
+    sets GDAL_SKIP over the pointer and network drivers, and the service one
+    keeps WFS and OAPIF out of that skip list -- so "some safe env covers this
+    argv" is not the question worth asking. Accepting any of them let a staged
+    upload be credited by the raster helper, with no vector driver skip
+    anywhere near it, and the gate reported clean.
 
     fix(#1077) inverts the old model. Credit used to be granted by WALKING the
     scope: any canonical call the walk saw exempted every argv in that scope,
@@ -1189,7 +1348,9 @@ def _argv_has_safe_env_credit(argv: ast.AST, scope: ast.AST, rel: str) -> bool:
     for node in ast.walk(scope):
         if not isinstance(node, ast.Call):
             continue
-        if not _is_canonical_helper_call(node, SAFE_SUBPROCESS_ENV_HELPER, rel):
+        if not any(
+            _is_canonical_helper_call(node, helper, rel) for helper in required_helpers
+        ):
             continue
         if _credit_shape_is_named(node, scope) and _credit_position_reaches(node, argv):
             return True
@@ -2424,7 +2585,18 @@ def _collect_gdal_cli_violations(
             # element gets no safe-env credit — the safe env cannot stop a
             # redirect (#937), so the site needs its own reviewed entry.
             remote = any(_is_remote_literal(elt) for elt in node.elts[1:])
-            if not remote and _argv_has_safe_env_credit(node, scope, rel):
+            # fix(#1846 codex P2): which helper this argv may be credited by
+            # depends on the tool family. A raster CLI needs the raster clamps
+            # and nothing else vouches for it; a vector CLI may use any of the
+            # three here, because `test_vector_gdal_argv_restricts_input_drivers`
+            # is what pins the exact one per site and this test would otherwise
+            # duplicate that judgement in a second place.
+            required = (
+                SUBPROCESS_ENV_HELPERS
+                if tool_name in VECTOR_CLI_TOOLS
+                else (SAFE_SUBPROCESS_ENV_HELPER,)
+            )
+            if not remote and _argv_has_safe_env_credit(node, scope, rel, required):
                 continue
             key = (rel, func_name, tool_name)
             if remote:
@@ -2446,12 +2618,18 @@ def _collect_gdal_cli_violations(
                     "(AGENTS.md Rule 2, #936)"
                 )
             else:
+                wanted = (
+                    " or ".join(SUBPROCESS_ENV_HELPERS)
+                    if tool in VECTOR_CLI_TOOLS
+                    else SAFE_SUBPROCESS_ENV_HELPER
+                )
                 violations.append(
                     f"{rel}:{lines} ({func_name}) builds a {tool} argv without "
-                    f"{SAFE_SUBPROCESS_ENV_HELPER} in the same function — "
-                    "route the subprocess env through it, or allowlist this "
-                    "exact (module, function, tool) with a justification "
-                    "(AGENTS.md Rule 2, #936)"
+                    f"{wanted} in the same function — route the subprocess env "
+                    "through it, or allowlist this exact (module, function, "
+                    "tool) with a justification (AGENTS.md Rule 2, #936). "
+                    "Another safe-env helper does not substitute: they clamp "
+                    "different things (#1846)"
                 )
         elif count != allowlist[key][0]:
             violations.append(
@@ -2481,6 +2659,241 @@ def test_rasterio_open_sites_are_wrapped_or_allowlisted():
         f"codebase has at least {MIN_RASTERIO_OPEN_SITES} — the scan has gone "
         "blind, fix the detector before trusting this guard"
     )
+
+
+def _is_named_helper_call(expr: ast.expr, kind: str, rel: str) -> bool:
+    """True for a call to the canonical helper bound under ``kind``.
+
+    Only the direct ``from <canonical module> import <helper>`` spelling earns
+    credit; a module alias would need its own tracking, the tree does not use
+    one, and the conservative answer to a shape this cannot read is no.
+    """
+    if not isinstance(expr, ast.Call):
+        return False
+    func = expr.func
+    if isinstance(func, ast.Name):
+        if _resolve_credit(func.id, kind, func, rel):
+            return True
+        # `run_in_thread_draining(helper, *args)` runs the helper; the name is
+        # the first positional argument rather than the call head.
+        if func.id == THREAD_OFFLOAD_HELPER and expr.args:
+            first = expr.args[0]
+            return isinstance(first, ast.Name) and _resolve_credit(
+                first.id, kind, first, rel
+            )
+    return False
+
+
+def _argv_has_helper_credit(
+    argv: ast.AST,
+    scope: ast.AST,
+    rel: str,
+    kind: str,
+    *,
+    result_is_the_protection: bool = True,
+) -> bool:
+    """Same credit rules as the env half: an eager, named-shape call.
+
+    ``result_is_the_protection`` is what the shape check turns on. For a pure
+    helper that RETURNS the clamp, a call whose result goes nowhere clamps
+    nothing, which is what ``_credit_shape_is_named`` refuses. For a validator
+    the protection IS the raise, so a bare statement call is the correct
+    spelling and there is no discarded result to refuse; only the position
+    rules apply (fix(#1846)).
+    """
+    for node in ast.walk(scope):
+        if not _is_named_helper_call(node, kind, rel):
+            continue
+        if result_is_the_protection and not _credit_shape_is_named(node, scope):
+            continue
+        if _credit_position_reaches(node, argv):
+            return True
+    return False
+
+
+def _iter_vector_cli_argv_sites(modules: list[tuple[str, ast.Module]]):
+    """Yield (rel, function, tool, argv node, enclosing scope) per vector argv.
+
+    Same detection as ``_collect_gdal_cli_violations`` -- a GDAL-headed literal
+    whose value escapes -- narrowed to the two OGR command-line tools.
+    """
+    for rel, tree in modules:
+        _annotate_parents(tree)
+        for node in ast.walk(tree):
+            if not (isinstance(node, (ast.List, ast.Tuple)) and node.elts):
+                continue
+            first = node.elts[0]
+            tool = (
+                _gdal_cli_tool_name(first.value)
+                if isinstance(first, ast.Constant)
+                else None
+            )
+            if tool not in VECTOR_CLI_TOOLS:
+                continue
+            escape = _argv_escape_kind(node, rel)
+            if escape == _ESCAPE_NONE:
+                continue
+            if escape != _ESCAPE_CALL and _tool_name_list(node):
+                continue
+            func_node = _enclosing_function_node(node)
+            func_name = func_node.name if func_node is not None else "<module>"
+            scope: ast.AST = func_node if func_node is not None else tree
+            yield rel, func_name, tool, node, scope
+
+
+def _collect_vector_driver_violations(
+    modules: list[tuple[str, ast.Module]],
+    policy: dict[tuple[str, str, str], tuple[int, str, str | None, str]],
+) -> tuple[list[str], int]:
+    """Return (violations, total vector CLI argv count)."""
+    violations: list[str] = []
+    counts: dict[tuple[str, str, str], int] = {}
+    lines: dict[tuple[str, str, str], list[int]] = {}
+    total = 0
+
+    for key, (_count, kind, env_helper, justification) in sorted(policy.items()):
+        if kind not in _POLICY_KINDS:
+            violations.append(
+                f"unknown VECTOR_CLI_DRIVER_POLICY kind {kind!r} for {key}"
+            )
+        if env_helper is not None and env_helper not in SUBPROCESS_ENV_HELPERS:
+            violations.append(
+                f"VECTOR_CLI_DRIVER_POLICY names {env_helper!r} for {key}, which "
+                f"is not one of {', '.join(SUBPROCESS_ENV_HELPERS)}"
+            )
+        if not justification.strip():
+            violations.append(f"blank VECTOR_CLI_DRIVER_POLICY justification for {key}")
+
+    for rel, func_name, tool, node, scope in _iter_vector_cli_argv_sites(modules):
+        total += 1
+        key = (rel, func_name, tool)
+        counts[key] = counts.get(key, 0) + 1
+        lines.setdefault(key, []).append(node.lineno)
+        entry = policy.get(key)
+        if entry is None:
+            violations.append(
+                f"{rel}:{node.lineno} ({func_name}) builds a {tool} argv with no "
+                "VECTOR_CLI_DRIVER_POLICY entry — say what its input is and "
+                "clamp it accordingly (AGENTS.md Rule 2, #1846)"
+            )
+            continue
+        _expected, kind, env_helper, _why = entry
+        if kind in _POLICY_NEEDS_DRIVER_ALLOWLIST:
+            if not _argv_has_helper_credit(node, scope, rel, _KIND_DRIVER_ALLOWLIST):
+                violations.append(
+                    f"{rel}:{node.lineno} ({func_name}) opens a staged upload "
+                    f"with a {tool} argv but no {DRIVER_ALLOWLIST_HELPER} call "
+                    "covers it — an unrestricted driver set decides what the "
+                    "file is, and some OGR drivers read a document as "
+                    "instructions naming somewhere else to read from "
+                    "(AGENTS.md Rule 2, #1846)"
+                )
+            if not _argv_has_helper_credit(
+                node,
+                scope,
+                rel,
+                _KIND_CONTENT_CHECK,
+                result_is_the_protection=False,
+            ):
+                violations.append(
+                    f"{rel}:{node.lineno} ({func_name}) opens a staged upload "
+                    f"with a {tool} argv but no {CONTENT_CHECK_HELPER} call "
+                    "covers it — a SQLite-family upload carries its own schema, "
+                    "and a schema row can name a source outside the file that "
+                    "no driver clamp can exclude (AGENTS.md Rule 2, #1846)"
+                )
+        if env_helper is not None and not _argv_has_safe_env_credit(
+            node, scope, rel, (env_helper,)
+        ):
+            violations.append(
+                f"{rel}:{node.lineno} ({func_name}) builds a {tool} argv with no "
+                f"{env_helper} call covering it — that exact helper, not "
+                "whichever safe env is nearest: the three clamp different "
+                "things, and a staged upload credited by the raster one "
+                "carries no vector driver skip at all "
+                "(AGENTS.md Rule 2, #1846)"
+            )
+
+    for key, count in sorted(counts.items()):
+        entry = policy.get(key)
+        if entry is not None and count != entry[0]:
+            rel, func_name, tool = key
+            seen = ",".join(str(n) for n in lines[key])
+            violations.append(
+                f"{rel} ({func_name}) has {count} {tool} argv(s) at line(s) {seen} "
+                f"but VECTOR_CLI_DRIVER_POLICY expects exactly {entry[0]} — each "
+                "one needs its own review, not a ride on the entry"
+            )
+
+    for key in sorted(set(policy) - set(counts)):
+        violations.append(
+            f"stale VECTOR_CLI_DRIVER_POLICY entry {key} — no matching vector "
+            "CLI argv exists; remove the entry"
+        )
+
+    return violations, total
+
+
+def test_vector_gdal_argv_restricts_input_drivers():
+    """Every staged-upload ogrinfo/ogr2ogr argv carries BOTH clamps.
+
+    fix(#1846, GHSA-hrf5-v3cq-frx5). The gate that existed passed while an
+    uploaded archive could make GDAL pick a driver that reads the document as
+    instructions and go fetch what it names, because three sites were exempted
+    on a justification about the input being a local file. It was. That is not
+    the same claim as the driver set being bounded, and this test asks the
+    second question directly: for a caller-supplied file, is there an allowlist
+    saying which drivers may be attempted, and an env saying which may not be
+    registered at all. Either alone is a real defense; the pair is what makes a
+    gap in one survivable.
+    """
+    violations, total = _collect_vector_driver_violations(
+        _app_modules(), VECTOR_CLI_DRIVER_POLICY
+    )
+    assert not violations, "\n".join(violations)
+    assert total >= MIN_VECTOR_CLI_ARGV_SITES, (
+        f"detector saw only {total} vector GDAL CLI argv site(s); the codebase "
+        f"has at least {MIN_VECTOR_CLI_ARGV_SITES} — the scan has gone blind, "
+        "fix the detector before trusting this guard"
+    )
+
+
+def test_every_sqlite_family_extension_is_content_checked():
+    """The two tables that decide "is this a database" must agree.
+
+    fix(#1846, GHSA-hrf5-v3cq-frx5). `-if GPKG` and `-if SQLite` are the two
+    allowed drivers that read a schema, and a schema row can name a source
+    outside the file. Adding an extension to the driver table that maps to
+    either of them, without adding it to the set the content check covers,
+    would open the hole again from the other end -- so this asserts the
+    inclusion rather than trusting two lists to be edited together.
+    """
+    from app.processing.ingest.gdal_drivers import (
+        ARCHIVE_MEMBER_DRIVERS,
+        _DRIVERS_BY_EXTENSION,
+    )
+    from app.processing.ingest.validation import (
+        SQLITE_FAMILY_EXTENSIONS,
+        ZIP_CONTAINER_EXTENSIONS,
+    )
+
+    schema_readers = {"GPKG", "SQLite"}
+    uncovered = sorted(
+        extension
+        for extension, drivers in _DRIVERS_BY_EXTENSION.items()
+        if schema_readers & set(drivers)
+        and drivers is not ARCHIVE_MEMBER_DRIVERS
+        and extension not in SQLITE_FAMILY_EXTENSIONS
+    )
+    assert not uncovered, (
+        f"{uncovered} may be opened by a schema-reading driver but is not "
+        "content-checked; add it to SQLITE_FAMILY_EXTENSIONS"
+    )
+
+    # And an archive can carry one as a member, so every container extension
+    # has to be scanned for members too.
+    assert schema_readers & set(ARCHIVE_MEMBER_DRIVERS)
+    assert ZIP_CONTAINER_EXTENSIONS, "container list went empty"
 
 
 def test_gdal_cli_argv_uses_safe_env_or_is_allowlisted():
@@ -4861,3 +5274,64 @@ def test_guard_real_tree_credit_shapes_are_all_allowlisted():
     )
     assert total == 3, (total, violations)
     assert violations == []
+
+
+def test_guard_staged_upload_credited_by_the_raster_helper_reports():
+    """fix(#1846 codex P2, thread 3939092275): the clamps may not cross.
+
+    A staged-upload argv wired to `gdal_safe_env` has the RASTER clamps and no
+    vector driver skip anywhere near it, so the drivers that read a document as
+    instructions are all still registered. It used to pass this gate, because
+    credit accepted any member of the safe-env family.
+    """
+    violations, total = _collect_vector_driver_violations(
+        _mod(
+            "from app.processing.raster.vrt import gdal_safe_env\n"
+            "from app.processing.ingest.gdal_drivers import local_input_driver_args\n"
+            "from app.processing.ingest.validation import validate_content_directives\n"
+            "import asyncio\n"
+            "async def run_ogrinfo(file_path):\n"
+            "    validate_content_directives(file_path)\n"
+            "    driver_args = local_input_driver_args(file_path)\n"
+            "    env = gdal_safe_env()\n"
+            "    cmd = ['ogrinfo', '-so', *driver_args, file_path]\n"
+            "    return await asyncio.create_subprocess_exec(*cmd, env=env)\n"
+        ),
+        {
+            ("seed/mod.py", "run_ogrinfo", "ogrinfo"): (
+                1,
+                STAGED_UPLOAD,
+                SAFE_VECTOR_ENV_HELPER,
+                "synthetic staged-upload site for this counterfactual",
+            )
+        },
+    )
+    assert total == 1
+    assert len(violations) == 1, violations
+    assert SAFE_VECTOR_ENV_HELPER in violations[0], violations
+    # And it names what is missing rather than the helper that was found.
+    assert "no gdal_vector_safe_env call covering it" in violations[0], violations
+
+
+def test_guard_raster_argv_credited_by_the_vector_helper_reports():
+    """The same crossing in the other direction, under the older gate.
+
+    `gdal_vector_safe_env` sets GDAL_SKIP and nothing else, so a raster argv
+    credited by it runs without CPL_VSIL_CURL_ALLOWED_EXTENSIONS or
+    VRT_VIRTUAL_OVERVIEWS -- the two clamps that gate the /vsicurl surface a
+    raster VRT build can reach.
+    """
+    violations, total = _collect_gdal_cli_violations(
+        _mod(
+            "from app.processing.raster.vrt import gdal_vector_safe_env, run_gdal\n"
+            "def build_vrt(sources, out):\n"
+            "    env = gdal_vector_safe_env()\n"
+            "    cmd = ['gdalbuildvrt', out, *sources]\n"
+            "    return run_gdal(cmd, env=env, tool='gdalbuildvrt')\n"
+        ),
+        {},
+    )
+    assert total == 1
+    assert len(violations) == 1, violations
+    assert SAFE_SUBPROCESS_ENV_HELPER in violations[0], violations
+    assert SAFE_VECTOR_ENV_HELPER not in violations[0], violations
