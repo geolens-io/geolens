@@ -33,7 +33,7 @@ import httpx
 import idna
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import delete, exc as sa_exc, func, select
+from sqlalchemy import delete, exc as sa_exc, func, select, text
 
 from app.modules.audit.models import AuditLog
 from app.modules.catalog.sources.models import ArcGISSignInAttempt
@@ -3207,11 +3207,15 @@ async def test_a_successful_signin_leaks_nothing_into_logs_or_the_audit_row(
     rows = await _audit_rows(test_db_session)
     assert len(rows) == 1
     recorded = json.dumps(rows[0].details)
+    # fix(#1825): `attempt_id` joins the closed set. It is the ledger row's
+    # random id, which stands for the attempt and for nothing else.
     assert rows[0].details == {
         "token_service_host": _scope(),
         "result": "success",
         "account_key": signin_account_key(_scope(), FIXTURE_USERNAME),
+        "attempt_id": rows[0].details["attempt_id"],
     }
+    assert uuid.UUID(rows[0].details["attempt_id"]).version == 4
     assert FIXTURE_SECRET not in recorded
     assert FIXTURE_TOKEN not in recorded
     assert FIXTURE_USERNAME not in recorded
@@ -3334,13 +3338,17 @@ async def _cancel_the_first_audit(monkeypatch, entered, never):
     real_audit = signin_guard._signin_audit
     calls = []
 
-    async def _hang_once(*args, **kwargs):
+    async def _hang_once(db, *args, **kwargs):
         calls.append(1)
         if len(calls) == 1:
+            # Open a transaction first, so the session holds its connection
+            # when the cancellation lands. That is the state the real write
+            # is in, and without it the release has nothing to release.
+            await db.execute(text("SELECT 1"))
             entered.set()
             await never.wait()
             raise AssertionError("unreachable: the wait above is never released")
-        return await real_audit(*args, **kwargs)
+        return await real_audit(db, *args, **kwargs)
 
     monkeypatch.setattr(signin_guard, "_signin_audit", _hang_once)
     monkeypatch.setattr(sources_router, "_signin_audit", _hang_once)
@@ -3429,3 +3437,173 @@ async def test_a_cancellation_during_the_refusal_settle_still_records_it(
         .where(ArcGISSignInAttempt.account_key == account_key)
     )
     assert ledger == 1
+
+
+async def test_the_finaliser_does_not_wait_on_the_request_connection(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    allow_ssrf,
+    test_db_session,
+    monkeypatch,
+):
+    """fix(#1825 codex r1): the request session is released before the write.
+
+    FastAPI's teardown does not run until the route re-raises, so the settle
+    write would queue behind the request's own connection. On a pool with no
+    spare capacity it waits out the drain and the row is lost anyway.
+    """
+    import app.core.db as core_db
+    from app.api.main import app
+    from app.core.dependencies import get_db
+
+    request_sessions: list = []
+    original = app.dependency_overrides[get_db]
+
+    async def _capturing():
+        async for session in original():
+            request_sessions.append(session)
+            yield session
+
+    app.dependency_overrides[get_db] = _capturing
+    held: list[bool] = []
+    real_factory = core_db.async_session
+
+    def _recording_factory(*args, **kwargs):
+        held.append(request_sessions[-1].in_transaction())
+        return real_factory(*args, **kwargs)
+
+    monkeypatch.setattr(core_db, "async_session", _recording_factory)
+    try:
+        await _cancel_during_settle(
+            client,
+            admin_auth_header,
+            _Exchange(
+                {
+                    "info": _json_response(_info_payload()),
+                    "generateToken": _json_response(_token_payload()),
+                }
+            ),
+            monkeypatch,
+        )
+    finally:
+        app.dependency_overrides[get_db] = original
+
+    rows = await _audit_rows(test_db_session)
+    assert [row.details["result"] for row in rows] == ["success"]
+    # The pool-independent form: an open transaction is what pins the
+    # connection, and the test engine's NullPool makes a checkout count moot.
+    assert held == [False], (
+        "the finaliser opened its session while the request still held one"
+    )
+
+
+def _settle_exchange(result: str) -> "_Exchange":
+    """The exchange that drives the mint to *result*."""
+    routes = {"info": _json_response(_info_payload())}
+    if result == "success":
+        routes["generateToken"] = _json_response(_token_payload())
+    else:
+        routes["generateToken"] = _json_response(
+            _error_payload(400, "Unable to generate token.")
+        )
+        routes["self"] = _json_response({"canSignInArcGIS": True})
+    return _Exchange(routes)
+
+
+async def _drive_and_cancel(client, admin_auth_header, exchange, entered):
+    """Run one sign-in and cancel it once *entered* is set."""
+    with _install(exchange):
+        call = asyncio.create_task(
+            client.post(SIGNIN_URL, json=_body(), headers=admin_auth_header)
+        )
+        async with asyncio.timeout(30):
+            await entered.wait()
+        call.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await call
+
+
+async def _assert_one_row(test_db_session, result: str) -> None:
+    """Exactly one audit row with *result*, and one counted attempt."""
+    rows = await _audit_rows(test_db_session)
+    assert [row.details["result"] for row in rows] == [result]
+    account_key = signin_account_key(_scope(), FIXTURE_USERNAME)
+    ledger = await test_db_session.scalar(
+        select(func.count())
+        .select_from(ArcGISSignInAttempt)
+        .where(ArcGISSignInAttempt.account_key == account_key)
+    )
+    assert ledger == 1
+
+
+@pytest.mark.parametrize("result", ["success", "invalid_credentials"])
+async def test_a_commit_that_landed_before_the_cancellation_is_not_written_twice(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    allow_ssrf,
+    test_db_session,
+    monkeypatch,
+    result: str,
+):
+    """fix(#1825): an interrupted commit is ambiguous, not failed.
+
+    PostgreSQL can apply the commit while the client sees `CancelledError`, so
+    the finaliser looks for this reservation before writing.
+    """
+    real_audit = signin_guard._signin_audit
+    committed = asyncio.Event()
+    never = asyncio.Event()
+    calls = []
+
+    async def _commit_then_hang(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            # Durable first, then cancelled from outside: the ambiguous commit.
+            await real_audit(*args, **kwargs)
+            committed.set()
+            await never.wait()
+            raise AssertionError("unreachable: the wait above is never released")
+        return await real_audit(*args, **kwargs)
+
+    monkeypatch.setattr(signin_guard, "_signin_audit", _commit_then_hang)
+    monkeypatch.setattr(sources_router, "_signin_audit", _commit_then_hang)
+
+    await _drive_and_cancel(
+        client, admin_auth_header, _settle_exchange(result), committed
+    )
+    await _assert_one_row(test_db_session, result)
+
+
+@pytest.mark.parametrize("result", ["success", "invalid_credentials"])
+async def test_a_flush_cancelled_before_its_commit_is_written_once(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    allow_ssrf,
+    test_db_session,
+    monkeypatch,
+    result: str,
+):
+    """fix(#1825): the other side of the ambiguous commit.
+
+    Here the INSERT is on the wire inside its savepoint and the transaction is
+    still open, so teardown rolls it back and the finaliser must write the row.
+    """
+    real_emit = signin_guard.audit_emit
+    flushed = asyncio.Event()
+    never = asyncio.Event()
+    calls = []
+
+    async def _flush_then_hang(session, event):
+        calls.append(1)
+        await real_emit(session, event)
+        if len(calls) == 1:
+            flushed.set()
+            await never.wait()
+            raise AssertionError("unreachable: the wait above is never released")
+
+    monkeypatch.setattr(signin_guard, "audit_emit", _flush_then_hang)
+
+    await _drive_and_cancel(
+        client, admin_auth_header, _settle_exchange(result), flushed
+    )
+    await _assert_one_row(test_db_session, result)

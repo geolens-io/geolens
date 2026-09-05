@@ -2778,9 +2778,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # wait is the first of the two waits, and the preview needs a second
     # release because its duplicate-source query re-acquires in between.
     # Cap 1831 -> 1849, exact.
-    # fix(#1825): +19. Both settlement writes carry a cancellation clause that
-    # re-runs the outcome through the sign-in finaliser. Cap 1849 -> 1868, exact.
-    "backend/app/modules/catalog/sources/router.py": 1868,
+    # fix(#1825): +52. A cancellation clause on both settlement writes, and
+    # the reservation id threaded to all three finaliser call sites.
+    # Cap 1849 -> 1901, exact.
+    "backend/app/modules/catalog/sources/router.py": 1901,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against
