@@ -23,6 +23,22 @@ from app.modules.catalog.sources.schemas import LayerInfo, ProbeResponse
 from app.platform.security import SSRFError, SSRFResolutionError
 
 
+async def _preview_audit_rows(session, url: str) -> list[AuditLog]:
+    """This test's `preview_service_layer` audit rows, oldest first.
+
+    Scoped to the previewed URL for the same reason as `_probe_audit_rows`.
+    """
+    result = await session.execute(
+        select(AuditLog)
+        .where(
+            AuditLog.action == "preview_service_layer",
+            AuditLog.details["url"].astext == url,
+        )
+        .order_by(AuditLog.created_at)
+    )
+    return list(result.scalars().all())
+
+
 async def _probe_audit_rows(session, url: str) -> list[AuditLog]:
     """This test's `probe_service` audit rows, oldest first.
 
@@ -898,6 +914,50 @@ class TestPreviewEndpoint:
         assert len(data["sample_rows"]) == 2
         # ArcGIS responses surface attributes (not GeoJSON properties).
         assert data["sample_rows"][0]["title"] == "Bulletin A"
+
+    async def test_preview_arcgis_json_depth_bomb_is_coded_not_a_crash(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_validate_ssrf,
+        test_db_session,
+    ):
+        """fix(#1858, backend audit 2026-09-04 P2-2).
+
+        `read_arcgis_json` parsed the layer metadata document with a bare
+        `json.loads`. A balanced nesting 300,000 deep is a ~600 KB body, so it
+        clears every byte and structural-token bound the read applies, and
+        `json.loads` answers `RecursionError` -- a `RuntimeError`, caught by
+        neither this door's except chain nor the adapter's. The preview
+        answered 500 and wrote no audit row, contradicting the handler
+        docstring's promise that every attempt is audit-logged.
+        """
+        bomb = b"[" * 300_000 + b"]" * 300_000
+        preview_url = (
+            "https://sec6-bomb.example.com/arcgis/rest/services/X/FeatureServer"
+        )
+
+        async def _bomb_read(_client, url, **_kwargs):
+            return bomb, url
+
+        with patch(
+            "app.modules.catalog.sources.adapters.arcgis.bounded_probe_read",
+            new=_bomb_read,
+        ):
+            resp = await client.post(
+                "/services/preview/",
+                json={
+                    "url": preview_url,
+                    "service_type": "ArcGIS FeatureServer",
+                    "layer_name": "0",
+                    "layer_id": 0,
+                },
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 502, resp.text
+        rows = await _preview_audit_rows(test_db_session, preview_url)
+        assert [row.details["result"] for row in rows] == ["ogrinfo_failed"]
 
     async def test_preview_arcgis_persists_normalized_layer(
         self,

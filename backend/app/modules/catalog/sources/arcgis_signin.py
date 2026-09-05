@@ -824,11 +824,22 @@ async def _fetch_json(
                 return response.status_code, None
         try:
             return response.status_code, json.loads(raw)
-        except ValueError:
-            return response.status_code, None
-        try:
-            return response.status_code, json.loads(raw)
-        except ValueError:
+        except (ValueError, RecursionError):
+            # fix(#1858): `RecursionError` joins `ValueError`. A balanced
+            # nesting costs two bytes a level, so the deepest document that
+            # fits inside `_MAX_RESPONSE_BYTES` above is ~131,000 levels --
+            # and the decoder gives up on a stack overflow well before that
+            # (measured at ~120,000 on CPython 3.14, and lower on any thread
+            # with a smaller stack). The cap therefore does not bound this
+            # shape. `RecursionError` is a `RuntimeError` rather than a
+            # `ValueError`, so it escaped this clause and fell through to the
+            # door's broad transport handler, which recorded `unreachable` --
+            # a fact about the NETWORK -- for a portal that answered
+            # perfectly well with a document this module cannot read.
+            # `unreadable_response` is the outcome that describes it, and it
+            # is the one every other unreadable portal answer already gets.
+            # The duplicate, unreachable copy of this same try/except that
+            # has sat below it since #1758 is removed in the same edit.
             return response.status_code, None
 
 

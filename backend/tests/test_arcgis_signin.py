@@ -1846,6 +1846,43 @@ async def test_a_sign_in_page_instead_of_an_answer_is_a_network_error(
     assert [row.details["result"] for row in rows] == ["unreadable_response"]
 
 
+async def test_a_json_depth_bomb_is_an_unreadable_answer_not_a_crash(
+    client: AsyncClient, admin_auth_header: dict, allow_ssrf, test_db_session
+):
+    """fix(#1858, backend audit 2026-09-04 P2-2).
+
+    The byte cap does not bound nesting depth. A balanced nesting costs two
+    bytes a level, so the deepest document that fits inside
+    `_MAX_RESPONSE_BYTES` is ~131,000 levels, and the decoder overflows its
+    stack well before that. `RecursionError` is a `RuntimeError` rather than a
+    `ValueError`, so the parse's own except clause did not catch it, and the
+    attempt was recorded as `unreachable` -- a fact about the network -- for a
+    portal that answered perfectly well with a document this module cannot
+    read.
+    """
+    bomb = b"[" * 120_000 + b"]" * 120_000
+    # The premise, both halves: it fits inside the cap, and the decoder does
+    # give up on it. Without this the test could pass while exercising the
+    # oversized branch, or nothing at all.
+    assert len(bomb) < arcgis_signin._MAX_RESPONSE_BYTES
+    with pytest.raises(RecursionError):
+        json.loads(bomb)
+
+    exchange = _Exchange(
+        {
+            "info": _json_response(_info_payload()),
+            "generateToken": _stream_response(body=bomb),
+        }
+    )
+    with _install(exchange):
+        resp = await client.post(SIGNIN_URL, json=_body(), headers=admin_auth_header)
+
+    assert resp.status_code == 502
+    assert resp.json()["detail"]["code"] == "network_error"
+    rows = await _audit_rows(test_db_session)
+    assert [row.details["result"] for row in rows] == ["unreadable_response"]
+
+
 async def test_an_oversized_answer_is_not_read_to_the_end(
     client: AsyncClient, admin_auth_header: dict, allow_ssrf, monkeypatch
 ):

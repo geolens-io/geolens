@@ -1151,6 +1151,73 @@ class TestArcgisAuthEnvelope:
         assert dataset.source_health_detail == AUTH_REQUIRED
 
 
+class TestAJsonDepthBombIsAVerdictNotACrash:
+    """fix(#1858, backend audit 2026-09-04 P2-2).
+
+    A balanced nesting 300,000 deep costs two bytes a level, so the document
+    is ~600 KB and passes ``fetch_json_document``'s own 2 MiB cap with room to
+    spare. ``json.loads`` answers ``RecursionError``, a ``RuntimeError``
+    subclass, so it was caught neither by the parse's ``except ValueError``
+    nor by the broad transport handler above it, which has already returned by
+    the time the parse runs. ``POST /datasets/{id}/source-health/`` answered
+    500 and wrote neither a verdict nor ``last_checked_at``, which is the one
+    thing an operator most needs dated after a failed probe.
+    """
+
+    _BOMB = b"[" * 300_000 + b"]" * 300_000
+
+    def _bomb_handler(self, _request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=self._BOMB)
+
+    def test_the_premise(self) -> None:
+        """The bomb is under the cap, and the decoder does raise on it.
+
+        Without this, a future Python whose decoder stops recursing would let
+        the two tests below pass while exercising nothing.
+        """
+        assert len(self._BOMB) < MAX_DOCUMENT_BYTES
+        with pytest.raises(RecursionError):
+            json.loads(self._BOMB)
+
+    async def test_the_document_read_reports_unexpected_status(
+        self, probe_transport
+    ) -> None:
+        install, _ = probe_transport
+        install(self._bomb_handler)
+
+        result, body, _url = await fetch_json_document(_ITEM)
+
+        assert result.health == INACCESSIBLE
+        assert result.detail == UNEXPECTED_STATUS
+        assert result.detail in DETAIL_CODES
+        assert body is None
+        # Not the oversized signal: this body fits, it just cannot be read.
+        assert result.oversized is False
+
+    async def test_end_to_end_the_health_door_persists_a_verdict(
+        self, client, admin_auth_header, test_db_session, probe_transport
+    ) -> None:
+        install, _ = probe_transport
+        install(self._bomb_handler)
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/source-health/", headers=admin_auth_header
+        )
+
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["source_health"] == INACCESSIBLE
+        assert body["source_health_detail"] == UNEXPECTED_STATUS
+
+        await test_db_session.refresh(dataset)
+        assert dataset.source_health == INACCESSIBLE
+        assert dataset.source_health_detail in DETAIL_CODES
+        # The origin answered, so the contact clock is stamped.
+        assert dataset.last_checked_at is not None
+
+
 class TestServiceOriginProbe:
     async def test_reachable_service_endpoint_is_healthy(
         self, client, admin_auth_header, test_db_session, probe_transport

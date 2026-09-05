@@ -69,6 +69,12 @@ from app.modules.catalog.sources.adapters.arcgis import (
 )
 from app.platform import security as security_mod
 from app.platform.security import SSRFError
+from app.platform.service_endpoints import (
+    MAX_DOCUMENT_BYTES,
+    MAX_DOCUMENT_TOKENS,
+    EndpointCheckFailedError,
+    structural_tokens,
+)
 
 _BASE = (
     "https://services6.arcgis.com/ZrVlS0wslq8Nvq5I/arcgis/rest/services/X/FeatureServer"
@@ -902,3 +908,80 @@ class TestTheQueryFallbackRegistersItsSecret:
             await probe_arcgis_service(_BASE, client, token=_TOKEN)
 
         assert _TOKEN in registered_credential_secrets()
+
+
+_DEPTH_BOMB = b"[" * 300_000 + b"]" * 300_000
+
+
+def test_the_depth_bomb_premise() -> None:
+    """Every bound the bomb below has to pass, and the exception it produces.
+
+    Pinned so that a future Python whose decoder stops recursing, or a future
+    cap that starts catching this shape, fails HERE rather than letting the
+    tests in the class below pass while exercising nothing.
+    """
+    assert len(_DEPTH_BOMB) < MAX_DOCUMENT_BYTES
+    assert structural_tokens(_DEPTH_BOMB) < MAX_DOCUMENT_TOKENS
+    with pytest.raises(RecursionError):
+        _json.loads(_DEPTH_BOMB)
+
+
+class TestAJsonDepthBombIsACodedRefusalNotACrash:
+    """fix(#1858, backend audit 2026-09-04 P2-2).
+
+    ``_parsed_json`` in ``platform/service_endpoints.py`` was written for this
+    exact body in #1770 round 44; ``read_arcgis_json`` and its query-form
+    fallback never adopted it. A balanced nesting 300,000 deep costs two bytes
+    a level, so the document is ~600 KB: under ``MAX_DOCUMENT_BYTES`` by two
+    orders of magnitude, and under ``MAX_DOCUMENT_TOKENS`` because
+    ``structural_tokens`` counts brackets rather than nesting depth and so
+    cannot see this shape at all. ``json.loads`` answers ``RecursionError``,
+    which is a ``RuntimeError``: caught by none of this module's ``except
+    (ValueError, TypeError)`` clauses, none of its callers', and none of the
+    doors'.
+    """
+
+    pytestmark = pytest.mark.asyncio
+
+    def _stream_bomb(self, _request: httpx.Request) -> httpx.Response:
+        async def _chunks():
+            yield _DEPTH_BOMB
+
+        return httpx.Response(200, content=_chunks())
+
+    async def test_the_service_document_read_is_a_typed_refusal(self) -> None:
+        async with _client(self._stream_bomb) as client:
+            with pytest.raises(EndpointCheckFailedError):
+                await arcgis_mod.read_arcgis_json(
+                    client, lambda _q: f"{_BASE}?f=json", _TOKEN
+                )
+
+    async def test_the_query_form_fallback_read_is_a_typed_refusal(self) -> None:
+        """The pre-10.5.1 path parses a second body, in its own function.
+
+        The first read answers the 499 envelope that triggers the fallback, so
+        the bomb is the body ``_read_with_query_token`` parses.
+        """
+        seen: list[httpx.Request] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            if len(seen) == 1:
+                return _stream({"error": {"code": 499, "message": "Token Required"}})
+            return self._stream_bomb(request)
+
+        async with _client(handle) as client:
+            with pytest.raises(EndpointCheckFailedError):
+                await arcgis_mod.read_arcgis_json(
+                    client,
+                    lambda q: build_arcgis_count_query_url(f"{_BASE}/0", q),
+                    _TOKEN,
+                )
+        assert len(seen) == 2
+
+    async def test_the_probe_degrades_rather_than_crashing(self) -> None:
+        """What the door sees: ``probe_arcgis_service`` already catches the
+        typed refusal, so the bomb becomes "not an ArcGIS service" instead of
+        an exception with no handler anywhere above it."""
+        async with _client(self._stream_bomb) as client:
+            assert await probe_arcgis_service(_BASE, client, token=_TOKEN) is None

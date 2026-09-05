@@ -347,6 +347,35 @@ def _is_web_tier_refusal(exc: httpx.HTTPStatusError, requested_url: str) -> bool
     return same_origin(str(response.url), requested_url)
 
 
+def _arcgis_parsed_json(body: bytes) -> object:
+    """``json.loads(body)``, with a depth bomb turned into a typed refusal.
+
+    fix(#1858): a JSON depth bomb -- 300,000 nested ``[`` at under two bytes
+    each -- is a ~600 KB document, so it passes every byte and structural-token
+    cap ``bounded_probe_read`` applies (``structural_tokens`` counts brackets,
+    not nesting depth, so it cannot see this shape at all). ``json.loads`` then
+    raises ``RecursionError``, which is a ``RuntimeError`` and therefore caught
+    by none of this module's ``except (ValueError, TypeError)`` clauses nor by
+    any caller's. It reached ``/services/probe``, ``/services/preview`` and
+    ``GET /datasets/{id}/health`` as a bare 500 with no audit row, and killed
+    the ArcGIS worker reads unclassified. ``platform/service_endpoints.py``
+    (``_parsed_json``), ``platform/service_items.py`` and
+    ``sources/router.py`` each closed this on their own reads in #1770 round
+    44; these two were the sites that never adopted it.
+
+    ``ValueError`` is deliberately NOT converted. It is already part of
+    ``read_arcgis_json``'s published contract and every caller handles it, so
+    rewriting it would change the coded outcome of an ordinary unparseable
+    response for no gain. ``EndpointCheckFailedError`` is what
+    ``bounded_probe_read`` already raises out of these same two calls, so the
+    new class lands on a type every caller was written for.
+    """
+    try:
+        return json.loads(body)
+    except RecursionError as exc:
+        raise EndpointCheckFailedError(str(exc)) from None
+
+
 async def _read_with_query_token(
     client: httpx.AsyncClient,
     build_url: Callable[[str | None], str],
@@ -364,7 +393,7 @@ async def _read_with_query_token(
     body, _ = await bounded_probe_read(
         client, build_url(retry_token), headers=retry_headers, accept=OGC_JSON_ACCEPT
     )
-    return json.loads(body)
+    return _arcgis_parsed_json(body)
 
 
 async def read_arcgis_json(
@@ -399,7 +428,11 @@ async def read_arcgis_json(
       nothing.
 
     Raises whatever ``bounded_probe_read`` raises, plus ``ValueError`` from
-    ``json.loads``; every caller already handles both.
+    ``json.loads``; every caller already handles both. fix(#1858): a
+    ``RecursionError`` from a depth bomb is not a ``ValueError`` and no caller
+    handled it, so the parse runs through ``_arcgis_parsed_json``, which
+    reports it as the ``EndpointCheckFailedError`` this function already
+    raises for a body over the read bounds.
     """
     headers, query_token = arcgis_request_auth(token, current_version=current_version)
     requested_url = build_url(query_token)
@@ -411,7 +444,7 @@ async def read_arcgis_json(
         if not headers or not token or not _is_web_tier_refusal(exc, requested_url):
             raise
         return await _read_with_query_token(client, build_url, token)
-    data = json.loads(body)
+    data = _arcgis_parsed_json(body)
     if not headers or _arcgis_error_code(data) != _ARCGIS_TOKEN_REQUIRED_CODE:
         return data
     # `token` is truthy here: `headers` is non-empty, which only happens for a

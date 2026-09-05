@@ -2665,7 +2665,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # whichever it is. An earlier revision of this comment asserted the
     # opposite, which is why it now cites the line it was checked against.
     # Cap 1293 -> 1301, exact.
-    "backend/app/modules/catalog/sources/arcgis_signin.py": 1301,
+    # fix(#1858): +11. The capped read's JSON parse also catches
+    # `RecursionError` now (a depth bomb fits inside `_MAX_RESPONSE_BYTES`,
+    # and the decoder gives up on a stack overflow rather than a
+    # `ValueError`), with the arithmetic recorded so nobody re-derives which
+    # of the two bounds actually holds. A duplicated, unreachable copy of the
+    # same try/except is deleted in the same edit, which is why the net is
+    # smaller than the comment. Cap 1301 -> 1312, exact.
+    "backend/app/modules/catalog/sources/arcgis_signin.py": 1312,
     # feat(C2) / fix(#1840): crossed _RATCHET_INCLUSION_LOC when the ArcGIS
     # credential moved out of the request URL and into a header. What the
     # growth bought, in one list: the version gate Esri's own `currentVersion`
@@ -2681,7 +2688,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # are the comments carrying the measurements those decisions rest on;
     # without them the next reader re-derives the Esri version encoding and
     # the web-tier case from scratch. Cap set at 1015, exact.
-    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1015,
+    # fix(#1858): +33. `_arcgis_parsed_json` is the one place both of this
+    # module's remote-body parses go through, so a JSON depth bomb becomes
+    # the `EndpointCheckFailedError` every caller already handles instead of
+    # a `RecursionError` no caller catches. Most of the lines are the
+    # docstring recording why `ValueError` is deliberately left alone.
+    # Cap 1015 -> 1048, exact.
+    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1048,
     # feat(#1746 B2b): first explicit entry for this file, which rode the 1500
     # default until the service-auth wave. #1758 added the ArcGIS sign-in
     # endpoint and its rate-limit wiring, and this lane added the credential
