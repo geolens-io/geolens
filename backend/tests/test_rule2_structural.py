@@ -76,10 +76,14 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   GDAL CLI call in the codebase starts from a string-literal argv head.
 - ARGV PASSED AS SEPARATE POSITIONAL ARGUMENTS is an argv site too
   (``create_subprocess_exec("ogrinfo", "-so", path)``), matched on the callees
-  in ``_POSITIONAL_ARGV_SPAWNERS``. Neither the escape rule nor the
+  in ``_VARARGS_ARGV_SPAWNERS`` and ``_SEQUENCE_ARGV_SPAWNERS``. Neither the escape rule nor the
   tool-NAME-list exemption applies to it: the call IS the spawn, so reaching
   the node is proof it executes, where a display is inert until its value
-  escapes. NOT modelled, and no site in ``app/`` uses either: ``os.spawnl`` and
+  escapes. The tables give the PROGRAM's argument index per callee, since
+  ``loop.subprocess_exec`` leads with a protocol factory, and the ``execv*``
+  family, whose argv is one sequence the display rule already sees, yields the
+  call only when that sequence is not a literal. NOT modelled, and no site in
+  ``app/`` uses either: ``os.spawnl`` and
   friends, which lead with a mode argument, and the shell family
   (``create_subprocess_shell``, ``shell=True``, ``os.system``, ``os.popen``),
   where the command is one string and there is no argv to read (#1857 item 2).
@@ -2555,36 +2559,41 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
     return best
 
 
-# fix(#1857 item 2): callees taking the program as their FIRST POSITIONAL
-# argument, so an argv exists with no display anywhere. What is deliberately
-# absent, and why, is in the module docstring.
-_POSITIONAL_ARGV_SPAWNERS = frozenset(
-    {
-        "create_subprocess_exec",
-        "subprocess_exec",
-        "execl",
-        "execlp",
-        "execle",
-        "execlpe",
-        "execv",
-        "execvp",
-        "execve",
-        "execvpe",
-    }
-)
+# fix(#1857 item 2): callee -> the index of the PROGRAM argument, because the
+# signature decides it: create_subprocess_exec(program, *args) leads with the
+# program, AbstractEventLoop.subprocess_exec(protocol_factory, program, *args)
+# does not. The argv follows the program inline.
+_VARARGS_ARGV_SPAWNERS: dict[str, int] = {
+    "create_subprocess_exec": 0,
+    "subprocess_exec": 1,
+    "execl": 0,
+    "execlp": 0,
+    "execle": 0,
+    "execlpe": 0,
+}
+
+# The same, for callees taking the argv as ONE sequence after the program. A
+# literal sequence is already a site through the display rule, so the call is
+# yielded only when it is not one, or a subprocess counts twice.
+_SEQUENCE_ARGV_SPAWNERS: dict[str, int] = {
+    "execv": 0,
+    "execvp": 0,
+    "execve": 0,
+    "execvpe": 0,
+}
 
 
-def _positional_argv_tool(node: ast.AST) -> str | None:
-    """The GDAL tool a varargs spawn names, when argv is passed positionally.
+def _positional_argv_tool(node: ast.AST) -> tuple[str, int, bool] | None:
+    """(tool, program-argument index, whether argv follows as one sequence).
 
     Matched on the callee's terminal name, so `asyncio.create_subprocess_exec`,
     a `from asyncio import create_subprocess_exec` and `loop.subprocess_exec`
-    all read the same. That is looser than the identity resolution the helper
-    credit uses, and deliberately so: this side of the gate decides what to
-    LOOK at, where a false positive costs a reviewed allowlist entry, while
-    credit decides what to EXEMPT, where a false positive costs the guarantee.
+    all read the same. Looser than the identity resolution helper credit uses,
+    deliberately: this side decides what to LOOK at, where a false positive
+    costs a reviewed allowlist entry, while credit decides what to EXEMPT,
+    where one costs the guarantee.
     """
-    if not isinstance(node, ast.Call) or not node.args:
+    if not isinstance(node, ast.Call):
         return None
     func = node.func
     if isinstance(func, ast.Attribute):
@@ -2592,13 +2601,18 @@ def _positional_argv_tool(node: ast.AST) -> str | None:
     elif isinstance(func, ast.Name):
         callee = func.id
     else:
-        callee = None
-    if callee not in _POSITIONAL_ARGV_SPAWNERS:
         return None
-    head = node.args[0]
+    takes_sequence = callee in _SEQUENCE_ARGV_SPAWNERS
+    index = _SEQUENCE_ARGV_SPAWNERS.get(callee)
+    if index is None:
+        index = _VARARGS_ARGV_SPAWNERS.get(callee)
+    if index is None or len(node.args) <= index:
+        return None
+    head = node.args[index]
     if not isinstance(head, ast.Constant):
         return None
-    return _gdal_cli_tool_name(head.value)
+    tool = _gdal_cli_tool_name(head.value)
+    return None if tool is None else (tool, index, takes_sequence)
 
 
 def _iter_argv_sites(rel: str, tree: ast.Module):
@@ -2634,10 +2648,18 @@ def _iter_argv_sites(rel: str, tree: ast.Module):
                 continue
             yield tool, node, node.elts[1:]
             continue
-        tool = _positional_argv_tool(node)
-        if tool is not None:
-            # No escape test and no name-list exemption: this node is the spawn.
-            yield tool, node, node.args[1:]
+        spawn = _positional_argv_tool(node)
+        if spawn is None:
+            continue
+        tool, index, takes_sequence = spawn
+        if takes_sequence:
+            argv_arg = node.args[index + 1] if len(node.args) > index + 1 else None
+            if isinstance(argv_arg, (ast.List, ast.Tuple)):
+                # Already yielded by the display branch above; yielding the call
+                # too would count one subprocess twice.
+                continue
+        # No escape test and no name-list exemption: this node is the spawn.
+        yield tool, node, node.args[index + 1 :]
 
 
 def _collect_gdal_cli_violations(
@@ -3073,6 +3095,67 @@ def test_positional_argv_is_seen_by_the_cli_env_gate():
     )
     assert total == 1, total
     assert not violations, violations
+
+
+# fix(#1857 item 2, codex review): two signatures the first cut read wrong.
+_EVENT_LOOP_SPAWN = """
+import asyncio
+
+
+async def probe(loop, factory, path):
+    return await loop.subprocess_exec(factory, "ogrinfo", "-so", path)
+"""
+
+_SEQUENCE_SPAWN = """
+import os
+
+
+def probe(path):
+    os.execv("ogrinfo", ["ogrinfo", "-so", path])
+"""
+
+_SEQUENCE_SPAWN_DYNAMIC = """
+import os
+
+
+def probe(path, cmd):
+    os.execv("ogrinfo", cmd)
+"""
+
+
+def test_the_program_index_follows_the_callee_signature():
+    """``loop.subprocess_exec`` leads with a protocol factory, not the program.
+
+    fix(#1857 item 2, codex review). Reading argument 0 for every callee found
+    a factory rather than a tool name there, so the shape yielded no argv site
+    at all and an unclamped GDAL subprocess passed both gates.
+    """
+    violations, total = _collect_gdal_cli_violations(
+        _fixture_modules(_EVENT_LOOP_SPAWN), {}
+    )
+    assert total == 1, f"the event-loop spawn was not counted as an argv: {total}"
+    assert len(violations) == 1, violations
+    assert "ogrinfo" in violations[0], violations[0]
+
+
+def test_a_sequence_form_spawn_counts_once():
+    """``os.execv`` names the program and hands the argv as one list.
+
+    fix(#1857 item 2, codex review). Both halves matched, so one subprocess
+    counted as two argv sites and no exact count in VECTOR_CLI_DRIVER_POLICY
+    could be right for it. The display is the site; the call is yielded only
+    when the sequence is not a literal, which is the half that would otherwise
+    go unseen.
+    """
+    for collect in (_collect_gdal_cli_violations, _collect_vector_driver_violations):
+        _violations, total = collect(_fixture_modules(_SEQUENCE_SPAWN), {})
+        assert total == 1, f"{collect.__name__} counted {total} sites, not 1"
+
+    violations, total = _collect_gdal_cli_violations(
+        _fixture_modules(_SEQUENCE_SPAWN_DYNAMIC), {}
+    )
+    assert total == 1, f"a non-literal argv left the spawn unseen: {total}"
+    assert len(violations) == 1, violations
 
 
 def test_positional_argv_is_seen_by_the_vector_driver_policy():

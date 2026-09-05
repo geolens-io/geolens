@@ -284,11 +284,11 @@ def test_every_credential_registration_is_enumerated_and_shaped():
 # Source rather than a file in app/, which would be a real unenumerated
 # producer (#1857 item 10).
 _ALIASED_REGISTRATION = """
-from app.core.service_tokens import register_credential_secret as reg
+from app.core.service_tokens import register_credential_secret as {alias}
 
 
 def new_producer(token):
-    reg(token)
+    {alias}(token)
 """
 
 _ALIASED_BUILDER = """
@@ -302,14 +302,18 @@ def new_producer(pair):
 
 
 @pytest.mark.architecture
-def test_an_aliased_import_of_the_helper_is_still_collected():
+@pytest.mark.parametrize("alias", ["reg", "register"])
+def test_an_aliased_import_of_the_helper_is_still_collected(alias):
     """An aliased call must surface as unenumerated, not as nothing.
 
     Matching the terminal callee name alone collected NOTHING for it, and the
     site floor does not help because the three known sites are still found.
     """
     modules = [
-        ("processing/ingest/_alias_fixture.py", ast.parse(_ALIASED_REGISTRATION))
+        (
+            "processing/ingest/_alias_fixture.py",
+            ast.parse(_ALIASED_REGISTRATION.format(alias=alias)),
+        )
     ]
 
     sites, errors = _collect(modules)
