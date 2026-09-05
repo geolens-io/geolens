@@ -90,6 +90,9 @@ export function useBuilderLayers(
 
   const initializedRef = useRef(false);
   const addDatasetProcessedRef = useRef(false);
+  // fix(#1854): id of a just-added layer that still needs its one-time
+  // auto-zoom (fresh map only — see the add_dataset effect below).
+  const pendingAutoZoomLayerIdRef = useRef<string | null>(null);
 
   const [localLayers, setLocalLayers] = useState<MapLayerResponse[]>([]);
   // fix(#793 review): which map the CURRENT localLayers belong to. On direct
@@ -332,7 +335,20 @@ export function useBuilderLayers(
     const datasetId = searchParams.get('add_dataset');
     if (!datasetId) return;
     addDatasetProcessedRef.current = true;
-    handleAddDataset(datasetId);
+    // fix(#1854): a fresh map has no saved view of its own (center_lng/
+    // center_lat are null — mirrors BuilderMap's hasSavedView check) and
+    // opens at the world-view default, so the just-added dataset can land
+    // off-screen. Record the new layer id for the one-time auto-zoom effect
+    // below; a map with its own saved view is left alone (that framing was
+    // chosen on purpose). Don't call handleZoomToLayer directly from this
+    // callback — layersRef is only synced via the useLayoutEffect mirror on
+    // commit (the same staleness #554 documented for the add-layer merge),
+    // so it would still be missing the layer just created.
+    const hasSavedView = mapData?.center_lng != null && mapData?.center_lat != null;
+    handleAddDataset(
+      datasetId,
+      hasSavedView ? undefined : (newLayerId) => { pendingAutoZoomLayerIdRef.current = newLayerId; },
+    );
     setSearchParams((prev) => {
       prev.delete('add_dataset');
       return prev;
@@ -492,6 +508,18 @@ export function useBuilderLayers(
       // Silently ignore invalid bounds (e.g. out-of-range coordinates)
     }
   }, [mapInstanceRef]);
+
+  // fix(#1854): fires the pending auto-zoom (set by the ?add_dataset effect
+  // above) once the new layer has actually committed to localLayers — by
+  // then the useLayoutEffect mirror has already synced layersRef, so
+  // handleZoomToLayer's lookup finds the layer and its dataset_extent_bbox.
+  useEffect(() => {
+    const pendingId = pendingAutoZoomLayerIdRef.current;
+    if (!pendingId) return;
+    if (!localLayers.some((l) => l.id === pendingId)) return;
+    pendingAutoZoomLayerIdRef.current = null;
+    handleZoomToLayer(pendingId);
+  }, [localLayers, handleZoomToLayer]);
 
   // ENH-06 (Phase 1201-06): set the map-level custom legend title. Empty/null
   // clears the override. Marks the map dirty so the save path persists it.
