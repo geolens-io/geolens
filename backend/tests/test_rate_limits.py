@@ -40,14 +40,14 @@ pytestmark = pytest.mark.anyio
 # ---------------------------------------------------------------------------
 
 
-def test_default_semantic_search_limit_is_60():
-    """get_cached_semantic_search_rate_limit() returns 60 when cache is empty.
+def test_default_semantic_search_limit_is_30():
+    """get_cached_semantic_search_rate_limit() returns 30 when cache is empty.
 
     Clears the cache entry before calling to avoid interference from other
     tests that may have set a low monkeypatched value.
     """
     _sync_rate_limit_cache.pop("semantic_search_rate_limit", None)
-    assert get_cached_semantic_search_rate_limit() == 60
+    assert get_cached_semantic_search_rate_limit() == 30
 
 
 def test_default_basemap_proxy_limit_is_120():

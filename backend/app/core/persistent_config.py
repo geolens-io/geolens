@@ -70,7 +70,7 @@ def _get_cache_safe() -> CacheProvider | None:
 _sync_rate_limit_cache: dict[str, tuple[Any, float]] = {}
 _DEFAULT_LOGIN_RATE_LIMIT = 5
 _DEFAULT_GLOBAL_RATE_LIMIT = 60
-_DEFAULT_SEMANTIC_SEARCH_RATE_LIMIT = 60
+_DEFAULT_SEMANTIC_SEARCH_RATE_LIMIT = 30
 _DEFAULT_BASEMAP_PROXY_RATE_LIMIT = 120
 # Ceiling for the OGC API Features items page size (`limit`). Conservative by
 # default (#665 review): the offset path is O(N) and the response is built fully
@@ -1020,9 +1020,7 @@ def get_cached_semantic_search_rate_limit() -> int:
     """Sync accessor for slowapi callable -- reads from sync cache, falls back to default.
 
     SEC-S11: caps OpenAI embedding cost-DoS by limiting unique novel queries per IP.
-    /search/datasets/ and /search/facets/ draw on one shared bucket (fix(#1855))
-    and the SPA hits them as a pair per query change, so the default is 60/min:
-    twice the audit's 30 per endpoint, the same 30 query changes per minute.
+    Default 30/min matches the audit recommendation for cost-sensitive endpoints.
     Configurable at runtime via the admin Settings UI / PUT /settings/ with key
     `semantic_search_rate_limit` (there is no SEMANTIC_SEARCH_RATE_LIMIT env var;
     Settings uses extra="ignore").

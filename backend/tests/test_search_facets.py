@@ -1,11 +1,12 @@
 """Integration tests for /search/facets endpoint and facet counting."""
 
 import uuid
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, text, update
+from sqlalchemy import event, select, text, update
 
 from app.core.db.models import AppSetting
 from app.core.persistent_config import EMBEDDING_MODEL
@@ -503,3 +504,55 @@ async def test_facets_semantic_candidates_keep_the_visibility_filter(
         await session.commit()
     assert facets.status_code == 200
     assert facets.json()["record_type"] == {"vector_dataset": 2, "raster_dataset": 1}
+
+
+@contextmanager
+def _count_cosine_scans():
+    """Count executed statements carrying pgvector's cosine operator (``<=>``).
+
+    Listens on the engine the API client runs against; every statement that
+    evaluates a cosine distance is one scan over the embeddings table.
+    """
+    import app.core.db as db_module
+
+    seen: list[str] = []
+
+    def _before(_conn, _cursor, statement, *_args):
+        if "<=>" in statement:
+            seen.append(statement)
+
+    sync_engine = db_module.engine.sync_engine
+    event.listen(sync_engine, "before_cursor_execute", _before)
+    try:
+        yield seen
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", _before)
+
+
+@pytest.mark.anyio
+async def test_facets_scan_the_embeddings_once_per_request(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    semantic_facet_datasets: dict,
+):
+    """fix(#1855): one cosine scan per facets request, whatever the facet count.
+
+    The candidate CTE feeds five separately executed aggregates, so a cosine
+    subquery inside it ran once per aggregate; the vector arm is materialised
+    once and the aggregates see a list of ids.
+    """
+    with (
+        _patched_embedding(semantic_facet_datasets["query_vector"]),
+        _count_cosine_scans() as scans,
+    ):
+        facets = await client.get(
+            "/search/facets/",
+            params={"q": _SEMANTIC_ONLY_QUERY},
+            headers=admin_auth_header,
+        )
+    assert facets.status_code == 200
+    # Non-vacuity: the vector arm ran, so the counts are over the band records.
+    assert facets.json()["record_type"] == {"vector_dataset": 2, "raster_dataset": 1}
+    assert len(scans) == 1, (
+        f"expected one cosine scan per facets request, got {len(scans)}"
+    )

@@ -46,8 +46,8 @@ EmbeddingUnavailableError = get_catalog_port().embedding_unavailable_error_class
 _EMBEDDING_CACHE_TTL_SECONDS = 300.0
 _EMBEDDING_CACHE_MAX_SIZE = 512
 
-# fix(#448): above this many stored embeddings the exact vector-only count (a
-# full cosine scan) is skipped and the vector arm is a nearest-first window.
+# fix(#448): above this many stored embeddings the exact vector arm (a full
+# cosine scan) gives way to a nearest-first window.
 _EXACT_SEMANTIC_COUNT_MAX_ROWS = 5000
 
 # fix(#1855): above the row gate results and facets take the same window, so
@@ -197,8 +197,9 @@ class SemanticArm:
     """The vector arm of a query's candidate set, resolved once per request.
 
     ``ordered_ids`` are the nearest-first vetted record ids within the cosine
-    cutoff, ``window`` deep. Below the row gate (``exact``) the candidate
-    clause is every usable embedding within the cutoff; above it, the window.
+    cutoff: every one of them below the row gate (``exact``), the nearest
+    ``window`` above it. One scan per request; the clause is a list of ids, so
+    the statements it lands in never touch the embeddings table.
     """
 
     query_vector: list[float]
@@ -218,16 +219,6 @@ class SemanticArm:
 
     def clause(self) -> ColumnElement[bool]:
         """Record.id predicate for the vector arm; the caller applies vetting."""
-        RecordEmbedding = get_catalog_port().record_embedding_orm_class()
-        if self.exact:
-            return Record.id.in_(
-                select(RecordEmbedding.record_id).where(
-                    RecordEmbedding.usable_by_config(
-                        self.model_name, self.config_fingerprint
-                    ),
-                    RecordEmbedding.embedding.cosine_distance(self.query_vector) <= 0.7,
-                )
-            )
         return Record.id.in_([uuid_mod.UUID(rid) for rid in self.ordered_ids])
 
 
@@ -244,7 +235,8 @@ async def resolve_semantic_arm(
     shorter than ``_MIN_SEMANTIC_QUERY_LEN``, no embeddings exist, the
     configuration cannot be resolved, embedding or the vector query fails, or
     no row of ``vet_stmt`` (a ``select(Record.id)``) is within the cosine
-    cutoff. ``depth`` is how many nearest ids the caller needs, at least 1.
+    cutoff. ``depth`` is how many nearest ids the caller needs, at least 1;
+    below the row gate every match is fetched regardless.
     """
     query_text = (filters.q or "").strip()
     if len(query_text) < _MIN_SEMANTIC_QUERY_LEN:
@@ -294,18 +286,15 @@ async def resolve_semantic_arm(
         distance = RecordEmbedding.embedding.cosine_distance(query_vector)
         # Restricting to the vetted set BEFORE the top-k cut keeps a nearer
         # private or filtered-out row from displacing a valid match.
-        rows = (
-            await session.execute(
-                select(RecordEmbedding.record_id)
-                .where(
-                    usable,
-                    distance <= 0.7,
-                    RecordEmbedding.record_id.in_(vet_stmt),
-                )
-                .order_by(distance)
-                .limit(window)
-            )
-        ).all()
+        vector_stmt = (
+            select(RecordEmbedding.record_id)
+            .where(usable, distance <= 0.7, RecordEmbedding.record_id.in_(vet_stmt))
+            .order_by(distance)
+        )
+        # Exact: every match, bounded by the row gate. The one scan per request.
+        if not exact:
+            vector_stmt = vector_stmt.limit(window)
+        rows = (await session.execute(vector_stmt)).all()
     except Exception:  # broad: pgvector/HNSW failures are diverse; degrade to FTS rather than 500 the search
         logger.warning(
             "Vector similarity query failed, falling back to FTS", exc_info=True
