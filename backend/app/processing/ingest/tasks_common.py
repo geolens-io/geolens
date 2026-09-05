@@ -2429,6 +2429,26 @@ async def _apply_reupload_swap(
         await ensure_geom_4326_gist_index(session, table_name, schema=_tenant_schema)
 
     # Update dataset metadata in the same transaction as swap
+    # fix(#1847 review r2): the catalog writes start here. This function
+    # dirties the datasets row and dataset.record, and the flush would take
+    # them records-first, deadlocking against a request or a refresh holding
+    # the dataset row. `lock_timeout=None`: SET LOCAL applies for the rest of
+    # the transaction, and clamping an ingest swap to a request's two seconds
+    # would fail it on contention it is supposed to wait out. See
+    # app.platform.catalog_locks.lock_catalog_rows for the order.
+    from app.platform.catalog_locks import lock_catalog_rows
+    from app.platform.extensions import get_processing_port
+
+    _port = get_processing_port()
+    await lock_catalog_rows(
+        session,
+        dataset_cls=_port.get_dataset_orm_class(),
+        record_cls=_port.get_record_orm_class(),
+        dataset_id=dataset.id,
+        record_id=dataset.record_id,
+        lock_timeout=None,
+    )
+
     dataset.srid = metadata["srid"]
     dataset.geometry_type = effective_geometry_type
     # fix(#1361): modality is derived, so keep deriving it. `service_create.py`

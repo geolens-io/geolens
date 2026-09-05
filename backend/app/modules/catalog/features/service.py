@@ -1329,49 +1329,21 @@ def _update_capturing_prior_bounds(quoted_table: str, sets: list[str]) -> str:
     )
 
 
-# fix(#1847): the lock budget for a feature write that has to wait for the
-# dataset row. Matches `app.platform.jobs.router` and
-# `catalog.maps.service_crud`, which spend the same budget on the same question
-# for the same reason: a row lock still contended after two seconds is held by
-# another live writer, not by latency inside this request, and the caller is
-# better served by a retryable conflict than by an open-ended hang.
-_LOCK_TIMEOUT = "2s"
-
-
 async def lock_catalog_rows_for_write(
     session: AsyncSession, dataset: Dataset
 ) -> Bounds | None:
-    """Lock this dataset's catalog rows, then read its stored extent as a box.
+    """Take this dataset's catalog rows in the house order, then read its extent.
 
     Call this from ANY request path that will dirty the datasets row, the
     records row, or both -- not only from the metadata refresh. Stamping
     `record.updated_by` and rolling `tile_cache_version` is already a write to
-    both rows, and the ORM flushes them at commit in records-then-datasets
-    order whether or not the caller thought of itself as locking anything.
+    both rows, and a transaction that acquires nothing takes them in the ORM's
+    records-then-datasets flush order.
 
-    LOCK ORDER, for every writer of the (datasets, records) pair: **the
-    datasets row first, the records row second.** Cite this docstring from any
-    new site that takes both. The two background writers that lock the pair
-    explicitly already lead with the datasets row, and neither can be reordered
-    to follow this path instead: `processing/ingest/tasks_postgis_refresh.py`
-    and `processing/ingest/tasks_stac_refresh.py` both take it to make a
-    superseded-content check and the write that depends on it one indivisible
-    step, so the lock has to be the first thing the write transaction does.
-
-    The stored extent comes back because the read is FUSED into the records
-    lock statement and so costs nothing extra: it is a single-row lookup by
-    primary key, not the `ST_Extent` aggregate over the data table. The
-    metadata refresh needs it; callers that only need the ordering ignore it.
-
-    fix(#1847): this helper took the records row first, which inverted that
-    order and made an ordinary feature edit during a `refresh_postgis` phase 3
-    an ABBA deadlock (40P01) -- worker holding datasets and wanting records,
-    request holding records and wanting datasets. The record lock is still
-    taken, and still before the extent is read; only its position moved. This
-    is the same resolution `cancel_job` reached for the VRT asset in
-    fix(#1709 review r2 P2): both transactions lead with the lock the worker
-    cannot give up, so whoever wins runs alone and the other waits at its first
-    acquisition holding nothing.
+    THE ORDER, and why it is that one, is stated once in
+    `app.platform.catalog_locks.lock_catalog_rows`. This is the catalog-side
+    entry point: it supplies the two mapped classes and then reads the stored
+    extent, which the metadata refresh needs and other callers ignore.
 
     None unless the stored extent is a simple POLYGON. An antimeridian-crossing
     dataset stores the two-ring MULTIPOLYGON `seam_extent_wkt_for_table`
@@ -1388,35 +1360,26 @@ async def lock_catalog_rows_for_write(
     """
     from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
     from app.modules.catalog.datasets.domain.models import Record
+    from app.platform.catalog_locks import lock_catalog_rows
 
-    # `SET LOCAL` takes a literal, not a bind parameter; this interpolates a
-    # module constant, never request-supplied data.
-    await session.execute(text(f"SET LOCAL lock_timeout = '{_LOCK_TIMEOUT}'"))
+    await lock_catalog_rows(
+        session,
+        dataset_cls=DatasetModel,
+        record_cls=Record,
+        dataset_id=dataset.id,
+        record_id=dataset.record_id,
+    )
 
-    # `no_autoflush` so the order above is what actually reaches PostgreSQL. An
-    # autoflush triggered by either SELECT emits the ORM's own flush order,
-    # which is records before datasets (Dataset.record_id makes Record the
-    # parent mapper) -- the exact inversion this helper exists to prevent.
-    with session.no_autoflush:
-        # Single column, on the datasets table alone: reading through a joined
-        # relationship would not lock the joined row anyway, and would put this
-        # statement on the records row ahead of the lock it is ordering.
-        await session.execute(
-            select(DatasetModel.id)
-            .where(DatasetModel.id == dataset.id)
-            .with_for_update()
-        )
-        result = await session.execute(
-            select(
-                func.GeometryType(Record.spatial_extent),
-                func.ST_XMin(Record.spatial_extent),
-                func.ST_YMin(Record.spatial_extent),
-                func.ST_XMax(Record.spatial_extent),
-                func.ST_YMax(Record.spatial_extent),
-            )
-            .where(Record.id == dataset.record_id)
-            .with_for_update()
-        )
+    # Both rows are held now, so this is an ordinary read.
+    result = await session.execute(
+        select(
+            func.GeometryType(Record.spatial_extent),
+            func.ST_XMin(Record.spatial_extent),
+            func.ST_YMin(Record.spatial_extent),
+            func.ST_XMax(Record.spatial_extent),
+            func.ST_YMax(Record.spatial_extent),
+        ).where(Record.id == dataset.record_id)
+    )
     row = result.first()
     if row is None or row[0] != "POLYGON" or any(v is None for v in row[1:]):
         return None

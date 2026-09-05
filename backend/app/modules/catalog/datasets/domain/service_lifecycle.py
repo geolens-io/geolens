@@ -396,6 +396,14 @@ async def delete_dataset(
             )
         )
 
+    # fix(#1847 review r2): the DELETE below removes the records row and the
+    # datasets row goes with it by FK CASCADE, so the database takes the pair
+    # records-first -- the inversion. Acquire in the house order first. See
+    # app.platform.catalog_locks.lock_catalog_rows.
+    from app.modules.catalog.features.service import lock_catalog_rows_for_write
+
+    await lock_catalog_rows_for_write(session, dataset)
+
     # Delete the record (CASCADE handles dataset deletion)
     await session.delete(dataset.record)
 

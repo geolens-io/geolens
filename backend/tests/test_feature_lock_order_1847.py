@@ -17,6 +17,7 @@ The DB-backed tests require the Docker test database.
 """
 
 import asyncio
+import functools
 import uuid
 
 import pytest
@@ -26,6 +27,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import DBAPIError
 
 from app.core.db.sqlstate import is_lock_conflict
+from app.platform import catalog_locks
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.features import service as features_service
 from app.modules.catalog.features.router import _feature_write_db_error
@@ -184,7 +186,7 @@ class TestLockOrderAgainstRefreshPhaseThree:
         # This test is about acquisition ORDER, so give the wait a budget the
         # barrier below cannot plausibly exhaust. The 2s production value is
         # exercised by test_lock_timeout_is_set_on_the_acquisition.
-        monkeypatch.setattr(features_service, "_LOCK_TIMEOUT", "60s")
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "60s")
 
         import app.core.db as db_module
 
@@ -228,7 +230,7 @@ class TestLockOrderAgainstRefreshPhaseThree:
         self, locked_dataset, monkeypatch
     ):
         """Drive both sides of the cycle and require neither to be aborted."""
-        monkeypatch.setattr(features_service, "_LOCK_TIMEOUT", "60s")
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "60s")
 
         import app.core.db as db_module
 
@@ -297,7 +299,7 @@ class TestPropertyOnlyPatchTakesThePairToo:
         the flush at ``commit()`` -- records, then datasets. That is the
         original inversion, on the one handler whose refresh is conditional.
         """
-        monkeypatch.setattr(features_service, "_LOCK_TIMEOUT", "60s")
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "60s")
 
         import app.core.db as db_module
 
@@ -382,7 +384,7 @@ class TestPropertyOnlyPatchTakesThePairToo:
         the middle, so on the inverted order PostgreSQL reports the cycle
         itself rather than a message this test composed.
         """
-        monkeypatch.setattr(features_service, "_LOCK_TIMEOUT", "60s")
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "60s")
 
         import app.core.db as db_module
 
@@ -508,7 +510,7 @@ class TestEmittedSqlPinsTheOrder:
             "queued behind a long refresh answers a retryable conflict rather "
             f"than hanging. Got {session.statements[0]}"
         )
-        assert features_service._LOCK_TIMEOUT in session.statements[0]
+        assert catalog_locks.REQUEST_LOCK_TIMEOUT in session.statements[0]
 
 
 class TestWorkerSitesLeadWithTheDatasetRow:
@@ -689,3 +691,303 @@ class TestEveryWriteHandlerGoesThroughTheGuard:
                 "flush order them records-first and re-opens #1847."
             )
         assert seen == handlers, f"handlers not found: {sorted(handlers - seen)}"
+
+
+class TestMetadataPatchTakesThePairToo:
+    """fix(#1847 review r2): the class from the other side.
+
+    `update_user_metadata` writes record fields and dataset fields and then
+    flushes them together. Before this round it acquired nothing, so the flush
+    took catalog.records ahead of catalog.datasets and inverted against every
+    writer that now leads with the dataset row -- including an ordinary feature
+    edit, which is the pairing this issue exists to remove.
+    """
+
+    async def test_metadata_patch_holds_no_record_lock_while_waiting(
+        self, locked_dataset, client: AsyncClient, admin_auth_header, monkeypatch
+    ):
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "60s")
+
+        import app.core.db as db_module
+
+        async with (
+            db_module.async_session() as holder,
+            db_module.async_session() as probe,
+        ):
+            # Stand in for a feature edit, which now holds the dataset row for
+            # the rest of its transaction.
+            await holder.execute(
+                select(Dataset.tile_cache_version)
+                .where(Dataset.id == locked_dataset.id)
+                .with_for_update()
+            )
+            holder_xid = await holder.scalar(text("SELECT pg_current_xact_id()::text"))
+
+            # Both halves in one body: a record field and a dataset field.
+            patch = asyncio.create_task(
+                client.patch(
+                    f"/datasets/{locked_dataset.id}",
+                    json={
+                        "title": "Renamed by the metadata patch",
+                        "tile_columns": ["name"],
+                    },
+                    headers=admin_auth_header,
+                )
+            )
+            try:
+                await _await_waiter_on(probe, holder_xid)
+                assert not await _holds_record_lock(probe, locked_dataset.record_id), (
+                    "the metadata PATCH is parked on a lock while holding "
+                    "catalog.records, which deadlocks against a feature edit "
+                    "holding catalog.datasets."
+                )
+                await holder.execute(
+                    text(
+                        "UPDATE catalog.records SET updated_at = now() WHERE id = :rid"
+                    ),
+                    {"rid": locked_dataset.record_id},
+                )
+                await holder.commit()
+            except BaseException:
+                await holder.rollback()
+                raise
+            response = await patch
+
+        assert response.status_code == 200, response.text
+        assert response.json()["title"] == "Renamed by the metadata patch"
+
+
+# ---------------------------------------------------------------------------
+# The class gate (fix(#1847 review r2))
+# ---------------------------------------------------------------------------
+
+# A function that writes BOTH catalog rows must acquire them in the house
+# order first, or appear here with the reason it cannot deadlock. Adding a name
+# is a decision, not a formality: read
+# app.platform.catalog_locks.lock_catalog_rows before you do.
+_PAIR_WRITER_EXEMPTIONS = {
+    # Both rows are INSERTed by this transaction, so no other transaction can
+    # be holding either one. There is nothing to order against.
+    "create_dataset": "creates the pair",
+    "create_empty_dataset": "delegates to create_dataset",
+    "create_layer": "creates the pair",
+    "create_raster_dataset": "creates the pair",
+    "create_vrt_dataset": "creates the pair",
+    "_finalize_ingest": "creates the pair through the port, then stamps it",
+    "ingest_raster": "creates the pair, then stamps it",
+    "stac_import": "creates one pair per item inside its own savepoint",
+    "_materialize": "registers a new pair, then applies provenance to it",
+    "materialize_analysis": "task wrapper around _materialize",
+    "ingest_file": "task wrapper around _finalize_ingest",
+    "ingest_service": "task wrapper around _finalize_ingest",
+    "apply_analysis_provenance": "writes only the record of a pair being created",
+    # Writes the record half only; every caller is enumerated above.
+    "apply_manifest_record_metadata": "record only",
+    # Sync helper. Its caller (reupload_raster) takes the pair before calling
+    # it -- asserted by test_every_pair_writer_acquires_or_is_exempt itself,
+    # which sees the acquisition in the caller.
+    "_write_swapped_fields": "caller acquires; sync, no session of its own",
+    # These two take the datasets row FOR UPDATE themselves, before writing
+    # either half, as the superseded-content guard their own comments describe.
+    # They are the reason the house order is datasets-first; they do not go
+    # through the helper because the lock and the token check are one step.
+    "_apply_measurement": "caller refresh_postgis holds datasets FOR UPDATE",
+    "refresh_postgis": "takes datasets FOR UPDATE for its superseded guard",
+    "refresh_stac": "takes datasets FOR UPDATE for its superseded guard",
+}
+
+
+def _assignment_targets(node):
+    """Every Attribute node this statement assigns to."""
+    import ast
+
+    targets = list(getattr(node, "targets", []) or [])
+    single = getattr(node, "target", None)
+    if single is not None:
+        targets.append(single)
+    return [t for t in targets if isinstance(t, ast.Attribute)]
+
+
+def _classify_base(base) -> str | None:
+    """'record', 'dataset', or None for the object being written to."""
+    import ast
+
+    if isinstance(base, ast.Attribute):
+        if base.attr == "record":
+            return "record"
+        if "dataset" in base.attr:
+            return "dataset"
+    if isinstance(base, ast.Name):
+        if base.id in ("record", "rec"):
+            return "record"
+        if "dataset" in base.id:
+            return "dataset"
+    return None
+
+
+def _direct_writes(fn) -> set[str]:
+    """Which halves of the pair this function body writes on its own."""
+    import ast
+
+    kinds: set[str] = set()
+    for node in ast.walk(fn):
+        if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
+            for attr in _assignment_targets(node):
+                kind = _classify_base(attr.value)
+                if kind:
+                    kinds.add(kind)
+        # `setattr(record, name, value)` is the same write by another spelling,
+        # and it is how update_user_metadata assigns most of its fields.
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "setattr"
+            and node.args
+        ):
+            kind = _classify_base(node.args[0])
+            if kind:
+                kinds.add(kind)
+    return kinds
+
+
+def _called_names(fn) -> set[str]:
+    import ast
+
+    names = set()
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                names.add(node.func.id)
+            elif isinstance(node.func, ast.Attribute):
+                names.add(node.func.attr)
+    return names
+
+
+def _walk_app_functions():
+    import ast
+    from pathlib import Path
+
+    app_dir = Path(__file__).resolve().parents[1] / "app"
+    for path in sorted(app_dir.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text())
+        except SyntaxError:  # pragma: no cover
+            continue
+        for fn in ast.walk(tree):
+            if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                yield path.relative_to(app_dir.parent), fn
+
+
+@functools.lru_cache(maxsize=1)
+def _app_function_facts():
+    """Per function name: where it is defined, what it writes, what it calls.
+
+    Keyed by bare name. Two functions sharing a name merge, which can only
+    widen the result -- a false positive costs an exemption line, a false
+    negative costs a production deadlock.
+    """
+    writes: dict[str, set[str]] = {}
+    calls: dict[str, set[str]] = {}
+    sites: dict[str, list[str]] = {}
+    for rel, fn in _walk_app_functions():
+        writes.setdefault(fn.name, set()).update(_direct_writes(fn))
+        calls.setdefault(fn.name, set()).update(_called_names(fn))
+        sites.setdefault(fn.name, []).append(f"{rel}:{fn.lineno}")
+    return writes, calls, sites
+
+
+def _pair_writer_report() -> dict[str, list[str]]:
+    """Every function under app/ that ends up writing BOTH catalog rows.
+
+    Propagates writes through the call graph to a fixed point, because the
+    halves are routinely split across helpers: `update_user_metadata` assigns
+    `record.updated_by` itself but reaches `dataset.tile_columns` only through
+    `_apply_tile_columns`, and a scan that looked at one body at a time missed
+    exactly the site codex round 2 reported.
+
+    Heuristic and deliberately broad. A false positive costs one exemption line
+    with a reason. A false NEGATIVE costs a production deadlock.
+    """
+    writes, calls, sites = _app_function_facts()
+    effective = {name: set(kinds) for name, kinds in writes.items()}
+    for _ in range(6):  # deep enough for this codebase; converges well before
+        changed = False
+        for name, callees in calls.items():
+            for callee in callees:
+                gained = effective.get(callee, set()) - effective.setdefault(
+                    name, set()
+                )
+                if gained:
+                    effective[name] |= gained
+                    changed = True
+        if not changed:
+            break
+    return {
+        name: sites[name]
+        for name, kinds in effective.items()
+        if kinds >= {"record", "dataset"}
+    }
+
+
+def _acquiring_functions() -> set[str]:
+    """Names that take the pair, or that reach it through one of their calls."""
+    _writes, calls, _sites = _app_function_facts()
+    acquirers = {"lock_catalog_rows", "lock_catalog_rows_for_write"}
+    resolved = set(acquirers)
+    for _ in range(6):
+        grew = {n for n, c in calls.items() if c & resolved} - resolved
+        if not grew:
+            break
+        resolved |= grew
+    return resolved
+
+
+class TestEveryPairWriterTakesTheHouseOrder:
+    """fix(#1847 review r2): the class, not the four handlers that started it.
+
+    SQLAlchemy flushes catalog.records before catalog.datasets, so ANY
+    transaction that writes both rows and acquires nothing takes them in the
+    inverted order and can deadlock against a writer holding the dataset row.
+    Codex round 2 found `update_user_metadata` this way; this test is what
+    stops the next one being found in production instead.
+    """
+
+    def test_every_pair_writer_acquires_or_is_exempt(self):
+        writers = _pair_writer_report()
+        acquirers = _acquiring_functions()
+        offenders = {
+            name: sites
+            for name, sites in writers.items()
+            if name not in acquirers and name not in _PAIR_WRITER_EXEMPTIONS
+        }
+        assert not offenders, (
+            "these functions write a Record field and a Dataset field without "
+            "taking the (datasets, records) pair first:\n"
+            + "\n".join(f"  {n}: {', '.join(v)}" for n, v in sorted(offenders.items()))
+            + "\n\nCall lock_catalog_rows_for_write (catalog) or "
+            "lock_catalog_rows (processing, with lock_timeout=None) before the "
+            "first write, or add the name to _PAIR_WRITER_EXEMPTIONS with the "
+            "reason it cannot deadlock."
+        )
+
+    def test_the_gate_actually_finds_the_known_writers(self):
+        """A positive control: an empty scan would pass the test above."""
+        writers = _pair_writer_report()
+        for expected in (
+            "update_user_metadata",
+            "_apply_reupload_swap",
+            "refresh_dataset_metadata",
+        ):
+            assert expected in writers, (
+                f"{expected} writes both rows but the scan missed it, so the "
+                "gate above is passing vacuously. Widen _pair_writer_report."
+            )
+
+    def test_no_exemption_names_a_function_that_is_gone(self):
+        """The list must stay a statement about live code, not folklore."""
+        _writes, _calls, sites = _app_function_facts()
+        missing = [name for name in _PAIR_WRITER_EXEMPTIONS if name not in sites]
+        assert not missing, (
+            f"exemptions naming functions that no longer exist: {missing}. "
+            "Remove them, or the list decays into reasons nobody can check."
+        )

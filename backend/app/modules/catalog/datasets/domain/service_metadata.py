@@ -300,7 +300,17 @@ async def update_user_metadata(
     if dataset is None:
         raise ValueError(f"Dataset {dataset_id} not found.")
 
+    from app.modules.catalog.features.service import lock_catalog_rows_for_write
+
     record = dataset.record
+
+    # fix(#1847 review r2): BEFORE the first assignment below. This function
+    # writes record fields (title, visibility, record_status, updated_by) and
+    # dataset fields (quality_statement, source_url, tile_columns) and then
+    # flushes them together, so without this the flush took catalog.records
+    # ahead of catalog.datasets and deadlocked against any writer holding the
+    # dataset row. See app.platform.catalog_locks.lock_catalog_rows.
+    await lock_catalog_rows_for_write(session, dataset)
 
     if "language" in meta.model_fields_set:
         effective_language = meta.language or "en"

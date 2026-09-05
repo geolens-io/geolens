@@ -620,6 +620,24 @@ async def reupload_raster(
             # that decides where this dataset lands on the map is which CRS
             # they are read under. `original_srid` is the one field still taken
             # from `source_meta`, and it wants the upload's answer by design.
+            # fix(#1847 review r2): `_write_swapped_fields` dirties the
+            # datasets row AND dataset.record, and the flush would take them
+            # records-first. The RasterAsset lock above orders this against the
+            # VRT paths but says nothing about the catalog pair. `lock_timeout=
+            # None` because SET LOCAL would otherwise clamp the rest of this
+            # ingest transaction to a request's budget. See
+            # app.platform.catalog_locks.lock_catalog_rows for the order.
+            from app.platform.catalog_locks import lock_catalog_rows
+
+            await lock_catalog_rows(
+                session,
+                dataset_cls=Dataset,
+                record_cls=type(dataset.record),
+                dataset_id=dataset.id,
+                record_id=dataset.record_id,
+                lock_timeout=None,
+            )
+
             new_version = _write_swapped_fields(
                 raster_asset,
                 dataset,

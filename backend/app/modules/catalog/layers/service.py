@@ -20,6 +20,7 @@ from app.modules.catalog.layers.schemas import (
     RESERVED_COLUMNS,
 )
 from app.platform.extensions import get_catalog_port
+from app.modules.catalog.features.service import lock_catalog_rows_for_write
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -228,6 +229,13 @@ async def add_column(
 
     # Refresh column_info
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
+    # fix(#1847 review r2): the DDL above is done; the catalog writes start
+    # here. This function dirties the datasets row and the caller then stamps
+    # `record.updated_by`, so the flush takes both. Acquire in the house order
+    # first. Placed AFTER the ALTER TABLE on purpose: the reupload swap takes
+    # its data-table ACCESS EXCLUSIVE before its catalog rows, and leading with
+    # the catalog rows here would invert against it.
+    await lock_catalog_rows_for_write(session, dataset)
     dataset.column_info = column_info
     await _refresh_quality_detail(session, dataset, column_info)
 
@@ -310,6 +318,13 @@ async def rename_column(
     await session.execute(text(ddl))
 
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
+    # fix(#1847 review r2): the DDL above is done; the catalog writes start
+    # here. This function dirties the datasets row and the caller then stamps
+    # `record.updated_by`, so the flush takes both. Acquire in the house order
+    # first. Placed AFTER the ALTER TABLE on purpose: the reupload swap takes
+    # its data-table ACCESS EXCLUSIVE before its catalog rows, and leading with
+    # the catalog rows here would invert against it.
+    await lock_catalog_rows_for_write(session, dataset)
     dataset.column_info = column_info
 
     # fix(#458 E-43): keep the cached sample-values snapshot keyed by the new
@@ -376,6 +391,13 @@ async def alter_column_type(
     await session.execute(text(ddl))
 
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
+    # fix(#1847 review r2): the DDL above is done; the catalog writes start
+    # here. This function dirties the datasets row and the caller then stamps
+    # `record.updated_by`, so the flush takes both. Acquire in the house order
+    # first. Placed AFTER the ALTER TABLE on purpose: the reupload swap takes
+    # its data-table ACCESS EXCLUSIVE before its catalog rows, and leading with
+    # the catalog rows here would invert against it.
+    await lock_catalog_rows_for_write(session, dataset)
     dataset.column_info = column_info
     await _refresh_quality_detail(session, dataset, column_info)
 
@@ -431,6 +453,13 @@ async def drop_column(
 
     # Refresh column_info
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
+    # fix(#1847 review r2): the DDL above is done; the catalog writes start
+    # here. This function dirties the datasets row and the caller then stamps
+    # `record.updated_by`, so the flush takes both. Acquire in the house order
+    # first. Placed AFTER the ALTER TABLE on purpose: the reupload swap takes
+    # its data-table ACCESS EXCLUSIVE before its catalog rows, and leading with
+    # the catalog rows here would invert against it.
+    await lock_catalog_rows_for_write(session, dataset)
     dataset.column_info = column_info
     await _refresh_quality_detail(session, dataset, column_info)
 
