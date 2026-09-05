@@ -1,8 +1,7 @@
 """Whether a manifest key is busy, and the reservation that claims it.
 
 fix(#1814): the key lock, the in-flight read, the staleness rule and the fenced
-exits from the downloading stage all answer that one question, so they agree by
-living together rather than by being kept in step.
+stage exits answer one question, so they live together rather than in step.
 """
 
 from __future__ import annotations
@@ -44,9 +43,8 @@ def downloading_stage_marker() -> dict[str, str]:
 async def lock_manifest_key(db: AsyncSession, key: str) -> None:
     """Serialize check-and-reserve for one manifest key.
 
-    fix(#1814): transaction-scoped and blocking, guarding a section bounded by
-    database work alone. The caller must end its transaction before any network
-    I/O and before the next entry, or two manifests deadlock on two keys.
+    fix(#1814): transaction-scoped and blocking. End the transaction before any
+    network I/O and before the next entry, or two manifests deadlock on two keys.
     """
     await db.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
@@ -100,9 +98,8 @@ async def expire_stale_manifest_reservations(
 ) -> int:
     """Settle reservations for ``key`` whose apply never came back. Returns the count.
 
-    fix(#1814): settling rather than ignoring is what lets
-    ``bind_reservation_to_staged_source``'s fence catch a slow attempt whose
-    reservation was replaced, instead of letting it queue on top.
+    fix(#1814): settling rather than ignoring is what lets the staging bind's
+    fence catch a slow attempt whose reservation was replaced.
     """
     now = now or datetime.now(timezone.utc)
     result = await db.execute(
@@ -124,9 +121,8 @@ async def bind_reservation_to_staged_source(
 ) -> bool:
     """Fenced downloading -> staged transition. False means the row is not ours.
 
-    fix(#1814): ``staged_at`` is stamped in the same statement, so the pending
-    sweep measures from staging rather than from a creation that predates the
-    download. Anything but running under this attempt means another owner.
+    fix(#1814): ``staged_at`` is stamped here, so the pending sweep measures
+    from staging rather than from a creation that predates the download.
     """
     now = now or datetime.now(timezone.utc)
     # Snapshotted before the statement: a values() clause carrying a SQL
@@ -176,9 +172,8 @@ async def release_manifest_reservation(
 ) -> bool:
     """Fenced running -> failed for a reservation that never staged its source.
 
-    fix(#1814): the shared settlement fences on ``pending``, which a reservation
-    is not until it binds, so the lease has its own exit. The trap:
-    ``user_metadata`` is not mirrored, because reading it after a reset queries.
+    fix(#1814): the shared settlement fences on ``pending``, so the lease needs
+    its own exit. The trap: ``user_metadata`` is not mirrored, reading queries.
     """
     now = now or datetime.now(timezone.utc)
     result = await db.execute(
@@ -215,8 +210,7 @@ async def staged_source_is_referenced(
 ) -> bool:
     """Does the committed row point at these staged bytes?
 
-    fix(#1814): a durable but unacknowledged commit leaves live state, so the
-    row decides. Raises rather than guessing; the caller's settlement wrapper
+    fix(#1814): raises rather than guessing. The caller's settlement wrapper
     resets and retries, and keeps the bytes if neither attempt can read.
     """
     row = (

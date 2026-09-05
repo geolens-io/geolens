@@ -2532,7 +2532,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1814): first entry. The lines bought the reserve/stage/bind split of
     # one create-and-queue function, its two fenced settlement exits, the quota
     # preflight, the staging deadline, and the reset-and-retry settlement.
-    "backend/app/processing/ingest/manifest_service.py": 1129,
+    "backend/app/processing/ingest/manifest_service.py": 1111,
     # fix(#1770 round 43 P1): crossed _RATCHET_INCLUSION_LOC on the XML
     # streaming preflight (`_xml_preflight`, `MAX_DOCUMENT_ATTRIBUTES`,
     # `MAX_DOCUMENT_DEPTH`) that closes the attribute-bomb/deep-nesting-bomb/

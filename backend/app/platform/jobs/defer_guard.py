@@ -188,16 +188,8 @@ def _restore_settlement_identifiers(
 async def reset_session_for_settlement(job: IngestJob, *, db: AsyncSession) -> None:
     """Make a session usable again for the settlement that follows a failure.
 
-    A statement that failed leaves the ``AsyncSession`` in a failed
-    transaction, and SQLAlchemy refuses every further statement on it until it
-    is rolled back, so a settlement issued straight onto it raises there too
-    and the row stays ``pending``. The reset expires ``job``, so the two
-    attributes the shared settlement reads are snapshotted first and put back
-    after; the reload is best effort, for whatever a caller reads beyond them.
-
-    Call this before ``settle_ingest_job_failed`` on any path whose failure may
-    have been a database error (fix(#1774), fix(#1814)). Safe on a healthy
-    session: after the row is committed there is nothing left to discard.
+    fix(#1774, #1814): call before ``settle_ingest_job_failed`` on any database
+    error. The rollback expires ``job``, so its identifiers are snapshotted.
     """
     # Guarded because reading them is itself an attribute access: an instance
     # that arrived expired has nothing to snapshot, and the reload below is
@@ -226,10 +218,8 @@ async def _settle_after_failed_dispatch(
 ) -> bool:
     """Run the caller's rollback closure and commit it. Returns whether it landed.
 
-    fix(#1774 review, codex P2): extracted so the two ways a dispatch can fail
-    (the marker write, then the defer itself) settle the row identically. A
-    second copy of this block is how one of them would end up not committing,
-    or not logging, or reporting a `rolled_back` the other does not.
+    fix(#1774): one copy, so the two ways a dispatch can fail settle the row
+    identically rather than diverging on committing, logging or `rolled_back`.
     """
     try:
         await rollback(exc)
@@ -303,10 +293,9 @@ async def defer_with_orphan_guard(
     try:
         await stamp_commit_attempted(job, db=db)
     except Exception as stamp_exc:  # broad: a failed marker write is a failed dispatch
-        # fix(#1774 review, codex P2): a marker write that deadlocked leaves the
-        # row `pending` with no marker, the one combination the stale sweep
-        # reads as an upload nobody committed. Nothing is discarded by the
-        # reset: every caller commits the row before dispatching.
+        # fix(#1774): a deadlocked marker write leaves the row `pending` and
+        # unstamped, which the sweep reads as an upload nobody committed. The
+        # reset discards nothing: every caller commits before dispatching.
         await reset_session_for_settlement(job, db=db)
         rolled_back = await _settle_after_failed_dispatch(rollback, stamp_exc, db)
         raise DeferFailed(rolled_back=rolled_back, cause=stamp_exc) from stamp_exc

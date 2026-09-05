@@ -1,9 +1,7 @@
 """fix(#1814): a manifest entry claims its key before its source is fetched.
 
-The apply loop used to insert the ``IngestJob`` row only after the entry's
-source had finished downloading, so the in-flight check and the row that makes
-it true were separated by a network fetch. A client that timed out mid-download
-and retried passed the check a second time and queued the same entry twice.
+The in-flight check and the row that makes it true were separated by a network
+fetch, so a client that timed out mid-download and retried queued it twice.
 """
 
 from __future__ import annotations
@@ -121,10 +119,8 @@ async def _jobs_for_key(session, key: str) -> list[IngestJob]:
 def _ingest_job_writes(session):
     """Record every INSERT and UPDATE issued against ``catalog.ingest_jobs``.
 
-    Listens on the session's sync engine, so it sees what the database was
-    actually asked to do rather than what the ORM was asked to do. Each entry
-    carries its rowcount, so a caller can ask either question: did anything
-    reach the table at all, or did anything change a row.
+    Listens on the sync engine, so it sees what the database was asked to do.
+    Each entry carries its rowcount, so a caller can ask either question.
     """
     bind = session.get_bind()
     engine = getattr(bind, "sync_engine", bind)
@@ -187,10 +183,8 @@ class TestReservationClosesTheDownloadWindow:
     ):
         """The defect, end to end.
 
-        Two applies of one entry, the second submitted while the first is
-        still downloading. Before the reservation, both passed the in-flight
-        check and both downloaded and queued: the CLI's documented
-        "re-applying immediately can queue that entry twice".
+        Two applies of one entry, the second submitted mid-download. Before
+        the reservation both passed the check, downloaded, and queued.
         """
         import app.core.db as db_module
 
@@ -257,9 +251,8 @@ class TestReservationClosesTheDownloadWindow:
     ):
         """The reservation answers the conflict branch too, not only the retry.
 
-        A second entry for the same key with different content used to sail
-        past the in-flight check during the download window and queue a
-        competing job over the same manifest key.
+        A second entry with different content used to sail past the check
+        during the download window and queue a competing job over the key.
         """
         import app.core.db as db_module
 
@@ -393,9 +386,8 @@ class TestReservationFailureReleasesTheKey:
     ):
         """The staging bind is fenced, so a superseded attempt drops its bytes.
 
-        This is the other half of the staleness rule: a reservation expired by
-        a later apply is terminal, and the slow attempt that still owns the
-        download must not queue on top of the row that replaced it.
+        The other half of the staleness rule: a slow attempt whose reservation
+        was expired must not queue on top of the row that replaced it.
         """
         request = _request(
             _manifest_dataset(
@@ -436,12 +428,10 @@ class TestReservationFailureReleasesTheKey:
     async def test_a_database_failure_during_the_bind_still_clears_the_key(
         self, test_db_session, clean_tables
     ):
-        """fix(#1814 codex r1): the settlement runs on a reset session.
+        """fix(#1814): the settlement runs on a reset session.
 
-        A statement that failed leaves the transaction refusing every further
-        statement, so a settlement issued straight onto it raises too. Before
-        the reset, the reservation stayed pending in the downloading stage and
-        every re-apply attached to a job that would never queue.
+        A failed statement leaves the transaction refusing every further one,
+        so a settlement issued straight onto it raises there too.
         """
         request = _request(
             _manifest_dataset(
@@ -516,9 +506,8 @@ class TestReservationFailureReleasesTheKey:
     ):
         """A row that never reached the queue must not hold its key.
 
-        The orphan guard settles the row for every dispatch failure, but a
-        refusal raised before it runs would otherwise leave the entry pending
-        until the sweep.
+        The orphan guard covers every dispatch failure; a refusal raised
+        before it runs would otherwise leave the entry pending until the sweep.
         """
         _stage_fixture()
         user = await _admin_user(test_db_session)
@@ -553,9 +542,8 @@ class TestReservationFailureReleasesTheKey:
     ):
         """fix(#1814): the reservation insert is ambiguous too.
 
-        A durable insert whose acknowledgement is lost used to leave a running
-        row holding the key with nothing that would ever stage or queue it, and
-        every re-apply reported skip until the lease expired.
+        A durable insert whose acknowledgement is lost left a running row
+        holding the key with nothing that would ever stage or queue it.
         """
         _stage_fixture()
         user = await _admin_user(test_db_session)
@@ -638,10 +626,8 @@ class TestReservationFailureReleasesTheKey:
     ):
         """fix(#1814): the row decides the cleanup, not the exception.
 
-        A commit can be durable in PostgreSQL and still raise on the
-        acknowledgement. Deciding from the exception deleted the staged source
-        and left a `pending` row pointing at nothing, with no queued task, and
-        every re-apply attached to it until the sweep ran.
+        Deciding from the exception deleted the staged source and left a
+        pending row pointing at nothing, with no queued task.
         """
         request = _request(
             _manifest_dataset(
@@ -873,9 +859,8 @@ class TestReservationFailureReleasesTheKey:
 class TestStaleReservations:
     """The reservation runs under the fixed running lease, not the pending one.
 
-    fix(#1814): a pending row with no file_path and no queue task is reapable by
-    four actors while its source is still downloading, and
-    `pending_job_timeout_seconds` may legally be 61s. The fixed lease is not.
+    fix(#1814): a pending row with no file_path and no queue task is reapable
+    by four actors mid-download, and the pending timeout may legally be 61s.
     """
 
     def _reservation(self, user, dataset, prepared, *, age_seconds: float) -> IngestJob:
@@ -898,12 +883,10 @@ class TestStaleReservations:
     async def test_a_live_download_survives_the_pending_sweep(
         self, client, clean_tables
     ):
-        """The audit's counterfactual: a download older than the pending cutoff.
+        """A live download older than the pending cutoff, through the real sweep.
 
-        Aged past `pending_job_timeout_seconds` with its lease still fresh, then
-        put through the real `fail_stale_jobs`. Before the lease it came back
-        `cancelled` mid-download, the staging bind then matched nothing, and the
-        entry answered "lost its reservation" for every retry.
+        Aged past the pending timeout with its lease fresh. Before the lease it
+        came back `cancelled` mid-download and the bind then matched nothing.
         """
         import app.core.db as db_module
 
@@ -1027,8 +1010,7 @@ class TestStaleReservations:
         """The budget is the running sweep's own lease, read at call time.
 
         Pinned from both sides against the one number, so the in-flight check
-        and the background sweep cannot start disagreeing about which rows are
-        still live.
+        and the sweep cannot disagree about which rows are live.
         """
         _stage_fixture()
         user = await _admin_user(test_db_session)
@@ -1096,9 +1078,8 @@ class TestStaleReservations:
 class TestFencedWritesAreSingleStatements:
     """One fenced UPDATE per transition, not a fenced one plus an ORM flush.
 
-    fix(#1814): the instance must describe the row after a fenced write, but
-    plain assignment marks it dirty and the caller's commit then flushes a
-    second, unfenced update. `set_committed_value` writes committed state.
+    fix(#1814): plain assignment marks the instance dirty, so the caller's
+    commit flushes a second, unfenced update over the fenced one.
     """
 
     async def test_the_staging_bind_emits_one_update(
@@ -1170,10 +1151,8 @@ class TestDryRunReservesNothing:
     ):
         """fix(#1814): a preview is a read.
 
-        The staleness expiry used to run before the dry-run return, so a
-        preview settled another caller's abandoned reservation. It now runs
-        only for a real apply, at the cost that a preview can still report an
-        entry in flight where an apply would take it.
+        The expiry runs only for a real apply, at the cost that a preview can
+        report an entry in flight where an apply would take it.
         """
         _stage_fixture()
         user = await _admin_user(test_db_session)

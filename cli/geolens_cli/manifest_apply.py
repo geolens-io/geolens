@@ -455,30 +455,8 @@ def post_manifest_apply(
 def build_apply_timeout_message(exc: ManifestApplyTimeout) -> str:
     """Human-readable explanation for a batch-aware apply timeout.
 
-    fix(#1778 review round 18) part (b): the CLI giving up here does
-    NOT mean the apply failed. ``apply_manifest()`` (backend/app/
-    processing/ingest/manifest_service.py) keeps processing the
-    manifest SEQUENTIALLY after this client stops waiting — a POST
-    already accepted by the ASGI server runs to completion there
-    regardless of whether the CLI is still listening, so entries
-    already committed and queued stay committed and queued, and a
-    later re-apply skips them (the server fingerprints each dataset —
-    ``manifest_dataset_fingerprint`` — and reports ``skip_complete``
-    for a matching fingerprint instead of reprocessing it).
-
-    fix(#1814): the server reserves an entry's ``IngestJob`` row BEFORE
-    fetching its source, so a re-apply attaches to one still being staged.
-    The message says that, and still makes no blanket safety claim.
-
-    fix(#1778 review round 21): the ``budget`` this timeout used is
-    only ever a HEURISTIC LOWER BOUND (see
-    ``compute_manifest_apply_timeout``'s docstring) derived from the
-    API's documented per-request inactivity (read) timeout on a
-    source download — not a download deadline. A slow-but-still-active
-    large source can legitimately outlast it while the apply is still
-    succeeding server-side, so the message now names the escape hatch:
-    ``--timeout 0`` (or a larger explicit value) waits for the server
-    instead of guessing again with a bigger heuristic.
+    fix(#1778, #1814): the CLI giving up does not stop the server, which
+    reserves each entry before fetching, so a re-apply attaches or skips.
     """
     budget_phrase = (
         "with no client-side timeout"

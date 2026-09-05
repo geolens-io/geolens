@@ -202,9 +202,8 @@ async def _download_http_source(
 ) -> str:
     """Stream one manifest source to staging. Takes no database session.
 
-    fix(#1814): a session parameter would check a pooled connection back out
-    and hold its transaction open for the length of the download, so the caller
-    reads the size ceiling before the reservation commit.
+    fix(#1814): a session here would hold a pooled connection for the length of
+    the download, so the caller reads the size ceiling before it commits.
     """
     staging_dir = Path(settings.upload_staging_dir)
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -318,9 +317,8 @@ async def _stage_source_if_needed(
 ) -> str | None:
     """Put one manifest source where ingest can read it, under a total deadline.
 
-    fix(#1814): httpx's 60s clock is per read, so a steadily trickling source
-    has no wall-clock bound of its own, and staging must finish inside the
-    lease the reservation is judged by.
+    fix(#1814): httpx's 60s clock is per read, so a trickling source has no
+    bound of its own, and staging must finish inside the reservation's lease.
     """
     try:
         async with asyncio.timeout(MANIFEST_STAGE_MAX_SECONDS):
@@ -412,11 +410,8 @@ async def _preflight_quota(
 ) -> int | None:
     """Refuse an over-quota caller, and derive the streaming byte budget.
 
-    Runs before the reservation is inserted, so an entry that cannot be
-    admitted leaves no row behind. The same snapshot supplies a hard byte
-    budget for streaming, so a caller at (or near) quota cannot force the
-    server to download a whole object merely to discover that it cannot be
-    admitted.
+    Runs before the reservation, so a refused entry leaves no row. The snapshot
+    also bounds streaming, so a caller at quota cannot force a whole download.
     """
     from app.modules.quota.service import get_user_quota_usage
 
@@ -698,9 +693,8 @@ async def _reserve_entry(
 ) -> _ReservedEntry:
     """Commit this key's claim, and everything staging needs, in one transaction.
 
-    fix(#1814): the row goes in before the source is fetched, so a retry during
-    the download sees `skip_in_flight` for its own job. The commit publishes the
-    claim and releases the key lock and the connection.
+    fix(#1814): the row goes in before the fetch, so a retry during the download
+    sees `skip_in_flight`. The commit releases the key lock and the connection.
     """
     creates_dataset = dataset_id is None
     quota_byte_limit = await _preflight_quota(
@@ -756,9 +750,8 @@ async def _adopt_committed_reservation(
 ) -> IngestJob | None:
     """Adopt a reservation whose insert was durable but unacknowledged.
 
-    fix(#1814): the row decides, as at the staging bind. A landed insert is this
-    request's own reservation and holds the key, so it is adopted; anything else
-    releases through the running fence first.
+    fix(#1814): the row decides, as at the staging bind. A landed insert is
+    adopted; anything else releases through the running fence first.
     """
     job_id = job.id
     adopted: IngestJob | None = None
@@ -787,9 +780,8 @@ async def _commit_reservation(db: AsyncSession) -> None:
 async def _commit_staged_bind(db: AsyncSession) -> None:
     """The commit that publishes the staging bind, as a named seam.
 
-    fix(#1814): split out so a test can simulate the ambiguous shape, durable
-    in PostgreSQL and raising on the acknowledgement, which a real session
-    cannot be asked to produce. Production behaviour is exactly ``db.commit()``.
+    fix(#1814): split out so a test can make it durable and then raising, which
+    a real session cannot be asked to do. Production is exactly ``db.commit()``.
     """
     await db.commit()
 
@@ -803,9 +795,8 @@ async def _settle_under_reset(
 ) -> None:
     """Run every statement of one settlement on a session that was just reset.
 
-    fix(#1814): a settlement follows a failure, so any statement in it can find
-    the transaction already unusable. The body is fenced reads and CAS writes, so
-    one reset-and-retry lands nothing twice; a second failure is the sweep's.
+    fix(#1814): any statement in a settlement can find the transaction unusable.
+    The body is fenced, so one reset-and-retry lands nothing twice.
     """
     for attempt in (1, 2):
         await reset_session_for_settlement(job, db=db)
@@ -844,11 +835,8 @@ async def _settle_staged_entry(
 ) -> None:
     """Settle an entry that failed after its source was staged.
 
-    fix(#1814): the row decides, not the exception, because a durable but
-    unacknowledged bind leaves live catalog state. The two settlements fence on
-    disjoint states, so at most one can match and the row picks it.
-
-    Read and settlement are one body, so the read cannot poison the writes.
+    fix(#1814): the row decides, not the exception. The two settlements fence on
+    disjoint states, and read and settlement share one body.
     """
     job_id = job.id
     # The safe default if neither attempt can read: keep the bytes, because
@@ -968,9 +956,8 @@ async def _reserve_or_settle_entry(
 ) -> ManifestApplyEntryResult | _ReservedEntry:
     """The locked half of one entry: classify, then either answer or reserve.
 
-    A result answers the entry from what the key already holds; a reservation
-    means the caller owns the key until it stages or settles that row.
-    fix(#1814): every exit commits, so no key lock outlives the entry.
+    A result answers from what the key holds; a reservation means the caller
+    owns it. fix(#1814): every exit commits, so no key lock outlives the entry.
     """
     (
         classification,
@@ -983,11 +970,9 @@ async def _reserve_or_settle_entry(
         raise ManifestSourceError("Manifest source could not be prepared")
 
     if classification == "skip_in_flight" and job is not None:
-        # fix(#430 codex r15): the skip paths previously returned job/dataset
-        # ids for a manifest key owned by ANOTHER user whenever the caller
-        # submitted a matching fingerprint — the same enumeration oracle
-        # BA-02 closed on the update path. Non-owners get the identical
-        # generic error the fingerprint-mismatch path raises, with no ids.
+        # fix(#430): a matching fingerprint must not turn the skip path into an
+        # enumeration oracle for another user's key. Non-owners get the generic
+        # fingerprint-mismatch error, with no ids.
         if not await _caller_owns_job(db, job, user):
             raise ManifestSourceError(
                 "Manifest dataset key already has an in-flight apply"
@@ -1020,12 +1005,9 @@ async def _reserve_or_settle_entry(
 
     update_dataset_id: uuid.UUID | None = None
     if classification == "update" and existing_dataset is not None:
-        # fix(#430 BA-02): manifest_key is globally namespaced and taken from the request
-        # body, so an editor could otherwise overwrite (or, via dry_run, enumerate
-        # the UUID of) another user's manifest-managed dataset. Gate before the
-        # dry-run response too — it otherwise leaks existing_dataset.id.
-        # Lazy import: processing/ must not import app.modules.catalog.* at module
-        # level (PROCESS-02/04 layering invariant).
+        # fix(#430): manifest_key is caller-supplied and globally namespaced, so
+        # the gate runs before the dry-run response too, which would otherwise
+        # leak another user's dataset id. Lazy import: PROCESS-02/04.
         from app.modules.catalog.authorization import check_dataset_write_access
 
         await check_dataset_write_access(

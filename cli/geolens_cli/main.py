@@ -436,25 +436,9 @@ def apply_manifest_command(
             sdk.client, payload, timeout=resolved_timeout
         )
     except _manifest_apply.ManifestApplyTimeout as exc:
-        # fix(#1778 review round 18): a batch-aware POST timeout is
-        # reported distinctly from a plain request failure -- the
-        # server keeps applying after this client gives up, and an
-        # entry it has already queued or completed is skipped on a
-        # later re-apply, so this is NOT the same "the operation
-        # failed" shape as ManifestApplyRequestError below. Both
-        # branches attempt the same best-effort dry-run status
-        # follow-up (report_apply_timeout / attempt_apply_timeout_
-        # status_check are the human- and json-mode halves of the
-        # same round-18 part (c) logic) so --json gets exactly one
-        # structured payload instead of report_apply_timeout's own
-        # output.error()/warn() writes bleeding into it.
-        #
-        # fix(#1778 review round 19): dropped the "resumable": True
-        # field, because a bare boolean cannot say which entries a
-        # re-apply would skip and which it would apply. "guidance"
-        # carries the explanation --json gets that a human running the
-        # same command interactively already sees via report_apply_
-        # timeout().
+        # fix(#1778): a batch-aware POST timeout is not the failure shape
+        # ManifestApplyRequestError is, because the server keeps applying. Both
+        # branches do one dry-run follow-up, so --json emits one payload.
         if state.json_mode:
             status = _manifest_apply.attempt_apply_timeout_status_check(
                 sdk.client, payload
