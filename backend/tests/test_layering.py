@@ -3299,7 +3299,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # lines are the comment saying why `auth` joins `token` in the model_dump
     # exclusion: user_metadata is a durable JSONB column and that dump is a
     # whitelist by omission. Cap 2582 -> 2602, exact.
-    "backend/app/processing/ingest/router.py": 2602,
+    # fix(#1846, GHSA-hrf5-v3cq-frx5): +14. `preview_file` lets one refusal
+    # class past the generic "may be malformed or unsupported" handler: the
+    # schema check's message is server-authored, names what was refused and
+    # says what to upload instead, and the preview is where a presigned upload
+    # first meets a whole-file check. Cap 2602 -> 2616, exact.
+    "backend/app/processing/ingest/router.py": 2616,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -3510,7 +3515,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # credential_secret`) at the same boundary it already clears structlog's
     # own contextvars, so a re-used worker cannot scrub a later job's log
     # lines with an earlier job's secret. Cap 2533 -> 2541, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2541,
+    # fix(#1846, GHSA-hrf5-v3cq-frx5): +5. The upload-safety gauntlet gained
+    # the SQLite schema check beside the archive checks, for the same reason:
+    # what a file instructs is as much a property of the upload as its shape.
+    # Cap 2541 -> 2546, exact.
+    # fix(#1846 review round 4): +5. Same thread offload as the ogr.py sites,
+    # with the comment saying why a linear walk still does not belong on the
+    # loop. Cap 2546 -> 2551, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2551,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -4345,7 +4357,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # grows a service_queue parameter so the verdict reaches the configure()
     # call that used to hardcode the task's own queue. Cap 1367 -> 1386,
     # exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1386,
+    # fix(#1846 review round 4): +10. This handler wrapped the preview in
+    # try/finally with no `except`, so a content refusal -- a deliberate 4xx
+    # whose message names the fix -- reached the client as a 500 here while the
+    # sibling `preview_file` mapped it to 422. The lines are that branch and
+    # the comment saying which endpoint it is matching.
+    # Cap 1386 -> 1396, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1396,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
@@ -4711,7 +4729,50 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # The lines are the guarded branch plus the comment saying which failure
     # the ordering prevents.
     # Cap 1382 -> 1392, exact.
-    "backend/app/processing/ingest/ogr.py": 1392,
+    # fix(#1846, GHSA-hrf5-v3cq-frx5): +25. Every vector GDAL subprocess in
+    # this module now names which drivers may open its source and which may
+    # never be registered, instead of handing a caller-supplied file to the
+    # whole driver set. The lines are the two helper calls per entry point, the
+    # argv restructure that puts the `-if` pairs before the source, and the
+    # comments saying what each clamp is for and why the local and service
+    # variants differ. Cap 1392 -> 1417, exact (rebased onto #1844, which took
+    # the same file 1371 -> 1392; the two changes touch different functions).
+    # fix(#1846 audit round 1): +11. GPKG and SQLite are pointer-following
+    # drivers too, and neither clamp can exclude them, because a GeoPackage is
+    # the primary supported upload format and the file really is one. So the
+    # three staged-upload entry points also read the schema and refuse a
+    # database that names a source outside itself, here rather than only at the
+    # doors, because the preview runs before the door that validates a
+    # presigned upload's whole body. Cap 1417 -> 1428, exact.
+    # fix(#1846 review round 4): +5. The three staged-upload call sites run the
+    # content check through `run_in_thread_draining` instead of inline, so a
+    # schema walk cannot sit on the event loop of the request that uploaded the
+    # file. Cap 1428 -> 1433, exact.
+    "backend/app/processing/ingest/ogr.py": 1433,
+    # fix(#1846, GHSA-hrf5-v3cq-frx5): first entry. This module crossed the
+    # 1000-line threshold when the content check landed: the SQLite schema
+    # reader, the archive member walk that identifies members by their bytes
+    # rather than their names, and the shared decompression budget the walk
+    # spends. The comments are most of it, because the two facts that make the
+    # code correct (GDAL identifies on content, and it finds a VRT root by
+    # substring) are the two a future reader would otherwise re-learn the hard
+    # way. Cap set at the exact current count.
+    # fix(#1846 audit round 3): +36. Reading a member to its end makes zipfile
+    # verify the CRC, so a damaged upload raised BadZipFile -- not a
+    # ValueError, which is the shape the upload gauntlet promises and
+    # `tasks_vector` catches. The lines are the conversion at both member
+    # reads, the restored guard on the archive open, and the comment saying
+    # why `validate_zip_safety` could not have caught it on the way past (it
+    # never reads member data). Cap 1016 -> 1052, exact.
+    # fix(#1846 review round 4): +63. The comment strip became a single
+    # left-to-right walk instead of a lazy regex that was quadratic on text
+    # holding many `/*` with no `*/` -- uploader-chosen through a valid schema,
+    # 64 KB was 3.6 s. Most of the lines are the comment recording that the
+    # "standard linear block comment" pattern does NOT fix it, since it looks
+    # like it should. The rest is the schema byte cap and the two
+    # archive-member error classes (password-protected, unsupported method)
+    # that were escaping uncaught. Cap 1052 -> 1115, exact.
+    "backend/app/processing/ingest/validation.py": 1115,
     # fix(#1778): +157 for two audit findings that both land in JIT
     # provisioning. One is the REGISTRATION_ENABLED gate plus its exception
     # class, so enabling a provider stops being a way to reopen signup while

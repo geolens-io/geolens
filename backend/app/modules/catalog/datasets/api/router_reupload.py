@@ -18,6 +18,7 @@ from fastapi import (
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.upload_errors import UnsafeUploadError
 from app.core.identity import Identity
 from app.core.async_io import (
     run_in_thread_draining,
@@ -540,6 +541,15 @@ async def reupload_preview(
         info = await get_catalog_port().run_ogrinfo_preview(
             file_path, layer_name=layer_name
         )
+    except UnsafeUploadError as exc:
+        # fix(#1846 review round 4): the same mapping `preview_file` gives it.
+        # This block had no `except` at all, so a content refusal -- which is a
+        # deliberate 4xx with a message that names the fix -- reached the client
+        # as a 500 on this endpoint alone.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
     finally:
         if downloaded_preview_path is not None:
             downloaded_preview_path.unlink(missing_ok=True)

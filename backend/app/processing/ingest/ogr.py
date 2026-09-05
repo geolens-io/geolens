@@ -37,6 +37,10 @@ from app.core.service_tokens import (
     requires_header_token_policy,
 )
 from app.core.url_redaction import redact_url_credentials
+from app.processing.ingest.gdal_drivers import local_input_driver_args
+from app.core.async_io import run_in_thread_draining
+from app.processing.ingest.validation import validate_content_directives
+from app.processing.raster.vrt import gdal_service_safe_env, gdal_vector_safe_env
 
 
 # SEED-04 (Phase 1054): compiled once at module scope to avoid repeated re.compile().
@@ -766,19 +770,30 @@ async def run_ogrinfo(
         return await parquet_info(file_path)
 
     source = _resolve_source_path(file_path)
+    # fix(#1846, GHSA-hrf5-v3cq-frx5): all three layers, on every staged-file
+    # argv. The schema check is here rather than only at the upload doors
+    # because this is the last point before GDAL sees the file, and the preview
+    # runs before the door that validates a presigned upload's whole body.
+    await run_in_thread_draining(
+        validate_content_directives, file_path, original_filename
+    )
+    driver_args = local_input_driver_args(file_path)
+    driver_env = gdal_vector_safe_env()
 
     # Try JSON output first (GDAL 3.7+)
-    cmd = ["ogrinfo", "-so", "-json", source]
+    cmd = ["ogrinfo", "-so", "-json", *driver_args]
     # CSV driver types all fields as String by default; auto-detect so
     # numeric columns appear as Real/Integer in the preview schema.
     if file_path.lower().endswith(".csv"):
-        cmd[3:3] = ["-oo", "AUTODETECT_TYPE=YES"]
+        cmd += ["-oo", "AUTODETECT_TYPE=YES"]
+    cmd.append(source)
     if layer_name:
         cmd.append(layer_name)
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=driver_env,
     )
     stdout, stderr = await _communicate_with_timeout(
         proc, OGRINFO_TIMEOUT_SECONDS, tool_name="ogrinfo"
@@ -803,13 +818,14 @@ async def run_ogrinfo(
             pass  # Fall through to text fallback
 
     # Fallback: text output (GDAL < 3.7 or -json flag failed)
-    cmd_text = ["ogrinfo", "-so", source]
+    cmd_text = ["ogrinfo", "-so", *driver_args, source]
     if layer_name:
         cmd_text.append(layer_name)
     proc = await asyncio.create_subprocess_exec(
         *cmd_text,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=driver_env,
     )
     stdout, stderr = await _communicate_with_timeout(
         proc, OGRINFO_TIMEOUT_SECONDS, tool_name="ogrinfo"
@@ -860,18 +876,26 @@ async def run_ogrinfo_preview(
         return await parquet_info(file_path, sample_limit=sample_limit)
 
     source = _resolve_source_path(file_path)
+    # fix(#1846, GHSA-hrf5-v3cq-frx5): the preview is the entry point that
+    # returns rows to the caller, so it is the one that must not be asking an
+    # unrestricted driver set what the file is, and the one a database whose
+    # schema reads from outside the file must not reach.
+    await run_in_thread_draining(validate_content_directives, file_path)
+    driver_args = local_input_driver_args(file_path)
 
-    cmd = ["ogrinfo", "-json", "-features", "-limit", str(sample_limit), source]
+    cmd = ["ogrinfo", "-json", "-features", "-limit", str(sample_limit), *driver_args]
     # CSV driver types all fields as String by default; auto-detect so
     # numeric columns appear as Real/Integer in the preview schema.
     if file_path.lower().endswith(".csv"):
-        cmd[1:1] = ["-oo", "AUTODETECT_TYPE=YES"]
+        cmd += ["-oo", "AUTODETECT_TYPE=YES"]
+    cmd.append(source)
     if layer_name:
         cmd.append(layer_name)
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=gdal_vector_safe_env(),
     )
     stdout, stderr = await _communicate_with_timeout(
         proc, OGRINFO_TIMEOUT_SECONDS, tool_name="ogrinfo"
@@ -965,12 +989,22 @@ async def run_ogr2ogr(
         )
         return
 
+    # fix(#1846, GHSA-hrf5-v3cq-frx5): re-checked at the commit rather than
+    # trusted from the preview. The two calls read the staged file at different
+    # moments, and the one that persists rows is the one that has to be sure.
+    await run_in_thread_draining(
+        validate_content_directives, file_path, original_filename
+    )
     source = _resolve_source_path(file_path)
     is_csv = file_path.lower().endswith(".csv")
     is_non_spatial = geometry_type is None
 
     cmd = [
         "ogr2ogr",
+        # fix(#1846, GHSA-hrf5-v3cq-frx5): the same driver allowlist the
+        # preview used. The commit must not be able to select a driver the
+        # preview refused, or the two answers describe different files.
+        *local_input_driver_args(file_path),
         "-f",
         "PostgreSQL",
         db_conn_str,
@@ -1045,7 +1079,10 @@ async def run_ogr2ogr(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        env=_tenant_writer_subprocess_env(schema),
+        # fix(#1846, GHSA-hrf5-v3cq-frx5): the clamp is the BASE the tenant
+        # role option is layered onto, so single-tenant (which returns
+        # base_env unchanged) and multi-tenant both carry it.
+        env=_tenant_writer_subprocess_env(schema, base_env=gdal_vector_safe_env()),
     )
     stdout, stderr = await _communicate_with_timeout(
         proc, OGR2OGR_FILE_TIMEOUT_SECONDS, tool_name="ogr2ogr"
@@ -1255,7 +1292,11 @@ async def run_ogr2ogr_service(
     try:
         env = _tenant_writer_subprocess_env(
             schema,
-            base_env={**os.environ},
+            # fix(#1846, GHSA-hrf5-v3cq-frx5): the service variant keeps WFS
+            # and OAPIF, which are the point of this call, and refuses the
+            # rest -- a service response has no business selecting the VRT
+            # driver or shelling out to a helper program.
+            base_env=gdal_service_safe_env(),
         )
         assert env is not None  # base_env is always returned in single-tenant mode
         if token and service_type in ("wfs", "ogcapi_features"):

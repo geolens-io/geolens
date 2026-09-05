@@ -10,15 +10,21 @@ Validates uploaded files beyond extension checks:
 """
 
 import codecs
+import os
 import re
+import sqlite3
 import struct
+import tempfile
 import zipfile
+import zlib
+from contextlib import contextmanager
 from pathlib import Path
 
 from defusedxml import ElementTree as ET
 import puremagic
 import structlog
 
+from app.core.upload_errors import UnsafeUploadError  # noqa: F401  (re-exported)
 from app.core.url_redaction import redact_url_credentials
 
 logger = structlog.get_logger()
@@ -112,6 +118,494 @@ ARCHIVE_EXTENSIONS = frozenset(
         ".xz",
     }
 )
+
+# fix(#1846, GHSA-hrf5-v3cq-frx5): a GDAL VRT is a set of instructions, not
+# data -- it names the source GDAL should go and read, and that source may be
+# any local path or any URL. `_reject_standalone_vrt` in ingest/router.py
+# already refuses one as the uploaded file, but it matches the TOP-LEVEL
+# filename, so the same document arriving as an archive member walked straight
+# past it. Refused here at any depth and in any case.
+#
+# Extensions only, and deliberately not the whole answer: the drivers that read
+# a document as instructions do not all agree to be identified by name (the WFS
+# driver identifies on content alone, whatever the member is called). The
+# layers that do not depend on the name are the input-driver allowlist in
+# `ingest/gdal_drivers.py` and the GDAL_SKIP clamp in `raster/vrt.py`. This one
+# is here because refusing at the door is a better answer than refusing at the
+# driver when the name is honest, which for an ordinary upload it is.
+DRIVER_METADATA_EXTENSIONS = frozenset({".vrt"})
+
+
+# fix(#1846, GHSA-hrf5-v3cq-frx5): a SQLite database is also a document that
+# can name external files. SQLite's virtual-table mechanism lets a schema row
+# say "this table's rows come from over there", and the SpatiaLite extension
+# the shipped GDAL links provides a family of modules whose "over there" is an
+# arbitrary local path. A GeoPackage is a SQLite database the uploader writes
+# in full, so the instructions and the data arrive in one legitimate `.gpkg`.
+#
+# Neither of the two driver clamps can reach this one. GPKG is the primary
+# supported upload format and SQLite is its sibling, so neither can be dropped
+# from the input allowlist or added to GDAL_SKIP, and the member name is honest
+# because the file really is a GeoPackage. Measured ineffective on the shipped
+# GDAL: SPATIALITE_SECURITY=strict, OGR_SQLITE_LOAD_EXTENSIONS=NONE,
+# OGR_SQLITE_LIST_ALL_TABLES=NO. What is left is to read the schema ourselves
+# and refuse the file, which is what `validate_sqlite_virtual_tables` does.
+SQLITE_FAMILY_EXTENSIONS = frozenset({".gpkg", ".sqlite", ".sqlite3", ".db"})
+
+# THE RULE FOR ARCHIVE MEMBERS, learned twice and at the cost of a finding
+# each time: identify a member by its CONTENT, never by its name.
+#
+# GDAL never consults the member name. It asks each driver whether it
+# recognises the bytes, and those answers are content tests: the SQLite family
+# checks for a 16-byte header at offset 0, and the OGR VRT driver SEARCHES the
+# leading bytes for its root element -- a substring search, so a byte-order
+# mark, an XML declaration, a comment or arbitrary junk in front of it change
+# nothing. Measured on GDAL 3.10.3 and 3.13.0.
+#
+# So an extension filter over archive members is not a filter. A database
+# named `evil.bak`, `evil` or `data/evil.dat` is opened as SQLite exactly as
+# `inner.gpkg` would be, and the first version of this check walked past all
+# three. `DRIVER_METADATA_EXTENSIONS` above is a cheap early refusal for the
+# honest case and is NOT the defense; `_scan_archive_members` is.
+_SQLITE_HEADER = b"SQLite format 3\x00"
+# Both VRT roots: the vector one is the finding, the raster one is here so the
+# rule has no shape-shaped hole left in it.
+_VRT_ROOT_MARKERS = (b"<OGRVRTDataSource", b"<VRTDataset")
+# The window the markers are searched in, and the per-member cost of the scan.
+# GDAL identifies from a few kilobytes; this matches that order.
+MEMBER_SNIFF_BYTES = 4096
+
+# The virtual-table modules an upload may declare. An ALLOWLIST, because the
+# question is not "which modules are dangerous" (the SpatiaLite family alone
+# has a dozen, and a future release adds more) but "which does a legitimate
+# GeoPackage or SpatiaLite database need". Measured by writing one with the
+# shipped GDAL: a GPKG carries `rtree` only, and `ogr2ogr -f SQLite -dsco
+# SPATIALITE=YES` adds VirtualSpatialIndex, VirtualElementary and VirtualKNN2.
+# Every one of these reads only the database's own tables.
+#
+# To widen it, add the module AND say here what writes it and what it reads.
+# The refused set includes, among others, VirtualText, VirtualDbf, VirtualShape,
+# VirtualXL, VirtualGPX, VirtualGeoJSON, VirtualXPath and VirtualBBox (all of
+# which name an external file) and VirtualPostGIS, VirtualODBC, VirtualFDO and
+# VirtualNetwork (which reach a database or a network), plus SQLite's own
+# `csv`, `zipfile`, `fileio` and `fsdir` modules where a build provides them.
+ALLOWED_VIRTUAL_TABLE_MODULES = frozenset(
+    {
+        "rtree",
+        "rtree_i32",
+        "geopoly",
+        "virtualspatialindex",
+        "virtualelementary",
+        "virtualknn",
+        "virtualknn2",
+    }
+)
+
+# Bound the schema scan two ways. A database whose schema is larger than this
+# is not one we can reason about, and reading it is not free -- and the walk
+# above is linear, not free, so the bytes need their own ceiling rather than
+# only the row count. 4 MB is far above any real GeoPackage schema.
+MAX_SQLITE_SCHEMA_ROWS = 100_000
+MAX_SQLITE_SCHEMA_BYTES = 4 * 1024 * 1024
+
+# Comment stripping is a single left-to-right walk, not a regex.
+#
+# `re.compile(r"/\*.*?\*/", re.DOTALL)` is quadratic on text holding many `/*`
+# with no `*/`: every opener restarts a lazy scan that runs to the end of the
+# string. That text is uploader-chosen through a perfectly valid schema (a
+# column DEFAULT is enough), the scan runs synchronously, and this used to be
+# reachable from preview. Measured: 32 KB 0.9 s, 64 KB 3.6 s, 128 KB 11.5 s.
+#
+# The "standard linear block comment" pattern
+# `r"/\*[^*]*\*+(?:[^/*][^*]*\*+)*/"` does NOT fix it, which is worth writing
+# down because it looks like it should: it is linear for TERMINATED comments,
+# but with no terminator it still scans forward from every opener. Measured on
+# the same input it was slower than the lazy pattern (6.3 s at 64 KB).
+#
+# The walk below is O(n) with a `str.find` per construct: 4 MB in about 2 ms.
+# It also respects quoting, which no comment regex can, so a `--` or `/*`
+# inside a string literal stays inside it and a quoted identifier containing
+# `USING` cannot fool the module match further down.
+_SQL_QUOTE_PAIRS = {"'": "'", '"': '"', "`": "`", "[": "]"}
+# Deliberately looser than the module pattern below, and matched on the
+# normalised statement: anything that looks at all like a virtual table has to
+# reach the module check, where an unreadable spelling is refused rather than
+# skipped. A pre-filter that anchored on CREATE would be one more place a
+# spelling could slip through unexamined.
+_VIRTUAL_TABLE_RE = re.compile(r"\bVIRTUAL\s+TABLE\b", re.IGNORECASE)
+# A SQLite identifier: bare, or quoted four different ways, and a quoted one
+# may contain spaces. Spelling this out rather than using a character class
+# matters for a real GeoPackage: its spatial index is named after the layer, so
+# a layer called "my layer" produces `CREATE VIRTUAL TABLE "rtree_my layer_geom"
+# USING rtree(...)`, and a class-based name pattern would fail to read the
+# module there and refuse a legitimate upload.
+_SQLITE_NAME = r"""(?:"[^"]*"|'[^']*'|\[[^\]]*\]|`[^`]*`|\w+)"""
+_VIRTUAL_MODULE_RE = re.compile(
+    r"\bCREATE\s+(?:TEMP\s+|TEMPORARY\s+)?VIRTUAL\s+TABLE\s+"
+    r"(?:IF\s+NOT\s+EXISTS\s+)?"
+    rf"(?:{_SQLITE_NAME}\s*\.\s*)?{_SQLITE_NAME}\s+"
+    rf"USING\s+({_SQLITE_NAME})",
+    re.IGNORECASE,
+)
+_ATTACH_RE = re.compile(r"\bATTACH\s+(?:DATABASE\b|[\'\"])", re.IGNORECASE)
+
+
+def _strip_sql_comments(sql: str) -> str:
+    """Remove SQL comments in one pass, leaving quoted text untouched."""
+    out: list[str] = []
+    index = 0
+    length = len(sql)
+    while index < length:
+        char = sql[index]
+        if char == "-" and sql.startswith("--", index):
+            newline = sql.find("\n", index)
+            index = length if newline < 0 else newline
+            continue
+        if char == "/" and sql.startswith("/*", index):
+            close = sql.find("*/", index + 2)
+            # An unterminated block comment runs to the end, which is what
+            # SQLite does with it too.
+            index = length if close < 0 else close + 2
+            out.append(" ")
+            continue
+        closer = _SQL_QUOTE_PAIRS.get(char)
+        if closer is not None:
+            close = sql.find(closer, index + 1)
+            end = length if close < 0 else close + 1
+            out.append(sql[index:end])
+            index = end
+            continue
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
+def _describe(source: str | None) -> str:
+    """How to name the refused file to the user.
+
+    ``None`` when the caller had no user-visible filename to give -- the
+    preview knows only the staging path, and a staging basename carries the job
+    id and the temp prefix, which is exactly the leak
+    ``_friendly_open_failure_message`` exists to avoid in ``ingest/ogr.py``.
+    """
+    return f"'{source}'" if source else "The uploaded file"
+
+
+def _refuse_virtual_table(entry: str, module: str | None, source: str | None) -> None:
+    logger.warning(
+        "Upload declares an external-source virtual table",
+        event_type="security",
+        reason="sqlite_virtual_table",
+        filename=source,
+        entry=entry,
+        module=module,
+    )
+    raise UnsafeUploadError(
+        f"{_describe(source)} declares the virtual table '{entry}', which "
+        "tells the database engine to read its rows from somewhere outside "
+        "the file. Uploads may only carry their own data. Export the layers "
+        "you want as ordinary tables and upload that."
+    )
+
+
+# The two SQLite result codes that mean "this is not a database I can read",
+# as opposed to "I could not get at it". Kept as a named set because the
+# difference decides whether this check speaks or stands aside.
+_NOT_A_READABLE_DATABASE = frozenset({sqlite3.SQLITE_NOTADB, sqlite3.SQLITE_CORRUPT})
+
+
+def _handle_unreadable_database(exc: sqlite3.Error, source: str | None) -> None:
+    """Decide whether an open failure is this check's to report.
+
+    A file whose bytes are not a database has no schema to name an outside
+    source, and GDAL -- reading it through the same SQLite -- will not read it
+    either. `validate_file_content` already refuses a `.gpkg` whose magic bytes
+    are not a database, and `ingest/ogr.py` has a carefully worded message for
+    the open failure that follows. Answering "not a database" here would only
+    replace that message with a worse one, so those two codes stand aside.
+
+    Anything else -- a permission problem, an encrypted file, a code this does
+    not recognise -- is a file this cannot vouch for, and it refuses.
+    """
+    if getattr(exc, "sqlite_errorcode", None) in _NOT_A_READABLE_DATABASE:
+        return
+    raise UnsafeUploadError(
+        f"{_describe(source)} could not be read as a database file."
+    ) from exc
+
+
+def _scan_sqlite_schema(db_path: str, source: str | None) -> None:
+    """Refuse a SQLite database whose schema names an outside source.
+
+    Opened through the stdlib driver in read-only immutable mode, so no page is
+    written, no journal is replayed, and nothing in the schema is instantiated
+    -- a virtual table's module is loaded on first ACCESS to the table, and
+    reading ``sqlite_master`` is not that. The raw ``sql`` column is what is
+    inspected: ``PRAGMA`` output reports a virtual table as an ordinary one and
+    would show none of this.
+
+    ``immutable=1`` also means a sidecar ``-wal``/``-journal`` is ignored rather
+    than replayed, so in principle this could read an older schema than a
+    replaying reader would. It cannot here: a top-level upload is one staged
+    file with no sidecar, and an archive member is copied out on its own.
+    """
+    if not os.path.isfile(db_path):
+        # Not a refusal: there is no content to judge. A staged file that is
+        # gone is an operational failure the callers already report in their
+        # own words ("Staging file no longer available", or GDAL's friendly
+        # open failure), and answering "not a database" here would replace a
+        # true message with a misleading one.
+        return
+    # as_uri() percent-encodes, so a staging path containing ? or # cannot
+    # smuggle extra URI parameters past the two set here.
+    uri = f"{Path(os.path.abspath(db_path)).as_uri()}?mode=ro&immutable=1"
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(uri, uri=True)
+        # Ask the size before reading the text, so an oversized schema is
+        # refused rather than materialised and walked.
+        (total_bytes,) = connection.execute(
+            "SELECT COALESCE(SUM(LENGTH(sql)), 0) FROM sqlite_master "
+            "WHERE sql IS NOT NULL"
+        ).fetchone()
+        if total_bytes > MAX_SQLITE_SCHEMA_BYTES:
+            raise UnsafeUploadError(
+                f"{_describe(source)} declares "
+                f"{total_bytes // (1024 * 1024)} MB of schema, more than the "
+                f"{MAX_SQLITE_SCHEMA_BYTES // (1024 * 1024)} MB an upload is "
+                "checked for."
+            )
+        rows = connection.execute(
+            "SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL "
+            f"LIMIT {MAX_SQLITE_SCHEMA_ROWS + 1}"
+        ).fetchall()
+    except sqlite3.Error as exc:
+        _handle_unreadable_database(exc, source)
+        return
+    finally:
+        if connection is not None:
+            connection.close()
+
+    if len(rows) > MAX_SQLITE_SCHEMA_ROWS:
+        # Truncating the scan would mean the rows past the cap were never
+        # looked at, which is the one outcome this must not produce quietly.
+        raise UnsafeUploadError(
+            f"{_describe(source)} declares more than {MAX_SQLITE_SCHEMA_ROWS} "
+            "schema objects, which is more than an upload is checked for."
+        )
+
+    for name, sql in rows:
+        # Comments stripped and whitespace collapsed BEFORE anything is
+        # matched: SQLite accepts a statement split across lines and
+        # interrupted by comments, so a pattern that did not normalise first
+        # would answer "no virtual table here" to a spelling the engine reads
+        # perfectly well.
+        statement = " ".join(_strip_sql_comments(sql or "").split())
+        entry = name or "?"
+        if _ATTACH_RE.search(statement):
+            _refuse_virtual_table(entry, "ATTACH", source)
+        if not _VIRTUAL_TABLE_RE.search(statement):
+            continue
+        match = _VIRTUAL_MODULE_RE.search(statement)
+        if match is None:
+            # A virtual table whose module this cannot read confidently. The
+            # engine will read it; refusing is the only honest answer.
+            _refuse_virtual_table(entry, None, source)
+            return
+        module = match.group(1).strip("\"'[]`").lower()
+        if module not in ALLOWED_VIRTUAL_TABLE_MODULES:
+            _refuse_virtual_table(entry, module, source)
+
+
+# Reading a member to its end makes zipfile verify the CRC, and a member whose
+# compressed bytes are damaged raises from the archive rather than from us.
+# None of these is a ValueError, and every door above maps ValueError -- the
+# upload gauntlet's docstring promises it and `tasks_vector` catches exactly
+# that -- so an ordinary truncated upload would fail its job with an uncaught
+# exception instead of the refusal the caller is meant to see.
+#
+# `validate_zip_safety` never reads member DATA (it works from the central
+# directory), so it cannot have caught this on the way past: the conversion has
+# to live at the reads.
+# RuntimeError is what zipfile raises for a password-protected member and
+# NotImplementedError for a compression method it does not implement. Neither
+# is a ValueError, `validate_zip_safety` passes both (it never reads member
+# data), and both are ordinary things to find in an upload rather than bugs --
+# so both belong here with the corruption cases. The tuple is narrow and only
+# wraps the member reads, so a genuine RuntimeError from elsewhere is untouched.
+_CORRUPT_MEMBER_ERRORS = (
+    zipfile.BadZipFile,
+    zlib.error,
+    EOFError,
+    RuntimeError,
+    NotImplementedError,
+)
+
+
+@contextmanager
+def _member_read_errors(entry: str):
+    """Turn a damaged member into the same refusal shape every door maps."""
+    try:
+        yield
+    except _CORRUPT_MEMBER_ERRORS as exc:
+        raise UnsafeUploadError(
+            f"The archive entry '{entry}' could not be read. The upload may be "
+            "corrupt, truncated, password-protected, or compressed with a "
+            "method this server does not support."
+        ) from exc
+
+
+class _ScanBudget:
+    """Decompressed bytes the archive scan may spend, in total.
+
+    A per-member bound is not a bound: ten thousand members each just under
+    the per-member limit is ten thousand times the limit. This is the budget
+    for the whole walk, and it is the same total ``validate_zip_safety``
+    allows the archive to hold, so the scan can never decompress more than the
+    archive was permitted to contain.
+    """
+
+    def __init__(self, limit: int) -> None:
+        self.remaining = limit
+
+    def spend(self, count: int, entry: str) -> None:
+        self.remaining -= count
+        if self.remaining < 0:
+            raise UnsafeUploadError(
+                f"Reading '{entry}' would take this upload past the "
+                f"{MAX_DECOMPRESSED_BYTES // (1024**3)} GB decompressed limit."
+            )
+
+
+def _member_head(
+    archive: zipfile.ZipFile, info: zipfile.ZipInfo, budget: _ScanBudget
+) -> bytes:
+    """The leading bytes GDAL would identify this member by."""
+    with _member_read_errors(info.filename):
+        with archive.open(info) as member:
+            head = member.read(MEMBER_SNIFF_BYTES)
+    budget.spend(len(head), info.filename)
+    return head
+
+
+def _refuse_vrt_member(entry: str, source: str | None) -> None:
+    logger.warning(
+        "Archive member carries GDAL driver metadata",
+        event_type="security",
+        reason="driver_metadata_member",
+        filename=source,
+        entry=entry,
+    )
+    raise UnsafeUploadError(
+        f"The archive entry '{entry}' is a GDAL VRT. A VRT describes where to "
+        "read data from rather than carrying any, so it is not accepted "
+        "inside an upload. Upload the data files themselves."
+    )
+
+
+def _copy_member_bounded(
+    archive: zipfile.ZipFile,
+    info: zipfile.ZipInfo,
+    destination: str,
+    budget: _ScanBudget,
+) -> None:
+    """Copy one archive member out, against the shared scan budget."""
+    with _member_read_errors(info.filename):
+        with archive.open(info) as member, open(destination, "wb") as out:
+            while True:
+                chunk = member.read(1024 * 1024)
+                if not chunk:
+                    break
+                budget.spend(len(chunk), info.filename)
+                out.write(chunk)
+
+
+def _scan_archive_members(file_path: str, filename: str | None) -> None:
+    """Refuse an archive whose members instruct GDAL to read somewhere else.
+
+    Every member is judged by its leading bytes, never by its name -- see the
+    rule beside ``_SQLITE_HEADER``. A member GDAL would open as SQLite has its
+    schema read; a member carrying a VRT root is refused outright.
+
+    ``validate_zip_safety`` runs FIRST, so the entry count, the per-entry
+    compression ratio and the declared total are bounded before a single byte
+    is decompressed here. On the preview path this runs before the ingest
+    task's own call, so it cannot inherit that guarantee -- it has to ask for
+    it. What is left is then held to one shared budget.
+    """
+    if not os.path.isfile(file_path):
+        return  # same reasoning as _scan_sqlite_schema
+    try:
+        validate_zip_safety(file_path)
+    except UnsafeUploadError:
+        raise
+    except ValueError as exc:
+        # The same refusal, raised as this module's own class so the endpoints
+        # that let a content refusal's wording through let this one through
+        # too instead of flattening it into a generic message.
+        raise UnsafeUploadError(str(exc)) from exc
+
+    budget = _ScanBudget(MAX_DECOMPRESSED_BYTES)
+    try:
+        archive = zipfile.ZipFile(file_path, "r")
+    except zipfile.BadZipFile as exc:
+        # `validate_zip_safety` above would normally have refused this already;
+        # kept because the guard belongs with the open, not with whatever ran
+        # before it (a previous revision had it and the rewrite dropped it).
+        raise UnsafeUploadError("File is not a valid ZIP container.") from exc
+    with archive:
+        for info in archive.infolist():
+            if info.is_dir():
+                continue
+            entry = f"{filename}:{info.filename}" if filename else info.filename
+            head = _member_head(archive, info, budget)
+            if any(marker in head for marker in _VRT_ROOT_MARKERS):
+                _refuse_vrt_member(info.filename, filename)
+            if not head.startswith(_SQLITE_HEADER):
+                continue
+            handle, staged = tempfile.mkstemp(
+                suffix=Path(info.filename).suffix,
+                dir=Path(file_path).parent,
+            )
+            os.close(handle)
+            try:
+                _copy_member_bounded(archive, info, staged, budget)
+                _scan_sqlite_schema(staged, entry)
+            finally:
+                Path(staged).unlink(missing_ok=True)
+
+
+def validate_content_directives(file_path: str, filename: str | None = None) -> None:
+    """Refuse an upload whose content tells GDAL to read somewhere else.
+
+    Two shapes, one question. A top-level SQLite-family file has its schema
+    read, because a virtual-table module can name a source outside the
+    database. An archive has every member judged BY CONTENT: one GDAL would
+    open as SQLite is scanned the same way, and one carrying a VRT root is
+    refused.
+
+    A top-level file is still matched by extension, and that is sound where an
+    archive member is not: the declared extension is exactly what
+    ``local_input_driver_args`` hands GDAL as ``-if``, so for that file the
+    declared extension IS the driver set. Inside an archive GDAL sees every
+    member and chooses for itself, which is the whole of the rule beside
+    ``_SQLITE_HEADER``.
+
+    Raises:
+        UnsafeUploadError: when the content names a source outside the file,
+            when the archive fails the bomb checks, or when a database cannot
+            be opened for a reason that is not "these bytes are not a
+            database" -- see ``_handle_unreadable_database`` for why that one
+            case stands aside instead.
+    """
+    # A staging basename is not a user-visible name; see `_describe`.
+    source = filename
+    suffix = Path(source or file_path).suffix.lower()
+    if suffix in SQLITE_FAMILY_EXTENSIONS:
+        _scan_sqlite_schema(file_path, source)
+        return
+    if suffix in ZIP_CONTAINER_EXTENSIONS:
+        _scan_archive_members(file_path, source)
 
 
 def _zip_directory_metadata(file_path: str) -> tuple[int, int, int]:
@@ -518,6 +1012,8 @@ def validate_zip_safety(file_path: str) -> None:
     Raises ValueError if:
     - File is not a valid ZIP
     - Any entry has compression ratio > MAX_COMPRESSION_RATIO
+    - Any entry is a GDAL driver-metadata document (see
+      DRIVER_METADATA_EXTENSIONS)
     - Any entry is a nested archive
     - Total decompressed size > MAX_DECOMPRESSED_BYTES
     """
@@ -547,8 +1043,25 @@ def validate_zip_safety(file_path: str) -> None:
                             f"{MAX_COMPRESSION_RATIO}:1."
                         )
 
-                # Nested archive check
                 entry_ext = Path(info.filename).suffix.lower()
+
+                # Driver-metadata check (see DRIVER_METADATA_EXTENSIONS)
+                if entry_ext in DRIVER_METADATA_EXTENSIONS:
+                    logger.warning(
+                        "ZIP contains a GDAL driver-metadata member",
+                        event_type="security",
+                        reason="driver_metadata_member",
+                        filename=Path(file_path).name,
+                        entry=info.filename,
+                    )
+                    raise ValueError(
+                        f"ZIP entry '{info.filename}' is a GDAL VRT. A VRT "
+                        "describes where to read data from rather than "
+                        "carrying any, so it is not accepted inside an "
+                        "upload. Upload the data files themselves."
+                    )
+
+                # Nested archive check
                 if entry_ext in ARCHIVE_EXTENSIONS:
                     logger.warning(
                         "ZIP contains nested archive",

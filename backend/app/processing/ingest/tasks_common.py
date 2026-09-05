@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from app.core.async_io import await_draining
+from app.core.async_io import await_draining, run_in_thread_draining
 
 from procrastinate import App, PsycopgConnector
 
@@ -794,6 +794,7 @@ async def _validate_upload_file_safety(
         validate_file_content,
         validate_file_size,
         validate_archive_safety,
+        validate_content_directives,
     )
     from app.core.persistent_config import UPLOAD_MAX_SIZE_MB
 
@@ -805,6 +806,15 @@ async def _validate_upload_file_safety(
     validate_file_content(file_path, effective_filename)
     validate_file_size(file_path, max_size_mb * 1024 * 1024)
     validate_archive_safety(file_path, effective_filename)
+    # fix(#1846, GHSA-hrf5-v3cq-frx5): beside the archive checks, and for the
+    # same reason -- what the file says to do is as much a property of the
+    # upload as its shape is.
+    # fix(#1846 review round 4): off the event loop. The schema walk is linear
+    # but a 4 MB schema is still real work, and this runs inside the request
+    # that uploaded the file.
+    await run_in_thread_draining(
+        validate_content_directives, file_path, effective_filename
+    )
 
 
 def _resolve_effective_srid(

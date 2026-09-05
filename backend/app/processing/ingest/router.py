@@ -115,7 +115,10 @@ from app.processing.ingest.presigned import (
     sign_url_with_deadline,
 )
 from app.processing.ingest.tasks import regenerate_vrt_staged
-from app.processing.ingest.validation import validate_file_content
+from app.processing.ingest.validation import (
+    UnsafeUploadError,
+    validate_file_content,
+)
 from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_vrt_regeneration_failed_rollback,
@@ -1729,6 +1732,17 @@ async def preview_file(
         # through to the generic handler below would tell the user their file
         # "may be malformed or unsupported" when it is merely too large, and
         # preview runs before commit, so that is the moment they can act on it.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        )
+    except UnsafeUploadError as exc:
+        # fix(#1846, GHSA-hrf5-v3cq-frx5): the refusal is server-authored, names
+        # what was refused and says what to upload instead, so it goes to the
+        # caller rather than being flattened into the generic message below.
+        # A presigned upload reaches its first whole-file check here: the
+        # presign door sees only a header probe, and the task gauntlet runs
+        # after commit.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
