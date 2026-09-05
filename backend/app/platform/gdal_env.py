@@ -60,16 +60,19 @@ _NETWORK_AND_POINTER_DRIVERS: tuple[str, ...] = (
 _SERVICE_KEPT_DRIVERS = frozenset({"WFS", "OAPIF"})
 
 
-# fix(#1828): the GML driver fetches every `xs:import` location, credential
-# header attached, once GML_USE_SCHEMA_IMPORT is YES anywhere in the process
-# env. Set by value here so an operator's env cannot flip it on.
-_SCHEMA_IMPORT_CLAMP: dict[str, str] = {"GML_USE_SCHEMA_IMPORT": "NO"}
+# fix(#1828): at YES the GML driver fetches every `xs:import` location of a
+# schema, and the schema a GetFeature response points at, credential header
+# attached. Both are NO by value here so an operator's env cannot flip them.
+_SCHEMA_FETCH_CLAMP: dict[str, str] = {
+    "GML_USE_SCHEMA_IMPORT": "NO",
+    "GML_DOWNLOAD_SCHEMA": "NO",
+}
 
 
 def _gdal_skip_env(drivers: tuple[str, ...]) -> dict[str, str]:
     """os.environ overlaid with a GDAL_SKIP clamp for ``drivers`` and the
-    schema-import clamp, both by value."""
-    return {**os.environ, "GDAL_SKIP": " ".join(drivers), **_SCHEMA_IMPORT_CLAMP}
+    schema-fetch clamps, all by value."""
+    return {**os.environ, "GDAL_SKIP": " ".join(drivers), **_SCHEMA_FETCH_CLAMP}
 
 
 def gdal_vector_safe_env() -> dict[str, str]:
