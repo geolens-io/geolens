@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Any
+from typing import Any, NamedTuple
 
 import structlog
 from sqlalchemy import func, select, text
@@ -46,7 +46,20 @@ class DatasetTitleMismatchError(ValueError):
     """
 
 
-async def _reap_managed_storage(prefixes: list[str], tenant_id: str | None) -> None:
+class DatasetDeletion(NamedTuple):
+    """What `delete_dataset` removed, and what the caller must still reap.
+
+    `storage_prefixes` are GeoLens-managed object prefixes for this dataset;
+    `tenant_id` is the tenant they live under. The caller MUST reap them after
+    its commit, and only after it: nothing here touches object storage.
+    """
+
+    table_name: str
+    storage_prefixes: tuple[str, ...]
+    tenant_id: str | None
+
+
+async def reap_managed_storage(prefixes: list[str], tenant_id: str | None) -> None:
     """Delete every object under GeoLens-managed prefixes for one dataset.
 
     Extracted from ``delete_dataset``'s two branches (which reaped identically
@@ -107,14 +120,13 @@ class DependentVrtError(Exception):
 
 async def delete_dataset(
     session: AsyncSession, dataset_id: uuid.UUID, confirm_title: str
-) -> str:
-    """Delete a dataset: drop data table (vector) or clean storage artifacts (raster).
+) -> DatasetDeletion:
+    """Delete a dataset's rows: drop the data table (vector) or leave it (raster).
 
-    Deleting the record cascades to the dataset via FK.
-    Returns the table_name for logging. Does NOT commit.
+    Deleting the record cascades to the dataset via FK. Does NOT commit, and
+    does NOT touch object storage: it returns the prefixes the caller must reap
+    once the delete has COMMITTED. See `DatasetDeletion` for why that order.
     Raises ValueError if dataset not found, name mismatch, or invalid table name.
-    For raster datasets, storage cleanup happens before DB deletion so that a
-    storage failure prevents any DB changes (no orphaned records).
 
     fix(#1452): a dataset registered from an existing PostGIS table is DETACHED
     rather than dropped — the catalog row, its grants, its tiles and its search
@@ -127,6 +139,7 @@ async def delete_dataset(
     # Hoisting to module-top broke 7 tests in test_vrt_delete_guard_174.py
     # that patch the façade attribute (post-impl-20260501 P3 #11 partial revert).
     from app.modules.catalog.datasets.domain.service import get_dataset
+    from app.modules.catalog.features.service import lock_catalog_rows_for_write
 
     dataset = await get_dataset(session, dataset_id)
     if dataset is None:
@@ -173,6 +186,13 @@ async def delete_dataset(
     # operator had already dropped. NULL therefore means "nothing to identify",
     # never "no owner"; see the tombstone insert below.
     relation_oid: int | None = None
+
+    # fix(#1847): the job rows before the table and the pair; a worker holds
+    # its job row before either, and the record delete cascades into them.
+    from app.platform.catalog_locks import lock_ingest_jobs
+    from app.platform.jobs.models import IngestJob
+
+    await lock_ingest_jobs(session, job_cls=IngestJob, dataset_id=dataset.id)
 
     if record_type in RASTER_FAMILY_RECORD_TYPES:
         if record_type == "raster_dataset":
@@ -232,15 +252,19 @@ async def delete_dataset(
             # vrt_source_links cascade-deleted via ON DELETE CASCADE on vrt_dataset_id FK
             prefixes = [f"rasters/{dataset_id}/"]
 
-        # Clean up managed storage artifacts before touching the DB.
-        # If any storage delete fails the exception propagates and the
-        # caller's transaction rolls back, leaving the DB record intact.
+        # These prefixes are returned, not reaped: the caller commits first and
+        # then reaps best-effort, so a reap failure leaves orphaned objects
+        # rather than a catalog row pointing at deleted bytes.
         tenant_id = current_tenant_var.get()
         if is_multi_tenant() and tenant_id is None:
             raise RuntimeError(
                 "Dataset deletion is missing tenant context in multi-tenant mode"
             )
-        await _reap_managed_storage(prefixes, tenant_id)
+        # fix(#1847): includes the raster child, which the record delete
+        # cascades to and the replace worker holds across its upload.
+        await lock_catalog_rows_for_write(session, dataset, with_raster_asset=True)
+
+        storage_prefixes = tuple(prefixes)
     else:
         # Vector datasets: drop the PostGIS data table AND clean managed storage.
         # fix(#430 BA-17): vector ingest persists originals/{id}/ (archived source) and
@@ -295,9 +319,10 @@ async def delete_dataset(
         # the row is going), and the linearization is not reversible at all
         # since the pre-linear geometries are gone. Re-registering the table
         # re-applies all three idempotently.
-        await _reap_managed_storage(
-            [f"originals/{dataset_id}/", f"vectors/{dataset_id}/"], tenant_id
-        )
+        # fix(#1847): ahead of the reap, behind the DROP. See the raster branch.
+        await lock_catalog_rows_for_write(session, dataset)
+
+        storage_prefixes = (f"originals/{dataset_id}/", f"vectors/{dataset_id}/")
 
     # fix(#1443): retire the name before releasing it. This is the one site
     # where a name a LIVE dataset row carried stops being carried by one, and
@@ -396,7 +421,8 @@ async def delete_dataset(
             )
         )
 
-    # Delete the record (CASCADE handles dataset deletion)
+    # Delete the record (CASCADE handles dataset deletion). The cascade takes
+    # the pair records-first; both branches above already hold it in order.
     await session.delete(dataset.record)
 
     if record_type not in RASTER_FAMILY_RECORD_TYPES:
@@ -416,6 +442,10 @@ async def delete_dataset(
         # rather than after the caller's commit so single delete, bulk delete,
         # and future callers get it from one place. Raster/VRT are excluded —
         # their tiles come from Titiler, and that branch drops no table.
+        #
+        # fix(#1847): runs with the catalog pair held, and stays that way. Row
+        # locks last to commit, so moving it out means moving it past the
+        # caller's commit. Bound: one round trip, one table's keys, no scan.
         from app.platform.cache.provider import get_tile_cache
 
         tile_cache = get_tile_cache()
@@ -429,9 +459,9 @@ async def delete_dataset(
     # transaction reads the not-yet-deleted row and re-caches the dataset we
     # just evicted. Only a commit makes the delete visible to that reader.
 
-    # Audit trail for an irreversible operation (DROP TABLE for vector,
-    # storage cleanup for raster/VRT). The DB-side row deletion is logged
-    # by the audit_emit() facade in the calling router.
+    # Audit trail for an irreversible operation (DROP TABLE for vector). The
+    # DB-side row deletion is logged by the audit_emit() facade in the calling
+    # router, which also reaps the storage prefixes after its commit.
     logger.info(
         "dataset_deleted",
         dataset_id=str(dataset_id),
@@ -449,7 +479,7 @@ async def delete_dataset(
         name_retired=name_is_freed,
     )
 
-    return table_name
+    return DatasetDeletion(table_name, storage_prefixes, tenant_id)
 
 
 async def get_dataset_versions(

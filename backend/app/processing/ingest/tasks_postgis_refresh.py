@@ -918,6 +918,10 @@ async def refresh_postgis(
             # Reading a single column keeps the statement off the joined
             # record, which PostgreSQL will not lock through an outer join.
             #
+            # fix(#1847): also the first half of the house (datasets, records)
+            # order, since `_apply_measurement` writes the record row below.
+            # The order is stated in `app/platform/catalog_locks.py`.
+            #
             # What this guard is NOT (review round 6): it does not detect the
             # OWNER writing to the table directly, because nothing outside
             # GeoLens bumps a catalog field. That is deliberate and not a gap
@@ -931,6 +935,13 @@ async def refresh_postgis(
             # this whole feature exists to correct, on demand. What the guard
             # closes is the different and fixable problem: GeoLens rolling
             # BACK its own newer measurement.
+            # fix(#1847): the job row first, the order every worker phase and
+            # the dataset delete hold; the finalize write below touches it.
+            await session.execute(
+                select(IngestJob.id)
+                .where(IngestJob.id == job_uuid)
+                .with_for_update(key_share=True)
+            )
             locked_version = await session.scalar(
                 select(Dataset.tile_cache_version)
                 .where(Dataset.id == dataset_uuid)

@@ -2089,12 +2089,11 @@ async def bump_tile_cache_version_atomic(
 
     A writer without that lock cannot use it, and taking the lock would not
     help: the feature-edit routers (``features/router.py``) bump through a
-    plain read-modify-write and never lock the row, so an absolute write
-    computed from a read they took earlier lands on top of anything committed
-    in between. One side locking does not serialize a race the other side is
-    not playing. ``tile_cache_version = tile_cache_version + 1`` in the
-    database does, because the increment is evaluated against the row as it
-    is at write time.
+    plain read-modify-write, so an absolute write computed from a read they
+    took earlier lands on top of anything committed in between. One side
+    locking does not serialize a race the other side is not playing.
+    ``tile_cache_version = tile_cache_version + 1`` in the database does,
+    because the increment is evaluated against the row as it is at write time.
 
     Returns the new value, so the caller reports and logs the version it
     actually published rather than the one it hoped for. Still called in the
@@ -2421,6 +2420,22 @@ async def _apply_reupload_swap(
         await ensure_geom_4326_gist_index(session, table_name, schema=_tenant_schema)
 
     # Update dataset metadata in the same transaction as swap
+    # fix(#1847): the catalog writes start here, and this function dirties both
+    # rows. `lock_timeout=None` so SET LOCAL does not clamp an ingest swap to a
+    # request's budget.
+    from app.platform.catalog_locks import lock_catalog_rows
+    from app.platform.extensions import get_processing_port
+
+    _port = get_processing_port()
+    await lock_catalog_rows(
+        session,
+        dataset_cls=_port.get_dataset_orm_class(),
+        record_cls=_port.get_record_orm_class(),
+        dataset_id=dataset.id,
+        record_id=dataset.record_id,
+        lock_timeout=None,
+    )
+
     dataset.srid = metadata["srid"]
     dataset.geometry_type = effective_geometry_type
     # fix(#1361): modality is derived, so keep deriving it. `service_create.py`

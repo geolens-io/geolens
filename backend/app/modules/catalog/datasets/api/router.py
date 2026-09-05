@@ -14,7 +14,15 @@ from fastapi import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.exc import NoInspectionAvailable
+
 from app.core.identity import Identity
+from app.core.db.sqlstate import is_lock_conflict
+from app.platform.catalog_locks import (
+    CATALOG_LOCK_CONFLICT_CODE,
+    CatalogLockConflict,
+)
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.audit.schemas import AuditLogListResponse, AuditLogResponse
 from app.modules.audit.service import AuditEvent, audit_emit, query_audit_logs
@@ -434,6 +442,45 @@ async def update_dataset_metadata(
     return response
 
 
+async def _reap_after_commit(deletion) -> None:
+    """Remove a deleted dataset's objects, once its rows are gone for good.
+
+    Runs after the commit because it is irreversible and the delete's FK
+    cascades can still lose a lock race. A failure orphans objects and cannot
+    resurrect a dataset, so it is logged rather than raised.
+    """
+    from app.modules.catalog.datasets.domain.service import reap_managed_storage
+
+    try:
+        await reap_managed_storage(list(deletion.storage_prefixes), deletion.tenant_id)
+    except Exception:  # broad: the rows are already gone, so no failure here can be raised at a caller that could act on it
+        logger.exception(
+            "Dataset rows are deleted but their storage was not reaped",
+            table_name=deletion.table_name,
+            prefixes=list(deletion.storage_prefixes),
+        )
+
+
+async def _rollback_failed_item(db: AsyncSession, user) -> None:
+    """Roll back one failed bulk-delete item without breaking the next one.
+
+    `rollback()` expires every instance in the session, including the actor the
+    per-item access check reads, whose next attribute read would lazy-load
+    outside the greenlet. Reloading it here is awaited.
+
+    Only a PERSISTENT mapped instance is reloaded. An `IdentityExtension`
+    identity has no mapper, so `refresh()` would raise UnmappedInstanceError on
+    it; it is also not in the session, so nothing expired it.
+    """
+    await db.rollback()
+    try:
+        state = sa_inspect(user)
+    except NoInspectionAvailable:
+        return
+    if state.persistent:
+        await db.refresh(user)
+
+
 # ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
 # no-trailing-slash variants register against the same handler. Slash form
 # stays canonical (already in OpenAPI); no-slash is a hidden alias closing
@@ -448,6 +495,7 @@ async def bulk_delete_datasets_endpoint(
 ) -> BulkDeleteResponse:
     """Delete multiple datasets in one request. Returns per-item results."""
     results: list[BulkDeleteResultItem] = []
+    pending_reaps: list = []
     deleted = 0
 
     for item in body.datasets:
@@ -478,7 +526,8 @@ async def bulk_delete_datasets_endpoint(
                 )
                 continue
 
-            table_name = await delete_dataset(db, item.dataset_id, item.confirm_title)
+            deletion = await delete_dataset(db, item.dataset_id, item.confirm_title)
+            table_name = deletion.table_name
             await audit_emit(
                 db,
                 AuditEvent(
@@ -490,9 +539,12 @@ async def bulk_delete_datasets_endpoint(
                     ip_address=request.client.host if request.client else None,
                 ),
             )
-            # Commit per-item so a later failure cannot orphan storage objects
-            # that were already deleted for successfully-committed datasets.
+            # Commit per item so one item's failure cannot roll back the rows
+            # of the items before it.
             await db.commit()
+            # fix(#1847): the reap is deferred past both invalidations below;
+            # awaiting object storage here would delay them per item.
+            pending_reaps.append(deletion)
             # fix(#1429): only now is the delete visible to a concurrent tile
             # request, so only now can the tile router's table_name -> metadata
             # map be evicted without the request re-caching the deleted row.
@@ -501,8 +553,34 @@ async def bulk_delete_datasets_endpoint(
                 BulkDeleteResultItem(dataset_id=item.dataset_id, status="deleted")
             )
             deleted += 1
+        except CatalogLockConflict as exc:
+            # fix(#1847): per item, not raised. The batch commits per item, so
+            # aborting would discard results already committed, and the
+            # catch-all would call a contended row an unexpected failure.
+            await _rollback_failed_item(db, user)
+            results.append(
+                BulkDeleteResultItem(
+                    dataset_id=item.dataset_id,
+                    status="error",
+                    detail=str(exc),
+                    code=CATALOG_LOCK_CONFLICT_CODE,
+                )
+            )
+            continue
         except Exception as exc:  # broad: per-item bulk-delete is isolated — any failure is recorded per-item without aborting the batch
-            await db.rollback()
+            await _rollback_failed_item(db, user)
+            if is_lock_conflict(exc):
+                # fix(#1847): a wait after the acquisition (the record cascade on
+                # a held child) is the same contended row, so the same code.
+                results.append(
+                    BulkDeleteResultItem(
+                        dataset_id=item.dataset_id,
+                        status="error",
+                        detail="Another operation is updating this dataset's catalog entry.",
+                        code=CATALOG_LOCK_CONFLICT_CODE,
+                    )
+                )
+                continue
             if isinstance(exc, (DependentVrtError, DatasetTitleMismatchError)):
                 detail = str(exc)
             else:
@@ -521,6 +599,11 @@ async def bulk_delete_datasets_endpoint(
 
     if deleted > 0:
         await invalidate_catalog_cache()
+
+    # fix(#1847): last, so no storage round trip can delay or skip the
+    # invalidations above for any item in the batch.
+    for deletion in pending_reaps:
+        await _reap_after_commit(deletion)
 
     return BulkDeleteResponse(
         deleted=deleted, errors=len(results) - deleted, results=results
@@ -546,7 +629,8 @@ async def delete_dataset_endpoint(
     await check_dataset_write_access(db, dataset, dataset_id, user)
 
     try:
-        table_name = await delete_dataset(db, dataset_id, body.confirm_title)
+        deletion = await delete_dataset(db, dataset_id, body.confirm_title)
+        table_name = deletion.table_name
     except DependentVrtError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -596,6 +680,11 @@ async def delete_dataset_endpoint(
     # visibility, so a stale entry would authorize a successor drawing this
     # freed table name under the deleted dataset's rules.
     notify_table_invalidated(table_name)
+
+    # fix(#1847): after both invalidations. The reap awaits object storage, so
+    # a slow backend would delay them and a cancellation would skip them,
+    # leaving search and the tile map serving a deleted dataset until TTL.
+    await _reap_after_commit(deletion)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

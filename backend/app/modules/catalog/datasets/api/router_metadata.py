@@ -196,6 +196,7 @@ async def update_attribute_endpoint(
         get_attribute as get_attr_svc,
     )
     from app.modules.catalog.datasets.domain.service import update_attribute
+    from app.modules.catalog.features.service import lock_catalog_rows_for_write
 
     attr = await get_attr_svc(db, attribute_id)
     if attr is None or attr.dataset_id != dataset.id:
@@ -206,6 +207,9 @@ async def update_attribute_endpoint(
         # Use exclude_unset (not exclude_none) so explicit null clears the field
         updates = body.model_dump(exclude_unset=True)
         if updates:
+            # fix(#1847): the pair before the attribute row, the order every
+            # column DDL holds; attribute-first is an ABBA against them.
+            await lock_catalog_rows_for_write(db, dataset)
             attr = await update_attribute(db, attribute_id, **updates)
             dataset.record.updated_by = user.id
             await audit_emit(
@@ -251,7 +255,11 @@ async def reset_attribute_endpoint(
     from app.modules.catalog.datasets.domain.service import (
         get_attribute as get_attr_svc,
     )
-    from app.modules.catalog.datasets.domain.service import reset_attribute
+    from app.modules.catalog.datasets.domain.service import (
+        reset_attribute,
+        sample_example_values,
+    )
+    from app.modules.catalog.features.service import lock_catalog_rows_for_write
 
     attr = await get_attr_svc(db, attribute_id)
     if attr is None or attr.dataset_id != dataset.id:
@@ -259,7 +267,15 @@ async def reset_attribute_endpoint(
             status_code=status.HTTP_404_NOT_FOUND, detail="Attribute not found"
         )
     try:
-        attr = await reset_attribute(db, attribute_id, dataset.table_name)
+        # fix(#1847): data table, then the pair, then the attribute row: every
+        # column DDL holds its ALTER TABLE before it takes the pair.
+        examples = await sample_example_values(
+            db, dataset.table_name, attr.field_name, attr.data_type
+        )
+        await lock_catalog_rows_for_write(db, dataset)
+        attr = await reset_attribute(
+            db, attribute_id, dataset.table_name, example_values=examples
+        )
         dataset.record.updated_by = user.id
         await audit_emit(
             db,

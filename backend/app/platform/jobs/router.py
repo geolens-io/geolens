@@ -18,6 +18,7 @@ from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db.sqlstate import is_lock_conflict
 from app.core.dependencies import get_client_ip, get_db
 from app.core.identity import Identity
 from app.modules.auth.dependencies import (
@@ -981,8 +982,11 @@ def _is_lock_conflict(exc: DBAPIError) -> bool:
     acquisition in ``cancel_job`` — fix(#1709 review r2 P2)), but mapping it
     costs one tuple member and turns a future ordering regression into a
     clean conflict instead of a 500.
+
+    fix(#1847): moved to ``app.core.db.sqlstate`` for a third caller. A rename,
+    not a policy change: the shared predicate matches the same two states.
     """
-    return getattr(exc.orig, "sqlstate", None) in ("55P03", "40P01")
+    return is_lock_conflict(exc)
 
 
 # The three VRT regeneration dispatch sites (regenerate_vrt_endpoint,
@@ -1202,17 +1206,9 @@ async def cancel_job(
     # transaction, which holds its row locks from its first fenced update
     # through the swap to commit.
     #
-    # fix(#1709 review r2 P2): the try covers the WHOLE transactional block,
-    # not just the job CAS — a lock conflict inside the VRT reconciliation
-    # used to escape as a 500 — and for a vrt_regenerate job the FIRST lock
-    # taken is the RasterAsset row, because that is the first lock the
-    # worker's publish transaction takes (tasks_vrt phase 2: asset FOR UPDATE
-    # -> generation flush -> fenced job update). Both transactions leading
-    # with the asset makes it the VRT mutex: whoever holds it runs alone, the
-    # other waits at its first acquisition holding nothing, and the AB-BA
-    # cycle (worker: asset->...->job vs the old cancel: job->...->asset)
-    # cannot form. Non-VRT jobs keep the job row as their first lock, which
-    # already matches every other worker's order (fenced heartbeat first).
+    # fix(#1709 review r2 P2): the try covers the WHOLE transactional block;
+    # fix(#1847): every job type leads with the job row, the order the
+    # workers and the dataset delete hold.
     previous_attempt_id = job.attempt_id
     now = datetime.now(timezone.utc)
     attempt_predicate = (
@@ -1226,16 +1222,6 @@ async def cancel_job(
     )
     try:
         await db.execute(text("SET LOCAL lock_timeout = '2s'"))
-        if is_vrt_job:
-            # Deferred by design: platform -> processing stays function-local
-            # (D-17).
-            from app.processing.raster.models import RasterAsset
-
-            await db.execute(
-                select(RasterAsset.dataset_id)
-                .where(RasterAsset.dataset_id == job.dataset_id)
-                .with_for_update()
-            )
         cancel_result = await db.execute(
             update(IngestJob)
             .where(
@@ -1276,7 +1262,7 @@ async def cancel_job(
         if is_vrt_job:
             # fix(#1709 review P1): same transaction as the job CAS, so the
             # VRT state this job stranded and the job's terminal status land
-            # together. The asset row lock above is already held.
+            # together.
             await _reconcile_cancelled_vrt_regeneration(db, job.dataset_id, now)
         # fix(#1709 review r3 P2): an embedding backfill's dispatch commits an
         # `embedding.backfill` audit event at outcome="requested" alongside

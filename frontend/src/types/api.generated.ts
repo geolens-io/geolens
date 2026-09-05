@@ -6446,6 +6446,8 @@ export interface components {
             status: string;
             /** Detail */
             detail?: string | null;
+            /** Code */
+            code?: string | null;
         };
         /** BulkRegisterItem */
         BulkRegisterItem: {
