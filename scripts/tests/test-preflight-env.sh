@@ -1,0 +1,191 @@
+#!/bin/sh
+# Regression test for scripts/preflight-env.sh (fix(#1882)).
+#
+# `make dev` runs preflight before any Compose build, so a false failure here
+# blocks the stack on a well-formed .env. The encryption-key shape check added
+# in #1871 read .env with a local parser that returned a trailing `# comment`
+# as part of the value, which rejected two forms Compose accepts:
+#
+#   SECRET_ENCRYPTION_KEY=<key> # rotation key
+#   SECRET_ENCRYPTION_KEY="<key>" # rotation key
+#
+# Both are pinned against real `docker compose` by
+# test-env-file-compose-oracle.sh and against get_env_value's own dequoting by
+# test-restore-env-sourcing-safety.sh. preflight now reads through that same
+# get_env_value, and these cases keep it there.
+#
+# Pure shell against a throwaway repo tree. No stack, no DB, no network.
+set -u
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"       # scripts/
+
+PASS=0
+FAIL=0
+ok()  { PASS=$((PASS + 1)); printf 'ok %d - %s\n' "$((PASS + FAIL))" "$1"; }
+bad() { FAIL=$((FAIL + 1)); printf 'not ok %d - %s\n' "$((PASS + FAIL))" "$1"; }
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT INT TERM
+
+FAKE="$WORK/repo"
+mkdir -p "$FAKE/scripts/lib"
+cp "$REPO_ROOT/preflight-env.sh" "$FAKE/scripts/preflight-env.sh"
+cp "$REPO_ROOT/lib/common.sh" "$FAKE/scripts/lib/common.sh"
+
+# The key the docs tell an operator to generate. Falls back to a shape-only
+# fixture (32 zero bytes) on a host without openssl; neither is a credential.
+if command -v openssl >/dev/null 2>&1; then
+    VALID_KEY="$(openssl rand -base64 32 | tr -d '\n' | tr '+/' '-_')"
+else
+    VALID_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+fi
+
+# preflight only checks that the required trio is non-empty, so these carry no
+# key or password shape. The hex value below is the mistake the check exists to
+# catch, generated rather than written out so no high-entropy literal lands in
+# the repo.
+NONEMPTY="present-and-not-a-secret"
+if command -v openssl >/dev/null 2>&1; then
+    HEX_VALUE="$(openssl rand -hex 32)"
+else
+    HEX_VALUE="0000000000000000000000000000000000000000000000000000000000000000"
+fi
+
+REQUIRED_LINES="JWT_SECRET_KEY=$NONEMPTY
+GEOLENS_ADMIN_USERNAME=admin
+GEOLENS_ADMIN_PASSWORD=$NONEMPTY"
+
+# Writes .env with the required trio plus any extra lines, runs preflight,
+# and leaves the exit code in $STATUS and the combined output in $WORK/out.txt.
+run_preflight() {
+    printf '%s\n' "$REQUIRED_LINES" > "$FAKE/.env"
+    if [ $# -gt 0 ]; then
+        printf '%s\n' "$1" >> "$FAKE/.env"
+    fi
+    bash "$FAKE/scripts/preflight-env.sh" > "$WORK/out.txt" 2>&1
+    STATUS=$?
+}
+
+# ============================================================================
+# CASE 1 — the two annotated forms the local parser rejected.
+# ============================================================================
+run_preflight "SECRET_ENCRYPTION_KEY=$VALID_KEY # rotation key"
+if [ "$STATUS" -eq 0 ]; then
+    ok "an unquoted key with a trailing comment passes"
+else
+    bad "an unquoted key with a trailing comment was rejected: $(cat "$WORK/out.txt")"
+fi
+
+run_preflight "SECRET_ENCRYPTION_KEY=\"$VALID_KEY\" # rotation key"
+if [ "$STATUS" -eq 0 ]; then
+    ok "a quoted key with a trailing comment passes"
+else
+    bad "a quoted key with a trailing comment was rejected: $(cat "$WORK/out.txt")"
+fi
+
+run_preflight "SECRET_ENCRYPTION_KEY_PREVIOUS=$VALID_KEY # retiring"
+if [ "$STATUS" -eq 0 ]; then
+    ok "the previous key accepts the same annotated form"
+else
+    bad "an annotated previous key was rejected: $(cat "$WORK/out.txt")"
+fi
+
+# ============================================================================
+# CASE 2 — the plain forms, and no key at all.
+# ============================================================================
+run_preflight "SECRET_ENCRYPTION_KEY=$VALID_KEY"
+if [ "$STATUS" -eq 0 ]; then
+    ok "a bare key passes"
+else
+    bad "a bare key was rejected: $(cat "$WORK/out.txt")"
+fi
+
+run_preflight "SECRET_ENCRYPTION_KEY=\"$VALID_KEY\""
+if [ "$STATUS" -eq 0 ]; then
+    ok "a quoted key passes"
+else
+    bad "a quoted key was rejected: $(cat "$WORK/out.txt")"
+fi
+
+run_preflight
+if [ "$STATUS" -eq 0 ]; then
+    ok "no encryption key at all passes (the setting is optional)"
+else
+    bad "an .env without the key was rejected: $(cat "$WORK/out.txt")"
+fi
+
+run_preflight "SECRET_ENCRYPTION_KEY="
+if [ "$STATUS" -eq 0 ]; then
+    ok "an empty key passes (the app reads it as unset)"
+else
+    bad "an empty key was rejected: $(cat "$WORK/out.txt")"
+fi
+
+# ============================================================================
+# CASE 3 — a malformed key still fails, naming the variable. Without this the
+# whole check could be deleted and every case above would still pass.
+# ============================================================================
+run_preflight "SECRET_ENCRYPTION_KEY=$HEX_VALUE"
+if [ "$STATUS" -ne 0 ] && grep -q "SECRET_ENCRYPTION_KEY" "$WORK/out.txt"; then
+    ok "a hex value is refused and the message names the variable"
+else
+    bad "a hex value was accepted (exit $STATUS)"
+fi
+
+run_preflight "SECRET_ENCRYPTION_KEY_PREVIOUS=not-a-key"
+if [ "$STATUS" -ne 0 ] && grep -q "SECRET_ENCRYPTION_KEY_PREVIOUS" "$WORK/out.txt"; then
+    ok "a malformed previous key is refused"
+else
+    bad "a malformed previous key was accepted (exit $STATUS)"
+fi
+
+run_preflight "SECRET_ENCRYPTION_KEY=$VALID_KEY # rotation key # second hash"
+if [ "$STATUS" -eq 0 ]; then
+    ok "a comment containing a second hash is still a comment"
+else
+    bad "a two-hash comment was rejected: $(cat "$WORK/out.txt")"
+fi
+
+# ============================================================================
+# CASE 4 — the pre-existing required-var check, through the shared parser.
+# ============================================================================
+REQUIRED_LINES="JWT_SECRET_KEY=$NONEMPTY # signing key
+GEOLENS_ADMIN_USERNAME=admin
+GEOLENS_ADMIN_PASSWORD=$NONEMPTY"
+run_preflight
+if [ "$STATUS" -eq 0 ]; then
+    ok "an annotated required value counts as present"
+else
+    bad "an annotated required value read as missing: $(cat "$WORK/out.txt")"
+fi
+
+REQUIRED_LINES="JWT_SECRET_KEY=
+GEOLENS_ADMIN_USERNAME=admin
+GEOLENS_ADMIN_PASSWORD=$NONEMPTY"
+run_preflight
+if [ "$STATUS" -ne 0 ] && grep -q "JWT_SECRET_KEY" "$WORK/out.txt"; then
+    ok "an empty required value still fails, naming the variable"
+else
+    bad "an empty required value was accepted (exit $STATUS)"
+fi
+
+REQUIRED_LINES="JWT_SECRET_KEY=$NONEMPTY
+GEOLENS_ADMIN_USERNAME=admin
+GEOLENS_ADMIN_PASSWORD=$NONEMPTY"
+
+# ============================================================================
+# CASE 5 — no .env at all.
+# ============================================================================
+rm -f "$FAKE/.env"
+bash "$FAKE/scripts/preflight-env.sh" > "$WORK/out.txt" 2>&1
+STATUS=$?
+if [ "$STATUS" -ne 0 ] && grep -q "not found" "$WORK/out.txt"; then
+    ok "a missing .env fails with the bootstrap message"
+else
+    bad "a missing .env did not fail as expected (exit $STATUS)"
+fi
+
+echo "1..$((PASS + FAIL))"
+echo "# ${PASS} passed, ${FAIL} failed"
+[ "$FAIL" -eq 0 ]
