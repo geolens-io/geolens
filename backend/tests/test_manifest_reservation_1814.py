@@ -628,14 +628,11 @@ class TestReservationFailureReleasesTheKey:
         assert retried.results[0].action == "create"
         queue.assert_awaited_once()
 
-    async def test_a_durable_bind_whose_commit_raises_keeps_its_bytes(
+    async def test_a_durable_bind_whose_commit_raises_reaps_its_bytes(
         self, test_db_session, clean_tables
     ):
-        """fix(#1814): the row decides the cleanup, not the exception.
-
-        Deciding from the exception deleted the staged source and left a
-        pending row pointing at nothing, with no queued task.
-        """
+        """fix(#1888): the row settles to failed and nothing can retry a
+        manifest-keyed row, so the staged copy it still names is reaped."""
         request = _request(
             _manifest_dataset(
                 key="manifest-1814-ambiguous",
@@ -673,8 +670,8 @@ class TestReservationFailureReleasesTheKey:
         assert response.results[0].action == "error"
         assert "acknowledgement lost" in response.results[0].message
         queue.assert_not_awaited()
-        # The bind landed, so the bytes are what /jobs/{id}/retry needs.
-        assert staged.exists()
+        # fix(#1888): the bind landed, but a failed manifest row has no retry.
+        assert not staged.exists()
 
         settled = await _jobs_for_key(test_db_session, "manifest-1814-ambiguous")
         assert len(settled) == 1
@@ -684,6 +681,79 @@ class TestReservationFailureReleasesTheKey:
 
         # And the key is free: a re-apply does not attach to the dead job.
         retry_staged = _staged_bytes("manifest_1814_ambiguous_retry.geojson")
+        with (
+            patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
+            patch(
+                "app.processing.ingest.manifest_service._download_http_source",
+                new=AsyncMock(return_value=str(retry_staged)),
+            ),
+            patch(
+                "app.processing.ingest.manifest_service.queue_ingest_job",
+                new=AsyncMock(),
+            ) as queue,
+        ):
+            retried = await apply_manifest(
+                test_db_session,
+                request,
+                await _admin_user(test_db_session),
+                _http_request(),
+            )
+
+        assert retried.results[0].action == "create"
+        assert retried.results[0].job_id != settled[0].id
+        queue.assert_awaited_once()
+
+    async def test_a_failed_dispatch_reaps_the_staged_copy(
+        self, test_db_session, clean_tables
+    ):
+        """fix(#1888): a terminal manifest failure leaves no staged object behind,
+        including when the orphan guard has already settled the row before the
+        entry's own settlement reads it."""
+        request = _request(
+            _manifest_dataset(
+                key="manifest-1888-dispatch-failed",
+                uri="https://data.example.test/roads.geojson",
+            )
+        )
+        staged = _staged_bytes("manifest_1888_dispatch_failed.geojson")
+
+        async def _refuse_after_settling(job, user_id, *, db, **_kwargs) -> None:
+            exc = RuntimeError("queue unreachable")
+            assert await settle_ingest_job_failed(
+                job, exc, message_prefix="Failed to queue ingest task"
+            )
+            await db.commit()
+            raise exc
+
+        with (
+            patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
+            patch(
+                "app.processing.ingest.manifest_service._download_http_source",
+                new=AsyncMock(return_value=str(staged)),
+            ),
+            patch(
+                "app.processing.ingest.manifest_service.queue_ingest_job",
+                new=_refuse_after_settling,
+            ),
+        ):
+            response = await apply_manifest(
+                test_db_session,
+                request,
+                await _admin_user(test_db_session),
+                _http_request(),
+            )
+
+        assert response.results[0].action == "error"
+        assert "queue unreachable" in response.results[0].message
+        assert not staged.exists()
+
+        settled = await _jobs_for_key(test_db_session, "manifest-1888-dispatch-failed")
+        assert len(settled) == 1
+        assert settled[0].status == "failed"
+        assert settled[0].file_path == str(staged)
+        assert MANIFEST_STAGE_METADATA_KEY not in settled[0].user_metadata
+
+        retry_staged = _staged_bytes("manifest_1888_dispatch_failed_retry.geojson")
         with (
             patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
             patch(

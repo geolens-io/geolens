@@ -844,6 +844,14 @@ async def _fail_reservation(
     await _settle_under_reset(db, job, _release, job_id=job_id)
 
 
+async def _settled_failed(db: AsyncSession, job_id: uuid.UUID) -> bool:
+    """Does the row for ``job_id`` read ``failed`` on this transaction?"""
+    row = (
+        await db.execute(select(IngestJob.status).where(IngestJob.id == job_id))
+    ).one_or_none()
+    return row is not None and row.status == "failed"
+
+
 async def _settle_staged_entry(
     db: AsyncSession,
     job: IngestJob,
@@ -852,7 +860,7 @@ async def _settle_staged_entry(
     prepared: ManifestPreparedSource,
     file_path: str,
 ) -> None:
-    """Settle an entry that failed after its source was staged.
+    """Settle an entry that failed after its source was staged, then reap the copy.
 
     fix(#1814): the row decides, not the exception. The two settlements fence on
     disjoint states, and read and settlement share one body.
@@ -861,9 +869,10 @@ async def _settle_staged_entry(
     # The safe default if neither attempt can read: keep the bytes, because
     # orphaned ones are reclaimable and ones a durable row names are not.
     referenced = True
+    failed = False
 
     async def _decide_and_settle() -> None:
-        nonlocal referenced
+        nonlocal referenced, failed
         referenced = await staged_source_is_referenced(db, job_id, file_path=file_path)
         if not await release_manifest_reservation(
             db, job, f"Failed to stage manifest source: {exc}"
@@ -871,12 +880,17 @@ async def _settle_staged_entry(
             await settle_ingest_job_failed(
                 job, exc, message_prefix="Failed to queue manifest job"
             )
+        failed = await _settled_failed(db, job_id)
 
     await _settle_under_reset(db, job, _decide_and_settle, job_id=job_id)
     # Outside the retry: the filesystem is not part of the transaction, and an
     # HTTP download is owned by this attempt while a raw operator seed is not.
-    if not referenced:
-        _cleanup_downloaded_source(prepared, file_path)
+    # fix(#1888): a failed manifest row has no retry, so its copy has no consumer.
+    if failed or not referenced:
+        try:
+            _cleanup_downloaded_source(prepared, file_path)
+        except OSError:
+            log.warning("Could not reap a staged manifest source", job_id=str(job_id))
 
 
 async def _finalize_reserved_entry(
