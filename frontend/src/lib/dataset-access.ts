@@ -68,17 +68,9 @@ export function getRuntimeApiBaseUrl(): string | null {
   return null;
 }
 
-/**
- * An already-absolute url whose origin AND path prefix match this
- * instance's own API — a manual distribution typed out in full rather than
- * relative, not an external site. Compared against `getRuntimeApiBaseUrl()`
- * (mirrors api/client.ts's own resolution), not `window.location` alone: a
- * configured `API_BASE_URL` can point at a different origin than the page.
- *
- * fix(#1877): compares canonical `URL.origin` values, not raw string
- * prefixes — a protocol-relative base, a host-casing difference, or an
- * explicit default port must still resolve to the same origin.
- */
+/** True when `value`'s canonical URL.origin and path prefix match this
+ * instance's API (getRuntimeApiBaseUrl()), not a raw string-prefix compare
+ * (fix #1877). */
 export function isSameOriginAbsoluteUrl(value: string): boolean {
   if (!isAbsoluteUrl(value)) return false;
   const apiBase = getRuntimeApiBaseUrl();

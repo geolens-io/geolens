@@ -7,12 +7,8 @@ import type { MapLayerResponse } from '@/types/api';
 
 export type VisibleLayerBounds = [[number, number], [number, number]];
 
-/**
- * Merges every visible layer's dataset_extent_bbox into one bounding box,
- * unwrapping an antimeridian-crossing layer (west > east) past 180 rather
- * than dropping it, and picking whichever of three global placements keeps
- * the merged span smallest (fix #903).
- */
+/** Merges every visible layer's bbox into one box, unwrapping an
+ * antimeridian crossing (west > east) rather than dropping it (fix #903). */
 export function getVisibleLayerBounds(layers: MapLayerResponse[]): VisibleLayerBounds | null {
   let minX = Infinity;
   let minY = Infinity;
@@ -31,20 +27,15 @@ export function getVisibleLayerBounds(layers: MapLayerResponse[]): VisibleLayerB
       continue;
     }
 
-    // fix(#903): a `west > east` pair used to be dropped here, which made both
-    // fit paths and Zoom to Layer silent no-ops for a seam-crossing layer.
-    // Unwrap it past 180 instead — MapLibre normalizes the result, so a single
-    // crossing layer now fits the few degrees it occupies.
+    // fix(#903): unwrap a `west > east` pair past 180 rather than dropping
+    // it — MapLibre normalizes the result, so a seam-crossing layer still
+    // fits the few degrees it occupies.
     let west = bbox[0];
     let east = bbox[0] > bbox[2] ? bbox[2] + 360 : bbox[2];
 
-    // Then place the interval on whichever turn of the globe makes the merged
-    // extent SMALLEST. Comparing west edges alone was not enough in either
-    // direction: a crossing layer beside a non-crossing one across the seam
-    // ([178, -178] + [-179, -177]) merged to a 361° span for a ~5° union, and a
-    // world-wide layer followed by a contained one ([-180, 180] + [10, 20])
-    // pushed the contained layer a turn away into a 530° span. Three candidates
-    // is the whole search space — a longitude interval has no other placement.
+    // Try all three turns of the globe the merged interval could sit on and
+    // keep whichever yields the smallest span (fix #903) — comparing west
+    // edges alone is not sufficient to find it.
     if (hasBounds) {
       let bestSpan = Infinity;
       let bestShift = 0;
@@ -68,12 +59,9 @@ export function getVisibleLayerBounds(layers: MapLayerResponse[]): VisibleLayerB
   }
 
   if (!hasBounds) return null;
-  // No union of longitude intervals can be wider than the circle itself, so a
-  // merged span past 360° means the layers already cover the world and the
-  // placement search had nothing better to pick. Without this, adding a
-  // seam-crossing layer to a world-spanning one produced [-180, 182] — a wider
-  // key than the world bounds it started from, which moved the auto-fit for a
-  // layer that expanded nothing.
+  // No union of longitude intervals can exceed 360° — clamp here so a
+  // seam-crossing layer added to a world-spanning one can't widen the key
+  // past the world bounds it started from (fix #903).
   if (maxX - minX >= 360) {
     minX = -180;
     maxX = 180;
