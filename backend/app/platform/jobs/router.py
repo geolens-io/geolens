@@ -746,9 +746,15 @@ async def get_job_status_by_dataset(
     page. A genuine 404 is still raised when the dataset is not visible to the
     user, to avoid leaking job existence (see visibility check below).
 
-    Visibility and disclosure are two questions here, not one. Seeing the
-    dataset decides whether there is an answer at all; who ran the job decides
-    how much of the answer is filled in. See ``_redacted_job_status``.
+    Not every caller gets every field. Seeing the dataset decides whether there
+    is an answer at all; who ran the job decides how much of the answer is
+    filled in. The dataset's owner, an admin, and the job's own creator get the
+    full payload. Any other reader of a visible dataset gets the job id, its
+    status and its timestamps, with the run's own detail nulled: no
+    ``error_message``, ``source_filename``, warnings, step, row counts or
+    retry hint. That is the redaction ``GET /datasets/{dataset_id}/refresh-runs``
+    already applies to the same failure text, and ``_redacted_job_status``
+    documents the decision field by field.
     """
     # Visibility check: reuse the dataset detail permission so only users
     # who can see the dataset can see the job warnings. Avoid leaking the

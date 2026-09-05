@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, text, update
+from sqlalchemy import func, select, text, update
 
 from app.core.config import settings
 from app.core.db.tenant_session import current_tenant_var
@@ -302,6 +302,117 @@ class TestCreateEmbedToken:
         expires_at = datetime.fromisoformat(data["expires_at"])
         # Bound the expected expiration to [before + 365d, after + 365d].
         assert before + timedelta(days=365) <= expires_at <= after + timedelta(days=365)
+
+
+class TestEmbedScopeVisibility:
+    """fix(#1860): the mint may not outlive the minter's own access.
+
+    Adding a layer is gated and a shared map cannot be dropped to private
+    under one, so the reachable case is a map owner who LOSES access to a
+    layer after the fact. Minting is where that matters, because an embed
+    token is an anonymous tile capability of up to 365 days frozen at the
+    moment it is issued.
+    """
+
+    async def _grant_editor_role(self, session, dataset_id: uuid.UUID) -> uuid.UUID:
+        from app.modules.auth.models import Role
+        from app.modules.catalog.datasets.domain.models import DatasetGrant
+
+        role_id = (
+            await session.execute(select(Role.id).where(Role.name == "editor"))
+        ).scalar_one()
+        session.add(DatasetGrant(dataset_id=dataset_id, role_id=role_id))
+        await session.commit()
+        return role_id
+
+    async def _revoke_grant(self, session, dataset_id, role_id) -> None:
+        await session.execute(
+            text(
+                "DELETE FROM catalog.dataset_grants "
+                "WHERE dataset_id = :dataset_id AND role_id = :role_id"
+            ),
+            {"dataset_id": str(dataset_id), "role_id": str(role_id)},
+        )
+        await session.commit()
+
+    async def test_mint_refused_after_the_minter_loses_access_to_a_layer(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """Mints, then loses the grant, then is refused without being told why.
+
+        Both halves matter. The first mint proves the gate is not simply
+        refusing every non-owner of the dataset, which would break the
+        supported case of an editor building a map from data shared with them.
+        """
+        from tests.conftest import _create_test_user
+
+        admin_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        owner_header, owner_id = await _create_test_user(
+            client, admin_auth_header, "editor"
+        )
+
+        # A dataset the map owner reaches only through a role grant.
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="Grant Scoped DS",
+            visibility="restricted",
+            geometry_type="Point",
+            feature_count=1,
+        )
+        role_id = await self._grant_editor_role(test_db_session, dataset.id)
+        map_obj, _ = await _create_map_with_layer(
+            test_db_session,
+            client,
+            owner_header,
+            dataset,
+            created_by=uuid.UUID(owner_id),
+        )
+
+        first = await client.post(
+            f"/maps/{map_obj.id}/embed-tokens/",
+            json={"name": "While granted"},
+            headers=owner_header,
+        )
+        assert first.status_code == 201, first.text
+        assert first.json()["scoped_dataset_ids"] == [str(dataset.id)]
+        first_raw = first.json()["raw_token"]
+
+        await self._revoke_grant(test_db_session, dataset.id, role_id)
+
+        second = await client.post(
+            f"/maps/{map_obj.id}/embed-tokens/",
+            json={"name": "After revocation"},
+            headers=owner_header,
+        )
+        assert second.status_code == 400, second.text
+        detail = second.json()["detail"]
+        assert "cannot access" in detail["message"]
+        assert detail["datasets"] == []
+        # The refusal must not become the disclosure: GET /maps/{id} already
+        # drops layers this caller cannot see, so the id is not something they
+        # have been told.
+        assert str(dataset.id) not in second.text
+
+        # A refused mint changes nothing. The revoke of the existing token runs
+        # after this gate precisely because the cache denial it writes is not
+        # rolled back with the transaction, so a wrong order would leave the
+        # caller's live token dead here while the database said otherwise.
+        assert (
+            await validate_embed_token_access(first_raw, dataset.id, test_db_session)
+            is True
+        )
+        active = (
+            await test_db_session.execute(
+                select(func.count())
+                .select_from(EmbedToken)
+                .where(EmbedToken.map_id == map_obj.id)
+            )
+        ).scalar_one()
+        assert active == 1, "the refused mint must not have inserted a token row"
 
 
 class TestEmbedTokenServiceGuards:

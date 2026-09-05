@@ -35,6 +35,7 @@ from app.modules.embed_tokens.schemas import (
 )
 from app.modules.embed_tokens.service import (
     DomainLockNotEnforceableError,
+    EmbedScopeNotVisibleError,
     assert_domain_lock_is_enforceable,
     create_embed_token,
     get_active_embed_token,
@@ -112,6 +113,25 @@ async def create_embed_token_endpoint(
             expires_in_days=body.expires_in_days,
             name=body.name,
             allowed_origins=body.allowed_origins,
+        )
+    # fix(#1860): the map's layers reach a dataset this caller can no longer
+    # see, so there is no scope they may freeze into an anonymous tile
+    # capability. Same 400 and same shape as the maps router's sibling refusals
+    # for a map holding datasets the caller cannot use for the operation.
+    except EmbedScopeNotVisibleError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": (
+                    "Cannot create an embed token: map contains datasets you "
+                    "cannot access"
+                ),
+                # Deliberately empty, and kept for shape parity with those
+                # siblings. GET /maps/{id} drops layers whose dataset the
+                # caller cannot see, so this caller has not been told those ids
+                # and naming them here would make the refusal the disclosure.
+                "datasets": [],
+            },
         )
     except ValueError as e:
         raise HTTPException(

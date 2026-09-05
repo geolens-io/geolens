@@ -523,6 +523,59 @@ def build_embed_frame_ancestors(
     return f"frame-ancestors 'self' {' '.join(safe)}"
 
 
+class EmbedScopeNotVisibleError(Exception):
+    """The minter cannot currently see every dataset the map is scoped to.
+
+    fix(#1860): distinct from the ``ValueError`` refusals in this module so the
+    router can answer it with the shape the maps router already uses for "this
+    map holds datasets you cannot use for that", rather than a bare string that
+    reads like a licensing refusal.
+    """
+
+
+async def _assert_scope_visible_to_minter(
+    db: AsyncSession, dataset_ids: tuple[uuid.UUID, ...], user_id: uuid.UUID
+) -> None:
+    """Refuse a mint whose scope reaches past what the minter can see.
+
+    fix(#1860): the snapshot was taken straight off the map's layers with no
+    visibility filter at all, and the mint ignored who was asking. Adding a
+    layer is gated (``bulk_check_dataset_access`` in ``add_layer_endpoint``)
+    and a shared map cannot be dropped to private under one, so the reachable
+    case is a map owner who LOSES access after the fact: a grant revoked, a
+    role offboarded. They kept the ability to mint a fresh anonymous tile
+    capability of up to 365 days over a dataset that is no longer theirs to
+    read, and the mint response handed back its id.
+
+    The check resolves the minter from ``user_id`` rather than taking an
+    ``Identity`` parameter on purpose. ``user_id`` is the value that gets
+    stamped into ``EmbedToken.created_by``, so deriving the check from it makes
+    "whose capability is this" and "whose visibility was checked" the same
+    question by construction, and no future caller can pass one user to the row
+    and another to the gate. A deleted or unresolvable user is refused, not
+    waved through.
+    """
+    # Deferred imports: this module is loaded by the maps router's revoke
+    # paths, so a module-level edge back into the maps service risks a cycle.
+    # The maps import goes through the package facade, not service_layers,
+    # because test_layering's BOUND-01 invariant reserves the private service
+    # modules for the maps package itself.
+    from app.modules.auth.models import User
+    from app.modules.catalog.authorization import get_user_roles
+    from app.modules.catalog.maps.service import bulk_check_dataset_access
+
+    minter = await db.get(User, user_id)
+    if minter is None:
+        raise EmbedScopeNotVisibleError()
+
+    user_roles = await get_user_roles(db, minter)
+    accessible = await bulk_check_dataset_access(
+        db, list(dataset_ids), minter, user_roles
+    )
+    if any(dataset_id not in accessible for dataset_id in dataset_ids):
+        raise EmbedScopeNotVisibleError()
+
+
 async def create_embed_token(
     db: AsyncSession,
     map_id: uuid.UUID,
@@ -541,6 +594,24 @@ async def create_embed_token(
     """
     if not is_enterprise() and (expires_in_days != 30 or bool(allowed_origins)):
         raise ValueError(ADVANCED_SHARING_ERROR)
+
+    # Snapshot dataset_ids from map layers, and settle whether this minter may
+    # scope a capability to them, BEFORE anything is revoked.
+    #
+    # fix(#1860): the order is load-bearing. ``_deny_revoked_embed_tokens``
+    # writes a denial into the shared cache and is not rolled back with this
+    # transaction, so a refusal raised after the revoke block would leave the
+    # caller's previously valid token dead in the cache while the database
+    # rolled its deactivation back. Refusing first means a refused mint changes
+    # nothing at all.
+    map_scope = await get_map_embed_scope(db, map_id)
+    scoped_ids = map_scope.dataset_ids if map_scope else ()
+
+    if not scoped_ids:
+        raise ValueError("Map has no layers to scope")
+
+    await _assert_scope_visible_to_minter(db, scoped_ids, user_id)
+    dataset_ids = [str(dataset_id) for dataset_id in scoped_ids]
 
     # Revoke any existing active tokens for this map
     existing = await db.execute(
@@ -563,15 +634,6 @@ async def create_embed_token(
     raw_token = "et_" + secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     token_hint = "et_..." + raw_token[-8:]
-
-    # Snapshot dataset_ids from map layers
-    map_scope = await get_map_embed_scope(db, map_id)
-    dataset_ids = (
-        [str(dataset_id) for dataset_id in map_scope.dataset_ids] if map_scope else []
-    )
-
-    if not dataset_ids:
-        raise ValueError("Map has no layers to scope")
 
     # EMBED-01 (Phase 1212): stamp tenant_id from Map.tenant_id — derived
     # server-side, NEVER from a client header or function argument.
