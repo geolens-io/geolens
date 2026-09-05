@@ -37,9 +37,14 @@ from typing import NoReturn
 import structlog
 from fastapi import HTTPException, status
 from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.audit.models import AuditLog
+from app.modules.audit.models import (
+    ARCGIS_SIGNIN_SETTLE_KEY,
+    ARCGIS_SIGNIN_SETTLE_WHERE,
+    AuditLog,
+)
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.catalog.sources.arcgis_signin import (
     AUDIT_CONCURRENT,
@@ -101,6 +106,44 @@ def signin_target(user_id: uuid.UUID, host: str, username: str) -> SignInTarget:
     )
 
 
+def _signin_event(
+    user_id: uuid.UUID,
+    target: SignInTarget,
+    result: str,
+    note: str | None = None,
+    *,
+    attempt_id: uuid.UUID | None = None,
+) -> AuditEvent:
+    """The audit event for one sign-in outcome, the same row from every writer.
+
+    The token-service HOST rather than the portal URL, and a keyed digest
+    rather than the username: an audit row is read by an operator looking for
+    someone walking accounts, and the host, the digest and the outcome are the
+    whole of that signal. ``result`` carries the distinction the caller-facing
+    message deliberately collapses.
+    """
+    return AuditEvent(
+        user_id=user_id,
+        action="arcgis_signin",
+        resource_type="service_url",
+        details={
+            # fix(#1758): the DESTINATION host from authInfo.tokenServicesUrl,
+            # which the limits are keyed on, never the address the caller typed.
+            "token_service_host": target.host,
+            "result": result,
+            # fix(#1758): a keyed digest of the target account, never the
+            # username; the only trace of which account was addressed.
+            "account_key": target.account_key,
+            # fix(#1825): the reservation this outcome settles; nothing else
+            # tells a retry of one attempt from a second attempt.
+            **({"attempt_id": str(attempt_id)} if attempt_id else {}),
+            # fix(#1758): present only when discovery turned up something an
+            # operator should see, so the common row keeps its shape.
+            **({"discovery_note": note} if note else {}),
+        },
+    )
+
+
 async def _signin_audit(
     db: AsyncSession,
     user_id: uuid.UUID,
@@ -111,13 +154,7 @@ async def _signin_audit(
     reserved: bool = False,
     attempt_id: uuid.UUID | None = None,
 ) -> None:
-    """Record one sign-in attempt: who, which portal, which account, what happened.
-
-    The token-service HOST rather than the portal URL, and a keyed digest
-    rather than the username: an audit row is read by an operator looking for someone walking
-    accounts, and the host, the digest and the outcome are the whole of that
-    signal. ``result`` carries the distinction the caller-facing message
-    deliberately collapses.
+    """Record one sign-in attempt on the caller's session and commit it.
 
     fix(#1775): ``reserved`` says the ledger row for this attempt was already
     committed by :func:`_signin_reserve` before the credential POST, so this
@@ -128,33 +165,7 @@ async def _signin_audit(
     "a new outcome counts until somebody decides otherwise" property.
     """
     await audit_emit(
-        db,
-        AuditEvent(
-            user_id=user_id,
-            action="arcgis_signin",
-            resource_type="service_url",
-            details={
-                # fix(#1758 codex r7): the DESTINATION host, resolved from
-                # authInfo.tokenServicesUrl, not the address the caller typed.
-                # That is what the limits are keyed on, so that is what an
-                # operator reading this row needs to see.
-                "token_service_host": target.host,
-                "result": result,
-                # fix(#1758 codex r3): a keyed digest of the target account,
-                # never the username. It is what both budgets below are
-                # counted on, and it is the only trace of which ArcGIS account
-                # was addressed that survives the request.
-                "account_key": target.account_key,
-                # fix(#1825 codex r1): the reservation this outcome settles.
-                # Nothing else links the two, so nothing else can tell a
-                # retry of one attempt from a second attempt.
-                **({"attempt_id": str(attempt_id)} if attempt_id else {}),
-                # fix(#1758 codex r9): present only when discovery turned up
-                # something an operator should see, so the common row keeps
-                # its shape.
-                **({"discovery_note": note} if note else {}),
-            },
-        ),
+        db, _signin_event(user_id, target, result, note, attempt_id=attempt_id)
     )
     if not reserved and result not in UNCOUNTED_SIGNIN_RESULTS:
         # fix(#1758 codex r4): both budgets' own copy, in the one table that is
@@ -350,23 +361,6 @@ async def _signin_reserve(
     return reservation_id
 
 
-async def _settled_already(session: AsyncSession, attempt_id: uuid.UUID) -> bool:
-    """Whether this reservation already has its audit row.
-
-    fix(#1825): an interrupted commit is ambiguous, so the finaliser looks
-    before it writes or one attempt ends up with two rows.
-    """
-    found = await session.scalar(
-        select(AuditLog.id)
-        .where(
-            AuditLog.action == "arcgis_signin",
-            AuditLog.details["attempt_id"].astext == str(attempt_id),
-        )
-        .limit(1)
-    )
-    return found is not None
-
-
 async def _write_settled_outcome(
     user_id: uuid.UUID,
     target: SignInTarget,
@@ -374,32 +368,45 @@ async def _write_settled_outcome(
     note: str | None = None,
     attempt_id: uuid.UUID | None = None,
 ) -> None:
-    """Write one settled attempt's audit row on a session of its OWN.
+    """Write one settled attempt's audit row on a session of its OWN, at most once.
 
-    fix(#1775 audit): NOT the request's session. The caller below stops
-    waiting at a deadline and the route then re-raises, so FastAPI runs
-    ``get_db``'s teardown and closes the request session — which, if this
-    write were still in flight on it, closes the connection out from under a
-    live statement and turns a lost audit row into an ``InterfaceError`` or a
-    greenlet error on a shutting-down worker. A session this coroutine opens
-    and closes in its own frame cannot be closed by anybody else, so the
-    abandoned case is a task that finishes quietly rather than one that
-    faults.
+    fix(#1775 audit): NOT the request's session. The caller stops waiting at a
+    deadline and the route then re-raises, so FastAPI closes the request
+    session, which would close a connection under a statement still running.
+
+    fix(#1889): one INSERT, arbitrated by ``uq_audit_logs_arcgis_signin_attempt``,
+    that does nothing when a row already carries this ``attempt_id``. A commit
+    the cancellation interrupted can land at any point without a second row.
+
+    Only the ``audit_logs`` row is recovered. No other audit sink is dispatched
+    again: every sink ran before the commit was interrupted.
 
     Late-bound import, per the rule ``test_layering.py`` enforces (fix(#909)):
     a module-scope binding snapshots the dev-DB factory before the test
     fixture rebinds ``app.core.db.async_session``.
     """
+    # `text` is imported here for the reason `_signin_locks` gives.
+    from sqlalchemy import text
+
     from app.core.db import async_session
 
-    async with async_session() as session:
-        if attempt_id is not None and await _settled_already(session, attempt_id):
-            return
-        # `reserved=True` unconditionally: every caller of this reaches it
-        # after `_signin_reserve` committed, so the ledger row already exists.
-        await _signin_audit(
-            session, user_id, target, result, note, reserved=True, attempt_id=attempt_id
+    event = _signin_event(user_id, target, result, note, attempt_id=attempt_id)
+    settle = (
+        pg_insert(AuditLog)
+        .values(
+            user_id=event.user_id,
+            action=event.action,
+            resource_type=event.resource_type,
+            details=event.details,
         )
+        .on_conflict_do_nothing(
+            index_elements=[text(ARCGIS_SIGNIN_SETTLE_KEY)],
+            index_where=text(ARCGIS_SIGNIN_SETTLE_WHERE),
+        )
+    )
+    async with async_session() as session:
+        await session.execute(settle)
+        await session.commit()
 
 
 def _settle_failure(settle: asyncio.Future) -> str | None:

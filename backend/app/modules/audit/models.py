@@ -8,6 +8,15 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 
+# fix(#1889): the sign-in settle finaliser's ON CONFLICT names this index, so
+# the key and the predicate are read from here by the model and by the write.
+# Migration 0059 is the source of truth for the DDL.
+ARCGIS_SIGNIN_SETTLE_INDEX = "uq_audit_logs_arcgis_signin_attempt"
+ARCGIS_SIGNIN_SETTLE_KEY = "(details ->> 'attempt_id')"
+ARCGIS_SIGNIN_SETTLE_WHERE = (
+    "action = 'arcgis_signin' AND details ->> 'attempt_id' IS NOT NULL"
+)
+
 if TYPE_CHECKING:
     from app.modules.auth.models import User
 
@@ -55,6 +64,12 @@ class AuditLog(Base):
             postgresql_where=text(
                 "action = 'embedding.backfill' AND details ->> 'outcome' <> 'requested'"
             ),
+        ),
+        Index(
+            ARCGIS_SIGNIN_SETTLE_INDEX,
+            text(ARCGIS_SIGNIN_SETTLE_KEY),
+            unique=True,
+            postgresql_where=text(ARCGIS_SIGNIN_SETTLE_WHERE),
         ),
         {"schema": "catalog"},
     )

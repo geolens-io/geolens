@@ -2389,12 +2389,11 @@ async def test_a_settle_that_outruns_the_drain_still_leaves_cancellederror(
         await never.wait()
         raise AssertionError("unreachable: the wait above is never released")
 
-    async def _hanging_audit(*_args, **_kwargs):
-        # Far longer than the ceiling, and on the settle's OWN session, so
-        # abandoning it cannot fault against the request session.
+    async def _hanging_write(*_args, **_kwargs):
+        # Far longer than the ceiling: the settle write has stopped answering.
         await asyncio.sleep(30)
 
-    monkeypatch.setattr(signin_guard, "_signin_audit", _hanging_audit)
+    monkeypatch.setattr(signin_guard, "_write_settled_outcome", _hanging_write)
 
     exchange = _Exchange(
         {
@@ -3330,7 +3329,7 @@ async def test_a_portal_url_carrying_credentials_is_refused(
 
 
 async def _cancel_the_first_audit(monkeypatch, entered, never):
-    """Hang the first settle write; delegate the finaliser's own to the real one.
+    """Hang the first settle write; any later call reaches the real one.
 
     Both bindings: the success settle reaches the helper through the router's
     import, the refusal settle through signin_guard's own global.
@@ -3548,7 +3547,7 @@ async def test_a_commit_that_landed_before_the_cancellation_is_not_written_twice
     """fix(#1825): an interrupted commit is ambiguous, not failed.
 
     PostgreSQL can apply the commit while the client sees `CancelledError`, so
-    the finaliser looks for this reservation before writing.
+    the finaliser's write is arbitrated on this reservation and does nothing.
     """
     real_audit = signin_guard._signin_audit
     committed = asyncio.Event()
@@ -3607,3 +3606,82 @@ async def test_a_flush_cancelled_before_its_commit_is_written_once(
         client, admin_auth_header, _settle_exchange(result), flushed
     )
     await _assert_one_row(test_db_session, result)
+
+
+@contextlib.contextmanager
+def _captured_lines():
+    """Every rendered log line emitted inside the block; see ``_ListHandler``."""
+    with configured_logging(json_logs=True, log_level="DEBUG", production=True):
+        root = logging.getLogger()
+        capture = _ListHandler()
+        capture.setFormatter(root.handlers[0].formatter)
+        root.addHandler(capture)
+        try:
+            yield capture.lines
+        finally:
+            root.removeHandler(capture)
+
+
+@pytest.mark.parametrize("result", ["success", "invalid_credentials"])
+async def test_a_commit_landing_during_the_finaliser_leaves_one_row(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    allow_ssrf,
+    test_db_session,
+    monkeypatch,
+    result: str,
+):
+    """fix(#1889): one row when the interrupted commit lands during the finaliser.
+
+    The request's row is staged on a connection of its own and committed the
+    moment the finaliser's INSERT goes on the wire: visible after any read the
+    finaliser could have done, and before its write is decided.
+    """
+    import app.core.db as core_db
+    from sqlalchemy import event as sa_event
+
+    real_audit = signin_guard._signin_audit
+    late = core_db.async_session()
+    staged = asyncio.Event()
+    never = asyncio.Event()
+    calls: list[int] = []
+    armed: list[bool] = []
+    landing: list[asyncio.Future] = []
+
+    async def _stage_elsewhere(db, user_id, target, outcome, note=None, **kwargs):
+        calls.append(1)
+        if len(calls) > 1:
+            return await real_audit(db, user_id, target, outcome, note, **kwargs)
+        event = signin_guard._signin_event(
+            user_id, target, outcome, note, attempt_id=kwargs["attempt_id"]
+        )
+        await signin_guard.audit_emit(late, event)
+        armed.append(True)
+        staged.set()
+        await never.wait()
+        raise AssertionError("unreachable: the wait above is never released")
+
+    def _land_on_insert(conn, cursor, statement, parameters, context, executemany):
+        if armed and statement.startswith("INSERT INTO catalog.audit_logs"):
+            armed.clear()
+            landing.append(asyncio.ensure_future(late.commit()))
+
+    monkeypatch.setattr(signin_guard, "_signin_audit", _stage_elsewhere)
+    monkeypatch.setattr(sources_router, "_signin_audit", _stage_elsewhere)
+    sync_engine = late.get_bind()
+    sa_event.listen(sync_engine, "before_cursor_execute", _land_on_insert)
+    try:
+        with _captured_lines() as lines:
+            await _drive_and_cancel(
+                client, admin_auth_header, _settle_exchange(result), staged
+            )
+        assert landing, "the finaliser never put its INSERT on the wire"
+        await landing[0]
+    finally:
+        sa_event.remove(sync_engine, "before_cursor_execute", _land_on_insert)
+        await late.close()
+
+    await _assert_one_row(test_db_session, result)
+    assert lines, "the capture handler saw nothing, so it proves nothing"
+    refused = [line for line in lines if "Audit sink raised" in line]
+    assert refused == [], "the finaliser's write was refused rather than a no-op"
