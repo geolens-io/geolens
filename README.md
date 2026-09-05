@@ -19,9 +19,18 @@ GeoLens is an open-source spatial data hub for GIS and data teams: one place to 
 [![OGC API](https://img.shields.io/badge/OGC_API-Features_%7C_Records-green.svg)](https://ogcapi.ogc.org/)
 
 ```bash
-curl -fsSL https://getgeolens.com/install.sh | sh
+git clone https://github.com/geolens-io/geolens.git && cd geolens
+bash scripts/install.sh   # read it first: it writes .env, generates secrets, runs docker compose up -d
 # Open http://localhost:8080, then log in with the credentials you chose
 ```
+
+Or the one-line form, which runs the same script and pulls the prebuilt images:
+
+```bash
+curl -fsSL https://getgeolens.com/install.sh | sh
+```
+
+Images are published for linux/amd64 and linux/arm64. A fresh install runs six containers at about 1.3 GB resident.
 
 <p align="center">
   <img src=".github/assets/geolens-manhattan-3d-hero.jpg" alt="GeoLens map builder with Manhattan building footprints extruded into a 3D skyline, colored by construction era, with the subway and the drag-orderable layer stack beside the map" width="900" />
@@ -212,18 +221,18 @@ worker run in containers (Python 3.14 bundled, no host Python needed). The
 optional CLI runs on your host and requires Python 3.11+; the Python SDK and
 seed scripts require Python 3.10+.
 
-The one-line install pulls the prebuilt, version-pinned images and starts the stack:
-
-```bash
-curl -fsSL https://getgeolens.com/install.sh | sh
-```
-
-Prefer to read the script or build from source first? Clone the repo and run the same installer. It builds the images locally instead of pulling them:
+Clone the repo and run the installer from the checkout. You can read the script before running it; from a clone it builds the images locally:
 
 ```bash
 git clone https://github.com/geolens-io/geolens.git
 cd geolens
 bash scripts/install.sh
+```
+
+The one-line form runs the same script and pulls the prebuilt, version-pinned images instead of building them:
+
+```bash
+curl -fsSL https://getgeolens.com/install.sh | sh
 ```
 
 Either way, `scripts/install.sh` copies `.env.example` to `.env`, generates a JWT signing
