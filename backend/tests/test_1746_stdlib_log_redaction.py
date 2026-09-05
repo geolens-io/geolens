@@ -27,9 +27,11 @@ the autouse fixture below for why it needs to.
 """
 
 import base64
+import dataclasses
 import json
 import logging
 import time
+from collections import deque
 from collections.abc import Mapping
 from urllib.parse import urlsplit
 
@@ -888,6 +890,106 @@ def test_a_flat_record_is_left_alone_by_the_deep_walk():
 
     for key, value in extra.items():
         assert data[key] == value
+
+
+# fix(#1857 item 9): exercised through the real pipeline rather than by
+# calling redact_nested, because the processor decides whether to walk at all:
+# a shape can be walkable and still never be handed to the walk.
+
+
+@dataclasses.dataclass
+class _JobContext:
+    """A settings-shaped object of the kind a library hands to `extra`."""
+
+    job_id: str
+    token: str
+
+
+@dataclasses.dataclass(slots=True)
+class _SlottedContext:
+    """The same, with no `__dict__` at all."""
+
+    token: str
+
+
+@pytest.mark.parametrize(
+    "container",
+    [
+        pytest.param(lambda v: frozenset({v}), id="frozenset"),
+        pytest.param(lambda v: deque([v]), id="deque"),
+        pytest.param(lambda v: {"inner": frozenset({v})}, id="frozenset-nested"),
+        pytest.param(lambda v: deque([{"secret": v}]), id="deque-of-mapping"),
+    ],
+)
+def test_a_credential_inside_an_unwalked_container_is_scrubbed(container):
+    """`frozenset` is not a `set` and `deque` is not a `list`.
+
+    The nested variants matter separately: the gate decides whether the
+    top-level value is walked, so a frozenset arrives both ways.
+    """
+    url = f"https://example.test/api?token={_TOKEN}"
+
+    line, _data = _emit_json_with_extra(
+        "app.worker", logging.INFO, "container", {"payload": container(url)}
+    )
+
+    assert _TOKEN not in line, line
+
+
+def test_a_dataclass_in_extra_is_walked_by_field():
+    """The shape a library is most likely to hand to `extra`.
+
+    Reading it through `dataclasses.fields` puts the field NAMES through the
+    denylist a mapping's keys go through, which is what redacts `token`.
+    """
+    line, data = _emit_json_with_extra(
+        "app.worker",
+        logging.INFO,
+        "context",
+        {"ctx": _JobContext(job_id="abc", token=_TOKEN)},
+    )
+
+    assert _TOKEN not in line, line
+    assert data["ctx"]["job_id"] == "abc"
+    assert data["ctx"]["token"] == "[REDACTED]"
+
+
+def test_a_slotted_dataclass_is_walked_too():
+    """`slots=True` leaves no `__dict__`, which is the reason for `fields()`.
+
+    Reading `__dict__` raises here, and the guard would turn the whole payload
+    into `[UNREDACTABLE]` on a shape that is perfectly readable.
+    """
+    line, data = _emit_json_with_extra(
+        "app.worker", logging.INFO, "slotted", {"ctx": _SlottedContext(token=_TOKEN)}
+    )
+
+    assert _TOKEN not in line, line
+    assert data["ctx"]["token"] == "[REDACTED]"
+
+
+def test_a_dataclass_CLASS_is_not_mistaken_for_an_instance():
+    """`dataclasses.is_dataclass` answers True for the class object too.
+
+    Walking one yields a dict of defaults that reads like logged data.
+    """
+    from app.core.logging_config import _is_dataclass_instance, _is_walkable
+
+    assert _is_dataclass_instance(_JobContext(job_id="a", token="b"))
+    assert not _is_dataclass_instance(_JobContext)
+    assert not _is_walkable(_JobContext)
+
+
+def test_the_walk_and_the_gate_agree_on_what_is_walkable():
+    """One membership test, not two.
+
+    A type in the walk's list but not the gate's is walkable and never walked.
+    """
+    from app.core.logging_config import _ITERABLE_CONTAINERS, _is_walkable
+
+    for container_type in _ITERABLE_CONTAINERS:
+        assert _is_walkable(container_type()), container_type
+    assert _is_walkable({})
 
 
 def test_a_cyclic_extra_terminates():

@@ -626,9 +626,18 @@ them through OGC API endpoints.
 
 ## OGC Conformance Classes
 
-* OGC API Common 1.0 -- Core, Landing Page, JSON, OAS 3.0
-* OGC API Features Part 1 -- Core, GeoJSON, OAS 3.0
-* OGC API Features Part 3 -- Filtering (CQL2-Text, CQL2-JSON)
+`GET /api/conformance` is the machine-readable list and the one a client
+should read. This is the same set in prose:
+
+* OGC API Common 1.0 -- Core, Landing Page, JSON
+* OGC API Features Part 1 -- Core, GeoJSON
+* OGC API Features Part 3 -- Queryables, Filter, Features Filter
+* CQL2 1.0 -- CQL2-Text, CQL2-JSON, Basic CQL2, advanced comparison
+  operators, basic spatial functions
+* OGC API Records Part 1 -- Record Core, core query parameters, sorting, JSON
+
+The OAS 3.0 classes of Common and Features Part 1 are NOT claimed: this
+server publishes its API document as OpenAPI 3.1.
 
 ## QGIS Quick-start
 

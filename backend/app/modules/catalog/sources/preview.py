@@ -18,6 +18,7 @@ from app.core.service_tokens import (
 )
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
 from app.platform.extensions import get_catalog_port
+from app.platform.gdal_env import gdal_service_safe_env
 from app.platform.service_auth import credential_input_rejection
 from app.core.config import settings
 from app.core.runtime.staging import ensure_staging_ready
@@ -332,7 +333,9 @@ async def run_service_preview(
         # submission time; libcurl under GDAL follows redirects
         # unconditionally, so post-validation redirects must be bounded
         # operationally (worker egress firewall).
-        env = {**os.environ}
+        # fix(#1857 item 3): the SERVICE variant, not the vector one: this
+        # branch exists to read WFS and OAPIF, which the vector variant skips.
+        env = gdal_service_safe_env()
         pair: tuple[str, str] | None = None
         if credential is not None and (
             gdal_source.startswith("WFS:") or gdal_source.startswith("OAPIF:")

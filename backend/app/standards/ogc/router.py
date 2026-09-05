@@ -37,6 +37,8 @@ from app.platform.extensions import (
 )
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
 from app.standards.ogc.filtering import (
+    MAX_FEATURE_FILTER_BINDS,
+    MAX_FEATURE_FILTER_LENGTH,
     build_feature_queryables_response,
     compile_feature_cql2_ast,
     feature_queryable_columns,
@@ -597,6 +599,29 @@ def _items_request_carries_no_filter(request: Request) -> bool:
     return "filter" not in request.query_params
 
 
+# fix(#1857 item 7): two of the four refusals are resource bounds on a VALID
+# filter, which the generic "invalid query parameters" 400 the route inherits
+# does not describe.
+FILTER_BAD_REQUEST_RESPONSE = {
+    **ERROR_RESPONSES_PUBLIC[400],
+    "description": (
+        "Bad request. Either a query parameter is invalid, or the `filter` was "
+        "refused. A CQL2 filter is refused when it names a queryable this "
+        "collection does not publish, or uses an operator this server does not "
+        "implement; when it is longer than "
+        f"{MAX_FEATURE_FILTER_LENGTH:,} characters; when it nests deeper than "
+        "the parser will walk; or when it expands to more than "
+        f"{MAX_FEATURE_FILTER_BINDS:,} bound parameters. The last two are "
+        "resource bounds rather than syntax errors, so the filter can be valid "
+        "CQL2 and still be declined: an `IN` list reaches the parameter "
+        "ceiling well before the character limit, since `render_postcompile` "
+        "expands it to one parameter per member. Both are answered "
+        "deterministically, so a client that splits the filter and pages the "
+        "results gets the same rows."
+    ),
+}
+
+
 @ogc_features_router.get(
     "/collections/{dataset_id}/items/",
     response_class=JSONResponse,
@@ -609,6 +634,7 @@ def _items_request_carries_no_filter(request: Request) -> bool:
             }
         },
         **ERROR_RESPONSES_PUBLIC,
+        400: FILTER_BAD_REQUEST_RESPONSE,
     },
     include_in_schema=False,  # trailing-slash alias, hidden from OpenAPI (ROUTE-01 pattern)
 )
@@ -625,6 +651,7 @@ def _items_request_carries_no_filter(request: Request) -> bool:
         },
         **COLD_WARMING_RESPONSE,
         **ERROR_RESPONSES_PUBLIC,
+        400: FILTER_BAD_REQUEST_RESPONSE,
     },
 )
 @limiter.limit(

@@ -1109,6 +1109,40 @@ _RENAME_CORPUS = [
 ]
 
 
+class _LegacyRenameCollision(Exception):
+    """The per-bind loop cannot rename this statement, so it has no answer.
+
+    fix(#1857 item 6). The loop renamed one bind at a time into the same
+    ``cql2_N`` namespace it read from, so a queryable named ``cql2`` can make a
+    pass match both the name just written and the original. Named, so the two
+    callers can say different things about it.
+    """
+
+
+def test_the_items_route_publishes_the_filter_refusals():
+    """The caps are a contract, so they belong in the schema (#1857 item 7).
+
+    Read off the app's own OpenAPI rather than the constant, because the route
+    is what ships. Interpolated from the caps so raising one cannot leave the
+    published number behind.
+    """
+    from app.api.main import app
+    from app.standards.ogc.filtering import (
+        MAX_FEATURE_FILTER_BINDS,
+        MAX_FEATURE_FILTER_LENGTH,
+    )
+
+    schema = app.openapi()
+    operation = schema["paths"]["/collections/{dataset_id}/items"]["get"]
+    description = operation["responses"]["400"]["description"]
+
+    assert f"{MAX_FEATURE_FILTER_LENGTH:,}" in description, description
+    assert f"{MAX_FEATURE_FILTER_BINDS:,}" in description, description
+    assert "nests deeper" in description, description
+    # The generic text alone is what this replaced.
+    assert description != "Bad request — invalid query parameters or payload"
+
+
 def _legacy_renamed_sql(compiled) -> str:
     """The pre-fix per-bind loop, kept verbatim as the equivalence oracle.
 
@@ -1116,6 +1150,8 @@ def _legacy_renamed_sql(compiled) -> str:
     ``str.replace`` per REAL bind. That is the shape the fix removed; keeping
     it here is what makes "the new pass produces the same bytes" a claim about
     the old code rather than a restatement of the new code.
+
+    Raises ``_LegacyRenameCollision`` where the loop has no correct answer.
     """
     import re as _re
 
@@ -1125,7 +1161,10 @@ def _legacy_renamed_sql(compiled) -> str:
     for i, (key, _value) in enumerate(compiled.params.items()):
         new_key = f"cql2_{i}"
         sql, n = _re.subn(rf"(?<!:):{_re.escape(key)}\b", f":{new_key}", sql)
-        assert n == 1, f"oracle could not rename {key}"
+        if n != 1:
+            raise _LegacyRenameCollision(
+                f"renaming :{key} to :{new_key} matched {n} occurrences, not 1"
+            )
         bp = compiled.binds.get(key)
         if bp is None:
             bp = compiled.binds.get(_re.sub(r"_\d+$", "", key))
@@ -1134,9 +1173,13 @@ def _legacy_renamed_sql(compiled) -> str:
     return f"({sql})"
 
 
-def _compile_unrenamed(filter_expr: str):
+def _compile_unrenamed(filter_expr: str, queryables: dict[str, str] | None = None):
     """Compile a corpus expression the way compile_feature_cql2_ast does but
-    stop short of the rename, so the oracle above has something to chew."""
+    stop short of the rename, so the oracle above has something to chew.
+
+    ``queryables`` defaults to the shared corpus schema.
+    """
+    queryables = _RENAME_QUERYABLES if queryables is None else queryables
     from geoalchemy2 import Geometry
     from pygeofilter.backends.sqlalchemy import to_filter
     from sqlalchemy import column as sa_column
@@ -1156,7 +1199,7 @@ def _compile_unrenamed(filter_expr: str):
         "timestamp with time zone": sa_types.DateTime(timezone=True),
     }
     field_mapping = {}
-    for name, pg_type in _RENAME_QUERYABLES.items():
+    for name, pg_type in queryables.items():
         if pg_type == "geometry":
             field_mapping[name] = sa_column("geom_4326", Geometry(srid=4326))
         else:
@@ -1178,7 +1221,46 @@ def test_single_pass_rename_matches_the_per_bind_loop_byte_for_byte(filter_expr:
     from app.standards.ogc.filtering import compile_feature_cql2
 
     sql, _binds = compile_feature_cql2(filter_expr, "cql2-text", _RENAME_QUERYABLES)
-    assert sql == _legacy_renamed_sql(_compile_unrenamed(filter_expr))
+    try:
+        expected = _legacy_renamed_sql(_compile_unrenamed(filter_expr))
+    except _LegacyRenameCollision as exc:
+        pytest.fail(
+            "this corpus entry reaches a statement the per-bind loop cannot "
+            f"rename ({exc}), so there is no legacy result to compare with. "
+            "The equivalence corpus has to stay clear of that shape, because "
+            "equivalence is only a meaningful claim where both implementations "
+            "have an answer. The divergence itself is the subject of "
+            "test_a_queryable_named_cql2_diverges_from_the_legacy_loop."
+        )
+    assert sql == expected
+
+
+def test_a_queryable_named_cql2_diverges_from_the_legacy_loop():
+    """Where the two disagree, the single pass is the one that is right.
+
+    fix(#1857 item 6). ``re.sub`` never rescans what a replacement emitted, so
+    each bind is renamed once from the original text. Checked on its own terms,
+    since the oracle has no answer here.
+    """
+    from app.standards.ogc.filtering import compile_feature_cql2
+
+    queryables = {**_RENAME_QUERYABLES, "cql2": "integer"}
+    # Ordering is the point: the colliding bind must be renamed AFTER the pass
+    # that writes its own name for something else.
+    filter_expr = "name = 'x' AND height = 1.5 AND cql2 = 5"
+
+    with pytest.raises(_LegacyRenameCollision):
+        _legacy_renamed_sql(_compile_unrenamed(filter_expr, queryables))
+
+    sql, binds = compile_feature_cql2(filter_expr, "cql2-text", queryables)
+
+    keys = [bind.key for bind in binds]
+    assert len(keys) == len(set(keys)), f"duplicate bind names in {sql}"
+    for key in keys:
+        assert sql.count(f":{key}") == 1, f":{key} appears more than once in {sql}"
+    # The COLUMN keeps its name and does not become a bind reference.
+    assert "cql2 = :cql2_2" in sql, sql
+    assert dict(zip(keys, [bind.value for bind in binds]))["cql2_2"] == 5
 
 
 def test_rename_scans_the_statement_once_whatever_the_bind_count():

@@ -74,16 +74,19 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   which ``subprocess.run`` is reviewer territory.
 - Argv built dynamically (``cmd = [tool_var, ...]``) is not matched. Every
   GDAL CLI call in the codebase starts from a string-literal argv head.
-- ARGV PASSED AS SEPARATE POSITIONAL ARGUMENTS is not matched either
-  (``create_subprocess_exec("ogrinfo", "-so", path)``). Detection keys on a
-  list or tuple DISPLAY whose first element names a GDAL tool, so a call that
-  never builds one is invisible to every rule here. No such site exists in
-  ``app/`` -- every GDAL CLI call builds an argv list first, which is why the
-  gate has always been written this way -- but a new one would pass silently
-  rather than loudly, and that is the wrong direction for this file. Closing it
-  means matching on the CALL's arguments as well as on displays, which changes
-  what "an argv site" means everywhere below; recorded here rather than done
-  under a security fix (#1846 review round 4).
+- ARGV PASSED AS SEPARATE POSITIONAL ARGUMENTS is an argv site too
+  (``create_subprocess_exec("ogrinfo", "-so", path)``), matched on the callees
+  in ``_VARARGS_ARGV_SPAWNERS`` and ``_SEQUENCE_ARGV_SPAWNERS``. Neither the escape rule nor the
+  tool-NAME-list exemption applies to it: the call IS the spawn, so reaching
+  the node is proof it executes, where a display is inert until its value
+  escapes. The tables give the PROGRAM's argument index per callee, since
+  ``loop.subprocess_exec`` leads with a protocol factory, and the ``execv*``
+  family, whose argv is one sequence the display rule already sees, yields the
+  call only when that sequence is not a literal. NOT modelled, and no site in
+  ``app/`` uses either: ``os.spawnl`` and
+  friends, which lead with a mode argument, and the shell family
+  (``create_subprocess_shell``, ``shell=True``, ``os.system``, ``os.popen``),
+  where the command is one string and there is no argv to read (#1857 item 2).
 - A GDAL-headed literal counts as an argv only when its value ESCAPES —
   handed to a call, returned, or yielded (fix(#996)). The escape is followed
   directly, out of transparent wrappers (container literals, ternary, ``+``,
@@ -157,17 +160,19 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   (context managers enter left to right). Beyond that, a wrapped open
   passes even if a refactor later moves it into a helper called from
   outside the block. Reviewer territory.
-- Helper credit requires the name to be bound to the canonical module by an
-  import the resolver understands, resolved through LEXICAL SCOPES
+- Helper credit requires the name to be bound to one of the canonical modules
+  by an import the resolver understands, resolved through LEXICAL SCOPES
   innermost-first (see ``_scope_info`` / ``_resolve_credit``): a scope that
   rebinds the name (param, assignment, def, non-canonical import, loop or
   with target) kills credit for that scope and everything nested in it. A
   dotted ``import app.processing.raster.vrt`` used without an alias, a
-  re-export through an intermediate module, or a name both imported and
-  reassigned in one scope is NOT credited — the failure mode is a spurious
+  re-export through an UNNAMED intermediate module, or a name both imported
+  and reassigned in one scope is NOT credited — the failure mode is a spurious
   violation prompting a review, never silent credit for a shadow. Class
   bodies are not modeled as scopes, and ``global``/``nonlocal``
-  rebinding is not tracked.
+  rebinding is not tracked. "Unnamed" is doing the work there:
+  ``CANONICAL_HELPER_MODULES`` lists the import paths that may vouch, and
+  which helpers each may vouch for. Nothing chases a re-export chain.
 - CLI credit stops at the CALL level: a call to the canonical
   ``gdal_safe_env`` in an allowlisted position credits the argv, but whether
   that call's RESULT is the env handed to the subprocess is not verified.
@@ -337,6 +342,11 @@ SUBPROCESS_ENV_HELPERS = (
 )
 ENV_HELPERS = (SAFE_OPEN_ENV_HELPER, *SUBPROCESS_ENV_HELPERS)
 
+# fix(#1846): the two GDAL_SKIP driver clamps, which fix(#1857 item 3) moved
+# out to `app/platform/gdal_env.py`. Named as their own set because that is
+# the module's whole contents and the only thing it may vouch for.
+DRIVER_SKIP_HELPERS = (SAFE_VECTOR_ENV_HELPER, SAFE_SERVICE_ENV_HELPER)
+
 # fix(#1846, GHSA-hrf5-v3cq-frx5): the OTHER half of the vector clamp, and the
 # primary one. The env helper is a denylist -- it names drivers GDAL may not
 # register -- and a denylist can only exclude what somebody thought of, cannot
@@ -373,9 +383,28 @@ THREAD_OFFLOAD_HELPER = "run_in_thread_draining"
 # credited `from evil.processing.raster.vrt import ...`. The real tree
 # imports only the absolute form; relative imports (`from .vrt import ...`)
 # are not used and get no credit — the conservative failure direction.
-CANONICAL_HELPER_MODULE_REL = "processing/raster/vrt.py"
+#
+# fix(#1857 item 3): TWO canonical modules, each vouching only for the helpers
+# the map gives it. `processing/raster/vrt.py`'s re-export of the driver clamps
+# is credited because the map NAMES that module; an unnamed intermediate still
+# earns nothing.
 CANONICAL_HELPER_MODULE = "app.processing.raster.vrt"
+DRIVER_SKIP_MODULE = "app.platform.gdal_env"
 CANONICAL_HELPER_PARENT = "app.processing.raster"
+
+# import path -> the helpers that import path may credit.
+CANONICAL_HELPER_MODULES: dict[str, frozenset[str]] = {
+    CANONICAL_HELPER_MODULE: frozenset(ENV_HELPERS),
+    DRIVER_SKIP_MODULE: frozenset(DRIVER_SKIP_HELPERS),
+}
+# module path relative to backend/app -> the helpers DEFINED there, so a call
+# inside a defining module credits itself.
+CANONICAL_HELPER_MODULE_RELS: dict[str, frozenset[str]] = {
+    "processing/raster/vrt.py": frozenset(
+        h for h in ENV_HELPERS if h not in DRIVER_SKIP_HELPERS
+    ),
+    "platform/gdal_env.py": frozenset(DRIVER_SKIP_HELPERS),
+}
 
 # (module path relative to backend/app, enclosing function name) ->
 # (expected UNWRAPPED rasterio.open count, justification). Adding a new
@@ -443,22 +472,14 @@ RASTERIO_ENV_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
 # for one. Those sites now carry gdal_vector_safe_env plus the input-driver
 # allowlist, and are credited rather than excused. The two remaining
 # ogr2ogr/ogrinfo sites in ogr.py and export/ogr.py went the same way.
-GDAL_CLI_CALL_ALLOWLIST: dict[tuple[str, str, str], tuple[int, str]] = {
-    ("modules/catalog/sources/preview.py", "run_service_preview", "ogrinfo"): (
-        1,
-        "user-supplied service URL gated by validate_url_for_ssrf at "
-        "submission time (#937); the vsicurl extension clamps do not apply "
-        "to OGR service drivers. Not clamped by the helpers, and this is the "
-        "one site that cannot be: modules/catalog/ may not import "
-        "app.processing.* (test_layering.py), which is where the helpers "
-        "live. Two branches, and they are pinned differently (#1846): the "
-        "service branch by the WFS:/OAPIF:/ESRIJSON: prefix the source "
-        "string carries, and the localised branch -- where "
-        "_localise_protected_oapif swaps in a bare local staging path -- by "
-        "an explicit -if GeoJSON, which is honest because _walk_pages writes "
-        "its own FeatureCollection wrapper",
-    ),
-}
+# fix(#1857 item 3): EMPTY, and that is the point. The single entry that used
+# to live here was `run_service_preview`, justified on the grounds that
+# `modules/catalog/` may not import `app.processing.*` and the helpers lived
+# there. That describes a layering accident, not a property of the site, and a
+# justification is what you write when the code cannot be fixed. The clamps
+# moved to `app/platform/gdal_env.py`, the site calls one, and it is credited
+# rather than excused. Every GDAL CLI argv in `app/` now carries a safe env.
+GDAL_CLI_CALL_ALLOWLIST: dict[tuple[str, str, str], tuple[int, str]] = {}
 
 # Floors so a refactor that blinds the detector fails loudly instead of
 # passing on an empty scan (same trick as the Rule-1 route-count floor).
@@ -532,14 +553,17 @@ VECTOR_CLI_DRIVER_POLICY: dict[
     ("modules/catalog/sources/preview.py", "run_service_preview", "ogrinfo"): (
         1,
         OTHER_INPUT,
-        None,
+        SAFE_SERVICE_ENV_HELPER,
         "remote service. Prefix-pinned on the service branch like "
         "run_ogr2ogr_service, and -if GeoJSON on the localised branch, where "
-        "the source is a bare local path the page walker wrote (#1846). The "
-        "one site with no env helper at all, which is what the None records: "
-        "modules/catalog/ may not import app.processing.* (test_layering.py) "
-        "and that is where the helpers live. Carried by "
-        "GDAL_CLI_CALL_ALLOWLIST instead",
+        "the source is a bare local path the page walker wrote (#1846). Takes "
+        "the SERVICE env for the same reason run_ogr2ogr_service does: the "
+        "service branch exists to use WFS and OAPIF, which the vector variant "
+        "skips. fix(#1857 item 3): this used to be the one site with no env "
+        "helper at all, recorded here as None, because modules/catalog/ may "
+        "not import app.processing.* (test_layering.py) and that is where the "
+        "helpers lived. They live in app/platform/gdal_env.py now, so the "
+        "site is credited rather than excused",
     ),
 }
 
@@ -685,8 +709,8 @@ def _record_import_from(info: _ScopeInfo, node: ast.ImportFrom) -> None:
     # suffix credited `from evil.processing.raster.vrt import ...`. Relative
     # imports (node.level > 0) are not spellings the tree uses; their names
     # fall through to `bound` and earn no credit.
-    if node.level == 0 and module == CANONICAL_HELPER_MODULE:
-        kinds = {helper: helper for helper in ENV_HELPERS}
+    if node.level == 0 and module in CANONICAL_HELPER_MODULES:
+        kinds = {helper: helper for helper in CANONICAL_HELPER_MODULES[module]}
     elif node.level == 0 and module == DRIVER_ALLOWLIST_MODULE:
         # Only the direct `from ... import local_input_driver_args` spelling
         # earns credit. A module alias would need its own tracking and the tree
@@ -716,7 +740,7 @@ def _record_import_from(info: _ScopeInfo, node: ast.ImportFrom) -> None:
 
 def _record_plain_import(info: _ScopeInfo, node: ast.Import) -> None:
     for alias in node.names:
-        if alias.name == CANONICAL_HELPER_MODULE and alias.asname:
+        if alias.name in CANONICAL_HELPER_MODULES and alias.asname:
             info.canonical[_KIND_MODALIAS].add(alias.asname)
         elif alias.name == "rasterio":
             # codex round 5: `import rasterio as rs` must be tracked as a
@@ -827,17 +851,22 @@ def _record_assign_targets(info: _ScopeInfo, scope: ast.AST) -> set[int]:
 
 
 def _is_canonical_def(scope: ast.AST, node: ast.AST, rel: str) -> bool:
-    """True for the helper definitions inside the canonical module itself."""
+    """True for a helper definition inside the module that DEFINES it.
+
+    fix(#1857 item 3): keyed per module, so `processing/raster/vrt.py` vouches
+    for the two raster helpers it still defines and `platform/gdal_env.py` for
+    the two driver clamps. vrt.py's re-export of the latter pair is an import
+    and reaches credit through `_record_import_from` like any other caller's.
+    """
     return (
         isinstance(scope, ast.Module)
-        and rel == CANONICAL_HELPER_MODULE_REL
-        and getattr(node, "name", None) in ENV_HELPERS
+        and getattr(node, "name", None) in CANONICAL_HELPER_MODULE_RELS.get(rel, ())
         and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     )
 
 
 def _record_canonical_defs(info: _ScopeInfo, scope: ast.AST, rel: str) -> None:
-    if not (isinstance(scope, ast.Module) and rel == CANONICAL_HELPER_MODULE_REL):
+    if not (isinstance(scope, ast.Module) and rel in CANONICAL_HELPER_MODULE_RELS):
         return
     for stmt in scope.body:
         if _is_canonical_def(scope, stmt, rel):
@@ -2530,6 +2559,116 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
     return best
 
 
+# fix(#1857 item 2): callee -> the index of the PROGRAM argument, because the
+# signature decides it: create_subprocess_exec(program, *args) leads with the
+# program, AbstractEventLoop.subprocess_exec(protocol_factory, program, *args)
+# does not. The argv follows the program inline.
+_VARARGS_ARGV_SPAWNERS: dict[str, int] = {
+    "create_subprocess_exec": 0,
+    "subprocess_exec": 1,
+    "execl": 0,
+    "execlp": 0,
+    "execle": 0,
+    "execlpe": 0,
+}
+
+# The same, for callees taking the argv as ONE sequence after the program. A
+# literal sequence is already a site through the display rule, so the call is
+# yielded only when it is not one, or a subprocess counts twice.
+_SEQUENCE_ARGV_SPAWNERS: dict[str, int] = {
+    "execv": 0,
+    "execvp": 0,
+    "execve": 0,
+    "execvpe": 0,
+}
+
+
+def _positional_argv_tool(node: ast.AST) -> tuple[str, int, bool] | None:
+    """(tool, program-argument index, whether argv follows as one sequence).
+
+    Matched on the callee's terminal name, so `asyncio.create_subprocess_exec`,
+    a `from asyncio import create_subprocess_exec` and `loop.subprocess_exec`
+    all read the same. Looser than the identity resolution helper credit uses,
+    deliberately: this side decides what to LOOK at, where a false positive
+    costs a reviewed allowlist entry, while credit decides what to EXEMPT,
+    where one costs the guarantee.
+    """
+    if not isinstance(node, ast.Call):
+        return None
+    func = node.func
+    if isinstance(func, ast.Attribute):
+        callee: str | None = func.attr
+    elif isinstance(func, ast.Name):
+        callee = func.id
+    else:
+        return None
+    takes_sequence = callee in _SEQUENCE_ARGV_SPAWNERS
+    index = _SEQUENCE_ARGV_SPAWNERS.get(callee)
+    if index is None:
+        index = _VARARGS_ARGV_SPAWNERS.get(callee)
+    if index is None or len(node.args) <= index:
+        return None
+    head = node.args[index]
+    if not isinstance(head, ast.Constant):
+        return None
+    tool = _gdal_cli_tool_name(head.value)
+    return None if tool is None else (tool, index, takes_sequence)
+
+
+def _display_argv_tool(node: ast.AST, rel: str) -> str | None:
+    """The tool a list or tuple DISPLAY names, when the display is an argv site.
+
+    fix(#1857 item 2, audit P3-A): its own predicate so the ``execv*`` skip can
+    ask whether the sequence IS a site rather than whether it is a literal.
+    ``os.execv("ogrinfo", ["-so", path])`` is a literal that this refuses, and
+    skipping the call for it left the spawn seen by neither branch.
+    """
+    if not (isinstance(node, (ast.List, ast.Tuple)) and node.elts):
+        return None
+    first = node.elts[0]
+    tool = _gdal_cli_tool_name(first.value) if isinstance(first, ast.Constant) else None
+    if tool is None:
+        return None
+    # fix(#996): a GDAL-looking sequence is only a command vector if it is one.
+    # Flagging plain data was a false positive that blocked correct code.
+    escape = _argv_escape_kind(node, rel)
+    if escape == _ESCAPE_NONE:
+        return None  # inert: the value never leaves, so it cannot execute
+    if escape != _ESCAPE_CALL and _tool_name_list(node):
+        # A tool-NAME list that is only returned is a choices helper. fix(#996
+        # review): the exemption stops at _ESCAPE_CALL, because a literal handed
+        # into a call is a plausible argv whatever it contains.
+        return None
+    return tool
+
+
+def _iter_argv_sites(rel: str, tree: ast.Module):
+    """Yield (tool, argv node, the argv's tail expressions) for one module.
+
+    The single definition of "an argv site", shared by the GDAL CLI env gate
+    and the vector driver policy so the two cannot drift. Requires
+    ``_annotate_parents(tree)`` to have run. The tail is what follows the
+    program, which callers scan for a literally remote source.
+    """
+    for node in ast.walk(tree):
+        tool = _display_argv_tool(node, rel)
+        if tool is not None:
+            yield tool, node, node.elts[1:]
+            continue
+        spawn = _positional_argv_tool(node)
+        if spawn is None:
+            continue
+        tool, index, takes_sequence = spawn
+        if takes_sequence:
+            argv_arg = node.args[index + 1] if len(node.args) > index + 1 else None
+            if argv_arg is not None and _display_argv_tool(argv_arg, rel) is not None:
+                # The sequence is a site in its own right, so yielding the call
+                # too would count one subprocess twice.
+                continue
+        # No escape test and no name-list exemption: this node is the spawn.
+        yield tool, node, node.args[index + 1 :]
+
+
 def _collect_gdal_cli_violations(
     modules: list[tuple[str, ast.Module]],
     allowlist: dict[tuple[str, str, str], tuple[int, str]],
@@ -2551,32 +2690,7 @@ def _collect_gdal_cli_violations(
 
     for rel, tree in modules:
         _annotate_parents(tree)
-        for node in ast.walk(tree):
-            # codex round 9: tuples build argv vectors just as well as lists
-            # (subprocess.run(("gdalinfo", url))) — match both.
-            if not (isinstance(node, (ast.List, ast.Tuple)) and node.elts):
-                continue
-            first = node.elts[0]
-            tool_name = (
-                _gdal_cli_tool_name(first.value)
-                if isinstance(first, ast.Constant)
-                else None
-            )
-            if tool_name is None:
-                continue
-            # fix(#996): a GDAL-looking sequence is only a command vector if
-            # it is one. Flagging plain data was a false positive that blocked
-            # correct code and offered only misleading ways out.
-            escape = _argv_escape_kind(node, rel)
-            if escape == _ESCAPE_NONE:
-                continue  # inert: the value never leaves, so it cannot execute
-            if escape != _ESCAPE_CALL and _tool_name_list(node):
-                # A tool-NAME list that is only returned is a choices helper.
-                # fix(#996 review): the exemption stops at _ESCAPE_CALL. A
-                # literal handed into a call is a plausible argv whatever it
-                # contains — a dataset or output path may legitimately be
-                # named `ogrinfo` — and shape alone cannot tell the two apart.
-                continue
+        for tool_name, node, tail in _iter_argv_sites(rel, tree):
             total_argv_sites += 1
             func_node = _enclosing_function_node(node)
             func_name = func_node.name if func_node is not None else "<module>"
@@ -2584,7 +2698,7 @@ def _collect_gdal_cli_violations(
             # codex round 7 on #974: an argv carrying a literally-remote
             # element gets no safe-env credit — the safe env cannot stop a
             # redirect (#937), so the site needs its own reviewed entry.
-            remote = any(_is_remote_literal(elt) for elt in node.elts[1:])
+            remote = any(_is_remote_literal(elt) for elt in tail)
             # fix(#1846 codex P2): which helper this argv may be credited by
             # depends on the tool family. A raster CLI needs the raster clamps
             # and nothing else vouches for it; a vector CLI may use any of the
@@ -2714,26 +2828,14 @@ def _argv_has_helper_credit(
 def _iter_vector_cli_argv_sites(modules: list[tuple[str, ast.Module]]):
     """Yield (rel, function, tool, argv node, enclosing scope) per vector argv.
 
-    Same detection as ``_collect_gdal_cli_violations`` -- a GDAL-headed literal
-    whose value escapes -- narrowed to the two OGR command-line tools.
+    Same detection as ``_collect_gdal_cli_violations`` -- through the shared
+    ``_iter_argv_sites`` so the two cannot drift on what an argv site is --
+    narrowed to the two OGR command-line tools.
     """
     for rel, tree in modules:
         _annotate_parents(tree)
-        for node in ast.walk(tree):
-            if not (isinstance(node, (ast.List, ast.Tuple)) and node.elts):
-                continue
-            first = node.elts[0]
-            tool = (
-                _gdal_cli_tool_name(first.value)
-                if isinstance(first, ast.Constant)
-                else None
-            )
+        for tool, node, _tail in _iter_argv_sites(rel, tree):
             if tool not in VECTOR_CLI_TOOLS:
-                continue
-            escape = _argv_escape_kind(node, rel)
-            if escape == _ESCAPE_NONE:
-                continue
-            if escape != _ESCAPE_CALL and _tool_name_list(node):
                 continue
             func_node = _enclosing_function_node(node)
             func_name = func_node.name if func_node is not None else "<module>"
@@ -2749,6 +2851,12 @@ def _collect_vector_driver_violations(
     violations: list[str] = []
     counts: dict[tuple[str, str, str], int] = {}
     lines: dict[tuple[str, str, str], list[int]] = {}
+    # fix(#1857 item 1): keys whose env helper cannot be resolved. The site
+    # loop feeds that string to _classify_name as a binding KIND, which indexes
+    # a dict with it, so an unrecognised name raises instead of reporting. Only
+    # the env helper needs this; an unknown KIND is only ever a set membership
+    # test.
+    unresolvable_env_helper: set[tuple[str, str, str]] = set()
     total = 0
 
     for key, (_count, kind, env_helper, justification) in sorted(policy.items()):
@@ -2757,6 +2865,7 @@ def _collect_vector_driver_violations(
                 f"unknown VECTOR_CLI_DRIVER_POLICY kind {kind!r} for {key}"
             )
         if env_helper is not None and env_helper not in SUBPROCESS_ENV_HELPERS:
+            unresolvable_env_helper.add(key)
             violations.append(
                 f"VECTOR_CLI_DRIVER_POLICY names {env_helper!r} for {key}, which "
                 f"is not one of {', '.join(SUBPROCESS_ENV_HELPERS)}"
@@ -2776,6 +2885,10 @@ def _collect_vector_driver_violations(
                 "VECTOR_CLI_DRIVER_POLICY entry — say what its input is and "
                 "clamp it accordingly (AGENTS.md Rule 2, #1846)"
             )
+            continue
+        if key in unresolvable_env_helper:
+            # Already reported above. Whether an unresolvable helper covers this
+            # argv is not a question with an answer.
             continue
         _expected, kind, env_helper, _why = entry
         if kind in _POLICY_NEEDS_DRIVER_ALLOWLIST:
@@ -2832,6 +2945,43 @@ def _collect_vector_driver_violations(
         )
 
     return violations, total
+
+
+def test_policy_naming_an_unknown_env_helper_reports_instead_of_raising():
+    """A typo in VECTOR_CLI_DRIVER_POLICY reports, and names the allowed set.
+
+    fix(#1857 item 1). The site key must be a REAL one: an entry pointing
+    nowhere reports as stale and never reaches the resolution under test.
+    """
+    key = ("processing/export/ogr.py", "run_ogr2ogr_export", "ogr2ogr")
+    policy = dict(VECTOR_CLI_DRIVER_POLICY)
+    assert key in policy, (
+        "the site this test names has moved; point it at another real vector "
+        "CLI argv site, since an entry with no matching site reports as stale "
+        "and never reaches the resolution that used to raise"
+    )
+    count, kind, real_helper, why = policy[key]
+    assert real_helper is not None
+    typo = real_helper + "_typo"
+    assert typo not in SUBPROCESS_ENV_HELPERS
+    policy[key] = (count, kind, typo, why)
+
+    violations, _total = _collect_vector_driver_violations(_app_modules(), policy)
+
+    named = [v for v in violations if typo in v]
+    assert len(named) == 1, (
+        f"expected exactly one violation naming {typo!r}, got {violations}"
+    )
+    # The message has to carry the allowed set, or the reader has to go read
+    # this file to learn what they may write instead.
+    for allowed in SUBPROCESS_ENV_HELPERS:
+        assert allowed in named[0], named[0]
+
+    # And the entry's own credit check is skipped rather than attempted, so
+    # the run does not also blame the site for a policy typo.
+    assert not [v for v in violations if "run_ogr2ogr_export" in v and typo not in v], (
+        violations
+    )
 
 
 def test_vector_gdal_argv_restricts_input_drivers():
@@ -2894,6 +3044,161 @@ def test_every_sqlite_family_extension_is_content_checked():
     # has to be scanned for members too.
     assert schema_readers & set(ARCHIVE_MEMBER_DRIVERS)
     assert ZIP_CONTAINER_EXTENSIONS, "container list went empty"
+
+
+# fix(#1857 item 2): both fixtures spawn the same tool with the same arguments
+# and differ only in the env, so one passing and one reporting isolates what is
+# measured. Source rather than a file in app/, which would be a real spawn.
+_POSITIONAL_ARGV_UNCLAMPED = """
+import asyncio
+
+
+async def probe(path):
+    proc = await asyncio.create_subprocess_exec(
+        "ogrinfo", "-so", path, stdout=asyncio.subprocess.PIPE
+    )
+    return proc
+"""
+
+_POSITIONAL_ARGV_CLAMPED = """
+import asyncio
+
+from app.processing.raster.vrt import gdal_vector_safe_env
+
+
+async def probe(path):
+    proc = await asyncio.create_subprocess_exec(
+        "ogrinfo",
+        "-so",
+        path,
+        stdout=asyncio.subprocess.PIPE,
+        env=gdal_vector_safe_env(),
+    )
+    return proc
+"""
+
+_POSITIONAL_FIXTURE_REL = "processing/ingest/_positional_spawn_fixture.py"
+
+
+def _fixture_modules(source: str) -> list[tuple[str, ast.Module]]:
+    return [(_POSITIONAL_FIXTURE_REL, ast.parse(source))]
+
+
+def test_positional_argv_is_seen_by_the_cli_env_gate():
+    """An argv passed as separate arguments is still an argv (#1857 item 2).
+
+    The clamped fixture is what makes this a measurement: without it, "the new
+    shape reports" would hold for a change that reported every varargs spawn.
+    """
+    violations, total = _collect_gdal_cli_violations(
+        _fixture_modules(_POSITIONAL_ARGV_UNCLAMPED), {}
+    )
+    assert total == 1, f"the positional spawn was not counted as an argv: {total}"
+    assert len(violations) == 1, violations
+    assert "ogrinfo" in violations[0] and "probe" in violations[0], violations[0]
+
+    violations, total = _collect_gdal_cli_violations(
+        _fixture_modules(_POSITIONAL_ARGV_CLAMPED), {}
+    )
+    assert total == 1, total
+    assert not violations, violations
+
+
+# fix(#1857 item 2, codex review): two signatures the first cut read wrong.
+_EVENT_LOOP_SPAWN = """
+import asyncio
+
+
+async def probe(loop, factory, path):
+    return await loop.subprocess_exec(factory, "ogrinfo", "-so", path)
+"""
+
+_SEQUENCE_SPAWN = """
+import os
+
+
+def probe(path):
+    os.execv("ogrinfo", ["ogrinfo", "-so", path])
+"""
+
+_SEQUENCE_SPAWN_DYNAMIC = """
+import os
+
+
+def probe(path, cmd):
+    os.execv("ogrinfo", cmd)
+"""
+
+_SEQUENCE_SPAWN_UNHEADED = """
+import os
+
+
+def probe(path):
+    os.execv("ogrinfo", ["-so", path])
+"""
+
+
+def test_the_program_index_follows_the_callee_signature():
+    """``loop.subprocess_exec`` leads with a protocol factory, not the program.
+
+    fix(#1857 item 2, codex review). Reading argument 0 for every callee found
+    a factory rather than a tool name there, so the shape yielded no argv site
+    at all and an unclamped GDAL subprocess passed both gates.
+    """
+    violations, total = _collect_gdal_cli_violations(
+        _fixture_modules(_EVENT_LOOP_SPAWN), {}
+    )
+    assert total == 1, f"the event-loop spawn was not counted as an argv: {total}"
+    assert len(violations) == 1, violations
+    assert "ogrinfo" in violations[0], violations[0]
+
+
+def test_a_sequence_form_spawn_counts_once():
+    """``os.execv`` names the program and hands the argv as one list.
+
+    fix(#1857 item 2, codex review). Both halves matched, so one subprocess
+    counted as two argv sites and no exact count in VECTOR_CLI_DRIVER_POLICY
+    could be right for it. The display is the site; the call is yielded only
+    when the sequence is not a literal, which is the half that would otherwise
+    go unseen.
+    """
+    for collect in (_collect_gdal_cli_violations, _collect_vector_driver_violations):
+        _violations, total = collect(_fixture_modules(_SEQUENCE_SPAWN), {})
+        assert total == 1, f"{collect.__name__} counted {total} sites, not 1"
+
+    violations, total = _collect_gdal_cli_violations(
+        _fixture_modules(_SEQUENCE_SPAWN_DYNAMIC), {}
+    )
+    assert total == 1, f"a non-literal argv left the spawn unseen: {total}"
+    assert len(violations) == 1, violations
+
+
+def test_a_sequence_the_display_rule_refuses_still_leaves_one_site():
+    """fix(#1857 item 2, audit P3-A): a literal is not the same as a site.
+
+    ``os.execv("ogrinfo", ["-so", path])`` builds a real argv whose FIRST
+    element is a flag, so the display rule refuses it. Skipping the call for
+    any literal left this spawn yielded by neither branch, which is the shape
+    the skip was added to avoid double-counting reaching zero instead.
+    """
+    for collect in (_collect_gdal_cli_violations, _collect_vector_driver_violations):
+        violations, total = collect(_fixture_modules(_SEQUENCE_SPAWN_UNHEADED), {})
+        assert total == 1, f"{collect.__name__} counted {total} sites, not 1"
+        assert len(violations) == 1, violations
+
+
+def test_positional_argv_is_seen_by_the_vector_driver_policy():
+    """Both gates read ``_iter_argv_sites``, so one widening reaches both.
+
+    fix(#1857 item 2). A positional ogrinfo with no entry must report as
+    unreviewed rather than as absent.
+    """
+    violations, total = _collect_vector_driver_violations(
+        _fixture_modules(_POSITIONAL_ARGV_UNCLAMPED), {}
+    )
+    assert total == 1, total
+    assert len(violations) == 1, violations
+    assert "VECTOR_CLI_DRIVER_POLICY" in violations[0], violations[0]
 
 
 def test_gdal_cli_argv_uses_safe_env_or_is_allowlisted():
