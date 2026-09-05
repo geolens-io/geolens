@@ -15,6 +15,7 @@ either way. Same assertion the earlier fixes in this class use
 """
 
 import uuid
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -32,13 +33,24 @@ pytestmark = pytest.mark.anyio
 
 
 @pytest.fixture
-def allow_any_url():
-    """The door's own SSRF gate, stubbed: these hostnames do not resolve."""
+def recording_url_validator(request_sessions):
+    """The door's SSRF gate, stubbed and recording.
+
+    fix(#1848 codex r1): `validate_url_for_ssrf` awaits `getaddrinfo` in a
+    thread, so it is one of the waits the release has to precede, not a cheap
+    gate that may sit before it. Yields the same list the I/O recorder appends
+    to, so each test reads `[validator, io]` in call order.
+    """
+    held: list[bool] = []
+
+    async def _recording_validate(_url):
+        held.append(_holds_connection(request_sessions))
+
     with patch(
         "app.modules.catalog.sources.router.validate_url_for_ssrf",
-        new_callable=AsyncMock,
-    ) as mock:
-        yield mock
+        new=_recording_validate,
+    ):
+        yield held
 
 
 @pytest.fixture
@@ -97,14 +109,14 @@ _PREVIEW_DATA = {
 # ---------------------------------------------------------------------------
 
 
-async def test_probe_releases_the_connection_before_the_adapter_probes(
+async def test_probe_releases_the_connection_before_dns_and_the_probes(
     client: AsyncClient,
     admin_auth_header: dict,
-    allow_any_url,
+    recording_url_validator,
     request_sessions,
 ):
-    """Three adapter probes at up to 30 s each ran on a held connection."""
-    held: list[bool] = []
+    """The SSRF resolver wait and three adapter probes ran on a held connection."""
+    held = recording_url_validator
 
     async def _recording_detect(*_args, **_kwargs):
         held.append(_holds_connection(request_sessions))
@@ -131,24 +143,28 @@ async def test_probe_releases_the_connection_before_the_adapter_probes(
         )
 
     assert resp.status_code == 200, resp.text
-    assert held == [False], (
-        "the request session was still in a transaction when the probes "
-        "started, so it was holding a pooled connection across them"
+    assert held == [False, False], (
+        "the request session was still in a transaction at the SSRF resolver "
+        "wait or at the probes, so it held a pooled connection across them"
     )
     # The success audit row is written after the release, which proves the
     # session re-acquires rather than being finished with.
     assert resp.json()["service_type"] == "WFS 2.0.0"
 
 
-async def test_preview_releases_the_connection_before_ogrinfo(
+async def test_preview_releases_the_connection_before_dns_and_ogrinfo(
     client: AsyncClient,
     admin_auth_header: dict,
-    allow_any_url,
+    recording_url_validator,
     stub_gdal_source,
     request_sessions,
 ):
-    """The OAPIF page walk and the ogrinfo subprocess ran on a held connection."""
-    held: list[bool] = []
+    """The resolver wait, the OAPIF page walk and ogrinfo ran on a held connection.
+
+    Two releases, not one: the duplicate-source query between them re-acquires
+    a connection of its own, so the second release is what covers the walk.
+    """
+    held = recording_url_validator
 
     async def _recording_preview(*_args, **_kwargs):
         held.append(_holds_connection(request_sessions))
@@ -169,11 +185,57 @@ async def test_preview_releases_the_connection_before_ogrinfo(
         )
 
     assert resp.status_code == 200, resp.text
-    assert held == [False], (
-        "the request session was still in a transaction when ogrinfo ran"
+    assert held == [False, False], (
+        "the request session was still in a transaction at the SSRF resolver "
+        "wait or when ogrinfo ran"
     )
     # The pending job is written after the release.
     assert resp.json()["job_id"]
+
+
+async def test_a_refused_url_still_writes_its_audit_row_after_the_release(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    request_sessions,
+):
+    """The release must not cost the refusal path its audit row.
+
+    `_probe_audit_fail` runs after the rollback now, so it has to re-acquire a
+    connection and commit on it. If the release left the session unusable this
+    is where it would show.
+    """
+    from sqlalchemy import select
+
+    from app.modules.audit.models import AuditLog
+    from app.platform.security import SSRFError
+
+    probe_url = "https://a2-refused.example.com/wfs"
+
+    async def _refuse(_url):
+        raise SSRFError("URLs targeting private/internal networks are not allowed")
+
+    with patch("app.modules.catalog.sources.router.validate_url_for_ssrf", new=_refuse):
+        resp = await client.post(
+            "/services/probe/",
+            json={"url": probe_url},
+            headers=admin_auth_header,
+        )
+
+    assert resp.status_code == 400, resp.text
+    rows = (
+        (
+            await test_db_session.execute(
+                select(AuditLog).where(
+                    AuditLog.action == "probe_service",
+                    AuditLog.details["url"].astext == probe_url,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [row.details["result"] for row in rows] == ["ssrf_blocked"]
 
 
 # ---------------------------------------------------------------------------
@@ -352,6 +414,81 @@ async def test_reupload_commits_the_job_before_streaming_the_file(
     assert stored.file_path == str(tmp_path / f"a2-staged-{job_id}.geojson")
 
 
+async def test_a_sweep_during_the_upload_refuses_rather_than_binding(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    tmp_path: Path,
+):
+    """fix(#1848 audit): the cost of committing first, bounded.
+
+    The row is visible and `pending` for the whole upload now, so the
+    stale-pending sweep can reclaim it while the bytes are still arriving. An
+    ORM flush would then bind the path onto a `cancelled` row and answer 201
+    with a job the next call refuses as already processed, losing the upload.
+    The bind is a compare-and-set on `status = 'pending'` instead, so a
+    reclaimed row is left alone and the caller is told to start again.
+    """
+    from sqlalchemy import select
+
+    from app.api.main import sweep_stale_jobs_once
+    from app.modules.catalog.datasets.api import router_reupload
+    from app.platform.jobs.sweep import stale_pending_cutoff_seconds
+
+    dataset = await _vector_dataset(test_db_session)
+    port = router_reupload.get_catalog_port()
+
+    async def _sweep_mid_upload(_file, job_id, **_kwargs):
+        # Age the row past the unbound cutoff and let the real sweep reclaim
+        # it, which is what a slow upload runs into.
+        cutoff = stale_pending_cutoff_seconds(completion_bound=False)
+        aged = datetime.now(timezone.utc) - timedelta(seconds=cutoff + 60)
+        row = await test_db_session.get(IngestJob, uuid.UUID(job_id))
+        assert row is not None, "the job must be committed before the upload"
+        row.created_at = aged
+        await test_db_session.commit()
+        await sweep_stale_jobs_once()
+        path = tmp_path / f"a2-swept-{job_id}.geojson"
+        path.write_bytes(b'{"type":"FeatureCollection","features":[]}')
+        return path
+
+    with (
+        patch.object(port, "save_upload_file", new=_sweep_mid_upload),
+        patch.object(port, "validate_file_content", return_value=None),
+        patch.object(router_reupload, "get_catalog_port", return_value=port),
+    ):
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload",
+            files={
+                "file": (
+                    "replacement.geojson",
+                    BytesIO(b'{"type":"FeatureCollection","features":[]}'),
+                    "application/geo+json",
+                )
+            },
+            headers=admin_auth_header,
+        )
+
+    assert resp.status_code == 409, resp.text
+
+    rows = (
+        (
+            await test_db_session.execute(
+                select(IngestJob).where(IngestJob.dataset_id == dataset.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 1
+    await test_db_session.refresh(rows[0])
+    # The sweep's verdict stands, and no path was bound onto it.
+    assert rows[0].status == "cancelled"
+    assert not rows[0].file_path
+    # The staged file is cleaned on the refusal path, like every other failure.
+    assert not (tmp_path / f"a2-swept-{rows[0].id}.geojson").exists()
+
+
 async def test_a_failed_upload_leaves_a_reapable_pending_job(
     client: AsyncClient,
     admin_auth_header: dict,
@@ -410,8 +547,6 @@ async def test_a_failed_upload_leaves_a_reapable_pending_job(
     # the sweep's discriminator rather than the completion half.
     assert not rows[0].file_path
     # The predicate that reaps it, evaluated on this row rather than described.
-    from datetime import datetime, timedelta, timezone
-
     from sqlalchemy import select as _select
 
     later = datetime.now(timezone.utc) + timedelta(days=1)

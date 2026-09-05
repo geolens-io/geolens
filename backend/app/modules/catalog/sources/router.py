@@ -974,8 +974,13 @@ async def probe_service_url(
         ),
     )
     safe_url = redact_url_credentials(request.url)
-    # fix(#1848): read off `user` before any release below expires it.
+    # fix(#1848): read off `user` before the release below expires it.
     user_id = user.id
+    # fix(#1848 codex r1): released ABOVE the SSRF check, not below it.
+    # `validate_url_for_ssrf` awaits `getaddrinfo` in a thread, so an
+    # unresponsive resolver pinned the connection before any probe ran.
+    await db.rollback()
+
     # Step 1: SSRF validation
     try:
         await validate_url_for_ssrf(request.url)
@@ -990,10 +995,6 @@ async def probe_service_url(
             str(exc),
             reason=str(exc),
         )
-
-    # fix(#1848): hand the pooled connection back before the probes. Nothing is
-    # written yet, and every value the audit rows below need is already a local.
-    await db.rollback()
 
     # Step 2: Probe with httpx client
     # NOTE: No default Authorization header on the client. Each probe function
@@ -1225,8 +1226,13 @@ async def preview_service_layer(
     # this is None and the credential travels as a header instead.
     service_token = url_query_token(service_credential)
     safe_url = redact_url_credentials(request.url)
-    # fix(#1848): read off `user` before the release below expires it.
+    # fix(#1848): read off `user` before either release below expires it.
     user_id = user.id
+    # fix(#1848 codex r1): released ABOVE the SSRF check, not below it.
+    # `validate_url_for_ssrf` awaits `getaddrinfo` in a thread, so an
+    # unresponsive resolver pinned the connection before any preview work.
+    await db.rollback()
+
     # Step 1: SSRF validation
     try:
         await validate_url_for_ssrf(request.url)
@@ -1341,8 +1347,8 @@ async def preview_service_layer(
         # skip the duplicate check and let Step 2 handle validation.
         pass
 
-    # fix(#1848): hand the pooled connection back before the page walk and
-    # ogrinfo. Every gate above has run; the writes below re-acquire lazily.
+    # fix(#1848): released again, because the duplicate-source query above
+    # re-acquired. Every gate has run and nothing is written yet.
     await db.rollback()
 
     # Step 2 (ArcGIS): derive the preview from FeatureServer/MapServer REST

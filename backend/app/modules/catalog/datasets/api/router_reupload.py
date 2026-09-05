@@ -332,16 +332,36 @@ async def reupload_dataset(
         except ValueError as exc:
             # Preserve the existing failed-job audit trail for a user content
             # error.
-            job.status = "failed"
-            job.error_message = str(exc)
+            # fix(#1848 audit): guarded like the bind below, so a row the sweep
+            # already reclaimed keeps its terminal status and message.
+            await db.execute(
+                update(IngestJob)
+                .where(IngestJob.id == job.id, IngestJob.status == "pending")
+                .values(status="failed", error_message=str(exc))
+            )
             await db.commit()
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=str(exc),
             ) from exc
 
-        job.file_path = str(saved_path)
+        # fix(#1848 audit): the path is bound only while the row is still
+        # pending. The stale-pending sweep can reclaim it mid-upload, and an
+        # ORM flush would bind onto that terminal row and answer 201.
+        bound = await db.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job.id, IngestJob.status == "pending")
+            .values(file_path=str(saved_path))
+        )
         await db.commit()
+        if not bound.rowcount:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "This upload took too long and the job was reclaimed. "
+                    "Start the re-upload again."
+                ),
+            )
     except BaseException:
         await _cleanup_uncommitted_reupload_source(saved_path, job_id=job.id)
         raise
@@ -351,6 +371,8 @@ async def reupload_dataset(
 
     return ReuploadResponse(
         job_id=job.id,
+        # fix(#1848 audit): true by construction, not assumed -- the bind above
+        # only reached here because the row was still pending.
         status="pending",
         message="File uploaded for re-upload preview",
     )

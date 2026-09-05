@@ -2771,11 +2771,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # of reporting `ogrinfo_failed` for a tool that never ran. The extraction
     # is net-neutral; the lines are the helper's own docstring and the new
     # clause's comment. Cap 1791 -> 1831, exact.
-    # fix(#1848): +12. Both doors hand the pooled connection back before their
+    # fix(#1848): +18. Both doors hand the pooled connection back before their
     # network work, which costs the release itself, its comment and the
-    # `user_id` local the rollback's expiry makes necessary.
-    # Cap 1831 -> 1843, exact.
-    "backend/app/modules/catalog/sources/router.py": 1843,
+    # `user_id` local the rollback's expiry makes necessary. Codex round 1
+    # moved each release above `validate_url_for_ssrf`, whose `getaddrinfo`
+    # wait is the first of the two waits, and the preview needs a second
+    # release because its duplicate-source query re-acquires in between.
+    # Cap 1831 -> 1849, exact.
+    "backend/app/modules/catalog/sources/router.py": 1849,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against
@@ -4393,11 +4396,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # sibling `preview_file` mapped it to 422. The lines are that branch and
     # the comment saying which endpoint it is matching.
     # Cap 1386 -> 1396, exact.
-    # fix(#1848): +21. Three doors release the pooled connection before their
+    # fix(#1848): +43. Three doors release the pooled connection before their
     # network or GDAL work; the added lines are the releases, their comments,
-    # and the locals read off the ORM instances the rollback expires.
-    # Cap 1396 -> 1417, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1417,
+    # and the locals read off the ORM instances the rollback expires. The
+    # audit round added the two compare-and-set writes that keep the
+    # commit-first door from binding onto a row the stale-pending sweep
+    # reclaimed mid-upload, plus their refusal. Cap 1396 -> 1439, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1439,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
