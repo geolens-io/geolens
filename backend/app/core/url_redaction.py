@@ -399,15 +399,6 @@ def redact_exception_text(exc: BaseException) -> str:
     return scrub_registered_credentials(redact_url_credentials(str(exc)))
 
 
-# fix(#1844 codex r1): shortest DERIVED variant `_secret_variants` will expand
-# a registered secret into. Deliberately equal to
-# `core.service_tokens.HEADER_TOKEN_MIN_LENGTH` (8), the floor the bearer
-# grammar already enforces, but spelled here rather than imported: this module
-# is imported by `core.logging_config` and must not reach into the service-token
-# layer to answer a question about its own string handling.
-MIN_DERIVED_VARIANT_LENGTH = 8
-
-
 def _basic_cleartext(blob: str) -> set[str]:
     """The username and password inside a base64 basic credential.
 
@@ -477,38 +468,32 @@ def _secret_variants(secret: str) -> list[str]:
     of the pair matches none of it. So the pair is decoded and both halves join
     the variants, alongside every encoded form.
     """
-    derived: set[str] = set()
+    # fix(#1844 codex r2): there is NO length floor here, on the derived forms
+    # or on the secret itself. Round 1 added one and it was wrong: a floor
+    # decides which VALID credentials stop being scrubbed.
+    # `credential_input_rejection_reason` (`core/service_tokens.py`) accepts any
+    # nonempty printable username, password or header value with no minimum, so
+    # a Basic password of `admin` and a six-character named API key are both
+    # well-formed credentials a user can really configure -- and a floor of 8
+    # silently stopped redacting them from worker logs and from the persisted
+    # exception text. The malformed-short-bearer case the floor was reaching
+    # for is closed at the other end instead, by
+    # `_sanitize_authorization_token` validating before it registers; a VALID
+    # bearer is already at least `HEADER_TOKEN_MIN_LENGTH`, so a bearer-derived
+    # bare token can never be short in the first place.
+    #
+    # Over-scrubbing a short secret stays the deliberate trade-off documented
+    # on `scrub_secret_value` below. Under-scrubbing a valid one is not a trade
+    # this module gets to make.
+    forms = {secret}
     _, separator, tail = secret.partition(HEADER_LINE_SEPARATOR)
     if separator and tail:
-        derived.add(tail)
+        forms.add(tail)
         _, space, rest = tail.partition(" ")
         if space and rest:
-            derived.add(rest)
+            forms.add(rest)
         if tail.startswith(BASIC_SCHEME):
-            derived.update(_basic_cleartext(tail[len(BASIC_SCHEME) :]))
-    # fix(#1844 codex r1): the floor applies to DERIVED forms only, never to
-    # the registered secret itself.
-    #
-    # The two halves are not the same risk. The secret a caller registered is
-    # scrubbed at any length, which is `scrub_secret_value`'s documented
-    # trade-off just below: over-scrubbing a short token is the safe direction,
-    # and refusing to redact a four-character credential to keep a log tidy
-    # would be the wrong call. A DERIVED form is different, because nobody
-    # chose it -- this function invented it by splitting on `": "`, on a space,
-    # or by base64-decoding a blob. A one-character bearer token or a
-    # two-character basic username expands into a substring that occurs in
-    # ordinary English, and every later scrub in the same request or job then
-    # rewrites unrelated text, destroying the log wholesale rather than
-    # redacting one value in it.
-    #
-    # `MIN_DERIVED_VARIANT_LENGTH` matches `HEADER_TOKEN_MIN_LENGTH`, the floor
-    # the bearer validator already enforces, so a well-formed bearer credential
-    # loses nothing. What it drops is the expansion of a line that should never
-    # have reached the registry -- belt to `_sanitize_authorization_token`'s
-    # braces, since that one now validates before it registers.
-    forms = {secret} | {
-        form for form in derived if len(form) >= MIN_DERIVED_VARIANT_LENGTH
-    }
+            forms.update(_basic_cleartext(tail[len(BASIC_SCHEME) :]))
     variants = set()
     for form in forms:
         variants.update({form, quote(form, safe=""), quote_plus(form)})

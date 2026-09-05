@@ -1414,35 +1414,75 @@ class TestSecFu04SanitizeAuthorizationToken:
 
         assert token not in reflected
 
-    def test_sec_fu_04_a_short_derived_variant_is_never_expanded(self) -> None:
-        """fix(#1844 codex r1): the floor covers forms nobody chose.
+    def test_sec_fu_04_a_valid_short_basic_pair_still_expands_to_both_halves(
+        self,
+    ) -> None:
+        """fix(#1844 codex r2): no length floor on a derived variant.
 
-        `_secret_variants` invents derived forms by splitting on `": "`, on a
-        space, and by base64-decoding a Basic blob. A two-character username
-        expands into a substring that occurs in ordinary English, so every
-        later scrub in the job would rewrite unrelated text. The registered
-        secret itself keeps its documented no-floor treatment: over-scrubbing
-        a short credential someone actually holds is the safe direction, while
-        over-scrubbing a fragment this module invented is not.
+        Round 1 added one and it was wrong. `credential_input_rejection_reason`
+        (`core/service_tokens.py`) accepts any nonempty printable username or
+        password with no minimum, so a one-character half is a VALID credential
+        a user can really configure, not a malformed one -- and a floor decides
+        which valid credentials stop being scrubbed. A Basic password of
+        `admin` had exactly this regression: `authentication failed for user
+        admin` stopped being redacted out of worker logs and the persisted
+        exception text.
+
+        Over-scrubbing a short secret is the deliberate trade-off documented on
+        `scrub_secret_value`. Under-scrubbing a valid one is not a trade this
+        module gets to make.
         """
         import base64
 
+        from app.core.logging_config import _scrub_text
+        from app.core.service_tokens import reset_registered_credential_secrets
         from app.core.url_redaction import _secret_variants
 
-        line = f"Authorization: Basic {base64.b64encode(b'a:b').decode()}"
+        user, other_half = "a", "b"
+        blob = base64.b64encode(f"{user}:{other_half}".encode()).decode()
+        line = f"Authorization: Basic {blob}"
 
-        variants = _secret_variants(line)
+        reset_registered_credential_secrets()
+        try:
+            assert _sanitize(line) == line
+            variants = _secret_variants(line)
+            named = _scrub_text(f"authentication failed for user {user}")
+        finally:
+            reset_registered_credential_secrets()
 
-        assert line in variants
-        assert "a" not in variants
-        assert "b" not in variants
+        assert user in variants
+        assert other_half in variants
+        # End to end, not just in the variant list: the origin's own wording
+        # for the half is what reaches a log, and it comes back redacted.
+        assert user not in named
+
+    def test_sec_fu_04_a_valid_short_named_header_key_is_still_scrubbed(self) -> None:
+        """The same regression on the named-header method.
+
+        A header key has no length floor either, so a six-character API key is
+        well-formed. This is a separate branch of `_secret_variants` from the
+        Basic pair above (the tail after `": "`, with no scheme word to strip),
+        so covering only one would leave the other free to regress.
+        """
+        from app.core.logging_config import _scrub_text
+        from app.core.service_tokens import reset_registered_credential_secrets
+
+        key = "k3yk3y"
+
+        reset_registered_credential_secrets()
+        try:
+            _sanitize(f"X-Api-Key: {key}")
+            reflected = _scrub_text(f"origin rejected {key} at the door")
+        finally:
+            reset_registered_credential_secrets()
+
+        assert key not in reflected
 
     def test_sec_fu_04_a_long_basic_pair_still_expands_to_both_halves(self) -> None:
-        """Positive control for the floor: it must not gut the real expansion.
+        """The ordinary case, so the short ones above are not the only coverage.
 
         The reason the halves are derived at all is that an origin's own error
-        text names them ("authentication failed for user ..."). A floor that
-        dropped every half would quietly undo the fix this PR makes.
+        text names them ("authentication failed for user ...").
         """
         import base64
 
