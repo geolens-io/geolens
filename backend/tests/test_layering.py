@@ -2694,7 +2694,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # a `RecursionError` no caller catches. Most of the lines are the
     # docstring recording why `ValueError` is deliberately left alone.
     # Cap 1015 -> 1048, exact.
-    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1048,
+    # fix(#1858 audit P2-2): +26. Comments only. Four best-effort clauses
+    # here catch `ValueError` and therefore `SSRFError`, and each now says
+    # why a refused hop stays a degrade rather than being raised: the read
+    # establishes one optional fact and the adapter answers without it. The
+    # rule and its converse are stated once at `_fetch_count` and referred to
+    # from the other three. Cap 1048 -> 1074, exact.
+    "backend/app/modules/catalog/sources/adapters/arcgis.py": 1074,
     # feat(#1746 B2b): first explicit entry for this file, which rode the 1500
     # default until the service-auth wave. #1758 added the ArcGIS sign-in
     # endpoint and its rate-limit wiring, and this lane added the credential
@@ -2758,7 +2764,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the two stopped being equivalent when lane C2 taught the builder to
     # compose an ArcGIS header for the httpx transport. Cap 1780 -> 1791,
     # exact.
-    "backend/app/modules/catalog/sources/router.py": 1791,
+    # fix(#1858 audit P2-1): +40. `_refuse_preview` is extracted from
+    # `_run_service_preview_or_refuse` so the ArcGIS preview branch, which
+    # never went through that function, answers a refused redirect hop the
+    # way the WFS and OGC API branches of the same door already do, instead
+    # of reporting `ogrinfo_failed` for a tool that never ran. The extraction
+    # is net-neutral; the lines are the helper's own docstring and the new
+    # clause's comment. Cap 1791 -> 1831, exact.
+    "backend/app/modules/catalog/sources/router.py": 1831,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against

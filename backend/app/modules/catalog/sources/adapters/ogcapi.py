@@ -194,6 +194,13 @@ async def _resolve_conformance(
         conf_data = json.loads(conf_body)
         conforms_to = conf_data.get("conformsTo", [])
     except SSRFError:
+        # fix(#1858 audit P2-2): swallowed ON PURPOSE, unlike the
+        # `/collections` fetch below. `abs_href` is an address the LANDING
+        # DOCUMENT chose, this read establishes one optional fact, and the
+        # `data` link decides when it is unestablished -- so a refused hop
+        # here leaves the probe able to answer, and ending it would let any
+        # service make itself undetectable by advertising a blocked
+        # conformance href.
         logger.warning(
             "OGC API probe: conformance link blocked by SSRF check",
             href=redact_url_credentials(abs_href),
@@ -329,10 +336,22 @@ async def _probe_ogcapi_within_deadline(
         )
         col_data = json.loads(col_body)
     except SSRFError:
+        # fix(#1858 audit P2-2): re-raised, not degraded. This clause ENDS
+        # the adapter either way -- `return None` here is `probe_ogcapi`
+        # answering "not an OGC API service" -- so swallowing it costs the
+        # door the only truthful answer it could have given and gains
+        # nothing. `probe_service_url` and the preview door both have an
+        # `except SSRFError` that reports a refused hop as itself, and
+        # `_header_auth_probe` now lets one through to reach them. The rule
+        # this follows, and the reason the four best-effort clauses in
+        # `adapters/arcgis.py` and `_resolve_conformance` above keep their
+        # degrade: a refusal on a read whose failure means "one optional
+        # fact is unknown" stays a degrade; a refusal on a read whose
+        # failure ends the adapter is raised.
         logger.warning(
             "OGC API probe: collections URL blocked by SSRF check", url=collections_url
         )
-        return None
+        raise
     except Exception as exc:  # broad: collections fetch — httpx/JSON/bound failures can throw varied errors; degrade to None
         logger.debug(
             "OGC API probe: collections fetch failed",

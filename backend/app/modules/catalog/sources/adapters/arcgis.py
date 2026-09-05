@@ -704,6 +704,18 @@ async def enrich_arcgis_feature_counts(
                 ValueError,
                 KeyError,
             ):
+                # fix(#1858 audit P2-2): `SSRFError` is a `ValueError`, so a
+                # refused redirect hop lands here, and it stays here on
+                # purpose. This read establishes ONE OPTIONAL FACT about one
+                # layer, the probe answers 200 without it, and the import
+                # that follows fetches the same endpoint under the same
+                # guard. Raising would let a single layer's redirect end a
+                # probe of a service with fifty of them. The rule, shared
+                # with the three sibling clauses below and with
+                # `adapters/ogcapi.py`: a refusal on a read whose failure
+                # means "one optional fact is unknown" stays a degrade; a
+                # refusal on a read whose failure ends the adapter is raised,
+                # which is what `probe_arcgis_service` does.
                 return {**layer, "feature_count": None}
 
     enriched = await asyncio.gather(*[_fetch_count(layer) for layer in layers])
@@ -849,6 +861,11 @@ async def fetch_arcgis_pagination_info(
         EndpointCheckFailedError,
         TimeoutError,
     ):
+        # fix(#1858 audit P2-2): a refused hop degrades here for the reason
+        # given at `_fetch_count` above. The optional fact is "this layer
+        # supports pagination"; the one caller is the worker, whose own broad
+        # handler degrades identically, so raising would change nothing it
+        # reports and would remove the fallback an import relies on.
         return None, False, None
 
     # fix(#1770 round 49 P3): same reasoning as `_fetch_count`/`fetch_arcgis_
@@ -1008,6 +1025,12 @@ async def fetch_arcgis_layer_preview(
         EndpointCheckFailedError,
         TimeoutError,
     ) as exc:
+        # fix(#1858 audit P2-2): a refused hop degrades here for the reason
+        # given at `_fetch_count` above. The optional fact is the sample
+        # rows; the preview is already usable without them, and the metadata
+        # read that decides whether this layer can be previewed at all runs
+        # above without a local handler, so a refusal there still reaches the
+        # door.
         logger.debug(
             "ArcGIS sample-row fetch failed for %s/%s: %s",
             base,
@@ -1031,6 +1054,9 @@ async def fetch_arcgis_layer_preview(
         EndpointCheckFailedError,
         TimeoutError,
     ) as exc:
+        # fix(#1858 audit P2-2): a refused hop degrades here for the reason
+        # given at `_fetch_count` above. The optional fact is the row count
+        # shown beside the preview.
         logger.debug(
             "ArcGIS feature-count fetch failed for %s/%s: %s",
             base,
