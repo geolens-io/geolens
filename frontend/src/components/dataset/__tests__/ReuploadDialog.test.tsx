@@ -1,4 +1,4 @@
-import { act, render as rtlRender, screen, waitFor } from '@testing-library/react';
+import { act, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@/test/test-utils';
@@ -737,6 +737,88 @@ describe('ReuploadDialog', () => {
     expect(retryButton).not.toBeDisabled();
     expect(retryButton).toHaveTextContent('Try Again');
     expect(refetch).not.toHaveBeenCalled();
+  });
+
+  // fix(#1822 review P2): DatasetPage always renders ReuploadDialog and only
+  // toggles its `open` prop, so closing it does not unmount the component —
+  // a refetch started before the close keeps running after resetState.
+  it('ignores a stale refetch completion from before a reset (dialog closed mid-refetch)', async () => {
+    const user = userEvent.setup();
+    const originChangedError = () =>
+      new ApiError('This dataset’s source changed', 409, {
+        code: 'origin_changed',
+        origin_kind: 'service',
+        expected_origin_kind: 'upload',
+      });
+    commitMutateAsync
+      .mockRejectedValueOnce(originChangedError())
+      .mockRejectedValueOnce(originChangedError());
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+    });
+    let settleFirst: () => void = () => {};
+    let settleSecond: () => void = () => {};
+    vi.spyOn(queryClient, 'refetchQueries')
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            settleFirst = () => reject(new Error('cancelled'));
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            settleSecond = () => resolve(undefined);
+          }),
+      );
+
+    rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <ReuploadDialog
+          dataset={{ ...makeDataset(), origin: 'upload' }}
+          open
+          onOpenChange={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    // First attempt: origin_changed, refetch #1 starts and hangs.
+    await openFileSource(user);
+    await dropFile();
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    let retryButton = await screen.findByTestId('reupload-try-again');
+    await waitFor(() => expect(retryButton).toBeDisabled());
+
+    // Close while refetch #1 is still in flight.
+    await user.click(within(retryButton.parentElement as HTMLElement).getByRole('button', { name: 'Close' }));
+
+    // Re-stage and confirm again: a second origin_changed, a second refetch.
+    await openFileSource(user);
+    await dropFile();
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    retryButton = await screen.findByTestId('reupload-try-again');
+    await waitFor(() => expect(retryButton).toBeDisabled());
+
+    // Attempt #1 settles late (as a cancellation would) — must be ignored.
+    settleFirst();
+    await waitFor(() => {
+      expect(
+        screen.queryByText(
+          "Could not refresh the dataset's info after this conflict. Reload the page and try again.",
+        ),
+      ).not.toBeInTheDocument();
+    });
+    expect(retryButton).toBeDisabled();
+
+    // Attempt #2 succeeds — it governs the UI.
+    settleSecond();
+    await waitFor(() => expect(retryButton).not.toBeDisabled());
+    expect(retryButton).toHaveTextContent('Try Again');
   });
 });
 

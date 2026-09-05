@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, type FormEvent } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropzone } from 'react-dropzone';
 import { useQueryClient } from '@tanstack/react-query';
@@ -156,6 +156,9 @@ export function ReuploadDialog({
   // handleConfirm's catch block), not just the refusal itself.
   const [isRefreshingOrigin, setIsRefreshingOrigin] = useState(false);
   const [originRefreshFailed, setOriginRefreshFailed] = useState(false);
+  // fix(#1822 review P2): stale-completion guard for the refetch above — see
+  // handleConfirm and resetState.
+  const refreshGenerationRef = useRef(0);
   const [preview, setPreview] = useState<ReuploadPreviewResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -192,6 +195,9 @@ export function ReuploadDialog({
     setStagedOriginKind(null);
     setIsRefreshingOrigin(false);
     setOriginRefreshFailed(false);
+    // fix(#1822 review P2): orphans any refetch still in flight from before
+    // this reset (e.g. the dialog was closed mid-refetch).
+    refreshGenerationRef.current += 1;
     setPreview(null);
     setError(null);
     setSelectedFile(null);
@@ -498,6 +504,7 @@ export function ReuploadDialog({
       // await a refetch (throwOnError) before re-enabling retry so it can't
       // resend the same stale value.
       if (isOriginChangedError(err)) {
+        const generation = ++refreshGenerationRef.current;
         setIsRefreshingOrigin(true);
         try {
           await queryClient.refetchQueries(
@@ -505,15 +512,21 @@ export function ReuploadDialog({
             { throwOnError: true },
           );
         } catch {
-          setOriginRefreshFailed(true);
-          setError(
-            t('reupload.originRefreshFailed', {
-              defaultValue:
-                "Could not refresh the dataset's info after this conflict. Reload the page and try again.",
-            }),
-          );
+          // fix(#1822 review P2): a reset (dialog closed) or a newer attempt
+          // bumped the generation — this completion is orphaned, ignore it.
+          if (generation === refreshGenerationRef.current) {
+            setOriginRefreshFailed(true);
+            setError(
+              t('reupload.originRefreshFailed', {
+                defaultValue:
+                  "Could not refresh the dataset's info after this conflict. Reload the page and try again.",
+              }),
+            );
+          }
         } finally {
-          setIsRefreshingOrigin(false);
+          if (generation === refreshGenerationRef.current) {
+            setIsRefreshingOrigin(false);
+          }
         }
       }
     }
