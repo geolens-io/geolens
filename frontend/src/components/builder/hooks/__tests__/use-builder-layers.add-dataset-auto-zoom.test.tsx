@@ -203,4 +203,50 @@ describe('?add_dataset auto-zoom (#1854)', () => {
 
     expect(fitBounds).not.toHaveBeenCalled();
   });
+
+  // fix(#1877 codex round 2): BuilderMap's own combined-bounds auto-fit
+  // seeds its "previous layer count" baseline from ITS OWN first render —
+  // on a cold entry (BuilderMap not yet mounted when the add resolves),
+  // that first render already includes the new layer, so BuilderMap never
+  // detects a change and its fit never runs. This hook must take charge in
+  // exactly that case (not the single-layer zoom — the COMBINED bounds).
+  it('runs a combined-bounds fit for a cold-entry add on a centerless map with an existing layer', () => {
+    const existingLayer = makeBuilderLayer({
+      id: 'existing-layer-id',
+      dataset_id: 'ds-existing',
+      dataset_extent_bbox: [-80, 35, -75, 40],
+    });
+    const mapData = makeBuilderMap([existingLayer], { center_lng: null, center_lat: null });
+    const { hook, mutate, fitBounds, simulateMapLoad } = renderWithAddDatasetParam(mapData, {
+      startWithMapLoaded: false,
+    });
+
+    expect(mutate).toHaveBeenCalledOnce();
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    const createdLayer = makeBuilderLayer({
+      id: 'new-layer-id',
+      dataset_id: 'ds-1',
+      dataset_extent_bbox: [-74.5, 40.5, -73.5, 41.5],
+    });
+    act(() => {
+      onSuccess(createdLayer);
+    });
+
+    // Layer landed, but the map instance does not exist yet — must NOT fire.
+    expect(hook.result.current.localLayers.map((l) => l.id)).toContain('new-layer-id');
+    expect(fitBounds).not.toHaveBeenCalled();
+
+    // Map finishes loading afterward (BuilderMap onLoad -> handleMapRef).
+    act(() => {
+      simulateMapLoad();
+    });
+
+    // The union of BOTH layers' bounds — not just the new layer's — and
+    // exactly once (not also a redundant single-layer zoom).
+    expect(fitBounds).toHaveBeenCalledTimes(1);
+    expect(fitBounds.mock.calls[0][0]).toEqual([
+      [-80, 35],
+      [-73.5, 41.5],
+    ]);
+  });
 });

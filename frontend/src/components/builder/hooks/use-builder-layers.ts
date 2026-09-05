@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { toFitBounds } from '@/lib/bbox';
+import { getVisibleLayerBounds } from '@/components/builder/BuilderMap';
 import { normalizeTerrainExaggeration, reorderDataLayers } from '@/components/builder/map-sync';
 import type { LayerActions } from '@/components/builder/ChatPanel';
 import {
@@ -117,6 +118,10 @@ export function useBuilderLayers(
   // fix(#1854): id of a just-added layer that still needs its one-time
   // auto-zoom (fresh map only — see the add_dataset effect below).
   const pendingAutoZoomLayerIdRef = useRef<string | null>(null);
+  // fix(#1877 codex round 2): true when the pending id above needs a
+  // combined-bounds fit (cold-entry, non-fresh map) rather than a
+  // single-layer zoom — see the add_dataset effect below.
+  const pendingCombinedFitRef = useRef(false);
 
   const [localLayers, setLocalLayers] = useState<MapLayerResponse[]>([]);
   // fix(#793 review): which map the CURRENT localLayers belong to. On direct
@@ -388,7 +393,21 @@ export function useBuilderLayers(
     const isFreshMap = !hasSavedView && (mapData?.layers?.length ?? 0) === 0;
     handleAddDataset(
       datasetId,
-      isFreshMap ? (newLayerId) => { pendingAutoZoomLayerIdRef.current = newLayerId; } : undefined,
+      hasSavedView
+        ? undefined
+        : (newLayerId) => {
+            if (isFreshMap) {
+              pendingAutoZoomLayerIdRef.current = newLayerId;
+              return;
+            }
+            // fix(#1877): BuilderMap seeds its own auto-fit baseline from its
+            // first render, so a cold mount (mapInstanceRef still null) never
+            // sees this addition as a change — take charge only then.
+            if (!mapInstanceRef.current) {
+              pendingAutoZoomLayerIdRef.current = newLayerId;
+              pendingCombinedFitRef.current = true;
+            }
+          },
     );
     setSearchParams((prev) => {
       prev.delete('add_dataset');
@@ -564,14 +583,30 @@ export function useBuilderLayers(
   // the pending id until `mapInstance` (the reactive counterpart of the ref —
   // see the parameter above) is actually set, so this effect re-runs and
   // retries when the map finishes loading after the layer already landed.
+  // fix(#1877 codex round 2): the combined-fit branch reuses this SAME
+  // pending-id-plus-readiness gate, just firing getVisibleLayerBounds
+  // (BuilderMap's own bounds merge) across every layer instead of one.
   useEffect(() => {
     const pendingId = pendingAutoZoomLayerIdRef.current;
     if (!pendingId) return;
     if (!mapInstance) return;
     if (!localLayers.some((l) => l.id === pendingId)) return;
+    const wantsCombinedFit = pendingCombinedFitRef.current;
     pendingAutoZoomLayerIdRef.current = null;
-    handleZoomToLayer(pendingId);
-  }, [localLayers, mapInstance, handleZoomToLayer]);
+    pendingCombinedFitRef.current = false;
+    if (!wantsCombinedFit) {
+      handleZoomToLayer(pendingId);
+      return;
+    }
+    const map = mapInstanceRef.current;
+    const bounds = getVisibleLayerBounds(layersRef.current);
+    if (!map || !bounds) return;
+    try {
+      map.fitBounds(bounds, { padding: 40, maxZoom: 18 });
+    } catch {
+      // Silently ignore invalid bounds (e.g. out-of-range coordinates)
+    }
+  }, [localLayers, mapInstance, handleZoomToLayer, mapInstanceRef]);
 
   // ENH-06 (Phase 1201-06): set the map-level custom legend title. Empty/null
   // clears the override. Marks the map dirty so the save path persists it.
