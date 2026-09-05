@@ -3007,6 +3007,11 @@ export const listVrtSourcesDatasetsDatasetIdVrtSourcesGet = <ThrowOnError extend
  * List Vrt Generations
  *
  * Return paginated generation history for a VRT dataset.
+ *
+ * Not every caller gets every field. Seeing the dataset decides whether there
+ * is a history at all; the provenance predicate decides whether its rows carry
+ * their failure text and the id of whoever triggered them. See
+ * ``_vrt_generation_item``.
  */
 export const listVrtGenerationsDatasetsDatasetIdVrtGenerationsGet = <ThrowOnError extends boolean = false>(options: Options<ListVrtGenerationsDatasetsDatasetIdVrtGenerationsGetData, ThrowOnError>): RequestResult<ListVrtGenerationsDatasetsDatasetIdVrtGenerationsGetResponses, ListVrtGenerationsDatasetsDatasetIdVrtGenerationsGetErrors, ThrowOnError> => (options.client ?? client).get<ListVrtGenerationsDatasetsDatasetIdVrtGenerationsGetResponses, ListVrtGenerationsDatasetsDatasetIdVrtGenerationsGetErrors, ThrowOnError>({
     security: [

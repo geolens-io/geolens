@@ -581,8 +581,20 @@ def _redacted_job_status(job: IngestJob) -> JobStatusResponse:
     Redacted, because each one says who ran the job or what was in the data,
     which is the class refresh-runs nulls for a non-owner:
 
-    - ``source_filename``: the uploader's own filename, the ``origin_uri`` /
-      ``origin_ref`` class.
+    - ``source_filename``: deliberately STRICTER than its two siblings, which
+      is worth saying out loud because a later reader will find them.
+      ``dataset_to_response`` publishes ``Dataset.source_filename`` to every
+      reader of a visible dataset and gates only ``origin_uri`` / ``origin_ref``
+      on provenance, and ``list_dataset_versions`` publishes the per-version
+      filename on purpose, its docstring calling the timeline of filenames,
+      formats and feature counts public while gating ``file_hash`` and
+      ``uploaded_by``. So for a run that SUCCEEDED, the string nulled here is
+      already served next door and this costs nothing. The case it covers is
+      the one those surfaces never see: a FAILED run's filename never reaches
+      the dataset row, so on a failed reupload this is the only door the name
+      of the file an owner tried to load reaches a stranger through. Nulling
+      it unconditionally keeps this projection decidable from the job row
+      alone, rather than from whether the run happened to write a dataset.
     - ``error_message``: the field refresh-runs redacts by name.
     - ``warning_message`` and ``warnings``: both name source columns, including
       ORIGINAL names that a renaming ingest never publishes in the dataset

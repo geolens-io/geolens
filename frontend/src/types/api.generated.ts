@@ -2800,6 +2800,11 @@ export interface paths {
         /**
          * List Vrt Generations
          * @description Return paginated generation history for a VRT dataset.
+         *
+         *     Not every caller gets every field. Seeing the dataset decides whether there
+         *     is a history at all; the provenance predicate decides whether its rows carry
+         *     their failure text and the id of whoever triggered them. See
+         *     ``_vrt_generation_item``.
          */
         get: operations["list_vrt_generations_datasets__dataset_id__vrt_generations__get"];
         put?: never;

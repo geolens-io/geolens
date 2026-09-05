@@ -116,11 +116,15 @@ async def create_embed_token_endpoint(
         )
     # fix(#1860): the map's layers reach a dataset this caller can no longer
     # see, so there is no scope they may freeze into an anonymous tile
-    # capability. Same 400 and same shape as the maps router's sibling refusals
-    # for a map holding datasets the caller cannot use for the operation.
+    # capability. Same 403 and same shape as the maps router's sibling refusals
+    # for a map holding datasets the caller cannot use for the operation
+    # ("Cannot access one or more layer datasets"). The status also does the
+    # separating work: the licensing refusal on this same handler is a 400, so
+    # a client can tell "your deployment cannot do that" from "you cannot see
+    # that data" without inspecting whether detail is a string or an object.
     except EmbedScopeNotVisibleError:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail={
                 "message": (
                     "Cannot create an embed token: map contains datasets you "

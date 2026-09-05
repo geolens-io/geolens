@@ -76,6 +76,7 @@ import ast
 import inspect
 import sys
 import textwrap
+import typing
 from functools import lru_cache
 from typing import Any, NamedTuple
 
@@ -1086,8 +1087,8 @@ def test_every_model_fetching_handler_is_guarded_or_allowlisted() -> None:
 
 
 @lru_cache(maxsize=1)
-def _job_disclosure_deciders() -> tuple[Any, ...]:
-    """The two predicates that settle how much of a job row a caller sees.
+def _disclosure_deciders() -> tuple[Any, ...]:
+    """The two predicates that settle how much of a run's record a caller sees.
 
     ``_can_access_another_users_job`` is the owner-or-policy answer: the
     caller gets the whole row or a 403. ``can_view_dataset_provenance`` is
@@ -1101,66 +1102,147 @@ def _job_disclosure_deciders() -> tuple[Any, ...]:
     return (_can_access_another_users_job, can_view_dataset_provenance)
 
 
-@pytest.mark.architecture
-def test_every_job_status_route_decides_who_sees_the_job_detail() -> None:
-    """A job payload names its uploader's file and their failure text.
+# The three field names the provenance projection already decided are not for
+# a reader who merely passed a visibility check. ``DatasetRefreshRunResponse``
+# nulls all three, and its schema docstring is the rationale: a public
+# dataset's history otherwise enumerates who edits it, and failure text leaks
+# internal origin detail.
+#
+# ``source_filename`` is deliberately NOT here. ``dataset_to_response`` and
+# ``list_dataset_versions`` publish it to the same audience on purpose, so a
+# gate demanding a predicate wherever it appears would be asserting a rule the
+# codebase has decided against. ``_redacted_job_status`` is stricter than those
+# two siblings for a reason its own docstring gives, which is a local choice
+# rather than a tree-wide one.
+_PROVENANCE_DETAIL_FIELDS = frozenset({"error_message", "triggered_by", "error_code"})
 
-    fix(#1860): Rule 1 above cannot see this class. It asks whether a
-    handler checked access at all, and ``GET /jobs/by-dataset/{dataset_id}``
-    did: it filtered the DATASET through ``apply_visibility_filter`` and then
-    served the whole job row to whoever that let in. Two sibling doors onto
-    the same text had already decided the question the other way, and the
-    third was still credited as guarded.
+# Routes that publish a provenance-detail field with no per-caller predicate,
+# each unguarded BY DESIGN. Same exactness discipline as ALLOWLIST above.
+PROVENANCE_ALLOWLIST: dict[str, str] = {
+    # The operator's cross-user job console. Gated by a route-level
+    # require_permission("manage_users") dependency rather than a call in the
+    # handler body, and its whole purpose is the fleet-wide view: it filters by
+    # user_id and searches across owners.
+    "app.modules.admin.router.list_admin_jobs": (
+        "manage_users-gated operator console; the cross-user view is the feature"
+    ),
+}
 
-    So this test asks the narrower question directly. Any route whose
-    response model is a ``JobStatusResponse`` must invoke one of the two
-    disclosure predicates. Resolution is by object identity through the
-    handler's module globals and its function-local imports, the same way
-    guard credit works above, so a same-named local helper earns nothing.
+
+def _response_models(annotation: Any, depth: int = 0, seen: set[Any] | None = None):
+    """Every pydantic model reachable from a response annotation.
+
+    Walks into ``list[...]``, ``X | None`` and nested model fields, so a field
+    on an ITEM model counts for the route that returns a list of them. Depth
+    capped and cycle-guarded; a model graph deeper than that does not occur
+    here and would be worth flattening if it did.
     """
-    from typing import get_args
+    from pydantic import BaseModel
 
+    if seen is None:
+        seen = set()
+    if depth > 3:
+        return
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        if annotation in seen:
+            return
+        seen.add(annotation)
+        yield annotation
+        for field in annotation.model_fields.values():
+            yield from _response_models(field.annotation, depth + 1, seen)
+        return
+    for arg in typing.get_args(annotation) or ():
+        yield from _response_models(arg, depth + 1, seen)
+
+
+@pytest.mark.architecture
+def test_every_provenance_detail_route_decides_who_sees_it() -> None:
+    """A run's failure text and the id of who triggered it are not visibility.
+
+    fix(#1860): Rule 1 above cannot see this class. It asks whether a handler
+    checked access at all, and both handlers this test was written for did:
+    they filtered the DATASET and then served every field of the run to
+    whoever that let in. Two sibling doors onto the same fields had already
+    decided the question the other way, and the ones that had not were still
+    credited as guarded.
+
+    So this test asks the narrower question directly, keyed on the RESPONSE
+    FIELDS rather than on a response model, because keying on the model is
+    what let the second door hide behind a different one. Any route whose
+    response model, or any model nested inside it, declares one of
+    ``_PROVENANCE_DETAIL_FIELDS`` must invoke one of the two disclosure
+    predicates. Resolution is by object identity through the handler's module
+    globals and its function-local imports, the same way guard credit works
+    above, so a same-named local helper earns nothing.
+
+    Like the Rule 1 gate, this credits a call that is merely PRESENT rather
+    than proving it reached the response. That is the same approximation, not
+    a new one, and it is fail-loud in the direction that matters: adding a
+    field to a response model is what puts a route in scope.
+    """
     from fastapi.routing import APIRoute, iter_route_contexts
 
     from app.api.main import app
-    from app.platform.jobs.schemas import JobStatusResponse
 
-    offenders: list[str] = []
-    seen: set[str] = set()
+    scoped: dict[str, tuple[str, str, frozenset[str]]] = {}
+    undecided: dict[str, tuple[str, str, frozenset[str]]] = {}
     for ctx in iter_route_contexts(app.routes):
         route = ctx.route
         if not isinstance(route, APIRoute):
             continue
-        model = route.response_model
-        if JobStatusResponse not in (model, *get_args(model)):
+        hits: set[str] = set()
+        for model in _response_models(route.response_model):
+            hits |= set(model.model_fields) & _PROVENANCE_DETAIL_FIELDS
+        if not hits:
             continue
         fn = _unwrap(route.endpoint)
         key = f"{fn.__module__}.{fn.__qualname__}"
-        if key in seen:  # dual-shape slash aliases register one handler twice
+        if key in scoped:  # dual-shape slash aliases register one handler twice
             continue
-        seen.add(key)
+        methods = " ".join(sorted(route.methods or ()))
+        entry = (methods, ctx.path or route.path, frozenset(hits))
+        scoped[key] = entry
         tree = _parse(_source_of(fn))
         decided = False
         if tree is not None:
             called = {parts[0] for parts in _called_names(tree) if len(parts) == 1}
-            decided = bool(called & _bound_names(fn, tree, _job_disclosure_deciders()))
+            decided = bool(called & _bound_names(fn, tree, _disclosure_deciders()))
         if not decided:
-            methods = " ".join(sorted(route.methods or ()))
-            offenders.append(f"  {methods} {ctx.path or route.path}\n    {key}")
+            undecided[key] = entry
 
-    assert len(seen) >= 2, (
-        f"only {len(seen)} JobStatusResponse routes found (expected >= 2). The "
-        "response models or the route walk changed; fix this test before "
-        "trusting it, because an empty walk passes vacuously."
+    assert len(scoped) >= 5, (
+        f"only {len(scoped)} routes publish a provenance-detail field (expected "
+        ">= 5). The response models or the route walk changed; fix this test "
+        "before trusting it, because an empty walk passes vacuously."
     )
-    assert not offenders, (
-        "Job-status route(s) serve a job payload without deciding who is "
-        "reading. Call _can_access_another_users_job (owner-or-policy, 403 on "
-        "denial) or can_view_dataset_provenance (graded, feeding "
-        "_job_to_status_response's include_detail), and never widen the "
-        "payload on a dataset-visibility check alone: a job row carries its "
-        "uploader's filename and the failure text of their run.\n"
-        + "\n".join(offenders)
+
+    missing = sorted(set(undecided) - set(PROVENANCE_ALLOWLIST))
+    if missing:
+        details = []
+        for key in missing:
+            methods, path, hits = undecided[key]
+            details.append(
+                f"  {methods} {path}\n    {key}\n      publishes {sorted(hits)}"
+            )
+        pytest.fail(
+            "Route(s) publish a run's failure text or the id of whoever "
+            "triggered it without deciding who is reading. Call "
+            "can_view_dataset_provenance (graded: full payload for the "
+            "dataset's owner or an admin, a redacted projection for every "
+            "other reader) or _can_access_another_users_job (owner-or-policy, "
+            "403 on denial). A dataset-visibility check alone is not an "
+            "answer: it admits any signed-in reader of a published public or "
+            "internal dataset. Only for routes unguarded by design, add a "
+            "PROVENANCE_ALLOWLIST entry in this file with a one-line "
+            "justification.\n" + "\n".join(details)
+        )
+
+    stale = sorted(set(PROVENANCE_ALLOWLIST) - set(undecided))
+    assert not stale, (
+        "Stale PROVENANCE_ALLOWLIST entries — these routes now decide, were "
+        "renamed, or no longer publish a provenance-detail field. Remove them "
+        "so the list stays exact:\n"
+        + "\n".join(f"  {key}: {PROVENANCE_ALLOWLIST[key]}" for key in stale)
     )
 
 

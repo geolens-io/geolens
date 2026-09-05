@@ -527,9 +527,10 @@ class EmbedScopeNotVisibleError(Exception):
     """The minter cannot currently see every dataset the map is scoped to.
 
     fix(#1860): distinct from the ``ValueError`` refusals in this module so the
-    router can answer it with the shape the maps router already uses for "this
-    map holds datasets you cannot use for that", rather than a bare string that
-    reads like a licensing refusal.
+    router can answer it with the 403 and the shape the maps router already
+    uses for "this map holds datasets you cannot use for that", rather than the
+    400 and bare string those ValueErrors become, which is the licensing
+    refusal's answer.
     """
 
 

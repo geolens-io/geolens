@@ -40471,7 +40471,7 @@
     },
     "/datasets/{dataset_id}/vrt/generations/": {
       "get": {
-        "description": "Return paginated generation history for a VRT dataset.",
+        "description": "Return paginated generation history for a VRT dataset.\n\nNot every caller gets every field. Seeing the dataset decides whether there\nis a history at all; the provenance predicate decides whether its rows carry\ntheir failure text and the id of whoever triggered them. See\n``_vrt_generation_item``.",
         "operationId": "list_vrt_generations_datasets__dataset_id__vrt_generations__get",
         "parameters": [
           {

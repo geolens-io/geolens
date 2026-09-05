@@ -388,7 +388,9 @@ class TestEmbedScopeVisibility:
             json={"name": "After revocation"},
             headers=owner_header,
         )
-        assert second.status_code == 400, second.text
+        # 403, matching the maps-router siblings this shape is copied from, and
+        # distinct from the 400 the licensing refusal on this same handler uses.
+        assert second.status_code == 403, second.text
         detail = second.json()["detail"]
         assert "cannot access" in detail["message"]
         assert detail["datasets"] == []

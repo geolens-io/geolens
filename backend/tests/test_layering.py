@@ -5899,7 +5899,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # in (so the row's created_by and the checked identity cannot diverge), and
     # why the refusal has to precede the revoke (the cache denial it writes is
     # not rolled back with the transaction). Cap 1192 -> 1254, exact.
-    "backend/app/modules/embed_tokens/service.py": 1254,
+    # fix(#1860 audit P3): +1 for EmbedScopeNotVisibleError's docstring naming
+    # the 403 it is answered with. The maps-router siblings it copies its shape
+    # from answer 403, and the licensing refusal on the same handler answers
+    # 400, so the status is what separates "your deployment cannot do that"
+    # from "you cannot see that data". Cap 1254 -> 1255, exact.
+    "backend/app/modules/embed_tokens/service.py": 1255,
     # fix(#1778): first entry for this module — it crossed the 1000-line
     # inclusion threshold on the property-filter typing. Property filters used
     # to bind the raw query-string value, so PostgreSQL had no
