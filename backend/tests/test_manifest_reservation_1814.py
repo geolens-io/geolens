@@ -8,6 +8,7 @@ and retried passed the check a second time and queued the same entry twice.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from shutil import copyfile
@@ -16,7 +17,7 @@ from unittest.mock import AsyncMock, patch
 import anyio
 import pytest
 from fastapi import HTTPException, Request
-from sqlalchemy import func, select, text, update
+from sqlalchemy import event, func, select, text, update
 
 from app.core.config import settings
 from app.modules.auth.models import User
@@ -114,6 +115,43 @@ async def _jobs_for_key(session, key: str) -> list[IngestJob]:
         .execution_options(populate_existing=True)
     )
     return list(result.scalars())
+
+
+@contextmanager
+def _ingest_job_writes(session):
+    """Record every INSERT and UPDATE issued against ``catalog.ingest_jobs``.
+
+    Listens on the session's sync engine, so it sees what the database was
+    actually asked to do rather than what the ORM was asked to do. Each entry
+    carries its rowcount, so a caller can ask either question: did anything
+    reach the table at all, or did anything change a row.
+    """
+    bind = session.get_bind()
+    engine = getattr(bind, "sync_engine", bind)
+    seen: list[tuple[str, int]] = []
+
+    def _record(conn, cursor, statement, parameters, context, executemany):
+        collapsed = " ".join(statement.split())
+        if "ingest_jobs" in collapsed and collapsed.upper().startswith(
+            ("INSERT", "UPDATE")
+        ):
+            seen.append((collapsed, cursor.rowcount or 0))
+
+    event.listen(engine, "after_cursor_execute", _record)
+    try:
+        yield seen
+    finally:
+        event.remove(engine, "after_cursor_execute", _record)
+
+
+def _writes(
+    recorded: list[tuple[str, int]], verb: str, *, changed: bool = False
+) -> list[str]:
+    return [
+        statement
+        for statement, rowcount in recorded
+        if statement.upper().startswith(verb) and (rowcount > 0 or not changed)
+    ]
 
 
 class _GatedDownload:
@@ -510,6 +548,86 @@ class TestReservationFailureReleasesTheKey:
         assert retried.results[0].action == "create"
         queue.assert_awaited_once()
 
+    async def test_a_durable_bind_whose_commit_raises_keeps_its_bytes(
+        self, test_db_session, clean_tables
+    ):
+        """fix(#1814): the row decides the cleanup, not the exception.
+
+        A commit can be durable in PostgreSQL and still raise on the
+        acknowledgement. Deciding from the exception deleted the staged source
+        and left a `pending` row pointing at nothing, with no queued task, and
+        every re-apply attached to it until the sweep ran.
+        """
+        request = _request(
+            _manifest_dataset(
+                key="manifest-1814-ambiguous",
+                uri="https://data.example.test/roads.geojson",
+            )
+        )
+        staged = _staged_bytes("manifest_1814_ambiguous.geojson")
+
+        async def _durable_then_raise(db) -> None:
+            await db.commit()
+            raise RuntimeError("acknowledgement lost")
+
+        with (
+            patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
+            patch(
+                "app.processing.ingest.manifest_service._download_http_source",
+                new=AsyncMock(return_value=str(staged)),
+            ),
+            patch(
+                "app.processing.ingest.manifest_service._commit_staged_bind",
+                new=_durable_then_raise,
+            ),
+            patch(
+                "app.processing.ingest.manifest_service.queue_ingest_job",
+                new=AsyncMock(),
+            ) as queue,
+        ):
+            response = await apply_manifest(
+                test_db_session,
+                request,
+                await _admin_user(test_db_session),
+                _http_request(),
+            )
+
+        assert response.results[0].action == "error"
+        assert "acknowledgement lost" in response.results[0].message
+        queue.assert_not_awaited()
+        # The bind landed, so the bytes are what /jobs/{id}/retry needs.
+        assert staged.exists()
+
+        settled = await _jobs_for_key(test_db_session, "manifest-1814-ambiguous")
+        assert len(settled) == 1
+        assert settled[0].status == "failed"
+        assert settled[0].file_path == str(staged)
+        assert MANIFEST_STAGE_METADATA_KEY not in settled[0].user_metadata
+
+        # And the key is free: a re-apply does not attach to the dead job.
+        retry_staged = _staged_bytes("manifest_1814_ambiguous_retry.geojson")
+        with (
+            patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
+            patch(
+                "app.processing.ingest.manifest_service._download_http_source",
+                new=AsyncMock(return_value=str(retry_staged)),
+            ),
+            patch(
+                "app.processing.ingest.manifest_service.queue_ingest_job",
+                new=AsyncMock(),
+            ) as queue,
+        ):
+            retried = await apply_manifest(
+                test_db_session,
+                request,
+                await _admin_user(test_db_session),
+                _http_request(),
+            )
+
+        assert retried.results[0].action == "create"
+        assert retried.results[0].job_id != settled[0].id
+        queue.assert_awaited_once()
+
     async def test_a_post_admission_failure_returns_its_bytes_to_the_batch_ledger(
         self, test_db_session, clean_tables
     ):
@@ -803,7 +921,142 @@ class TestStaleReservations:
         )
 
 
+class TestFencedWritesAreSingleStatements:
+    """One fenced UPDATE per transition, not a fenced one plus an ORM flush.
+
+    fix(#1814): the instance has to describe the row after a fenced write, but
+    plain assignment marks it dirty and the caller's own commit then flushes a
+    second, unfenced update over the fenced one. `set_committed_value` writes
+    the attribute as already-committed state instead.
+    """
+
+    async def test_the_staging_bind_emits_one_update(
+        self, test_db_session, clean_tables
+    ):
+        _stage_fixture()
+        user = await _admin_user(test_db_session)
+        request = _request(_manifest_dataset(key="manifest-1814-one-bind"))
+
+        with (
+            patch(
+                "app.processing.ingest.manifest_service.queue_ingest_job",
+                new=AsyncMock(),
+            ),
+            _ingest_job_writes(test_db_session) as statements,
+        ):
+            response = await apply_manifest(
+                test_db_session, request, user, _http_request()
+            )
+
+        assert response.results[0].action == "create"
+        assert len(_writes(statements, "INSERT", changed=True)) == 1, statements
+        assert len(_writes(statements, "UPDATE", changed=True)) == 1, statements
+
+    async def test_the_reservation_release_emits_one_update(
+        self, test_db_session, clean_tables
+    ):
+        request = _request(
+            _manifest_dataset(
+                key="manifest-1814-one-release",
+                uri="https://data.example.test/roads.geojson",
+            )
+        )
+        staged = _staged_bytes("manifest_1814_one_release.geojson")
+
+        with (
+            patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
+            patch(
+                "app.processing.ingest.manifest_service._download_http_source",
+                new=AsyncMock(return_value=str(staged)),
+            ),
+            patch(
+                "app.modules.quota.service.check_upload_quota",
+                new=AsyncMock(
+                    side_effect=HTTPException(status_code=413, detail="quota denied")
+                ),
+            ),
+            patch(
+                "app.processing.ingest.manifest_service.queue_ingest_job",
+                new=AsyncMock(),
+            ),
+            _ingest_job_writes(test_db_session) as statements,
+        ):
+            response = await apply_manifest(
+                test_db_session,
+                request,
+                await _admin_user(test_db_session),
+                _http_request(),
+            )
+
+        assert response.results[0].action == "error"
+        assert len(_writes(statements, "INSERT", changed=True)) == 1, statements
+        assert len(_writes(statements, "UPDATE", changed=True)) == 1, statements
+
+
 class TestDryRunReservesNothing:
+    async def test_dry_run_writes_nothing_and_leaves_a_stale_row_alone(
+        self, test_db_session, clean_tables
+    ):
+        """fix(#1814): a preview is a read.
+
+        The staleness expiry used to run before the dry-run return, so a
+        preview settled another caller's abandoned reservation. It now runs
+        only for a real apply, at the cost that a preview can still report an
+        entry in flight where an apply would take it.
+        """
+        _stage_fixture()
+        user = await _admin_user(test_db_session)
+        request = _request(_manifest_dataset(key="manifest-1814-dry-stale"))
+        prepared = await classify_manifest_source(request.datasets[0].sources[0])
+        abandoned = IngestJob(
+            source_filename=prepared.source_filename,
+            file_path=None,
+            created_by=user.id,
+            status="running",
+            started_at=datetime.now(timezone.utc)
+            - timedelta(seconds=JOB_TIMEOUT_SECONDS + 60),
+            user_metadata={
+                **manifest_job_metadata(
+                    request.datasets[0],
+                    prepared,
+                    fingerprint=manifest_dataset_fingerprint(request.datasets[0]),
+                ),
+                MANIFEST_STAGE_METADATA_KEY: MANIFEST_STAGE_DOWNLOADING,
+            },
+        )
+        test_db_session.add(abandoned)
+        await test_db_session.commit()
+        abandoned_id = abandoned.id
+
+        preview = _request(
+            _manifest_dataset(key="manifest-1814-dry-stale"), dry_run=True
+        )
+        with (
+            patch(
+                "app.processing.ingest.manifest_service.queue_ingest_job",
+                new=AsyncMock(),
+            ),
+            _ingest_job_writes(test_db_session) as statements,
+        ):
+            response = await apply_manifest(
+                test_db_session, preview, user, _http_request()
+            )
+
+        assert response.dry_run is True
+        # Statement level, not row level: a preview must not send a write to
+        # the table at all, even one its fence would match nothing with.
+        assert statements == [], statements
+
+        untouched = await test_db_session.get(
+            IngestJob, abandoned_id, populate_existing=True
+        )
+        assert untouched.status == "running"
+        assert untouched.completed_at is None
+        assert (
+            untouched.user_metadata[MANIFEST_STAGE_METADATA_KEY]
+            == MANIFEST_STAGE_DOWNLOADING
+        )
+
     async def test_dry_run_leaves_no_reservation(self, test_db_session, clean_tables):
         _stage_fixture()
         user = await _admin_user(test_db_session)

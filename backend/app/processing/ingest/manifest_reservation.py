@@ -7,6 +7,7 @@ living together rather than by being kept in step.
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import desc, func, select, text, update
@@ -17,8 +18,9 @@ from sqlalchemy.orm.attributes import set_committed_value
 from app.platform.jobs.models import IngestJob
 from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS
 
-# fix(#1814): present only while the row is a reservation. Every exit from the
-# stage clears it, so no queued or settled row still claims to be downloading.
+# fix(#1814): the pre-queue stage a manifest job is in. This module's exits
+# clear it; a row the running sweep or worker recovery settles keeps it, which
+# is inert because the in-flight read filters on status.
 MANIFEST_STAGE_METADATA_KEY = "manifest_stage"
 MANIFEST_STAGE_DOWNLOADING = "downloading"
 
@@ -70,7 +72,7 @@ async def latest_in_flight_manifest_job(db: AsyncSession, key: str) -> IngestJob
 def _reservation_lease_clauses(now: datetime, key: str) -> tuple:
     """Every predicate that identifies an abandoned reservation for ``key``.
 
-    fix(#1814 audit): the running sweep's own predicate (`jobs/sweep.py`,
+    fix(#1814): the running sweep's own predicate (`jobs/sweep.py`,
     `status='running'` past ``coalesce(heartbeat_at, started_at)`` plus
     ``JOB_TIMEOUT_SECONDS``), narrowed to one key's downloading stage, so the
     sweep and the in-flight check cannot disagree about which rows are live.
@@ -125,11 +127,9 @@ async def bind_reservation_to_staged_source(
 ) -> bool:
     """Fenced downloading -> staged transition. False means the row is not ours.
 
-    fix(#1814 audit): running -> pending, stamping ``staged_at`` in the same
-    statement so the pending sweep measures from staging rather than from a
-    creation that predates the whole download. Anything but running, under this
-    attempt, still downloading, means a staleness settlement owns the row's
-    terminal state and this attempt's bytes belong to nobody.
+    fix(#1814): ``staged_at`` is stamped in the same statement, so the pending
+    sweep measures from staging rather than from a creation that predates the
+    download. Anything but running under this attempt means another owner.
     """
     now = now or datetime.now(timezone.utc)
     # Snapshotted before the statement: a values() clause carrying a SQL
@@ -165,7 +165,7 @@ async def bind_reservation_to_staged_source(
     )
     if not result.rowcount:
         return False
-    # fix(#1814 audit): `set_committed_value`, not assignment. The instance has
+    # fix(#1814): `set_committed_value`, not assignment. The instance has
     # to describe the row, but a dirty attribute would have the caller's own
     # commit flush a second, unfenced ORM update over the fenced one above.
     set_committed_value(job, "status", "pending")
@@ -179,13 +179,10 @@ async def release_manifest_reservation(
 ) -> bool:
     """Fenced running -> failed for a reservation that never staged its source.
 
-    fix(#1814 audit): the shared ``settle_ingest_job_failed`` fences on
-    ``pending``, which a reservation is not until it binds, so the lease has its
-    own exit. Fenced the same way, so a row a staleness settlement already owns
-    keeps that terminal state, and mirrored onto the instance only when the CAS
-    landed, so the object keeps describing the row. ``user_metadata`` is left
-    alone: reading it is a lazy load on a session that has just been reset, and
-    the marker is inert once the row is terminal.
+    fix(#1814): the shared ``settle_ingest_job_failed`` fences on ``pending``,
+    which a reservation is not until it binds, so the lease has its own exit. The
+    trap: ``user_metadata`` is not mirrored, because reading it after the reset is
+    a lazy load.
     """
     now = now or datetime.now(timezone.utc)
     result = await db.execute(
@@ -215,3 +212,21 @@ async def release_manifest_reservation(
     set_committed_value(job, "error_message", message)
     set_committed_value(job, "completed_at", now)
     return True
+
+
+async def staged_source_is_referenced(
+    db: AsyncSession, job_id: uuid.UUID, *, file_path: str
+) -> bool:
+    """Does the committed row point at these staged bytes?
+
+    fix(#1814): a commit can be durable in PostgreSQL and still raise on the
+    acknowledgement, so the row decides. A read that fails answers True: orphaned
+    bytes are reclaimable, bytes a durable row points at are not.
+    """
+    try:
+        row = (
+            await db.execute(select(IngestJob.file_path).where(IngestJob.id == job_id))
+        ).one_or_none()
+    except Exception:  # broad: an unreadable row is the ambiguous case
+        return True
+    return row is not None and row.file_path == file_path
