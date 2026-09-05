@@ -805,11 +805,12 @@ async def _settle_under_reset(
     body: Callable[[], Awaitable[None]],
     *,
     job_id: uuid.UUID,
-) -> None:
+) -> bool:
     """Run every statement of one settlement on a session that was just reset.
 
-    fix(#1814): any statement in a settlement can find the transaction unusable.
-    The body is fenced, so one reset-and-retry lands nothing twice.
+    Returns whether an attempt committed. fix(#1814): any statement in a
+    settlement can find the transaction unusable. The body is fenced, so one
+    reset-and-retry lands nothing twice.
     """
     # fix(#1814): pinned once, never re-read. A retry can rotate the token
     # between the two attempts, and a reset reloads the new one, so the retry
@@ -822,11 +823,12 @@ async def _settle_under_reset(
         try:
             await body()
             await db.commit()
-            return
+            return True
         except Exception:  # broad: any database error is a reset-and-retry
             if attempt == 2:
                 log.exception("Could not settle a manifest job", job_id=str(job_id))
                 await db.rollback()
+    return False
 
 
 async def _fail_reservation(
@@ -882,11 +884,11 @@ async def _settle_staged_entry(
             )
         failed = await _settled_failed(db, job_id)
 
-    await _settle_under_reset(db, job, _decide_and_settle, job_id=job_id)
+    committed = await _settle_under_reset(db, job, _decide_and_settle, job_id=job_id)
     # Outside the retry: the filesystem is not part of the transaction, and an
     # HTTP download is owned by this attempt while a raw operator seed is not.
-    # fix(#1888): a failed manifest row has no retry, so its copy has no consumer.
-    if failed or not referenced:
+    # fix(#1888): only a committed settlement may reap; a failed row has no retry.
+    if committed and (failed or not referenced):
         try:
             _cleanup_downloaded_source(prepared, file_path)
         except OSError:

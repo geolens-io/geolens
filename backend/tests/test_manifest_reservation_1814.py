@@ -776,6 +776,75 @@ class TestReservationFailureReleasesTheKey:
         assert retried.results[0].job_id != settled[0].id
         queue.assert_awaited_once()
 
+    async def test_a_settlement_that_never_commits_keeps_its_bytes(
+        self, test_db_session, clean_tables
+    ):
+        """fix(#1888): the reap follows the commit that made the decision. A first
+        attempt whose commit is lost non-durably and a second that errors before
+        deciding leave the durable pending row and the bytes it names alone."""
+        request = _request(
+            _manifest_dataset(
+                key="manifest-1888-uncommitted",
+                uri="https://data.example.test/roads.geojson",
+            )
+        )
+        staged = _staged_bytes("manifest_1888_uncommitted.geojson")
+        real_commit = test_db_session.commit
+        real_read = manifest_service.staged_source_is_referenced
+        state = {"armed": False, "commits_lost": 0, "reads": 0}
+
+        async def _refuse_dispatch(job, user_id, *, db, **_kwargs) -> None:
+            state["armed"] = True
+            raise RuntimeError("queue unreachable")
+
+        async def _lose_the_first_settlement_commit() -> None:
+            if state["armed"] and state["commits_lost"] == 0:
+                state["commits_lost"] += 1
+                await test_db_session.rollback()
+                raise RuntimeError("commit lost")
+            await real_commit()
+
+        async def _error_on_the_retry_read(db, job_id, *, file_path: str) -> bool:
+            state["reads"] += 1
+            if state["reads"] == 2:
+                raise RuntimeError("read failed")
+            return await real_read(db, job_id, file_path=file_path)
+
+        with (
+            patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
+            patch(
+                "app.processing.ingest.manifest_service._download_http_source",
+                new=AsyncMock(return_value=str(staged)),
+            ),
+            patch(
+                "app.processing.ingest.manifest_service.queue_ingest_job",
+                new=_refuse_dispatch,
+            ),
+            patch(
+                "app.processing.ingest.manifest_service.staged_source_is_referenced",
+                new=_error_on_the_retry_read,
+            ),
+            patch.object(
+                test_db_session, "commit", new=_lose_the_first_settlement_commit
+            ),
+        ):
+            response = await apply_manifest(
+                test_db_session,
+                request,
+                await _admin_user(test_db_session),
+                _http_request(),
+            )
+
+        assert response.results[0].action == "error"
+        assert state == {"armed": True, "commits_lost": 1, "reads": 2}
+        assert staged.exists()
+
+        rows = await _jobs_for_key(test_db_session, "manifest-1888-uncommitted")
+        assert len(rows) == 1
+        assert rows[0].status == "pending"
+        assert rows[0].file_path == str(staged)
+        assert MANIFEST_STAGE_METADATA_KEY not in rows[0].user_metadata
+
     async def test_a_poisoned_reconciliation_read_still_settles(
         self, test_db_session, clean_tables
     ):
