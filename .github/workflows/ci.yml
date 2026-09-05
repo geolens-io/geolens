@@ -512,10 +512,13 @@ jobs:
         run: node frontend/scripts/check-api-error-boundary.mjs
 
       - name: Install gitleaks
+        # fix(#1859): retries a transient download failure instead of letting
+        # it evict the whole merge-queue entry on a required job.
         run: |
           GL=8.30.1
           GL_SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
-          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GL}/gitleaks_${GL}_linux_x64.tar.gz" \
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 2 \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GL}/gitleaks_${GL}_linux_x64.tar.gz" \
             -o gitleaks.tar.gz
           echo "${GL_SHA256}  gitleaks.tar.gz" | sha256sum --check --strict
           tar -xz -f gitleaks.tar.gz gitleaks
@@ -1194,12 +1197,23 @@ jobs:
         # apt steps, so this also gets a bound.
         timeout-minutes: 10
         run: |
-          docker build -t geolens-cli-test-db -f - . <<'DOCKERFILE'
+          # fix(#1859): the base-image pull inside `docker build` hit a
+          # transient Docker Hub token-fetch reset ("failed to fetch oauth
+          # token: ... connection reset by peer") in merge-group run
+          # 33966364665 and again on #1858's Backend Tests, evicting an
+          # otherwise-clean queue entry. Retry the whole build, since that is
+          # where the pull happens.
+          for attempt in 1 2 3 4 5; do
+          docker build -t geolens-cli-test-db -f - . <<'DOCKERFILE' && break
           FROM postgis/postgis:18-3.6
           RUN apt-get update \
               && apt-get install -y --no-install-recommends postgresql-18-pgvector \
               && rm -rf /var/lib/apt/lists/*
           DOCKERFILE
+          [ "$attempt" -eq 5 ] && exit 1
+          echo "docker build failed (attempt $attempt/5), retrying in 10s..."
+          sleep 10
+          done
           docker run -d --name cli-test-postgres \
             -e POSTGRES_DB=postgres \
             -e POSTGRES_USER=geolens \
@@ -1397,12 +1411,23 @@ jobs:
         # apt steps, so this also gets a bound.
         timeout-minutes: 10
         run: |
-          docker build -t geolens-test-db -f - . <<'DOCKERFILE'
+          # fix(#1859): the base-image pull inside `docker build` hit a
+          # transient Docker Hub token-fetch reset ("failed to fetch oauth
+          # token: ... connection reset by peer") in merge-group run
+          # 33966364665 and again on #1858's Backend Tests, evicting an
+          # otherwise-clean queue entry. Retry the whole build, since that is
+          # where the pull happens.
+          for attempt in 1 2 3 4 5; do
+          docker build -t geolens-test-db -f - . <<'DOCKERFILE' && break
           FROM postgis/postgis:18-3.6
           RUN apt-get update \
               && apt-get install -y --no-install-recommends postgresql-18-pgvector \
               && rm -rf /var/lib/apt/lists/*
           DOCKERFILE
+          [ "$attempt" -eq 5 ] && exit 1
+          echo "docker build failed (attempt $attempt/5), retrying in 10s..."
+          sleep 10
+          done
           docker run -d --name test-postgres \
             -e POSTGRES_DB=postgres \
             -e POSTGRES_USER=geolens \
@@ -2368,12 +2393,23 @@ jobs:
         # apt steps, so this also gets a bound.
         timeout-minutes: 10
         run: |
-          docker build -t geolens-test-db -f - . <<'DOCKERFILE'
+          # fix(#1859): the base-image pull inside `docker build` hit a
+          # transient Docker Hub token-fetch reset ("failed to fetch oauth
+          # token: ... connection reset by peer") in merge-group run
+          # 33966364665 and again on #1858's Backend Tests, evicting an
+          # otherwise-clean queue entry. Retry the whole build, since that is
+          # where the pull happens.
+          for attempt in 1 2 3 4 5; do
+          docker build -t geolens-test-db -f - . <<'DOCKERFILE' && break
           FROM postgis/postgis:18-3.6
           RUN apt-get update \
               && apt-get install -y --no-install-recommends postgresql-18-pgvector \
               && rm -rf /var/lib/apt/lists/*
           DOCKERFILE
+          [ "$attempt" -eq 5 ] && exit 1
+          echo "docker build failed (attempt $attempt/5), retrying in 10s..."
+          sleep 10
+          done
           docker run -d --name test-postgres \
             -e POSTGRES_DB=postgres \
             -e POSTGRES_USER=geolens \
