@@ -596,6 +596,75 @@ async def test_a_slow_local_upload_that_binds_survives_the_next_sweep(
     assert preview.status_code != 404, preview.text
 
 
+async def test_a_dataset_deleted_during_the_upload_refuses_the_bind(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    tmp_path: Path,
+):
+    """fix(#1848 codex r3): the binding is part of the guard, not just status.
+
+    The early commit released the row's foreign-key lock, and
+    `ingest_jobs.dataset_id` is `ON DELETE SET NULL`. A dataset deleted while
+    the bytes were arriving therefore left a job whose binding was gone, and a
+    guard that read only id and status bound the file and answered 201. Every
+    later re-upload endpoint then refused that job, because the binding gate
+    matches on `dataset_id`.
+    """
+    from sqlalchemy import select
+
+    from app.modules.catalog.datasets.api import router_reupload
+
+    dataset = await _vector_dataset(test_db_session)
+    dataset_id = dataset.id
+    port = router_reupload.get_catalog_port()
+    staged_file = tmp_path / "a2-orphaned.geojson"
+
+    async def _delete_dataset_mid_upload(_file, _job_id, **_kwargs):
+        await test_db_session.delete(dataset)
+        await test_db_session.commit()
+        staged_file.write_bytes(b'{"type":"FeatureCollection","features":[]}')
+        return staged_file
+
+    with (
+        patch.object(port, "save_upload_file", new=_delete_dataset_mid_upload),
+        patch.object(port, "validate_file_content", return_value=None),
+        patch.object(router_reupload, "get_catalog_port", return_value=port),
+    ):
+        resp = await client.post(
+            f"/datasets/{dataset_id}/reupload",
+            files={
+                "file": (
+                    "replacement.geojson",
+                    BytesIO(b'{"type":"FeatureCollection","features":[]}'),
+                    "application/geo+json",
+                )
+            },
+            headers=admin_auth_header,
+        )
+
+    assert resp.status_code == 409, resp.text
+    # The staged file goes with the refusal, like every other failure path.
+    assert not staged_file.exists()
+
+    rows = (
+        (
+            await test_db_session.execute(
+                select(IngestJob).where(
+                    IngestJob.source_filename == "replacement.geojson"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    orphaned = [row for row in rows if row.dataset_id is None]
+    assert len(orphaned) == 1
+    # The premise: the FK nulled the binding, and nothing was bound onto it.
+    assert orphaned[0].status == "pending"
+    assert not orphaned[0].file_path
+
+
 async def test_a_failed_upload_leaves_a_reapable_pending_job(
     client: AsyncClient,
     admin_auth_header: dict,

@@ -4404,8 +4404,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # reclaimed mid-upload, plus their refusal. Codex round 2 added the
     # `staged_at` stamp to the same bind, which restarts the pending window
     # for a local upload whose absolute path never reaches the sweep's
-    # completion class. Cap 1396 -> 1446, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1446,
+    # completion class. Codex round 3 added the dataset binding to both
+    # guarded writes, because the early commit releases the foreign-key lock
+    # and a dataset deleted mid-upload nulls the job's binding.
+    # Cap 1396 -> 1455, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1455,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python

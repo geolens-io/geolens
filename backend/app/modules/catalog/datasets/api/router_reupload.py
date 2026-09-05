@@ -337,7 +337,11 @@ async def reupload_dataset(
             # already reclaimed keeps its terminal status and message.
             await db.execute(
                 update(IngestJob)
-                .where(IngestJob.id == job.id, IngestJob.status == "pending")
+                .where(
+                    IngestJob.id == job.id,
+                    IngestJob.dataset_id == dataset_id,
+                    IngestJob.status == "pending",
+                )
                 .values(status="failed", error_message=str(exc))
             )
             await db.commit()
@@ -346,12 +350,16 @@ async def reupload_dataset(
                 detail=str(exc),
             ) from exc
 
-        # fix(#1848): bind only while the row is pending, and stamp `staged_at`
-        # so the pending window restarts at the bind. Existing metadata is
-        # carried through: the job-binding gate reads its markers.
+        # fix(#1848): bind only while the row is still pending and still bound
+        # to this dataset, stamping `staged_at` so the pending window restarts
+        # here. The carried-through metadata is what the binding gate reads.
         bound = await db.execute(
             update(IngestJob)
-            .where(IngestJob.id == job.id, IngestJob.status == "pending")
+            .where(
+                IngestJob.id == job.id,
+                IngestJob.dataset_id == dataset_id,
+                IngestJob.status == "pending",
+            )
             .values(
                 file_path=str(saved_path),
                 user_metadata={
@@ -365,7 +373,8 @@ async def reupload_dataset(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
-                    "This upload took too long and the job was reclaimed. "
+                    "This upload could not be attached to the dataset. It may "
+                    "have taken too long, or the dataset may no longer exist. "
                     "Start the re-upload again."
                 ),
             )
