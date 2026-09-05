@@ -7,7 +7,9 @@
 // only; misses a renamed import or dynamic property access.
 import { describe, expect, it } from 'vitest';
 
-const TEST_FILES = import.meta.glob('/src/**/*.test.{ts,tsx}', {
+// fix(#1866 codex r1): matches vitest's own `include` in vite.config.ts,
+// which also runs *.spec.{ts,tsx}, not just *.test.{ts,tsx}.
+const TEST_FILES = import.meta.glob('/src/**/*.{test,spec}.{ts,tsx}', {
   query: '?raw',
   import: 'default',
   eager: true,
@@ -25,7 +27,10 @@ function stripComments(source: string): string {
 
 /** True when `source` calls changeLanguage/changeAppLanguage without importing the fix helper. */
 function callsWithoutHelper(source: string): boolean {
-  return CALL_PATTERN.test(stripComments(source)) && !HELPER_IMPORT.test(source);
+  // fix(#1866 codex r1): both checks run on the same stripped text, or a
+  // commented-out import satisfies HELPER_IMPORT while a real call is missed.
+  const stripped = stripComments(source);
+  return CALL_PATTERN.test(stripped) && !HELPER_IMPORT.test(stripped);
 }
 
 const violations = Object.entries(TEST_FILES)
@@ -37,6 +42,12 @@ describe('#1866: vitest language switches must load real locale bundles', () => 
   // below pass for the wrong reason.
   it('actually scanned test files', () => {
     expect(Object.keys(TEST_FILES).length).toBeGreaterThan(50);
+  });
+
+  it('reaches a .spec.tsx file, not just .test.tsx', () => {
+    expect(
+      Object.keys(TEST_FILES).some((f) => f.endsWith('spec-glob-fixture.spec.tsx')),
+    ).toBe(true);
   });
 
   it('has no changeLanguage/changeAppLanguage call without the test helper', () => {
@@ -58,6 +69,10 @@ describe('#1866: detector fixtures', () => {
     ['bare i18n.changeLanguage', `await i18n.changeLanguage('fr');`],
     ['app changeAppLanguage', `await changeAppLanguage('fr');`],
     ['changeLanguage with no await', `i18n.changeLanguage('fr');`],
+    [
+      'a commented-out helper import beside a real direct call',
+      `// import { changeTestLanguage } from '@/test/i18n';\nawait i18n.changeLanguage('fr');`,
+    ],
   ])('flags %s with no helper import', (_name, src) => {
     expect(callsWithoutHelper(src)).toBe(true);
   });
