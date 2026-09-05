@@ -4572,15 +4572,17 @@ async def test_the_artifact_is_stamped_with_the_snapshot_not_the_upload(
     the snapshot, `_published_at`'s ceiling bounds build plus upload, and the
     data behind a served artifact is never older than TTL plus that ceiling.
 
-    The conversion is made to take two seconds. The key stamp is WHOLE seconds
-    (`int(built_at)` in the key), so the arithmetic has to allow for the
-    truncation: a stamp taken after the build is `int(before + 2 + ε)`, which is
-    strictly greater than `before + 1` for any ε ≥ 0; a stamp taken before it is
-    `int(before + δ)` for a δ well under a second (auth, the dataset fetch, the
-    precondition checks), which is at most `before + δ`. So `before + 1.0` is
-    the line: the old placement can never satisfy it, the new one always does.
-    (`<= before` was the first draft, and it flaked whenever a second boundary
-    fell inside δ — 0.04 s once, in CI.)
+    The conversion is made to take two seconds so a stamp taken after it would
+    be trivially distinguishable from one taken before.
+
+    fix(#1859): compares `built_at` against a timestamp the double itself
+    records when the conversion STARTS, not against `before + 1.0`. That fixed
+    margin assumed request overhead ahead of the conversion (auth, the dataset
+    fetch, the precondition checks) stays under a second, which is exactly a
+    wall-clock threshold racing a loaded CI runner — the margin, not the
+    property being tested, is what could fail. Watching the double's own start
+    time proves the same thing (the stamp precedes the conversion) without
+    guessing how long unrelated request overhead takes anywhere it runs.
     """
     import asyncio
 
@@ -4589,17 +4591,20 @@ async def test_the_artifact_is_stamped_with_the_snapshot_not_the_upload(
 
     dataset = await _dataset(test_db_session, "Snapshot Stamp")
     real_conversion = export_router.export_dataset
+    conversion_started_at: float | None = None
 
     async def _slow(*args, **kwargs):
+        nonlocal conversion_started_at
+        conversion_started_at = time.time()
         await asyncio.sleep(2.0)
         return await real_conversion(*args, **kwargs)
 
     monkeypatch.setattr(export_router, "export_dataset", _slow)
 
-    before = time.time()
     resp = await client.get(_url(dataset.id), headers=admin_auth_header)
     assert resp.status_code == 200, resp.text
     assert conversions.count == 1
+    assert conversion_started_at is not None
 
     selection = cache.selection_key(
         dataset_id=dataset.id,
@@ -4615,10 +4620,10 @@ async def test_the_artifact_is_stamped_with_the_snapshot_not_the_upload(
         dataset.id, selection, filename="x.geojson", media_type="application/geo+json"
     )
     assert artifact is not None
-    assert artifact.built_at <= before + 1.0, (
-        f"the artifact is stamped {artifact.built_at - before:.2f}s after the request "
-        f"began, i.e. AFTER a 2s conversion; the stamp must precede the read so "
-        f"the ceiling bounds the data's age, not just the upload's"
+    assert artifact.built_at <= conversion_started_at, (
+        f"the artifact is stamped {artifact.built_at - conversion_started_at:.2f}s "
+        f"after the 2s conversion began; the stamp must precede the read so the "
+        f"ceiling bounds the data's age, not just the upload's"
     )
 
 
