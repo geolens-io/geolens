@@ -620,24 +620,11 @@ async def reupload_raster(
             # that decides where this dataset lands on the map is which CRS
             # they are read under. `original_srid` is the one field still taken
             # from `source_meta`, and it wants the upload's answer by design.
-            # fix(#1847 review r2): `_write_swapped_fields` dirties the
-            # datasets row AND dataset.record, and the flush would take them
-            # records-first. The RasterAsset lock above orders this against the
-            # VRT paths but says nothing about the catalog pair. `lock_timeout=
-            # None` because SET LOCAL would otherwise clamp the rest of this
-            # ingest transaction to a request's budget. See
-            # app.platform.catalog_locks.lock_catalog_rows for the order.
-            from app.platform.catalog_locks import lock_catalog_rows
-
-            await lock_catalog_rows(
-                session,
-                dataset_cls=Dataset,
-                record_cls=type(dataset.record),
-                dataset_id=dataset.id,
-                record_id=dataset.record_id,
-                lock_timeout=None,
-            )
-
+            # fix(#1847 review r3): this assigns attributes in memory and
+            # issues no SQL, so it is not yet a write to either catalog row.
+            # The pair is taken further down, immediately before the first
+            # statement that flushes them -- see the acquisition above
+            # `reserve_replacement_bytes`.
             new_version = _write_swapped_fields(
                 raster_asset,
                 dataset,
@@ -668,25 +655,29 @@ async def reupload_raster(
             # It runs HERE — before the reservation — because its bytes are
             # part of the total being admitted and because a genuinely new
             # object has to join the written set before anything can fail.
-            (
-                lossy_original_archived,
-                archived_key,
-                archived_bytes,
-                new_archive_key,
-            ) = await archive_lossy_original(
-                session,
-                job=job,
-                dataset_id=dataset.id,
-                file_path=file_path,
-                source_sha256=source_sha256,
-                filename=source_filename,
-                log_message=(
-                    "Failed to archive the lossy replacement original; the "
-                    "staged upload will be retained in place instead"
-                ),
-                needed=not source_preserved_in_cog,
-                written_storage_keys=written_storage_keys,
-            )
+            # See the acquisition below: the catalog rows are dirty in memory
+            # from `_write_swapped_fields` and must not be flushed out ahead of
+            # it (fix(#1847 review r3)).
+            with session.no_autoflush:
+                (
+                    lossy_original_archived,
+                    archived_key,
+                    archived_bytes,
+                    new_archive_key,
+                ) = await archive_lossy_original(
+                    session,
+                    job=job,
+                    dataset_id=dataset.id,
+                    file_path=file_path,
+                    source_sha256=source_sha256,
+                    filename=source_filename,
+                    log_message=(
+                        "Failed to archive the lossy replacement original; the "
+                        "staged upload will be retained in place instead"
+                    ),
+                    needed=not source_preserved_in_cog,
+                    written_storage_keys=written_storage_keys,
+                )
             # Only an object this attempt CREATED joins the written set. An
             # archive that already existed belongs to an earlier successful
             # replace, and reaping it on failure would destroy the original of
@@ -699,6 +690,31 @@ async def reupload_raster(
             # for why the ordering is load-bearing. Raises
             # StorageQuotaExceededError, which the task's broad handler records
             # as a failed run, leaving the previous raster serving.
+            # fix(#1847 review r3): HERE, not before `_write_swapped_fields`.
+            # Between the two sits `archive_lossy_original`, which PUTs the
+            # whole original raster to object storage. Holding both catalog
+            # rows across a multi-GB upload is the #1848 class: this worker
+            # passes `lock_timeout=None`, so it never gives the rows back, and
+            # every request-side waiter has a two-second budget. Nothing above
+            # writes either row -- the swap helper only assigns attributes --
+            # so the acquisition still precedes the first actual write, which
+            # is the autoflush `reserve_replacement_bytes` triggers below.
+            #
+            # `no_autoflush` around the archive is what makes that a guarantee
+            # rather than a measurement: without it, any statement added to the
+            # archive path later would flush the dirty attributes and take the
+            # rows records-first, ahead of this acquisition.
+            from app.platform.catalog_locks import lock_catalog_rows
+
+            await lock_catalog_rows(
+                session,
+                dataset_cls=Dataset,
+                record_cls=type(dataset.record),
+                dataset_id=dataset.id,
+                record_id=dataset.record_id,
+                lock_timeout=None,
+            )
+
             await reserve_replacement_bytes(
                 session,
                 dataset_id=dataset_uuid,

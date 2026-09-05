@@ -38,22 +38,38 @@ def _qcol(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-async def _refresh_quality_detail(
+async def _compute_quality_detail(
     session: AsyncSession, dataset: Dataset, column_info: list[dict]
-) -> None:
-    """Recompute the stored quality score after a schema change.
+) -> object:
+    """The quality score for a schema change, WITHOUT storing it.
 
     fix(#458 E-34): reupload recomputes quality_detail but column DDL did not,
     so attribute_completeness drifted (an all-null added column, or a dropped
     fully-populated one, changed the real score while the displayed one stayed
     stale until the next reupload).
+
+    fix(#1847 review r3): computes and returns rather than assigning, so the
+    caller can run it BEFORE taking the catalog rows. The score is a
+    `COUNT(<col>)` over the whole data table per non-geometry column plus a
+    geometry-validity pass over up to 10,000 rows, which on a wide layer is
+    seconds. Held under the pair, every concurrent feature edit and metadata
+    edit on that dataset waits behind it or answers 409. Nothing about the
+    computation needs the lock: it reads the data table and touches neither
+    catalog row. That is what separates it from the feature-path aggregate,
+    which has to stay inside the lock for the fix(#1778 review r1)
+    read-decide-write invariant.
+
+    `no_autoflush` because the caller has not taken the rows yet: a flush here
+    would emit the pending catalog writes records-first, ahead of the
+    acquisition.
     """
-    dataset.quality_detail = await get_catalog_port().compute_quality_score(
-        session,
-        dataset.table_name,
-        column_info,
-        dataset,
-    )
+    with session.no_autoflush:
+        return await get_catalog_port().compute_quality_score(
+            session,
+            dataset.table_name,
+            column_info,
+            dataset,
+        )
 
 
 async def create_layer(
@@ -235,9 +251,14 @@ async def add_column(
     # first. Placed AFTER the ALTER TABLE on purpose: the reupload swap takes
     # its data-table ACCESS EXCLUSIVE before its catalog rows, and leading with
     # the catalog rows here would invert against it.
+    # fix(#1847 review r3): scan first, then lock, then assign both fields.
+    # The score reads the data table and needs neither catalog row; running it
+    # under the pair held every concurrent edit on this dataset for the length
+    # of a full-table scan. See _compute_quality_detail.
+    quality_detail = await _compute_quality_detail(session, dataset, column_info)
     await lock_catalog_rows_for_write(session, dataset)
     dataset.column_info = column_info
-    await _refresh_quality_detail(session, dataset, column_info)
+    dataset.quality_detail = quality_detail
 
     # Create (or revive) the AttributeMetadata row for the new column.
     # fix(#458 E-12): (dataset_id, field_name) is unique, so re-adding a name
@@ -397,9 +418,14 @@ async def alter_column_type(
     # first. Placed AFTER the ALTER TABLE on purpose: the reupload swap takes
     # its data-table ACCESS EXCLUSIVE before its catalog rows, and leading with
     # the catalog rows here would invert against it.
+    # fix(#1847 review r3): scan first, then lock, then assign both fields.
+    # The score reads the data table and needs neither catalog row; running it
+    # under the pair held every concurrent edit on this dataset for the length
+    # of a full-table scan. See _compute_quality_detail.
+    quality_detail = await _compute_quality_detail(session, dataset, column_info)
     await lock_catalog_rows_for_write(session, dataset)
     dataset.column_info = column_info
-    await _refresh_quality_detail(session, dataset, column_info)
+    dataset.quality_detail = quality_detail
 
     # Refresh AttributeMetadata.data_type so quality metrics + UI labels match.
     result = await session.execute(
@@ -459,9 +485,14 @@ async def drop_column(
     # first. Placed AFTER the ALTER TABLE on purpose: the reupload swap takes
     # its data-table ACCESS EXCLUSIVE before its catalog rows, and leading with
     # the catalog rows here would invert against it.
+    # fix(#1847 review r3): scan first, then lock, then assign both fields.
+    # The score reads the data table and needs neither catalog row; running it
+    # under the pair held every concurrent edit on this dataset for the length
+    # of a full-table scan. See _compute_quality_detail.
+    quality_detail = await _compute_quality_detail(session, dataset, column_info)
     await lock_catalog_rows_for_write(session, dataset)
     dataset.column_info = column_info
-    await _refresh_quality_detail(session, dataset, column_info)
+    dataset.quality_detail = quality_detail
 
     # fix(#458 E-43): drop the removed column's cached sample values too.
     if dataset.sample_values and column_name in dataset.sample_values:

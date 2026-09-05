@@ -8,7 +8,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
-from app.core.db.sqlstate import is_operational
+from app.core.db.sqlstate import is_operational, sqlstate
 from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
 from app.core.dependencies import get_db
@@ -47,6 +47,9 @@ async def _invalidate_tiles(table_name: str) -> None:
         await tile_cache.invalidate_table(table_name)
 
 
+logger = structlog.stdlib.get_logger(__name__)
+
+
 async def _raise_ddl_db_error(db: AsyncSession, exc: DBAPIError, action: str) -> None:
     """Roll back and map a DDL DB error to the right status. Never returns.
 
@@ -61,13 +64,19 @@ async def _raise_ddl_db_error(db: AsyncSession, exc: DBAPIError, action: str) ->
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database temporarily unavailable.",
         )
+    # fix(#1847 review r3): the SQLSTATE, not the driver object. Interpolating
+    # `exc.orig` put the asyncpg exception class name and its message straight
+    # into the response body, which tells a caller nothing they can act on and
+    # publishes the driver and schema internals to anyone who can provoke an
+    # error. The state goes to the log, where the operator needs it.
+    logger.warning(
+        "layer.ddl failed", action=action, sqlstate=sqlstate(exc), exc_info=exc
+    )
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
-        detail=f"{action} failed: {exc.orig or exc}",
+        detail=f"{action} failed: the database rejected the change.",
     )
 
-
-logger = structlog.stdlib.get_logger(__name__)
 
 layers_router = APIRouter(
     prefix="/layers", tags=["Maps"], responses=ERROR_RESPONSES_WRITE

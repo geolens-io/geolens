@@ -925,6 +925,207 @@ class TestDeleteNeverReapsStorageItCannotCommit:
         assert still_there == locked_dataset.id
 
 
+class TestTheOtherSitesHoldTheOrderToo:
+    """fix(#1847 review r3 P2-5): DB-backed coverage for the sites that had none.
+
+    Rounds 0 to 2 shipped concurrency tests for the feature paths and the
+    metadata PATCH; the layers DDL, the delete and the worker doors were
+    carried by the static gate alone, and P2-1 showed that gate accepting the
+    wrong position and the wrong branch. These drive the real endpoints against
+    a held dataset row.
+
+    None of them monkeypatches the budget. The round-2 tests raised
+    REQUEST_LOCK_TIMEOUT to 60s to keep the interleaving deterministic, and
+    that is what hid the 500 and the 400 the round-3 P2 reports. The barrier
+    below fires in milliseconds, so the production 2s budget is not reached --
+    and if it ever were, the answer is a 409, which these tests accept.
+    """
+
+    async def _drive(self, holder, probe, dataset_id, request_coro):
+        """Hold the dataset row, run *request_coro*, return it once parked."""
+        await holder.execute(
+            select(Dataset.tile_cache_version)
+            .where(Dataset.id == dataset_id)
+            .with_for_update()
+        )
+        holder_xid = await holder.scalar(text("SELECT pg_current_xact_id()::text"))
+        task = asyncio.create_task(request_coro)
+        await _await_waiter_on(probe, holder_xid)
+        return task
+
+    async def test_layers_add_column_holds_no_record_lock_while_waiting(
+        self, locked_dataset, client: AsyncClient, admin_auth_header
+    ):
+        import app.core.db as db_module
+
+        async with (
+            db_module.async_session() as holder,
+            db_module.async_session() as probe,
+        ):
+            task = await self._drive(
+                holder,
+                probe,
+                locked_dataset.id,
+                client.post(
+                    f"/layers/{locked_dataset.id}/columns/",
+                    json={"column": {"name": "note_a", "type": "text"}},
+                    headers=admin_auth_header,
+                ),
+            )
+            try:
+                assert not await _holds_record_lock(probe, locked_dataset.record_id), (
+                    "the add-column DDL is parked on a lock while holding "
+                    "catalog.records"
+                )
+            finally:
+                await holder.rollback()
+                response = await task
+        assert response.status_code in (201, 409), response.text
+
+    async def test_delete_holds_no_record_lock_while_waiting(
+        self, locked_dataset, client: AsyncClient, admin_auth_header, monkeypatch
+    ):
+        import app.core.db as db_module
+        from app.modules.catalog.datasets.domain import service_lifecycle
+
+        reaped: list = []
+
+        async def _record_only(prefixes, tenant_id):
+            reaped.append(tuple(prefixes))
+
+        monkeypatch.setattr(service_lifecycle, "_reap_managed_storage", _record_only)
+
+        async with (
+            db_module.async_session() as holder,
+            db_module.async_session() as probe,
+        ):
+            task = await self._drive(
+                holder,
+                probe,
+                locked_dataset.id,
+                client.request(
+                    "DELETE",
+                    f"/datasets/{locked_dataset.id}",
+                    json={"confirm_title": f"Lock order {locked_dataset.table_name}"},
+                    headers=admin_auth_header,
+                ),
+            )
+            try:
+                assert not await _holds_record_lock(probe, locked_dataset.record_id), (
+                    "the delete is parked on a lock while holding catalog.records"
+                )
+                # And it has not reaped anything yet, which is the P1: the
+                # objects must not go until the rows are held.
+                assert reaped == [], (
+                    f"storage was reaped before the pair was held: {reaped}"
+                )
+            finally:
+                await holder.rollback()
+                response = await task
+        assert response.status_code in (200, 204, 409), response.text
+
+    async def test_metadata_patch_holds_no_record_lock_while_waiting(
+        self, locked_dataset, client: AsyncClient, admin_auth_header
+    ):
+        """The round-2 site, re-tested at the production budget."""
+        import app.core.db as db_module
+
+        async with (
+            db_module.async_session() as holder,
+            db_module.async_session() as probe,
+        ):
+            task = await self._drive(
+                holder,
+                probe,
+                locked_dataset.id,
+                client.patch(
+                    f"/datasets/{locked_dataset.id}",
+                    json={"title": "Renamed", "tile_columns": ["name"]},
+                    headers=admin_auth_header,
+                ),
+            )
+            try:
+                assert not await _holds_record_lock(probe, locked_dataset.record_id)
+            finally:
+                await holder.rollback()
+                response = await task
+        assert response.status_code in (200, 409), response.text
+
+
+class TestWorkerDoorsAcquireBeforeTheirWrites:
+    """The three worker sites, checked on emitted SQL rather than by racing.
+
+    A reupload, a raster replace and a VRT publish each need a staged upload
+    and a live ingest job to reach their swap, which is a fixture an order of
+    magnitude larger than the property under test. What has to be true is an
+    ordering, and the ordering is visible in the statements the transaction
+    emits -- so these read it there, the way
+    `test_reupload_swap_lock_retry.py::TestSwapLocksBeforeItWrites` does end to
+    end for the reupload door with a real session.
+    """
+
+    SITES = [
+        ("processing/ingest/tasks_common.py", "_apply_reupload_swap"),
+        ("processing/ingest/tasks_raster_replace.py", "reupload_raster"),
+        ("processing/ingest/tasks_vrt.py", "regenerate_vrt"),
+    ]
+
+    @pytest.mark.parametrize("rel,name", SITES)
+    def test_the_acquisition_precedes_the_first_write(self, rel: str, name: str):
+        import ast
+        from pathlib import Path
+
+        app_dir = Path(__file__).resolve().parents[1] / "app"
+        path = app_dir / rel
+        tree = ast.parse(path.read_text())
+        module = _module_qualname(path.relative_to(app_dir.parent))
+        bindings = _local_bindings(tree, module)
+        fn = next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name
+        )
+        ok, why = acquisition_dominates_writes(
+            fn, bindings, module, _acquiring_functions()
+        )
+        assert ok, f"{rel}::{name}: {why}"
+
+    def test_worker_doors_do_not_clamp_their_transaction(self):
+        """`lock_timeout=None` at each, and nowhere on a request path.
+
+        `SET LOCAL` applies for the rest of the transaction. A worker that
+        inherited the request budget would fail a multi-minute ingest on
+        contention it is supposed to wait out.
+        """
+        import ast
+        from pathlib import Path
+
+        app_dir = Path(__file__).resolve().parents[1] / "app"
+        none_sites = []
+        for path in sorted(app_dir.rglob("*.py")):
+            tree = ast.parse(path.read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                fname = getattr(node.func, "id", None) or getattr(
+                    node.func, "attr", None
+                )
+                if fname != "lock_catalog_rows":
+                    continue
+                for kw in node.keywords:
+                    if kw.arg == "lock_timeout" and isinstance(kw.value, ast.Constant):
+                        if kw.value.value is None:
+                            none_sites.append(str(path.relative_to(app_dir.parent)))
+        assert sorted(set(none_sites)) == [
+            "app/processing/ingest/tasks_common.py",
+            "app/processing/ingest/tasks_raster_replace.py",
+            "app/processing/ingest/tasks_vrt.py",
+        ], (
+            "lock_timeout=None belongs to worker tasks only. A request path "
+            f"that passes it waits forever on a contended row. Found: {none_sites}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # The class gate (fix(#1847 review r2))
 # ---------------------------------------------------------------------------
@@ -934,46 +1135,105 @@ class TestDeleteNeverReapsStorageItCannotCommit:
 # is a decision, not a formality: read
 # app.platform.catalog_locks.lock_catalog_rows before you do.
 _PAIR_WRITER_EXEMPTIONS = {
-    # Both rows are INSERTed by this transaction, so no other transaction can
-    # be holding either one. There is nothing to order against.
-    "create_dataset": "creates the pair",
-    "create_empty_dataset": "delegates to create_dataset",
-    "create_layer": "creates the pair",
-    "create_raster_dataset": "creates the pair",
-    "create_vrt_dataset": "creates the pair",
-    "_finalize_ingest": "creates the pair through the port, then stamps it",
-    "ingest_raster": "creates the pair, then stamps it",
-    "stac_import": "creates one pair per item inside its own savepoint",
-    "_materialize": "registers a new pair, then applies provenance to it",
-    "materialize_analysis": "task wrapper around _materialize",
-    "ingest_file": "task wrapper around _finalize_ingest",
-    "ingest_service": "task wrapper around _finalize_ingest",
-    "apply_analysis_provenance": "writes only the record of a pair being created",
-    # Writes the record half only; every caller is enumerated above.
-    "apply_manifest_record_metadata": "record only",
-    # Sync helper. Its caller (reupload_raster) takes the pair before calling
-    # it -- asserted by test_every_pair_writer_acquires_or_is_exempt itself,
-    # which sees the acquisition in the caller.
-    "_write_swapped_fields": "caller acquires; sync, no session of its own",
-    # These two take the datasets row FOR UPDATE themselves, before writing
-    # either half, as the superseded-content guard their own comments describe.
-    # They are the reason the house order is datasets-first; they do not go
-    # through the helper because the lock and the token check are one step.
-    "_apply_measurement": "caller refresh_postgis holds datasets FOR UPDATE",
-    "refresh_postgis": "takes datasets FOR UPDATE for its superseded guard",
-    "refresh_stac": "takes datasets FOR UPDATE for its superseded guard",
+    # --- both rows are INSERTed by this transaction ------------------------
+    # No other transaction can hold either one, so there is nothing to order
+    # against.
+    "app.modules.catalog.datasets.domain.service_create.create_dataset": "creates the pair",
+    "app.modules.catalog.datasets.domain.service_create.create_empty_dataset": "delegates to create_dataset",
+    "app.modules.catalog.layers.service.create_layer": "creates the pair",
+    "app.processing.ingest.tasks_raster_common.create_raster_dataset": "creates the pair",
+    "app.processing.ingest.tasks_vrt.create_vrt_dataset": "creates the pair",
+    "app.processing.ingest.tasks_common._finalize_ingest": "creates the pair, then stamps it",
+    "app.processing.ingest.tasks_raster.ingest_raster": "creates the pair, then stamps it",
+    "app.processing.ingest.tasks_vector.ingest_file": "wrapper around _finalize_ingest",
+    "app.processing.ingest.tasks_vector.ingest_service": "wrapper around _finalize_ingest",
+    "app.modules.catalog.sources.stac_router.stac_import": "one pair per item, each in its own savepoint",
+    "app.processing.analysis.tasks._materialize": "registers a new pair, then applies provenance",
+    "app.processing.analysis.tasks.materialize_analysis": "wrapper around _materialize",
+    "app.processing.analysis.provenance.apply_analysis_provenance": "record of a pair being created",
+    # --- writes one half; the caller owns the ordering ---------------------
+    "app.processing.ingest.tasks_common.apply_manifest_record_metadata": "record only",
+    "app.processing.ingest.tasks_raster_swap._write_swapped_fields": "sync, no session; reupload_raster acquires before calling it",
+    # --- takes the datasets row FOR UPDATE itself --------------------------
+    # These are the sites the house order was chosen to match. They do not go
+    # through the helper because the lock and the superseded-content check are
+    # one indivisible step.
+    "app.processing.ingest.tasks_postgis_refresh._apply_measurement": "caller refresh_postgis holds datasets FOR UPDATE",
+    "app.processing.ingest.tasks_postgis_refresh.refresh_postgis": "takes datasets FOR UPDATE for its superseded guard",
+    "app.processing.ingest.tasks_stac_refresh.refresh_stac": "takes datasets FOR UPDATE for its superseded guard",
 }
 
 
-def _assignment_targets(node):
-    """Every Attribute node this statement assigns to."""
+# Functions whose acquisition is deliberately conditional. Every other site
+# must acquire on every path; these carry the reason the unlocked path is safe.
+_CONDITIONAL_ACQUISITION = {
+    "app.modules.catalog.datasets.domain.service_metadata.update_user_metadata": (
+        "the unlocked branch writes the records row ALONE, and a one-row write "
+        "has no order to get wrong. Gated on _DATASET_ROW_FIELDS, which is the "
+        "set of request fields that reach catalog.datasets."
+    ),
+    "app.modules.catalog.features.router.patch_single_feature": (
+        "both arms acquire, one through the refresh and one directly, which "
+        "test_every_write_handler_acquires_on_every_path checks per arm."
+    ),
+}
+
+
+ACQUIRERS = frozenset(
+    {
+        "app.platform.catalog_locks.lock_catalog_rows",
+        "app.modules.catalog.features.service.lock_catalog_rows_for_write",
+    }
+)
+
+
+def _module_qualname(rel) -> str:
+    parts = list(rel.with_suffix("").parts)
+    if parts and parts[-1] == "__init__":
+        parts.pop()
+    return ".".join(parts)
+
+
+def _local_bindings(tree, module: str) -> dict[str, str]:
+    """Local name -> qualified target, from this module's imports and defs.
+
+    fix(#1847 review r3 P2-1): the previous scan keyed everything on the bare
+    function name and merged across files, so any function that happened to
+    share a name with one of the real acquirers inherited its exemption. A
+    call is resolved through the binding that is actually in scope where it
+    appears.
+    """
     import ast
 
-    targets = list(getattr(node, "targets", []) or [])
-    single = getattr(node, "target", None)
-    if single is not None:
-        targets.append(single)
-    return [t for t in targets if isinstance(t, ast.Attribute)]
+    bindings: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            for alias in node.names:
+                bindings[alias.asname or alias.name] = f"{node.module}.{alias.name}"
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            bindings.setdefault(node.name, f"{module}.{node.name}")
+    return bindings
+
+
+def _resolve(name: str, bindings: dict[str, str], module: str) -> str:
+    return bindings.get(name) or f"{module}.{name}"
+
+
+def _is_acquisition(node, bindings, module) -> bool:
+    import ast
+
+    if not isinstance(node, ast.Call):
+        return False
+    if isinstance(node.func, ast.Name):
+        return _resolve(node.func.id, bindings, module) in ACQUIRERS
+    # `mod.lock_catalog_rows(...)` -- match on the attribute, which cannot be
+    # confused with a same-named local because the acquirers are unique words.
+    if isinstance(node.func, ast.Attribute):
+        return any(a.rsplit(".", 1)[-1] == node.func.attr for a in ACQUIRERS)
+    return False
+
+
+_PAIR_TABLES = {"Dataset", "DatasetModel", "Record", "RecordModel"}
 
 
 def _classify_base(base) -> str | None:
@@ -993,41 +1253,115 @@ def _classify_base(base) -> str | None:
     return None
 
 
+def _core_statement_kind(node) -> str | None:
+    """'record'/'dataset' for a Core ``update(X)`` / ``delete(X)`` on the pair.
+
+    fix(#1847 review r3 P2-1): latent rather than active today -- the two
+    ``update(Dataset)`` sites write the datasets row alone -- but a Core
+    statement is a write the attribute scan cannot see at all, so the first one
+    that touches both rows would have been invisible.
+    """
+    import ast
+
+    if not isinstance(node, ast.Call):
+        return None
+    fname = (
+        node.func.id
+        if isinstance(node.func, ast.Name)
+        else node.func.attr
+        if isinstance(node.func, ast.Attribute)
+        else None
+    )
+    if fname not in ("update", "delete") or not node.args:
+        return None
+    target = node.args[0]
+    name = (
+        target.id
+        if isinstance(target, ast.Name)
+        else target.attr
+        if isinstance(target, ast.Attribute)
+        else None
+    )
+    if name not in _PAIR_TABLES:
+        return None
+    return "record" if "Record" in name else "dataset"
+
+
+def _classify_object(node) -> str | None:
+    """'record'/'dataset' for the OBJECT an expression names."""
+    import ast
+
+    if isinstance(node, ast.Attribute):
+        if node.attr == "record":
+            return "record"
+        if "dataset" in node.attr:
+            return "dataset"
+    if isinstance(node, ast.Name):
+        if node.id in ("record", "rec"):
+            return "record"
+        if "dataset" in node.id:
+            return "dataset"
+    return None
+
+
+def _write_kinds(node) -> set[str]:
+    """Which halves of the pair this single AST node writes."""
+    import ast
+
+    kinds: set[str] = set()
+    # `session.delete(dataset.record)` removes the records row AND, by the FK
+    # cascade on Dataset.record_id, the datasets row. Neither is an attribute
+    # assignment, so without this the one endpoint that deletes a dataset is
+    # invisible to the scan (fix(#1847 review r3 P2-1)).
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "delete"
+        and node.args
+        and _classify_object(node.args[0]) == "record"
+    ):
+        kinds |= {"record", "dataset"}
+    if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
+        targets = list(getattr(node, "targets", []) or [])
+        single = getattr(node, "target", None)
+        if single is not None:
+            targets.append(single)
+        for t in targets:
+            if isinstance(t, ast.Attribute):
+                kind = _classify_base(t.value)
+                if kind:
+                    kinds.add(kind)
+    elif isinstance(node, ast.Call):
+        if isinstance(node.func, ast.Name) and node.func.id == "setattr" and node.args:
+            kind = _classify_base(node.args[0])
+            if kind:
+                kinds.add(kind)
+        core = _core_statement_kind(node)
+        if core:
+            kinds.add(core)
+    return kinds
+
+
 def _direct_writes(fn) -> set[str]:
-    """Which halves of the pair this function body writes on its own."""
     import ast
 
     kinds: set[str] = set()
     for node in ast.walk(fn):
-        if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
-            for attr in _assignment_targets(node):
-                kind = _classify_base(attr.value)
-                if kind:
-                    kinds.add(kind)
-        # `setattr(record, name, value)` is the same write by another spelling,
-        # and it is how update_user_metadata assigns most of its fields.
-        elif (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "setattr"
-            and node.args
-        ):
-            kind = _classify_base(node.args[0])
-            if kind:
-                kinds.add(kind)
+        kinds |= _write_kinds(node)
     return kinds
 
 
-def _called_names(fn) -> set[str]:
+def _called_targets(fn, bindings, module) -> set[str]:
     import ast
 
     names = set()
     for node in ast.walk(fn):
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name):
-                names.add(node.func.id)
-            elif isinstance(node.func, ast.Attribute):
-                names.add(node.func.attr)
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name):
+            names.add(_resolve(node.func.id, bindings, module))
+        elif isinstance(node.func, ast.Attribute):
+            names.add(f"?.{node.func.attr}")
     return names
 
 
@@ -1041,44 +1375,36 @@ def _walk_app_functions():
             tree = ast.parse(path.read_text())
         except SyntaxError:  # pragma: no cover
             continue
+        rel = path.relative_to(app_dir.parent)
+        module = _module_qualname(rel)
+        bindings = _local_bindings(tree, module)
         for fn in ast.walk(tree):
             if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                yield path.relative_to(app_dir.parent), fn
+                yield rel, module, bindings, fn
 
 
 @functools.lru_cache(maxsize=1)
 def _app_function_facts():
-    """Per function name: where it is defined, what it writes, what it calls.
+    """Per QUALIFIED name: what it writes, what it calls, where it is.
 
-    Keyed by bare name. Two functions sharing a name merge, which can only
-    widen the result -- a false positive costs an exemption line, a false
-    negative costs a production deadlock.
+    Keyed by ``module.name``, not by bare name. Two same-named functions in
+    different modules are two entries.
     """
     writes: dict[str, set[str]] = {}
     calls: dict[str, set[str]] = {}
-    sites: dict[str, list[str]] = {}
-    for rel, fn in _walk_app_functions():
-        writes.setdefault(fn.name, set()).update(_direct_writes(fn))
-        calls.setdefault(fn.name, set()).update(_called_names(fn))
-        sites.setdefault(fn.name, []).append(f"{rel}:{fn.lineno}")
+    sites: dict[str, str] = {}
+    for rel, module, bindings, fn in _walk_app_functions():
+        key = f"{module}.{fn.name}"
+        writes.setdefault(key, set()).update(_direct_writes(fn))
+        calls.setdefault(key, set()).update(_called_targets(fn, bindings, module))
+        sites.setdefault(key, f"{rel}:{fn.lineno}")
     return writes, calls, sites
 
 
-def _pair_writer_report() -> dict[str, list[str]]:
-    """Every function under app/ that ends up writing BOTH catalog rows.
-
-    Propagates writes through the call graph to a fixed point, because the
-    halves are routinely split across helpers: `update_user_metadata` assigns
-    `record.updated_by` itself but reaches `dataset.tile_columns` only through
-    `_apply_tile_columns`, and a scan that looked at one body at a time missed
-    exactly the site codex round 2 reported.
-
-    Heuristic and deliberately broad. A false positive costs one exemption line
-    with a reason. A false NEGATIVE costs a production deadlock.
-    """
-    writes, calls, sites = _app_function_facts()
-    effective = {name: set(kinds) for name, kinds in writes.items()}
-    for _ in range(6):  # deep enough for this codebase; converges well before
+def _closure(seeds: dict[str, set[str]], calls: dict[str, set[str]]):
+    """Propagate write kinds along call edges to a fixed point."""
+    effective = {name: set(kinds) for name, kinds in seeds.items()}
+    for _ in range(8):
         changed = False
         for name, callees in calls.items():
             for callee in callees:
@@ -1090,24 +1416,117 @@ def _pair_writer_report() -> dict[str, list[str]]:
                     changed = True
         if not changed:
             break
+    return effective
+
+
+def _pair_writer_report() -> dict[str, str]:
+    """Qualified name -> site, for every function that writes BOTH rows."""
+    writes, calls, sites = _app_function_facts()
+    effective = _closure(writes, calls)
     return {
         name: sites[name]
         for name, kinds in effective.items()
-        if kinds >= {"record", "dataset"}
+        if kinds >= {"record", "dataset"} and name in sites
     }
 
 
 def _acquiring_functions() -> set[str]:
-    """Names that take the pair, or that reach it through one of their calls."""
+    """Qualified names that acquire, or that reach an acquirer through a call."""
     _writes, calls, _sites = _app_function_facts()
-    acquirers = {"lock_catalog_rows", "lock_catalog_rows_for_write"}
-    resolved = set(acquirers)
-    for _ in range(6):
+    resolved = set(ACQUIRERS)
+    for _ in range(8):
         grew = {n for n, c in calls.items() if c & resolved} - resolved
         if not grew:
             break
         resolved |= grew
     return resolved
+
+
+def _nested_bodies(stmt):
+    """Flatten a compound statement's bodies, or None if it is not one.
+
+    `if` is handled by the caller instead, because its two arms have to be
+    analysed independently rather than concatenated.
+    """
+    import ast
+
+    if not isinstance(
+        stmt, (ast.Try, ast.For, ast.While, ast.With, ast.AsyncFor, ast.AsyncWith)
+    ):
+        return None
+    nested = list(getattr(stmt, "body", []))
+    nested += list(getattr(stmt, "orelse", []))
+    nested += list(getattr(stmt, "finalbody", []))
+    for handler in getattr(stmt, "handlers", []):
+        nested += handler.body
+    return nested
+
+
+def acquisition_dominates_writes(
+    fn, bindings, module, acquirers=None
+) -> tuple[bool, str]:
+    """Does an acquisition precede every write, on every path through *fn*?
+
+    fix(#1847 review r3 P2-1): the round-2 check accepted a call to the helper
+    ANYWHERE in the body, so an acquisition placed after the writes, or in one
+    arm of an `if`, passed. Both are the defect this gate exists to catch.
+
+    *acquirers* is the transitive set: a handler that acquires through a
+    wrapper acquires just as surely as one that calls the helper directly.
+    """
+    import ast
+
+    reach = ACQUIRERS if acquirers is None else acquirers
+
+    def is_acq(node) -> bool:
+        if not isinstance(node, ast.Call):
+            return False
+        if isinstance(node.func, ast.Name):
+            return _resolve(node.func.id, bindings, module) in reach
+        if isinstance(node.func, ast.Attribute):
+            return any(a.rsplit(".", 1)[-1] == node.func.attr for a in reach)
+        return False
+
+    def plain(stmt, acquired):
+        """One non-compound statement: acquisitions and writes by position."""
+        acq = [n.lineno for n in ast.walk(stmt) if is_acq(n)]
+        writes = [n.lineno for n in ast.walk(stmt) if _write_kinds(n)]
+        if writes and not acquired and (not acq or min(acq) > min(writes)):
+            return (
+                False,
+                acquired,
+                (
+                    f"line {min(writes)} writes a catalog row with no acquisition "
+                    "before it on this path"
+                ),
+            )
+        return True, acquired or bool(acq), ""
+
+    def scan(stmts, acquired: bool):
+        for stmt in stmts:
+            if isinstance(stmt, ast.If):
+                then_ok, then_acq, why = scan(stmt.body, acquired)
+                if not then_ok:
+                    return False, acquired, why
+                else_ok, else_acq, why = scan(stmt.orelse, acquired)
+                if not else_ok:
+                    return False, acquired, why
+                acquired = acquired or (then_acq and else_acq)
+                continue
+            nested = _nested_bodies(stmt)
+            if nested is not None:
+                ok, nested_acq, why = scan(nested, acquired)
+                if not ok:
+                    return False, acquired, why
+                acquired = acquired or nested_acq
+                continue
+            ok, acquired, why = plain(stmt, acquired)
+            if not ok:
+                return False, acquired, why
+        return True, acquired, ""
+
+    ok, _acq, why = scan(fn.body, False)
+    return ok, why
 
 
 class TestEveryPairWriterTakesTheHouseOrder:
@@ -1124,27 +1543,66 @@ class TestEveryPairWriterTakesTheHouseOrder:
         writers = _pair_writer_report()
         acquirers = _acquiring_functions()
         offenders = {
-            name: sites
-            for name, sites in writers.items()
+            name: site
+            for name, site in writers.items()
             if name not in acquirers and name not in _PAIR_WRITER_EXEMPTIONS
         }
         assert not offenders, (
             "these functions write a Record field and a Dataset field without "
             "taking the (datasets, records) pair first:\n"
-            + "\n".join(f"  {n}: {', '.join(v)}" for n, v in sorted(offenders.items()))
+            + "\n".join(f"  {n}: {v}" for n, v in sorted(offenders.items()))
             + "\n\nCall lock_catalog_rows_for_write (catalog) or "
             "lock_catalog_rows (processing, with lock_timeout=None) before the "
             "first write, or add the name to _PAIR_WRITER_EXEMPTIONS with the "
             "reason it cannot deadlock."
         )
 
+    def test_the_acquisition_precedes_the_writes_on_every_path(self):
+        """fix(#1847 review r3 P2-1): position and branch, not mere presence.
+
+        Calling the helper somewhere in the body proves nothing. After the
+        writes it orders nothing, and in one arm of an `if` it orders nothing
+        on the other arm -- which is exactly the round-1 defect.
+        """
+        writers = _pair_writer_report()
+        # A handler that acquires through a wrapper (the feature router's
+        # _refresh_metadata_guarded, say) acquires just as surely as one that
+        # calls the helper directly.
+        acquirers = _acquiring_functions()
+        failures = []
+        for rel, module, bindings, fn in _walk_app_functions():
+            key = f"{module}.{fn.name}"
+            if key in _PAIR_WRITER_EXEMPTIONS or key in _CONDITIONAL_ACQUISITION:
+                continue
+            if not _direct_writes(fn):
+                continue  # inherits its writes; the callee is checked instead
+            # Every function that acquires must do so before ITS OWN writes,
+            # not only the ones that write both rows. A helper that writes the
+            # datasets row and then acquires has already let the flush order
+            # the pair, even though its own body never touches the record --
+            # which is how the first version of this check missed
+            # `layers.service.add_column` (fix(#1847 review r3 P2-1)).
+            if key not in acquirers and key not in writers:
+                continue
+            ok, why = acquisition_dominates_writes(fn, bindings, module, acquirers)
+            if not ok:
+                failures.append(f"  {key} ({rel}:{fn.lineno}): {why}")
+        assert not failures, (
+            "the acquisition does not dominate the writes in:\n"
+            + "\n".join(sorted(failures))
+            + "\n\nMove it before the first write, on every path, or add the "
+            "name to _CONDITIONAL_ACQUISITION with the reason the unlocked "
+            "path cannot write both rows."
+        )
+
     def test_the_gate_actually_finds_the_known_writers(self):
-        """A positive control: an empty scan would pass the test above."""
+        """A positive control: an empty scan would pass the tests above."""
         writers = _pair_writer_report()
         for expected in (
-            "update_user_metadata",
-            "_apply_reupload_swap",
-            "refresh_dataset_metadata",
+            "app.modules.catalog.datasets.domain.service_metadata.update_user_metadata",
+            "app.processing.ingest.tasks_common._apply_reupload_swap",
+            "app.modules.catalog.features.service.refresh_dataset_metadata",
+            "app.modules.catalog.datasets.domain.service_lifecycle.delete_dataset",
         ):
             assert expected in writers, (
                 f"{expected} writes both rows but the scan missed it, so the "
@@ -1152,10 +1610,120 @@ class TestEveryPairWriterTakesTheHouseOrder:
             )
 
     def test_no_exemption_names_a_function_that_is_gone(self):
-        """The list must stay a statement about live code, not folklore."""
+        """The lists must stay statements about live code, not folklore."""
         _writes, _calls, sites = _app_function_facts()
-        missing = [name for name in _PAIR_WRITER_EXEMPTIONS if name not in sites]
+        missing = [
+            name
+            for name in (*_PAIR_WRITER_EXEMPTIONS, *_CONDITIONAL_ACQUISITION)
+            if name not in sites
+        ]
         assert not missing, (
             f"exemptions naming functions that no longer exist: {missing}. "
-            "Remove them, or the list decays into reasons nobody can check."
+            "Remove them, or the lists decay into reasons nobody can check."
         )
+
+
+class TestTheGateRejectsWhatItExistsToCatch:
+    """fix(#1847 review r3 P2-1): a negative fixture per probe.
+
+    An audit probed the round-2 gate by adding functions under `app/` and found
+    it silent on four shapes. Each is reproduced here as a synthetic module, so
+    the gate's blind spots fail this file rather than a future review.
+    """
+
+    MODULE = "app.fixture.probe"
+
+    def _analyse(self, source: str):
+        import ast
+
+        tree = ast.parse(source)
+        bindings = _local_bindings(tree, self.MODULE)
+        fn = next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and n.name == "probe"
+        )
+        return fn, bindings
+
+    def test_acquisition_after_the_writes_is_rejected(self):
+        fn, bindings = self._analyse(
+            "from app.platform.catalog_locks import lock_catalog_rows\n"
+            "async def probe(session, dataset):\n"
+            "    dataset.record.updated_by = 1\n"
+            "    dataset.srid = 4326\n"
+            "    await lock_catalog_rows(session)\n"
+        )
+        ok, why = acquisition_dominates_writes(fn, bindings, self.MODULE)
+        assert not ok, "an acquisition after the writes orders nothing"
+        assert "no acquisition before it" in why
+
+    def test_acquisition_in_one_arm_only_is_rejected(self):
+        fn, bindings = self._analyse(
+            "from app.platform.catalog_locks import lock_catalog_rows\n"
+            "async def probe(session, dataset, flag):\n"
+            "    if flag:\n"
+            "        await lock_catalog_rows(session)\n"
+            "    dataset.record.updated_by = 1\n"
+            "    dataset.srid = 4326\n"
+        )
+        ok, _why = acquisition_dominates_writes(fn, bindings, self.MODULE)
+        assert not ok, "the else path reaches the writes holding nothing"
+
+    def test_acquisition_in_both_arms_is_accepted(self):
+        fn, bindings = self._analyse(
+            "from app.platform.catalog_locks import lock_catalog_rows\n"
+            "async def probe(session, dataset, flag):\n"
+            "    if flag:\n"
+            "        await lock_catalog_rows(session)\n"
+            "    else:\n"
+            "        await lock_catalog_rows(session)\n"
+            "    dataset.record.updated_by = 1\n"
+            "    dataset.srid = 4326\n"
+        )
+        ok, why = acquisition_dominates_writes(fn, bindings, self.MODULE)
+        assert ok, why
+
+    def test_a_name_collision_does_not_inherit_the_exemption(self):
+        """A local `lock_catalog_rows` that is somebody else's function.
+
+        The round-2 scan keyed on bare names, so any function sharing a name
+        with one of the real acquirers was treated as acquiring.
+        """
+        fn, bindings = self._analyse(
+            "from app.somewhere.other import lock_catalog_rows\n"
+            "async def probe(session, dataset):\n"
+            "    await lock_catalog_rows(session)\n"
+            "    dataset.record.updated_by = 1\n"
+            "    dataset.srid = 4326\n"
+        )
+        ok, _why = acquisition_dominates_writes(fn, bindings, self.MODULE)
+        assert not ok, (
+            "a call resolved to app.somewhere.other.lock_catalog_rows is not an "
+            "acquisition; only the two real helpers are"
+        )
+
+    def test_core_update_statements_count_as_writes(self):
+        """`update(Dataset)` / `delete(Record)` are invisible to an attribute scan."""
+        import ast
+
+        tree = ast.parse(
+            "from sqlalchemy import update\n"
+            "from app.modules.catalog.datasets.domain.models import Dataset, Record\n"
+            "async def probe(session):\n"
+            "    await session.execute(update(Dataset).values(srid=1))\n"
+            "    await session.execute(update(Record).values(title='x'))\n"
+        )
+        fn = next(n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef))
+        assert _direct_writes(fn) == {"dataset", "record"}, (
+            "Core statements against the pair are writes; the attribute scan "
+            "alone cannot see them"
+        )
+
+    def test_a_record_only_writer_is_not_named(self):
+        """The other half of the control: no false positive on one-row writes."""
+        import ast
+
+        tree = ast.parse("async def probe(record):\n    record.title = 'x'\n")
+        fn = next(n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef))
+        assert _direct_writes(fn) == {"record"}

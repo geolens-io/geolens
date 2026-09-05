@@ -1874,7 +1874,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # round 2 on #1864 found this by reading; the gate in
         # tests/test_feature_lock_order_1847.py now finds the next one.
         # Cap 488 -> 498, exact.
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 498,
+        # fix(#1847 review r3, audit P2-4): +18. The acquisition is now taken
+        # only when the request body can reach the datasets row. A body that
+        # touches record fields alone writes one row, and a one-row write has
+        # no order to get wrong, so locking for it added contention to the
+        # most-used metadata endpoint against a cycle it cannot join. The lines
+        # are `_DATASET_ROW_FIELDS` and why `is_dem` is not in it.
+        # Cap 498 -> 516, exact.
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 516,
         # fix(#435 codex r1): +6 LOC in get_dataset_rows to probe schema existence
         # before degrading a 42P01 to an empty page. Postgres reports a missing
         # tenant data schema with the same code as a raster dataset's synthetic
@@ -1954,7 +1961,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # transaction back with the objects gone and the catalog row intact.
         # Most of the lines are the note on why it sits ahead of the reap and
         # behind the DROP. Cap 491 -> 507, exact.
-        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 507,
+        # fix(#1847 review r3, audit P2-3): +12 recording that the Valkey tile
+        # purge runs with the pair held and stays that way. Row locks are held
+        # to commit, so the only way out is after the caller's commit, which
+        # would undo the one-placement-serves-every-caller argument above. The
+        # comment states the bound instead. Cap 507 -> 519, exact.
+        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 519,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.

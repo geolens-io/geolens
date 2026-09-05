@@ -440,6 +440,18 @@ async def delete_dataset(
         # rather than after the caller's commit so single delete, bulk delete,
         # and future callers get it from one place. Raster/VRT are excluded —
         # their tiles come from Titiler, and that branch drops no table.
+        #
+        # fix(#1847 review r3): this Valkey round trip runs with the catalog
+        # pair held, and stays that way. Row locks are held to commit, so the
+        # only way to take it out from under them is to move it after the
+        # caller's commit -- which would undo the paragraph above, where one
+        # placement serves single delete, bulk delete and every future caller.
+        # The bound is one round trip to a cache the app already has a
+        # connection to, against a key set for one table, with no scan: the
+        # same call every sibling write path makes inside its own transaction.
+        # That is a different order of magnitude from the multi-GB upload the
+        # raster replace acquisition was moved below, and from the full-table
+        # scan the layers DDL now computes before it locks.
         from app.platform.cache.provider import get_tile_cache
 
         tile_cache = get_tile_cache()
