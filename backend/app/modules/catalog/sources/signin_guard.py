@@ -41,7 +41,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.catalog.sources.arcgis_signin import (
-    AUDIT_CANCELLED,
     AUDIT_CONCURRENT,
     AUDIT_RATE_LIMITED,
     UNCOUNTED_SIGNIN_RESULTS,
@@ -62,7 +61,7 @@ _ARCGIS_SIGNIN_WINDOW = timedelta(minutes=15)
 # running when the drain gives up on it, so nothing else would.
 _SETTLE_TASKS: set[asyncio.Task] = set()
 
-# fix(#1775): how long _signin_settle_cancelled will keep handing the event
+# fix(#1775): how long _signin_settle_shielded will keep handing the event
 # loop a turn so its shielded audit write can finish. One local INSERT and
 # COMMIT, so a second is three orders of magnitude of headroom; the ceiling is
 # there so a database that has stopped answering cannot hold a shutting-down
@@ -336,12 +335,13 @@ async def _signin_reserve(
         await db.commit()
 
 
-async def _write_cancelled_outcome(
+async def _write_settled_outcome(
     user_id: uuid.UUID,
     target: SignInTarget,
+    result: str,
     note: str | None = None,
 ) -> None:
-    """Write the cancelled attempt's audit row on a session of its OWN.
+    """Write one settled attempt's audit row on a session of its OWN.
 
     fix(#1775 audit): NOT the request's session. The caller below stops
     waiting at a deadline and the route then re-raises, so FastAPI runs
@@ -360,9 +360,9 @@ async def _write_cancelled_outcome(
     from app.core.db import async_session
 
     async with async_session() as session:
-        await _signin_audit(
-            session, user_id, target, AUDIT_CANCELLED, note, reserved=True
-        )
+        # `reserved=True` unconditionally: every caller of this reaches it
+        # after `_signin_reserve` committed, so the ledger row already exists.
+        await _signin_audit(session, user_id, target, result, note, reserved=True)
 
 
 def _settle_failure(settle: asyncio.Future) -> str | None:
@@ -388,12 +388,13 @@ def _settle_failure(settle: asyncio.Future) -> str | None:
     return None if exc is None else type(exc).__name__
 
 
-async def _signin_settle_cancelled(
+async def _signin_settle_shielded(
     user_id: uuid.UUID,
     target: SignInTarget,
+    result: str,
     note: str | None = None,
 ) -> None:
-    """Record the outcome of an attempt whose credential POST was cancelled.
+    """Record *result* for an attempt a cancellation interrupted.
 
     fix(#1775): a shielded finaliser rather than a bare ``finally``, and the
     distinction matters in both directions.
@@ -404,6 +405,10 @@ async def _signin_settle_cancelled(
     is the OPERATOR-facing half — the audit row that says a password went to
     this token service on this caller's say-so. Silence there reads as "no
     attempt", which is the one thing that is not true.
+
+    fix(#1825): *result* is a parameter because the gap is on both sides of
+    the mint. A cancellation in the settle loses that outcome's row exactly
+    as one in the POST loses the ``cancelled`` row.
 
     Why a shield rather than a plain await, and why the loop. The caller
     reaches here from ``except asyncio.CancelledError``, and a plain await
@@ -425,11 +430,6 @@ async def _signin_settle_cancelled(
     ceiling, and this runs at most once per request still in flight when a
     worker shuts down.
 
-    Why not a ``finally`` covering all three outcomes: success and a classified
-    refusal have to raise or return through their own paths, and the
-    single-exit refusal helper #1758 built (:func:`_signin_refusal`) would have
-    to be unpicked to route them through one block, for no gain.
-
     Still best effort, and it says so by swallowing. The database may be
     unreachable under a shutting-down worker, and there is nothing useful to do
     about that from inside a cancelled request; re-raising would only replace a
@@ -437,7 +437,9 @@ async def _signin_settle_cancelled(
     """
     loop = asyncio.get_running_loop()
     deadline = loop.time() + _SETTLE_DRAIN_SECONDS
-    settle = asyncio.ensure_future(_write_cancelled_outcome(user_id, target, note))
+    settle = asyncio.ensure_future(
+        _write_settled_outcome(user_id, target, result, note)
+    )
     # fix(#1775 audit): the event loop keeps only a WEAK reference to a task,
     # so a settle this function stops awaiting at the deadline could be
     # collected mid-write. Held here until it finishes, whichever way it

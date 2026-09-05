@@ -45,6 +45,7 @@ from app.modules.catalog.sources.adapters.arcgis import (
 )
 from app.modules.catalog.sources.adapters.wfs import WFS_SERVICE_FORMAT
 from app.modules.catalog.sources.arcgis_signin import (
+    AUDIT_CANCELLED,
     AUDIT_SUCCESS,
     ArcGISSignInError,
     open_portal_signin,
@@ -55,7 +56,7 @@ from app.modules.catalog.sources.signin_guard import (
     _signin_audit,
     _signin_refusal,
     _signin_reserve,
-    _signin_settle_cancelled,
+    _signin_settle_shielded,
     signin_target,
 )
 from app.modules.catalog.sources.probe import (
@@ -1817,7 +1818,16 @@ async def arcgis_signin(
             try:
                 minted = await portal.mint(body.username, body.password)
             except ArcGISSignInError as exc:
-                await _signin_refusal(db, user_id, target, exc, note, reserved=True)
+                try:
+                    await _signin_refusal(db, user_id, target, exc, note, reserved=True)
+                except asyncio.CancelledError:
+                    # fix(#1825): the refusal's audit write is settlement too,
+                    # and it is not an `Exception`, so the rollback-and-retry
+                    # clause inside the helper never saw it.
+                    await _signin_settle_shielded(
+                        user_id, target, exc.audit_result, note
+                    )
+                    raise
             except asyncio.CancelledError:
                 # fix(#1775): a cancelled task bypasses `mint`'s `except
                 # Exception` and the clause above. fix(#1775 audit): on the
@@ -1830,14 +1840,23 @@ async def arcgis_signin(
                 # recovers is the operator-facing row saying a password went
                 # out. It takes a session of its own, is best effort, and
                 # re-raises either way — see the helper.
-                await _signin_settle_cancelled(user_id, target, note)
+                await _signin_settle_shielded(user_id, target, AUDIT_CANCELLED, note)
                 raise
 
             # fix(#1775): SETTLE. A second short transaction, and the only one
             # that runs after the network. The reservation already counted the
             # attempt, so `reserved=True` keeps this from counting it twice.
             logger.info("ArcGIS sign-in succeeded", token_service_host=target.host)
-            await _signin_audit(db, user_id, target, AUDIT_SUCCESS, note, reserved=True)
+            try:
+                await _signin_audit(
+                    db, user_id, target, AUDIT_SUCCESS, note, reserved=True
+                )
+            except asyncio.CancelledError:
+                # fix(#1825): a shutdown cancellation here left the attempt
+                # with no row at all. Re-run through the finaliser the mint
+                # window already uses.
+                await _signin_settle_shielded(user_id, target, AUDIT_SUCCESS, note)
+                raise
     except ArcGISSignInError as exc:
         # A mint failure was already turned into an HTTPException above, so
         # what reaches here is a phase-one failure. `unknown` is only ever

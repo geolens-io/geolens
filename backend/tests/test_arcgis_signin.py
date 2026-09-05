@@ -3323,3 +3323,109 @@ async def test_a_portal_url_carrying_credentials_is_refused(
         headers=admin_auth_header,
     )
     assert resp.status_code == 422
+
+
+async def _cancel_the_first_audit(monkeypatch, entered, never):
+    """Hang the first settle write; delegate the finaliser's own to the real one.
+
+    Both bindings: the success settle reaches the helper through the router's
+    import, the refusal settle through signin_guard's own global.
+    """
+    real_audit = signin_guard._signin_audit
+    calls = []
+
+    async def _hang_once(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            entered.set()
+            await never.wait()
+            raise AssertionError("unreachable: the wait above is never released")
+        return await real_audit(*args, **kwargs)
+
+    monkeypatch.setattr(signin_guard, "_signin_audit", _hang_once)
+    monkeypatch.setattr(sources_router, "_signin_audit", _hang_once)
+    return calls
+
+
+async def _cancel_during_settle(client, admin_auth_header, exchange, monkeypatch):
+    """Drive one sign-in and cancel it while the settle write is in flight."""
+    entered = asyncio.Event()
+    never = asyncio.Event()
+    await _cancel_the_first_audit(monkeypatch, entered, never)
+    with _install(exchange):
+        call = asyncio.create_task(
+            client.post(SIGNIN_URL, json=_body(), headers=admin_auth_header)
+        )
+        async with asyncio.timeout(30):
+            await entered.wait()
+        call.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await call
+
+
+async def test_a_cancellation_during_the_success_settle_still_records_it(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    allow_ssrf,
+    test_db_session,
+    monkeypatch,
+):
+    """fix(#1825): a shutdown landing in the success settle keeps its row."""
+    await _cancel_during_settle(
+        client,
+        admin_auth_header,
+        _Exchange(
+            {
+                "info": _json_response(_info_payload()),
+                "generateToken": _json_response(_token_payload()),
+            }
+        ),
+        monkeypatch,
+    )
+
+    account_key = signin_account_key(_scope(), FIXTURE_USERNAME)
+    rows = await _audit_rows(test_db_session)
+    assert [row.details["result"] for row in rows] == ["success"]
+    assert rows[0].details["account_key"] == account_key
+    ledger = await test_db_session.scalar(
+        select(func.count())
+        .select_from(ArcGISSignInAttempt)
+        .where(ArcGISSignInAttempt.account_key == account_key)
+    )
+    # The reservation stands and is not spent twice: the finaliser counts none.
+    assert ledger == 1
+
+
+async def test_a_cancellation_during_the_refusal_settle_still_records_it(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    allow_ssrf,
+    test_db_session,
+    monkeypatch,
+):
+    """fix(#1825): the same window on the refusal side of the mint."""
+    await _cancel_during_settle(
+        client,
+        admin_auth_header,
+        _Exchange(
+            {
+                "info": _json_response(_info_payload()),
+                "generateToken": _json_response(
+                    _error_payload(400, "Unable to generate token.")
+                ),
+                "self": _json_response({"canSignInArcGIS": True}),
+            }
+        ),
+        monkeypatch,
+    )
+
+    account_key = signin_account_key(_scope(), FIXTURE_USERNAME)
+    rows = await _audit_rows(test_db_session)
+    # The classified outcome, not `cancelled`: the mint answered before this.
+    assert [row.details["result"] for row in rows] == ["invalid_credentials"]
+    ledger = await test_db_session.scalar(
+        select(func.count())
+        .select_from(ArcGISSignInAttempt)
+        .where(ArcGISSignInAttempt.account_key == account_key)
+    )
+    assert ledger == 1
