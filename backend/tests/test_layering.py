@@ -2958,7 +2958,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # and named three of the five families /api/conformance advertises. Cap
     # 1903 -> 1912, exact.
     # fix(#1847): the lock order, its gate and its 409 mapping. Cap 1962, exact.
-    "backend/app/api/main.py": 1962,
+    # fix(#1847): the handler docstring states its contract. Cap 1962 -> 1959.
+    "backend/app/api/main.py": 1959,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -4542,7 +4543,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # through `cleanup_step`: three in `ingest_vrt`, four in `regenerate_vrt`,
     # which stops two heartbeats. Cap 1628 -> 1640, exact.
     # fix(#1847): the lock order, its gate and its 409 mapping. Cap 1653, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1653,
+    # fix(#1847): the phase-2 job load locks the row and the lock-order
+    # rationale left the source. Cap 1653 -> 1640, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1640,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.
@@ -5110,7 +5113,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # through `cleanup_step`, so a failure in it logs instead of replacing the
     # refresh exception being propagated. Cap 1128 -> 1130, exact.
     # fix(#1847): the lock order, its gate and its 409 mapping. Cap 1134, exact.
-    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1134,
+    # fix(#1847): phase 3 takes the job row before the datasets row. Cap
+    # 1134 -> 1141, exact.
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1141,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

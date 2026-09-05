@@ -1038,12 +1038,9 @@ async def _database_error_handler(request: Request, exc: DBAPIError) -> JSONResp
     re-raised so they keep their existing 500 path; calling a unique-constraint
     collision "database unavailable" would just invite a retry loop.
 
-    fix(#1847): a lock conflict is answered here too, not only when it arrives
-    as CatalogLockConflict from the acquisition. `SET LOCAL lock_timeout` stays
-    in effect for the whole transaction, so a later wait in the same request
-    raises 55P03 from a statement no per-site translation wraps. Gated on this
-    request having installed that timeout, so an unrelated deadlock keeps its
-    operational classification instead of being reported as a busy dataset.
+    fix(#1847): a lock conflict raised after the acquisition, while this
+    request's catalog lock timeout is installed, is answered 409 like one at
+    the acquisition; without that timeout it keeps its operational class.
 
     The detail is deliberately generic: the SQLSTATE and statement go to the log.
     """

@@ -12,9 +12,12 @@ or does not.
 The DB-backed tests require the Docker test database.
 """
 
+import ast
 import asyncio
 import functools
+import inspect
 import uuid
+from pathlib import Path
 
 import pytest
 from httpx import AsyncClient
@@ -1542,6 +1545,85 @@ class TestDeleteLeadsWithTheJobRows:
         )
         await test_db_session.commit()
         assert response.status_code == 204, response.text
+
+
+class TestEveryJobWriterLeadsWithTheJobRow:
+    """A transaction that writes its ingest-job row and locks a catalog or
+    raster row takes the job row first, the order the dataset delete holds.
+    """
+
+    _JOB_WRITES = ("require_ingest_job_update(", "update_ingest_job_for_attempt(")
+    _ROW_LOCKS = ("lock_catalog_rows", "lock_catalog_rows_for_write")
+
+    @classmethod
+    def _first_locks(cls, body: list[ast.stmt]) -> tuple[int | None, int | None]:
+        """(first job-row lock line, first other row lock line), source order."""
+        job = other = None
+        nodes = sorted(
+            (n for stmt in body for n in ast.walk(stmt)),
+            key=lambda n: getattr(n, "lineno", 0),
+        )
+        for node in nodes:
+            if not isinstance(node, ast.Call):
+                continue
+            func = ast.unparse(node.func)
+            if func.endswith(".with_for_update"):
+                if "IngestJob" in ast.unparse(node.func.value):
+                    job = node.lineno if job is None else job
+                else:
+                    other = node.lineno if other is None else other
+            elif func.rsplit(".", 1)[-1] in cls._ROW_LOCKS:
+                other = node.lineno if other is None else other
+        return job, other
+
+    def test_every_worker_transaction_that_writes_the_job_locks_it_first(self):
+        import app
+
+        offenders: list[str] = []
+        root = Path(app.__file__).parent / "processing"
+        for path in sorted(root.rglob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text())):
+                if not isinstance(node, ast.AsyncWith):
+                    continue
+                for item in node.items:
+                    call = item.context_expr
+                    if not isinstance(call, ast.Call):
+                        continue
+                    name = ast.unparse(call.func).rsplit(".", 1)[-1]
+                    if name not in ("async_session", "_job_phase_session"):
+                        continue
+                    body = "\n".join(ast.unparse(stmt) for stmt in node.body)
+                    if not any(write in body for write in self._JOB_WRITES):
+                        continue
+                    job, other = self._first_locks(node.body)
+                    if other is None:
+                        continue
+                    if name == "_job_phase_session":
+                        ok = any(k.arg == "require_status" for k in call.keywords)
+                    else:
+                        ok = job is not None and job < other
+                    if not ok:
+                        offenders.append(f"{path.relative_to(root)}:{node.lineno}")
+        assert offenders == [], offenders
+
+    def test_the_sweep_sees_the_two_phases_it_exists_for(self):
+        import app
+
+        root = Path(app.__file__).parent / "processing" / "ingest"
+        seen = 0
+        for name in ("tasks_vrt.py", "tasks_stac_refresh.py"):
+            for node in ast.walk(ast.parse((root / name).read_text())):
+                if isinstance(node, ast.AsyncWith):
+                    job, other = self._first_locks(node.body)
+                    seen += job is not None and other is not None
+        assert seen >= 2
+
+    def test_cancel_leads_with_the_job_row_for_every_job_type(self):
+        from app.platform.jobs.router import cancel_job
+
+        src = inspect.getsource(cancel_job)
+        first_row_lock = src.find(".with_for_update(")
+        assert first_row_lock == -1 or src.index("update(IngestJob)") < first_row_lock
 
 
 class TestALaterLockWaitAnswersTheSameWay:
