@@ -3563,7 +3563,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # It said the feature-edit routers "never lock the row", which stopped
     # being true when their metadata refresh started taking the datasets row
     # FOR UPDATE. The helper's conclusion is unchanged, its reason is not.
-    # Cap 2551 -> 2556, exact.    "backend/app/processing/ingest/tasks_common.py": 2581,
+    # Cap 2551 -> 2556, exact.    # Cap 2551 -> 2556, exact.
+    # fix(#1847 review r1): +3. Every feature-write handler now locks, so the
+    # note had to stop saying "not on every path" and give the real reason the
+    # atomic helper is still needed: those handlers read the counter BEFORE
+    # they take the lock. Cap 2556 -> 2559, exact.    "backend/app/processing/ingest/tasks_common.py": 2581,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -6082,7 +6086,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # time; the rest is the docstring every other site now cites for the order,
     # and the note on why the COUNT(*)/ST_Extent aggregate has to stay inside
     # the lock rather than being hoisted above it. Cap 1541 -> 1598, exact.
-    "backend/app/modules/catalog/features/service.py": 1598,
+    # fix(#1847 review r1): +11 more. The acquisition became a public helper
+    # the write router calls directly, because a request does not have to
+    # recompute anything to need the pair: a property-only PATCH stamps
+    # `record.updated_by` and rolls `tile_cache_version`, which dirties both
+    # rows. The added lines are that contract stated in the docstring, so the
+    # next caller knows the helper is for any write and not only for the
+    # metadata refresh. Cap 1598 -> 1609, exact.
+    "backend/app/modules/catalog/features/service.py": 1609,
 }
 
 

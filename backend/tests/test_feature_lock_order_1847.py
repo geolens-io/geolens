@@ -122,6 +122,35 @@ async def _await_lock_wait(probe, pid: int) -> None:
     )
 
 
+async def _await_waiter_on(probe, holder_xid: str) -> None:
+    """Block until somebody is queued behind transaction *holder_xid*.
+
+    The HTTP path runs on a connection the test never sees, so its pid cannot
+    be read up front the way the service-level tests read theirs. Waiting on
+    the HOLDER instead identifies the right event without knowing the waiter:
+    a transaction blocked on a row lock queues an ungranted ``transactionid``
+    lock naming the transaction that holds the row. Scoping to that xid also
+    keeps a sibling suite's unrelated lock wait on this shared server from
+    releasing this barrier early.
+    """
+    for _ in range(_BARRIER_POLLS):
+        waiters = await probe.scalar(
+            text(
+                "SELECT count(*) FROM pg_locks WHERE NOT granted "
+                "AND locktype = 'transactionid' AND transactionid::text = :xid"
+            ),
+            {"xid": holder_xid},
+        )
+        await probe.rollback()
+        if waiters:
+            return
+        await asyncio.sleep(_BARRIER_INTERVAL_SECONDS)
+    raise AssertionError(
+        f"nothing ever queued behind transaction {holder_xid}; the request "
+        "under test did not reach a blocking acquisition"
+    )
+
+
 async def _holds_record_lock(probe, record_id: uuid.UUID) -> bool:
     """True when some other transaction holds the records row."""
     try:
@@ -250,6 +279,166 @@ class TestLockOrderAgainstRefreshPhaseThree:
         )
 
 
+class TestPropertyOnlyPatchTakesThePairToo:
+    """The one write path that does not recompute anything still locks."""
+
+    async def test_a_property_only_patch_does_not_deadlock_with_phase_three(
+        self,
+        locked_dataset,
+        client: AsyncClient,
+        admin_auth_header,
+        test_db_session,
+        monkeypatch,
+    ):
+        """End to end, over HTTP, with the worker holding the datasets row.
+
+        The request never recomputes an extent, so before fix(#1847 review r1)
+        it took no catalog lock at all and its first touch of either row was
+        the flush at ``commit()`` -- records, then datasets. That is the
+        original inversion, on the one handler whose refresh is conditional.
+        """
+        monkeypatch.setattr(features_service, "_LOCK_TIMEOUT", "60s")
+
+        import app.core.db as db_module
+
+        create = await client.post(
+            f"/datasets/{locked_dataset.id}/features/",
+            json={
+                "geometry": {"type": "Point", "coordinates": [-73.96, 40.74]},
+                "properties": {"name": "before"},
+            },
+            headers=admin_auth_header,
+        )
+        assert create.status_code == 201, create.text
+        gid = create.json()["id"]
+
+        # The handler assigns `record.updated_by = user.id`, and the ORM emits
+        # an UPDATE only when that is a real change. The insert above already
+        # stamped this admin, so without this the PATCH would dirty the
+        # datasets row alone and the records half of the pair would go
+        # untested. Clearing it restores the ordinary case: the last editor is
+        # somebody other than the current one.
+        await test_db_session.execute(
+            text("UPDATE catalog.records SET updated_by = NULL WHERE id = :rid"),
+            {"rid": locked_dataset.record_id},
+        )
+        await test_db_session.commit()
+
+        async with (
+            db_module.async_session() as worker,
+            db_module.async_session() as probe,
+        ):
+            await worker.execute(
+                select(Dataset.tile_cache_version)
+                .where(Dataset.id == locked_dataset.id)
+                .with_for_update()
+            )
+            worker_xid = await worker.scalar(text("SELECT pg_current_xact_id()::text"))
+
+            # Properties only: no geometry key at all, so the handler's
+            # refresh branch is not taken.
+            patch = asyncio.create_task(
+                client.patch(
+                    f"/datasets/{locked_dataset.id}/features/{gid}",
+                    json={"properties": {"name": "after"}},
+                    headers=admin_auth_header,
+                )
+            )
+            try:
+                await _await_waiter_on(probe, worker_xid)
+                assert not await _holds_record_lock(probe, locked_dataset.record_id), (
+                    "the property-only PATCH is parked on a lock while holding "
+                    "catalog.records. It dirties both rows and must take them "
+                    "datasets-first like every other write."
+                )
+                # The other half of what phase 3 does under its datasets lock.
+                # On the inverted order this is where PostgreSQL aborted one.
+                await worker.execute(
+                    text(
+                        "UPDATE catalog.records SET updated_at = now() WHERE id = :rid"
+                    ),
+                    {"rid": locked_dataset.record_id},
+                )
+                await worker.commit()
+            except BaseException:
+                await worker.rollback()
+                raise
+            response = await patch
+
+        assert response.status_code == 200, response.text
+        assert response.json()["properties"]["name"] == "after"
+
+    async def test_a_property_only_patch_and_phase_three_both_complete(
+        self,
+        locked_dataset,
+        client: AsyncClient,
+        admin_auth_header,
+        test_db_session,
+        monkeypatch,
+    ):
+        """The same interleaving with the diagnostic assertion removed.
+
+        Drives both sides to completion instead of characterising the state in
+        the middle, so on the inverted order PostgreSQL reports the cycle
+        itself rather than a message this test composed.
+        """
+        monkeypatch.setattr(features_service, "_LOCK_TIMEOUT", "60s")
+
+        import app.core.db as db_module
+
+        create = await client.post(
+            f"/datasets/{locked_dataset.id}/features/",
+            json={
+                "geometry": {"type": "Point", "coordinates": [-73.97, 40.75]},
+                "properties": {"name": "before"},
+            },
+            headers=admin_auth_header,
+        )
+        assert create.status_code == 201, create.text
+        gid = create.json()["id"]
+        # See the sibling test: the assignment has to be a real change for the
+        # records half of the pair to be written at all.
+        await test_db_session.execute(
+            text("UPDATE catalog.records SET updated_by = NULL WHERE id = :rid"),
+            {"rid": locked_dataset.record_id},
+        )
+        await test_db_session.commit()
+
+        async with (
+            db_module.async_session() as worker,
+            db_module.async_session() as probe,
+        ):
+            await worker.execute(
+                select(Dataset.tile_cache_version)
+                .where(Dataset.id == locked_dataset.id)
+                .with_for_update()
+            )
+            worker_xid = await worker.scalar(text("SELECT pg_current_xact_id()::text"))
+
+            patch = asyncio.create_task(
+                client.patch(
+                    f"/datasets/{locked_dataset.id}/features/{gid}",
+                    json={"properties": {"name": "after"}},
+                    headers=admin_auth_header,
+                )
+            )
+            try:
+                await _await_waiter_on(probe, worker_xid)
+                await worker.execute(
+                    text(
+                        "UPDATE catalog.records SET updated_at = now() WHERE id = :rid"
+                    ),
+                    {"rid": locked_dataset.record_id},
+                )
+                await worker.commit()
+            except BaseException:
+                await worker.rollback()
+                raise
+            response = await patch
+
+        assert response.status_code == 200, response.text
+
+
 def _compiled(statement) -> str:
     """The SQL text a statement emits, as PostgreSQL would receive it."""
     if isinstance(statement, str):
@@ -292,9 +481,7 @@ class TestEmittedSqlPinsTheOrder:
 
     async def test_datasets_for_update_is_emitted_before_the_records_read(self):
         session = _RecordingSession()
-        await features_service._lock_dataset_then_read_extent_box(
-            session, _StubDataset()
-        )
+        await features_service.lock_catalog_rows_for_write(session, _StubDataset())
 
         locking = [
             (i, sql)
@@ -315,9 +502,7 @@ class TestEmittedSqlPinsTheOrder:
 
     async def test_lock_timeout_is_set_on_the_acquisition(self):
         session = _RecordingSession()
-        await features_service._lock_dataset_then_read_extent_box(
-            session, _StubDataset()
-        )
+        await features_service.lock_catalog_rows_for_write(session, _StubDataset())
         assert "SET LOCAL lock_timeout" in session.statements[0], (
             "the wait for the datasets row must be bounded, so a request "
             "queued behind a long refresh answers a retryable conflict rather "
@@ -399,22 +584,108 @@ class TestFeatureWriteErrorClassification:
 class TestEveryWriteHandlerGoesThroughTheGuard:
     """The refresh is inside the DBAPIError classification at all four sites."""
 
-    def test_no_handler_calls_the_refresh_unguarded(self):
+    HANDLERS = {
+        "create_feature",
+        "replace_single_feature",
+        "patch_single_feature",
+        "delete_single_feature",
+    }
+    # Reaching either of these from a handler bypasses the classification, so
+    # a lock conflict escapes as a 503 rather than the retryable 409.
+    UNGUARDED = {"refresh_dataset_metadata", "lock_catalog_rows_for_write"}
+
+    def _router_tree(self):
+        import ast
+        from pathlib import Path
+
+        return ast.parse(
+            (
+                Path(__file__).resolve().parents[1]
+                / "app/modules/catalog/features/router.py"
+            ).read_text()
+        )
+
+    def test_no_handler_reaches_past_the_guard(self):
+        import ast
+
+        seen = set()
+        for node in ast.walk(self._router_tree()):
+            if not isinstance(node, ast.AsyncFunctionDef):
+                continue
+            if node.name not in self.HANDLERS:
+                continue
+            seen.add(node.name)
+            direct = {
+                n.func.id
+                for n in ast.walk(node)
+                if isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Name)
+                and n.func.id in self.UNGUARDED
+            }
+            assert not direct, (
+                f"{node.name} calls {sorted(direct)} directly. That puts the "
+                "row-lock acquisition back outside the DBAPIError "
+                "classification, where a conflict answers 503 instead of 409."
+            )
+        assert seen == self.HANDLERS, (
+            f"handlers not found: {sorted(self.HANDLERS - seen)}"
+        )
+
+    def test_every_write_handler_acquires_on_every_path(self):
+        """fix(#1847 review r1): unconditionally, or in BOTH arms of the if.
+
+        Three handlers refresh unconditionally, so they hold the pair before
+        they stamp `record.updated_by` and roll `tile_cache_version`. The PATCH
+        handler refreshes only when the body carries geometry, and a
+        property-only PATCH still dirties both rows -- so its else arm has to
+        take the pair on its own or the flush at commit takes them in the ORM's
+        records-then-datasets order and the deadlock is back.
+        """
+        import ast
         from pathlib import Path
 
         source = (
             Path(__file__).resolve().parents[1]
             / "app/modules/catalog/features/router.py"
         ).read_text()
-        bare = [
-            line
-            for line in source.splitlines()
-            if "await refresh_dataset_metadata(" in line
-        ]
-        assert len(bare) == 1, (
-            "the only call to refresh_dataset_metadata in this router should be "
-            "the one inside _refresh_metadata_guarded; a handler calling it "
-            "directly puts its row-lock acquisition back outside the "
-            f"DBAPIError guard. Found {bare}"
-        )
-        assert source.count("await _refresh_metadata_guarded(") == 4
+        tree = ast.parse(source)
+
+        acquisitions = {"_refresh_metadata_guarded", "_lock_catalog_rows_guarded"}
+
+        def acquires(nodes) -> bool:
+            return any(
+                isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Name)
+                and n.func.id in acquisitions
+                for node in nodes
+                for n in ast.walk(node)
+            )
+
+        def acquires_on_every_path(body) -> bool:
+            for stmt in body:
+                if isinstance(stmt, ast.If):
+                    if acquires(stmt.body) and acquires(stmt.orelse):
+                        return True
+                    continue
+                if acquires([stmt]):
+                    return True
+            return False
+
+        handlers = {
+            "create_feature",
+            "replace_single_feature",
+            "patch_single_feature",
+            "delete_single_feature",
+        }
+        seen = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.AsyncFunctionDef) or node.name not in handlers:
+                continue
+            seen.add(node.name)
+            assert acquires_on_every_path(node.body), (
+                f"{node.name} has a path that reaches db.commit() without "
+                "taking the (datasets, records) pair. Every handler here "
+                "dirties both rows, so a path that acquires nothing lets the "
+                "flush order them records-first and re-opens #1847."
+            )
+        assert seen == handlers, f"handlers not found: {sorted(handlers - seen)}"

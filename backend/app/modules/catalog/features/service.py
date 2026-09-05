@@ -1338,10 +1338,16 @@ def _update_capturing_prior_bounds(quoted_table: str, sets: list[str]) -> str:
 _LOCK_TIMEOUT = "2s"
 
 
-async def _lock_dataset_then_read_extent_box(
+async def lock_catalog_rows_for_write(
     session: AsyncSession, dataset: Dataset
 ) -> Bounds | None:
     """Lock this dataset's catalog rows, then read its stored extent as a box.
+
+    Call this from ANY request path that will dirty the datasets row, the
+    records row, or both -- not only from the metadata refresh. Stamping
+    `record.updated_by` and rolling `tile_cache_version` is already a write to
+    both rows, and the ORM flushes them at commit in records-then-datasets
+    order whether or not the caller thought of itself as locking anything.
 
     LOCK ORDER, for every writer of the (datasets, records) pair: **the
     datasets row first, the records row second.** Cite this docstring from any
@@ -1351,6 +1357,11 @@ async def _lock_dataset_then_read_extent_box(
     and `processing/ingest/tasks_stac_refresh.py` both take it to make a
     superseded-content check and the write that depends on it one indivisible
     step, so the lock has to be the first thing the write transaction does.
+
+    The stored extent comes back because the read is FUSED into the records
+    lock statement and so costs nothing extra: it is a single-row lookup by
+    primary key, not the `ST_Extent` aggregate over the data table. The
+    metadata refresh needs it; callers that only need the ordering ignore it.
 
     fix(#1847): this helper took the records row first, which inverted that
     order and made an ordinary feature edit during a `refresh_postgis` phase 3
@@ -1544,8 +1555,8 @@ async def refresh_dataset_metadata(
     # fix(#1778 review r1): taken before EITHER branch reads the extent, so a
     # skip decision cannot be invalidated by a concurrent recompute.
     # fix(#1847): datasets row first, then the records row. See
-    # _lock_dataset_then_read_extent_box for the order and why it is that way.
-    stored_box = await _lock_dataset_then_read_extent_box(session, dataset)
+    # lock_catalog_rows_for_write for the order and why it is that way.
+    stored_box = await lock_catalog_rows_for_write(session, dataset)
 
     if count_delta is not None and await _apply_incremental_metadata(
         session,

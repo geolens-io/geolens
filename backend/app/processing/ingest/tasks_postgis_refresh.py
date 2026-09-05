@@ -927,7 +927,7 @@ async def refresh_postgis(
             # first, which made an ordinary edit during this phase an ABBA
             # deadlock. The authoritative statement of the order, and the
             # reasoning behind choosing this one, is the docstring on
-            # `_lock_dataset_then_read_extent_box` in
+            # `lock_catalog_rows_for_write` in
             # `app/modules/catalog/features/service.py`.
             #
             # What this guard is NOT (review round 6): it does not detect the

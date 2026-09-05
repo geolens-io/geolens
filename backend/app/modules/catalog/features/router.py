@@ -61,6 +61,7 @@ from app.modules.catalog.features.service import (
     get_features,
     get_features_geojson_z,
     insert_feature,
+    lock_catalog_rows_for_write,
     number_matched_headers,
     parse_bbox,
     refresh_dataset_metadata,
@@ -163,26 +164,56 @@ def _feature_write_db_error(exc: DBAPIError) -> HTTPException:
     )
 
 
-async def _refresh_metadata_guarded(db: AsyncSession, dataset, **kwargs) -> None:
-    """`refresh_dataset_metadata` with its database errors classified.
+async def _guard(db: AsyncSession, step) -> None:
+    """Run one post-write catalog step with its database errors classified.
 
-    fix(#1847): every write handler here called the refresh AFTER its own
-    `except DBAPIError` block had closed, so the one part of the request that
-    takes catalog row locks was the one part whose database errors nothing
+    fix(#1847): every write handler here took its catalog row locks AFTER its
+    own `except DBAPIError` block had closed, so the one part of the request
+    that contends for rows was the one part whose database errors nothing
     classified. A deadlock or a lock timeout escaped to the generic database
     error handler as a bare 503, and the edit was lost with no message the
-    caller could act on. One helper rather than four copied try blocks, so the
-    next handler added here cannot pick up the old shape by imitation.
+    caller could act on. One classification for both entry points below, so a
+    conflict answers 409 whichever of them the handler reached.
 
     Deliberately narrower than the handlers' own guards: only `DBAPIError` is
     caught, so a `ValueError` raised in here still surfaces as itself rather
     than being reshaped into the 400 or the 404 the write above uses.
     """
     try:
-        await refresh_dataset_metadata(db, dataset, **kwargs)
+        await step
     except DBAPIError as exc:
         await db.rollback()
         raise _feature_write_db_error(exc)
+
+
+async def _refresh_metadata_guarded(db: AsyncSession, dataset, **kwargs) -> None:
+    """Recompute feature_count and extent, holding the catalog rows.
+
+    Takes the (datasets, records) pair itself, so a handler that reaches this
+    needs nothing else. One helper rather than four copied try blocks, so the
+    next handler added here cannot pick up the old unguarded shape by
+    imitation.
+    """
+    await _guard(db, refresh_dataset_metadata(db, dataset, **kwargs))
+
+
+async def _lock_catalog_rows_guarded(db: AsyncSession, dataset) -> None:
+    """Take the (datasets, records) pair for a write that skips the refresh.
+
+    fix(#1847 review r1): a write does not have to recompute anything to need
+    this. Every handler below stamps `record.updated_by` and rolls
+    `tile_cache_version` unconditionally, which dirties BOTH rows, and the ORM
+    flushes them at commit in records-then-datasets order. On the one path that
+    skips the metadata refresh -- a PATCH carrying properties and no geometry
+    -- that flush was the transaction's first touch of either row, so it
+    reinstated the exact inversion against `refresh_postgis` phase 3 that this
+    issue is about, and the abort landed at `commit()` where no handler was
+    classifying it.
+
+    Same acquisition as the refresh path, through the same service helper, so
+    the two cannot drift into taking the pair in two different orders.
+    """
+    await _guard(db, lock_catalog_rows_for_write(db, dataset))
 
 
 # ---------------------------------------------------------------------------
@@ -880,6 +911,12 @@ async def patch_single_feature(
                 geojson_bounds(body.geometry.model_dump()),
             ],
         )
+    else:
+        # fix(#1847 review r1): properties changed and no geometry did, so
+        # there is nothing to recompute -- but the two lines below still dirty
+        # the records row and the datasets row, and something has to take them
+        # in the house order before the flush at commit takes them in the ORM's.
+        await _lock_catalog_rows_guarded(db, dataset)
     dataset.record.updated_by = user.id
     await audit_emit(
         db,

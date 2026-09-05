@@ -2096,10 +2096,13 @@ async def bump_tile_cache_version_atomic(
     because the increment is evaluated against the row as it is at write time.
 
     fix(#1847): that paragraph used to add "and never lock the row", which
-    stopped being true when the metadata refresh started taking the datasets
-    row ``FOR UPDATE`` (see ``_lock_dataset_then_read_extent_box``). A PATCH
-    that changes no geometry skips the refresh and still bumps unlocked, so the
-    conclusion is unchanged -- but the reason is now "not on every path".
+    stopped being true: every feature-write handler now takes the datasets row
+    ``FOR UPDATE`` before it dirties either catalog row (see
+    ``lock_catalog_rows_for_write``). The conclusion above is unchanged all the
+    same, for a sharper reason than the original one. Those handlers read the
+    counter off an instance loaded BEFORE that lock, so the absolute value they
+    compute from it can still land on top of something committed in between. A
+    lock taken after the read does not make a read-modify-write atomic.
 
     Returns the new value, so the caller reports and logs the version it
     actually published rather than the one it hoped for. Still called in the
