@@ -8,7 +8,6 @@ Covers:
 """
 
 import json
-import time
 
 import httpx
 import pytest
@@ -216,11 +215,11 @@ class TestProbeOrchestratorNoEnrichment:
         return response
 
     @pytest.mark.anyio
-    async def test_ogcapi_probe_completes_fast_without_subprocess(self):
-        """PROBE-05: 17-collection OGC API probe completes in <100ms with no subprocess.
+    async def test_ogcapi_probe_never_invokes_ogrinfo(self):
+        """PROBE-05: a 17-collection OGC API probe never runs ogrinfo.
 
-        Stubs out HTTP calls so the test is pure in-process. Wall-clock assertion
-        confirms no ogrinfo subprocess is invoked (which would add ~3-4s per layer).
+        fix(#1859): asserts the short-circuit itself (run_ogrinfo is never
+        called) instead of a wall-clock ceiling, which raced a loaded runner.
         """
         import httpx
         from unittest.mock import AsyncMock, patch
@@ -244,25 +243,26 @@ class TestProbeOrchestratorNoEnrichment:
                 return _streaming_response(json_body=collections_data)
             return _streaming_response(json_body=landing_page)
 
-        with patch(
-            "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
-            new_callable=AsyncMock,
+        with (
+            patch(
+                "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.processing.ingest.ogr.run_ogrinfo", new_callable=AsyncMock
+            ) as mock_ogrinfo,
         ):
             async with httpx.AsyncClient(
                 transport=httpx.MockTransport(handle)
             ) as client:
                 from app.modules.catalog.sources.probe import detect_service_type
 
-                start = time.perf_counter()
                 result = await detect_service_type(
                     "http://fake-ogcapi.example.com", client
                 )
-                elapsed_ms = (time.perf_counter() - start) * 1000
 
-        assert elapsed_ms < 100, (
-            f"OGC API probe took {elapsed_ms:.1f}ms — expected <100ms. "
-            "ogrinfo subprocess may have been invoked."
-        )
+            mock_ogrinfo.assert_not_called()
+
         assert result.service_type == "OGC API Features"
         assert len(result.layers) == 17
 
