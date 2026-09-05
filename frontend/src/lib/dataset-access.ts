@@ -43,7 +43,10 @@ function normalizeApiBasePath(value: string): string {
   return value.startsWith('/') ? value : `/${value}`;
 }
 
-function getRuntimeApiBaseUrl(): string | null {
+// fix(#1867): exported so callers can compare an absolute distribution url
+// against THIS instance's own API origin — the same resolution api/client.ts
+// uses to build its own fetch targets from `API_BASE`.
+export function getRuntimeApiBaseUrl(): string | null {
   const configuredApiBase = API_BASE.trim();
 
   if (configuredApiBase) {
@@ -63,6 +66,20 @@ function getRuntimeApiBaseUrl(): string | null {
   }
 
   return null;
+}
+
+/**
+ * An already-absolute url whose origin AND path prefix match this
+ * instance's own API — a manual distribution typed out in full rather than
+ * relative, not an external site. Compared against `getRuntimeApiBaseUrl()`
+ * (mirrors api/client.ts's own resolution), not `window.location` alone: a
+ * configured `API_BASE_URL` can point at a different origin than the page.
+ */
+export function isSameOriginAbsoluteUrl(value: string): boolean {
+  if (!isAbsoluteUrl(value)) return false;
+  const apiBase = getRuntimeApiBaseUrl();
+  if (!apiBase) return false;
+  return value === apiBase || value.startsWith(`${apiBase}/`) || value.startsWith(`${apiBase}?`);
 }
 
 export function getPublicApiBaseUrl(

@@ -267,6 +267,46 @@ describe('DistributionsList', () => {
       expect(mockAuthenticatedDownload).not.toHaveBeenCalled();
     });
 
+    // fix(#1867): the P1 fix above treated EVERY absolute url as external,
+    // so a manual distribution typed out in full against this instance's
+    // own API (rather than relative) never got the bearer token either.
+    it('downloads an absolute same-origin distribution through the authenticated fetch, not a plain link', async () => {
+      const sameOriginUrl = `${window.location.origin}/api/datasets/1/export?format=gpkg`;
+      mockUseDistributions.mockReturnValue({
+        data: {
+          distributions: [
+            {
+              id: 'same-origin-1',
+              record_id: 'record-1',
+              distribution_type: 'download',
+              format: 'gpkg',
+              url: sameOriginUrl,
+              title: 'GeoPackage Download',
+              description: null,
+              protocol: 'HTTP',
+              media_type: 'application/geopackage+sqlite3',
+              is_primary: false,
+              auto_generated: false,
+            },
+          ],
+          total: 1,
+        },
+        isLoading: false,
+      } as unknown as ReturnType<typeof useDistributions>);
+
+      const user = userEvent.setup();
+      render(<DistributionsList recordId="record-1" />);
+
+      const button = screen.getByRole('button', { name: 'Download' });
+      await user.click(button);
+
+      expect(mockAuthenticatedDownload).toHaveBeenCalledTimes(1);
+      expect(mockAuthenticatedDownload).toHaveBeenCalledWith(
+        sameOriginUrl,
+        'GeoPackage Download.gpkg',
+      );
+    });
+
     it('shows an error toast and re-enables the button when the authenticated download fails', async () => {
       mockAuthenticatedDownload.mockRejectedValueOnce(new Error('Access denied'));
       const user = userEvent.setup();

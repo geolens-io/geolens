@@ -15,6 +15,7 @@ import {
   getPublicApiBaseUrl,
   resolveDistributionUrl,
   isAbsoluteUrl,
+  isSameOriginAbsoluteUrl,
   isFetchableDistributionUrl,
 } from '@/lib/dataset-access';
 import { authenticatedDownload } from '@/api/datasets';
@@ -62,11 +63,11 @@ function CopyableUrl({
   const [downloading, setDownloading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const resolvedUrl = resolveDistributionUrl(distribution.url, publicApiUrl);
-  // fix(#1863 P1): resolveDistributionUrl only prefixes a RELATIVE url with
-  // the API base — an already-absolute url (a manual distribution, e.g. an
-  // external viewer app) passes through unchanged and is not a GeoLens API
-  // resource, so it must never receive this session's bearer token.
-  const isSameOriginApiResource = !isAbsoluteUrl(distribution.url);
+  // fix(#1863 P1 / #1867): same-origin (relative, or absolute matching this
+  // instance's own API) gets the bearer token; a genuinely external url
+  // (e.g. a manual viewer-app link) must never receive it.
+  const isSameOriginApiResource =
+    !isAbsoluteUrl(distribution.url) || isSameOriginAbsoluteUrl(distribution.url);
   // fix(#1863 P2): a vector-tile row's url is a template
   // (/tiles/data.<table>/{z}/{x}/{y}.pbf — no literal resource at that
   // path) and a raster/VRT row's url is a bare object-storage key

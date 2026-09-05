@@ -380,10 +380,15 @@ export function useBuilderLayers(
     // callback — layersRef is only synced via the useLayoutEffect mirror on
     // commit (the same staleness #554 documented for the add-layer merge),
     // so it would still be missing the layer just created.
+    // fix(#1867): "fresh" means no PRIOR layers too, not just no saved
+    // center — a centerless map that already had layers keeps BuilderMap's
+    // own combined-bounds auto-fit (BuilderMap.tsx); this single-layer zoom
+    // would otherwise race it.
     const hasSavedView = hasSavedMapCamera(mapData);
+    const isFreshMap = !hasSavedView && (mapData?.layers?.length ?? 0) === 0;
     handleAddDataset(
       datasetId,
-      hasSavedView ? undefined : (newLayerId) => { pendingAutoZoomLayerIdRef.current = newLayerId; },
+      isFreshMap ? (newLayerId) => { pendingAutoZoomLayerIdRef.current = newLayerId; } : undefined,
     );
     setSearchParams((prev) => {
       prev.delete('add_dataset');

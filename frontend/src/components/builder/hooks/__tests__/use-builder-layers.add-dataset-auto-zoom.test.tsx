@@ -180,4 +180,27 @@ describe('?add_dataset auto-zoom (#1854)', () => {
 
     expect(fitBounds).not.toHaveBeenCalled();
   });
+
+  // fix(#1867): "fresh map" means no PRIOR layers, not just no saved
+  // center — a centerless map that already had a layer must keep
+  // BuilderMap's own combined-bounds auto-fit (BuilderMap.tsx, driven by
+  // layers.length independently of this hook), not this single-layer zoom.
+  it('does not auto-zoom a centerless map that already has an existing layer', () => {
+    const existingLayer = makeBuilderLayer({ id: 'existing-layer-id', dataset_id: 'ds-existing' });
+    const mapData = makeBuilderMap([existingLayer], { center_lng: null, center_lat: null });
+    const { mutate, fitBounds } = renderWithAddDatasetParam(mapData);
+
+    expect(mutate).toHaveBeenCalledOnce();
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    const createdLayer = makeBuilderLayer({
+      id: 'new-layer-id',
+      dataset_id: 'ds-1',
+      dataset_extent_bbox: [-74.5, 40.5, -73.5, 41.5],
+    });
+    act(() => {
+      onSuccess(createdLayer);
+    });
+
+    expect(fitBounds).not.toHaveBeenCalled();
+  });
 });
