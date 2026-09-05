@@ -253,6 +253,61 @@ describe('useDraftEditing', () => {
     expect(success).toBe(false);
   });
 
+  // fix(#1851): DatasetPage stays mounted across a route change from one
+  // dataset to another, so without a reset keyed on datasetId a staged draft
+  // for dataset A survived into dataset B's render.
+  it('resets staged drafts when datasetId changes', () => {
+    const { result, rerender } = renderHook(
+      ({ datasetId, dataset }) => useDraftEditing({ datasetId, dataset, isGeometryEditDirty: false }),
+      {
+        initialProps: {
+          datasetId: 'ds-1',
+          dataset: makeDataset({ id: 'ds-1', summary: 'A summary' }),
+        },
+      },
+    );
+
+    act(() => {
+      result.current.stagePendingDraft('summary', 'A edited summary');
+    });
+    expect(result.current.pendingCount).toBe(1);
+
+    rerender({
+      datasetId: 'ds-2',
+      dataset: makeDataset({ id: 'ds-2', summary: 'B summary' }),
+    });
+
+    expect(result.current.pendingCount).toBe(0);
+    expect(result.current.resolveDraftValue('summary')).toBe('B summary');
+  });
+
+  it('a save after navigating to a different dataset does not send the previous draft', async () => {
+    const { result, rerender } = renderHook(
+      ({ datasetId, dataset }) => useDraftEditing({ datasetId, dataset, isGeometryEditDirty: false }),
+      {
+        initialProps: {
+          datasetId: 'ds-1',
+          dataset: makeDataset({ id: 'ds-1', summary: 'A summary' }),
+        },
+      },
+    );
+
+    act(() => {
+      result.current.stagePendingDraft('summary', 'A edited summary');
+    });
+
+    rerender({
+      datasetId: 'ds-2',
+      dataset: makeDataset({ id: 'ds-2', summary: 'B summary' }),
+    });
+
+    await act(async () => {
+      await result.current.savePendingDrafts();
+    });
+
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+  });
+
   it('handleDraftDirtyChange tracks dirty fields in pending count', () => {
     const { result } = renderHook(() =>
       useDraftEditing({

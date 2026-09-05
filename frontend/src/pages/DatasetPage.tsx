@@ -616,7 +616,17 @@ export function DatasetPage() {
 
       {/* Tabbed content — tabs shown are driven by record_type */}
       <Suspense fallback={<DatasetDetailSkeleton isTable={isTable} />}>
+        {/* fix(#1851 review P1): DatasetPage stays mounted across a dataset-to-
+            dataset route change, so InlineEdit fields under here kept their
+            own local editing/draft state — uncommitted keystrokes on dataset
+            A survived onto dataset B's editor and a save could PATCH them
+            there. Keying on the dataset id forces a remount on every
+            navigation, which resets every InlineEdit's local state along
+            with everything else under this subtree. useDraftEditing's own
+            datasetId-keyed reset (frontend/src/components/dataset/hooks/use-
+            draft-editing.ts) covers the separate, already-staged case. */}
         <DetailPanel
+          key={dataset.id}
           dataset={dataset}
           canEdit={canEdit}
           canEditData={canEditData}
@@ -725,7 +735,16 @@ export function DatasetPage() {
             <AlertDialogCancel onClick={() => blocker.reset?.()}>
               {t('unsaved.stay', { defaultValue: 'Stay' })}
             </AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={() => blocker.proceed?.()}>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                // fix(#1851): "Leave" claimed to discard but only navigated —
+                // the staged drafts stayed in state and reappeared (then could
+                // PATCH) on whatever mounted next.
+                discardPendingDrafts();
+                blocker.proceed?.();
+              }}
+            >
               {t('unsaved.leave', { defaultValue: 'Leave' })}
             </AlertDialogAction>
           </AlertDialogFooter>

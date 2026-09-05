@@ -14,6 +14,10 @@ const drawingStoreState = vi.hoisted(() => ({
   clearDrawing: vi.fn(),
 }));
 
+// fix(#1851): a plain object mock can't vary the blocker's `state` per test,
+// and the "Leave" wiring is only exercised while it is 'blocked'.
+const mockUseUnsavedGuard = vi.hoisted(() => vi.fn());
+
 vi.mock('react-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-router')>();
   return {
@@ -23,7 +27,7 @@ vi.mock('react-router', async (importOriginal) => {
 });
 
 vi.mock('@/hooks/use-unsaved-guard', () => ({
-  useUnsavedGuard: () => ({ state: 'unblocked', reset: vi.fn(), proceed: vi.fn() }),
+  useUnsavedGuard: mockUseUnsavedGuard,
 }));
 
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
@@ -252,6 +256,8 @@ describe('DatasetPage editable affordance integration', () => {
     drawingStoreState.isEditDirty = false;
     drawingStoreState.setDrawing.mockReset();
     drawingStoreState.clearDrawing.mockReset();
+    mockUseUnsavedGuard.mockReset();
+    mockUseUnsavedGuard.mockReturnValue({ state: 'unblocked', reset: vi.fn(), proceed: vi.fn() });
 
     mockUseParams.mockReturnValue({ id: 'dataset-1' });
     mockUseDataset.mockReturnValue({
@@ -322,6 +328,83 @@ describe('DatasetPage editable affordance integration', () => {
     });
 
     expect(screen.getByText('Original summary')).toBeInTheDocument();
+  });
+
+  // fix(#1851): "Leave" on the unsaved-changes dialog let navigation proceed
+  // without discarding the staged draft, which then reappeared (and could be
+  // saved) against whatever dataset mounted next.
+  it('discards the staged draft when the user chooses Leave on the unsaved-changes dialog', async () => {
+    setUser(EDITOR_USER);
+    const user = userEvent.setup();
+    const mockProceed = vi.fn();
+
+    const { rerender } = render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    await user.click(await screen.findByText('Original summary'));
+    const summaryInput = screen.getByDisplayValue('Original summary');
+    await user.clear(summaryInput);
+    await user.type(summaryInput, 'Updated summary pending save');
+    await user.keyboard('{Control>}{Enter}{/Control}');
+
+    expect(await screen.findByTestId('pending-edits-bar')).toBeInTheDocument();
+
+    // Simulate the blocker intercepting a route change with unsaved changes
+    // present — the same shape react-router's real useBlocker returns.
+    mockUseUnsavedGuard.mockReturnValue({ state: 'blocked', reset: vi.fn(), proceed: mockProceed });
+    rerender(<DatasetPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'Leave' }));
+
+    expect(mockProceed).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(screen.queryByTestId('pending-edits-bar')).not.toBeInTheDocument();
+    });
+  });
+
+  // fix(#1851 review P1): resetting useDraftEditing's own state (the test
+  // above) is not enough — InlineEdit keeps its OWN local editing/draft
+  // state, and it deliberately ignores prop-value changes while `editing` is
+  // true (see InlineEdit.tsx's sync effect). Typed-but-uncommitted text in an
+  // open editor survived a dataset-to-dataset navigation and could be PATCHed
+  // onto the wrong dataset on the next Save. Covers "route change to a
+  // cached dataset" directly, since DetailPanel's key={dataset.id} (the fix)
+  // is what has to remount it — going through the Leave button first would
+  // also work, but risks the dialog's own focus trap blurring the textarea
+  // and masking the bug via InlineEdit's separate blur-cancels-uncommitted-
+  // edits behavior.
+  it('discards uncommitted InlineEdit text on navigation to a different (cached) dataset', async () => {
+    setUser(EDITOR_USER);
+    const user = userEvent.setup();
+
+    const datasetB: DatasetResponse = { ...makeDataset(), id: 'dataset-2', summary: 'Second dataset summary' };
+    mockUseDataset.mockImplementation(((datasetId: string) => ({
+      data: datasetId === 'dataset-2' ? datasetB : makeDataset(),
+      isLoading: false,
+      error: null,
+    })) as unknown as typeof useDataset);
+
+    const { rerender } = render(<DatasetPage />, { route: '/datasets/dataset-1' });
+
+    await user.click(await screen.findByText('Original summary'));
+    const summaryInput = screen.getByDisplayValue('Original summary');
+    await user.clear(summaryInput);
+    await user.type(summaryInput, 'Uncommitted dataset A text');
+    // Deliberately no Ctrl+Enter and no blur — this text was never staged or
+    // saved, only typed.
+
+    expect(await screen.findByTestId('pending-edits-bar')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Uncommitted dataset A text')).toBeInTheDocument();
+
+    // Navigate to a different, already-cached dataset.
+    mockUseParams.mockReturnValue({ id: 'dataset-2' });
+    rerender(<DatasetPage />);
+
+    expect(await screen.findByText('Second dataset summary')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('Uncommitted dataset A text')).not.toBeInTheDocument();
+    expect(mutateAsync).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(screen.queryByTestId('pending-edits-bar')).not.toBeInTheDocument();
+    });
   });
 
   it('keeps viewer fields read-only and reveals denial hint only after attempted edit', async () => {

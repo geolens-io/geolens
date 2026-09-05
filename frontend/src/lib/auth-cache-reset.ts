@@ -5,6 +5,39 @@ import { useDrawingStore } from '@/stores/drawing-store';
 import { useSearchStore } from '@/stores/search-store';
 import { clearUploadBatch, clearPendingUploadFiles } from '@/api/upload-session';
 import { clearStacImport } from '@/api/stac-import-session';
+import { removeSessionStorage } from '@/lib/storage';
+
+/**
+ * fix(#1850): the AI chat transcript (`geolens-chat-<mapId>`, ChatPanel.tsx)
+ * and the one-shot "open in builder" handoff payload (`geolens-chat-result`,
+ * chat-result-handoff.ts) are sessionStorage, keyed only on the map — not on
+ * identity. sessionStorage outlives logout, so a second user signing in in
+ * the same tab sees the first user's prompts, dataset names and query
+ * metadata. Same choke point, same rule as the stores below: identity
+ * changed, drop it. Collecting keys first, then removing, because removing
+ * mid-loop shifts sessionStorage's live index and skips entries.
+ *
+ * fix(#1536 gate): the enumeration (`.length`/`.key`) has no helper in
+ * lib/storage.ts, so it stays raw here, guarded by the try/catch below —
+ * kept as a plain loop rather than `.forEach`, which would cross a function
+ * boundary and fall outside the try's frame. The removal itself goes
+ * through `removeSessionStorage`, which is already exception-safe on its
+ * own.
+ */
+function clearChatSessionStorage(): void {
+  try {
+    const toRemove: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i);
+      if (key?.startsWith('geolens-chat-')) toRemove.push(key);
+    }
+    for (const key of toRemove) {
+      removeSessionStorage(key);
+    }
+  } catch {
+    // storage unavailable (private mode / disabled) — nothing to clear.
+  }
+}
 
 /**
  * fix(#430 codex r6): user-scoped queries (dataset search, map search, map
@@ -49,6 +82,8 @@ export function wireAuthCacheReset(queryClient: QueryClient): () => void {
     useDrawingStore.getState().bumpSessionEpoch();
     useDrawingStore.getState().clearDrawing();
     useSearchStore.getState().clearIdentityScopedFilters();
+    // fix(#1850): see clearChatSessionStorage's doc comment above.
+    clearChatSessionStorage();
 
     // fix(#1712): the Upload and STAC tabs' module-scoped in-flight
     // sessions are the same kind of identity-scoped residue — each records

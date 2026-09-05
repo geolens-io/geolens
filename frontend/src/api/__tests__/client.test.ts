@@ -1,4 +1,4 @@
-import { apiFetch, ApiError } from '@/api/client';
+import { apiFetch, ApiError, tryRefresh } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
 import type { TokenResponse } from '@/types/api';
 
@@ -273,13 +273,14 @@ describe('apiFetch', () => {
     vi.mocked(refreshAccessToken).mockRejectedValueOnce(new Error('refresh failed'));
 
     useAuthStore.setState({ token: 'cookie-session-token', refreshToken: null });
-    mockFetch
-      .mockResolvedValueOnce(errorResponse(401))
-      .mockResolvedValueOnce(errorResponse(401));
+    // fix(#1849): a failed refresh no longer retries with the dead token, so
+    // only the initial 401 fetch happens — one queued response, not two.
+    mockFetch.mockResolvedValueOnce(errorResponse(401));
 
     await expect(apiFetch('/protected/')).rejects.toThrow(ApiError);
     expect(refreshAccessToken).toHaveBeenCalledWith(null, expect.any(AbortSignal));
     expect(useAuthStore.getState().token).toBeNull();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it('does not attempt a refresh on an anonymous 401', async () => {
@@ -299,13 +300,109 @@ describe('apiFetch', () => {
     // A distinct access token per test: the session-death latch dedupes on it,
     // and real sessions never reuse one (every JWT carries a fresh jti).
     useAuthStore.setState({ token: 'expired-token', refreshToken: 'bad-refresh' });
-    // First call returns 401; refresh fails but token remains, so retry also gets 401
-    mockFetch
-      .mockResolvedValueOnce(errorResponse(401))
-      .mockResolvedValueOnce(errorResponse(401));
+    mockFetch.mockResolvedValueOnce(errorResponse(401));
 
     await expect(apiFetch('/protected/')).rejects.toThrow(ApiError);
     expect(useAuthStore.getState().token).toBeNull();
+    // fix(#1849): a failed refresh must not retry the original request with
+    // the now-dead token — only the initial 401 fetch happens.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  describe('tryRefresh return value (#1849)', () => {
+    it('returns false and skips the retry when refresh fails, going straight to logout', async () => {
+      const { refreshAccessToken } = await import('@/api/auth');
+      vi.mocked(refreshAccessToken).mockRejectedValueOnce(new ApiError('unauthorized', 401));
+
+      // A distinct access token per test: the session-death latch dedupes on
+      // it (see the note on 'logs out and throws on 401 when refresh fails').
+      useAuthStore.setState({ token: 'expired-token-1849a', refreshToken: 'bad-refresh' });
+      mockFetch.mockResolvedValueOnce(errorResponse(401));
+
+      await expect(apiFetch('/protected/')).rejects.toThrow(ApiError);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(useAuthStore.getState().token).toBeNull();
+    });
+
+    it('returns true and retries exactly once when refresh succeeds', async () => {
+      const { refreshAccessToken } = await import('@/api/auth');
+      vi.mocked(refreshAccessToken).mockResolvedValueOnce({
+        access_token: 'fresh-token',
+        refresh_token: 'fresh-refresh',
+        expires_in: 900,
+        token_type: 'bearer',
+      });
+
+      useAuthStore.setState({ token: 'expired-token-1849b', refreshToken: 'old-refresh' });
+      mockFetch
+        .mockResolvedValueOnce(errorResponse(401))
+        .mockResolvedValueOnce(jsonResponse({ ok: true }));
+
+      await expect(apiFetch('/protected/')).resolves.toEqual({ ok: true });
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(useAuthStore.getState().token).toBe('fresh-token');
+    });
+
+    it('backs off once on a 429 before giving up', async () => {
+      vi.useFakeTimers();
+      try {
+        const { refreshAccessToken } = await import('@/api/auth');
+        vi.mocked(refreshAccessToken).mockRejectedValueOnce(new ApiError('rate limited', 429));
+
+        useAuthStore.setState({ token: 'expired-token-1849c', refreshToken: 'bad-refresh' });
+        mockFetch.mockResolvedValueOnce(errorResponse(401));
+
+        const pending = apiFetch('/protected/').catch((e: unknown) => e);
+        await vi.advanceTimersByTimeAsync(2000);
+        const result = await pending;
+
+        expect(result).toBeInstanceOf(ApiError);
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        expect(useAuthStore.getState().token).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    // fix(#1862 review P2): a regression of the fix above. Before it, the
+    // stale-token truthiness masked this case by accident — `!!token` was
+    // true regardless of whose refresh put it there. Reporting failure here
+    // for an outcome the store shows as success would make the caller treat
+    // a peer tab's valid session as dead.
+    it('returns true when a peer tab rotates the token while this refresh fails', async () => {
+      const { refreshAccessToken } = await import('@/api/auth');
+      let rejectRefresh: (err: unknown) => void = () => {};
+      vi.mocked(refreshAccessToken).mockImplementation(
+        () =>
+          new Promise<TokenResponse>((_resolve, reject) => {
+            rejectRefresh = reject;
+          }),
+      );
+
+      useAuthStore.setState({ token: 'stale-local-token', refreshToken: 'r' });
+
+      const pending = tryRefresh();
+      await Promise.resolve();
+
+      // Simulate auth-store.ts's cross-tab `storage` listener rehydrating a
+      // peer tab's successful refresh into this tab's store while this
+      // attempt is still in flight.
+      useAuthStore.setState({ token: 'peer-rotated-token' });
+      rejectRefresh(new Error('network error'));
+
+      await expect(pending).resolves.toBe(true);
+      expect(useAuthStore.getState().token).toBe('peer-rotated-token');
+    });
+
+    it('still returns false when the token is unchanged after a failed refresh', async () => {
+      const { refreshAccessToken } = await import('@/api/auth');
+      vi.mocked(refreshAccessToken).mockRejectedValueOnce(new Error('boom'));
+
+      useAuthStore.setState({ token: 'unchanged-token', refreshToken: 'r' });
+
+      await expect(tryRefresh()).resolves.toBe(false);
+      expect(useAuthStore.getState().token).toBe('unchanged-token');
+    });
   });
 
   // RES-N1: `TypeError: Failed to fetch` is what browsers throw when the
@@ -416,12 +513,13 @@ describe('apiFetch', () => {
       // First refresh attempt fails
       mockRefresh.mockRejectedValueOnce(new Error('boom'));
       useAuthStore.setState({ token: 'expired', refreshToken: 'r' });
-      mockFetch
-        .mockResolvedValueOnce(errorResponse(401))
-        .mockResolvedValueOnce(errorResponse(401));
+      // fix(#1849): a failed refresh no longer retries with the dead token —
+      // one queued response, not two.
+      mockFetch.mockResolvedValueOnce(errorResponse(401));
 
       await expect(apiFetch('/a/')).rejects.toThrow(ApiError);
       expect(mockRefresh).toHaveBeenCalledTimes(1);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
 
       // Second wave: the singleton must have cleared, so a new refresh attempt fires
       mockRefresh.mockResolvedValueOnce({

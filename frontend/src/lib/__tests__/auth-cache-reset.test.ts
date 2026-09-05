@@ -230,6 +230,49 @@ describe('wireAuthCacheReset', () => {
     }
   });
 
+  // fix(#1850): the AI chat transcript is sessionStorage keyed on the map,
+  // not on identity, and previously outlived logout — a second user signing
+  // in in the same tab would render the first user's prompts and query
+  // metadata.
+  it('clears geolens-chat-* sessionStorage keys when identity changes, not on token refresh', () => {
+    const qc = new QueryClient();
+    const unsubscribe = wireAuthCacheReset(qc);
+    try {
+      useAuthStore.setState({ token: 't1', user: { id: 'user-1' } as UserResponse });
+      sessionStorage.setItem('geolens-chat-map-1', '[{"role":"user","content":"user-1 prompt"}]');
+      sessionStorage.setItem('geolens-chat-result', '{"prompt":"user-1 query"}');
+      sessionStorage.setItem('unrelated-key', 'kept');
+
+      // Token refresh (same identity): kept.
+      useAuthStore.setState({ token: 't2' });
+      expect(sessionStorage.getItem('geolens-chat-map-1')).not.toBeNull();
+
+      // A second identity signs in WITHOUT a page reload: cleared.
+      useAuthStore.setState({ token: 't3', user: { id: 'user-2' } as UserResponse });
+      expect(sessionStorage.getItem('geolens-chat-map-1')).toBeNull();
+      expect(sessionStorage.getItem('geolens-chat-result')).toBeNull();
+      expect(sessionStorage.getItem('unrelated-key')).toBe('kept');
+    } finally {
+      unsubscribe();
+      sessionStorage.clear();
+    }
+  });
+
+  it('clears geolens-chat-* sessionStorage keys on logout', () => {
+    const qc = new QueryClient();
+    const unsubscribe = wireAuthCacheReset(qc);
+    try {
+      useAuthStore.setState({ token: 't1', user: { id: 'user-1' } as UserResponse });
+      sessionStorage.setItem('geolens-chat-map-1', '[]');
+
+      useAuthStore.setState({ token: null, user: null });
+      expect(sessionStorage.getItem('geolens-chat-map-1')).toBeNull();
+    } finally {
+      unsubscribe();
+      sessionStorage.clear();
+    }
+  });
+
   it('clears identity-scoped search fields on logout', () => {
     const qc = new QueryClient();
     const unsubscribe = wireAuthCacheReset(qc);
