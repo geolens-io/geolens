@@ -46,6 +46,7 @@ from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
 from app.modules.catalog.sources.adapters.wfs import probe_wfs
 from app.modules.catalog.sources.classify import classify_layer_kind
 from app.modules.catalog.sources.schemas import LayerInfo, ProbeResponse
+from app.platform.security import SSRFError
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -221,6 +222,26 @@ async def detect_service_type(
     async def _header_auth_probe(probe) -> dict | None:
         try:
             return await probe(url, client, credential=credential)
+        except SSRFError:
+            # fix(#1858): FIRST, because `SSRFError` subclasses `ValueError`
+            # (`platform/security.py`) and the clause below reads a
+            # `ValueError` as "this credential cannot become a header". The
+            # two header-auth adapters catch only
+            # `(httpx.HTTPStatusError, httpx.TransportError,
+            # EndpointCheckFailedError)`, so a refused redirect hop -- raised
+            # by `_revalidate_redirect` from a response hook, or by the guard
+            # transport at connect time -- landed here and was recorded as a
+            # credential refusal. Three answers were wrong at once: a probe
+            # carrying NO credential was told its token was invalid;
+            # `SSRFResolutionError` interpolates the redirect-chosen hostname
+            # into its message, and `refusals[0]` carried that into the 422
+            # body and the persisted audit reason, which is exactly what
+            # `router.py`'s fixed `ssrf_policy_message` exists to prevent; and
+            # `probe_service_url`'s `except SSRFError` handler, which answers
+            # 400 `ssrf_blocked` and writes the matching audit row, never ran
+            # for these two adapters. `probe_arcgis_service` got the same
+            # clause in #1840 (`adapters/arcgis.py`) for this reason.
+            raise
         except ValueError as exc:
             refusals.append(str(exc))
             logger.debug(

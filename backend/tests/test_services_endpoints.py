@@ -8,16 +8,37 @@ Requirements:
   - Alembic migrations must be applied
 """
 
+import json
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
+from app.modules.audit.models import AuditLog
 from app.modules.catalog.sources.probe import ServiceNotRecognized
 from app.modules.catalog.sources.schemas import LayerInfo, ProbeResponse
 from app.platform.security import SSRFError, SSRFResolutionError
+
+
+async def _probe_audit_rows(session, url: str) -> list[AuditLog]:
+    """This test's `probe_service` audit rows, oldest first.
+
+    Scoped to the probed URL: one database is shared across every test on an
+    xdist worker, so a query on the action alone would read rows written by
+    tests that ran before this one.
+    """
+    result = await session.execute(
+        select(AuditLog)
+        .where(
+            AuditLog.action == "probe_service",
+            AuditLog.details["url"].astext == url,
+        )
+        .order_by(AuditLog.created_at)
+    )
+    return list(result.scalars().all())
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +263,60 @@ class TestProbeEndpoint:
 
         assert resp.status_code == 400
         assert redirect_host not in resp.text
+
+    async def test_probe_header_auth_ssrf_is_not_a_credential_refusal(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_validate_ssrf,
+        test_db_session,
+    ) -> None:
+        """fix(#1858, `sources/probe.py::_header_auth_probe`).
+
+        `SSRFError` subclasses `ValueError`, and the two header-auth adapters
+        catch only httpx and endpoint-check failures, so a refused redirect
+        hop reached `_header_auth_probe`'s `except ValueError` and was
+        recorded as a credential refusal. This probe carries NO credential at
+        all, so the old answer -- 422 `invalid_service_token` -- was untrue
+        twice over, and `SSRFResolutionError`'s message put the
+        redirect-chosen hostname into both the response body and the
+        persisted audit reason, which is what the fixed `ssrf_policy_message`
+        one clause below exists to prevent.
+        """
+        redirect_host = "sec6-redirect-chosen-target.invalid"
+        probe_url = "https://sec6-header-auth.example.com/service"
+        with (
+            patch(
+                "app.modules.catalog.sources.probe.probe_ogcapi",
+                new_callable=AsyncMock,
+                side_effect=SSRFResolutionError(
+                    f"Could not resolve hostname: {redirect_host}"
+                ),
+            ),
+            patch(
+                "app.modules.catalog.sources.probe.probe_wfs",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "app.modules.catalog.sources.probe.probe_arcgis_service",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            resp = await client.post(
+                "/services/probe/",
+                json={"url": probe_url},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "redirect target refused by SSRF policy"
+        assert redirect_host not in resp.text
+
+        rows = await _probe_audit_rows(test_db_session, probe_url)
+        assert [row.details["result"] for row in rows] == ["ssrf_blocked"]
+        assert redirect_host not in json.dumps(rows[0].details)
 
     async def test_probe_timeout(
         self,
