@@ -46,6 +46,10 @@ from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
+from app.platform.jobs.heartbeat import (
+    ATTEMPT_STAGING_NAME_PATTERN,
+    is_attempt_scoped_staging_table,
+)
 from app.platform.jobs.models import IngestJob, commit_attempted_marker
 from app.platform.storage.titiler_url import resolve_current_storage_key
 
@@ -114,6 +118,7 @@ async def discover_unregistered_tables(
     else:
         tenant_join_clause = ""
         bind_params = dict(schema=schema, limit=limit)
+    bind_params["attempt_staging_pattern"] = ATTEMPT_STAGING_NAME_PATTERN
 
     result = await session.execute(
         text(
@@ -140,6 +145,13 @@ async def discover_unregistered_tables(
                 AND d.table_name IS NULL
                 AND t.table_name NOT LIKE '%\\_staging' ESCAPE '\\'
                 AND t.table_name NOT LIKE '%\\_old' ESCAPE '\\'
+                -- fix(#1858): the two patterns above are the swap's names.
+                -- `attempt_scoped_staging_table` produces
+                -- `<base>_staging_<32 hex>`, which ends in neither, so a
+                -- staging table leaked by a worker that died mid-import was
+                -- listed here and permanently registerable. Same expression
+                -- the registration refusal uses.
+                AND t.table_name !~ :attempt_staging_pattern
                 AND t.table_name != 'spatial_ref_sys'
             ORDER BY t.table_name
             LIMIT :limit
@@ -693,6 +705,24 @@ async def register_existing_table(
     # target data_t_{tid} in multi_tenant rather than the shared 'data' schema.
     _tid = current_tenant_var.get() if is_multi_tenant() else None
     _schema = tenant_data_schema(_tid)
+
+    # fix(#1858): refused on the NAME alone, before the database is touched.
+    # Discovery hides these (same expression, one query above), but bulk
+    # registration takes a table name straight from the caller, so hiding one
+    # was never the same as refusing it. A dataset bound to a staging table is
+    # bound to storage the next import attempt owns and will rename away, and
+    # a registration racing a LIVE import leaves the dataset pointing at
+    # nothing. Only the attempt-scoped shape is refused: `parcels_staging` and
+    # `parcels_old` are names `generate_table_name` can produce from an
+    # ordinary title, and the analysis materialize path registers through this
+    # same function.
+    if is_attempt_scoped_staging_table(table_name):
+        raise ValueError(
+            f"Table '{table_name}' is an import staging table. It belongs to a "
+            "single import attempt and is dropped when that attempt ends, so a "
+            "dataset registered against it would lose its rows. Rename the "
+            "table if you mean to keep it."
+        )
 
     # Verify table exists in the correct schema
     result = await session.execute(

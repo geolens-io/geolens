@@ -5003,7 +5003,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # The paragraph says which writes go stale and what recovers them, so the
     # next reader does not have to find that out from a broken dataset.
     # Cap 1560 -> 1568, exact.
-    "backend/app/processing/ingest/service.py": 1568,
+    # fix(#1858): +30. Table discovery and registration now read one
+    # expression for "this is an import staging table", where discovery's
+    # `NOT LIKE '%\\_staging'` matched neither shape
+    # `attempt_scoped_staging_table` produces. The lines are the refusal
+    # itself, its bound parameter, and the comment saying why only the
+    # attempt-scoped shape is refused rather than every `_staging`/`_old`
+    # name, since `generate_table_name` can produce those from a title.
+    # Cap 1568 -> 1598, exact.
+    "backend/app/processing/ingest/service.py": 1598,
     # fix(#1738): first entry, crossed _RATCHET_INCLUSION_LOC (842 -> 1019) on
     # the change that gave this task a repair phase. What the growth bought:
     # `geom_4326` on a registered table was written once, at registration, and
