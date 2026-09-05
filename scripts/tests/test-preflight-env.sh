@@ -263,21 +263,21 @@ GEOLENS_ADMIN_PASSWORD=$NONEMPTY"
 # CASE 7 (fix(#1886)): a line Compose refuses to load is refused, exported or not.
 # ============================================================================
 run_preflight_env SECRET_ENCRYPTION_KEY "$VALID_KEY" 'SECRET_ENCRYPTION_KEY=${NO_SUCH_VAR:?boom}'
-if [ "$STATUS" -ne 0 ] && grep -q "SECRET_ENCRYPTION_KEY line in .env" "$WORK/out.txt"; then
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (SECRET_ENCRYPTION_KEY)" "$WORK/out.txt"; then
     ok "a valid exported key over a line Compose refuses is refused, naming the .env line"
 else
     bad "a valid exported key masked a line Compose refuses (exit $STATUS): $(cat "$WORK/out.txt")"
 fi
 
 run_preflight 'SECRET_ENCRYPTION_KEY=${NO_SUCH_VAR:?boom}'
-if [ "$STATUS" -ne 0 ] && grep -q "SECRET_ENCRYPTION_KEY line in .env" "$WORK/out.txt"; then
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (SECRET_ENCRYPTION_KEY)" "$WORK/out.txt"; then
     ok "the same line is refused with nothing exported"
 else
     bad "a line Compose refuses passed with nothing exported (exit $STATUS): $(cat "$WORK/out.txt")"
 fi
 
 run_preflight_env SECRET_ENCRYPTION_KEY "$VALID_KEY" 'SECRET_ENCRYPTION_KEY="unterminated'
-if [ "$STATUS" -ne 0 ] && grep -q "SECRET_ENCRYPTION_KEY line in .env" "$WORK/out.txt"; then
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (SECRET_ENCRYPTION_KEY)" "$WORK/out.txt"; then
     ok "an unterminated quote is refused under a valid exported key too"
 else
     bad "a valid exported key masked an unterminated quote (exit $STATUS): $(cat "$WORK/out.txt")"
@@ -295,6 +295,129 @@ if [ "$STATUS" -eq 0 ]; then
     ok "a bare KEY line with nothing exported reads as unset and passes"
 else
     bad "a bare KEY line with nothing exported was refused: $(cat "$WORK/out.txt")"
+fi
+
+# ============================================================================
+# CASE 8 (fix(#1899)): the whole file is checked as Compose loads it, by line.
+# ============================================================================
+run_preflight 'UNRELATED=${MISSING:?boom}'
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (UNRELATED)" "$WORK/out.txt"; then
+    ok "an unrelated line Compose refuses is refused, naming line and key"
+else
+    bad "an unrelated line Compose refuses passed (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+if ! grep -q "boom" "$WORK/out.txt" && ! grep -q "MISSING" "$WORK/out.txt"; then
+    ok "the refusal never prints the line's value"
+else
+    bad "the refusal printed the line's value: $(cat "$WORK/out.txt")"
+fi
+
+DUPLICATE="$(printf 'SECRET_ENCRYPTION_KEY=${MISSING:?boom}\nSECRET_ENCRYPTION_KEY=%s' "$VALID_KEY")"
+run_preflight "$DUPLICATE"
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (SECRET_ENCRYPTION_KEY)" "$WORK/out.txt"; then
+    ok "an earlier invalid duplicate of a checked key is refused although the last definition is valid"
+else
+    bad "an earlier invalid duplicate was masked by the last definition (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+MIXED_VALID="$(printf '# comment\n\nexport EXPORTED=1\nQUOTED="with # hash" # note\nSINGLE='"'"'lit $x'"'"'\nBARE\nSPACED = value\nREF=${JWT_SECRET_KEY}\nODD-KEY=x\n1ODD=x\nDOTTED.KEY=x\nCOLON:sep value\nTAB\t=x\nDOLLAR=$5\nJUNK="a"b\nMULTI="a\nb c\n"')"
+run_preflight "$MIXED_VALID"
+if [ "$STATUS" -eq 0 ]; then
+    ok "a file of lines Compose loads still passes (comments, export, quotes, bare, odd keys, refs, multiline)"
+else
+    bad "a valid file was refused by the whole-file check: $(cat "$WORK/out.txt")"
+fi
+
+run_preflight 'FOO # comment'
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (FOO)" "$WORK/out.txt"; then
+    ok "a bare key followed by a comment is refused like Compose does"
+else
+    bad "a bare key followed by a comment passed (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+run_preflight 'garbage line'
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (garbage)" "$WORK/out.txt"; then
+    ok "a line with a space and no = is refused"
+else
+    bad "a line with a space and no = passed (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+run_preflight 'FOO#BAR=x'
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (FOO)" "$WORK/out.txt"; then
+    ok "a key holding a character Compose rejects is refused"
+else
+    bad "a key holding # passed (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+run_preflight 'FOO="unterminated'
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (FOO)" "$WORK/out.txt"; then
+    ok "an unterminated quote on an unrelated key is refused, naming its opening line"
+else
+    bad "an unterminated quote on an unrelated key passed (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+run_preflight 'FOO=${X'
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (FOO)" "$WORK/out.txt"; then
+    ok "an unclosed \${ on an unrelated key is refused"
+else
+    bad "an unclosed \${ on an unrelated key passed (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+CONTINUATION="$(printf 'FOO="a\nb c\n"\nBAR # after')"
+run_preflight "$CONTINUATION"
+if [ "$STATUS" -ne 0 ] && grep -q "line 7 (BAR)" "$WORK/out.txt"; then
+    ok "a spaced continuation line of a multiline value is exempt and the refusal names the real line after it"
+else
+    bad "a multiline value's continuation was misjudged (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+# fix(#1899 codex r1): a key outside the shell-identifier charset is a record
+# too, so its value is interpolated where Compose interpolates it.
+run_preflight 'ODD-KEY=${MISSING:?boom}'
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (ODD-KEY)" "$WORK/out.txt"; then
+    ok "a hyphenated key with a value Compose refuses is refused"
+else
+    bad "a hyphenated key's value was never interpolated (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+run_preflight 'DOTTED.KEY=${X'
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (DOTTED.KEY)" "$WORK/out.txt"; then
+    ok "a dotted key with an unclosed \${ is refused"
+else
+    bad "a dotted key's value was never interpolated (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+run_preflight 'COLON: ${MISSING:?boom}'
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (COLON)" "$WORK/out.txt"; then
+    ok "a colon-terminated key with a value Compose refuses is refused"
+else
+    bad "a colon-terminated key's value was never interpolated (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+run_preflight '1ODD=${MISSING:?boom}'
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (1ODD)" "$WORK/out.txt"; then
+    ok "a digit-leading key with a value Compose refuses is refused"
+else
+    bad "a digit-leading key's value was never interpolated (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+printf '%s\n' "$REQUIRED_LINES" > "$FAKE/.env"
+printf 'BRACKET[0]=${MISSING:?boom}\n' >> "$FAKE/.env"
+touch "$WORK/BRACKET0"
+( cd "$WORK" && bash "$FAKE/scripts/preflight-env.sh" > "$WORK/out.txt" 2>&1 )
+STATUS=$?
+if [ "$STATUS" -ne 0 ] && grep -qF "line 4 (BRACKET[0])" "$WORK/out.txt"; then
+    ok "a bracketed key is refused by its own name even beside a file its brackets would glob to"
+else
+    bad "a bracketed key was mishandled (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+ODD_MULTI="$(printf 'ODD-KEY="a\nb c\n"')"
+run_preflight "$ODD_MULTI"
+if [ "$STATUS" -eq 0 ]; then
+    ok "a multiline value under a hyphenated key keeps its continuation lines exempt"
+else
+    bad "a multiline value under a hyphenated key was refused: $(cat "$WORK/out.txt")"
 fi
 
 echo "1..$((PASS + FAIL))"
