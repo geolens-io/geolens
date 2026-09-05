@@ -129,8 +129,8 @@ _DATASET_FIELD_MAP: dict[str, str] = {
 
 
 # fix(#1847): request fields that reach the `catalog.datasets` row, so a body
-# carrying one makes this a two-row write. `is_dem` is excluded: it writes
-# `raster_assets`, a third table this pair's order says nothing about.
+# carrying one makes this a two-row write. `is_dem` is handled separately: it
+# writes `raster_assets`, which is ordered ahead of the pair, not with it.
 _DATASET_ROW_FIELDS = frozenset(_DATASET_FIELD_MAP) | {"tile_columns"}
 
 
@@ -311,10 +311,15 @@ async def update_user_metadata(
     record = dataset.record
 
     # fix(#1847): BEFORE the first assignment below, which is what orders this
-    # function's two-row flush. Only when the body can reach the datasets row:
+    # function's flush. Only when the body can reach a row beyond the record:
     # a record-only body writes one row and has no order to get wrong.
-    if meta.model_fields_set & _DATASET_ROW_FIELDS:
-        await lock_catalog_rows_for_write(session, dataset)
+    # `is_dem` writes raster_assets, so it extends the order to that child --
+    # the replace worker takes it first and asks for the pair afterwards.
+    touches_raster = "is_dem" in meta.model_fields_set
+    if touches_raster or meta.model_fields_set & _DATASET_ROW_FIELDS:
+        await lock_catalog_rows_for_write(
+            session, dataset, with_raster_asset=touches_raster
+        )
 
     if "language" in meta.model_fields_set:
         effective_language = meta.language or "en"

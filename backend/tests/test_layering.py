@@ -1868,11 +1868,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # which invented a delta the size of whichever side was known. The
         # case that reaches it is a service preview whose collection size the
         # service never published.
-        # fix(#1847): +28. `update_user_metadata` writes record fields and
-        # dataset fields and flushes them together, so it takes the pair first
-        # -- and only when the body can reach the datasets row.
-        # Cap 488 -> 502, exact.
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 502,
+        # fix(#1847): +33. `update_user_metadata` writes record fields and
+        # dataset fields and flushes them together, so it takes the pair first,
+        # and only when the body can reach the datasets row. `is_dem` extends
+        # the order to `raster_assets`, the row the replace worker takes first.
+        # Cap 488 -> 507, exact.
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 507,
         # fix(#435 codex r1): +6 LOC in get_dataset_rows to probe schema existence
         # before degrading a 42P01 to an empty page. Postgres reports a missing
         # tenant data schema with the same code as a raster dataset's synthetic

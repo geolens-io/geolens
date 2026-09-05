@@ -1200,6 +1200,80 @@ class TestALaterLockWaitAnswersTheSameWay:
     translation never wrapped.
     """
 
+    async def test_is_dem_waits_at_the_raster_row_holding_nothing(
+        self, locked_dataset, client: AsyncClient, admin_auth_header, monkeypatch
+    ):
+        """codex r6: the request must reach for raster_assets FIRST.
+
+        Holding the pair and then asking for the raster row is the opposite of
+        the replace worker's order, and the worker is the side that cannot be
+        retried. Parked at its first acquisition the request holds nothing, so
+        no cycle can form whichever side arrives first.
+        """
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "60s")
+        import app.core.db as db_module
+        from app.processing.raster.models import RasterAsset
+
+        async with db_module.async_session() as owner:
+            owner.add(
+                RasterAsset(
+                    dataset_id=locked_dataset.id,
+                    asset_uri=f"rasters/{locked_dataset.id}/source.cog.tif",
+                )
+            )
+            await owner.commit()
+
+        try:
+            async with (
+                db_module.async_session() as holder,
+                db_module.async_session() as probe,
+            ):
+                # The worker's first lock, held across its upload.
+                await holder.execute(
+                    select(RasterAsset.dataset_id)
+                    .where(RasterAsset.dataset_id == locked_dataset.id)
+                    .with_for_update()
+                )
+                holder_xid = await holder.scalar(
+                    text("SELECT pg_current_xact_id()::text")
+                )
+                patch = asyncio.create_task(
+                    client.patch(
+                        f"/datasets/{locked_dataset.id}",
+                        json={"tile_columns": ["name"], "is_dem": True},
+                        headers=admin_auth_header,
+                    )
+                )
+                try:
+                    await _await_waiter_on(probe, holder_xid)
+                    assert not await _holds_record_lock(
+                        probe, locked_dataset.record_id
+                    ), (
+                        "the PATCH is parked on the raster row while holding "
+                        "catalog.records, which is the cycle the worker loses"
+                    )
+                    # What the worker does next, under its own raster lock.
+                    await holder.execute(
+                        text(
+                            "UPDATE catalog.records SET updated_at = now() "
+                            "WHERE id = :rid"
+                        ),
+                        {"rid": locked_dataset.record_id},
+                    )
+                    await holder.commit()
+                except BaseException:
+                    await holder.rollback()
+                    raise
+                response = await patch
+            assert response.status_code == 200, response.text
+        finally:
+            async with db_module.async_session() as cleanup:
+                await cleanup.execute(
+                    text("DELETE FROM catalog.raster_assets WHERE dataset_id = :d"),
+                    {"d": locked_dataset.id},
+                )
+                await cleanup.commit()
+
     async def test_is_dem_contending_on_the_raster_row_answers_409(
         self, locked_dataset, client: AsyncClient, admin_auth_header, monkeypatch
     ):
@@ -1482,6 +1556,51 @@ class TestWorkerDoorsAcquireBeforeTheirWrites:
             f"swap at {swap}, acquisition at {acquire}, no_autoflush at {guarded}"
         )
 
+    def test_the_worker_takes_the_raster_row_before_the_pair(self):
+        """The reason both raster exemptions rest on, checked not asserted.
+
+        Each takes `raster_assets` itself rather than through the helper. If
+        that acquisition ever moves below the pair, the exemption is false and
+        the site is the ABBA the rule exists to stop.
+        """
+        import ast
+        from pathlib import Path
+
+        app_dir = Path(__file__).resolve().parents[1] / "app"
+        for rel, name in (
+            ("processing/ingest/tasks_raster_replace.py", "reupload_raster"),
+            ("processing/ingest/tasks_vrt.py", "regenerate_vrt"),
+        ):
+            tree = ast.parse((app_dir / rel).read_text())
+            fn = next(
+                n
+                for n in ast.walk(tree)
+                if isinstance(n, ast.AsyncFunctionDef) and n.name == name
+            )
+            raster_lines = [
+                n.lineno
+                for n in ast.walk(fn)
+                if isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute)
+                and n.func.attr in ("with_for_update", "values")
+                and "RasterAsset" in ast.dump(n)
+            ]
+            pair_lines = [
+                n.lineno
+                for n in ast.walk(fn)
+                if isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Name)
+                and n.func.id == "lock_catalog_rows"
+            ]
+            assert raster_lines, f"{rel}::{name} takes no raster row at all"
+            assert pair_lines, f"{rel}::{name} takes no pair"
+            assert min(raster_lines) < min(pair_lines), (
+                f"{rel}::{name} takes the catalog pair at line "
+                f"{min(pair_lines)} before it takes raster_assets at "
+                f"{min(raster_lines)}. Its _ORDERS_RASTER_ITSELF exemption is "
+                "now false."
+            )
+
     def test_worker_doors_do_not_clamp_their_transaction(self):
         """`lock_timeout=None` at each, and nowhere on a request path.
 
@@ -1569,6 +1688,21 @@ _INMEMORY_UNTIL_ACQUIRED = {
 }
 
 
+# Functions that write raster_assets and order it themselves, rather than
+# through the helper's `with_raster_asset`. The reason is enforced by
+# test_the_worker_takes_the_raster_row_before_the_pair.
+_ORDERS_RASTER_ITSELF = {
+    "app.processing.ingest.tasks_raster_replace.reupload_raster": (
+        "takes RasterAsset FOR UPDATE itself, ahead of the pair, which is the "
+        "order every other site is matching"
+    ),
+    "app.processing.ingest.tasks_vrt.regenerate_vrt": (
+        "claims the row with an UPDATE and re-reads it FOR UPDATE through its "
+        "asset join, both ahead of the pair"
+    ),
+}
+
+
 # Functions whose acquisition is deliberately conditional. Every other site
 # must acquire on every path; these carry the reason the unlocked path is safe.
 _CONDITIONAL_ACQUISITION = {
@@ -1638,21 +1772,31 @@ def _is_acquisition(node, bindings, module) -> bool:
     return False
 
 
-_PAIR_TABLES = {"Dataset", "DatasetModel", "Record", "RecordModel"}
+_PAIR_TABLES = {"Dataset", "DatasetModel", "Record", "RecordModel", "RasterAsset"}
+
+
+# Names that stand for a `raster_assets` row. Deliberately loose: a false
+# positive costs one exemption line, a false negative costs an ABBA against the
+# replace worker, which takes that row first and the pair afterwards.
+_RASTER_NAMES = {"ra", "raster_asset", "vrt_asset", "asset"}
 
 
 def _classify_base(base) -> str | None:
-    """'record', 'dataset', or None for the object being written to."""
+    """'record', 'dataset', 'raster', or None for the object written to."""
     import ast
 
     if isinstance(base, ast.Attribute):
         if base.attr == "record":
             return "record"
+        if base.attr in _RASTER_NAMES or "raster" in base.attr:
+            return "raster"
         if "dataset" in base.attr:
             return "dataset"
     if isinstance(base, ast.Name):
         if base.id in ("record", "rec"):
             return "record"
+        if base.id in _RASTER_NAMES or "raster" in base.id:
+            return "raster"
         if "dataset" in base.id:
             return "dataset"
     return None
@@ -1689,6 +1833,8 @@ def _core_statement_kind(node) -> str | None:
     )
     if name not in _PAIR_TABLES:
         return None
+    if "Raster" in name:
+        return "raster"
     return "record" if "Record" in name else "dataset"
 
 
@@ -1841,6 +1987,42 @@ def _pair_writer_report() -> dict[str, str]:
     }
 
 
+def _raster_writer_report() -> dict[str, str]:
+    """Qualified name -> site, for every function that writes raster_assets."""
+    _writes, _calls, sites = _app_function_facts()
+    return {
+        name: sites[name]
+        for name, kinds in _effective_writes().items()
+        if "raster" in kinds and name in sites
+    }
+
+
+def _acquires_raster_first(fn) -> bool:
+    """Does every acquisition in *fn* extend the order to the raster child?"""
+    import ast
+
+    calls = [
+        n
+        for n in ast.walk(fn)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Name)
+        and n.func.id in ("lock_catalog_rows", "lock_catalog_rows_for_write")
+    ]
+    if not calls:
+        return False
+    for call in calls:
+        for kw in call.keywords:
+            if kw.arg == "with_raster_asset" and not (
+                isinstance(kw.value, ast.Constant) and kw.value.value is False
+            ):
+                return True
+            if kw.arg == "raster_asset_cls" and not (
+                isinstance(kw.value, ast.Constant) and kw.value.value is None
+            ):
+                return True
+    return False
+
+
 def _acquiring_functions() -> set[str]:
     """Qualified names that acquire, or that reach an acquirer through a call."""
     _writes, calls, _sites = _app_function_facts()
@@ -1898,13 +2080,18 @@ def _write_predicate(bindings, module, is_acq, reaches_write):
     import ast
 
     def is_write(node) -> bool:
-        if _write_kinds(node):
+        # Pair writes only. A raster_assets write belongs BEFORE the pair, not
+        # after it, so requiring the pair acquisition ahead of one would demand
+        # the inversion this file exists to prevent. That ordering is
+        # test_a_raster_writer_orders_the_child_first.
+        if _write_kinds(node) & {"record", "dataset"}:
             return True
         if not isinstance(node, ast.Call) or is_acq(node):
             return False
         if not isinstance(node.func, ast.Name):
             return False  # unresolvable attribute call; do not guess
-        return bool(reaches_write.get(_resolve(node.func.id, bindings, module)))
+        reached = reaches_write.get(_resolve(node.func.id, bindings, module)) or set()
+        return bool(reached & {"record", "dataset"})
 
     return is_write
 
@@ -2033,6 +2220,47 @@ class TestEveryPairWriterTakesTheHouseOrder:
             "name to _CONDITIONAL_ACQUISITION with the reason the unlocked "
             "path cannot write both rows."
         )
+
+    def test_a_raster_writer_orders_the_child_first(self):
+        """codex r6: the third site of this class, so the gate takes it over.
+
+        The replace worker holds `raster_assets` across its upload and asks for
+        the pair afterwards. Any request path that takes the pair and then
+        writes that row is the opposite order, which is an ABBA whose victim
+        can be the retry-disabled worker.
+        """
+        acquirers = _acquiring_functions()
+        raster_writers = _raster_writer_report()
+        failures = []
+        for rel, module, _bindings, fn in _walk_app_functions():
+            key = f"{module}.{fn.name}"
+            if key not in acquirers or key not in raster_writers:
+                continue
+            if key in _ORDERS_RASTER_ITSELF or key in _PAIR_WRITER_EXEMPTIONS:
+                continue
+            if not _acquires_raster_first(fn):
+                failures.append(f"  {key} ({rel}:{fn.lineno})")
+        assert not failures, (
+            "these take the catalog pair and then write raster_assets, which "
+            "inverts against the replace worker:\n"
+            + "\n".join(sorted(failures))
+            + "\n\nPass with_raster_asset=True (catalog) or raster_asset_cls "
+            "(processing) so the child row is taken first, or add the name to "
+            "_ORDERS_RASTER_ITSELF with the reason it already orders it."
+        )
+
+    def test_the_raster_scan_finds_the_known_writers(self):
+        """Positive control: an empty raster scan would pass the test above."""
+        writers = _raster_writer_report()
+        for expected in (
+            "app.modules.catalog.datasets.domain.service_metadata._apply_is_dem",
+            "app.modules.catalog.datasets.domain.service_metadata.update_user_metadata",
+            "app.processing.ingest.tasks_raster_swap._write_swapped_fields",
+        ):
+            assert expected in writers, (
+                f"{expected} writes raster_assets but the scan missed it, so "
+                "the rule above is passing vacuously"
+            )
 
     def test_the_gate_actually_finds_the_known_writers(self):
         """A positive control: an empty scan would pass the tests above."""
@@ -2202,6 +2430,52 @@ class TestTheGateRejectsWhatItExistsToCatch:
             fn, bindings, self.MODULE, None, self._local_writers(source)
         )
         assert ok, why
+
+    def test_a_raster_writer_that_takes_the_pair_first_is_rejected(self):
+        """codex r6: the shape that inverts against the replace worker."""
+        import ast
+
+        source = (
+            "from app.modules.catalog.features.service import "
+            "lock_catalog_rows_for_write\n"
+            "async def probe(session, dataset):\n"
+            "    await lock_catalog_rows_for_write(session, dataset)\n"
+            "    ra = await get_raster_asset(session, dataset.id)\n"
+            "    ra.is_dem = True\n"
+        )
+        tree = ast.parse(source)
+        fn = next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.AsyncFunctionDef) and n.name == "probe"
+        )
+        assert "raster" in _direct_writes(fn), "the raster write must be seen"
+        assert not _acquires_raster_first(fn), (
+            "this takes the pair and only then writes raster_assets, which is "
+            "the opposite of the order the replace worker takes"
+        )
+
+    def test_the_same_writer_extending_the_order_is_accepted(self):
+        """The control: only the acquisition's reach differs."""
+        import ast
+
+        source = (
+            "from app.modules.catalog.features.service import "
+            "lock_catalog_rows_for_write\n"
+            "async def probe(session, dataset):\n"
+            "    await lock_catalog_rows_for_write(\n"
+            "        session, dataset, with_raster_asset=True\n"
+            "    )\n"
+            "    ra = await get_raster_asset(session, dataset.id)\n"
+            "    ra.is_dem = True\n"
+        )
+        tree = ast.parse(source)
+        fn = next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.AsyncFunctionDef) and n.name == "probe"
+        )
+        assert _acquires_raster_first(fn)
 
     def test_core_update_statements_count_as_writes(self):
         """`update(Dataset)` / `delete(Record)` are invisible to an attribute scan."""
