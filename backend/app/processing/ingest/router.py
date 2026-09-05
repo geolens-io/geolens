@@ -571,6 +571,22 @@ async def _cleanup_saved_upload(
         )
 
 
+def _pending_upload_update(job_id: uuid.UUID):
+    """An UPDATE that matches the upload's job only while it is still pending.
+
+    Every write after the row is committed goes through this guard, so a row
+    the sweep reclaimed keeps its verdict and the caller learns that from a
+    zero rowcount.
+    """
+    from sqlalchemy import update as sa_update
+
+    from app.platform.jobs.models import IngestJob
+
+    return sa_update(IngestJob).where(
+        IngestJob.id == job_id, IngestJob.status == "pending"
+    )
+
+
 def _stamp_raster_metadata(job: "IngestJob", filename: str | None) -> None:
     """Stamp ``user_metadata["file_type"] = "raster"`` from the filename.
 
@@ -1157,41 +1173,75 @@ async def upload_file(
         await check_upload_quota(db, user.id, incoming_bytes, request)
 
         job = await create_ingest_job(db, file.filename, "", user.id)
+        job_id = job.id
+        job_metadata = job.user_metadata
+        # fix(#1848): committed BEFORE the spooled body is staged, so no pooled
+        # connection is held across the staging copy or put, the validation
+        # download and the content sniff; a failed staging leaves it for the sweep.
+        await db.commit()
         saved_path = await save_upload_file(
-            file, str(job.id), max_size_bytes=max_size_bytes
+            file, str(job_id), max_size_bytes=max_size_bytes
         )
         validation_path = str(saved_path)
         downloaded_validation_path: Path | None = None
         try:
             if not isinstance(saved_path, Path):
-                validation_path = await resolve_file_path(saved_path, str(job.id))
+                validation_path = await resolve_file_path(saved_path, str(job_id))
                 downloaded_validation_path = Path(validation_path)
 
             # Inline content validation for immediate feedback.
             try:
                 validate_file_content(validation_path, file.filename)
             except ValueError as exc:
+                # fix(#1848): guarded like the bind below, so a row the sweep
+                # already reclaimed keeps its terminal status and message.
+                await db.execute(
+                    _pending_upload_update(job_id).values(
+                        status="failed",
+                        error_message=str(exc),
+                        completed_at=datetime.now(timezone.utc),
+                    )
+                )
+                await db.commit()
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=str(exc),
                 ) from exc
 
-            _stamp_raster_metadata(job, file.filename)
-
-            job.file_path = str(saved_path)
+            # fix(#1848): bind only while the row is still pending, stamping
+            # `staged_at` so the pending window restarts here rather than at
+            # creation, which the upload itself has already spent.
+            bound = await db.execute(
+                _pending_upload_update(job_id).values(
+                    file_path=str(saved_path),
+                    user_metadata={
+                        **(_raster_stamped_metadata(job_metadata, file.filename) or {}),
+                        "staged_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+            )
             await db.commit()
+            if not bound.rowcount:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "This upload could not be attached to its job. It may "
+                        "have taken too long, or the job may have been "
+                        "cancelled. Upload the file again."
+                    ),
+                )
         except BaseException:
-            # Until the job commit below, this request exclusively owns the
-            # staged source. Resolve/provider/content failures must delete it;
-            # otherwise the transaction rolls back the only retention record.
-            await _cleanup_saved_upload(saved_path, str(job.id))
+            # fix(#1848): the request owns the staged source until the bind
+            # lands, so every failure before it deletes the file; the row
+            # itself stays for the sweep or carries the refusal above.
+            await _cleanup_saved_upload(saved_path, str(job_id))
             raise
         finally:
             if downloaded_validation_path is not None:
                 downloaded_validation_path.unlink(missing_ok=True)
 
         return UploadResponse(
-            job_id=job.id,
+            job_id=job_id,
             status="pending",
             message="File uploaded and ready for preview",
         )
