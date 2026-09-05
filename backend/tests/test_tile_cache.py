@@ -30,8 +30,13 @@ def _reset_label_counter(counter, label_value: str) -> None:
 
 
 @pytest.fixture
-def tile_cache():
-    """Create TileCacheProvider backed by fakeredis (binary mode)."""
+async def tile_cache():
+    """Create TileCacheProvider backed by fakeredis (binary mode).
+
+    fix(#1859): closes the fake client's connection pool afterwards. Leaving
+    one open per test leaked event-loop resources into the rest of the
+    session under `-n 4`.
+    """
     provider = TileCacheProvider.__new__(TileCacheProvider)
     provider._client = fakeredis.aioredis.FakeRedis(decode_responses=False)
     # Reset Prometheus counters for isolation. PERF-11 — counters are now
@@ -42,13 +47,15 @@ def tile_cache():
     for label in ("test_table", "t", "_other"):
         _reset_label_counter(tile_cache_hits, label)
         _reset_label_counter(tile_cache_misses, label)
-    return provider
+    try:
+        yield provider
+    finally:
+        await provider._client.aclose()
 
 
 # --- TileCacheProvider get/set tests ---
 
 
-@pytest.mark.asyncio
 async def test_tile_cache_get_miss(tile_cache):
     """Cache miss returns None and increments miss counter."""
     from app.platform.cache.tile_cache import tile_cache_misses
@@ -58,7 +65,6 @@ async def test_tile_cache_get_miss(tile_cache):
     assert _read_label_counter(tile_cache_misses, "test_table") == 1
 
 
-@pytest.mark.asyncio
 async def test_tile_cache_set_and_get(tile_cache):
     """Binary round-trip: set stores bytes, get returns exact bytes."""
     from app.platform.cache.tile_cache import tile_cache_hits
@@ -71,7 +77,6 @@ async def test_tile_cache_set_and_get(tile_cache):
     assert _read_label_counter(tile_cache_hits, "test_table") == 1
 
 
-@pytest.mark.asyncio
 async def test_tile_cache_hit_increments_counter(tile_cache):
     """Successive hits increment the hit counter."""
     from app.platform.cache.tile_cache import tile_cache_hits
@@ -83,7 +88,6 @@ async def test_tile_cache_hit_increments_counter(tile_cache):
     assert _read_label_counter(tile_cache_hits, "t") == 2
 
 
-@pytest.mark.asyncio
 async def test_tile_cache_miss_increments_counter(tile_cache):
     """Successive misses increment the miss counter."""
     from app.platform.cache.tile_cache import tile_cache_misses
@@ -96,7 +100,6 @@ async def test_tile_cache_miss_increments_counter(tile_cache):
 # --- Graceful degradation tests ---
 
 
-@pytest.mark.asyncio
 async def test_tile_cache_get_returns_none_on_redis_failure():
     """Redis failure on get returns None (graceful degradation)."""
     from app.platform.cache.tile_cache import tile_cache_misses
@@ -113,7 +116,6 @@ async def test_tile_cache_get_returns_none_on_redis_failure():
     assert _read_label_counter(tile_cache_misses, "t") == 1
 
 
-@pytest.mark.asyncio
 async def test_tile_cache_set_silent_on_redis_failure():
     """Redis failure on set is silent (no exception)."""
     provider = TileCacheProvider.__new__(TileCacheProvider)
@@ -128,7 +130,6 @@ async def test_tile_cache_set_silent_on_redis_failure():
 # --- invalidate_table tests ---
 
 
-@pytest.mark.asyncio
 async def test_invalidate_table_removes_all_tiles_for_table(tile_cache):
     """invalidate_table removes all cached tiles for the specified table."""
     data = gzip.compress(b"tile")
@@ -148,14 +149,12 @@ async def test_invalidate_table_removes_all_tiles_for_table(tile_cache):
     assert await tile_cache.get("other", 1, 0, 0) == data
 
 
-@pytest.mark.asyncio
 async def test_invalidate_table_noop_when_no_tiles(tile_cache):
     """invalidate_table is a no-op when the table has no cached tiles."""
     # Should not raise
     await tile_cache.invalidate_table("nonexistent")
 
 
-@pytest.mark.asyncio
 async def test_invalidate_table_silent_on_redis_failure():
     """Redis failure on invalidate_table is silent (graceful degradation)."""
     provider = TileCacheProvider.__new__(TileCacheProvider)
@@ -329,7 +328,6 @@ def test_multi_tenant_tile_pool_accepts_distinct_login(monkeypatch):
     pool_module._validate_tile_database_isolation()
 
 
-@pytest.mark.asyncio
 async def test_setup_tile_connection_issues_set_role():
     """_setup_tile_connection runs ``SET ROLE geolens_reader`` on every fresh
     pool checkout so tile-path queries cannot mutate or drop tables (H-10)."""
@@ -341,7 +339,6 @@ async def test_setup_tile_connection_issues_set_role():
     conn.execute.assert_awaited_once_with("SET ROLE geolens_reader")
 
 
-@pytest.mark.asyncio
 async def test_setup_tile_connection_logs_and_continues_on_postgres_error(monkeypatch):
     """If geolens_reader doesn't exist (e.g. legacy upgrade pre-v6.0), the
     setup callback logs a warning and lets the connection serve requests
@@ -358,7 +355,6 @@ async def test_setup_tile_connection_logs_and_continues_on_postgres_error(monkey
     conn.execute.assert_awaited_once_with("SET ROLE geolens_reader")
 
 
-@pytest.mark.asyncio
 async def test_init_tile_pool_passes_setup_callback(monkeypatch):
     """init_tile_pool wires ``setup=_setup_tile_connection`` into
     asyncpg.create_pool so every fresh connection drops privileges."""
@@ -404,7 +400,6 @@ def _tile_role_row(**overrides):
     return row
 
 
-@pytest.mark.asyncio
 async def test_live_tile_role_guard_accepts_only_gateway_member(monkeypatch):
     from app.processing.tiles.pool import _assert_multi_tenant_tile_role
 
@@ -414,7 +409,6 @@ async def test_live_tile_role_guard_accepts_only_gateway_member(monkeypatch):
     await _assert_multi_tenant_tile_role(conn)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "unsafe_field",
     [
@@ -440,7 +434,6 @@ async def test_tile_role_guard_rejects_each_privilege_path(monkeypatch, unsafe_f
         await _assert_multi_tenant_tile_role(conn)
 
 
-@pytest.mark.asyncio
 async def test_tile_role_guard_rejects_missing_tile_gateway(monkeypatch):
     from app.processing.tiles.pool import _assert_multi_tenant_tile_role
 
@@ -451,7 +444,6 @@ async def test_tile_role_guard_rejects_missing_tile_gateway(monkeypatch):
         await _assert_multi_tenant_tile_role(conn)
 
 
-@pytest.mark.asyncio
 async def test_tile_role_guard_rejects_live_superuser_session(monkeypatch):
     """A renamed/distinct superuser cannot pass the live DSN validation."""
     import asyncpg
@@ -473,7 +465,6 @@ async def test_tile_role_guard_rejects_live_superuser_session(monkeypatch):
         await conn.close()
 
 
-@pytest.mark.asyncio
 async def test_tile_role_guard_rejects_live_tenant_schema_owner(monkeypatch):
     """Gateway membership cannot make a tile login safe if it owns data."""
     import asyncpg
@@ -532,7 +523,6 @@ async def test_tile_role_guard_rejects_live_tenant_schema_owner(monkeypatch):
         await admin.close()
 
 
-@pytest.mark.asyncio
 async def test_invalidate_table_purges_only_active_tenant_keys(tile_cache, monkeypatch):
     """A tenant mutation must not evict a peer's same-named tile cache."""
     from app.core.config import settings
@@ -559,7 +549,6 @@ async def test_invalidate_table_purges_only_active_tenant_keys(tile_cache, monke
     assert await tile_cache.get("other", 1, 0, 0) == data
 
 
-@pytest.mark.asyncio
 async def test_in_memory_invalidate_table_is_tenant_scoped(monkeypatch):
     """The in-memory fallback applies the same active-tenant boundary."""
     from app.core.config import settings
