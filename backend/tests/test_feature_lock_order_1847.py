@@ -221,6 +221,25 @@ async def _holds_record_lock(probe, record_id: uuid.UUID) -> bool:
     return False
 
 
+async def _holds_attribute_lock(probe, attribute_id: uuid.UUID) -> bool:
+    """True when some other transaction holds the attribute_metadata row."""
+    try:
+        await probe.execute(
+            text(
+                "SELECT id FROM catalog.attribute_metadata WHERE id = :aid "
+                "FOR UPDATE NOWAIT"
+            ),
+            {"aid": attribute_id},
+        )
+    except DBAPIError as exc:
+        await probe.rollback()
+        if is_lock_conflict(exc):
+            return True
+        raise
+    await probe.rollback()
+    return False
+
+
 class TestLockOrderAgainstRefreshPhaseThree:
     """The request must reach for the datasets row before the records row."""
 
@@ -806,6 +825,123 @@ class TestMetadataPatchTakesThePairToo:
         assert response.json()["title"] == "Renamed by the metadata patch"
 
 
+class TestAttributeEditsTakeThePairToo:
+    """Attribute PATCH and reset write the attribute row, then `record.updated_by`;
+    every column DDL takes the pair, then the attribute row (#1847).
+    """
+
+    @pytest.mark.parametrize(
+        ("method", "suffix", "payload"),
+        [
+            ("PATCH", "", {"title": "Renamed by the attribute patch"}),
+            ("POST", "reset/", None),
+        ],
+        ids=["update", "reset"],
+    )
+    async def test_attribute_edit_holds_no_attribute_lock_while_waiting(
+        self,
+        locked_dataset,
+        client: AsyncClient,
+        test_db_session,
+        admin_auth_header,
+        monkeypatch,
+        method: str,
+        suffix: str,
+        payload: dict | None,
+    ):
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "60s")
+
+        import app.core.db as db_module
+        from app.modules.catalog.datasets.domain.models import AttributeMetadata
+
+        attr = AttributeMetadata(
+            dataset_id=locked_dataset.id,
+            field_name="name",
+            title="Name",
+            data_type="text",
+        )
+        test_db_session.add(attr)
+        await test_db_session.commit()
+        await test_db_session.refresh(attr)
+
+        async with (
+            db_module.async_session() as holder,
+            db_module.async_session() as probe,
+        ):
+            # Stand in for a column DDL: it holds the pair, in the house order,
+            # and will write this attribute row next.
+            await holder.execute(
+                select(Dataset.tile_cache_version)
+                .where(Dataset.id == locked_dataset.id)
+                .with_for_update()
+            )
+            await holder.execute(
+                select(Record.id)
+                .where(Record.id == locked_dataset.record_id)
+                .with_for_update()
+            )
+            holder_xid = await holder.scalar(text("SELECT pg_current_xact_id()::text"))
+
+            edit = asyncio.create_task(
+                client.request(
+                    method,
+                    f"/datasets/{locked_dataset.id}/attributes/{attr.id}/{suffix}",
+                    json=payload,
+                    headers=admin_auth_header,
+                )
+            )
+            try:
+                await _await_waiter_on(probe, holder_xid)
+                assert not await _holds_attribute_lock(probe, attr.id), (
+                    "the attribute edit is parked on the pair while holding "
+                    "catalog.attribute_metadata, which deadlocks against a "
+                    "column DDL holding the pair and writing that row next."
+                )
+                # The DDL's own next step, which a held attribute row would block.
+                await holder.execute(
+                    text(
+                        "UPDATE catalog.attribute_metadata SET data_type = 'text' "
+                        "WHERE id = :aid"
+                    ),
+                    {"aid": attr.id},
+                )
+                await holder.commit()
+            except BaseException:
+                await holder.rollback()
+                raise
+            response = await edit
+
+        assert response.status_code == 200, response.text
+        assert response.json()["field_name"] == "name"
+
+    def test_both_handlers_acquire_before_the_attribute_write(self):
+        """Position, in source: the acquisition precedes the service call."""
+        import ast
+        import inspect
+
+        from app.modules.catalog.datasets.api import router_metadata
+
+        tree = ast.parse(inspect.getsource(router_metadata))
+        wanted = {
+            "update_attribute_endpoint": "update_attribute",
+            "reset_attribute_endpoint": "reset_attribute",
+        }
+        seen = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name in wanted:
+                calls = {}
+                for sub in ast.walk(node):
+                    if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name):
+                        calls.setdefault(sub.func.id, sub.lineno)
+                seen[node.name] = calls
+        for handler, writer in wanted.items():
+            calls = seen[handler]
+            assert "lock_catalog_rows_for_write" in calls, handler
+            assert calls["lock_catalog_rows_for_write"] < calls[writer], (
+                f"{handler} writes the attribute row before taking the pair"
+            )
+
+
 class TestOneAnswerForAContendedRow:
     """409 from every caller, not 409/503/400 by route.
 
@@ -1091,6 +1227,58 @@ class TestOneShapeForEveryContendedRow:
                 await test_db_session.execute(
                     text(f"DROP TABLE IF EXISTS data.{d.table_name}")
                 )
+            await test_db_session.commit()
+
+    async def test_bulk_delete_codes_a_conflict_after_the_acquisition(
+        self, client: AsyncClient, test_db_session, admin_auth_header, monkeypatch
+    ):
+        """A wait AFTER the pair is taken is the same contended row: a later
+        55P03 arrives as a plain DBAPIError and must carry the same code.
+        """
+        from app.modules.catalog.datasets.api import router as datasets_router
+        from app.modules.catalog.datasets.domain import service_lifecycle
+
+        async def _no_reap(prefixes, tenant_id):
+            return None
+
+        monkeypatch.setattr(service_lifecycle, "reap_managed_storage", _no_reap)
+
+        class _Orig:
+            sqlstate = "55P03"
+
+        async def _late_wait(*args, **kwargs):
+            raise DBAPIError("UPDATE catalog.map_layers", {}, _Orig())
+
+        # The first statement after delete_dataset returns, i.e. after the pair
+        # was acquired inside it.
+        monkeypatch.setattr(datasets_router, "audit_emit", _late_wait)
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _seed_dataset(test_db_session, created_by=admin_id)
+        try:
+            response = await client.post(
+                "/datasets/bulk-delete",
+                json={
+                    "datasets": [
+                        {
+                            "dataset_id": str(dataset.id),
+                            "confirm_title": f"Lock order {dataset.table_name}",
+                        }
+                    ]
+                },
+                headers=admin_auth_header,
+            )
+            assert response.status_code == 200, response.text
+            body = response.json()
+            (item,) = body["results"]
+            assert item["status"] == "error", body
+            assert item["code"] == "catalog_lock_conflict", body
+            assert "failed unexpectedly" not in response.text
+            assert body["deleted"] == 0 and body["errors"] == 1, body
+        finally:
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{dataset.table_name}")
+            )
             await test_db_session.commit()
 
 
@@ -1489,7 +1677,8 @@ class TestInvalidationsPrecedeTheReap:
 
 
 class TestOnlyThisRequestsTimeoutIsAnswered:
-    """codex r7 P2: a 40P01 from elsewhere is not a busy dataset."""
+    """fix(#1847): a 40P01 from a request that never installed the catalog
+    timeout is not a busy dataset; only this request's own wait answers 409."""
 
     def _handler_input(self, code: str):
         import types

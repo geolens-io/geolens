@@ -18,6 +18,7 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.exc import NoInspectionAvailable
 
 from app.core.identity import Identity
+from app.core.db.sqlstate import is_lock_conflict
 from app.platform.catalog_locks import (
     CATALOG_LOCK_CONFLICT_CODE,
     CatalogLockConflict,
@@ -568,6 +569,18 @@ async def bulk_delete_datasets_endpoint(
             continue
         except Exception as exc:  # broad: per-item bulk-delete is isolated — any failure is recorded per-item without aborting the batch
             await _rollback_failed_item(db, user)
+            if is_lock_conflict(exc):
+                # fix(#1847): a wait after the acquisition (the record cascade on
+                # a held child) is the same contended row, so the same code.
+                results.append(
+                    BulkDeleteResultItem(
+                        dataset_id=item.dataset_id,
+                        status="error",
+                        detail="Another operation is updating this dataset's catalog entry.",
+                        code=CATALOG_LOCK_CONFLICT_CODE,
+                    )
+                )
+                continue
             if isinstance(exc, (DependentVrtError, DatasetTitleMismatchError)):
                 detail = str(exc)
             else:
