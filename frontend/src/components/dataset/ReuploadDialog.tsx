@@ -507,6 +507,10 @@ export function ReuploadDialog({
         const generation = ++refreshGenerationRef.current;
         setIsRefreshingOrigin(true);
         try {
+          // fix(#1822 review P2 round 3): fetchQuery dedupes onto an
+          // already in-flight fetch for this key (e.g. a window-focus
+          // refetch) instead of running ours, so cancel it first.
+          await queryClient.cancelQueries({ queryKey: queryKeys.datasets.detail(dataset.id) });
           await queryClient.fetchQuery({
             queryKey: queryKeys.datasets.detail(dataset.id),
             queryFn: () => getDataset(dataset.id),

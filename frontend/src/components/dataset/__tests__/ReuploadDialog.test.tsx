@@ -880,6 +880,67 @@ describe('ReuploadDialog', () => {
       onlineManager.setOnline(true);
     }
   });
+
+  // fix(#1822 review P2 round 3): a fetch already in flight for this key
+  // (e.g. window-focus) must not let its stale resolution govern retry.
+  it('cancels an in-flight detail fetch first, so the recovery never resolves with the stale value', async () => {
+    const user = userEvent.setup();
+    commitMutateAsync.mockRejectedValueOnce(
+      new ApiError('This dataset’s source changed', 409, {
+        code: 'origin_changed',
+        origin_kind: 'service',
+        expected_origin_kind: 'upload',
+      }),
+    );
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+    });
+
+    let resolveFirst: (v: DatasetResponse) => void = () => {};
+    let resolveSecond: (v: DatasetResponse) => void = () => {};
+    mockGetDataset
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
+
+    // Something else (e.g. a window-focus refetch) already has this query
+    // in flight when origin_changed arrives.
+    const inFlight = queryClient.fetchQuery({
+      queryKey: queryKeys.datasets.detail('dataset-1'),
+      queryFn: () => getDataset('dataset-1'),
+    });
+    inFlight.catch(() => {}); // cancelled by the fix; expected to reject.
+
+    rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <ReuploadDialog
+          dataset={{ ...makeDataset(), origin: 'upload' }}
+          open
+          onOpenChange={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    await openFileSource(user);
+    await dropFile();
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    const retryButton = await screen.findByTestId('reupload-try-again');
+    await waitFor(() => expect(retryButton).toBeDisabled());
+    await waitFor(() => expect(mockGetDataset).toHaveBeenCalledTimes(2));
+
+    // The stale (pre-conflict) resolution must not govern the UI.
+    resolveFirst({ ...makeDataset(), origin: 'service' });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(retryButton).toBeDisabled();
+
+    // Only the fresh, post-cancel fetch does.
+    resolveSecond({ ...makeDataset(), origin: 'upload' });
+    await waitFor(() => expect(retryButton).not.toBeDisabled());
+  });
 });
 
 // GPKG-01 Phase 1058: multi-layer file path tests
