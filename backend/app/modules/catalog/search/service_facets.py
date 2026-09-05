@@ -6,19 +6,14 @@ from sqlalchemy import String as SAString, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
-from app.modules.catalog.authorization import apply_visibility_filter
 from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
-    DatasetGrant,
     Record,
     RecordKeyword,
 )
-from app.modules.catalog.search.service_filters import (
-    FacetCounts,
-    SearchFilters,
-    _apply_common_filters,
-)
+from app.modules.catalog.search.service_candidates import select_candidates
+from app.modules.catalog.search.service_filters import FacetCounts, SearchFilters
 
 
 async def get_facet_counts(
@@ -27,25 +22,28 @@ async def get_facet_counts(
     user_roles: set[str],
     filters: SearchFilters,
 ) -> FacetCounts:
-    """Return multi-group facet counts for datasets matching the given filters.
+    """Return multi-group facet counts over the query's candidate set.
 
-    Returns dict with keys: record_type, keywords, source_organization, srid.
-    Does NOT filter by record_type itself (facets show counts for all types).
-    Separately counts matching collections from the collections table.
+    Returns dict with keys: record_type, keywords, source_organization, srid,
+    collections. The candidate set is the one /search/datasets/ counts
+    (fix(#1855)), minus the result-only filters: record_type is never applied,
+    so the type counts cover every type.
     """
-    # Build a CTE that materializes the filtered (dataset_id, record_id) pairs
-    # once. Both the record_type counts and per-facet queries join against it
-    # instead of each independently re-evaluating the full filter stack.
-    filtered_base = (
+    # One CTE of the candidate (dataset_id, record_id) pairs; every facet query
+    # joins it instead of re-evaluating the filter stack.
+    candidates = await select_candidates(
+        session,
         select(Dataset.id.label("dataset_id"), Record.id.label("record_id"))
         .select_from(Dataset)
-        .join(Record, Dataset.record_id == Record.id)
+        .join(Record, Dataset.record_id == Record.id),
+        user,
+        user_roles,
+        filters,
+        search_only=False,
+        # Facets need no ranks; depth 1 is the probe that decides the mode.
+        depth=1,
     )
-    filtered_base = apply_visibility_filter(
-        filtered_base, user, user_roles, Record, DatasetGrant
-    )
-    filtered_base = _apply_common_filters(filtered_base, filters)
-    filtered_cte = filtered_base.cte("filtered_ids")
+    filtered_cte = candidates.stmt.cte("filtered_ids")
 
     # Record-type counts from the CTE (replaces duplicate filter stack)
     type_stmt = (

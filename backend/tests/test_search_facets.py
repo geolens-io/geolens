@@ -1,15 +1,24 @@
 """Integration tests for /search/facets endpoint and facet counting."""
 
 import uuid
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import update
+from sqlalchemy import select, text, update
 
+from app.core.db.models import AppSetting
+from app.core.persistent_config import EMBEDDING_MODEL
 from app.modules.catalog.collections.models import Collection
 from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordKeyword
+from app.processing.embeddings import helpers as embedding_helpers
+from app.processing.embeddings.models import RecordEmbedding
 
 from tests.factories import get_user_id
+
+# Vector band this file owns; the other search suites use 40, 70, 90 and 800+.
+_BAND_LO = 130
+_SEMANTIC_ONLY_QUERY = "zzznolexicalfacetsxyz"
 
 
 # ---------------------------------------------------------------------------
@@ -257,3 +266,240 @@ async def test_facets_returns_keyword_groups(
     if len(data["srid"]) > 0:
         assert "value" in data["srid"][0]
         assert "count" in data["srid"][0]
+
+
+# ---------------------------------------------------------------------------
+# fix(#1855): facet counts are taken over the results' candidate set
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _fresh_has_embeddings_cache():
+    """The 30 s has_embeddings cache must not carry a False from an earlier test."""
+    embedding_helpers._has_embeddings_cache.clear()
+    yield
+    embedding_helpers._has_embeddings_cache.clear()
+
+
+async def _embedding_dim(session) -> int:
+    result = await session.execute(
+        text(
+            "SELECT atttypmod FROM pg_attribute "
+            "WHERE attrelid = 'catalog.record_embeddings'::regclass "
+            "AND attname = 'embedding'"
+        )
+    )
+    dim = result.scalar_one_or_none()
+    return dim if dim and dim > 0 else 1536
+
+
+def _band_vector(base_value: float, dim: int) -> list[float]:
+    """Unit vector with its signal in dims [_BAND_LO, _BAND_LO + 10), zeros elsewhere."""
+    vec = [0.0] * dim
+    for i in range(_BAND_LO, _BAND_LO + 10):
+        vec[i] = base_value + ((i - _BAND_LO) * 0.01)
+    magnitude = sum(v * v for v in vec) ** 0.5
+    return [v / magnitude for v in vec]
+
+
+async def _set_semantic_search(session, enabled: bool) -> None:
+    result = await session.execute(
+        select(AppSetting).where(AppSetting.key == "semantic_search_enabled")
+    )
+    existing = result.scalar_one_or_none()
+    if existing is None:
+        session.add(AppSetting(key="semantic_search_enabled", value={"v": enabled}))
+    else:
+        existing.value = {"v": enabled}
+    await session.commit()
+
+    from app.platform.cache import get_cache
+
+    try:
+        await get_cache().delete("config:semantic_search_enabled")
+    except RuntimeError:
+        pass
+
+
+async def _embed(session, dataset: Dataset, vector: list[float]) -> None:
+    session.add(
+        RecordEmbedding(
+            record_id=dataset.record_id,
+            embedding=vector,
+            model_name=await EMBEDDING_MODEL.get(session),
+            content_hash=uuid.uuid4().hex[:64],
+        )
+    )
+    await session.commit()
+
+
+@pytest.fixture
+async def semantic_facet_datasets(test_db_session) -> dict:
+    """Three datasets a band query matches by meaning only: two vector, one raster.
+
+    Their titles share no word with ``_SEMANTIC_ONLY_QUERY``, so whatever the
+    facets count for that query is the vector arm and nothing else. The
+    embeddings are deleted on teardown so the band holds one test's rows at a
+    time; ``slug`` keeps the titles unique for the lexical control.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    dim = await _embedding_dim(session)
+    slug = f"zq{uuid.uuid4().hex[:8]}"
+    datasets = []
+    for index, (name, record_type) in enumerate(
+        (
+            (f"Zqfacet Alpha {slug}", "vector_dataset"),
+            (f"Zqfacet Beta {slug}", "vector_dataset"),
+            (f"Zqfacet Gamma {slug}", "raster_dataset"),
+        )
+    ):
+        ds = await _create_search_dataset(
+            session,
+            created_by=admin_id,
+            name=name,
+            keywords=[f"zqfacetband{index}"],
+            description="matched by meaning rather than by its words",
+        )
+        if record_type != "vector_dataset":
+            await session.execute(
+                update(Record)
+                .where(Record.id == ds.record_id)
+                .values(record_type=record_type)
+            )
+            await session.commit()
+        await _embed(session, ds, _band_vector(0.99 - index * 0.02, dim))
+        datasets.append(ds)
+    await _set_semantic_search(session, True)
+    yield {
+        "datasets": datasets,
+        "slug": slug,
+        "dim": dim,
+        "query_vector": _band_vector(1.0, dim),
+    }
+    await session.execute(
+        text("DELETE FROM catalog.record_embeddings WHERE record_id = ANY(:ids)"),
+        {"ids": [ds.record_id for ds in datasets]},
+    )
+    await session.commit()
+
+
+def _patched_embedding(vector: list[float]):
+    return patch(
+        "app.modules.catalog.search.service_semantic.generate_embedding",
+        new_callable=AsyncMock,
+        return_value=vector,
+    )
+
+
+@pytest.mark.anyio
+async def test_facets_count_the_semantic_candidate_set(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    semantic_facet_datasets: dict,
+):
+    """fix(#1855): with semantic mode on, facets count what the results return.
+
+    The query matches nothing lexically, so on the lexical-only facets this
+    read record_type {} beside three results.
+    """
+    with _patched_embedding(semantic_facet_datasets["query_vector"]):
+        results = await client.get(
+            "/search/datasets/",
+            params={"q": _SEMANTIC_ONLY_QUERY},
+            headers=admin_auth_header,
+        )
+        facets = await client.get(
+            "/search/facets/",
+            params={"q": _SEMANTIC_ONLY_QUERY},
+            headers=admin_auth_header,
+        )
+    assert results.status_code == 200
+    assert facets.status_code == 200
+
+    body = results.json()
+    titles = {f["properties"]["title"] for f in body["features"]}
+    slug = semantic_facet_datasets["slug"]
+    # Non-vacuity: the vector arm ran and the results are the three band records.
+    assert titles == {f"Zqfacet {n} {slug}" for n in ("Alpha", "Beta", "Gamma")}
+    assert body["numberMatched"] == 3
+
+    payload = facets.json()
+    assert payload["record_type"] == {"vector_dataset": 2, "raster_dataset": 1}
+    assert sum(payload["record_type"].values()) == body["numberMatched"]
+    assert {k["value"] for k in payload["keywords"]} == {
+        "zqfacetband0",
+        "zqfacetband1",
+        "zqfacetband2",
+    }
+
+
+@pytest.mark.anyio
+async def test_facets_count_the_lexical_candidate_set(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    semantic_facet_datasets: dict,
+    test_db_session,
+):
+    """Control: with semantic search off both endpoints are lexical and agree."""
+    lexical_q = f"Zqfacet Alpha {semantic_facet_datasets['slug']}"
+    await _set_semantic_search(test_db_session, False)
+    try:
+        with _patched_embedding(semantic_facet_datasets["query_vector"]) as embed:
+            results = await client.get(
+                "/search/datasets/",
+                params={"q": lexical_q},
+                headers=admin_auth_header,
+            )
+            facets = await client.get(
+                "/search/facets/",
+                params={"q": lexical_q},
+                headers=admin_auth_header,
+            )
+        embed.assert_not_called()
+    finally:
+        await _set_semantic_search(test_db_session, True)
+
+    assert results.status_code == 200
+    assert facets.status_code == 200
+    body = results.json()
+    assert {f["properties"]["title"] for f in body["features"]} == {lexical_q}
+    counts = facets.json()["record_type"]
+    assert counts == {"vector_dataset": 1}
+    assert sum(counts.values()) == body["numberMatched"] == 1
+
+
+@pytest.mark.anyio
+async def test_facets_semantic_candidates_keep_the_visibility_filter(
+    client: AsyncClient,
+    semantic_facet_datasets: dict,
+    test_db_session,
+):
+    """Rule 1: a private record the vector arm would match is not counted for anon."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    slug = semantic_facet_datasets["slug"]
+    private_ds = await _create_search_dataset(
+        session,
+        created_by=admin_id,
+        name=f"Zqfacet Private Delta {slug}",
+        visibility="private",
+        description="nearest to the query, visible to its owner only",
+    )
+    await _embed(
+        session, private_ds, _band_vector(0.999, semantic_facet_datasets["dim"])
+    )
+    try:
+        with _patched_embedding(semantic_facet_datasets["query_vector"]):
+            # The slug keeps this anonymous (cacheable) request off any earlier key.
+            facets = await client.get(
+                "/search/facets/", params={"q": f"{_SEMANTIC_ONLY_QUERY} {slug}"}
+            )
+    finally:
+        await session.execute(
+            text("DELETE FROM catalog.record_embeddings WHERE record_id = :rid"),
+            {"rid": private_ds.record_id},
+        )
+        await session.commit()
+    assert facets.status_code == 200
+    assert facets.json()["record_type"] == {"vector_dataset": 2, "raster_dataset": 1}

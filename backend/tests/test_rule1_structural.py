@@ -118,6 +118,10 @@ _DELEGATED_GUARDS = (
     # for the tile-token minting endpoints; delegates non-public RBAC to
     # port.check_dataset_access and 404s unpublished-public for non-owners.
     "_enforce_tile_token_access",
+    # search: app/modules/catalog/search/service_candidates.py, fix(#1855):
+    # the candidate selection /search/datasets/ and /search/facets/ share;
+    # applies apply_visibility_filter through vetting_filters.
+    "select_candidates",
 )
 
 # Guards that deny by RAISING (404/403) — a bare ``await guard(...)``
@@ -147,6 +151,7 @@ _VALUE_GUARDS = frozenset(
         "apply_visibility_filter",
         "_apply_map_visibility_filter",
         "bulk_check_dataset_access",
+        "select_candidates",
     }
 )
 
@@ -173,6 +178,7 @@ def _guard_objects() -> dict[str, Any]:
         service_shared,
     )
     from app.modules.catalog.records import router as records_router
+    from app.modules.catalog.search import service_candidates
     from app.processing.tiles import router as tiles_router
 
     guard_objects = {
@@ -191,6 +197,7 @@ def _guard_objects() -> dict[str, Any]:
         "_check_record_ownership": records_router._check_record_ownership,
         "_authorize_vector_tile_request": tiles_router._authorize_vector_tile_request,
         "_enforce_tile_token_access": tiles_router._enforce_tile_token_access,
+        "select_candidates": service_candidates.select_candidates,
     }
     assert set(guard_objects) == _RAISING_GUARDS | _VALUE_GUARDS
     return guard_objects
@@ -1679,6 +1686,23 @@ def test_delegated_guards_still_enforce_access() -> None:
     assert "DatasetGrant" in bulk, (
         "maps bulk_check_dataset_access no longer passes DatasetGrant, so "
         "restricted grants would stop resolving"
+    )
+
+    from app.modules.catalog.search import service_candidates
+
+    # fix(#1855): the shared candidate selection is credited as a guard only
+    # while it still routes every base statement through apply_visibility_filter.
+    assert "vetting_filters" in _calls_in(service_candidates.select_candidates), (
+        "search select_candidates no longer applies vetting_filters"
+    )
+    vetting_calls = _calls_in(service_candidates.vetting_filters)
+    assert "apply_visibility_filter" in vetting_calls, (
+        "search vetting_filters no longer delegates to apply_visibility_filter"
+    )
+    vetting = _source_of(service_candidates.vetting_filters)
+    assert "DatasetGrant" in vetting, (
+        "search vetting_filters no longer passes DatasetGrant, so restricted "
+        "grants would stop resolving"
     )
 
     tile_auth_calls = _calls_in(tiles_router._authorize_vector_tile_request)

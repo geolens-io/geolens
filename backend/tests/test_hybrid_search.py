@@ -886,6 +886,12 @@ async def test_semantic_approximate_count_keeps_next_link(
                 "app.modules.catalog.search.service_semantic._EXACT_SEMANTIC_COUNT_MAX_ROWS",
                 0,
             ),
+            # fix(#1855): the shared window floor would hold all five matches;
+            # drop it so the window is the page and the sentinel is exercised.
+            patch(
+                "app.modules.catalog.search.service_semantic._APPROXIMATE_CANDIDATE_WINDOW",
+                0,
+            ),
         ):
             r = await client.get(
                 "/search/datasets/",

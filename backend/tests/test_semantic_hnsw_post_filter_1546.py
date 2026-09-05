@@ -16,7 +16,7 @@ on a catalog holding two models' rows in one index, which is the state #1506
 was written for. #1546 made the predicate more selective, so it made the window
 easier to exhaust, and the fix covers both.
 
-WHY THIS TESTS `_get_vector_ranks` AND NOT THE SEARCH ENDPOINT: the defect only
+WHY THIS TESTS `resolve_semantic_arm` AND NOT THE SEARCH ENDPOINT: the defect only
 exists when the plan actually uses the HNSW index, and on a table this size
 Postgres will not choose it unless pushed. `enable_seqscan = off` alone is not
 enough and the first draft of this test was vacuous because of it: the planner
@@ -44,10 +44,12 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.core.persistent_config import EMBEDDING_DIMS, EMBEDDING_MODEL
+from app.modules.catalog.datasets.domain.models import Record
 from app.modules.catalog.search import service_semantic
+from app.modules.catalog.search.service_filters import SearchFilters
 from app.processing.embeddings import helpers
 from app.processing.embeddings.helpers import embedding_config_fingerprint
 from app.processing.embeddings.models import RecordEmbedding
@@ -142,7 +144,7 @@ async def test_foreign_rows_nearer_than_live_ones_do_not_starve_the_scan(
 
     # Non-vacuity, part one: the plan really does go through the HNSW index, so
     # a post-filter window exists to be starved. Explained against the same
-    # shape `_get_vector_ranks` builds — the configuration predicate, the 0.7
+    # shape `resolve_semantic_arm` builds — the configuration predicate, the 0.7
     # cutoff, ordered by distance with a limit — because a simpler query can
     # take a different plan, which is exactly how the earlier draft fooled
     # itself.
@@ -173,13 +175,17 @@ async def test_foreign_rows_nearer_than_live_ones_do_not_starve_the_scan(
         "generate_embedding",
         new=AsyncMock(return_value=query_vector),
     ):
-        ranks, returned_vector, identity = await service_semantic._get_vector_ranks(
-            session, "starvation query", _LIVE_ROWS
+        arm = await service_semantic.resolve_semantic_arm(
+            session,
+            SearchFilters(q="starvation query"),
+            select(Record.id),
+            depth=_LIVE_ROWS,
         )
 
     # Non-vacuity, part two: the vector arm ran rather than bailing early.
-    assert returned_vector == query_vector
-    assert identity is not None
+    assert arm is not None
+    assert arm.query_vector == query_vector
+    ranks = arm.ranks(_LIVE_ROWS)
 
     returned = {uuid.UUID(record_id) for record_id in ranks}
     assert returned & live_ids, (
