@@ -41,9 +41,8 @@ catalog_timeout_installed: ContextVar[bool] = ContextVar(
 class CatalogLockConflict(Exception):
     """Another transaction holds the catalog rows this one needs.
 
-    Raised instead of a bare ``DBAPIError`` so one handler
-    (``app/api/main.py``) answers 409 wherever the acquisition is reached from.
-    A worker lets it propagate and fails its job.
+    One handler (``app/api/main.py``) answers 409 for it, wherever the
+    acquisition was reached from. A worker lets it propagate and fails its job.
     """
 
 

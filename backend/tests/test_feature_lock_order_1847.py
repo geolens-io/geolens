@@ -426,9 +426,8 @@ class TestPropertyOnlyPatchTakesThePairToo:
     ):
         """The same interleaving with the diagnostic assertion removed.
 
-        Drives both sides to completion instead of characterising the state in
-        the middle, so on the inverted order PostgreSQL reports the cycle
-        itself rather than a message this test composed.
+        Drives both sides to completion rather than characterising the state
+        in the middle, so PostgreSQL reports any cycle itself.
         """
         monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "60s")
 
@@ -748,11 +747,9 @@ class TestEveryWriteHandlerGoesThroughTheGuard:
 class TestMetadataPatchTakesThePairToo:
     """The class from the other side.
 
-    `update_user_metadata` writes record fields and dataset fields and then
-    flushes them together. Before this round it acquired nothing, so the flush
-    took catalog.records ahead of catalog.datasets and inverted against every
-    writer that now leads with the dataset row -- including an ordinary feature
-    edit, which is the pairing this issue exists to remove.
+    `update_user_metadata` writes record fields and dataset fields and flushes
+    them together, so it must take the pair first or invert against every
+    writer that leads with the dataset row.
     """
 
     async def test_metadata_patch_holds_no_record_lock_while_waiting(
@@ -894,11 +891,8 @@ class TestOneAnswerForAContendedRow:
 class TestDeleteNeverReapsStorageItCannotCommit:
     """The irreversible step must be behind the lock.
 
-    `delete_dataset` deletes the managed objects permanently and relies on the
-    transaction rolling back to keep the catalog consistent with them. An
-    acquisition that can time out placed AFTER that reap breaks the
-    arrangement: the objects are gone, the transaction rolls back, and the
-    catalog keeps a dataset whose assets no longer exist.
+    The reap is permanent, so anything that can fail after it leaves the
+    catalog holding a dataset whose objects are gone.
     """
 
     async def test_a_contended_delete_leaves_the_objects_alone(
@@ -1414,6 +1408,84 @@ class TestTheReapFollowsTheCommit:
             "cascade that loses a lock race then rolls the rows back with the "
             "objects already gone."
         )
+
+
+class TestInvalidationsPrecedeTheReap:
+    """Cache eviction must not wait on, or be skipped by, object storage.
+
+    The reap awaits a storage backend. Running it first lets a slow one delay
+    the invalidations, and a cancellation during it skip them, leaving search
+    and the tile map serving a deleted dataset until TTL.
+    """
+
+    async def _run(self, client, headers, dataset, monkeypatch, boom, calls):
+        from app.modules.catalog.datasets.api import router as datasets_router
+        from app.modules.catalog.datasets.domain import service as domain_service
+
+        async def _failing_reap(prefixes, tenant_id):
+            calls.append("reap")
+            raise boom()
+
+        async def _catalog(*a, **kw):
+            calls.append("invalidate_catalog_cache")
+
+        def _notify(table_name):
+            calls.append("notify_table_invalidated")
+
+        # The real `_reap_after_commit` stays, so its own error handling is
+        # what the test exercises.
+        monkeypatch.setattr(domain_service, "reap_managed_storage", _failing_reap)
+        monkeypatch.setattr(datasets_router, "invalidate_catalog_cache", _catalog)
+        monkeypatch.setattr(datasets_router, "notify_table_invalidated", _notify)
+
+        response = await client.request(
+            "DELETE",
+            f"/datasets/{dataset.id}",
+            json={"confirm_title": dataset.record.title},
+            headers=headers,
+        )
+        return response
+
+    async def test_a_failing_reap_does_not_skip_them(
+        self, locked_raster_dataset, client: AsyncClient, admin_auth_header, monkeypatch
+    ):
+        calls: list[str] = []
+        response = await self._run(
+            client,
+            admin_auth_header,
+            locked_raster_dataset,
+            monkeypatch,
+            RuntimeError,
+            calls,
+        )
+        assert response.status_code == 204, response.text
+        assert "reap" in calls, calls
+        assert calls.index("reap") > calls.index("invalidate_catalog_cache"), calls
+        assert calls.index("reap") > calls.index("notify_table_invalidated"), calls
+
+    async def test_a_cancelled_reap_does_not_skip_them(
+        self, locked_raster_dataset, client: AsyncClient, admin_auth_header, monkeypatch
+    ):
+        """Cancellation is the shutdown case, and it is a BaseException.
+
+        `_reap_after_commit` catches Exception, so this one propagates. Both
+        invalidations have already run by then, which is the point.
+        """
+        calls: list[str] = []
+        try:
+            await self._run(
+                client,
+                admin_auth_header,
+                locked_raster_dataset,
+                monkeypatch,
+                asyncio.CancelledError,
+                calls,
+            )
+        except BaseException:  # broad: the cancellation IS the scenario under test
+            pass
+        assert "reap" in calls, calls
+        assert "invalidate_catalog_cache" in calls, calls
+        assert "notify_table_invalidated" in calls, calls
 
 
 class TestOnlyThisRequestsTimeoutIsAnswered:

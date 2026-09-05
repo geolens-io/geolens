@@ -494,6 +494,7 @@ async def bulk_delete_datasets_endpoint(
 ) -> BulkDeleteResponse:
     """Delete multiple datasets in one request. Returns per-item results."""
     results: list[BulkDeleteResultItem] = []
+    pending_reaps: list = []
     deleted = 0
 
     for item in body.datasets:
@@ -540,7 +541,9 @@ async def bulk_delete_datasets_endpoint(
             # Commit per-item so a later failure cannot orphan storage objects
             # that were already deleted for successfully-committed datasets.
             await db.commit()
-            await _reap_after_commit(deletion)
+            # fix(#1847): the reap is deferred past both invalidations below;
+            # awaiting object storage here would delay them per item.
+            pending_reaps.append(deletion)
             # fix(#1429): only now is the delete visible to a concurrent tile
             # request, so only now can the tile router's table_name -> metadata
             # map be evicted without the request re-caching the deleted row.
@@ -583,6 +586,11 @@ async def bulk_delete_datasets_endpoint(
 
     if deleted > 0:
         await invalidate_catalog_cache()
+
+    # fix(#1847): last, so no storage round trip can delay or skip the
+    # invalidations above for any item in the batch.
+    for deletion in pending_reaps:
+        await _reap_after_commit(deletion)
 
     return BulkDeleteResponse(
         deleted=deleted, errors=len(results) - deleted, results=results
@@ -650,7 +658,6 @@ async def delete_dataset_endpoint(
         ),
     )
     await db.commit()
-    await _reap_after_commit(deletion)
 
     # Invalidate caches after dataset deletion
     await invalidate_catalog_cache()
@@ -660,6 +667,11 @@ async def delete_dataset_endpoint(
     # visibility, so a stale entry would authorize a successor drawing this
     # freed table name under the deleted dataset's rules.
     notify_table_invalidated(table_name)
+
+    # fix(#1847): after both invalidations. The reap awaits object storage, so
+    # a slow backend would delay them and a cancellation would skip them,
+    # leaving search and the tile map serving a deleted dataset until TTL.
+    await _reap_after_commit(deletion)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

@@ -47,12 +47,11 @@ class DatasetTitleMismatchError(ValueError):
 
 
 class DatasetDeletion(NamedTuple):
-    """What `delete_dataset` did, and what the caller must reap after commit.
+    """What `delete_dataset` removed, and what the caller must still reap.
 
-    The reap is irreversible and the record delete's FK cascades reach child
-    rows nobody locks, so it belongs after the commit. The residual is
-    inverted, not removed: a failed reap orphans objects rather than leaving a
-    catalog entry pointing at nothing.
+    `storage_prefixes` are GeoLens-managed object prefixes for this dataset;
+    `tenant_id` is the tenant they live under. The caller MUST reap them after
+    its commit, and only after it: nothing here touches object storage.
     """
 
     table_name: str
