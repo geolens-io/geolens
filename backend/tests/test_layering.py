@@ -1522,10 +1522,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#1778 round 1): +3 - the layer block is fenced by the shared
         # helper instead of interpolating the marker tags here, so a layer id
         # or a serialized filter cannot forge a closing tag either.
-        # Cap 488 -> 502, exact.
+        # Cap 513 -> 516, exact.
         # fix(#1778 round 3): +3 - safe_rows re-exported through the facade
         # alongside _safe_value, per the module's import contract.
-        # Cap 483 -> 497, exact.
+        # Cap 516 -> 519, exact.
         "backend/app/processing/ai/chat_service.py": 519,
         # fix(#836): defaults.py is the facade over the extensions-defaults
         # split (defaults_*.py sub-modules discovered below). Pure re-exports —
@@ -4444,7 +4444,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # from, and health compares what-is against what-was-built-from. Postgres
     # cannot stamp commit time from inside a transaction, so no clock scheme
     # could express "committed after my snapshot" — three rounds of timestamp
-    # fixes each left a window. Cap 1128 -> 1132, exact.
+    # fixes each left a window. Cap 1118 -> 1140, exact.
     # feat(#1267): +10 — the dataset's last_refreshed_at is stamped at the
     # generation's own completed_at instant, in the same transaction as the
     # generation swap, so source_freshness (#1224) reads a live signal for a
@@ -5474,7 +5474,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # concurrent uploads reap each other's key correctly instead of racing on
     # a stale read. Most of the growth is the docstring explaining why the
     # lock has to move rather than just gaining a shorter timeout of its own.
-    # Cap 1541 -> 1550, exact.
+    # Cap 1554 -> 1572, exact.
     "backend/app/modules/catalog/maps/router.py": 1572,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
