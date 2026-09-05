@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, type FormEvent } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDropzone } from 'react-dropzone';
 import { useQueryClient } from '@tanstack/react-query';
@@ -37,7 +37,7 @@ import { Globe, Loader2, CheckCircle2, AlertCircle, Upload } from 'lucide-react'
 import { toast } from 'sonner';
 import { probeService } from '@/api/ingest';
 import { ApiError } from '@/api/client';
-import { reuploadPresigned } from '@/api/datasets';
+import { reuploadPresigned, getDataset } from '@/api/datasets';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { formatNumber } from '@/lib/format';
 import type {
@@ -152,6 +152,13 @@ export function ReuploadDialog({
   // it to `upload` and sever that binding, so the server refuses the commit
   // when the origin it reads is no longer this one.
   const [stagedOriginKind, setStagedOriginKind] = useState<DatasetOrigin | null>(null);
+  // fix(#1822): gate "Try Again" on a landed post-refusal refetch (see
+  // handleConfirm's catch block), not just the refusal itself.
+  const [isRefreshingOrigin, setIsRefreshingOrigin] = useState(false);
+  const [originRefreshFailed, setOriginRefreshFailed] = useState(false);
+  // fix(#1822 review P2): stale-completion guard for the refetch above — see
+  // handleConfirm and resetState.
+  const refreshGenerationRef = useRef(0);
   const [preview, setPreview] = useState<ReuploadPreviewResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -186,6 +193,11 @@ export function ReuploadDialog({
     setSourceType(null);
     setJobId(null);
     setStagedOriginKind(null);
+    setIsRefreshingOrigin(false);
+    setOriginRefreshFailed(false);
+    // fix(#1822 review P2): orphans any refetch still in flight from before
+    // this reset (e.g. the dialog was closed mid-refetch).
+    refreshGenerationRef.current += 1;
     setPreview(null);
     setError(null);
     setSelectedFile(null);
@@ -480,16 +492,6 @@ export function ReuploadDialog({
       });
       setStep('tracking');
     } catch (err) {
-      // fix(#1768 round 1): an `origin_changed` refusal is proof that the
-      // `dataset` prop this dialog captured from is stale — the server just
-      // read an origin the cache is not serving. Without this, `handleRetry`
-      // clears the captured origin and the next staging re-captures the SAME
-      // stale value from the unchanged prop, so the refusal's own "start the
-      // replacement again" advice 409s forever until a manual reload. Fired
-      // here in the catch, ahead of every path that can stage another job.
-      if (isOriginChangedError(err)) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.datasets.detail(dataset.id) });
-      }
       const message = err instanceof Error ? err.message : t('reupload.commitFailed');
       setError(
         sourceType === 'service_url'
@@ -497,6 +499,41 @@ export function ReuploadDialog({
           : message,
       );
       setStep('error');
+
+      // fix(#1768, #1822): dataset.origin is stale; wait for a landed fetch
+      // (fetchQuery, not refetchQueries, which resolves early when paused)
+      // before re-enabling retry.
+      if (isOriginChangedError(err)) {
+        const generation = ++refreshGenerationRef.current;
+        setIsRefreshingOrigin(true);
+        try {
+          // fix(#1822 review P2 round 3): fetchQuery dedupes onto an
+          // already in-flight fetch for this key (e.g. a window-focus
+          // refetch) instead of running ours, so cancel it first.
+          await queryClient.cancelQueries({ queryKey: queryKeys.datasets.detail(dataset.id) });
+          await queryClient.fetchQuery({
+            queryKey: queryKeys.datasets.detail(dataset.id),
+            queryFn: () => getDataset(dataset.id),
+            staleTime: 0,
+          });
+        } catch {
+          // fix(#1822 review P2): a reset (dialog closed) or a newer attempt
+          // bumped the generation — this completion is orphaned, ignore it.
+          if (generation === refreshGenerationRef.current) {
+            setOriginRefreshFailed(true);
+            setError(
+              t('reupload.originRefreshFailed', {
+                defaultValue:
+                  "Could not refresh the dataset's info after this conflict. Reload the page and try again.",
+              }),
+            );
+          }
+        } finally {
+          if (generation === refreshGenerationRef.current) {
+            setIsRefreshingOrigin(false);
+          }
+        }
+      }
     }
   }, [dataset.id, jobId, stagedOriginKind, sourceType, serviceToken, selectedFileLayer, commitMutation, queryClient, appendRetryGuidance, t]);
 
@@ -505,6 +542,9 @@ export function ReuploadDialog({
     setPreview(null);
     setJobId(null);
     setStagedOriginKind(null);
+    // fix(#1822): reset for a second origin_changed round in this session.
+    setIsRefreshingOrigin(false);
+    setOriginRefreshFailed(false);
     if (sourceType === 'service_url') {
       setProbeResult(null);
       setSelectedLayer(null);
@@ -1078,8 +1118,17 @@ export function ReuploadDialog({
               {error ?? t('reupload.errorFallback')}
             </p>
             <DialogFooter className="w-full">
-              <Button variant="outline" onClick={handleRetry}>
-                {t('reupload.tryAgain')}
+              {/* fix(#1822): disabled while the origin refetch is pending,
+                  and permanently if it fails. */}
+              <Button
+                variant="outline"
+                onClick={handleRetry}
+                disabled={isRefreshingOrigin || originRefreshFailed}
+                data-testid="reupload-try-again"
+              >
+                {isRefreshingOrigin
+                  ? t('reupload.refreshingOrigin', { defaultValue: 'Refreshing...' })
+                  : t('reupload.tryAgain')}
               </Button>
               <Button onClick={() => handleOpenChange(false)}>{t('common:close')}</Button>
             </DialogFooter>

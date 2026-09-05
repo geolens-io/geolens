@@ -323,9 +323,11 @@
     "completeMessage": "The dataset has been updated.",
     "errorFallback": "An unexpected error occurred.",
     "tryAgain": "Try Again",
+    "refreshingOrigin": "Refreshing...",
     "toastSuccess": "Re-upload complete!",
     "uploadFailed": "Upload failed. Please try again.",
     "commitFailed": "Commit failed. Please try again.",
+    "originRefreshFailed": "Could not refresh the dataset's info after this conflict. Reload the page and try again.",
     "jobFailed": "Re-upload job failed.",
     "jobCancelled": "Re-upload was cancelled."
   },

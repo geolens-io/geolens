@@ -372,9 +372,11 @@
     "completeMessage": "El conjunto de datos ha sido actualizado.",
     "errorFallback": "Ocurrió un error inesperado.",
     "tryAgain": "Intentar de nuevo",
+    "refreshingOrigin": "Actualizando...",
     "toastSuccess": "¡Nueva subida completada!",
     "uploadFailed": "Error al subir. Inténtelo de nuevo.",
     "commitFailed": "Error de confirmación. Inténtelo de nuevo.",
+    "originRefreshFailed": "No se pudo actualizar la información del conjunto de datos después de este conflicto. Recargue la página e inténtelo de nuevo.",
     "jobFailed": "Error en el trabajo de nueva subida.",
     "jobCancelled": "La resubida se canceló."
   },
