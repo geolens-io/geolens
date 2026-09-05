@@ -2089,12 +2089,17 @@ async def bump_tile_cache_version_atomic(
 
     A writer without that lock cannot use it, and taking the lock would not
     help: the feature-edit routers (``features/router.py``) bump through a
-    plain read-modify-write and never lock the row, so an absolute write
-    computed from a read they took earlier lands on top of anything committed
-    in between. One side locking does not serialize a race the other side is
-    not playing. ``tile_cache_version = tile_cache_version + 1`` in the
-    database does, because the increment is evaluated against the row as it
-    is at write time.
+    plain read-modify-write, so an absolute write computed from a read they
+    took earlier lands on top of anything committed in between. One side
+    locking does not serialize a race the other side is not playing.
+    ``tile_cache_version = tile_cache_version + 1`` in the database does,
+    because the increment is evaluated against the row as it is at write time.
+
+    fix(#1847): that paragraph used to add "and never lock the row", which
+    stopped being true when the metadata refresh started taking the datasets
+    row ``FOR UPDATE`` (see ``_lock_dataset_then_read_extent_box``). A PATCH
+    that changes no geometry skips the refresh and still bumps unlocked, so the
+    conclusion is unchanged -- but the reason is now "not on every path".
 
     Returns the new value, so the caller reports and logs the version it
     actually published rather than the one it hoped for. Still called in the

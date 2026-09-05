@@ -23,6 +23,7 @@ from app.core.db.sqlstate import (
     BAD_QUERY_INPUT,
     TABLE_ABSENT,
     is_caller_type_fault,
+    is_lock_conflict,
     is_operational,
     sqlstate,
 )
@@ -121,7 +122,23 @@ def _feature_write_db_error(exc: DBAPIError) -> HTTPException:
     missing backing table (42P01, schema-provisioning drift) is a 503 like the
     read path reports it, and an unrecognized state (our own bad SQL, 42601) is
     an honest 500, not the caller's fault.
+
+    fix(#1847): a lock conflict is classified FIRST, because 40P01 is SQLSTATE
+    class 40 and `is_operational` would otherwise send it out as "database
+    temporarily unavailable". That is the wrong advice twice over: the database
+    is fine, and 503 asks the client to back off when this edit would succeed
+    on an immediate retry. 409 is already a declared response on every write
+    endpoint here (ERROR_RESPONSES_WRITE), so this adds no API surface.
     """
+    if is_lock_conflict(exc):
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "feature_write_locked",
+                "message": "This dataset's catalog entry is being updated by "
+                "another operation. Retry shortly.",
+            },
+        )
     if is_operational(exc):
         return HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -144,6 +161,28 @@ def _feature_write_db_error(exc: DBAPIError) -> HTTPException:
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="Feature write failed unexpectedly.",
     )
+
+
+async def _refresh_metadata_guarded(db: AsyncSession, dataset, **kwargs) -> None:
+    """`refresh_dataset_metadata` with its database errors classified.
+
+    fix(#1847): every write handler here called the refresh AFTER its own
+    `except DBAPIError` block had closed, so the one part of the request that
+    takes catalog row locks was the one part whose database errors nothing
+    classified. A deadlock or a lock timeout escaped to the generic database
+    error handler as a bare 503, and the edit was lost with no message the
+    caller could act on. One helper rather than four copied try blocks, so the
+    next handler added here cannot pick up the old shape by imitation.
+
+    Deliberately narrower than the handlers' own guards: only `DBAPIError` is
+    caught, so a `ValueError` raised in here still surfaces as itself rather
+    than being reshaped into the 400 or the 404 the write above uses.
+    """
+    try:
+        await refresh_dataset_metadata(db, dataset, **kwargs)
+    except DBAPIError as exc:
+        await db.rollback()
+        raise _feature_write_db_error(exc)
 
 
 # ---------------------------------------------------------------------------
@@ -605,7 +644,7 @@ async def create_feature(
 
     # fix(#1778): one row added, at a known envelope. No table scan when that
     # envelope is already inside the stored extent.
-    await refresh_dataset_metadata(
+    await _refresh_metadata_guarded(
         db,
         dataset,
         count_delta=1,
@@ -722,7 +761,7 @@ async def replace_single_feature(
     # fix(#1778): row count unchanged; the extent is unchanged too when both
     # the old and the new envelope sit strictly inside it. The old envelope
     # comes back from the UPDATE that overwrote it (fix(#1778 review r1)).
-    await refresh_dataset_metadata(
+    await _refresh_metadata_guarded(
         db,
         dataset,
         count_delta=0,
@@ -832,7 +871,7 @@ async def patch_single_feature(
     # Only refresh metadata if geometry changed (extent may change)
     if body.geometry is not None:
         # fix(#1778): same reasoning as replace.
-        await refresh_dataset_metadata(
+        await _refresh_metadata_guarded(
             db,
             dataset,
             count_delta=0,
@@ -919,7 +958,7 @@ async def delete_single_feature(
 
     # fix(#1778): one row removed. A row strictly inside the stored extent was
     # not defining any side of it, so the extent cannot shrink.
-    await refresh_dataset_metadata(
+    await _refresh_metadata_guarded(
         db, dataset, count_delta=-1, touched_bounds=[prior_bounds]
     )
     dataset.record.updated_by = user.id

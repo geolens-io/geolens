@@ -13,6 +13,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.core.db.sqlstate import is_lock_conflict
 from app.core.identity import Identity
 from app.modules.auth.models import User
 from app.modules.catalog.authorization import get_user_roles
@@ -59,28 +60,25 @@ def new_map_asset_key(prefix: str, map_id: uuid.UUID, ext: str) -> str:
 
 
 def _is_lock_timeout_error(exc: BaseException) -> bool:
-    """True for PostgreSQL 55P03 (lock_timeout exceeded), asyncpg or wrapped.
+    """True when another transaction holds the map row this write needs.
 
-    fix(#1778 round 8): asyncpg raises ``LockNotAvailableError``
-    directly; ``AsyncSession.execute`` wraps it in SQLAlchemy's ``DBAPIError``
-    with ``.orig`` pointing at that same exception. Check both shapes, the way
-    a sibling helper on the ingest side and ``app.platform.jobs.router``'s
-    ``_is_lock_conflict`` already do for their own callers. This module keeps
-    its own copy rather than importing either: the ingest one sits behind the
-    CatalogPort boundary this domain is not allowed to reach past directly, and
-    the platform one is a private, unexported name. Neither is worth a shared
-    cross-domain dependency for four lines of SQLSTATE matching.
+    fix(#1778 round 8): asyncpg raises ``LockNotAvailableError`` directly;
+    ``AsyncSession.execute`` wraps it in SQLAlchemy's ``DBAPIError`` with
+    ``.orig`` pointing at that same exception. Both shapes have to be checked.
+
+    fix(#1847): that check now lives in ``app.core.db.sqlstate``, which is the
+    layer-legal home the round-8 note said did not exist -- it rejected the
+    ingest copy for sitting behind CatalogPort and the ``jobs.router`` copy for
+    being private, and `core.db` is neither. This wrapper stays so the call
+    site below reads the same, and because the name is local vocabulary.
+
+    Widened with it, deliberately: the shared predicate also matches 40P01, so
+    a deadlock victim here answers 409 like a lock timeout does instead of
+    escaping as a 500. Same argument ``jobs.router`` recorded for its own
+    cancel path -- nothing was written either way, and a retry is the correct
+    next action either way.
     """
-    try:
-        from asyncpg.exceptions import LockNotAvailableError
-
-        if isinstance(exc, LockNotAvailableError):
-            return True
-    except ImportError:
-        pass
-
-    orig = getattr(exc, "orig", None)
-    return orig is not None and getattr(orig, "sqlstate", None) == "55P03"
+    return is_lock_conflict(exc)
 
 
 async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> Row:

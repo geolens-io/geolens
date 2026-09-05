@@ -1329,39 +1329,83 @@ def _update_capturing_prior_bounds(quoted_table: str, sets: list[str]) -> str:
     )
 
 
-async def _lock_stored_extent_box(
+# fix(#1847): the lock budget for a feature write that has to wait for the
+# dataset row. Matches `app.platform.jobs.router` and
+# `catalog.maps.service_crud`, which spend the same budget on the same question
+# for the same reason: a row lock still contended after two seconds is held by
+# another live writer, not by latency inside this request, and the caller is
+# better served by a retryable conflict than by an open-ended hang.
+_LOCK_TIMEOUT = "2s"
+
+
+async def _lock_dataset_then_read_extent_box(
     session: AsyncSession, dataset: Dataset
 ) -> Bounds | None:
-    """The dataset's stored extent as a box, with the record row locked.
+    """Lock this dataset's catalog rows, then read its stored extent as a box.
+
+    LOCK ORDER, for every writer of the (datasets, records) pair: **the
+    datasets row first, the records row second.** Cite this docstring from any
+    new site that takes both. The two background writers that lock the pair
+    explicitly already lead with the datasets row, and neither can be reordered
+    to follow this path instead: `processing/ingest/tasks_postgis_refresh.py`
+    and `processing/ingest/tasks_stac_refresh.py` both take it to make a
+    superseded-content check and the write that depends on it one indivisible
+    step, so the lock has to be the first thing the write transaction does.
+
+    fix(#1847): this helper took the records row first, which inverted that
+    order and made an ordinary feature edit during a `refresh_postgis` phase 3
+    an ABBA deadlock (40P01) -- worker holding datasets and wanting records,
+    request holding records and wanting datasets. The record lock is still
+    taken, and still before the extent is read; only its position moved. This
+    is the same resolution `cancel_job` reached for the VRT asset in
+    fix(#1709 review r2 P2): both transactions lead with the lock the worker
+    cannot give up, so whoever wins runs alone and the other waits at its first
+    acquisition holding nothing.
 
     None unless the stored extent is a simple POLYGON. An antimeridian-crossing
     dataset stores the two-ring MULTIPOLYGON `seam_extent_wkt_for_table`
     produces (fix(#934)), whose ST_XMin/ST_XMax are -180/180: a longitude in
     the gap would test as inside a box the geometry never occupies.
 
-    fix(#1778 review r1): FOR UPDATE, and taken by BOTH metadata paths before
+    fix(#1778 review r1): the lock is taken by BOTH metadata paths before
     either reads the extent. Otherwise two writers on one dataset can interleave
     read-decide-write: one skips the recompute because its geometry is inside
     the extent it read, while the other shrinks that extent from an aggregate
     taken before the first row landed. Every writer here goes on to update the
     dataset row anyway, so it already serialized with its peers at commit; the
     lock only moves that serialization ahead of the decision that depends on it.
-    Both paths take the record row before the dataset row, which is the order
-    the ORM flushes them in.
     """
+    from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
     from app.modules.catalog.datasets.domain.models import Record
 
-    result = await session.execute(
-        select(
-            func.GeometryType(Record.spatial_extent),
-            func.ST_XMin(Record.spatial_extent),
-            func.ST_YMin(Record.spatial_extent),
-            func.ST_XMax(Record.spatial_extent),
-            func.ST_YMax(Record.spatial_extent),
+    # `SET LOCAL` takes a literal, not a bind parameter; this interpolates a
+    # module constant, never request-supplied data.
+    await session.execute(text(f"SET LOCAL lock_timeout = '{_LOCK_TIMEOUT}'"))
+
+    # `no_autoflush` so the order above is what actually reaches PostgreSQL. An
+    # autoflush triggered by either SELECT emits the ORM's own flush order,
+    # which is records before datasets (Dataset.record_id makes Record the
+    # parent mapper) -- the exact inversion this helper exists to prevent.
+    with session.no_autoflush:
+        # Single column, on the datasets table alone: reading through a joined
+        # relationship would not lock the joined row anyway, and would put this
+        # statement on the records row ahead of the lock it is ordering.
+        await session.execute(
+            select(DatasetModel.id)
+            .where(DatasetModel.id == dataset.id)
+            .with_for_update()
         )
-        .where(Record.id == dataset.record_id)
-        .with_for_update()
-    )
+        result = await session.execute(
+            select(
+                func.GeometryType(Record.spatial_extent),
+                func.ST_XMin(Record.spatial_extent),
+                func.ST_YMin(Record.spatial_extent),
+                func.ST_XMax(Record.spatial_extent),
+                func.ST_YMax(Record.spatial_extent),
+            )
+            .where(Record.id == dataset.record_id)
+            .with_for_update()
+        )
     row = result.first()
     if row is None or row[0] != "POLYGON" or any(v is None for v in row[1:]):
         return None
@@ -1498,9 +1542,10 @@ async def refresh_dataset_metadata(
     behaviour is unchanged.
     """
     # fix(#1778 review r1): taken before EITHER branch reads the extent, so a
-    # skip decision cannot be invalidated by a concurrent recompute. See
-    # _lock_stored_extent_box.
-    stored_box = await _lock_stored_extent_box(session, dataset)
+    # skip decision cannot be invalidated by a concurrent recompute.
+    # fix(#1847): datasets row first, then the records row. See
+    # _lock_dataset_then_read_extent_box for the order and why it is that way.
+    stored_box = await _lock_dataset_then_read_extent_box(session, dataset)
 
     if count_delta is not None and await _apply_incremental_metadata(
         session,
@@ -1512,6 +1557,18 @@ async def refresh_dataset_metadata(
     ):
         return
 
+    # fix(#1847): this aggregate runs INSIDE the lock, deliberately, and the
+    # bound on what that costs a concurrent writer is the `lock_timeout` above
+    # rather than a shorter critical section. Hoisting it above the lock and
+    # re-checking a cheap predicate afterwards would reinstate exactly the
+    # interleaving fix(#1778 review r1) closed: this transaction's row is
+    # already in the table but uncommitted, so a peer's aggregate cannot see
+    # it; if that peer measured before taking the lock, it would then write a
+    # count and an extent computed as though this row did not exist. Holding
+    # the lock across the scan is what makes the loser re-decide against the
+    # extent the winner actually stored. The scan only runs when the fast path
+    # above declined, which for the digitizing case it was added for is the
+    # uncommon branch.
     feature_count, extent_wkt = await _refresh_count_and_extent(
         session, dataset.table_name
     )

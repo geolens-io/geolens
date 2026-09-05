@@ -121,3 +121,53 @@ def is_operational(exc: DBAPIError) -> bool:
     if code is None:
         return True
     return code[:2] in _OPERATIONAL_CLASSES
+
+
+# Another transaction owns rows this one needs right now. Both states mean the
+# same thing to a caller: nothing was written, and a retry lands after the
+# owner commits.
+#
+# fix(#1847): one definition, because the answer had been rewritten per module.
+# `app.platform.jobs.router` carried this exact pair inline, `catalog.maps`
+# carried a 55P03-only copy whose docstring recorded that it wanted to share
+# but had nowhere layer-legal to share from, and the feature-write router had
+# no notion of a lock conflict at all -- so a deadlock victim there fell
+# through `is_operational` (class 40) and surfaced as "database temporarily
+# unavailable", which is a 503 telling the client to back off when the correct
+# advice is to retry immediately.
+#
+# 40001 (serialization_failure) is deliberately NOT here. It is unreachable at
+# READ COMMITTED, which is the only isolation level this application runs at,
+# and adding it would widen two already-reviewed predicates for a case no
+# caller can produce.
+LOCK_CONFLICT = frozenset(
+    {
+        "55P03",  # lock_not_available — SET LOCAL lock_timeout expired
+        "40P01",  # deadlock_detected — this transaction was the victim
+    }
+)
+
+
+def is_lock_conflict(exc: BaseException) -> bool:
+    """True when *exc* means "another transaction holds what this one wants".
+
+    Accepts either shape. asyncpg raises `LockNotAvailableError` /
+    `DeadlockDetectedError` directly, and `AsyncSession.execute` wraps that in
+    SQLAlchemy's `DBAPIError` with `.orig` pointing at the same exception, so a
+    helper that only unwrapped one of the two missed the other depending on
+    which layer the call bubbled through.
+
+    Narrower than a "retry this statement" test on purpose. The re-upload swap
+    in `processing/ingest/tasks_common.py` keeps its own 55P03-only predicate,
+    because retrying DDL after a *deadlock* is a different and unproven
+    decision from retrying it after a lock timeout.
+    """
+    for candidate in (exc, getattr(exc, "orig", None)):
+        if candidate is None:
+            continue
+        code = getattr(candidate, "sqlstate", None) or getattr(
+            candidate, "pgcode", None
+        )
+        if code and str(code) in LOCK_CONFLICT:
+            return True
+    return False

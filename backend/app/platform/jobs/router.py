@@ -18,6 +18,7 @@ from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db.sqlstate import is_lock_conflict
 from app.core.dependencies import get_client_ip, get_db
 from app.core.identity import Identity
 from app.modules.auth.dependencies import (
@@ -972,8 +973,14 @@ def _is_lock_conflict(exc: DBAPIError) -> bool:
     acquisition in ``cancel_job`` — fix(#1709 review r2 P2)), but mapping it
     costs one tuple member and turns a future ordering regression into a
     clean conflict instead of a 500.
+
+    fix(#1847): the pair moved to ``app.core.db.sqlstate`` when a third caller
+    needed it (the feature-write router). This wrapper is a rename, not a
+    policy: the shared predicate matches the same two states, and additionally
+    unwraps a bare asyncpg exception, which cannot reach this call site because
+    everything here goes through ``AsyncSession``.
     """
-    return getattr(exc.orig, "sqlstate", None) in ("55P03", "40P01")
+    return is_lock_conflict(exc)
 
 
 # The three VRT regeneration dispatch sites (regenerate_vrt_endpoint,

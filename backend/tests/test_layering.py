@@ -3559,8 +3559,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `CancelledError` a worker shutdown delivers. It replaces two private
     # copies that had grown in tasks_vector.py and tasks_reupload.py, whose
     # bodies differed only in the task name in their docstrings.
-    # Cap 2551 -> 2581, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2581,
+    # Cap 2551 -> 2581, exact.    # fix(#1847): +5 correcting `bump_tile_cache_version_atomic`'s docstring.
+    # It said the feature-edit routers "never lock the row", which stopped
+    # being true when their metadata refresh started taking the datasets row
+    # FOR UPDATE. The helper's conclusion is unchanged, its reason is not.
+    # Cap 2551 -> 2556, exact.    "backend/app/processing/ingest/tasks_common.py": 2581,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -5099,8 +5102,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # issue fell back to a sequential scan. Cap 1104 -> 1128, exact.
     # fix(#1755 item 11): +2. The `finally` block's heartbeat stop routes
     # through `cleanup_step`, so a failure in it logs instead of replacing the
-    # refresh exception being propagated. Cap 1128 -> 1130, exact.
-    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1130,
+    # refresh exception being propagated. Cap 1128 -> 1130, exact.    # fix(#1847): +12 comment lines on the phase 3 `FOR UPDATE`, recording that
+    # it is the first half of the house (datasets, records) lock order rather
+    # than an incidental choice, and pointing at the docstring that states the
+    # order. The feature-edit path used to take the records row first, which
+    # made an ordinary edit during this phase an ABBA deadlock.
+    # Cap 1128 -> 1140, exact.    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1140,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.
@@ -6066,7 +6073,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # is never raised, an empty page proves nothing, and a keyset page can
     # prove only the rows in hand. That reasoning is most of the added lines.
     # Cap 1507 -> 1541, exact.
-    "backend/app/modules/catalog/features/service.py": 1541,
+    # fix(#1847): +57 for the (datasets, records) lock order. The metadata
+    # refresh took the records row first while `refresh_postgis` phase 3 takes
+    # the datasets row first, so a feature edit during a refresh was an ABBA
+    # deadlock that surfaced as a 503 with the edit lost. Six of the added
+    # lines are the reordered acquisition, the `lock_timeout` and the
+    # `no_autoflush` that keeps the ORM from re-inverting the order at flush
+    # time; the rest is the docstring every other site now cites for the order,
+    # and the note on why the COUNT(*)/ST_Extent aggregate has to stay inside
+    # the lock rather than being hoisted above it. Cap 1541 -> 1598, exact.
+    "backend/app/modules/catalog/features/service.py": 1598,
 }
 
 
