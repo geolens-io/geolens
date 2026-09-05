@@ -1491,7 +1491,8 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     facade_line_budgets = {
         "backend/app/modules/catalog/maps/service.py": 100,
         "backend/app/modules/catalog/search/service.py": 80,
-        "backend/app/modules/catalog/datasets/domain/service.py": 110,
+        # fix(#1847): +2, sample_example_values re-exported. Cap 110 -> 112, exact.
+        "backend/app/modules/catalog/datasets/domain/service.py": 112,
         # Phase 276 CODE-02 — chat_service.py is now a facade re-exporting
         # from chat_*.py sub-modules. 400 was the established Phase-226 cap
         # for facade modules that retain a meaty orchestrator + system-prompt
@@ -1868,7 +1869,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # which invented a delta the size of whichever side was known. The
         # case that reaches it is a service preview whose collection size the
         # service never published.
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 488,
+        # fix(#1847): the lock order, its gate and its 409 mapping. Cap 507, exact.
+        # fix(#1847): +12. sample_example_values reads the data table on its own so
+        # the reset can sample before it takes the pair. Cap 507 -> 519, exact.
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 519,
         # fix(#435 codex r1): +6 LOC in get_dataset_rows to probe schema existence
         # before degrading a 42P01 to an empty page. Postgres reports a missing
         # tenant data schema with the same code as a raster dataset's synthetic
@@ -1938,7 +1942,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # the retirement set (whose whole API is set membership), with the
         # reasoning for the split and for the belt-and-braces oid guard.
         # Cap 451 -> 483, exact.
-        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 483,
+        # fix(#1847): the lock order, its gate and its 409 mapping, and the
+        # job rows ahead of the cascade. Cap 513, exact.
+        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.
@@ -2965,7 +2971,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # It claimed the OAS 3.0 classes while the served document is OpenAPI 3.1,
     # and named three of the five families /api/conformance advertises. Cap
     # 1903 -> 1912, exact.
-    "backend/app/api/main.py": 1912,
+    # fix(#1847): the lock order, its gate and its 409 mapping. Cap 1962, exact.
+    # fix(#1847): the handler docstring states its contract. Cap 1962 -> 1959.
+    "backend/app/api/main.py": 1959,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -3574,7 +3582,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # copies that had grown in tasks_vector.py and tasks_reupload.py, whose
     # bodies differed only in the task name in their docstrings.
     # Cap 2551 -> 2581, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2581,
+    # fix(#1847): the lock order, its gate and its 409 mapping. Cap 2601, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2601,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -4559,6 +4568,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1755 item 11): +12. Both task tails route every cleanup step
     # through `cleanup_step`: three in `ingest_vrt`, four in `regenerate_vrt`,
     # which stops two heartbeats. Cap 1628 -> 1640, exact.
+    # fix(#1847): the lock order, its gate and its 409 mapping. Cap 1653, exact.
+    # fix(#1847): the phase-2 job load locks the row and the lock-order
+    # rationale left the source. Cap 1653 -> 1640, exact.
     "backend/app/processing/ingest/tasks_vrt.py": 1640,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
@@ -5126,7 +5138,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1755 item 11): +2. The `finally` block's heartbeat stop routes
     # through `cleanup_step`, so a failure in it logs instead of replacing the
     # refresh exception being propagated. Cap 1128 -> 1130, exact.
-    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1130,
+    # fix(#1847): the lock order, its gate and its 409 mapping. Cap 1134, exact.
+    # fix(#1847): phase 3 takes the job row before the datasets row. Cap
+    # 1134 -> 1141, exact.
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1141,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.
@@ -5291,7 +5306,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # than a second spelling of the vocabulary, plus the description telling a
     # client author what the field buys and that omitting it is supported.
     # Cap 1524 -> 1536, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1536,
+    # fix(#1847): +5. BulkDeleteResultItem gained an optional `code`, so a
+    # per-item conflict is machine-readable with the same code the
+    # single-delete 409 carries. Cap 1536 -> 1540, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1540,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch
@@ -6092,7 +6110,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # is never raised, an empty page proves nothing, and a keyset page can
     # prove only the rows in hand. That reasoning is most of the added lines.
     # Cap 1507 -> 1541, exact.
-    "backend/app/modules/catalog/features/service.py": 1541,
+    # fix(#1847): the lock order, its gate and its 409 mapping. Cap 1560, exact.
+    "backend/app/modules/catalog/features/service.py": 1560,
 }
 
 

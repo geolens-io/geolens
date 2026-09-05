@@ -20,6 +20,7 @@ from app.modules.catalog.layers.schemas import (
     RESERVED_COLUMNS,
 )
 from app.platform.extensions import get_catalog_port
+from app.modules.catalog.features.service import lock_catalog_rows_for_write
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -37,22 +38,29 @@ def _qcol(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-async def _refresh_quality_detail(
+async def _compute_quality_detail(
     session: AsyncSession, dataset: Dataset, column_info: list[dict]
-) -> None:
-    """Recompute the stored quality score after a schema change.
+) -> object:
+    """The quality score for a schema change, WITHOUT storing it.
 
     fix(#458 E-34): reupload recomputes quality_detail but column DDL did not,
     so attribute_completeness drifted (an all-null added column, or a dropped
     fully-populated one, changed the real score while the displayed one stayed
     stale until the next reupload).
+
+    Returns rather than assigns, so the caller runs it BEFORE taking the
+    catalog rows. It is a COUNT per column over the whole data table plus a
+    geometry pass over 10,000 rows, and it needs neither catalog row (#1847).
+
+    `no_autoflush` because the caller has not taken the rows yet.
     """
-    dataset.quality_detail = await get_catalog_port().compute_quality_score(
-        session,
-        dataset.table_name,
-        column_info,
-        dataset,
-    )
+    with session.no_autoflush:
+        return await get_catalog_port().compute_quality_score(
+            session,
+            dataset.table_name,
+            column_info,
+            dataset,
+        )
 
 
 async def create_layer(
@@ -228,8 +236,13 @@ async def add_column(
 
     # Refresh column_info
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
+    # fix(#1847): scan, then lock, then assign both fields. The scan needs
+    # neither catalog row; the lock follows the ALTER because the reupload swap
+    # takes its data-table ACCESS EXCLUSIVE before its catalog rows.
+    quality_detail = await _compute_quality_detail(session, dataset, column_info)
+    await lock_catalog_rows_for_write(session, dataset)
     dataset.column_info = column_info
-    await _refresh_quality_detail(session, dataset, column_info)
+    dataset.quality_detail = quality_detail
 
     # Create (or revive) the AttributeMetadata row for the new column.
     # fix(#458 E-12): (dataset_id, field_name) is unique, so re-adding a name
@@ -310,6 +323,10 @@ async def rename_column(
     await session.execute(text(ddl))
 
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
+    # fix(#1847): the catalog writes start here, and the caller then stamps
+    # `record.updated_by`. After the ALTER because the reupload swap takes its
+    # data-table ACCESS EXCLUSIVE before its catalog rows.
+    await lock_catalog_rows_for_write(session, dataset)
     dataset.column_info = column_info
 
     # fix(#458 E-43): keep the cached sample-values snapshot keyed by the new
@@ -376,8 +393,13 @@ async def alter_column_type(
     await session.execute(text(ddl))
 
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
+    # fix(#1847): scan, then lock, then assign both fields. The scan needs
+    # neither catalog row; the lock follows the ALTER because the reupload swap
+    # takes its data-table ACCESS EXCLUSIVE before its catalog rows.
+    quality_detail = await _compute_quality_detail(session, dataset, column_info)
+    await lock_catalog_rows_for_write(session, dataset)
     dataset.column_info = column_info
-    await _refresh_quality_detail(session, dataset, column_info)
+    dataset.quality_detail = quality_detail
 
     # Refresh AttributeMetadata.data_type so quality metrics + UI labels match.
     result = await session.execute(
@@ -431,8 +453,13 @@ async def drop_column(
 
     # Refresh column_info
     column_info = await get_catalog_port().get_column_info(session, dataset.table_name)
+    # fix(#1847): scan, then lock, then assign both fields. The scan needs
+    # neither catalog row; the lock follows the ALTER because the reupload swap
+    # takes its data-table ACCESS EXCLUSIVE before its catalog rows.
+    quality_detail = await _compute_quality_detail(session, dataset, column_info)
+    await lock_catalog_rows_for_write(session, dataset)
     dataset.column_info = column_info
-    await _refresh_quality_detail(session, dataset, column_info)
+    dataset.quality_detail = quality_detail
 
     # fix(#458 E-43): drop the removed column's cached sample values too.
     if dataset.sample_values and column_name in dataset.sample_values:

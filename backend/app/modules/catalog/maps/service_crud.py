@@ -13,6 +13,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.core.db.sqlstate import is_lock_conflict
 from app.core.identity import Identity
 from app.modules.auth.models import User
 from app.modules.catalog.authorization import get_user_roles
@@ -59,28 +60,8 @@ def new_map_asset_key(prefix: str, map_id: uuid.UUID, ext: str) -> str:
 
 
 def _is_lock_timeout_error(exc: BaseException) -> bool:
-    """True for PostgreSQL 55P03 (lock_timeout exceeded), asyncpg or wrapped.
-
-    fix(#1778 round 8): asyncpg raises ``LockNotAvailableError``
-    directly; ``AsyncSession.execute`` wraps it in SQLAlchemy's ``DBAPIError``
-    with ``.orig`` pointing at that same exception. Check both shapes, the way
-    a sibling helper on the ingest side and ``app.platform.jobs.router``'s
-    ``_is_lock_conflict`` already do for their own callers. This module keeps
-    its own copy rather than importing either: the ingest one sits behind the
-    CatalogPort boundary this domain is not allowed to reach past directly, and
-    the platform one is a private, unexported name. Neither is worth a shared
-    cross-domain dependency for four lines of SQLSTATE matching.
-    """
-    try:
-        from asyncpg.exceptions import LockNotAvailableError
-
-        if isinstance(exc, LockNotAvailableError):
-            return True
-    except ImportError:
-        pass
-
-    orig = getattr(exc, "orig", None)
-    return orig is not None and getattr(orig, "sqlstate", None) == "55P03"
+    """True for the shared lock-conflict states (55P03, 40P01), in either shape."""
+    return is_lock_conflict(exc)
 
 
 async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> Row:

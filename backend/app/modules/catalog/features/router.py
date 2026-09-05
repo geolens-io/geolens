@@ -23,10 +23,12 @@ from app.core.db.sqlstate import (
     BAD_QUERY_INPUT,
     TABLE_ABSENT,
     is_caller_type_fault,
+    is_lock_conflict,
     is_operational,
     sqlstate,
 )
 from app.core.identity import Identity
+from app.platform.catalog_locks import CatalogLockConflict
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.auth.dependencies import (
     get_current_active_user,
@@ -60,6 +62,7 @@ from app.modules.catalog.features.service import (
     get_features,
     get_features_geojson_z,
     insert_feature,
+    lock_catalog_rows_for_write,
     number_matched_headers,
     parse_bbox,
     refresh_dataset_metadata,
@@ -121,7 +124,16 @@ def _feature_write_db_error(exc: DBAPIError) -> HTTPException:
     missing backing table (42P01, schema-provisioning drift) is a 503 like the
     read path reports it, and an unrecognized state (our own bad SQL, 42601) is
     an honest 500, not the caller's fault.
+
+    fix(#1847): a lock conflict RAISES, rather than returning a 409 of its own.
+    The acquisition already raises CatalogLockConflict, so returning a second
+    409 body here gave one condition two response shapes depending on which
+    statement hit it. One exception, one mapping in `app/api/main.py`.
     """
+    if is_lock_conflict(exc):
+        raise CatalogLockConflict(
+            "Another operation is updating this dataset's catalog entry."
+        ) from exc
     if is_operational(exc):
         return HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -144,6 +156,37 @@ def _feature_write_db_error(exc: DBAPIError) -> HTTPException:
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="Feature write failed unexpectedly.",
     )
+
+
+async def _guard(db: AsyncSession, step) -> None:
+    """Run one post-write catalog step with its database errors classified.
+
+    Narrower than the handlers' own guards on purpose: only `DBAPIError` is
+    caught, so a `ValueError` still surfaces as itself.
+    """
+    try:
+        await step
+    except DBAPIError as exc:
+        await db.rollback()
+        raise _feature_write_db_error(exc)
+
+
+async def _refresh_metadata_guarded(db: AsyncSession, dataset, **kwargs) -> None:
+    """Recompute feature_count and extent, holding the catalog rows.
+
+    Takes the pair itself, so a handler that reaches this needs nothing else.
+    """
+    await _guard(db, refresh_dataset_metadata(db, dataset, **kwargs))
+
+
+async def _lock_catalog_rows_guarded(db: AsyncSession, dataset) -> None:
+    """Take the (datasets, records) pair for a write that skips the refresh.
+
+    Every handler stamps `record.updated_by` and rolls `tile_cache_version`,
+    which dirties both rows even when nothing is recomputed. Same helper as the
+    refresh path, so the two cannot drift.
+    """
+    await _guard(db, lock_catalog_rows_for_write(db, dataset))
 
 
 # ---------------------------------------------------------------------------
@@ -605,7 +648,7 @@ async def create_feature(
 
     # fix(#1778): one row added, at a known envelope. No table scan when that
     # envelope is already inside the stored extent.
-    await refresh_dataset_metadata(
+    await _refresh_metadata_guarded(
         db,
         dataset,
         count_delta=1,
@@ -722,7 +765,7 @@ async def replace_single_feature(
     # fix(#1778): row count unchanged; the extent is unchanged too when both
     # the old and the new envelope sit strictly inside it. The old envelope
     # comes back from the UPDATE that overwrote it (fix(#1778 review r1)).
-    await refresh_dataset_metadata(
+    await _refresh_metadata_guarded(
         db,
         dataset,
         count_delta=0,
@@ -832,7 +875,7 @@ async def patch_single_feature(
     # Only refresh metadata if geometry changed (extent may change)
     if body.geometry is not None:
         # fix(#1778): same reasoning as replace.
-        await refresh_dataset_metadata(
+        await _refresh_metadata_guarded(
             db,
             dataset,
             count_delta=0,
@@ -841,6 +884,10 @@ async def patch_single_feature(
                 geojson_bounds(body.geometry.model_dump()),
             ],
         )
+    else:
+        # fix(#1847): nothing to recompute, but the lines below still dirty
+        # both rows, so the pair has to be taken in the house order first.
+        await _lock_catalog_rows_guarded(db, dataset)
     dataset.record.updated_by = user.id
     await audit_emit(
         db,
@@ -919,7 +966,7 @@ async def delete_single_feature(
 
     # fix(#1778): one row removed. A row strictly inside the stored extent was
     # not defining any side of it, so the extent cannot shrink.
-    await refresh_dataset_metadata(
+    await _refresh_metadata_guarded(
         db, dataset, count_delta=-1, touched_bounds=[prior_bounds]
     )
     dataset.record.updated_by = user.id

@@ -551,6 +551,10 @@ class BulkDeleteResultItem(BaseModel):
     dataset_id: uuid.UUID
     status: str  # "deleted" | "error"
     detail: str | None = None
+    # fix(#1847): machine-readable where an error has a code. It carries the
+    # one the single-delete 409 does, so a client sees the same code whichever
+    # endpoint it called. None for errors that have only prose.
+    code: str | None = None
 
 
 class BulkDeleteResponse(BaseModel):

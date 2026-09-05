@@ -1329,28 +1329,47 @@ def _update_capturing_prior_bounds(quoted_table: str, sets: list[str]) -> str:
     )
 
 
-async def _lock_stored_extent_box(
-    session: AsyncSession, dataset: Dataset
+async def lock_catalog_rows_for_write(
+    session: AsyncSession, dataset: Dataset, *, with_raster_asset: bool = False
 ) -> Bounds | None:
-    """The dataset's stored extent as a box, with the record row locked.
+    """Take this dataset's catalog rows in the house order, then read its extent.
 
-    None unless the stored extent is a simple POLYGON. An antimeridian-crossing
-    dataset stores the two-ring MULTIPOLYGON `seam_extent_wkt_for_table`
-    produces (fix(#934)), whose ST_XMin/ST_XMax are -180/180: a longitude in
-    the gap would test as inside a box the geometry never occupies.
+    The catalog-side entry point to `platform.catalog_locks.lock_catalog_rows`,
+    which states the order. Call it from ANY request path that will dirty
+    either row, not only from the metadata refresh.
 
-    fix(#1778 review r1): FOR UPDATE, and taken by BOTH metadata paths before
-    either reads the extent. Otherwise two writers on one dataset can interleave
-    read-decide-write: one skips the recompute because its geometry is inside
-    the extent it read, while the other shrinks that extent from an aggregate
-    taken before the first row landed. Every writer here goes on to update the
-    dataset row anyway, so it already serialized with its peers at commit; the
-    lock only moves that serialization ahead of the decision that depends on it.
-    Both paths take the record row before the dataset row, which is the order
-    the ORM flushes them in.
+    `with_raster_asset` extends the order to the raster child, for a
+    transaction whose records delete cascades to it.
+
+    Returns None unless the stored extent is a simple POLYGON: an
+    antimeridian-crossing dataset stores a two-ring MULTIPOLYGON (#934)
+    whose ST_XMin/ST_XMax are -180/180, so a longitude in the gap would test as
+    inside a box the geometry never occupies.
+
+    Both metadata paths take the lock before either reads the extent, or two
+    writers interleave read-decide-write and one shrinks the extent from an
+    aggregate taken before the other's row landed (#1778).
     """
+    from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
     from app.modules.catalog.datasets.domain.models import Record
+    from app.platform.catalog_locks import lock_catalog_rows
 
+    # Through the port: `catalog/` may not import `app.processing.*`
+    # (test_layering CATPORT-02).
+    raster_asset_cls = (
+        get_catalog_port().raster_asset_orm_class() if with_raster_asset else None
+    )
+
+    await lock_catalog_rows(
+        session,
+        dataset_cls=DatasetModel,
+        record_cls=Record,
+        dataset_id=dataset.id,
+        record_id=dataset.record_id,
+        raster_asset_cls=raster_asset_cls,
+    )
+
+    # Both rows are held now, so this is an ordinary read.
     result = await session.execute(
         select(
             func.GeometryType(Record.spatial_extent),
@@ -1358,9 +1377,7 @@ async def _lock_stored_extent_box(
             func.ST_YMin(Record.spatial_extent),
             func.ST_XMax(Record.spatial_extent),
             func.ST_YMax(Record.spatial_extent),
-        )
-        .where(Record.id == dataset.record_id)
-        .with_for_update()
+        ).where(Record.id == dataset.record_id)
     )
     row = result.first()
     if row is None or row[0] != "POLYGON" or any(v is None for v in row[1:]):
@@ -1498,9 +1515,8 @@ async def refresh_dataset_metadata(
     behaviour is unchanged.
     """
     # fix(#1778 review r1): taken before EITHER branch reads the extent, so a
-    # skip decision cannot be invalidated by a concurrent recompute. See
-    # _lock_stored_extent_box.
-    stored_box = await _lock_stored_extent_box(session, dataset)
+    # skip decision cannot be invalidated by a concurrent recompute.
+    stored_box = await lock_catalog_rows_for_write(session, dataset)
 
     if count_delta is not None and await _apply_incremental_metadata(
         session,
@@ -1512,6 +1528,9 @@ async def refresh_dataset_metadata(
     ):
         return
 
+    # fix(#1847): INSIDE the lock, deliberately. A peer that measured before
+    # taking the lock cannot see this transaction's uncommitted row, and would
+    # write a count and extent computed as though it did not exist.
     feature_count, extent_wkt = await _refresh_count_and_extent(
         session, dataset.table_name
     )

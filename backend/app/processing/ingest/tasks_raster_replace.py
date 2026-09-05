@@ -620,6 +620,8 @@ async def reupload_raster(
             # that decides where this dataset lands on the map is which CRS
             # they are read under. `original_srid` is the one field still taken
             # from `source_meta`, and it wants the upload's answer by design.
+            # fix(#1847): assigns in memory and issues no SQL, so the pair is
+            # taken further down, before the first statement that flushes it.
             new_version = _write_swapped_fields(
                 raster_asset,
                 dataset,
@@ -650,25 +652,28 @@ async def reupload_raster(
             # It runs HERE — before the reservation — because its bytes are
             # part of the total being admitted and because a genuinely new
             # object has to join the written set before anything can fail.
-            (
-                lossy_original_archived,
-                archived_key,
-                archived_bytes,
-                new_archive_key,
-            ) = await archive_lossy_original(
-                session,
-                job=job,
-                dataset_id=dataset.id,
-                file_path=file_path,
-                source_sha256=source_sha256,
-                filename=source_filename,
-                log_message=(
-                    "Failed to archive the lossy replacement original; the "
-                    "staged upload will be retained in place instead"
-                ),
-                needed=not source_preserved_in_cog,
-                written_storage_keys=written_storage_keys,
-            )
+            # fix(#1847): the catalog rows are dirty in memory and must not be
+            # flushed out ahead of the acquisition below.
+            with session.no_autoflush:
+                (
+                    lossy_original_archived,
+                    archived_key,
+                    archived_bytes,
+                    new_archive_key,
+                ) = await archive_lossy_original(
+                    session,
+                    job=job,
+                    dataset_id=dataset.id,
+                    file_path=file_path,
+                    source_sha256=source_sha256,
+                    filename=source_filename,
+                    log_message=(
+                        "Failed to archive the lossy replacement original; the "
+                        "staged upload will be retained in place instead"
+                    ),
+                    needed=not source_preserved_in_cog,
+                    written_storage_keys=written_storage_keys,
+                )
             # Only an object this attempt CREATED joins the written set. An
             # archive that already existed belongs to an earlier successful
             # replace, and reaping it on failure would destroy the original of
@@ -681,6 +686,20 @@ async def reupload_raster(
             # for why the ordering is load-bearing. Raises
             # StorageQuotaExceededError, which the task's broad handler records
             # as a failed run, leaving the previous raster serving.
+            # fix(#1847): below `archive_lossy_original`, which PUTs the whole
+            # original raster; holding the pair across that upload is the #1848
+            # class. Still ahead of the first write, the autoflush below.
+            from app.platform.catalog_locks import lock_catalog_rows
+
+            await lock_catalog_rows(
+                session,
+                dataset_cls=Dataset,
+                record_cls=type(dataset.record),
+                dataset_id=dataset.id,
+                record_id=dataset.record_id,
+                lock_timeout=None,
+            )
+
             await reserve_replacement_bytes(
                 session,
                 dataset_id=dataset_uuid,

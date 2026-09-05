@@ -1258,31 +1258,18 @@ async def regenerate_vrt(
         # separate stale-generation mechanism (`sweep_stale_vrt_assets`) on
         # their own timeout, independent of this fence.
         #
-        # fix(#1778 audit r12): deliberately NOT locked here, unlike the
-        # sibling phase-2 sites. This job row is loaded BEFORE the RasterAsset
-        # row a few lines down, and `cancel_job` (jobs/router.py) takes those
-        # two locks in the opposite order for a vrt_regenerate job (asset
-        # first, job second) specifically to avoid an AB-BA deadlock between
-        # itself and this worker -- see that function's own comment on why
-        # asset-first is the worker's invariant. Locking the job row here
-        # would put it back in job-then-asset order and reopen exactly that
-        # cycle. The residual TOCTOU this leaves is narrow and already
-        # bounded: the objects above are written either way and reaped by
-        # `sweep_stale_vrt_assets` on their own timeout regardless of this
-        # fence, and `current_generation_id` still refuses a stale publish
-        # once a newer generation exists. What a sweep-inserted status flip
-        # in this exact window could still do is let a paused-not-dead worker
-        # complete over a row the sweep just failed, the same class round 11
-        # already narrowed considerably; closing it completely here is not
-        # worth reordering these two locks.
+        # fix(#1847): the job row first, then the asset: the order every
+        # worker phase, `cancel_job` and the dataset delete hold.
         # ----------------------------------------------------------------- #
         async with async_session() as session:
             result = await session.execute(
-                select(IngestJob).where(
+                select(IngestJob)
+                .where(
                     IngestJob.id == job_uuid,
                     IngestJob.attempt_id == attempt_uuid,
                     IngestJob.status == "running",
                 )
+                .with_for_update(key_share=True)
             )
             job = result.scalar_one_or_none()
             if job is None:
@@ -1391,6 +1378,19 @@ async def regenerate_vrt(
                 )
                 vrt_dataset = dataset_result.scalar_one_or_none()
                 if vrt_dataset is not None:
+                    # fix(#1847): the writes below dirty both rows. The asset
+                    # SELECT above already locks this datasets row through its
+                    # join, incidentally; state it. A no-op re-lock.
+                    from app.platform.catalog_locks import lock_catalog_rows
+
+                    await lock_catalog_rows(
+                        session,
+                        dataset_cls=Dataset,
+                        record_cls=type(vrt_dataset.record),
+                        dataset_id=vrt_dataset.id,
+                        record_id=vrt_dataset.record_id,
+                        lock_timeout=None,
+                    )
                     # feat(#1267) / ADR-002 Decision 5a: project the
                     # generation's completion instant into last_refreshed_at,
                     # in the SAME transaction as the generation swap, so

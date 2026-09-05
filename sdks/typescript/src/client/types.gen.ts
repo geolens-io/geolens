@@ -1438,6 +1438,10 @@ export type BulkDeleteResultItem = {
      * Detail
      */
     detail?: string | null;
+    /**
+     * Code
+     */
+    code?: string | null;
 };
 
 /**

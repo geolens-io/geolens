@@ -121,3 +121,34 @@ def is_operational(exc: DBAPIError) -> bool:
     if code is None:
         return True
     return code[:2] in _OPERATIONAL_CLASSES
+
+
+# fix(#1847): another transaction owns rows this one needs. Both states mean
+# the same to a caller: nothing was written, and a retry lands after the owner
+# commits. 40001 is excluded as unreachable at READ COMMITTED.
+LOCK_CONFLICT = frozenset(
+    {
+        "55P03",  # lock_not_available — SET LOCAL lock_timeout expired
+        "40P01",  # deadlock_detected — this transaction was the victim
+    }
+)
+
+
+def is_lock_conflict(exc: BaseException) -> bool:
+    """True when another transaction holds what this one wants.
+
+    Accepts a bare asyncpg exception or a SQLAlchemy `DBAPIError` wrapping one.
+
+    Narrower than "retry this statement": the re-upload swap keeps its own
+    55P03-only predicate, because retrying DDL after a deadlock is a different
+    decision from retrying it after a lock timeout.
+    """
+    for candidate in (exc, getattr(exc, "orig", None)):
+        if candidate is None:
+            continue
+        code = getattr(candidate, "sqlstate", None) or getattr(
+            candidate, "pgcode", None
+        )
+        if code and str(code) in LOCK_CONFLICT:
+            return True
+    return False

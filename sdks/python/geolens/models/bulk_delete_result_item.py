@@ -22,11 +22,13 @@ class BulkDeleteResultItem:
         dataset_id (UUID):
         status (str):
         detail (None | str | Unset):
+        code (None | str | Unset):
     """
 
     dataset_id: UUID
     status: str
     detail: None | str | Unset = UNSET
+    code: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -40,6 +42,12 @@ class BulkDeleteResultItem:
         else:
             detail = self.detail
 
+        code: None | str | Unset
+        if isinstance(self.code, Unset):
+            code = UNSET
+        else:
+            code = self.code
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -50,6 +58,8 @@ class BulkDeleteResultItem:
         )
         if detail is not UNSET:
             field_dict["detail"] = detail
+        if code is not UNSET:
+            field_dict["code"] = code
 
         return field_dict
 
@@ -69,10 +79,20 @@ class BulkDeleteResultItem:
 
         detail = _parse_detail(d.pop("detail", UNSET))
 
+        def _parse_code(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        code = _parse_code(d.pop("code", UNSET))
+
         bulk_delete_result_item = cls(
             dataset_id=dataset_id,
             status=status,
             detail=detail,
+            code=code,
         )
 
         bulk_delete_result_item.additional_properties = d

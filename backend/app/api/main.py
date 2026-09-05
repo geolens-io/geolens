@@ -948,7 +948,16 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
 from sqlalchemy.exc import DBAPIError  # noqa: E402
 
-from app.core.db.sqlstate import is_operational, sqlstate  # noqa: E402
+from app.core.db.sqlstate import (  # noqa: E402
+    is_lock_conflict,
+    is_operational,
+    sqlstate,
+)
+from app.platform.catalog_locks import (  # noqa: E402
+    CATALOG_LOCK_CONFLICT_CODE,
+    CatalogLockConflict,
+    catalog_timeout_installed,
+)
 from app.modules.quota.service import (  # noqa: E402
     DatasetQuotaExceededError,
     StorageQuotaExceededError,
@@ -988,6 +997,35 @@ async def _storage_quota_handler(
     )
 
 
+def _catalog_lock_conflict_response(request: Request, message: str) -> JSONResponse:
+    """The one 409 body for a contended catalog row."""
+    logger.info(
+        "catalog row lock conflict",
+        path=safe_access_log_path(request.url.path),
+    )
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content=ProblemDetail(
+            title="Catalog entry is busy",
+            status=status.HTTP_409_CONFLICT,
+            # Keyed, because this is the ONLY shape a contended row produces
+            # and a client cannot match on a title.
+            detail={"code": CATALOG_LOCK_CONFLICT_CODE, "message": message},
+        ).model_dump(),
+        media_type="application/problem+json",
+    )
+
+
+async def _catalog_lock_conflict_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
+    """Map a contended catalog row to 409, from wherever it was reached.
+
+    Safe to retry: the acquisition rolled its transaction back first.
+    """
+    return _catalog_lock_conflict_response(request, str(exc))
+
+
 async def _database_error_handler(request: Request, exc: DBAPIError) -> JSONResponse:
     """Map an operational database failure to a 503 (fix(#435)).
 
@@ -1000,8 +1038,16 @@ async def _database_error_handler(request: Request, exc: DBAPIError) -> JSONResp
     re-raised so they keep their existing 500 path; calling a unique-constraint
     collision "database unavailable" would just invite a retry loop.
 
+    fix(#1847): a lock conflict raised after the acquisition, while this
+    request's catalog lock timeout is installed, is answered 409 like one at
+    the acquisition; without that timeout it keeps its operational class.
+
     The detail is deliberately generic: the SQLSTATE and statement go to the log.
     """
+    if is_lock_conflict(exc) and catalog_timeout_installed.get():
+        return _catalog_lock_conflict_response(
+            request, "Another operation is updating this dataset's catalog entry."
+        )
     if not is_operational(exc):
         raise exc
     logger.exception(
@@ -1025,6 +1071,7 @@ async def _database_error_handler(request: Request, exc: DBAPIError) -> JSONResp
 
 app.add_exception_handler(DatasetQuotaExceededError, _dataset_quota_handler)
 app.add_exception_handler(StorageQuotaExceededError, _storage_quota_handler)
+app.add_exception_handler(CatalogLockConflict, _catalog_lock_conflict_handler)
 app.add_exception_handler(DBAPIError, _database_error_handler)
 
 # fix(#1770 round 44 P2): registered FIRST, so it ends up INNERMOST --
