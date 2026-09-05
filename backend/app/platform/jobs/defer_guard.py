@@ -185,6 +185,42 @@ def _restore_settlement_identifiers(
         set_committed_value(job, key, value)
 
 
+async def reset_session_for_settlement(job: IngestJob, *, db: AsyncSession) -> None:
+    """Make a session usable again for the settlement that follows a failure.
+
+    A statement that failed leaves the ``AsyncSession`` in a failed
+    transaction, and SQLAlchemy refuses every further statement on it until it
+    is rolled back, so a settlement issued straight onto it raises there too
+    and the row stays ``pending``. The reset expires ``job``, so the two
+    attributes the shared settlement reads are snapshotted first and put back
+    after; the reload is best effort, for whatever a caller reads beyond them.
+
+    Call this before ``settle_ingest_job_failed`` on any path whose failure may
+    have been a database error (fix(#1774), fix(#1814)). Safe on a healthy
+    session: after the row is committed there is nothing left to discard.
+    """
+    # Guarded because reading them is itself an attribute access: an instance
+    # that arrived expired has nothing to snapshot, and the reload below is
+    # then the only route back.
+    try:
+        identifiers: dict[str, Any] | None = {
+            "id": job.id,
+            "attempt_id": job.attempt_id,
+        }
+    except Exception:  # broad: an already-expired instance has nothing to snapshot
+        identifiers = None
+
+    try:
+        await db.rollback()
+    except Exception:  # broad: a dead connection cannot be reset here
+        logger.exception("Could not reset the session before settling a job")
+    _restore_settlement_identifiers(job, identifiers)
+    try:
+        await db.refresh(job)
+    except Exception:  # broad: best effort; the snapshot above is the guarantee
+        logger.exception("Could not reload the job before settling it")
+
+
 async def _settle_after_failed_dispatch(
     rollback: RollbackCallable, exc: BaseException, db: AsyncSession
 ) -> bool:
@@ -264,57 +300,14 @@ async def defer_with_orphan_guard(
         DeferFailed: always, when ``defer_call`` raises. Existing callers that
             catch ``HTTPException`` are unaffected; the 503 body is unchanged.
     """
-    # fix(#1774 review r2, codex P2): snapshotted BEFORE the write that can
-    # fail. A value in a local cannot be expired by the reset below, and these
-    # two are what the shared settlement reads. See
-    # `_restore_settlement_identifiers`. Guarded because reading them is itself
-    # an attribute access: an instance that arrived expired has nothing to
-    # snapshot, and the reload below is then the only route back.
-    try:
-        identifiers: dict[str, Any] | None = {
-            "id": job.id,
-            "attempt_id": job.attempt_id,
-        }
-    except Exception:  # broad: an already-expired instance has nothing to snapshot
-        identifiers = None
-
     try:
         await stamp_commit_attempted(job, db=db)
     except Exception as stamp_exc:  # broad: a failed marker write is a failed dispatch
-        # fix(#1774 review, codex P2): reset the session BEFORE settling.
-        # A serialization failure or deadlock on the marker write leaves this
-        # AsyncSession in a failed transaction, and SQLAlchemy refuses every
-        # further statement on it until it is rolled back. Handing it straight
-        # to `settle_ingest_job_failed` would raise there too, and the job
-        # would stay `pending` with no marker, which is the one combination
-        # the stale sweep reads as an upload nobody committed. It would cancel
-        # a dispatch that was genuinely attempted and take away the retry this
-        # whole guard exists to preserve.
-        #
-        # Nothing is discarded by the reset: every caller commits the row
-        # before dispatching, so at this point the session holds only the
-        # marker write that just failed.
-        try:
-            await db.rollback()
-        except Exception:  # broad: a dead connection cannot be reset here
-            logger.exception(
-                "Orphan-guard could not reset the session after a failed "
-                "dispatch marker write"
-            )
-        # fix(#1774 review r2, codex P2): the reset expires every instance it
-        # touched, so put the settlement's identifiers back before invoking a
-        # closure that reads them. The snapshot is the guarantee, because it
-        # needs no connection; the reload covers whatever a caller-supplied
-        # closure reads beyond those two, and is best-effort for the same
-        # reason the rollback above is.
-        _restore_settlement_identifiers(job, identifiers)
-        try:
-            await db.refresh(job)
-        except Exception:  # broad: best effort; the snapshot above is the guarantee
-            logger.exception(
-                "Orphan-guard could not reload the job after a failed "
-                "dispatch marker write"
-            )
+        # fix(#1774 review, codex P2): a marker write that deadlocked leaves the
+        # row `pending` with no marker, the one combination the stale sweep
+        # reads as an upload nobody committed. Nothing is discarded by the
+        # reset: every caller commits the row before dispatching.
+        await reset_session_for_settlement(job, db=db)
         rolled_back = await _settle_after_failed_dispatch(rollback, stamp_exc, db)
         raise DeferFailed(rolled_back=rolled_back, cause=stamp_exc) from stamp_exc
 

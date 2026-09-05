@@ -1,43 +1,33 @@
-"""What one manifest key currently holds, and the reservation that claims it.
+"""Whether a manifest key is busy, and the reservation that claims it.
 
-fix(#1814): the apply loop used to insert its ``IngestJob`` row only after the
-entry's source had been downloaded, so the check that answers "is this key
-busy" and the row that makes the answer true were separated by a network
-fetch. Everything that has to agree on that question lives in this module: the
-key lock, the in-flight read, the staleness rule, and the two fenced exits from
-the downloading stage.
+fix(#1814): the key lock, the in-flight read, the staleness rule and the fenced
+exits from the downloading stage all answer that one question, so they agree by
+living together rather than by being kept in step.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import desc, select, text, update
+from sqlalchemy import desc, func, select, text, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.platform.jobs.models import IngestJob
-from app.platform.jobs.sweep import (
-    stale_pending_clauses,
-    stale_pending_unbound_values,
-)
+from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS
 
-# `user_metadata` key naming the pre-queue stage a manifest job is in. Present
-# only while the row is a reservation; `bind_reservation_to_staged_source`
-# removes it, so a queued manifest job carries the same metadata shape it
-# always did.
+# fix(#1814): present only while the row is a reservation. Every exit from the
+# stage clears it, so no queued or settled row still claims to be downloading.
 MANIFEST_STAGE_METADATA_KEY = "manifest_stage"
 MANIFEST_STAGE_DOWNLOADING = "downloading"
 
-# Reported on a reservation whose apply never came back to stage its source.
-# Only reached when the row was stamped as dispatch-attempted, which a
-# reservation never is; the shared settlement below picks the abandoned wording
-# for every real one. It is passed anyway so the two branches cannot disagree
-# about which message belongs to which state.
+# fix(#1814): what the running sweep would have written, when a later apply
+# reaches the row first.
 STALE_RESERVATION_MESSAGE = "Stale: manifest source was never staged"
 
-# Returned to the caller whose reservation was settled by someone else while
-# its download ran. Names no id: the row this attempt owned is terminal, and
-# the row that replaced it belongs to a different request.
+# fix(#1814): names no id. The row this attempt owned is terminal, and the row
+# that replaced it belongs to a different request.
 RESERVATION_LOST_MESSAGE = (
     "Manifest dataset apply lost its reservation while the source was being "
     "staged; re-apply the manifest."
@@ -52,15 +42,10 @@ def downloading_stage_marker() -> dict[str, str]:
 async def lock_manifest_key(db: AsyncSession, key: str) -> None:
     """Serialize check-and-reserve for one manifest key.
 
-    fix(#1814): a transaction-scoped lock, so it is released by the commit that
-    makes the reservation visible and by the rollback the apply loop runs on a
-    rejected entry. The caller must end its transaction before any network I/O
-    and before moving on to the next entry: two manifests listing the same two
-    keys in opposite order would otherwise deadlock on each other.
-
-    Blocking rather than ``try``: the section it guards is bounded by database
-    work alone, and a waiter that gave up would have to answer the same
-    question with a weaker read.
+    Transaction-scoped, and blocking: the section it guards is bounded by
+    database work alone. The caller must end its transaction before any network
+    I/O and before the next entry, or two manifests naming the same two keys in
+    opposite order deadlock on each other (fix(#1814)).
     """
     await db.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
@@ -82,53 +67,80 @@ async def latest_in_flight_manifest_job(db: AsyncSession, key: str) -> IngestJob
     return result.scalar_one_or_none()
 
 
+def _reservation_lease_clauses(now: datetime, key: str) -> tuple:
+    """Every predicate that identifies an abandoned reservation for ``key``.
+
+    fix(#1814 audit): the running sweep's own predicate (`jobs/sweep.py`,
+    `status='running'` past ``coalesce(heartbeat_at, started_at)`` plus
+    ``JOB_TIMEOUT_SECONDS``), narrowed to one key's downloading stage, so the
+    sweep and the in-flight check cannot disagree about which rows are live.
+    """
+    return (
+        IngestJob.status == "running",
+        func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
+        < now - timedelta(seconds=JOB_TIMEOUT_SECONDS),
+        IngestJob.user_metadata["manifest_key"].astext == key,
+        IngestJob.user_metadata[MANIFEST_STAGE_METADATA_KEY].astext
+        == MANIFEST_STAGE_DOWNLOADING,
+    )
+
+
+def _without_stage_marker():
+    """The row's metadata with the downloading marker removed, as SQL.
+
+    Written as a JSONB key removal rather than from the instance, because both
+    callers may hold an expired one (fix(#1814)).
+    """
+    return IngestJob.user_metadata.op("-", return_type=JSONB)(
+        MANIFEST_STAGE_METADATA_KEY
+    )
+
+
 async def expire_stale_manifest_reservations(
     db: AsyncSession, key: str, *, now: datetime | None = None
 ) -> int:
     """Settle reservations for ``key`` whose apply never came back. Returns the count.
 
-    fix(#1814): an API process that dies between the reservation commit and the
-    staging bind leaves a `pending` row that would block the key until the
-    background sweep reached it. This is the same rule, narrowed to one key and
-    run under that key's lock, so the sweep and the in-flight check cannot
-    disagree about which rows are still live: the predicates and the written
-    columns both come from ``jobs/sweep.py`` rather than being restated here.
-
-    Settling rather than ignoring is what makes
-    ``bind_reservation_to_staged_source``'s fence sufficient. A merely slow
-    attempt whose reservation is expired here finds its row no longer pending
-    and drops its download instead of queueing on top of the reservation that
-    replaced it.
+    fix(#1814): settling rather than ignoring is what lets
+    ``bind_reservation_to_staged_source``'s fence catch a slow attempt whose
+    reservation was replaced, instead of letting it queue on top.
     """
     now = now or datetime.now(timezone.utc)
     result = await db.execute(
         update(IngestJob)
-        .where(
-            *stale_pending_clauses(now, completion_bound=False),
-            IngestJob.user_metadata["manifest_key"].astext == key,
-            IngestJob.user_metadata[MANIFEST_STAGE_METADATA_KEY].astext
-            == MANIFEST_STAGE_DOWNLOADING,
+        .where(*_reservation_lease_clauses(now, key))
+        .values(
+            status="failed",
+            error_message=STALE_RESERVATION_MESSAGE,
+            completed_at=now,
+            user_metadata=_without_stage_marker(),
         )
-        .values(**stale_pending_unbound_values(now, message=STALE_RESERVATION_MESSAGE))
+        .execution_options(synchronize_session=False)
     )
     return result.rowcount or 0
 
 
 async def bind_reservation_to_staged_source(
-    db: AsyncSession, job: IngestJob, *, file_path: str
+    db: AsyncSession, job: IngestJob, *, file_path: str, now: datetime | None = None
 ) -> bool:
     """Fenced downloading -> staged transition. False means the row is not ours.
 
-    fix(#1814): the reservation must still be pending, under the attempt this
-    apply reserved, and still in the downloading stage. Anything else means a
-    cancel, a sweep, or a later apply's staleness settlement already owns the
-    row's terminal state, and this attempt's bytes belong to nobody.
+    fix(#1814 audit): running -> pending, stamping ``staged_at`` in the same
+    statement so the pending sweep measures from staging rather than from a
+    creation that predates the whole download. Anything but running, under this
+    attempt, still downloading, means a staleness settlement owns the row's
+    terminal state and this attempt's bytes belong to nobody.
     """
+    now = now or datetime.now(timezone.utc)
+    # Snapshotted before the statement: a values() clause carrying a SQL
+    # expression cannot be evaluated in Python, so the ORM would otherwise
+    # expire this attribute and the mirror below would lazy-load it.
     metadata = {
         name: value
         for name, value in (job.user_metadata or {}).items()
         if name != MANIFEST_STAGE_METADATA_KEY
     }
+    metadata["staged_at"] = now.isoformat()
     result = await db.execute(
         update(IngestJob)
         .where(
@@ -138,14 +150,68 @@ async def bind_reservation_to_staged_source(
                 if job.attempt_id is not None
                 else IngestJob.attempt_id.is_(None)
             ),
-            IngestJob.status == "pending",
+            IngestJob.status == "running",
             IngestJob.user_metadata[MANIFEST_STAGE_METADATA_KEY].astext
             == MANIFEST_STAGE_DOWNLOADING,
         )
-        .values(file_path=file_path, user_metadata=metadata)
+        .values(
+            status="pending",
+            file_path=file_path,
+            user_metadata=_without_stage_marker().op("||", return_type=JSONB)(
+                func.jsonb_build_object("staged_at", now.isoformat())
+            ),
+        )
+        .execution_options(synchronize_session=False)
     )
     if not result.rowcount:
         return False
-    job.file_path = file_path
-    job.user_metadata = metadata
+    # fix(#1814 audit): `set_committed_value`, not assignment. The instance has
+    # to describe the row, but a dirty attribute would have the caller's own
+    # commit flush a second, unfenced ORM update over the fenced one above.
+    set_committed_value(job, "status", "pending")
+    set_committed_value(job, "file_path", file_path)
+    set_committed_value(job, "user_metadata", metadata)
+    return True
+
+
+async def release_manifest_reservation(
+    db: AsyncSession, job: IngestJob, message: str, *, now: datetime | None = None
+) -> bool:
+    """Fenced running -> failed for a reservation that never staged its source.
+
+    fix(#1814 audit): the shared ``settle_ingest_job_failed`` fences on
+    ``pending``, which a reservation is not until it binds, so the lease has its
+    own exit. Fenced the same way, so a row a staleness settlement already owns
+    keeps that terminal state, and mirrored onto the instance only when the CAS
+    landed, so the object keeps describing the row. ``user_metadata`` is left
+    alone: reading it is a lazy load on a session that has just been reset, and
+    the marker is inert once the row is terminal.
+    """
+    now = now or datetime.now(timezone.utc)
+    result = await db.execute(
+        update(IngestJob)
+        .where(
+            IngestJob.id == job.id,
+            (
+                IngestJob.attempt_id == job.attempt_id
+                if job.attempt_id is not None
+                else IngestJob.attempt_id.is_(None)
+            ),
+            IngestJob.status == "running",
+            IngestJob.user_metadata[MANIFEST_STAGE_METADATA_KEY].astext
+            == MANIFEST_STAGE_DOWNLOADING,
+        )
+        .values(
+            status="failed",
+            error_message=message,
+            completed_at=now,
+            user_metadata=_without_stage_marker(),
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if not result.rowcount:
+        return False
+    set_committed_value(job, "status", "failed")
+    set_committed_value(job, "error_message", message)
+    set_committed_value(job, "completed_at", now)
     return True

@@ -16,13 +16,17 @@ from unittest.mock import AsyncMock, patch
 import anyio
 import pytest
 from fastapi import HTTPException, Request
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text, update
 
 from app.core.config import settings
 from app.modules.auth.models import User
 from app.modules.quota.schemas import UserQuotaUsage
 from app.platform.jobs.models import IngestJob
-from app.platform.jobs.sweep import stale_pending_cutoff_seconds
+from app.platform.jobs.sweep import (
+    JOB_TIMEOUT_SECONDS,
+    fail_stale_jobs,
+    stale_pending_cutoff_seconds,
+)
 from app.processing.ingest import manifest_service
 from app.processing.ingest.manifest_reservation import (
     MANIFEST_STAGE_DOWNLOADING,
@@ -100,10 +104,14 @@ def _staged_bytes(name: str, size: int = 4096) -> Path:
 
 
 async def _jobs_for_key(session, key: str) -> list[IngestJob]:
+    # populate_existing, because these assertions are about the row and a
+    # settlement written as a fenced UPDATE does not reach the identity map.
+    # Narrower than expire_all(), which would also expire the caller's own User.
     result = await session.execute(
         select(IngestJob)
         .where(IngestJob.user_metadata["manifest_key"].astext == key)
         .order_by(IngestJob.created_at)
+        .execution_options(populate_existing=True)
     )
     return list(result.scalars())
 
@@ -387,6 +395,84 @@ class TestReservationFailureReleasesTheKey:
         queue.assert_not_awaited()
         assert not staged.exists()
 
+    async def test_a_database_failure_during_the_bind_still_clears_the_key(
+        self, test_db_session, clean_tables
+    ):
+        """fix(#1814 codex r1): the settlement runs on a reset session.
+
+        A statement that failed leaves the transaction refusing every further
+        statement, so a settlement issued straight onto it raises too. Before
+        the reset, the reservation stayed pending in the downloading stage and
+        every re-apply attached to a job that would never queue.
+        """
+        request = _request(
+            _manifest_dataset(
+                key="manifest-1814-poisoned",
+                uri="https://data.example.test/roads.geojson",
+            )
+        )
+        staged = _staged_bytes("manifest_1814_poisoned.geojson")
+
+        async def _poisoning_bind(db, job, *, file_path: str) -> bool:
+            await db.execute(text("SELECT 1 / 0"))
+            return True
+
+        with (
+            patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
+            patch(
+                "app.processing.ingest.manifest_service._download_http_source",
+                new=AsyncMock(return_value=str(staged)),
+            ),
+            patch(
+                "app.processing.ingest.manifest_service."
+                "bind_reservation_to_staged_source",
+                new=_poisoning_bind,
+            ),
+            patch(
+                "app.processing.ingest.manifest_service.queue_ingest_job",
+                new=AsyncMock(),
+            ) as queue,
+        ):
+            response = await apply_manifest(
+                test_db_session,
+                request,
+                await _admin_user(test_db_session),
+                _http_request(),
+            )
+
+        assert response.results[0].action == "error"
+        queue.assert_not_awaited()
+        assert not staged.exists()
+
+        settled = await _jobs_for_key(test_db_session, "manifest-1814-poisoned")
+        assert len(settled) == 1
+        assert settled[0].status in {"failed", "cancelled"}
+        assert MANIFEST_STAGE_METADATA_KEY not in (settled[0].user_metadata or {})
+
+        # The key is free: a re-apply creates its own job instead of attaching.
+        retry_staged = _staged_bytes("manifest_1814_poisoned_retry.geojson")
+        with (
+            patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
+            patch(
+                "app.processing.ingest.manifest_service._download_http_source",
+                new=AsyncMock(return_value=str(retry_staged)),
+            ),
+            patch(
+                "app.processing.ingest.manifest_service.queue_ingest_job",
+                new=AsyncMock(),
+            ) as queue,
+        ):
+            retried = await apply_manifest(
+                test_db_session,
+                request,
+                await _admin_user(test_db_session),
+                _http_request(),
+            )
+
+        assert retried.results[0].action == "create"
+        assert retried.results[0].job_id != settled[0].id
+        queue.assert_awaited_once()
+
     async def test_a_queue_refusal_before_dispatch_still_frees_the_key(
         self, test_db_session, clean_tables
     ):
@@ -492,6 +578,122 @@ class TestReservationFailureReleasesTheKey:
 
 
 class TestStaleReservations:
+    """The reservation runs under the fixed running lease, not the pending one.
+
+    fix(#1814 audit): a committed `pending` row with no file_path and no queue
+    task matches every clause of `stale_pending_clauses`, and
+    `pending_job_timeout_seconds` may legally be 61s while a manifest download
+    has no wall-clock bound of its own. The reservation was therefore reapable
+    mid-flight by the sweep, the worker's startup recovery, the status poll and
+    the next apply, and every retry repeated the loss.
+    """
+
+    def _reservation(self, user, dataset, prepared, *, age_seconds: float) -> IngestJob:
+        return IngestJob(
+            source_filename=prepared.source_filename,
+            file_path=None,
+            created_by=user.id,
+            status="running",
+            started_at=datetime.now(timezone.utc) - timedelta(seconds=age_seconds),
+            user_metadata={
+                **manifest_job_metadata(
+                    dataset,
+                    prepared,
+                    fingerprint=manifest_dataset_fingerprint(dataset),
+                ),
+                MANIFEST_STAGE_METADATA_KEY: MANIFEST_STAGE_DOWNLOADING,
+            },
+        )
+
+    async def test_a_live_download_survives_the_pending_sweep(
+        self, client, clean_tables
+    ):
+        """The audit's counterfactual: a download older than the pending cutoff.
+
+        Aged past `pending_job_timeout_seconds` with its lease still fresh, then
+        put through the real `fail_stale_jobs`. Before the lease it came back
+        `cancelled` mid-download, the staging bind then matched nothing, and the
+        entry answered "lost its reservation" for every retry.
+        """
+        import app.core.db as db_module
+
+        key = "manifest-1814-long-download"
+        request = _request(
+            _manifest_dataset(key=key, uri="https://data.example.test/big.geojson")
+        )
+        download = _GatedDownload()
+        first: dict = {}
+        observed: dict = {}
+
+        async def _run_first() -> None:
+            async with db_module.async_session() as session:
+                user = await _admin_user(session)
+                first["response"] = await apply_manifest(
+                    session, request, user, _http_request()
+                )
+
+        with (
+            patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
+            patch(
+                "app.processing.ingest.manifest_service._download_http_source",
+                new=download,
+            ),
+            patch(
+                "app.processing.ingest.manifest_service.queue_ingest_job",
+                new=AsyncMock(),
+            ) as queue,
+        ):
+            try:
+                async with anyio.create_task_group() as tg:
+                    tg.start_soon(_run_first)
+                    with anyio.fail_after(60):
+                        await download.started.wait()
+                        async with db_module.async_session() as sweeper:
+                            now = datetime.now(timezone.utc)
+                            aged = now - timedelta(
+                                seconds=stale_pending_cutoff_seconds(
+                                    completion_bound=False
+                                )
+                                + 600
+                            )
+                            await sweeper.execute(
+                                update(IngestJob)
+                                .where(
+                                    IngestJob.user_metadata["manifest_key"].astext
+                                    == key
+                                )
+                                .values(created_at=aged, started_at=now)
+                                .execution_options(synchronize_session=False)
+                            )
+                            await sweeper.commit()
+                            await fail_stale_jobs(sweeper, detailed=True)
+                            sweeper.expire_all()
+                            observed["status"] = (
+                                await sweeper.execute(
+                                    select(IngestJob.status).where(
+                                        IngestJob.user_metadata["manifest_key"].astext
+                                        == key
+                                    )
+                                )
+                            ).scalar_one()
+                    download.release.set()
+            finally:
+                download.release.set()
+
+        assert observed["status"] == "running"
+        created = first["response"].results[0]
+        assert created.action == "create"
+        queue.assert_awaited_once()
+
+        async with db_module.async_session() as session:
+            bound = (await _jobs_for_key(session, key))[0]
+        assert bound.status == "pending"
+        assert bound.file_path is not None
+        assert MANIFEST_STAGE_METADATA_KEY not in bound.user_metadata
+        # The pending clock restarts at staging, not at a creation that predates
+        # the whole download.
+        assert bound.user_metadata["staged_at"] is not None
+
     async def test_a_stale_reservation_does_not_block_the_key(
         self, test_db_session, clean_tables
     ):
@@ -500,23 +702,11 @@ class TestStaleReservations:
         user = await _admin_user(test_db_session)
         request = _request(_manifest_dataset(key="manifest-1814-stale"))
         prepared = await classify_manifest_source(request.datasets[0].sources[0])
-        abandoned = IngestJob(
-            source_filename=prepared.source_filename,
-            file_path=None,
-            created_by=user.id,
-            status="pending",
-            created_at=datetime.now(timezone.utc)
-            - timedelta(
-                seconds=stale_pending_cutoff_seconds(completion_bound=False) + 60
-            ),
-            user_metadata={
-                **manifest_job_metadata(
-                    request.datasets[0],
-                    prepared,
-                    fingerprint=manifest_dataset_fingerprint(request.datasets[0]),
-                ),
-                MANIFEST_STAGE_METADATA_KEY: MANIFEST_STAGE_DOWNLOADING,
-            },
+        abandoned = self._reservation(
+            user,
+            request.datasets[0],
+            prepared,
+            age_seconds=JOB_TIMEOUT_SECONDS + 60,
         )
         test_db_session.add(abandoned)
         await test_db_session.commit()
@@ -535,14 +725,16 @@ class TestStaleReservations:
         assert result.job_id != abandoned_id
         queue.assert_awaited_once()
 
-        reaped = await test_db_session.get(IngestJob, abandoned_id)
-        await test_db_session.refresh(reaped)
-        assert reaped.status in {"failed", "cancelled"}
+        reaped = await test_db_session.get(
+            IngestJob, abandoned_id, populate_existing=True
+        )
+        assert reaped.status == "failed"
+        assert MANIFEST_STAGE_METADATA_KEY not in reaped.user_metadata
 
-    async def test_a_reservation_inside_the_budget_still_holds_the_key(
+    async def test_a_reservation_inside_the_lease_still_holds_the_key(
         self, test_db_session, clean_tables
     ):
-        """The budget is the sweep's own pending cutoff, read at call time.
+        """The budget is the running sweep's own lease, read at call time.
 
         Pinned from both sides against the one number, so the in-flight check
         and the background sweep cannot start disagreeing about which rows are
@@ -552,22 +744,11 @@ class TestStaleReservations:
         user = await _admin_user(test_db_session)
         request = _request(_manifest_dataset(key="manifest-1814-budget"))
         prepared = await classify_manifest_source(request.datasets[0].sources[0])
-        budget = stale_pending_cutoff_seconds(completion_bound=False)
-        metadata = {
-            **manifest_job_metadata(
-                request.datasets[0],
-                prepared,
-                fingerprint=manifest_dataset_fingerprint(request.datasets[0]),
-            ),
-            MANIFEST_STAGE_METADATA_KEY: MANIFEST_STAGE_DOWNLOADING,
-        }
-        fresh = IngestJob(
-            source_filename=prepared.source_filename,
-            file_path=None,
-            created_by=user.id,
-            status="pending",
-            created_at=datetime.now(timezone.utc) - timedelta(seconds=budget - 60),
-            user_metadata=metadata,
+        fresh = self._reservation(
+            user,
+            request.datasets[0],
+            prepared,
+            age_seconds=JOB_TIMEOUT_SECONDS - 60,
         )
         test_db_session.add(fresh)
         await test_db_session.commit()
@@ -603,8 +784,8 @@ class TestStaleReservations:
             source_filename=prepared.source_filename,
             file_path="/tmp/manifest-1814-queued.geojson",
             created_by=user.id,
-            status="pending",
-            created_at=datetime.now(timezone.utc) - timedelta(days=30),
+            status="running",
+            started_at=datetime.now(timezone.utc) - timedelta(days=30),
             user_metadata=manifest_job_metadata(
                 request.datasets[0],
                 prepared,

@@ -2529,6 +2529,15 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     generated). Leaving them was the worse option — a reader who trusts a
 #     stale precondition unwinds the wrong defence.
 _MODULE_LOC_CAPS: dict[str, int] = {
+    # fix(#1814): first entry, crossed _RATCHET_INCLUSION_LOC when the manifest
+    # apply started reserving an entry's key before fetching its source. The
+    # growth is the reserve/stage/bind split of what used to be one
+    # create-and-queue function, the two settlement exits the split needs (a
+    # reservation is `running`, a bound row is `pending`, and the shared
+    # settlement fences on the latter), the quota preflight moving ahead of the
+    # reservation, and the staging deadline that keeps a download inside the
+    # lease it is judged by. Cap 1056, exact.
+    "backend/app/processing/ingest/manifest_service.py": 1056,
     # fix(#1770 round 43 P1): crossed _RATCHET_INCLUSION_LOC on the XML
     # streaming preflight (`_xml_preflight`, `MAX_DOCUMENT_ATTRIBUTES`,
     # `MAX_DOCUMENT_DEPTH`) that closes the attribute-bomb/deep-nesting-bomb/

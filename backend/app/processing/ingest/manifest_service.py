@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast
 
+import structlog
 from fastapi import HTTPException, Request
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,8 +28,10 @@ from app.platform.extensions.entitlement import enforce_limit
 from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
+    reset_session_for_settlement,
     settle_ingest_job_failed,
 )
+from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS
 
 from app.platform.jobs.models import IngestJob
 from app.processing.ingest.manifest_reservation import (
@@ -36,6 +41,7 @@ from app.processing.ingest.manifest_reservation import (
     expire_stale_manifest_reservations,
     latest_in_flight_manifest_job,
     lock_manifest_key,
+    release_manifest_reservation,
 )
 from app.processing.ingest.manifest_schemas import (
     ManifestApplyEntryResult,
@@ -58,6 +64,14 @@ from app.processing.ingest.service import queue_ingest_job, validate_file_extens
 # one `asyncio.to_thread` handoff each. 4 MiB keeps peak buffer memory small
 # while amortizing the thread hop across ~64 chunks.
 _WRITE_BUFFER_BYTES = 4 * 1024 * 1024
+
+# fix(#1814 audit): total wall clock for staging one entry, derived from the
+# running lease the reservation is judged by so the two cannot drift. Half of
+# it, because a download that outlives its own lease is reaped mid-flight and
+# every retry repeats the loss.
+MANIFEST_STAGE_MAX_SECONDS = JOB_TIMEOUT_SECONDS // 2
+
+log = structlog.get_logger()
 
 
 @dataclass(frozen=True)
@@ -95,9 +109,8 @@ class _StagedManifestSource:
 class _ReservedEntry:
     """A committed reservation plus everything staging it needs afterwards.
 
-    fix(#1814): carries plain values rather than ORM instances (beyond the job
-    row itself), because the session between the reservation commit and the
-    staging bind is free to be handed to another request.
+    Plain values beyond the job row itself: the session is free to serve
+    another request between the reservation commit and the staging bind.
     """
 
     job: IngestJob
@@ -189,9 +202,9 @@ async def _download_http_source(
 ) -> str:
     """Stream one manifest source to staging. Takes no database session.
 
-    fix(#1814): the size ceiling is read by the caller, before the reservation
-    commit. A session parameter here would check a pooled connection back out
-    and hold its transaction open for the length of the download.
+    fix(#1814): a session parameter would check a pooled connection back out
+    and hold its transaction open for the length of the download, so the caller
+    reads the size ceiling before the reservation commit.
     """
     staging_dir = Path(settings.upload_staging_dir)
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -297,6 +310,35 @@ async def _download_http_source(
 
 
 async def _stage_source_if_needed(
+    prepared: ManifestPreparedSource,
+    *,
+    dry_run: bool,
+    max_size_bytes: int,
+    quota_byte_limit: int | None = None,
+) -> str | None:
+    """Put one manifest source where ingest can read it, under a total deadline.
+
+    fix(#1814 audit): httpx's 60s clock is per read, so a source trickling
+    steadily has no wall-clock bound of its own. Staging that outlives the
+    reservation's lease is reaped mid-flight and every retry repeats the loss,
+    so the bound lives here, where it travels with the operation.
+    """
+    try:
+        async with asyncio.timeout(MANIFEST_STAGE_MAX_SECONDS):
+            return await _stage_source(
+                prepared,
+                dry_run=dry_run,
+                max_size_bytes=max_size_bytes,
+                quota_byte_limit=quota_byte_limit,
+            )
+    except TimeoutError as exc:
+        raise ManifestSourceError(
+            "Manifest source did not finish staging within "
+            f"{MANIFEST_STAGE_MAX_SECONDS} seconds"
+        ) from exc
+
+
+async def _stage_source(
     prepared: ManifestPreparedSource,
     *,
     dry_run: bool,
@@ -530,6 +572,8 @@ async def _classify_dataset(
     db: AsyncSession,
     dataset: ManifestDataset,
     user: Identity,
+    *,
+    dry_run: bool = False,
 ) -> tuple[str, ManifestPreparedSource | None, IngestJob | None, object | None, str]:
     fingerprint = manifest_dataset_fingerprint(dataset)
     if not dataset.sources:
@@ -558,7 +602,11 @@ async def _classify_dataset(
     # section on this key, and nothing inside it may touch the network. The
     # SSRF validation above is deliberately outside it.
     await lock_manifest_key(db, dataset.key)
-    await expire_stale_manifest_reservations(db, dataset.key)
+    if not dry_run:
+        # fix(#1814 audit): a preview writes nothing, so it does not settle
+        # another caller's abandoned reservation. The cost is that a dry run
+        # can still report an entry as in flight where an apply would take it.
+        await expire_stale_manifest_reservations(db, dataset.key)
 
     in_flight = await latest_in_flight_manifest_job(db, dataset.key)
     if in_flight is not None:
@@ -651,12 +699,10 @@ async def _reserve_entry(
 ) -> _ReservedEntry:
     """Commit this key's claim, and everything staging needs, in one transaction.
 
-    fix(#1814): the row goes in BEFORE the source is fetched, carrying the
-    downloading stage marker, so a client that times out mid-download and
-    retries sees `skip_in_flight` for its own job instead of starting a second
-    download of the same entry. The caller holds this key's advisory lock; the
-    commit here is what publishes the claim and releases both the lock and the
-    pooled connection.
+    fix(#1814): the row goes in before the source is fetched, so a client that
+    times out mid-download and retries sees `skip_in_flight` for its own job.
+    The commit publishes the claim and releases both the caller's key lock and
+    the pooled connection.
     """
     creates_dataset = dataset_id is None
     quota_byte_limit = await _preflight_quota(
@@ -675,6 +721,9 @@ async def _reserve_entry(
         metadata["reupload"] = True
         metadata["dataset_id"] = str(dataset_id)
 
+    # fix(#1814 audit): `running`, not `pending`. A pending row with no
+    # file_path and no queue task is reapable by four actors while its source
+    # is still downloading; the fixed lease is not.
     job = IngestJob(
         dataset_id=dataset_id,
         source_filename=prepared.source_filename,
@@ -682,7 +731,8 @@ async def _reserve_entry(
         source_url=None,
         source_layer=prepared.source_layer,
         created_by=user.id,
-        status="pending",
+        status="running",
+        started_at=datetime.now(timezone.utc),
         user_metadata=metadata,
     )
     db.add(job)
@@ -700,18 +750,46 @@ async def _reserve_entry(
 async def _fail_reservation(
     db: AsyncSession, job: IngestJob, exc: BaseException
 ) -> None:
-    """Settle a reservation whose source never reached staging.
+    """Settle a reservation that never staged its source, freeing its key.
 
-    Best effort by construction: this runs while an entry is already failing,
-    and the shared settlement is fenced, so a row some other actor has already
-    settled is left exactly as that actor left it.
+    fix(#1814 codex r1): the session is reset first. The failure that brought
+    us here is often a database error, which leaves the transaction refusing
+    every further statement, so a settlement issued onto it would raise too and
+    leave the reservation holding its key until the lease expired.
     """
+    # Read before the reset: the restore covers the identifiers, but a log line
+    # in the handler below must not be the thing that raises.
+    job_id = job.id
+    await reset_session_for_settlement(job, db=db)
     try:
-        await settle_ingest_job_failed(
-            job, exc, message_prefix="Failed to stage manifest source"
+        await release_manifest_reservation(
+            db, job, f"Failed to stage manifest source: {exc}"
         )
         await db.commit()
-    except Exception:  # broad: the session may already be unusable
+    except Exception:  # broad: a session this far gone is the sweep's problem
+        log.exception("Could not settle a manifest reservation", job_id=str(job_id))
+        await db.rollback()
+
+
+async def _fail_queued_manifest_job(
+    db: AsyncSession, job: IngestJob, exc: BaseException
+) -> None:
+    """Settle a bound row whose dispatch never reached the queue.
+
+    fix(#1814): past the staging bind the row is `pending` like every other
+    queued job, so this takes the shared settlement's own fence rather than the
+    lease's. The orphan guard has already settled it for a dispatch failure;
+    only a refusal raised before the guard ran lands here.
+    """
+    job_id = job.id
+    await reset_session_for_settlement(job, db=db)
+    try:
+        await settle_ingest_job_failed(
+            job, exc, message_prefix="Failed to queue manifest job"
+        )
+        await db.commit()
+    except Exception:  # broad: a session this far gone is the sweep's problem
+        log.exception("Could not settle a manifest job", job_id=str(job_id))
         await db.rollback()
 
 
@@ -777,11 +855,7 @@ async def _finalize_reserved_entry(
             creates_dataset=reserved.creates_dataset,
         )
         _cleanup_downloaded_source(prepared, file_path)
-        # fix(#1814): an entry that did not reach the queue must not go on
-        # holding its key. The orphan guard has already settled the row for
-        # every dispatch failure, and the settlement is fenced on `pending`,
-        # so this only lands for a refusal raised before the guard ran.
-        await _fail_reservation(db, job, exc)
+        await _fail_queued_manifest_job(db, job, exc)
         raise
 
     if reserved.dataset_id is None:
@@ -819,19 +893,11 @@ async def _reserve_or_settle_entry(
 ) -> ManifestApplyEntryResult | _ReservedEntry:
     """The locked half of one entry: classify, then either answer or reserve.
 
-    fix(#1814): every exit from this function ends the transaction, because
-    `_classify_dataset` takes this key's advisory lock and a lock still held
-    when the next entry runs would sit across that entry's download, and could
-    deadlock two manifests that list the same two keys in opposite order.
-    Returning a result means the entry is answered from what the key already
-    holds; returning a reservation means the caller owns the key until it
-    stages or settles the row.
-
-    Ended by committing rather than rolling back, on the answered paths too:
-    `expire_stale_manifest_reservations` may have settled an abandoned
-    reservation for this key, a dry run has to report the same answer a real
-    apply would, and a rollback would expire every instance the caller still
-    holds.
+    A result means the entry is answered from what the key already holds; a
+    reservation means the caller owns the key until it stages or settles that
+    row. fix(#1814): every exit ends the transaction, by committing even on the
+    answered paths, so the key lock is never held across the next entry's
+    download and the staleness settlement is not thrown away.
     """
     (
         classification,
@@ -839,7 +905,7 @@ async def _reserve_or_settle_entry(
         job,
         existing_dataset,
         fingerprint,
-    ) = await _classify_dataset(db, dataset, user)
+    ) = await _classify_dataset(db, dataset, user, dry_run=request.dry_run)
     if prepared is None:
         raise ManifestSourceError("Manifest source could not be prepared")
 
