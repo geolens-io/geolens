@@ -1175,9 +1175,9 @@ async def upload_file(
         job = await create_ingest_job(db, file.filename, "", user.id)
         job_id = job.id
         job_metadata = job.user_metadata
-        # fix(#1848): the job is committed BEFORE the upload so the pooled
-        # connection is not held across it. The row survives a failed upload
-        # as `pending` with no `file_path`, which the stale-pending sweep reaps.
+        # fix(#1848): committed BEFORE the spooled body is staged, so no pooled
+        # connection is held across the staging copy or put, the validation
+        # download and the content sniff; a failed staging leaves it for the sweep.
         await db.commit()
         saved_path = await save_upload_file(
             file, str(job_id), max_size_bytes=max_size_bytes
@@ -1197,7 +1197,9 @@ async def upload_file(
                 # already reclaimed keeps its terminal status and message.
                 await db.execute(
                     _pending_upload_update(job_id).values(
-                        status="failed", error_message=str(exc)
+                        status="failed",
+                        error_message=str(exc),
+                        completed_at=datetime.now(timezone.utc),
                     )
                 )
                 await db.commit()

@@ -209,7 +209,8 @@ async def _bind_presigned_reupload(
     """Write the presigned facts onto the job; False when no row matched.
 
     No `staged_at` is stamped: nothing is staged until the completion door
-    binds the frozen object, and that key restarts the pending window.
+    binds the frozen key, which moves the row into the sweep's 24-hour
+    completion-bound class, still measured from `created_at`.
     """
     bound = await db.execute(
         _pending_reupload_update(job_id, dataset_id).values(user_metadata=metadata)
@@ -382,7 +383,9 @@ async def reupload_dataset(
             # already reclaimed keeps its terminal status and message.
             await db.execute(
                 _pending_reupload_update(job.id, dataset_id).values(
-                    status="failed", error_message=str(exc)
+                    status="failed",
+                    error_message=str(exc),
+                    completed_at=datetime.now(timezone.utc),
                 )
             )
             await db.commit()

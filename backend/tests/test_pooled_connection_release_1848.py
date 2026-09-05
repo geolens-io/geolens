@@ -1005,18 +1005,20 @@ async def _post_upload(client: AsyncClient, admin_auth_header: dict, filename: s
     )
 
 
-async def test_upload_commits_the_job_before_streaming_the_file(
+async def test_upload_commits_the_job_before_staging_the_file(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session: AsyncSession,
     request_sessions,
     tmp_path: Path,
 ):
-    """The whole multipart body streamed on a held connection.
+    """The staging step ran on a held connection.
 
-    Same shape as the direct re-upload door: the row is committed first, which
-    frees the connection and leaves a `pending` row the sweep can reap if the
-    upload never finishes, and the bind afterwards is guarded.
+    FastAPI spools the multipart body before any dependency runs, so the
+    connection was never held across the network stream. It was held across
+    `save_upload_file` (the copy into staging, or the S3 put), the validation
+    download and the content sniff. Same shape as the direct re-upload door:
+    the row is committed first and the bind afterwards is guarded.
     """
     from app.processing.ingest import router as ingest_router
 
@@ -1027,7 +1029,7 @@ async def test_upload_commits_the_job_before_streaming_the_file(
 
     async def _recording_save(_file, job_id, **_kwargs):
         held.append(_holds_connection(request_sessions))
-        # Durable before a byte arrives: another session can already see it.
+        # Durable before staging starts: another session can already see it.
         visible.append(
             await test_db_session.get(IngestJob, uuid.UUID(job_id)) is not None
         )
@@ -1042,8 +1044,8 @@ async def test_upload_commits_the_job_before_streaming_the_file(
 
     assert resp.status_code == 201, resp.text
     assert held == [False], (
-        "the request session was still in a transaction while the upload "
-        "streamed, so it held a pooled connection for the whole transfer"
+        "the request session was still in a transaction while the spooled "
+        "body was staged, so it held a pooled connection across that work"
     )
     assert visible == [True]
     job = await _job_named(test_db_session, filename)
@@ -1107,8 +1109,9 @@ async def test_a_slow_local_upload_that_binds_is_not_reaped_by_the_next_sweep(
 
     The local provider binds an absolute path, which never reaches the sweep's
     `staging/%` completion class, so the row stays in the class measured from
-    `coalesce(staged_at, created_at)`. Without the stamp an upload slower than
-    the pending timeout was accepted with 201 and cancelled by the next sweep.
+    `coalesce(staged_at, created_at)`. Without the stamp a staging step slower
+    than the pending timeout was accepted with 201 and cancelled by the next
+    sweep.
     """
     from app.api.main import sweep_stale_jobs_once
     from app.platform.jobs.sweep import stale_pending_cutoff_seconds
@@ -1181,5 +1184,50 @@ async def test_an_upload_refused_for_content_leaves_a_failed_job(
     job = await _job_named(test_db_session, filename)
     assert job.status == "failed"
     assert job.error_message == "a2b: not a recognised dataset"
+    # Terminal rows carry `completed_at`, as every other terminal writer stamps it.
+    assert job.completed_at is not None
     assert not job.file_path
+    assert not staged_file.exists()
+
+
+async def test_a_direct_reupload_refused_for_content_leaves_a_completed_failed_row(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    tmp_path: Path,
+):
+    """The direct door's refusal stamp carries `completed_at` like every other terminal writer."""
+    from app.modules.catalog.datasets.api import router_reupload
+
+    dataset = await _vector_dataset(test_db_session)
+    filename = f"a2b-{uuid.uuid4().hex[:8]}.geojson"
+    staged_file = tmp_path / filename
+    port = router_reupload.get_catalog_port()
+
+    async def _save(_file, _job_id, **_kwargs):
+        staged_file.write_bytes(b"not a dataset")
+        return staged_file
+
+    with (
+        patch.object(port, "save_upload_file", new=_save),
+        patch.object(
+            port,
+            "validate_file_content",
+            side_effect=ValueError("a2b: not a recognised dataset"),
+        ),
+        patch.object(router_reupload, "get_catalog_port", return_value=port),
+    ):
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload",
+            files={
+                "file": (filename, BytesIO(_EMPTY_COLLECTION), "application/geo+json")
+            },
+            headers=admin_auth_header,
+        )
+
+    assert resp.status_code == 422, resp.text
+    job = await _job_named(test_db_session, filename)
+    assert job.status == "failed"
+    assert job.error_message == "a2b: not a recognised dataset"
+    assert job.completed_at is not None
     assert not staged_file.exists()
