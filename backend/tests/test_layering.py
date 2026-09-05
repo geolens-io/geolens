@@ -4122,7 +4122,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # exempted with a reason rather than bound (see
     # `test_every_parse_qsl_call_bounds_its_field_count`'s own docstring).
     # Cap 1562 -> 1589, exact.
-    "backend/app/core/config.py": 1589,
+    # fix(#1871): +70 for SECRET_ENCRYPTION_KEY and SECRET_ENCRYPTION_KEY_
+    # PREVIOUS: the two fields, the KNOWN_PUBLIC_CREDENTIALS set the boot guard
+    # checks them against, and the guard itself, which is most of it because
+    # each of its four refusals has to say in its message what the operator got
+    # wrong and how to generate a valid key. Cap 1589 -> 1659, exact.
+    "backend/app/core/config.py": 1659,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of

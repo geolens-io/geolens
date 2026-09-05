@@ -327,6 +327,21 @@ KNOWN_BAD_JWT_SECRETS = frozenset(
     }
 )
 
+# fix(#1871): every literal this repo treats as public knowledge, in one place,
+# so a new secret-bearing setting refuses all of them rather than the subset
+# whoever added it remembered (Rule 3).
+KNOWN_PUBLIC_CREDENTIALS = frozenset(
+    {KNOWN_BAD_JWT_SECRET, KNOWN_BAD_ADMIN_PASSWORD, KNOWN_BAD_POSTGRES_PASSWORD}
+    | KNOWN_BAD_JWT_SECRETS
+)
+
+# fix(#1871): shown by every SECRET_ENCRYPTION_KEY* boot failure. A Fernet key
+# is url-safe base64 of 32 random bytes, so `openssl rand -hex 32` (the hint on
+# JWT_SECRET_KEY) does NOT produce one.
+FERNET_KEY_HINT = (
+    " Generate a fresh value with `openssl rand -base64 32 | tr '+/' '-_'`."
+)
+
 # fix(#1778): bcrypt's input limit, restated here because `core/` may not import
 # from `app.modules.*` (tests/test_layering.py::test_core_does_not_import_from_
 # any_module) and the canonical definition lives beside the hasher, in
@@ -369,6 +384,13 @@ class Settings(BaseSettings):
     # concurrent refreshes (multi-tab) don't strand the losers of the
     # rotation race. 0 restores instant single-use revocation.
     refresh_rotation_grace_seconds: int = Field(default=30, ge=0)
+
+    # fix(#1871): Fernet key for secrets stored at rest (SSO client secrets,
+    # SAML IdP certificates). Unset, they are encrypted under a key derived
+    # from JWT_SECRET_KEY, so a JWT rotation makes every one of them unreadable.
+    secret_encryption_key: SecretStr | None = None
+    # The key it replaced. Read-only, until rotate_secrets.py has swept the rows.
+    secret_encryption_key_previous: SecretStr | None = None
 
     # SEC-S16 (Phase 1062-01): password complexity policy.
     # PASSWORD_MIN_LENGTH controls the minimum character count (default 12).
@@ -799,6 +821,11 @@ class Settings(BaseSettings):
         "s3_addressing_style",
         "database_ssl_ca_cert",
         "tile_signing_secret",
+        # fix(#1871): an uncommented-but-empty .env line arrives as "", which
+        # would otherwise reach validate_known_bad_credentials' Fernet check
+        # and fail boot on a config shape that means "not set" (INST-01 class).
+        "secret_encryption_key",
+        "secret_encryption_key_previous",
         "azure_storage_container",
         "azure_storage_connection_string",
         "azure_storage_account_url",
@@ -1264,6 +1291,49 @@ class Settings(BaseSettings):
             raise ValueError(
                 "POSTGRES_PASSWORD is set to a known-public literal from the "
                 "project's git history." + hint
+            )
+
+        # fix(#1871): fail here, not at the first SSO login. A bad value in
+        # either key is only noticed when someone tries to sign in, and by then
+        # the failure looks like a broken identity provider.
+        from cryptography.fernet import Fernet
+
+        for name, configured in (
+            ("SECRET_ENCRYPTION_KEY", self.secret_encryption_key),
+            ("SECRET_ENCRYPTION_KEY_PREVIOUS", self.secret_encryption_key_previous),
+        ):
+            if configured is None:
+                continue
+            raw = configured.get_secret_value()
+            if raw in KNOWN_PUBLIC_CREDENTIALS:
+                raise ValueError(
+                    f"{name} is set to a known-public literal from the "
+                    "project's git history." + FERNET_KEY_HINT
+                )
+            if raw == jwt_value:
+                raise ValueError(
+                    f"{name} must not be the same value as JWT_SECRET_KEY. "
+                    "Sharing it restores the coupling this setting exists to "
+                    "remove: rotating the JWT secret would again make every "
+                    "stored SSO secret undecryptable." + FERNET_KEY_HINT
+                )
+            try:
+                Fernet(raw.encode())
+            except (ValueError, TypeError) as exc:
+                raise ValueError(
+                    f"{name} is not a valid Fernet key. It must be url-safe "
+                    "base64 of 32 random bytes." + FERNET_KEY_HINT
+                ) from exc
+
+        if self.secret_encryption_key is None and (
+            self.secret_encryption_key_previous is not None
+        ):
+            raise ValueError(
+                "SECRET_ENCRYPTION_KEY_PREVIOUS is set without "
+                "SECRET_ENCRYPTION_KEY. The previous key is only ever read "
+                "from; leaving it alone as the newest key would encrypt every "
+                "later write under the key you are retiring. Promote it to "
+                "SECRET_ENCRYPTION_KEY, or unset it."
             )
 
         return self

@@ -94,3 +94,22 @@ including Ctrl-C and unexpected signals (via `trap cleanup EXIT INT TERM`).
   script to keep the documentation honest.
 - First run takes ~2-3 minutes to compile pgvector inside the image
   build. Subsequent runs are seconds (cache hit on the `./db` image).
+
+## Stored-secret re-encryption
+
+**Script:** `rotate_secrets.py`
+
+Rewrites `catalog.oauth_providers.client_secret_encrypted` and
+`idp_certificate` under the newest configured encryption key. Run it after
+setting `SECRET_ENCRYPTION_KEY` on an existing install, and after replacing an
+existing `SECRET_ENCRYPTION_KEY` with a new one.
+
+```bash
+docker compose exec api uv run python scripts/rotate_secrets.py --dry-run
+docker compose exec api uv run python scripts/rotate_secrets.py
+```
+
+It refuses to run when `SECRET_ENCRYPTION_KEY` is unset, decrypts every row
+before writing any of them (a row no configured key opens aborts the run and
+leaves the table untouched), and is safe to re-run. `RUNBOOK.md` section 11 is
+the operator procedure, including which rotation invalidates what.

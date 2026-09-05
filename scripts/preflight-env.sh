@@ -8,6 +8,13 @@
 #   - GEOLENS_ADMIN_USERNAME   — admin account created on first boot
 #   - GEOLENS_ADMIN_PASSWORD   — admin account password
 #
+# Optional vars checked only for shape, when present:
+#   - SECRET_ENCRYPTION_KEY: encrypts stored SSO secrets at rest
+#   - SECRET_ENCRYPTION_KEY_PREVIOUS: the key it replaced, during a rotation
+# Both must be url-safe base64 of 32 random bytes, and a malformed value fails
+# API boot. Leaving them unset is fine; the app derives a key from
+# JWT_SECRET_KEY instead. See RUNBOOK.md section 11.
+#
 # Run automatically by `make dev` unless SKIP_PREFLIGHT=1.
 
 set -euo pipefail
@@ -68,5 +75,29 @@ To bypass this check (e.g., for unusual deployment paths):
 EOF
     exit 1
 fi
+
+# A Fernet key is 32 bytes of url-safe base64: 43 characters plus one `=`.
+# Accept the standard alphabet too (`+/`), because base64.urlsafe_b64decode
+# does, and refusing a value the app takes would be a false failure. Surrounding
+# quotes are stripped first for the same reason: the dotenv parser drops them.
+for var in SECRET_ENCRYPTION_KEY SECRET_ENCRYPTION_KEY_PREVIOUS; do
+    value="$(read_env_value "$var" || true)"
+    value="${value%\"}"; value="${value#\"}"
+    value="${value%\'}"; value="${value#\'}"
+    if [ -n "$value" ] && ! printf '%s' "$value" | grep -Eq '^[A-Za-z0-9+/_-]{43}=$'; then
+        cat >&2 <<EOF
+Pre-flight: $var in .env is not a valid encryption key.
+
+The API refuses to boot on a malformed value. It must be url-safe base64 of 32
+random bytes, which is not what \`openssl rand -hex 32\` produces:
+
+    openssl rand -base64 32 | tr '+/' '-_'
+
+Unset it to fall back to a key derived from JWT_SECRET_KEY. RUNBOOK.md
+section 11 covers what each choice means for rotation.
+EOF
+        exit 1
+    fi
+done
 
 echo "Pre-flight: .env required vars OK (JWT_SECRET_KEY, GEOLENS_ADMIN_USERNAME, GEOLENS_ADMIN_PASSWORD)"

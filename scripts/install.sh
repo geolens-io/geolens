@@ -70,6 +70,24 @@ generate_jwt_secret() {
   fail "cannot generate JWT_SECRET_KEY: install openssl, or run on a host with /dev/urandom."
 }
 
+# SECRET_ENCRYPTION_KEY is a Fernet key: url-safe base64 of 32 random bytes.
+# generate_jwt_secret's hex output is not one, so this needs its own generator.
+# Unlike the secrets above it is optional (the app falls back to a JWT-derived
+# key), so a host with neither openssl nor base64 prints nothing and the caller
+# skips it rather than failing the install.
+generate_fernet_key() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -base64 32 | tr -d '\n' | tr '+/' '-_'
+    printf '\n'
+    return
+  fi
+  if [ -r /dev/urandom ] && command -v base64 >/dev/null 2>&1; then
+    head -c 32 /dev/urandom | base64 | tr -d '\n' | tr '+/' '-_'
+    printf '\n'
+    return
+  fi
+}
+
 # Generate a strong password from the same entropy source as the JWT secret.
 # The "Aa" prefix + "_1" suffix guarantee 4 character classes (upper, lower,
 # digit, symbol) so the value satisfies a multi-class complexity policy, and
@@ -371,6 +389,21 @@ main() {
     jwt="$(generate_jwt_secret)"
     update_env_value JWT_SECRET_KEY "$jwt"
     say "Generated JWT_SECRET_KEY."
+  fi
+
+  # SECRET_ENCRYPTION_KEY: fresh installs only. Adding it to an existing .env
+  # would work (old ciphertexts still read under the JWT-derived key), but it
+  # hands the operator a new value they must now back up, and an upgrade is not
+  # where they are reading about that. RUNBOOK.md section 11 is that path.
+  existing_secret_key="$(get_env_value SECRET_ENCRYPTION_KEY)"
+  if [ "$ENV_CREATED" = "true" ] && [ -z "$existing_secret_key" ]; then
+    fernet="$(generate_fernet_key || true)"
+    if [ -n "$fernet" ]; then
+      update_env_value SECRET_ENCRYPTION_KEY "$fernet"
+      say "Generated SECRET_ENCRYPTION_KEY."
+    else
+      warn "Could not generate SECRET_ENCRYPTION_KEY (no openssl or base64). Stored SSO secrets will be encrypted under a JWT_SECRET_KEY-derived key; see RUNBOOK.md section 11."
+    fi
   fi
 
   # POSTGRES_PASSWORD (SEC-010): .env.example ships the publicly-known default

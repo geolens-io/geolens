@@ -18,6 +18,10 @@ x-auth-env: &auth-env
   JWT_SECRET_KEY: ${JWT_SECRET_KEY}
   GEOLENS_ADMIN_USERNAME: ${GEOLENS_ADMIN_USERNAME}
   GEOLENS_ADMIN_PASSWORD: ${GEOLENS_ADMIN_PASSWORD}
+  # fix(#1871): neither manifest uses env_file, so the setting reaches the app
+  # only by being listed here. Empty is the unset case (empty_str_to_none).
+  SECRET_ENCRYPTION_KEY: "${SECRET_ENCRYPTION_KEY:-}"
+  SECRET_ENCRYPTION_KEY_PREVIOUS: "${SECRET_ENCRYPTION_KEY_PREVIOUS:-}"
   # JWT tuning + password policy: defaults match Settings (HS256, 15min access /
   # 7d refresh, 12-char min / 3 of 4 classes). Listed here so an operator who
   # overrides them in .env actually sees the override reach the container —
