@@ -258,8 +258,8 @@ class TestReservationClosesTheDownloadWindow:
     ):
         """The reservation answers the conflict branch too, not only the retry.
 
-        A second entry with different content used to sail past the check
-        during the download window and queue a competing job over the key.
+        A second entry with different content for the same key is refused
+        during the download window rather than queueing a competing job.
         """
         import app.core.db as db_module
 
@@ -1174,6 +1174,64 @@ class TestStaleReservations:
             )
             == 0
         )
+
+
+class TestManifestJobsAreNotGenericallyRetryable:
+    async def test_generic_retry_is_refused_for_a_manifest_keyed_job(
+        self, test_db_session, clean_tables
+    ):
+        """fix(#1814): re-apply owns retries for a manifest key.
+
+        `retry_job` runs its own failed -> pending CAS without the key's
+        advisory lock, so it can queue a second job for a key a concurrent
+        re-apply is claiming.
+        """
+        from app.platform.jobs.router import get_retry_capability
+
+        staged = _staged_bytes("manifest_1814_retryable.geojson")
+        user = await _admin_user(test_db_session)
+        job = IngestJob(
+            source_filename="retryable.geojson",
+            file_path=str(staged),
+            created_by=user.id,
+            status="failed",
+            completed_at=datetime.now(timezone.utc),
+            user_metadata={"manifest_key": "manifest-1814-retryable"},
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+
+        can_retry, reason = await get_retry_capability(job)
+
+        assert can_retry is False
+        assert "apply the manifest again" in reason.lower()
+        # The bytes are still there, so the refusal is about ownership of the
+        # key rather than a missing source.
+        assert staged.exists()
+
+    async def test_an_ordinary_failed_import_is_still_retryable(
+        self, test_db_session, clean_tables
+    ):
+        """The refusal is scoped to manifest-keyed rows."""
+        from app.platform.jobs.router import get_retry_capability
+
+        staged = _staged_bytes("manifest_1814_plain.geojson")
+        user = await _admin_user(test_db_session)
+        job = IngestJob(
+            source_filename="plain.geojson",
+            file_path=str(staged),
+            created_by=user.id,
+            status="failed",
+            completed_at=datetime.now(timezone.utc),
+            user_metadata={},
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+
+        can_retry, reason = await get_retry_capability(job)
+
+        assert can_retry is True
+        assert reason is None
 
 
 class TestFencedWritesAreSingleStatements:

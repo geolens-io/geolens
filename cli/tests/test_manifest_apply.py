@@ -324,9 +324,9 @@ class TestResolveApplyTimeout:
 
 
 class TestManifestApplyTimeoutReporting:
-    """fix(#1778 review round 18) parts (b)/(c), corrected by #1814: the
-    server keeps applying after the CLI gives up, and reserves an entry's row
-    before downloading, so a re-apply attaches rather than queueing twice."""
+    """fix(#1814): the timeout report must be accurate about what a re-apply
+    does. The server keeps applying after the CLI gives up, and reserves each
+    entry before downloading, so a re-apply attaches rather than queueing twice."""
 
     def _timing_out_client(self) -> FakeSdkClient:
         client = FakeSdkClient(FakeResponse(200, _apply_response()))
@@ -1030,9 +1030,9 @@ def test_apply_command_reports_timeout_with_truthful_guidance_and_status_check(
     tmp_xdg_home,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """fix(#1778 review round 18) end-to-end: the `apply` command prints the
-    guidance and renders the dry-run follow-up's status. fix(#1814): that
-    guidance says a re-run attaches to an entry still being staged."""
+    """fix(#1814): end to end, the `apply` command prints the guidance and
+    renders the dry-run follow-up's status, and that guidance says a re-run
+    attaches to an entry still being staged."""
     status_response = _apply_response(
         results=[
             {"dataset_key": "roads", "action": "skip", "message": "skip_complete"}
