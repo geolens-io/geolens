@@ -136,11 +136,10 @@ export function useBuilderLayers(
   // instance mounted: a sample from the previous map must never be judged
   // against the next map's saved view.
   const [liveCamera, setLiveCamera] = useState<CameraSample | null>(null);
-  // The camera the current map was entered on. On a fresh load that is the
-  // saved view MapGL was constructed with; after in-page navigation it is
-  // still the PREVIOUS map's position, because nothing repositions the shared
-  // instance. Either way it is not an edit made here, so a sample equal to it
-  // is not unsaved work.
+  // The camera the current map was entered on, until the camera leaves it. On a
+  // fresh load that is the saved view MapGL was constructed with; after in-page
+  // navigation it is still the PREVIOUS map's position, because nothing
+  // repositions the shared instance. Either way it is not an edit made here.
   const cameraEntryRef = useRef<CameraSample | null>(null);
   // fix(#913): dirt this hook cannot re-derive from server state — plugin
   // toggles and other page-owned edits that go through markDirty. recheckClean
@@ -381,7 +380,7 @@ export function useBuilderLayers(
     // callback — layersRef is only synced via the useLayoutEffect mirror on
     // commit (the same staleness #554 documented for the add-layer merge),
     // so it would still be missing the layer just created.
-    const hasSavedView = mapData?.center_lng != null && mapData?.center_lat != null;
+    const hasSavedView = hasSavedMapCamera(mapData);
     handleAddDataset(
       datasetId,
       hasSavedView ? undefined : (newLayerId) => { pendingAutoZoomLayerIdRef.current = newLayerId; },
@@ -965,15 +964,11 @@ export function useBuilderLayers(
   }, []);
 
   // fix(#1854): the live camera when it is an unsaved edit made on THIS map,
-  // and null otherwise. Null covers four cases that all mean "the stored view
-  // is not waiting on this user": the map has no stored view at all (a new map
-  // opens at the world default, which no save-time camera would match, so
-  // comparing there makes every new map dirty untouched); the sample was taken
-  // on a different map; the camera is still the one this map was entered on;
-  // and the camera already matches what is stored.
+  // and null otherwise. The entry camera is what keeps an untouched map clean,
+  // so this applies to a map with no stored view too: handleSave persists the
+  // camera either way, so movement after entry is unsaved work on every map.
   const unsavedCamera = useCallback((): BuilderCamera | null => {
-    if (!mapData || !hasSavedMapCamera(mapData)) return null;
-    if (!liveCamera || liveCamera.mapId !== mapData.id) return null;
+    if (!mapData || !liveCamera || liveCamera.mapId !== mapData.id) return null;
     const entry = cameraEntryRef.current;
     if (entry?.mapId === mapData.id && sameMapCamera(liveCamera.camera, entry.camera)) return null;
     if (sameMapCamera(liveCamera.camera, savedMapCamera(mapData))) return null;
@@ -1080,7 +1075,17 @@ export function useBuilderLayers(
     // Partial map doubles in sibling suites carry no event emitter; without a
     // moveend there is simply no camera signal, exactly as before this fix.
     if (!map || typeof map.on !== 'function') return;
-    const handleMoveEnd = () => setLiveCamera({ mapId: currentMapId, camera: readMapCamera(map) });
+    const handleMoveEnd = () => {
+      const sample = { mapId: currentMapId, camera: readMapCamera(map) };
+      const entry = cameraEntryRef.current;
+      // The entry view excuses itself only until the camera leaves it. Coming
+      // back to that position later is a choice the user made, and after a save
+      // it is no longer what the server holds.
+      if (entry?.mapId === currentMapId && !sameMapCamera(sample.camera, entry.camera)) {
+        cameraEntryRef.current = null;
+      }
+      setLiveCamera(sample);
+    };
     map.on('moveend', handleMoveEnd);
     return () => { map.off?.('moveend', handleMoveEnd); };
   }, [currentMapId, mapInstance, mapInstanceRef]);

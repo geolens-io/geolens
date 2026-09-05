@@ -10,9 +10,12 @@
  * they exercise the actual signal rather than the wiring.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act } from '@testing-library/react';
-import { useRef } from 'react';
-import { renderHook } from '@/test/test-utils';
+import { act, renderHook } from '@testing-library/react';
+import { useEffect, useRef, useState } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router';
+import { createElement, type ReactNode } from 'react';
+import { queryKeys } from '@/lib/query-keys';
 import { useBuilderLayers } from '@/components/builder/hooks/use-builder-layers';
 import {
   useBuilderSave,
@@ -112,14 +115,32 @@ function makeMovableMap(initial: Camera) {
 
 /* ── Harness: the two hooks wired as MapBuilderPage wires them ─────────── */
 
-function useCombinedBuilder(mapData: MapResponse, map: MaplibreMap) {
+/**
+ * MapBuilderPage reads mapData from the map-detail query, so the harness has to
+ * as well: the save path publishes the camera it persisted into that cache, and
+ * a plain prop would not see it. This is useQuery minus the fetching.
+ */
+function useCachedMap(client: QueryClient, mapId: string): MapResponse | undefined {
+  const key = queryKeys.maps.detail(mapId);
+  const [data, setData] = useState(() => client.getQueryData<MapResponse>(key));
+  useEffect(() => {
+    setData(client.getQueryData<MapResponse>(queryKeys.maps.detail(mapId)));
+    return client.getQueryCache().subscribe(() => {
+      setData(client.getQueryData<MapResponse>(queryKeys.maps.detail(mapId)));
+    });
+  }, [client, mapId]);
+  return data;
+}
+
+function useCombinedBuilder(client: QueryClient, mapId: string, map: MaplibreMap) {
+  const mapData = useCachedMap(client, mapId) as MapResponse;
   const mapInstanceRef = useRef<MaplibreMap | null>(map);
   const saveBaselineSyncRef = useRef<SaveBaselineSync>({ add: () => {}, remove: () => {} });
 
   const layers = useBuilderLayers(
     mapData,
     mapInstanceRef,
-    mapData.id,
+    mapId,
     { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[3],
     { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4],
     saveBaselineSyncRef,
@@ -127,7 +148,7 @@ function useCombinedBuilder(mapData: MapResponse, map: MaplibreMap) {
   );
 
   const save = useBuilderSave({
-    mapId: mapData.id,
+    mapId,
     localLayers: layers.localLayers,
     groupMeta: layers.groupMeta,
     localBasemap: layers.localBasemap,
@@ -164,14 +185,29 @@ function savedMap(overrides: Partial<MapResponse> = {}, camera: Camera = SAVED):
 
 function render(initialMapData: MapResponse, startCamera: Camera = SAVED) {
   const { map, moveTo } = makeMovableMap(startCamera);
-  let mapData = initialMapData;
-  const hook = renderHook(() => useCombinedBuilder(mapData, map));
-  /** Stands in for the map-detail refetch a save invalidates. */
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  client.setQueryData(queryKeys.maps.detail(initialMapData.id), initialMapData);
+  let mapId = initialMapData.id;
+
+  function Wrapper({ children }: { children: ReactNode }) {
+    return createElement(
+      QueryClientProvider,
+      { client },
+      createElement(MemoryRouter, null, children),
+    );
+  }
+
+  const hook = renderHook(() => useCombinedBuilder(client, mapId, map), { wrapper: Wrapper });
+
+  /** In-app navigation to another map: this hook and the MapGL instance stay mounted. */
   function setMapData(next: MapResponse) {
-    mapData = next;
+    client.setQueryData(queryKeys.maps.detail(next.id), next);
+    mapId = next.id;
     act(() => { hook.rerender(); });
   }
-  return { hook, moveTo, setMapData };
+  return { hook, moveTo, setMapData, client };
 }
 
 beforeEach(() => {
@@ -209,15 +245,28 @@ describe('fix(#1854): an unsaved camera move is unsaved work', () => {
     expect(hook.result.current.hasUnsavedChanges).toBe(false);
   });
 
-  it('stays clean after a pan on a map that has no saved view', () => {
-    // A map with null center components opens at the world default, which no
-    // save-time camera would match; comparing there makes every new map dirty
-    // before the user has touched anything.
-    const { hook, moveTo } = render(savedMap({ center_lng: null, center_lat: null, zoom: null }));
+  // A map with null center components (new, or legacy) is still saved with a
+  // camera, so movement on one is unsaved work like anywhere else. What keeps
+  // it clean untouched is the entry camera, not the absence of a stored view.
+  describe('a map with no stored view', () => {
+    const WORLD: Camera = { lng: 0, lat: 20, zoom: 2 };
+    const centerless = () => savedMap({ center_lng: null, center_lat: null, zoom: null }, WORLD);
 
-    moveTo({ lng: -71.1, lat: 42.4, zoom: 14 });
+    it('dirties when the camera moves after entry', () => {
+      const { hook, moveTo } = render(centerless(), WORLD);
 
-    expect(hook.result.current.hasUnsavedChanges).toBe(false);
+      moveTo({ lng: -71.1, lat: 42.4, zoom: 14 });
+
+      expect(hook.result.current.hasUnsavedChanges).toBe(true);
+    });
+
+    it('stays clean when only the entry view settles', () => {
+      const { hook, moveTo } = render(centerless(), WORLD);
+
+      moveTo({});
+
+      expect(hook.result.current.hasUnsavedChanges).toBe(false);
+    });
   });
 
   it('keeps the flag when a layer revert leaves the camera panned', () => {
@@ -296,18 +345,28 @@ describe('fix(#1854): the dirty check mirrors the persisted precision', () => {
     expect(hook.result.current.hasUnsavedChanges).toBe(true);
   });
 
+  it('stays dirty when the camera returns to the pre-save view', async () => {
+    // useUpdateMap only invalidates the detail query, so mapData would keep the
+    // pre-save camera until the refetch lands, and forever if it fails. Moving
+    // back to that stale position must not read as clean.
+    const { hook, moveTo } = render(savedMap());
+
+    moveTo({ lng: -71.1, lat: 42.4, zoom: 14 });
+    await act(async () => { await hook.result.current.handleSave(); });
+    expect(hook.result.current.hasUnsavedChanges).toBe(false);
+
+    moveTo({ lng: SAVED.lng, lat: SAVED.lat, zoom: SAVED.zoom });
+
+    expect(hook.result.current.hasUnsavedChanges).toBe(true);
+  });
+
   it('clears the flag on save and re-dirties on the next pan', async () => {
-    const { hook, moveTo, setMapData } = render(savedMap());
+    const { hook, moveTo } = render(savedMap());
 
     moveTo({ lng: -71.1, lat: 42.4, zoom: 14 });
     expect(hook.result.current.hasUnsavedChanges).toBe(true);
 
     await act(async () => { await hook.result.current.handleSave(); });
-    expect(hook.result.current.hasUnsavedChanges).toBe(false);
-
-    // The save invalidates the map-detail query; the refetch brings back the
-    // view that was just stored.
-    setMapData(savedMap({}, { lng: -71.1, lat: 42.4, zoom: 14 }));
     expect(hook.result.current.hasUnsavedChanges).toBe(false);
 
     moveTo({ lng: -70.2, lat: 43.6 });

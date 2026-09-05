@@ -1089,6 +1089,16 @@ export function useBuilderSave(state: SaveState) {
     // the builder's dirty check also reads, so a pan that would change the
     // stored view is exactly the pan that marks the map unsaved.
     const camera = readMapCamera(map);
+    // fix(#1854): useUpdateMap only invalidates the detail query, so mapData
+    // keeps the pre-save camera until the refetch lands, and forever if it
+    // fails. The dirty check reads mapData, so publish what the server holds.
+    const commitSavedCamera = () => {
+      if (!id) return;
+      queryClient.setQueryData<MapResponse>(
+        queryKeys.maps.detail(id),
+        (prev) => (prev ? { ...prev, ...camera } : prev),
+      );
+    };
 
     // Phase 1051 UX-03: basemap_position is encoded as a field on basemapConfig
     // (MapBasemapConfig.basemap_position jsonb), so it round-trips through the
@@ -1156,6 +1166,7 @@ export function useBuilderSave(state: SaveState) {
               }
               await updateMap.mutateAsync({ id, data: metadataPayload });
               baselineLayersRef.current = stampPersistedFolderGroupExpanded(localLayers, groupMeta);
+              commitSavedCamera();
               toast.warning(t('toasts.mapSavedAfterRemoteChange'));
               if (!editedDuringSave(state, sentPluginSet, camera)) {
                 state.setHasUnsavedChanges(false);
@@ -1175,6 +1186,7 @@ export function useBuilderSave(state: SaveState) {
             // fix(#833 codex): baseline carries the SENT collapse state, not
             // the loaded markers — see the baseline effect above.
             baselineLayersRef.current = stampPersistedFolderGroupExpanded(localLayers, groupMeta);
+            commitSavedCamera();
             toast.warning(t('toasts.mapSavedFullResync', {
               defaultValue: 'Map saved, but required a full re-sync. Please double-check layer styling.',
             }));
@@ -1194,6 +1206,7 @@ export function useBuilderSave(state: SaveState) {
       // fix(#833 codex): baseline carries the SENT collapse state, not the
       // loaded markers — see the baseline effect above.
       baselineLayersRef.current = stampPersistedFolderGroupExpanded(localLayers, groupMeta);
+      commitSavedCamera();
       toast.success(t('toasts.mapSaved'));
       // fix(#756): the baseline above is the SENT snapshot; only clear the
       // dirty flag when nothing was edited during the network await —
