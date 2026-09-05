@@ -45,7 +45,9 @@ async def test_reupload_commit_failure_cleans_owned_staged_file(tmp_path):
     port.validate_file_extension = MagicMock()
     port.validate_file_content = MagicMock()
     db = AsyncMock()
-    db.commit.side_effect = RuntimeError("commit failed")
+    # fix(#1848): the first commit is the one that frees the pooled connection
+    # before the upload. The failure under test is still the one after it.
+    db.commit.side_effect = [None, RuntimeError("commit failed")]
     cleanup = AsyncMock()
     upload = UploadFile(
         filename="replacement.geojson",
@@ -284,19 +286,27 @@ class TestReuploadUpload:
         job = result.scalar_one()
         assert job.dataset_id == dataset.id
         assert job.created_by == admin_id
-        assert job.user_metadata == {
-            "reupload": True,
-            "dataset_id": str(dataset.id),
-        }
+        # fix(#1848): the bind adds `staged_at`, which restarts the pending
+        # window. The two markers the job-binding gate reads are unchanged.
+        assert job.user_metadata["reupload"] is True
+        assert job.user_metadata["dataset_id"] == str(dataset.id)
+        assert job.user_metadata["staged_at"]
+        assert set(job.user_metadata) == {"reupload", "dataset_id", "staged_at"}
 
-    async def test_reupload_stream_limit_error_rolls_back_job(
+    async def test_reupload_stream_limit_error_leaves_a_reapable_job(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         test_db_session,
         mock_reupload_file_save,
     ):
-        """A streaming size rejection leaves neither a partial job nor upload."""
+        """A streaming size rejection binds no upload to the job.
+
+        fix(#1848): the job row is committed before the stream so the pooled
+        connection is not held across it, so a rejection now leaves the row
+        rather than rolling it back. It stays `pending` with nothing bound,
+        which is what `stale_pending_clauses` reaps on its one-hour policy.
+        """
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
         filename = f"too-large-{uuid.uuid4()}.geojson"
@@ -316,9 +326,12 @@ class TestReuploadUpload:
         result = await test_db_session.execute(
             select(IngestJob).where(IngestJob.source_filename == filename)
         )
-        assert result.scalar_one_or_none() is None
+        job = result.scalar_one_or_none()
+        assert job is not None
+        assert job.status == "pending"
+        assert not job.file_path
 
-    async def test_s3_validation_download_failure_deletes_uncommitted_source(
+    async def test_s3_validation_download_failure_deletes_the_staged_source(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
@@ -326,7 +339,12 @@ class TestReuploadUpload:
         mock_reupload_file_save,
         mock_reupload_catalog_port,
     ):
-        """A provider failure cannot orphan a reupload source without a job."""
+        """A provider failure cannot orphan the staged source.
+
+        fix(#1848): the job row is committed before the upload now, so the
+        assertion that survives is about the SOURCE. The row itself stays
+        `pending` with nothing bound, for the sweep to reap.
+        """
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
         source_filename = f"resolve-failure-{uuid.uuid4()}.geojson"
@@ -360,7 +378,10 @@ class TestReuploadUpload:
         result = await test_db_session.execute(
             select(IngestJob).where(IngestJob.source_filename == source_filename)
         )
-        assert result.scalar_one_or_none() is None
+        job = result.scalar_one_or_none()
+        assert job is not None
+        assert job.status == "pending"
+        assert not job.file_path
 
     async def test_reupload_invalid_dataset_returns_404(
         self,

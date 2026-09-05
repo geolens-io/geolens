@@ -974,6 +974,13 @@ async def probe_service_url(
         ),
     )
     safe_url = redact_url_credentials(request.url)
+    # fix(#1848): read off `user` before the release below expires it.
+    user_id = user.id
+    # fix(#1848 codex r1): released ABOVE the SSRF check, not below it.
+    # `validate_url_for_ssrf` awaits `getaddrinfo` in a thread, so an
+    # unresponsive resolver pinned the connection before any probe ran.
+    await db.rollback()
+
     # Step 1: SSRF validation
     try:
         await validate_url_for_ssrf(request.url)
@@ -981,7 +988,7 @@ async def probe_service_url(
         logger.warning("SSRF blocked", url=safe_url, reason=str(exc))
         await _probe_audit_fail(
             db,
-            user.id,
+            user_id,
             request.url,
             "ssrf_blocked",
             status.HTTP_400_BAD_REQUEST,
@@ -1040,7 +1047,7 @@ async def probe_service_url(
         )
         await _probe_audit_fail(
             db,
-            user.id,
+            user_id,
             request.url,
             exc.code,
             status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1056,7 +1063,7 @@ async def probe_service_url(
         logger.warning("Probe credential unusable", url=safe_url, code=exc.code)
         await _probe_audit_fail(
             db,
-            user.id,
+            user_id,
             request.url,
             exc.code,
             status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1087,7 +1094,7 @@ async def probe_service_url(
         logger.warning("SSRF blocked mid-probe", url=safe_url, reason=str(exc))
         await _probe_audit_fail(
             db,
-            user.id,
+            user_id,
             request.url,
             "ssrf_blocked",
             status.HTTP_400_BAD_REQUEST,
@@ -1099,7 +1106,7 @@ async def probe_service_url(
         logger.warning("Probe timeout", url=safe_url)
         await _probe_audit_fail(
             db,
-            user.id,
+            user_id,
             request.url,
             "timeout",
             504,
@@ -1110,7 +1117,7 @@ async def probe_service_url(
         logger.warning("ArcGIS token error", url=safe_url, error=str(exc))
         await _probe_audit_fail(
             db,
-            user.id,
+            user_id,
             request.url,
             "auth_required",
             403,
@@ -1124,7 +1131,7 @@ async def probe_service_url(
             logger.warning("Probe auth required", url=safe_url, status=resp_status)
             await _probe_audit_fail(
                 db,
-                user.id,
+                user_id,
                 request.url,
                 "auth_required",
                 403,
@@ -1135,7 +1142,7 @@ async def probe_service_url(
             logger.warning("Probe remote error", url=safe_url, status=resp_status)
             await _probe_audit_fail(
                 db,
-                user.id,
+                user_id,
                 request.url,
                 "remote_error",
                 502,
@@ -1147,7 +1154,7 @@ async def probe_service_url(
         logger.warning("Probe unreachable", url=safe_url)
         await _probe_audit_fail(
             db,
-            user.id,
+            user_id,
             request.url,
             "unreachable",
             502,
@@ -1158,7 +1165,7 @@ async def probe_service_url(
         logger.info("Probe unrecognized", url=safe_url)
         await _probe_audit_fail(
             db,
-            user.id,
+            user_id,
             request.url,
             "unrecognized",
             status.HTTP_400_BAD_REQUEST,
@@ -1175,7 +1182,7 @@ async def probe_service_url(
     await audit_emit(
         db,
         AuditEvent(
-            user_id=user.id,
+            user_id=user_id,
             action="probe_service",
             resource_type="service_url",
             details={
@@ -1219,6 +1226,13 @@ async def preview_service_layer(
     # this is None and the credential travels as a header instead.
     service_token = url_query_token(service_credential)
     safe_url = redact_url_credentials(request.url)
+    # fix(#1848): read off `user` before either release below expires it.
+    user_id = user.id
+    # fix(#1848 codex r1): released ABOVE the SSRF check, not below it.
+    # `validate_url_for_ssrf` awaits `getaddrinfo` in a thread, so an
+    # unresponsive resolver pinned the connection before any preview work.
+    await db.rollback()
+
     # Step 1: SSRF validation
     try:
         await validate_url_for_ssrf(request.url)
@@ -1227,7 +1241,7 @@ async def preview_service_layer(
         await audit_emit(
             db,
             AuditEvent(
-                user_id=user.id,
+                user_id=user_id,
                 action="preview_service_layer",
                 resource_type="service_url",
                 details={
@@ -1306,7 +1320,7 @@ async def preview_service_layer(
                     ),
                 ),
                 Dataset.source_format == source_format,
-                Record.created_by == user.id,
+                Record.created_by == user_id,
             )
             .limit(1)
         )
@@ -1332,6 +1346,10 @@ async def preview_service_layer(
         # resolve_service_type raises IngestionError for unknown service types —
         # skip the duplicate check and let Step 2 handle validation.
         pass
+
+    # fix(#1848): released again, because the duplicate-source query above
+    # re-acquired. Every gate has run and nothing is written yet.
+    await db.rollback()
 
     # Step 2 (ArcGIS): derive the preview from FeatureServer/MapServer REST
     # metadata instead of running ogrinfo through GDAL's ESRIJSON driver. That
@@ -1365,7 +1383,7 @@ async def preview_service_layer(
             await audit_emit(
                 db,
                 AuditEvent(
-                    user_id=user.id,
+                    user_id=user_id,
                     action="preview_service_layer",
                     resource_type="service_url",
                     details={
@@ -1397,7 +1415,7 @@ async def preview_service_layer(
             # split this PR closed on `/probe` in `sources/probe.py`, left
             # standing on this door: one event, one classification, whichever
             # adapter met it.
-            await _refuse_preview(db, user.id, request.url, request.layer_name, exc)
+            await _refuse_preview(db, user_id, request.url, request.layer_name, exc)
             raise  # unreachable: `_preview_refusal_response` maps every `SSRFError`
         except (
             httpx.HTTPError,
@@ -1418,7 +1436,7 @@ async def preview_service_layer(
                 layer=request.layer_name,
                 error=redact_exception_text(exc),
             )
-            await _fail_preview(db, user.id, request.url, request.layer_name)
+            await _fail_preview(db, user_id, request.url, request.layer_name)
 
         # Persist the normalized base URL + effective layer id (not the original
         # request) so the commit/ingest step targets the exact previewed layer.
@@ -1426,7 +1444,7 @@ async def preview_service_layer(
             db,
             request,
             preview_data,
-            user.id,
+            user_id,
             source_url=arcgis_base,
             layer_id=arcgis_layer_id,
         )
@@ -1453,7 +1471,7 @@ async def preview_service_layer(
         await audit_emit(
             db,
             AuditEvent(
-                user_id=user.id,
+                user_id=user_id,
                 action="preview_service_layer",
                 resource_type="service_url",
                 details={
@@ -1471,7 +1489,7 @@ async def preview_service_layer(
     try:
         preview_data = await _run_service_preview_or_refuse(
             db,
-            user.id,
+            user_id,
             request.url,
             request.layer_name,
             gdal_source,
@@ -1499,7 +1517,7 @@ async def preview_service_layer(
                 )
                 preview_data = await _run_service_preview_or_refuse(
                     db,
-                    user.id,
+                    user_id,
                     request.url,
                     request.layer_name,
                     retry_source,
@@ -1512,14 +1530,14 @@ async def preview_service_layer(
                     url=safe_url,
                     layer=request.layer_name,
                 )
-                await _fail_preview(db, user.id, request.url, request.layer_name)
+                await _fail_preview(db, user_id, request.url, request.layer_name)
         else:
             logger.warning(
                 "Preview ogrinfo failed",
                 url=safe_url,
                 layer=request.layer_name,
             )
-            await _fail_preview(db, user.id, request.url, request.layer_name)
+            await _fail_preview(db, user_id, request.url, request.layer_name)
     except HTTPException:
         # fix(#1746): run_service_preview now refuses a header-auth token that
         # is outside the base64url charset with a 422, which is an answer and
@@ -1535,7 +1553,7 @@ async def preview_service_layer(
         await audit_emit(
             db,
             AuditEvent(
-                user_id=user.id,
+                user_id=user_id,
                 action="preview_service_layer",
                 resource_type="service_url",
                 details={
@@ -1570,7 +1588,7 @@ async def preview_service_layer(
             )
 
     # Step 5/6: Create IngestJob, audit-log, and build the response.
-    job = await _create_preview_job(db, request, preview_data, user.id)
+    job = await _create_preview_job(db, request, preview_data, user_id)
     return _build_preview_response(request, preview_data, job)
 
 
