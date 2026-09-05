@@ -3,6 +3,7 @@
 import asyncio
 import math
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
@@ -345,13 +346,19 @@ async def reupload_dataset(
                 detail=str(exc),
             ) from exc
 
-        # fix(#1848 audit): the path is bound only while the row is still
-        # pending. The stale-pending sweep can reclaim it mid-upload, and an
-        # ORM flush would bind onto that terminal row and answer 201.
+        # fix(#1848): bind only while the row is pending, and stamp `staged_at`
+        # so the pending window restarts at the bind. Existing metadata is
+        # carried through: the job-binding gate reads its markers.
         bound = await db.execute(
             update(IngestJob)
             .where(IngestJob.id == job.id, IngestJob.status == "pending")
-            .values(file_path=str(saved_path))
+            .values(
+                file_path=str(saved_path),
+                user_metadata={
+                    **(job.user_metadata or {}),
+                    "staged_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
         )
         await db.commit()
         if not bound.rowcount:

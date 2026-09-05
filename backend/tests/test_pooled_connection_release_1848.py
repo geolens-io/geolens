@@ -489,6 +489,113 @@ async def test_a_sweep_during_the_upload_refuses_rather_than_binding(
     assert not (tmp_path / f"a2-swept-{rows[0].id}.geojson").exists()
 
 
+async def test_only_the_local_provider_needs_the_stamp(
+    test_db_session: AsyncSession,
+):
+    """fix(#1848 codex r2): why the finding is local-only, measured.
+
+    `save_upload_file` returns `staging/{job}/{name}` under S3 and an absolute
+    path under the local provider. The sweep's two classes are split by
+    whether `file_path` matches `staging/%`, so an S3 bind lands in the
+    24-hour class while a local bind stays in the short one. The stamp is
+    written for both because it is one statement, but this is the asymmetry it
+    exists for.
+    """
+    from sqlalchemy import text
+
+    local_path = "/app/staging/abc_replacement.geojson"
+    s3_key = "staging/2f1c/replacement.geojson"
+
+    async def _is_bound_class(value: str) -> bool:
+        return await test_db_session.scalar(
+            text("SELECT coalesce(:p, '') LIKE 'staging/%'").bindparams(p=value)
+        )
+
+    assert await _is_bound_class(s3_key) is True
+    assert await _is_bound_class(local_path) is False
+
+
+async def test_a_slow_local_upload_that_binds_survives_the_next_sweep(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    tmp_path: Path,
+):
+    """fix(#1848 codex r2): the bind restarts the pending window.
+
+    With the local provider the bound path is absolute, so it never matches
+    the sweep's `staging/%` completion class and the row stays in the class
+    measured from `coalesce(staged_at, created_at)`. Bound without a fresh
+    `staged_at`, an upload slower than the pending timeout returned 201 and
+    the very next sweep cancelled the job it had just accepted. Stamping at
+    the bind is what gives the caller a full window from the moment the bytes
+    landed.
+    """
+    from app.api.main import sweep_stale_jobs_once
+    from app.modules.catalog.datasets.api import router_reupload
+    from app.platform.jobs.sweep import stale_pending_cutoff_seconds
+
+    dataset = await _vector_dataset(test_db_session)
+    port = router_reupload.get_catalog_port()
+    staged_file = tmp_path / "a2-slow-upload.geojson"
+
+    async def _slow_local_upload(_file, job_id, **_kwargs):
+        # The upload outlives the pending window, which `created_at` alone
+        # would measure from.
+        cutoff = stale_pending_cutoff_seconds(completion_bound=False)
+        aged = datetime.now(timezone.utc) - timedelta(seconds=cutoff + 60)
+        row = await test_db_session.get(IngestJob, uuid.UUID(job_id))
+        assert row is not None
+        row.created_at = aged
+        await test_db_session.commit()
+        staged_file.write_bytes(b'{"type":"FeatureCollection","features":[]}')
+        return staged_file
+
+    with (
+        patch.object(port, "save_upload_file", new=_slow_local_upload),
+        patch.object(port, "validate_file_content", return_value=None),
+        patch.object(router_reupload, "get_catalog_port", return_value=port),
+    ):
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload",
+            files={
+                "file": (
+                    "replacement.geojson",
+                    BytesIO(b'{"type":"FeatureCollection","features":[]}'),
+                    "application/geo+json",
+                )
+            },
+            headers=admin_auth_header,
+        )
+
+    assert resp.status_code == 201, resp.text
+    job_id = uuid.UUID(resp.json()["job_id"])
+
+    # The premise: an absolute path, so the `staging/%` class does not cover it.
+    stored = await test_db_session.get(IngestJob, job_id)
+    assert stored is not None
+    assert stored.file_path == str(staged_file)
+    assert not stored.file_path.startswith("staging/")
+
+    await sweep_stale_jobs_once()
+
+    await test_db_session.refresh(stored)
+    assert stored.status == "pending"
+    assert staged_file.exists()
+    # The markers the job-binding gate reads survive the metadata write.
+    assert stored.user_metadata["reupload"] is True
+    assert stored.user_metadata["dataset_id"] == str(dataset.id)
+    assert stored.user_metadata["staged_at"]
+
+    # And the door still accepts the job, which is what the user paid for.
+    preview = await client.post(
+        f"/datasets/{dataset.id}/reupload/{job_id}/preview",
+        json={},
+        headers=admin_auth_header,
+    )
+    assert preview.status_code != 404, preview.text
+
+
 async def test_a_failed_upload_leaves_a_reapable_pending_job(
     client: AsyncClient,
     admin_auth_header: dict,

@@ -286,10 +286,12 @@ class TestReuploadUpload:
         job = result.scalar_one()
         assert job.dataset_id == dataset.id
         assert job.created_by == admin_id
-        assert job.user_metadata == {
-            "reupload": True,
-            "dataset_id": str(dataset.id),
-        }
+        # fix(#1848): the bind adds `staged_at`, which restarts the pending
+        # window. The two markers the job-binding gate reads are unchanged.
+        assert job.user_metadata["reupload"] is True
+        assert job.user_metadata["dataset_id"] == str(dataset.id)
+        assert job.user_metadata["staged_at"]
+        assert set(job.user_metadata) == {"reupload", "dataset_id", "staged_at"}
 
     async def test_reupload_stream_limit_error_leaves_a_reapable_job(
         self,

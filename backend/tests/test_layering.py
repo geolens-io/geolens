@@ -4401,8 +4401,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # and the locals read off the ORM instances the rollback expires. The
     # audit round added the two compare-and-set writes that keep the
     # commit-first door from binding onto a row the stale-pending sweep
-    # reclaimed mid-upload, plus their refusal. Cap 1396 -> 1439, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1439,
+    # reclaimed mid-upload, plus their refusal. Codex round 2 added the
+    # `staged_at` stamp to the same bind, which restarts the pending window
+    # for a local upload whose absolute path never reaches the sweep's
+    # completion class. Cap 1396 -> 1446, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1446,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
