@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { getSourceIdForLayer } from '@/components/builder/map-sync';
+import { readMapCamera } from '@/components/builder/builder-camera';
 import { hasGlobeSpaceBackdrop } from '@/components/builder/map-composition-sync';
 import { ApiError } from '@/api/client';
 import { useUpdateMap, useDuplicateMap, usePatchMapLayers } from '@/hooks/use-maps';
@@ -1078,10 +1079,10 @@ export function useBuilderSave(state: SaveState) {
     }
 
     const map = mapInstanceRef.current;
-    const center = map?.getCenter();
-    const zoom = map?.getZoom();
-    const bearing = map?.getBearing();
-    const pitch = map?.getPitch();
+    // fix(#1854): the persisted camera goes through the shared normalizer that
+    // the builder's dirty check also reads, so a pan that would change the
+    // stored view is exactly the pan that marks the map unsaved.
+    const camera = readMapCamera(map);
 
     // Phase 1051 UX-03: basemap_position is encoded as a field on basemapConfig
     // (MapBasemapConfig.basemap_position jsonb), so it round-trips through the
@@ -1097,11 +1098,11 @@ export function useBuilderSave(state: SaveState) {
       show_basemap_labels: showBasemapLabels,
       basemap_config: basemapConfig,
       terrain_config: terrainConfig,
-      center_lng: center?.lng ?? null,
-      center_lat: center?.lat ?? null,
-      zoom: zoom ?? null,
-      bearing: bearing ?? 0,
-      pitch: pitch ?? 0,
+      center_lng: camera.center_lng,
+      center_lat: camera.center_lat,
+      zoom: camera.zoom,
+      bearing: camera.bearing,
+      pitch: camera.pitch,
       plugins: resolvePluginsPayload(id, queryClient, enabledPluginIds),
       // ENH-06: persist the custom legend title. Empty/null clears it server-side.
       legend_title: legendTitle && legendTitle.trim() ? legendTitle.trim() : null,

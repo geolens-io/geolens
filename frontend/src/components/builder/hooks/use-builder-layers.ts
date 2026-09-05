@@ -11,6 +11,13 @@ import {
   type BuilderLayerAction,
 } from '@/components/builder/builder-action-contract';
 import { resolveBasemapId } from '@/lib/basemap-utils';
+import {
+  hasSavedMapCamera,
+  readMapCamera,
+  sameMapCamera,
+  savedMapCamera,
+  type BuilderCamera,
+} from '@/components/builder/builder-camera';
 import { deepEqual } from '@/components/builder/LayerStyleEditor/utils';
 import type { MapBasemapConfig, MapLayerResponse, MapResponse, MapTerrainConfig, StyleConfig } from '@/types/api';
 import type { useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
@@ -115,6 +122,10 @@ export function useBuilderLayers(
   const layersMapIdRef = useRef<string | null>(null);
   const [localBasemap, setLocalBasemap] = useState<string>('openfreemap-positron');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  // fix(#1854): the live camera, sampled on moveend. Null until the map has
+  // settled once, because a map that never moved cannot have changed the view
+  // a save would store.
+  const [liveCamera, setLiveCamera] = useState<BuilderCamera | null>(null);
   // fix(#913): dirt this hook cannot re-derive from server state — plugin
   // toggles and other page-owned edits that go through markDirty. recheckClean
   // refuses to clear the flag while it is set; every reset back to "saved"
@@ -976,6 +987,14 @@ export function useBuilderLayers(
     if (showBasemapLabels !== (mapData.show_basemap_labels ?? true)) return false;
     if (!deepEqual(basemapConfig, mapData.basemap_config ?? null)) return false;
     if (!deepEqual(localTerrainConfig, savedTerrainConfig(mapData))) return false;
+    // fix(#1854): every save rewrites center/zoom/bearing/pitch from the live
+    // map, so an unsaved pan is a real pending change to the stored view. Only
+    // compared once the map has a stored view of its own: a map that has none
+    // opens at the world default, which no save-time camera would match, and
+    // every new map would read dirty before the user touched anything.
+    if (liveCamera && hasSavedMapCamera(mapData)
+      && !sameMapCamera(liveCamera, savedMapCamera(mapData))) return false;
+
     // fix(#913 review): folder expansion is persisted (prepareLayersForPersistence
     // reads groupMeta), and handleToggleGroupExpand marks the map dirty — without
     // this an expand-then-revert reported clean and the expansion was lost.
@@ -991,7 +1010,7 @@ export function useBuilderLayers(
     return true;
   }, [
     mapData, localName, localDescription, localLegendTitle, localBasemap,
-    showBasemapLabels, basemapConfig, localTerrainConfig, groupMeta,
+    showBasemapLabels, basemapConfig, localTerrainConfig, groupMeta, liveCamera,
   ]);
 
   // The recheck must observe the reverted layers, so it runs in an effect after
@@ -1013,6 +1032,33 @@ export function useBuilderLayers(
     recheckPendingRef.current = false;
     setHasUnsavedChanges(false);
   }, [recheckNonce, computeMapIsClean]);
+
+  // fix(#1854): moveend is the canonical "the camera settled" signal. It fires
+  // once per gesture rather than per frame, so no debounce of our own is
+  // needed. Reads through the reactive mapInstance because a ref flipping
+  // non-null does not re-run an effect.
+  useEffect(() => {
+    const map = mapInstance ?? mapInstanceRef.current;
+    // Partial map doubles in sibling suites carry no event emitter; without a
+    // moveend there is simply no camera signal, exactly as before this fix.
+    if (!map || typeof map.on !== 'function') return;
+    const handleMoveEnd = () => setLiveCamera(readMapCamera(map));
+    map.on('moveend', handleMoveEnd);
+    return () => { map.off?.('moveend', handleMoveEnd); };
+  }, [mapInstance, mapInstanceRef]);
+
+  // fix(#1854): a pan away from the stored view is unsaved work (the navigation
+  // blocker and beforeunload both read hasUnsavedChanges); a pan back to it asks
+  // for the ordinary recheck, which clears the flag only if nothing else is
+  // outstanding.
+  useEffect(() => {
+    if (!liveCamera || !mapData || !hasSavedMapCamera(mapData)) return;
+    if (sameMapCamera(liveCamera, savedMapCamera(mapData))) {
+      requestCleanRecheck();
+      return;
+    }
+    setHasUnsavedChanges(true);
+  }, [liveCamera, mapData, requestCleanRecheck]);
 
   // fix(v1.6.0 audit D7): identity-stable "is this row a folder group?" lookup.
   // Reads through layersRef so callers (MapBuilderPage's memoized
