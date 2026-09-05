@@ -216,10 +216,11 @@ class TestProbeOrchestratorNoEnrichment:
 
     @pytest.mark.anyio
     async def test_ogcapi_probe_never_invokes_ogrinfo(self):
-        """PROBE-05: a 17-collection OGC API probe never runs ogrinfo.
+        """PROBE-05: a 17-collection OGC API probe never launches ogrinfo.
 
-        fix(#1859): asserts the short-circuit itself (run_ogrinfo is never
-        called) instead of a wall-clock ceiling, which raced a loaded runner.
+        fix(#1859): asserts the short-circuit itself (no subprocess) rather
+        than a wall-clock ceiling. Patches asyncio.create_subprocess_exec,
+        the boundary run_ogrinfo calls, not run_ogrinfo's own attribute.
         """
         import httpx
         from unittest.mock import AsyncMock, patch
@@ -249,8 +250,8 @@ class TestProbeOrchestratorNoEnrichment:
                 new_callable=AsyncMock,
             ),
             patch(
-                "app.processing.ingest.ogr.run_ogrinfo", new_callable=AsyncMock
-            ) as mock_ogrinfo,
+                "asyncio.create_subprocess_exec", new_callable=AsyncMock
+            ) as mock_create_subprocess,
         ):
             async with httpx.AsyncClient(
                 transport=httpx.MockTransport(handle)
@@ -261,7 +262,7 @@ class TestProbeOrchestratorNoEnrichment:
                     "http://fake-ogcapi.example.com", client
                 )
 
-            mock_ogrinfo.assert_not_called()
+            mock_create_subprocess.assert_not_called()
 
         assert result.service_type == "OGC API Features"
         assert len(result.layers) == 17
