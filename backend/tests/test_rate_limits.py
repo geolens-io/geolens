@@ -2,7 +2,7 @@
 
 Phase 1062 Plan 02: per-route @limiter.limit decorators on:
   - /search/datasets/   (SEC-S11, caps OpenAI embedding cost-DoS)
-  - /search/facets/     (SEC-S11, same embedding cache code path)
+  - /search/facets/     (SEC-S11, one bucket shared with /search/datasets/)
   - /datasets/{id}/related/  (SEC-S11, same embedding cost surface)
   - /settings/basemaps/      (SEC-S10, caps commercial-tier basemap key replay)
 
@@ -40,14 +40,14 @@ pytestmark = pytest.mark.anyio
 # ---------------------------------------------------------------------------
 
 
-def test_default_semantic_search_limit_is_30():
-    """get_cached_semantic_search_rate_limit() returns 30 when cache is empty.
+def test_default_semantic_search_limit_is_60():
+    """get_cached_semantic_search_rate_limit() returns 60 when cache is empty.
 
     Clears the cache entry before calling to avoid interference from other
     tests that may have set a low monkeypatched value.
     """
     _sync_rate_limit_cache.pop("semantic_search_rate_limit", None)
-    assert get_cached_semantic_search_rate_limit() == 30
+    assert get_cached_semantic_search_rate_limit() == 60
 
 
 def test_default_basemap_proxy_limit_is_120():
@@ -141,6 +141,41 @@ async def test_search_facets_rate_limited(client: AsyncClient):
         assert len(rate_limited) >= 2, (
             f"Expected >= 2 rate-limited responses with threshold=5/7 requests, "
             f"got {len(rate_limited)}. Statuses: {statuses}"
+        )
+    finally:
+        limiter.enabled = False
+        _clear_cache_limit("semantic_search_rate_limit")
+        _reset_limiter_storage()
+
+
+@pytest.mark.parametrize("first", ["/search/datasets/", "/search/facets/"])
+async def test_search_datasets_and_facets_share_one_bucket(
+    client: AsyncClient, first: str
+):
+    """Alternating the two search routes cannot embed twice the advertised cap.
+
+    fix(#1855): both routes embed a novel ``q``, and slowapi scopes a plain
+    ``@limiter.limit`` to the handler, so two buckets let a caller alternate
+    them for 2x the limit. With one shared bucket the (limit + 1)th call is a
+    429 whichever route it lands on, and the same 429 starting from either.
+    """
+    routes = ["/search/datasets/", "/search/facets/"]
+    if first != routes[0]:
+        routes.reverse()
+    _set_cache_limit("semantic_search_rate_limit", 5)
+    limiter.enabled = True
+    _reset_limiter_storage()
+
+    try:
+        statuses = []
+        for i in range(6):
+            resp = await client.get(
+                f"{routes[i % 2]}?q=sec-shared-bucket-{uuid.uuid4().hex}"
+            )
+            statuses.append(resp.status_code)
+        assert statuses == [200] * 5 + [429], (
+            f"one shared 5/min bucket must 429 the sixth call across both routes "
+            f"(starting from {first}); got {statuses}"
         )
     finally:
         limiter.enabled = False

@@ -462,9 +462,9 @@ def _semantic_search_rate_limit(_request: Request | None = None) -> str:
     "/facets", response_model=FacetCountResponse, include_in_schema=False
 )
 @search_router.get("/facets/", response_model=FacetCountResponse)
-# fix(#1855): facets embed the query to count over the results' candidate set,
-# so they carry the same SEC-S11 embedding-cost limit as /datasets/.
-@limiter.limit(_semantic_search_rate_limit)
+# fix(#1855): facets embed the query, so both search routes draw on ONE SEC-S11
+# bucket; two buckets let a caller alternating them embed twice the cap.
+@limiter.shared_limit(_semantic_search_rate_limit, scope="semantic_search")
 async def search_facets_endpoint(
     request: Request,
     q: str | None = Query(None, max_length=1000, description="Full-text search query"),
@@ -551,7 +551,7 @@ async def search_facets_endpoint(
     response_model=OGCFeatureCollectionResponse,
     responses={400: BAD_REQUEST_RESPONSE},
 )
-@limiter.limit(_semantic_search_rate_limit)
+@limiter.shared_limit(_semantic_search_rate_limit, scope="semantic_search")
 async def search_datasets_endpoint(
     request: Request,
     response: Response,

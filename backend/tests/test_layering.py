@@ -1797,9 +1797,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # persistent-config read degrades instead of failing the search. Most of
         # the lines are the two rationales, including why verify-after-the-fact
         # was rejected. Cap 456 -> 482, exact.
-        # fix(#1855): -71. The vector arm is resolved once into SemanticArm and
-        # counted through the shared candidate set. Cap 482 -> 411, exact.
-        "backend/app/modules/catalog/search/service_semantic.py": 411,
+        # fix(#1855): -73. The vector arm is resolved once into SemanticArm and
+        # counted through the shared candidate set. Cap 482 -> 409, exact.
+        "backend/app/modules/catalog/search/service_semantic.py": 409,
         # fix(#430 V-14): _replace_layers now reconciles layers by id (update-in-place
         # + create/delete) instead of delete-all-then-recreate, so a PUT preserves
         # layer UUIDs. +~35 LOC over the 350 default. Cap → 400 (~34 headroom).
@@ -4196,7 +4196,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # apply_http_logger_levels() (logging_config.py) after raising root's
     # level, so httpx/httpcore's WARNING floor tracks a LOG_LEVEL change made
     # through the admin settings UI, not just one made at boot.
-    "backend/app/core/persistent_config.py": 1047,
+    # fix(#1855): +2. The semantic search rate limit docstring says why the
+    # default is 60 for one bucket shared by two routes. Cap 1047 -> 1049, exact.
+    "backend/app/core/persistent_config.py": 1049,
     # fix(#1533): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that made the run notice the embedding column moving under it. Two
     # guards, both small: _live_column_dims (one pg_attribute read, shared with

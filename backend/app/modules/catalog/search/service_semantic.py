@@ -92,11 +92,9 @@ def _embedding_cache_clear() -> None:
     _embedding_cache.clear()
 
 
-# fix(#448): this module embeds INSIDE a search request. The provider default
-# timeout (130s) is sized for background ingest/backfill; a hung embedding
-# provider must not hold a search request when _get_vector_ranks silently
-# falls back to FTS on any error. asyncio.wait_for (rather than a port
-# signature change) keeps enterprise CatalogPort overlays source-compatible.
+# fix(#448): the provider default timeout (130s) is sized for backfill; a hung
+# provider must not hold a search request, and resolve_semantic_arm degrades to
+# FTS on any error. wait_for keeps CatalogPort overlays source-compatible.
 _QUERY_EMBED_TIMEOUT_SECONDS = 8.0
 
 

@@ -1688,12 +1688,17 @@ def test_delegated_guards_still_enforce_access() -> None:
         "restricted grants would stop resolving"
     )
 
-    from app.modules.catalog.search import service_candidates
+    from app.modules.catalog.search import service_candidates, service_datasets
 
     # fix(#1855): the shared candidate selection is credited as a guard only
     # while it still routes every base statement through apply_visibility_filter.
     assert "vetting_filters" in _calls_in(service_candidates.select_candidates), (
         "search select_candidates no longer applies vetting_filters"
+    )
+    # The results PAGE statement is vetted by its own direct call, which the
+    # count's credited select_candidates call does not cover.
+    assert "vetting_filters" in _calls_in(service_datasets.search_datasets), (
+        "search search_datasets no longer vets its page statement"
     )
     vetting_calls = _calls_in(service_candidates.vetting_filters)
     assert "apply_visibility_filter" in vetting_calls, (
