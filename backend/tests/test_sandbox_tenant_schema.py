@@ -141,19 +141,23 @@ def test_schema_rewrite_preserves_non_single_quoted_literals():
     assert out2.count("<=>") == 1
 
 
-@pytest.mark.parametrize("spelling", ["DATA", "Data"])
-def test_schema_rewrite_folds_unquoted_logical_schema(spelling):
+@pytest.mark.parametrize(
+    ("schema", "table"), [("DATA", "roads"), ("Data", "roads"), ("Data", "Roads")]
+)
+def test_schema_rewrite_folds_unquoted_logical_schema(schema, table):
     """fix(#1891): an unquoted schema folds to lowercase, as PostgreSQL and the
-    validator fold it, so ``DATA.roads`` is the logical schema and must reach
-    the physical tenant schema instead of the shared one."""
+    validator fold it, so any spelling of ``data`` is the logical schema and must
+    reach the physical tenant schema; the table part is left as written."""
     from app.platform.sandbox.executor import _rewrite_logical_data_schema
+    from app.platform.sandbox.validator import validate_sql
 
-    rewritten = _rewrite_logical_data_schema(
-        f"SELECT * FROM {spelling}.roads", _SCHEMA_A
-    )
+    sql = f"SELECT * FROM {schema}.{table}"
+    assert validate_sql(sql).tables == {("data", "roads")}
 
-    assert f'FROM "{_SCHEMA_A}".roads' in rewritten
-    assert f"{spelling}.roads" not in rewritten
+    rewritten = _rewrite_logical_data_schema(sql, _SCHEMA_A)
+
+    assert f'FROM "{_SCHEMA_A}".{table}' in rewritten
+    assert f"{schema}.{table}" not in rewritten
 
 
 def test_schema_rewrite_folds_unquoted_three_part_column():
