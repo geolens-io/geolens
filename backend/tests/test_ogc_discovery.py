@@ -325,6 +325,53 @@ async def test_conformance_contains_required_classes(client):
     assert not any(value.endswith("/conf/oas30") for value in data["conformsTo"])
 
 
+# fix(#1856 item 2): the prose list in the API description and the URIs
+# /conformance serves are two statements of one fact. Each family maps to the
+# phrase the description must use; a family with no entry fails below, so a
+# newly advertised class cannot land without the prose following it.
+_CONFORMANCE_PROSE = {
+    "ogcapi-common-1": "OGC API Common 1.0",
+    "ogcapi-features-1": "OGC API Features Part 1",
+    "ogcapi-features-3": "OGC API Features Part 3",
+    "cql2": "CQL2 1.0",
+    "ogcapi-records-1": "OGC API Records Part 1",
+}
+
+
+async def test_the_api_description_matches_what_conformance_serves(client):
+    """The human-readable list must not claim more than the machine one.
+
+    fix(#1856 item 2). The description advertised the OAS 3.0 classes of
+    Common and Features Part 1 while the served document is OpenAPI 3.1, so
+    the class is not met. /conformance never claimed it, which is the half a
+    QGIS or GDAL client reads; the prose was where it was wrong, and it also
+    omitted Records and CQL2, which /conformance does advertise.
+    """
+    from app.api.main import _DESCRIPTION, app
+
+    data = (await client.get("/conformance")).json()
+    families = {uri.split("/spec/")[1].split("/")[0] for uri in data["conformsTo"]}
+
+    assert families == set(_CONFORMANCE_PROSE), (
+        "the advertised conformance families and the API description's prose "
+        f"list have diverged: served={sorted(families)}, described="
+        f"{sorted(_CONFORMANCE_PROSE)}"
+    )
+    for family, phrase in sorted(_CONFORMANCE_PROSE.items()):
+        assert phrase in _DESCRIPTION, f"{family} is served but {phrase!r} is not named"
+
+    # The overclaim itself, from both directions. Checked on the BULLETS,
+    # which are the claim; the sentence saying the class is not met has to be
+    # able to name it.
+    claimed = [line for line in _DESCRIPTION.splitlines() if line.startswith("*")]
+    assert not [line for line in claimed if "OAS 3.0" in line], claimed
+    assert not any(uri.endswith("/conf/oas30") for uri in data["conformsTo"])
+    assert app.openapi()["openapi"].startswith("3.1"), (
+        "the served document is no longer OpenAPI 3.1, so the description's "
+        "reason for not claiming the OAS 3.0 classes no longer holds"
+    )
+
+
 async def test_conformance_contains_records_classes(client):
     """GET /conformance includes OGC API Records Part 1 conformance classes."""
     response = await client.get("/conformance")
