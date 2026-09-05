@@ -7,6 +7,76 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.18.1] - 2026-09-05
+
+Security release. Upgrade is a plain image pull; there are no migrations.
+
+### Security
+
+- Uploaded files and archive members that GDAL would treat as instructions rather than data
+  (driver documents, and SQLite or GeoPackage schemas declaring virtual tables that reference
+  external files) could make the ingest preview and import read local files on the worker or
+  contact remote hosts, returning the contents to the uploader. Every local-upload GDAL subprocess
+  now runs under an input-driver allowlist derived from the declared upload format, a shared
+  safe-env helper that skips pointer-following and network drivers, and a content check that
+  identifies archive members by their bytes; the structural test requires all three. Reported by
+  the 2026-09-04 security audit. (#1846, GHSA-hrf5-v3cq-frx5)
+- The job context Procrastinate attaches to worker log records carried service-import credentials
+  in cleartext on installs without a credential store, because the log redactor only scrubbed the
+  message string. Structured extras are now deep-redacted, every wire shape of a registered
+  credential is scrubbed, and `credential_ref` joins the denylist. (#1844)
+- The deprecated `?api_key=` query-string lane authorized every method; it now authenticates
+  read-only requests only, as its documentation always said. Header keys are unchanged. (#1845)
+- A CQL2 filter with a large IN list made the OGC Features items endpoint rename query binds in
+  quadratic time on the event loop, so a handful of anonymous requests could stall the API. The
+  rename is a single pass, the compiled bind count is capped, and the filtered items route carries
+  its own 10 requests per second per IP limit. (#1845)
+- `GET /jobs/by-dataset/{id}` and the VRT generations listing returned another user's job fields
+  (error text, who triggered it, warnings) to any signed-in reader of a published dataset; both now
+  apply the same provenance gate as the refresh-run history, and a structural test requires a
+  disclosure predicate on every route whose response carries those fields. (#1860)
+- Minting an embed token snapshotted a map's datasets without a visibility check, so an owner who
+  had lost access to a dataset could still mint a long-lived capability for it. The mint now
+  applies the same filter as map updates and refuses with 403, matching the map routes. (#1860)
+- The OAuth sign-in exchanged tokens and fetched user info through a plain HTTP client rather than
+  the redirect-revalidating one, and never validated the endpoints a provider's discovery document
+  named. Every OAuth request now goes through the SSRF-safe transport with redirects off, the four
+  discovered endpoints are validated before use, and a malformed discovered endpoint is refused
+  with the same 503 as a private one instead of a 500. (#1861)
+- Service probes reported a blocked redirect as an invalid credential and could echo the
+  redirect's hostname, and the ArcGIS preview reported it as an ogrinfo failure; both now answer
+  the fixed refusal with one audit row. Three JSON readers lacked the depth guard, so a nested body
+  could turn a probe, a source-health check, or a sign-in into a 500. Table discovery listed
+  attempt-scoped staging tables as registrable. (#1858)
+
+### Fixed
+
+- Corrupt, encrypted, or unsupported-compression archive members are refused with the same coded
+  422 as other unsafe uploads instead of failing the job with an unhandled error. (#1846)
+- Deeply nested CQL2 filters return a coded 400 instead of a 500. (#1845)
+- A failed token refresh reported success and retried with the dead token, and a refresh that
+  failed while another tab had already rotated the token logged the tab out; the AI chat transcript
+  in the browser survived logout in the same tab; unsaved dataset metadata drafts, including text
+  still open in an editor, followed navigation and could be saved onto the next dataset. (#1862)
+- Login page keeps its branding and the site footer at every width and no longer flashes the
+  community badge before the edition setting has loaded; the import dropzone headline no longer doubles its
+  verb and the success count is pluralised; a map created from a dataset opens on that dataset,
+  including when the map loads after the layer; Downloads offers an authenticated download per
+  export format; qualitative colour palettes assign distinct colours per category. (#1863)
+
+### Upgrade notes
+
+- OAuth providers configured with explicit endpoint URLs and reachable only through an
+  `HTTPS_PROXY` lose that egress: the token exchange and user-info requests now use the same
+  connection-pinning transport as discovery, which cannot honour an environment proxy. Discovery-
+  configured providers were already in this position. (#1861)
+- The embed-token mint refuses a dataset the minter cannot see with 403 instead of 400. (#1860)
+
+- Deployments whose custom clients sent an API key in the query string for mutating requests must
+  move the key to the `X-Api-Key` header.
+- `.xlsx` and `.kmz` uploads now meet the archive safety checks at preview time rather than only at
+  commit; the checks are the same.
+
 ## [1.18.0] - 2026-09-04
 
 ### Added
@@ -3553,7 +3623,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.18.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.18.1...HEAD
+[1.18.1]: https://github.com/geolens-io/geolens/compare/v1.18.0...v1.18.1
 [1.18.0]: https://github.com/geolens-io/geolens/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/geolens-io/geolens/compare/v1.16.1...v1.17.0
 [1.16.1]: https://github.com/geolens-io/geolens/compare/v1.16.0...v1.16.1
