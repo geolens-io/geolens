@@ -30,11 +30,13 @@ import base64
 import json
 import logging
 import time
+from collections.abc import Mapping
 
 import pytest
 from procrastinate.jobs import Job
 
 from app.core.logging_config import (
+    _REDACTED_REPR_NAMES,
     _SENSITIVE_FIELDS,
     _redact_token_value_repr,
     _scrub_text,
@@ -896,3 +898,110 @@ def test_a_cyclic_extra_terminates():
 
     assert time.monotonic() - started < 5
     assert "[TRUNCATED]" in json.dumps(data["payload"])
+
+
+def test_repr_scrub_covers_every_denylisted_name():
+    """fix(#1844 audit round 1): the key pass and the text pass must agree.
+
+    The first cut of the rendered-value scrub knew `token` and
+    `credential_ref` -- 2 of the 14 denylisted names -- so the other 12 were
+    redacted as keys and then emitted verbatim in the `call_string` rendering
+    beside them. That is the same key-pass/text-pass asymmetry that produced
+    this PR's own finding, one level down. Pinning the two sets equal is what
+    keeps adding a name to the denylist from covering only half a record.
+    """
+    assert set(_REDACTED_REPR_NAMES) == _SENSITIVE_FIELDS
+
+
+@pytest.mark.parametrize("name", sorted(_SENSITIVE_FIELDS))
+def test_every_denylisted_name_is_redacted_in_both_rendered_shapes(name):
+    """Each denylisted name, in the kwarg shape and the dict-repr shape.
+
+    Not a restatement of the set equality above: this exercises the compiled
+    alternation, so a name the set contains but the regex cannot actually
+    match (an unescaped metacharacter, a boundary that never falls where the
+    name starts) fails here rather than passing on the set comparison alone.
+    """
+    kwarg = _scrub_text(f"call({name}='ULTRASECRET')")
+    mapping = _scrub_text(f"{{'{name}': 'ULTRASECRET'}}")
+
+    assert "ULTRASECRET" not in kwarg, kwarg
+    assert "ULTRASECRET" not in mapping, mapping
+
+
+def test_rendered_names_are_matched_case_insensitively():
+    """The key pass has always compared `key.lower()`; the text pass now does too.
+
+    `Token='...'` reaches a log line exactly as readily as `token='...'` --
+    third-party code picks the casing -- and a case-sensitive text pass would
+    reopen the same asymmetry in a narrower form.
+    """
+    assert "ULTRASECRET" not in _scrub_text("call(Token='ULTRASECRET')")
+    assert "ULTRASECRET" not in _scrub_text("call(API_KEY='ULTRASECRET')")
+
+
+def test_a_sub_word_name_is_still_left_alone():
+    """Positive control for the two tests above.
+
+    They are absence claims, and a scrub that simply redacted every quoted
+    value would satisfy both. The word-boundary rule that keeps `token_hint`
+    legible has to survive the switch to the full denylist.
+    """
+    text = "call(token_hint='ab', credential_reference='keepme')"
+
+    assert _scrub_text(text) == text
+
+
+def test_worker_job_context_is_redacted_in_the_console_renderer_too():
+    """The JSON assertions have a console twin, because dev and prod differ.
+
+    `setup_logging()` picks `ConsoleRenderer` when `json_logs` is false, and
+    that renderer reaches the containers by a different path -- `repr()` of
+    the already-walked structure rather than `json.dumps`. A fix verified only
+    against the JSON renderer would be unverified for every self-hoster
+    running the default console output.
+    """
+    job = _authenticated_service_job()
+    extra = _worker_log_extra(job, "start_job")
+
+    lines = _emit_through_real_pipeline(
+        "procrastinate.worker",
+        logging.INFO,
+        f"Starting job {job.call_string}",
+        extra=extra,
+    )
+
+    assert len(lines) == 1
+    for spelling in _JOB_CREDENTIAL_SPELLINGS:
+        assert spelling not in lines[0], spelling
+    assert "[REDACTED]" in lines[0]
+    # Positive control: the container really is rendered into this line, so the
+    # absence assertions above are not passing on a dropped field.
+    assert "dataset_id" in lines[0]
+
+
+def test_a_container_that_raises_costs_the_payload_and_not_the_line():
+    """fix(#1844 audit round 1): `extra` is third-party input all the way down.
+
+    `redact_nested()` calls `.items()` on objects this module never built. A
+    lazy Mapping that raises there would take the exception out through the
+    processor chain and cost the entire record -- during an incident, on a
+    line someone put a credential in. The payload is dropped instead.
+    """
+
+    class _Exploding(Mapping):
+        def __iter__(self):
+            raise RuntimeError("boom")
+
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, key):
+            raise RuntimeError("boom")
+
+    _, data = _emit_json_with_extra(
+        "app.worker", logging.INFO, "hostile", {"payload": _Exploding()}
+    )
+
+    assert data["payload"] == "[UNREDACTABLE]"
+    assert data["event"] == "hostile"

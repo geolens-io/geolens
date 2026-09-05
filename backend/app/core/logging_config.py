@@ -163,12 +163,28 @@ def safe_access_log_path(path: str) -> str:
     return _CAPABILITY_PATH_RE.sub(r"\g<prefix>[REDACTED]", path, count=1)
 
 
-# fix(#1844): the names whose RENDERED value this scrub redacts. `token` has
-# been here since #1746; `credential_ref` joins it because a store reference is
-# a redeemable capability and not a correlation id (see `_SENSITIVE_FIELDS`).
-# Both are matched under a word boundary, so `token_hint=` and a hypothetical
+# fix(#1844 audit round 1): the names whose RENDERED value this scrub redacts
+# are `_SENSITIVE_FIELDS` itself, not a hand-kept subset of it.
+#
+# The first cut of this listed `token` and `credential_ref`, which is 2 of the
+# 14 names on the denylist -- so the other 12 were redacted as KEYS and then
+# emitted verbatim in the `call_string` rendering sitting beside them in the
+# same record. That is precisely the asymmetry that produced this PR's own
+# finding: a key pass and a text pass that disagree about what counts as a
+# secret leave the difference in the log. Deriving both from one set is what
+# stops the two halves drifting apart again;
+# `test_repr_scrub_covers_every_denylisted_name` pins the equality so adding a
+# name to the denylist can never again cover only half the record.
+#
+# Longest-first so the alternation is deterministic and a name that is a
+# suffix of another cannot shadow it. `re.escape` because the denylist holds
+# names with regex-significant characters (`x-api-key`). IGNORECASE for parity
+# with the key pass, which has always compared `key.lower()`: `Token='...'`
+# renders exactly as readily as `token='...'`.
+#
+# Matching is under a word boundary, so `token_hint=` and a hypothetical
 # `credential_reference=` still do not match: a boundary never falls between
-# two word characters, so a name that merely CONTAINS one of these as a
+# two word characters, so a name that merely CONTAINS a denylisted one as a
 # sub-word is left alone.
 #
 # Only a QUOTED value is redacted, which is what keeps the operator signal the
@@ -176,8 +192,10 @@ def safe_access_log_path(path: str) -> str:
 # `credential_ref=None` stays legible and `credential_ref='...'` becomes
 # `credential_ref='[REDACTED]'`. "Was a credential attached to this job" is
 # still answerable from the log; "which one" is not.
-_REDACTED_REPR_NAMES: tuple[str, ...] = ("token", "credential_ref")
-_REPR_NAME_ALTERNATION = "|".join(_REDACTED_REPR_NAMES)
+_REDACTED_REPR_NAMES: tuple[str, ...] = tuple(
+    sorted(_SENSITIVE_FIELDS, key=lambda name: (-len(name), name))
+)
+_REPR_NAME_ALTERNATION = "|".join(re.escape(name) for name in _REDACTED_REPR_NAMES)
 
 # fix(#1746): catches a token value rendered either as a Python dict repr
 # (`{'token': 'abc', ...}`) or as `key=value!r` keyword arguments — the shape
@@ -212,7 +230,7 @@ _TOKEN_VALUE_RE = re.compile(
         \s*=\s*(?P<kv>['\"])(?:\\.|[^\\])*?(?P=kv)
     )
     """,
-    re.VERBOSE,
+    re.VERBOSE | re.IGNORECASE,
 )
 
 
@@ -374,7 +392,19 @@ def _redact_sensitive_fields(
         if key in _NEVER_WALKED_FIELDS:
             continue
         if isinstance(value, (Mapping, list, tuple, set)):
-            event_dict[key] = redact_nested(value)
+            # fix(#1844 audit round 1): a container in `extra` is third-party
+            # input all the way down, and `redact_nested()` calls `.items()`,
+            # iterates and takes `len()` on objects this module never
+            # constructed. A lazy Mapping whose `.items()` raises would take
+            # the exception out through the processor chain and cost the whole
+            # log line -- during an incident, on a record someone put a
+            # credential in. Falling back to the redacted placeholder loses the
+            # payload and keeps the line, which is the right direction for both
+            # failure modes.
+            try:
+                event_dict[key] = redact_nested(value)
+            except Exception:  # noqa: BLE001 - see comment above
+                event_dict[key] = "[UNREDACTABLE]"
     event = event_dict.get("event")
     if isinstance(event, str):
         event_dict["event"] = _scrub_text(event)
