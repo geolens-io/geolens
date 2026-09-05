@@ -30,6 +30,11 @@ than a pass. A credential-free source is still not checked at all: a public
 federated service advertising another origin is ordinary, and the credential is
 what makes it a problem.
 
+fix(#1828): the WFS driver also resolves every ``xs:include`` of the
+DescribeFeatureType schema through the same header-carrying fetch, before any
+GetFeature and under no option that turns it off, so `_check_wfs` reads the
+schemas the driver would read and refuses an include off the origin too.
+
 Lives in ``platform/`` because both callers are in layers that may not import
 each other: ``modules/catalog`` for the probe and preview doors, and
 ``processing/ingest`` for the worker that runs the same source through ogr2ogr
@@ -81,6 +86,7 @@ import json
 import time
 import xml.parsers.expat
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 from urllib.parse import (
     parse_qs,
     parse_qsl,
@@ -104,6 +110,9 @@ from app.platform.security import (
     same_origin,
     validate_url_for_ssrf,
 )
+
+if TYPE_CHECKING:
+    from xml.etree.ElementTree import Element
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -527,7 +536,26 @@ _WFS_1_0_OPERATION_TAGS = frozenset(
 )
 
 
+def _local_name(tag: str) -> str:
+    """The tag without its ``{namespace}`` prefix."""
+    return tag.split("}")[-1] if "}" in tag else tag
+
+
+def _wfs_root(xml_bytes: bytes) -> Element:
+    """Parse an untrusted WFS document: bytes so an encoding declaration is
+    honoured, DTD refused."""
+    # fix(#1746 B2b review r26): `forbid_dtd=True`. defusedxml refuses entity
+    # declarations by default but allows a DOCTYPE naming an external subset,
+    # which a WFS document has no use for and the element bound cannot see.
+    return ET.fromstring(xml_bytes, forbid_dtd=True)
+
+
 def _wfs_operation_hrefs(xml_bytes: bytes) -> list[str]:
+    """`_operation_hrefs` of a capabilities document parsed here."""
+    return _operation_hrefs(_wfs_root(xml_bytes))
+
+
+def _operation_hrefs(root: Element) -> list[str]:
     """The operation endpoints a capabilities document advertises for a read.
 
     fix(#1770 round 36 P2): filtered to the operations
@@ -549,20 +577,6 @@ def _wfs_operation_hrefs(xml_bytes: bytes) -> list[str]:
     definition, and it is the document the whole check exists to distrust.
     """
     hrefs: list[str] = []
-    # Bytes rather than str: `ET` refuses a `str` carrying an XML encoding
-    # declaration outright, and reads the declaration correctly from bytes.
-    #
-    # fix(#1746 B2b review r26): `forbid_dtd=True`. defusedxml already refuses
-    # entity declarations by default (`forbid_entities`), which is the billion
-    # laughs case, but it allows a DOCTYPE, including one naming an external
-    # subset. A WFS capabilities document has no use for either, and the
-    # element bound above only counts what is in the body -- it cannot see a
-    # tree the doctype would have expanded.
-    root = ET.fromstring(xml_bytes, forbid_dtd=True)
-
-    def _local(tag: str) -> str:
-        return tag.split("}")[-1] if "}" in tag else tag
-
     # fix(#1770 round 47 P2): iterative, not recursive. `_xml_preflight`
     # (`require_decodable`'s XML branch, which runs before this ever does)
     # only bounds NESTING depth to `MAX_DOCUMENT_DEPTH` -- a document AT that
@@ -590,7 +604,7 @@ def _wfs_operation_hrefs(xml_bytes: bytes) -> list[str]:
     stack: list[tuple[object, str | None]] = [(root, None)]
     while stack:
         element, operation = stack.pop()
-        tag = _local(element.tag)
+        tag = _local_name(element.tag)
         if tag == "Operation":
             # 1.1/2.0: `ows:Operation name="GetFeature"`. A missing or blank
             # name leaves the context unattributed rather than guessing one,
@@ -603,7 +617,7 @@ def _wfs_operation_hrefs(xml_bytes: bytes) -> list[str]:
             operation is None or operation in _WFS_READ_OPERATIONS
         ):
             for name, value in element.attrib.items():
-                local = _local(name).lower()
+                local = _local_name(name).lower()
                 if local in _WFS_ENDPOINT_ATTRIBUTES and value:
                     hrefs.append(value)
         stack.extend((child, operation) for child in reversed(list(element)))
@@ -1141,12 +1155,305 @@ def _parsed_json(body: bytes) -> object:
         raise EndpointCheckFailedError(str(exc)) from None
 
 
+# fix(#1828): the DescribeFeatureType reads GDAL's WFS driver makes before any
+# GetFeature, mirrored so an `include` naming another origin is refused before
+# the driver fetches it with the credential (GDAL 3.10.3, the worker image).
+_WFS_SCHEMA_BATCH = 50
+_MAX_WFS_SCHEMA_READS = 50
+_WFS_DEFAULT_VERSION = "1.0.0"
+# What the driver replaces or drops on the URL it builds, whatever their case.
+_WFS_DESCRIBE_DROPPED_KEYS = frozenset(
+    {
+        "service",
+        "version",
+        "request",
+        "typename",
+        "typenames",
+        "propertyname",
+        "maxfeatures",
+        "count",
+        "filter",
+        "outputformat",
+    }
+)
+
+
+def _xml_value(element: Element, name: str) -> str | None:
+    """``CPLGetXMLValue`` as the driver reads it: the attribute, else a
+    text-only child element, matched by lower-cased local name."""
+    for key, value in element.attrib.items():
+        if _local_name(key).lower() == name:
+            return value
+    for child in element:
+        if (
+            isinstance(child.tag, str)
+            and _local_name(child.tag).lower() == name
+            and len(child) == 0
+        ):
+            return child.text or ""
+    return None
+
+
+def _wfs_feature_types(root: Element) -> tuple[str, list[str]]:
+    """The WFS version and the advertised feature type names, in document order.
+
+    Read the way the driver reads them: the ``version`` of the first
+    ``WFS_Capabilities`` element (1.0.0 when absent) and the ``Name`` of every
+    ``FeatureType``, each name once.
+    """
+    version = ""
+    found_root = False
+    names: list[str] = []
+    seen: set[str] = set()
+    for element in root.iter():
+        if not isinstance(element.tag, str):
+            continue
+        tag = _local_name(element.tag)
+        if not found_root and tag.lower() == "wfs_capabilities":
+            found_root = True
+            version = _xml_value(element, "version") or ""
+        elif tag == "FeatureType":
+            name = (_xml_value(element, "name") or "").strip()
+            if name and name not in seen:
+                seen.add(name)
+                names.append(name)
+    return version or _WFS_DEFAULT_VERSION, names
+
+
+def _wfs_prefix(name: str) -> str:
+    return name.split(":", 1)[0] if ":" in name else ""
+
+
+def _wfs_batch(names: list[str], first: str) -> list[str]:
+    """The names one DescribeFeatureType carries: *first*, then the other
+    members of its prefix in order, fifty at most, as the driver batches."""
+    prefix = _wfs_prefix(first)
+    siblings = [n for n in names if n != first and _wfs_prefix(n) == prefix]
+    return [first, *siblings[: _WFS_SCHEMA_BATCH - 1]]
+
+
+def _wfs_layer_name(names: list[str], requested: str) -> str | None:
+    """The advertised name the driver opens for *requested*, or None.
+
+    Exact first, then case-insensitive, then the part after the prefix when
+    the request carries none and no two advertised short names collide.
+    """
+    if requested in names:
+        return requested
+    folded = requested.lower()
+    for name in names:
+        if name.lower() == folded:
+            return name
+    shorts = [name.split(":", 1)[-1] for name in names]
+    if ":" in requested or len(set(shorts)) < len(shorts):
+        return None
+    for name, short in zip(names, shorts):
+        if ":" in name and short.lower() == folded:
+            return name
+    return None
+
+
+def _describe_feature_type_url(url: str, version: str, names: list[str]) -> str:
+    """The DescribeFeatureType URL the driver builds from the submitted URL.
+
+    The caller's own parameters survive; the ones the driver sets or drops are
+    replaced whatever their case, and the type names are joined by commas.
+    ``url`` is the caller's own submission, never a value read out of a
+    response, so its query is unbounded for the reason `_capabilities_url`
+    gives.
+    """
+    parsed = urlparse(url)
+    pairs = parse_qsl(parsed.query, keep_blank_values=True)  # parse_qs: unbounded
+    query = [(k, v) for k, v in pairs if k.lower() not in _WFS_DESCRIBE_DROPPED_KEYS]
+    query.extend(
+        [
+            ("SERVICE", "WFS"),
+            ("VERSION", version),
+            ("REQUEST", "DescribeFeatureType"),
+            ("TYPENAME", ",".join(names)),
+        ]
+    )
+    encoded = urlencode(query, safe=":,", quote_via=quote)
+    return urlunparse(parsed._replace(query=encoded))
+
+
+def _gdal_relative_filename(name: str) -> bool:
+    """``CPLIsFilenameRelative`` (GDAL 3.10.3). A relative include resolves under
+    the driver's in-memory directory and never leaves the process; anything
+    else is opened as a VSI path."""
+    if not name:
+        return True
+    if name[0] in "/\\" or name[1:3] in (":\\", ":/"):
+        return False
+    return "://" not in name[1:]
+
+
+def _schema_include_locations(root: Element) -> list[str]:
+    """Every ``include`` location in the tree, read as the driver reads it."""
+    locations: list[str] = []
+    for element in root.iter():
+        if (
+            isinstance(element.tag, str)
+            and _local_name(element.tag).lower() == "include"
+        ):
+            location = _xml_value(element, "schemalocation")
+            if location is not None:
+                locations.append(location)
+    return locations
+
+
+def _schema_location_label(location: str) -> str:
+    """What a refusal names: the location's origin when it has a host."""
+    try:
+        netloc = urlparse(location).netloc
+    except ValueError:
+        return "unparseable"
+    return _origin_of(location) if netloc else "a local path"
+
+
+def _wfs_schema(body: bytes) -> Element | None:
+    """The schema element the driver would parse out of a DescribeFeatureType
+    body, or None where the driver sees no schema and falls back.
+
+    Raises `EndpointCheckFailedError` for a body that does not parse: the
+    driver's own parser is more lenient, so what it would read is unknown.
+    """
+    if b"<ServiceExceptionReport" in body:
+        return None
+    try:
+        root = _wfs_root(body)
+    except (ET.ParseError, DefusedXmlException, RecursionError) as exc:
+        raise EndpointCheckFailedError(str(exc)) from None
+    if _local_name(root.tag).lower() == "schema":
+        return root
+    for child in root:
+        if isinstance(child.tag, str) and _local_name(child.tag).lower() == "schema":
+            return child
+    return None
+
+
+class _WfsSchemaReads:
+    """The bounded DescribeFeatureType and include reads of one check.
+
+    `batch` is the schema the driver would parse for one request, or None where
+    the driver falls back to one request per type; `single` is a request the
+    driver has nothing to fall back from, so no schema is a refusal. `check`
+    refuses the first include whose location the driver would fetch from
+    another origin or open as a path, and reads a same-origin location the way
+    the driver would, once. Every read counts against `_MAX_WFS_SCHEMA_READS`
+    and the check refuses past it.
+    """
+
+    def __init__(
+        self, client: httpx.AsyncClient, url: str, headers: dict[str, str]
+    ) -> None:
+        self._client = client
+        self._url = url
+        self._headers = headers
+        self._reads = 0
+        self._visited: set[str] = set()
+
+    async def _read(self, request_url: str, *, what: str) -> bytes:
+        self._reads += 1
+        if self._reads > _MAX_WFS_SCHEMA_READS:
+            raise EndpointCheckFailedError("schema read budget exceeded")
+        try:
+            request_url = bounded_service_url(request_url, what=what)
+        except HrefTooLongError as exc:
+            raise EndpointCheckFailedError(str(exc)) from None
+        body, _from_url = await _fetch(
+            self._client, request_url, self._headers, accept=WFS_XML_ACCEPT
+        )
+        return body
+
+    async def batch(self, version: str, names: list[str]) -> Element | None:
+        request_url = _describe_feature_type_url(self._url, version, names)
+        return _wfs_schema(await self._read(request_url, what="DescribeFeatureType"))
+
+    async def single(self, version: str, name: str) -> Element:
+        schema = await self.batch(version, [name])
+        if schema is None:
+            raise EndpointCheckFailedError("DescribeFeatureType is not a schema")
+        return schema
+
+    async def check(self, schema: Element) -> None:
+        pending = [schema]
+        while pending:
+            for location in _schema_include_locations(pending.pop()):
+                if location.startswith(("http://", "https://")):
+                    if not same_origin(self._url, location):
+                        raise CrossOriginEndpointError(_schema_location_label(location))
+                    if location not in self._visited:
+                        self._visited.add(location)
+                        pending.append(await self._include(location))
+                elif not _gdal_relative_filename(location):
+                    raise CrossOriginEndpointError(_schema_location_label(location))
+
+    async def _include(self, location: str) -> Element:
+        try:
+            return _wfs_root(await self._read(location, what="schemaLocation"))
+        except (ET.ParseError, DefusedXmlException, RecursionError) as exc:
+            raise EndpointCheckFailedError(str(exc)) from None
+
+
+async def _check_wfs_schemas(
+    client: httpx.AsyncClient,
+    url: str,
+    headers: dict[str, str],
+    root: Element,
+    collection: str | None,
+) -> None:
+    """Refuse the first schema include the driver would fetch off the origin.
+
+    Reads what the driver reads. For a named layer: one DescribeFeatureType
+    for the layer and its prefix siblings, then one for the layer alone, which
+    the driver issues whenever the first answer does not cover it. For no
+    layer: one per prefix batch, then one per remaining type once a batch
+    answers with no schema. A capabilities document advertising no feature
+    type has nothing to read.
+    """
+    version, names = _wfs_feature_types(root)
+    if not names:
+        return
+    reads = _WfsSchemaReads(client, url, headers)
+    target = _wfs_layer_name(names, collection) if collection else None
+    if target is not None:
+        batch = _wfs_batch(names, target)
+        schema = await reads.batch(version, batch)
+        if schema is not None:
+            await reads.check(schema)
+        if schema is None or batch != [target]:
+            await reads.check(await reads.single(version, target))
+        return
+    pending = list(names)
+    batching = True
+    while pending:
+        if batching:
+            batch = _wfs_batch(pending, pending[0])
+            schema = await reads.batch(version, batch)
+            if schema is None:
+                batching = False
+                continue
+            pending = [name for name in pending if name not in batch]
+        else:
+            schema = await reads.single(version, pending.pop(0))
+        await reads.check(schema)
+
+
 async def _check_wfs(
     client: httpx.AsyncClient,
     url: str,
     headers: dict[str, str],
+    collection: str | None,
     on_first_request: "Callable[[], None] | None" = None,
 ) -> None:
+    """Refuse a credentialed WFS whose description or schemas name another origin.
+
+    Reads the capabilities and every DescribeFeatureType the driver would,
+    with the credential, on the submitted origin only. Raises
+    `CrossOriginEndpointError` for a foreign endpoint or schema location and
+    `EndpointCheckFailedError` for a document that cannot be read.
+    """
     xml_bytes, from_url = await _fetch(
         client,
         _capabilities_url(url),
@@ -1155,7 +1462,8 @@ async def _check_wfs(
         accept=WFS_XML_ACCEPT,
     )
     try:
-        hrefs = _wfs_operation_hrefs(xml_bytes)
+        root = _wfs_root(xml_bytes)
+        hrefs = _operation_hrefs(root)
     except (ET.ParseError, DefusedXmlException) as exc:
         # fix(#1746 B2b review r26): `DefusedXmlException` is a `ValueError`,
         # NOT a `ParseError`, so catching only the latter let a capabilities
@@ -1174,6 +1482,7 @@ async def _check_wfs(
         # as `_parsed_json`'s own `RecursionError` handling (round 44).
         raise EndpointCheckFailedError(str(exc)) from None
     _assert_same_origin(url, hrefs, from_url)
+    await _check_wfs_schemas(client, url, headers, root, collection)
 
 
 async def _check_ogcapi(
@@ -1319,7 +1628,7 @@ async def assert_endpoints_stay_on_origin(
             ) as client:
                 arm = fire_once(on_first_request)
                 if service_format == "wfs":
-                    await _check_wfs(client, url, headers, arm)
+                    await _check_wfs(client, url, headers, collection, arm)
                 else:
                     await _check_ogcapi(client, url, headers, collection, arm)
     except TimeoutError:

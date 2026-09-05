@@ -2595,7 +2595,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # caller's real `headers`, and the soft stop is safe because `_next_page`
     # itself refuses a cross-origin/unparseable `next`, not because the
     # pages are anonymous. Cap 1319 -> 1330, exact.
-    "backend/app/platform/service_endpoints.py": 1330,
+    # fix(#1828): +309. `_check_wfs` now reads every DescribeFeatureType the
+    # WFS driver reads and refuses a schema `include` off the origin (the
+    # `_WfsSchemaReads` walk and its URL/name mirrors). Cap 1330 -> 1639, exact.
+    "backend/app/platform/service_endpoints.py": 1639,
     # fix(#1770 round 42): first entry, crossed _RATCHET_INCLUSION_LOC on the
     # completeness-predicate unification. `_page_proves_complete` is the one
     # function round 41's full-walk-only proof and round 42's sampled-preview
