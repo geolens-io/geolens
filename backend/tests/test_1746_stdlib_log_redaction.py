@@ -657,7 +657,7 @@ def _worker_log_extra(job: Job, action: str) -> dict:
             "name": "worker-0",
             "worker_id": 0,
             "job_id": job.id,
-            "queues": ["ingest-auth-v2"],
+            "queues": ["ingest"],
         },
         "job": job.log_context(),
     }
@@ -673,7 +673,7 @@ def _authenticated_service_job() -> Job:
     """
     return Job(
         id=1270,
-        queue="ingest-auth-v2",
+        queue="ingest",
         lock=None,
         queueing_lock=None,
         task_name="ingest_service",
@@ -802,7 +802,7 @@ def test_credential_ref_absence_stays_distinguishable_from_a_real_ref():
     """
     job = Job(
         id=1271,
-        queue="ingest-auth-v2",
+        queue="ingest",
         lock=None,
         queueing_lock=None,
         task_name="ingest_service",

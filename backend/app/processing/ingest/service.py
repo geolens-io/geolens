@@ -1404,7 +1404,6 @@ async def queue_ingest_job(
 
     from app.platform.service_auth import (
         bearer_credential,
-        header_auth_job_queue,
         wire_credential,
     )
 
@@ -1448,11 +1447,6 @@ async def queue_ingest_job(
             credential if credential is not None else bearer_credential(token),
             service_format=service_format,
         )
-        # fix(#1770 round 35): judged on the line just composed, before the
-        # lease below may swap it for a store reference — see
-        # `service_auth.header_auth_job_queue` for why that ordering is what
-        # makes this apply to either spelling.
-        service_queue = header_auth_job_queue(token, service_format=service_format)
 
         # feat(#1676): the import door's half of the lease. On an install with
         # a shared credential store this returns (None, ref) and the secret
@@ -1488,8 +1482,6 @@ async def queue_ingest_job(
 
         async def _defer_service() -> None:
             task = ingest_service
-            if service_queue is not None:
-                task = task.configure(queue=service_queue)
             await defer_async_with_tenant(
                 task,
                 job_id=str(job.id),

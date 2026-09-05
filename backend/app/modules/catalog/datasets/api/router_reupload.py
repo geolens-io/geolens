@@ -66,7 +66,6 @@ from app.modules.catalog.sources.preview import build_gdal_source, run_service_p
 from app.modules.catalog.sources.schemas import service_credential_from_request
 from app.platform.service_auth import (
     credential_or_422,
-    header_auth_job_queue,
     url_query_token,
     wire_credential,
 )
@@ -790,7 +789,6 @@ async def _dispatch_reupload_task(
     credential_ref: str | None,
     is_service_refresh: bool,
     rollback,
-    service_queue: str | None = None,
 ) -> None:
     """Defer the worker task this committed reupload needs.
 
@@ -808,20 +806,12 @@ async def _dispatch_reupload_task(
     credential can arrive in, and exactly one of them is ever set — the caller
     gets the pair from ``resolve_dispatch_credential``. Both are forwarded
     verbatim; deciding between them is the worker's job, not this one's.
-
-    fix(#1770 round 35): ``service_queue`` is the caller's
-    ``header_auth_job_queue`` verdict on whichever of the two shapes it
-    composed, judged before it chose between them, so it applies to both.
-    None (the ``is_service_refresh=False`` callers' implicit default) means
-    the task's own queue, unchanged.
     """
     if is_service_refresh:
         source_url = job.source_url
 
         async def _defer_service() -> None:
             task = get_catalog_port().reupload_service_task()
-            if service_queue is not None:
-                task = task.configure(queue=service_queue)
             await defer_async_with_tenant(
                 task,
                 job_id=str(job.id),
@@ -947,13 +937,6 @@ async def reupload_commit(
     # rolled back to refuse it. ArcGIS keeps its wider vocabulary: its token is
     # a urlencoded query parameter, never a header line.
     service_token = wire_credential(credential, service_format=_job_service_format(job))
-    # fix(#1770 round 35): judged on the line just composed, before the stash
-    # below may hand the worker a store reference instead — see
-    # `service_auth.header_auth_job_queue` for why that ordering is what
-    # makes this apply to either spelling.
-    service_queue = header_auth_job_queue(
-        service_token, service_format=_job_service_format(job)
-    )
 
     # Merge commit request params into user_metadata, preserving existing keys.
     # Keep token + layer_name request-only from user_metadata (layer_name goes
@@ -1148,7 +1131,6 @@ async def reupload_commit(
         credential_ref=credential_ref,
         is_service_refresh=is_service_refresh,
         rollback=rollback,
-        service_queue=service_queue,
     )
 
     return ReuploadCommitResponse(
