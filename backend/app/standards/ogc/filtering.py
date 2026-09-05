@@ -229,6 +229,41 @@ _FEATURE_QUERYABLE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 # recurses arbitrarily and un-indexed predicates cost per byte anyway.
 MAX_FEATURE_FILTER_LENGTH = 10_000
 
+# fix(#1845): ceiling on the number of COMPILED binds, which the character cap
+# above does not bound usefully. ``render_postcompile=True`` expands ``IN`` to
+# one bind per member, so the shortest possible members (one digit and a
+# separator) reach 4,995 binds inside a 9,998-character filter, measured. Each
+# bind costs a BindParameter, a wire parameter and a term in the executed
+# predicate, so the count is worth bounding on its own.
+#
+# 1,000 sits well above what the clients this surface exists for emit. QGIS
+# and pygeoapi send bbox, datetime and simple attribute predicates; neither
+# builds a long IN list, and a list of realistic identifiers (four characters
+# plus a separator) runs out of the character cap around 2,000 members anyway.
+MAX_FEATURE_FILTER_BINDS = 1_000
+
+# fix(#1845): one compiled scanner for the whole bind rename, replacing a
+# per-bind ``re.subn`` over the whole statement -- N passes over an O(N)
+# string, which an anonymous caller could turn into seconds of event-loop
+# blocking. ``(?<!:)`` skips ``::casts``. The greedy ``\w+`` consumes the
+# whole identifier, so ``:param_1`` cannot match the leading half of
+# ``:param_10`` the way a bare literal would, which is the property the old
+# loop got from its trailing ``\b``. A name that is not a compiled bind is
+# matched and handed straight back, which is what the per-key loop did by
+# never looking at it.
+_BIND_NAME_RE = re.compile(r"(?<!:):(\w+)")
+
+# fix(#1845): a filter can nest deeper than the interpreter recursion limit
+# while staying inside MAX_FEATURE_FILTER_LENGTH. ``a=1 OR `` is eight
+# characters, so a 10,000-character filter reaches roughly 1,250 levels
+# against a default limit of 1,000; measured, an anonymous 500 from depth
+# 1,100 up. RecursionError subclasses RuntimeError, so it escaped every
+# except clause on this path that names ValueError, and the one that does
+# catch it (``parse_cql2_filter``) covers only the parse itself. Both
+# remaining recursive walks on the caller's path raise it through the same
+# coded 400 instead.
+_FILTER_TOO_DEEP_DETAIL = "Invalid CQL2 expression: filter nests too deeply"
+
 _GEOMETRY_MARKER = "geometry"
 
 # Postgres type -> JSON Schema fragment for the queryables document. A column
@@ -718,7 +753,13 @@ def parse_feature_cql2(filter_expr: str, filter_lang: str) -> Any:
     if filter_lang == "cql2-text":
         filter_expr = _quote_single_char_attributes(filter_expr)
     ast_root = parse_cql2_filter(filter_expr, filter_lang)
-    return _rewrite_text_bbox_literals(ast_root)
+    try:
+        return _rewrite_text_bbox_literals(ast_root)
+    except RecursionError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_FILTER_TOO_DEEP_DETAIL,
+        )
 
 
 def compile_feature_cql2(
@@ -730,6 +771,29 @@ def compile_feature_cql2(
     return compile_feature_cql2_ast(
         parse_feature_cql2(filter_expr, filter_lang), queryables
     )
+
+
+def _refuse_unsupported_filter(ast_root: Any, queryables: dict[str, str]) -> None:
+    """Run the whitelist walk and turn anything it refuses into a 400.
+
+    A function rather than an inline block so both refusals the walk can
+    produce -- the collected ``errors`` and the RecursionError a filter nested
+    past the interpreter limit raises out of the walk itself -- leave through
+    one place.
+    """
+    errors: list[str] = []
+    try:
+        _validate_feature_filter_node(ast_root, queryables, errors)
+    except RecursionError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_FILTER_TOO_DEEP_DETAIL,
+        )
+    if errors:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported CQL2 filter: " + "; ".join(sorted(set(errors))),
+        )
 
 
 def compile_feature_cql2_ast(
@@ -752,13 +816,7 @@ def compile_feature_cql2_ast(
     from sqlalchemy import types as sa_types
     from sqlalchemy.dialects import postgresql
 
-    errors: list[str] = []
-    _validate_feature_filter_node(ast_root, queryables, errors)
-    if errors:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unsupported CQL2 filter: " + "; ".join(sorted(set(errors))),
-        )
+    _refuse_unsupported_filter(ast_root, queryables)
 
     # fix(#1614 codex r3): the asyncpg dialect casts every bind to its
     # SQLAlchemy type ($1::FLOAT ...), and a float8-cast bind against a REAL
@@ -802,17 +860,23 @@ def compile_feature_cql2_ast(
     from sqlalchemy import bindparam
 
     sql = str(compiled)
+    params = list(compiled.params.items())
+    if len(params) > MAX_FEATURE_FILTER_BINDS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"filter expands to more than {MAX_FEATURE_FILTER_BINDS} parameters"
+            ),
+        )
+
     binds: list = []
-    for i, (key, value) in enumerate(compiled.params.items()):
+    # fix(#1845): the rendered replacement per compiled bind name, collected
+    # here and applied in the single pass below. Nothing in this loop touches
+    # ``sql``, so the cost of the rename no longer grows with the square of
+    # the bind count.
+    rendered: dict[str, str] = {}
+    for i, (key, value) in enumerate(params):
         new_key = f"cql2_{i}"
-        # (?<!:) skips ::casts; \b keeps :param_1 from matching inside
-        # :param_10 (word boundary fails between two word characters).
-        sql, n = re.subn(rf"(?<!:):{re.escape(key)}\b", f":{new_key}", sql)
-        if n != 1:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid CQL2 expression: parameter rendering failed",
-            )
         # fix(#1614 codex r3): keep the compiled bind's SQLAlchemy type so
         # execution doesn't re-infer it from the Python value. A
         # render_postcompile-expanded IN member is named <base>_<n>; its
@@ -827,7 +891,9 @@ def compile_feature_cql2_ast(
             # promotes the stored float4 in comparison — 0.1 never matches.
             # An explicit outer cast is constant-folded at plan time, so the
             # comparison happens in float4 and stays index-friendly.
-            sql = sql.replace(f":{new_key}", f"CAST(:{new_key} AS REAL)")
+            rendered[key] = f"CAST(:{new_key} AS REAL)"
+        else:
+            rendered[key] = f":{new_key}"
         if (
             bp is not None
             and isinstance(bp.type, sa_types.Numeric)
@@ -846,4 +912,29 @@ def compile_feature_cql2_ast(
             if bp is not None
             else bindparam(new_key, value)
         )
+
+    if rendered:
+        # fix(#1845): ONE scan. re.sub never rescans what a replacement
+        # emitted, so a new ``:cql2_N`` name cannot be re-matched by a later
+        # bind -- the property the old sequential loop had to detect after the
+        # fact through its per-key count.
+        seen: dict[str, int] = {}
+
+        def _rename(match: re.Match) -> str:
+            key = match.group(1)
+            replacement = rendered.get(key)
+            if replacement is None:
+                return match.group(0)
+            seen[key] = seen.get(key, 0) + 1
+            return replacement
+
+        sql = _BIND_NAME_RE.sub(_rename, sql)
+        # Same contract as the per-key ``n != 1`` check this replaced: every
+        # compiled bind must appear in the rendered statement exactly once, or
+        # the fragment is not safe to append and the request is refused.
+        if any(seen.get(key, 0) != 1 for key in rendered):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid CQL2 expression: parameter rendering failed",
+            )
     return f"({sql})", binds

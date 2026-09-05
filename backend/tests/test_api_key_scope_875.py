@@ -21,6 +21,7 @@ from httpx import AsyncClient
 from app.core.config import settings
 from app.modules.auth.dependencies import (
     _READ_ONLY_KEY_EXEMPT_ROUTES,
+    _query_key_may_authenticate,
     _read_only_key_may_call,
 )
 from tests.conftest import get_auth_header
@@ -662,3 +663,263 @@ def test_the_stac_search_carve_out_is_required_by_the_acceptance_criteria():
     assert ("POST", "/stac/search") in _mounted_route_pairs()
     assert _read_only_key_may_call("POST", "/stac/search") is True
     assert _read_only_key_may_call("DELETE", "/stac/search") is False
+
+
+# ---------------------------------------------------------------------------
+# fix(#1845): the deprecated ?api_key= transport carries reads only
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_a_full_key_still_reads_through_the_query_lane(client: AsyncClient):
+    """The control. The lane exists for clients that cannot set headers, and
+    every one of them issues a GET."""
+    headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    raw_key = (await _mint(client, headers))["key"]
+
+    assert (await client.get(f"/auth/me/?api_key={raw_key}")).status_code == 200
+
+    listing = await client.get("/collections", params={"api_key": raw_key})
+    assert listing.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_a_full_key_cannot_mint_another_key_through_the_query_lane(
+    client: AsyncClient,
+):
+    """A URL-borne credential minting a fresh credential is the sharpest shape
+    of the finding: the leaked value outlives its own rotation."""
+    headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    raw_key = (await _mint(client, headers))["key"]
+
+    before = len((await client.get("/auth/api-keys/", headers=headers)).json()["items"])
+
+    resp = await client.post(
+        "/auth/api-keys/",
+        json={"name": "Minted From A URL"},
+        params={"api_key": raw_key},
+    )
+    assert resp.status_code == 401, resp.text
+
+    after = (await client.get("/auth/api-keys/", headers=headers)).json()["items"]
+    assert len(after) == before
+    assert "Minted From A URL" not in {item["name"] for item in after}
+
+
+@pytest.mark.anyio
+async def test_a_full_key_cannot_delete_through_the_query_lane(client: AsyncClient):
+    headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    victim = await _mint(client, headers)
+    raw_key = (await _mint(client, headers))["key"]
+
+    resp = await client.delete(
+        f"/auth/api-keys/{victim['id']}", params={"api_key": raw_key}
+    )
+    assert resp.status_code == 401, resp.text
+
+    listing = await client.get("/auth/api-keys/", headers=headers)
+    assert victim["id"] in {item["id"] for item in listing.json()["items"]}
+
+
+@pytest.mark.anyio
+async def test_a_full_key_cannot_patch_through_the_query_lane(
+    client: AsyncClient, test_db_session
+):
+    headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    raw_key = (await _mint(client, headers))["key"]
+    admin = await _get_admin(client, headers)
+    dataset = await create_dataset(
+        test_db_session, created_by=admin, name="Query Lane Patch"
+    )
+
+    resp = await client.patch(
+        f"/datasets/{dataset.id}",
+        json={"title": "Renamed From A URL"},
+        params={"api_key": raw_key},
+    )
+    assert resp.status_code == 401, resp.text
+
+    unchanged = await client.get(f"/datasets/{dataset.id}", headers=headers)
+    assert unchanged.json()["title"] != "Renamed From A URL"
+
+
+@pytest.mark.anyio
+async def test_the_same_key_still_patches_through_the_header(
+    client: AsyncClient, test_db_session
+):
+    """The paired control: the refusal is the transport, not the key and not
+    the route. Header clients see no change at all."""
+    headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    raw_key = (await _mint(client, headers))["key"]
+    admin = await _get_admin(client, headers)
+    dataset = await create_dataset(
+        test_db_session, created_by=admin, name="Header Lane Patch"
+    )
+
+    resp = await client.patch(
+        f"/datasets/{dataset.id}",
+        json={"title": "Renamed From A Header"},
+        headers={"X-Api-Key": raw_key},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["title"] == "Renamed From A Header"
+
+
+@pytest.mark.anyio
+async def test_a_refused_query_key_answers_as_if_it_were_absent(client: AsyncClient):
+    """Treated as absent, not as a distinct refusal.
+
+    A dedicated error would tell whoever picked the URL out of a log that the
+    value in it is a live key. The anonymous answer for the same request is
+    what they get instead.
+    """
+    headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    raw_key = (await _mint(client, headers))["key"]
+
+    with_key = await client.post(
+        "/auth/api-keys/", json={"name": "X"}, params={"api_key": raw_key}
+    )
+    without_key = await client.post("/auth/api-keys/", json={"name": "X"})
+    assert with_key.status_code == without_key.status_code
+    assert with_key.json() == without_key.json()
+
+    junk = await client.post(
+        "/auth/api-keys/", json={"name": "X"}, params={"api_key": "not-a-key"}
+    )
+    assert junk.status_code == without_key.status_code
+
+
+# ---------------------------------------------------------------------------
+# The transport gate, walked against the live route table
+# ---------------------------------------------------------------------------
+
+
+def test_no_mutating_route_in_the_table_accepts_a_url_borne_key():
+    """The gate #875 got for scopes, applied to the transport.
+
+    Walks every mounted (method, path) pair rather than naming endpoints, so a
+    new mutation route cannot quietly join the lane by being added later.
+    """
+    accepted = {
+        (method, path)
+        for method, path in _mounted_route_pairs()
+        if method not in ("GET", "HEAD", "OPTIONS")
+        and _query_key_may_authenticate(method, path)
+    }
+    assert not accepted, sorted(accepted)
+
+
+def test_the_query_lane_does_not_inherit_the_read_only_scope_exemptions():
+    """``_READ_ONLY_KEY_EXEMPT_ROUTES`` is about what a scoped key may do; this
+    is about what a credential written into a URL may do. The two POSTs there
+    are reads an owner chose to make with a credential they control, and the
+    clients this lane exists for issue GETs, so the exemption stops here."""
+    assert _READ_ONLY_KEY_EXEMPT_ROUTES
+    for method, path in _READ_ONLY_KEY_EXEMPT_ROUTES:
+        assert _read_only_key_may_call(method, path) is True
+        assert _query_key_may_authenticate(method, path) is False
+
+
+def test_the_query_lane_reuses_the_writing_get_classification():
+    """One definition of "this GET is really a write", not two."""
+    from app.modules.auth.dependencies import _READ_ONLY_KEY_WRITING_GET_ROUTES
+
+    assert _READ_ONLY_KEY_WRITING_GET_ROUTES
+    for route, trigger in _READ_ONLY_KEY_WRITING_GET_ROUTES.items():
+        assert _query_key_may_authenticate("GET", route, {trigger: "true"}) is False
+        assert _query_key_may_authenticate("GET", route, {}) is True
+
+
+@pytest.mark.parametrize("method", ["GET", "HEAD", "OPTIONS"])
+def test_safe_methods_still_pass_the_transport_gate(method: str):
+    assert _query_key_may_authenticate(method, "/datasets/") is True
+
+
+def test_an_unresolvable_route_fails_closed_on_the_transport_gate():
+    """Same fail-closed shape as the scope gate: an unmatched template is in no
+    exemption list, and a mutation on one is refused."""
+    assert _query_key_may_authenticate("POST", "<unmatched-route>") is False
+    assert _query_key_may_authenticate("GET", "<unmatched-route>") is True
+
+
+# ---------------------------------------------------------------------------
+# fix(#1845): the refusal warning is throttled, not one line per request
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _clean_query_lane_log_state():
+    from app.modules.auth import dependencies
+
+    dependencies._query_lane_log_last.clear()
+    yield dependencies
+    dependencies._query_lane_log_last.clear()
+
+
+def test_the_refusal_warning_is_written_once_per_route_per_interval(
+    _clean_query_lane_log_state,
+):
+    """An anonymous caller decides how often the refusal path runs, so an
+    unthrottled warning would let whoever holds the URL choose how many log
+    lines an operator stores."""
+    deps = _clean_query_lane_log_state
+
+    assert deps._should_log_query_lane_refusal("/datasets/") is True
+    assert deps._should_log_query_lane_refusal("/datasets/") is False
+    assert deps._should_log_query_lane_refusal("/datasets/") is False
+
+    # A different route is its own budget: the volume is bounded by the route
+    # table, which is fixed at deploy time.
+    assert deps._should_log_query_lane_refusal("/maps/") is True
+    assert deps._should_log_query_lane_refusal("/maps/") is False
+
+
+def test_the_refusal_warning_resumes_after_the_interval(
+    _clean_query_lane_log_state, monkeypatch
+):
+    """Throttled, not silenced: a client still stuck on the query lane keeps
+    showing up in the log."""
+    deps = _clean_query_lane_log_state
+
+    clock = {"now": 1_000.0}
+    monkeypatch.setattr(deps, "monotonic", lambda: clock["now"])
+
+    assert deps._should_log_query_lane_refusal("/datasets/") is True
+    clock["now"] += deps._QUERY_LANE_LOG_INTERVAL_SECONDS - 0.01
+    assert deps._should_log_query_lane_refusal("/datasets/") is False
+    clock["now"] += 0.02
+    assert deps._should_log_query_lane_refusal("/datasets/") is True
+
+
+def test_the_throttle_key_space_is_the_route_table(_clean_query_lane_log_state):
+    """Keyed by the matched route TEMPLATE, never by anything caller-supplied.
+
+    `_route_template` answers `<unmatched-route>` for anything it cannot
+    resolve, so a caller cannot grow this dict by varying a path segment. The
+    same reasoning `_route_template`'s own docstring gives for logging it.
+    """
+    deps = _clean_query_lane_log_state
+
+    for _ in range(50):
+        deps._should_log_query_lane_refusal("<unmatched-route>")
+    assert set(deps._query_lane_log_last) == {"<unmatched-route>"}
+
+
+@pytest.mark.anyio
+async def test_a_refused_query_key_still_logs_the_first_time(
+    client: AsyncClient, _clean_query_lane_log_state
+):
+    """End to end: the refusal that the throttle governs is still emitted."""
+    deps = _clean_query_lane_log_state
+    headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    raw_key = (await _mint(client, headers))["key"]
+
+    resp = await client.post(
+        "/auth/api-keys/", json={"name": "Throttle Probe"}, params={"api_key": raw_key}
+    )
+    assert resp.status_code == 401, resp.text
+    assert set(deps._query_lane_log_last), (
+        "the refusal did not reach the throttled warning"
+    )
+    for route in deps._query_lane_log_last:
+        assert raw_key not in route

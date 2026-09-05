@@ -1068,3 +1068,415 @@ async def test_qgis_344_request_sequence_end_to_end(
     assert body["numberMatched"] == 2
     names = {f["properties"]["name"] for f in body["features"]}
     assert names == {"Alpha", "Beta"}
+
+
+# ---------------------------------------------------------------------------
+# fix(#1845): the bind rename is one pass, and the bind count is bounded
+# ---------------------------------------------------------------------------
+
+# Every queryable type family, plus three names where one is a strict prefix
+# of another, which is the case the old loop's trailing ``\b`` existed for.
+_RENAME_QUERYABLES = {
+    "geometry": "geometry",
+    "name": "text",
+    "ada": "integer",
+    "ada_1": "integer",
+    "ada_10": "integer",
+    "height": "real",
+    "price": "numeric",
+    "ratio": "double precision",
+    "flag": "boolean",
+    "when_day": "date",
+    "seen_at": "timestamp with time zone",
+}
+
+_RENAME_CORPUS = [
+    "name = 'x'",
+    "ada = 1 AND ada_1 = 2 AND ada_10 = 3",
+    "ada IN (1,2,3,4,5,6,7,8,9,10,11,12)",
+    "height = 0.1 AND height > 1.5",
+    "price = 19.99",
+    "ratio BETWEEN 0.5 AND 1.5",
+    "flag = true",
+    "when_day = DATE('2020-01-01')",
+    "seen_at > TIMESTAMP('2020-01-01T00:00:00Z')",
+    "name LIKE 'a%' AND ada_1 IN (1,2,3) AND ada_10 IN (4,5,6)",
+    "S_INTERSECTS(geometry, BBOX(170, -45, -170, -30))",
+    "S_INTERSECTS(geometry, BBOX(-1, -1, 1, 1)) AND ada IN (1,2,3)",
+    "name IS NULL",
+    "height IN (0.1, 0.2, 0.3)",
+    "ada_1 IN (%s)" % ",".join(str(i) for i in range(200)),
+]
+
+
+def _legacy_renamed_sql(compiled) -> str:
+    """The pre-fix per-bind loop, kept verbatim as the equivalence oracle.
+
+    One ``re.subn`` over the whole statement per bind, plus a whole-string
+    ``str.replace`` per REAL bind. That is the shape the fix removed; keeping
+    it here is what makes "the new pass produces the same bytes" a claim about
+    the old code rather than a restatement of the new code.
+    """
+    import re as _re
+
+    from sqlalchemy import types as sa_types
+
+    sql = str(compiled)
+    for i, (key, _value) in enumerate(compiled.params.items()):
+        new_key = f"cql2_{i}"
+        sql, n = _re.subn(rf"(?<!:):{_re.escape(key)}\b", f":{new_key}", sql)
+        assert n == 1, f"oracle could not rename {key}"
+        bp = compiled.binds.get(key)
+        if bp is None:
+            bp = compiled.binds.get(_re.sub(r"_\d+$", "", key))
+        if bp is not None and isinstance(bp.type, sa_types.REAL):
+            sql = sql.replace(f":{new_key}", f"CAST(:{new_key} AS REAL)")
+    return f"({sql})"
+
+
+def _compile_unrenamed(filter_expr: str):
+    """Compile a corpus expression the way compile_feature_cql2_ast does but
+    stop short of the rename, so the oracle above has something to chew."""
+    from geoalchemy2 import Geometry
+    from pygeofilter.backends.sqlalchemy import to_filter
+    from sqlalchemy import column as sa_column
+    from sqlalchemy import types as sa_types
+    from sqlalchemy.dialects import postgresql
+
+    from app.standards.ogc.filtering import parse_feature_cql2
+
+    sa_type_for_pg = {
+        "text": sa_types.Text(),
+        "integer": sa_types.BigInteger(),
+        "real": sa_types.REAL(),
+        "double precision": sa_types.Float(),
+        "numeric": sa_types.Numeric(),
+        "boolean": sa_types.Boolean(),
+        "date": sa_types.Date(),
+        "timestamp with time zone": sa_types.DateTime(timezone=True),
+    }
+    field_mapping = {}
+    for name, pg_type in _RENAME_QUERYABLES.items():
+        if pg_type == "geometry":
+            field_mapping[name] = sa_column("geom_4326", Geometry(srid=4326))
+        else:
+            field_mapping[name] = sa_column(name, sa_type_for_pg[pg_type])
+    sa_filter = to_filter(
+        parse_feature_cql2(filter_expr, "cql2-text"),
+        field_mapping,
+        undefined_as_null=False,
+    )
+    return sa_filter.compile(
+        dialect=postgresql.dialect(paramstyle="named"),
+        compile_kwargs={"render_postcompile": True},
+    )
+
+
+@pytest.mark.parametrize("filter_expr", _RENAME_CORPUS)
+def test_single_pass_rename_matches_the_per_bind_loop_byte_for_byte(filter_expr: str):
+    """The fix is a performance change and must not be a behaviour change."""
+    from app.standards.ogc.filtering import compile_feature_cql2
+
+    sql, _binds = compile_feature_cql2(filter_expr, "cql2-text", _RENAME_QUERYABLES)
+    assert sql == _legacy_renamed_sql(_compile_unrenamed(filter_expr))
+
+
+def test_rename_scans_the_statement_once_whatever_the_bind_count():
+    """The DoS was one whole-string regex pass per bind (P2-6).
+
+    Counted, not timed. A wall-clock bound is set by the coarsest clock the
+    runner records, and would go green again the moment a fast machine
+    absorbed a quadratic pass. What has to hold is that the number of scans is
+    a constant, so the assertion is on the call count at two bind counts an
+    order of magnitude apart.
+    """
+    import app.standards.ogc.filtering as filtering
+
+    real_pattern = filtering._BIND_NAME_RE
+    calls: list[int] = []
+
+    class _CountingPattern:
+        def sub(self, repl, string):
+            calls.append(1)
+            return real_pattern.sub(repl, string)
+
+    small = "ada IN (1,2,3)"
+    large = "ada IN (%s)" % ",".join("1" for _ in range(300))
+
+    for expr, expected_binds in ((small, 3), (large, 300)):
+        calls.clear()
+        filtering._BIND_NAME_RE = _CountingPattern()
+        try:
+            _sql, binds = filtering.compile_feature_cql2(
+                expr, "cql2-text", _RENAME_QUERYABLES
+            )
+        finally:
+            filtering._BIND_NAME_RE = real_pattern
+        assert len(binds) == expected_binds
+        assert sum(calls) == 1, f"{expected_binds} binds cost {sum(calls)} scans"
+
+
+def test_bind_expansion_over_the_cap_is_refused():
+    """An IN list carries thousands of binds inside the character cap.
+
+    ``1,`` is two characters, so the 10,000-character filter limit alone
+    admits close to 5,000 compiled binds. The bind ceiling is the bound that
+    applies to the expanded form.
+    """
+    from fastapi import HTTPException
+
+    from app.standards.ogc.filtering import (
+        MAX_FEATURE_FILTER_BINDS,
+        MAX_FEATURE_FILTER_LENGTH,
+        compile_feature_cql2,
+    )
+
+    members = MAX_FEATURE_FILTER_BINDS + 1
+    over_cap = "ada IN (%s)" % ",".join("1" for _ in range(members))
+    assert len(over_cap) < MAX_FEATURE_FILTER_LENGTH, (
+        "the character cap must not be what refuses this filter"
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        compile_feature_cql2(over_cap, "cql2-text", _RENAME_QUERYABLES)
+    assert exc.value.status_code == 400
+    assert "parameters" in exc.value.detail
+
+    at_cap = "ada IN (%s)" % ",".join("1" for _ in range(MAX_FEATURE_FILTER_BINDS))
+    _sql, binds = compile_feature_cql2(at_cap, "cql2-text", _RENAME_QUERYABLES)
+    assert len(binds) == MAX_FEATURE_FILTER_BINDS
+
+
+@pytest.mark.anyio
+async def test_oversized_bind_expansion_is_a_400_on_the_items_route(
+    client: AsyncClient, filter_dataset: Dataset
+):
+    """The anonymous surface the finding was reported against."""
+    from app.standards.ogc.filtering import MAX_FEATURE_FILTER_BINDS
+
+    members = MAX_FEATURE_FILTER_BINDS + 1
+    resp = await client.get(
+        _items_url(filter_dataset),
+        params={"filter": "cat IN (%s)" % ",".join("1" for _ in range(members))},
+    )
+    assert resp.status_code == 400, resp.text
+    assert "parameters" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# fix(#1845): nesting past the interpreter limit is a 400, not a 500
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_a_filter_nested_past_the_recursion_limit_is_a_400(
+    client: AsyncClient, filter_dataset: Dataset
+):
+    """`x=1 OR ` is eight characters, so the character cap admits about 1,250
+    levels against a default recursion limit of 1,000. The walk that rewrites
+    bbox literals after parsing raised RecursionError, which subclasses
+    RuntimeError and escaped every except clause on this path naming
+    ValueError, so an anonymous caller got a 500."""
+    deep = " OR ".join(["x=1"] * 1_250)
+    assert len(deep) < 10_000, "the character cap must not be what refuses this"
+
+    resp = await client.get(_items_url(filter_dataset), params={"filter": deep})
+    assert resp.status_code == 400, resp.text
+    assert "nests too deeply" in resp.json()["detail"]
+
+
+def test_the_validation_walk_refuses_deep_nesting_too():
+    """The second recursive walk on the caller's path, reached directly.
+
+    The parse-stage guard fires first for anything a caller can type, so this
+    one is exercised against an AST built in memory. Both were guarded
+    together because a change to either walk's stack cost moves which of them
+    is the one that blows.
+    """
+    from fastapi import HTTPException
+    from pygeofilter import ast as pgf_ast
+
+    from app.standards.ogc.filtering import (
+        compile_feature_cql2_ast,
+        parse_feature_cql2,
+    )
+
+    leaf = parse_feature_cql2("ada = 1", "cql2-text")
+    node = leaf
+    for _ in range(2_000):
+        node = pgf_ast.And(node, leaf)
+
+    with pytest.raises(HTTPException) as exc:
+        compile_feature_cql2_ast(node, _RENAME_QUERYABLES)
+    assert exc.value.status_code == 400
+    assert "nests too deeply" in exc.value.detail
+
+
+# ---------------------------------------------------------------------------
+# fix(#1845): the filtered items route carries its own per-IP limit
+# ---------------------------------------------------------------------------
+
+
+def _items_route_limits():
+    import app.api.main  # noqa: F401  (registers every router)
+    from app.platform.ratelimit import limiter
+
+    return limiter._route_limits.get(
+        "app.standards.ogc.router.get_collection_items", []
+    )
+
+
+def test_the_items_limit_is_registered_alongside_the_global_default():
+    """Pins the CONSTRAINT in `_items_request_carries_no_filter`'s docstring.
+
+    slowapi decides whether to fall back to the default limits from the route
+    limit's `override_defaults`, and it decides BEFORE `exempt_when` runs. With
+    slowapi's default of True, an exempted route limit would leave an
+    unfiltered items request with no limit at all, which is looser than having
+    added no decorator.
+    """
+    (lim,) = _items_route_limits()
+    assert lim.override_defaults is False
+    assert lim.exempt_when is not None
+    assert lim._exempt_when_takes_request is True
+
+
+def test_the_items_exemption_reads_the_filter_parameter():
+    from starlette.datastructures import QueryParams
+
+    from app.standards.ogc.router import _items_request_carries_no_filter
+
+    class _Req:
+        def __init__(self, qs: str) -> None:
+            self.query_params = QueryParams(qs)
+
+    assert _items_request_carries_no_filter(_Req("limit=10")) is True
+    assert _items_request_carries_no_filter(_Req("limit=10&filter=cat+%3D+1")) is False
+    # Present but empty still counts as a filtered request: the handler treats
+    # an empty string as a filter and takes it to the parser.
+    assert _items_request_carries_no_filter(_Req("filter=")) is False
+
+
+class _FrozenLimitsClock:
+    """``time`` for ``limits.storage.memory``, with ``time()`` pinned.
+
+    The first version of the two tests below sent a fixed number of requests
+    and expected one of them to trip a 10-per-second window. That is the
+    wall-clock class: on a loaded runner the round trips take longer than a
+    second, the window resets partway through, and the 429 never arrives, so
+    the assertion was really about how fast the machine happened to be.
+    Pinning the clock removes elapsed time from the test and leaves the
+    request COUNT as the only variable.
+
+    The strategy in use is ``FixedWindowRateLimiter`` over ``MemoryStorage``,
+    and that pair reads the clock in exactly one module: ``incr`` stamps an
+    expiry and ``get`` compares against it (``limits/storage/memory.py``).
+    ``FixedWindowRateLimiter.hit`` has no clock of its own. Replacing that one
+    module's ``time`` reference therefore leaves every other clock in the
+    process alone, including ``Entry``'s moving-window bookkeeping and the
+    storage's expiry timer thread, neither of which a fixed window populates.
+
+    Everything other than ``time()`` delegates to the real module, so the
+    substitution stays a clock freeze rather than a stub.
+    """
+
+    def __init__(self) -> None:
+        import time as real_time
+
+        self._real = real_time
+        self._at = real_time.time()
+
+    def time(self) -> float:
+        return self._at
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+def _freeze_rate_limit_window(monkeypatch) -> None:
+    import limits.storage.memory as limits_memory
+
+    monkeypatch.setattr(limits_memory, "time", _FrozenLimitsClock())
+
+
+def _items_filter_budget() -> int:
+    """The route's own per-second budget, read from the source constant."""
+    from app.standards.ogc.router import _FILTERED_ITEMS_RATE_LIMIT
+
+    return int(_FILTERED_ITEMS_RATE_LIMIT.split("/")[0])
+
+
+async def _collect_items_codes(client, dataset, params: dict, count: int) -> list[int]:
+    from app.platform.ratelimit import limiter
+
+    original = limiter.enabled
+    try:
+        limiter.enabled = True
+        limiter._storage.reset()
+        codes = []
+        for _ in range(count):
+            resp = await client.get(_items_url(dataset), params=params)
+            codes.append(resp.status_code)
+        return codes
+    finally:
+        limiter.enabled = original
+        limiter._storage.reset()
+
+
+@pytest.mark.anyio
+async def test_a_filtered_items_request_is_rate_limited(
+    client: AsyncClient, filter_dataset: Dataset, monkeypatch
+):
+    """Exactly one request past the route budget is refused, and not one before.
+
+    Asserted as an exact sequence rather than "a 429 appears somewhere",
+    because the interesting failure is the limit being TIGHTER than declared,
+    which a membership check would pass.
+    """
+    _freeze_rate_limit_window(monkeypatch)
+    budget = _items_filter_budget()
+
+    codes = await _collect_items_codes(
+        client, filter_dataset, {"filter": "cat = 1"}, budget + 1
+    )
+    assert codes == [200] * budget + [429], codes
+
+
+@pytest.mark.anyio
+async def test_an_unfiltered_items_request_is_not_charged_against_it(
+    client: AsyncClient, filter_dataset: Dataset, monkeypatch
+):
+    """The paired control. A bulk ``ogr2ogr OAPIF:`` export pages this route as
+    fast as the database answers and buys none of the compile cost, so it must
+    sail past the point where the filtered request was refused."""
+    _freeze_rate_limit_window(monkeypatch)
+    budget = _items_filter_budget()
+
+    codes = await _collect_items_codes(
+        client, filter_dataset, {"limit": 1}, budget * 2 + 1
+    )
+    assert codes == [200] * (budget * 2 + 1), codes
+
+
+@pytest.mark.anyio
+async def test_the_exempt_request_still_carries_the_global_default(
+    client: AsyncClient, filter_dataset: Dataset, monkeypatch
+):
+    """The behavioural half of ``override_defaults=False``.
+
+    The structural test above pins the flag; this one proves what the flag
+    buys. slowapi decides on the default-limit fallback before it consults
+    ``exempt_when``, so with slowapi's default an exempted route limit would
+    leave this request unlimited. Here the global per-IP budget still bites,
+    one request past it and not before.
+    """
+    from app.core.persistent_config import get_cached_global_rate_limit
+
+    _freeze_rate_limit_window(monkeypatch)
+    global_budget = get_cached_global_rate_limit()
+
+    codes = await _collect_items_codes(
+        client, filter_dataset, {"limit": 1}, global_budget + 1
+    )
+    assert codes[:global_budget] == [200] * global_budget, codes
+    assert codes[-1] == 429, codes
