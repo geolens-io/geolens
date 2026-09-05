@@ -501,6 +501,26 @@ class TestEnsureGeometrySelected:
         )
         assert "parks.geom_4326" in sql
 
+    def test_folds_unquoted_uppercase_schema(self):
+        # fix(#1891): unquoted DATA folds to data, as PostgreSQL resolves it.
+        sql = ensure_geometry_selected("SELECT name FROM DATA.parks", [_layer()])
+        assert sql == "SELECT name, parks.geom_4326 FROM DATA.parks"
+
+    def test_folds_unquoted_mixed_case_schema_and_table(self):
+        # fix(#1891): both parts fold; the qualifier keeps the spelling written.
+        sql = ensure_geometry_selected("SELECT name FROM Data.Parks", [_layer()])
+        assert sql == "SELECT name, Parks.geom_4326 FROM Data.Parks"
+
+    def test_quoted_uppercase_schema_left_unchanged(self):
+        # fix(#1891): quoted "DATA" keeps its case, so it is another schema.
+        sql = 'SELECT name FROM "DATA".parks'
+        assert ensure_geometry_selected(sql, [_layer()]) == sql
+
+    def test_quoted_mixed_case_table_left_unchanged(self):
+        # fix(#1891): quoted "Parks" keeps its case and is not the catalog table.
+        sql = 'SELECT name FROM data."Parks"'
+        assert ensure_geometry_selected(sql, [_layer()]) == sql
+
 
 class TestStripGeometryColumns:
     def test_strips_wkb_column(self):

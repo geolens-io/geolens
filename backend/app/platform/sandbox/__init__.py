@@ -21,6 +21,7 @@ from app.core.identity import Identity
 from app.platform.sandbox.executor import DEFAULT_TIMEOUT_MS, execute_safe
 from app.platform.sandbox.schemas import SandboxError, SandboxResult
 from app.platform.sandbox.validator import (
+    _folded_identifier as folded_identifier,
     build_table_allowlist,
     check_table_access,
     validate_sql,
@@ -28,7 +29,7 @@ from app.platform.sandbox.validator import (
 
 logger = structlog.stdlib.get_logger(__name__)
 
-__all__ = ["validate_and_execute", "SandboxResult", "SandboxError"]
+__all__ = ["validate_and_execute", "SandboxResult", "SandboxError", "folded_identifier"]
 
 
 async def validate_and_execute(

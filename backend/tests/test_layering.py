@@ -1992,7 +1992,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # _safe_value. Round 0 normalized only the GeoJSON property copy, so a
         # NaN in an ordinary column still reached the SSE frame as a bare token
         # and the browser dropped the whole frame. Cap 420 -> 437, exact.
-        "backend/app/processing/ai/chat_geojson.py": 437,
+        # fix(#1891): +3. The geometry append folds both table parts through
+        # the sandbox's folded_identifier before comparing. Cap 437 -> 440, exact.
+        "backend/app/processing/ai/chat_geojson.py": 440,
         # fix(#836): extensions-defaults sub-modules over the 350 default at
         # split time. Caps exact (zero headroom): each class moved verbatim
         # from the 1815-LOC defaults.py, and regrowth toward another god
