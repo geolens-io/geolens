@@ -3548,7 +3548,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1846 review round 4): +5. Same thread offload as the ogr.py sites,
     # with the comment saying why a linear walk still does not belong on the
     # loop. Cap 2546 -> 2551, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2551,
+    # fix(#1755 item 11): +30. `cleanup_step`, the one helper the seven ingest
+    # task modules now route every `finally`-block cleanup step through, plus
+    # the docstring stating the two things it must never do: replace the
+    # exception the block is already propagating, and swallow the
+    # `CancelledError` a worker shutdown delivers. It replaces two private
+    # copies that had grown in tasks_vector.py and tasks_reupload.py, whose
+    # bodies differed only in the task name in their docstrings.
+    # Cap 2551 -> 2581, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2581,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -3644,7 +3652,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # rather than replacing the ingest exception in flight; the #1753 token
     # purge still runs, since the helper never re-raises. Cap 1297 -> 1333,
     # exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1333,
+    # fix(#1755 item 11, follow-up): -23. The private `_finally_cleanup` copy
+    # moved to `tasks_common.cleanup_step` as a context manager, which is
+    # shorter at every call site than passing a coroutine, and `reupload_file`
+    # gained the same treatment its service sibling already had (5 steps).
+    # Cap 1333 -> 1310, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1310,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -4504,7 +4517,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # a vrt_regenerate job specifically to avoid an AB-BA deadlock with this
     # worker, so locking the job row here first would reopen that cycle. Cap
     # 1600 -> 1628, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1628,
+    # fix(#1755 item 11): +12. Both task tails route every cleanup step
+    # through `cleanup_step`: three in `ingest_vrt`, four in `regenerate_vrt`,
+    # which stops two heartbeats. Cap 1628 -> 1640, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1640,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.
@@ -4628,7 +4644,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # rather than replacing the ingest exception in flight; the #1753 token
     # purge still runs, since the helper never re-raises. Cap 1356 -> 1392,
     # exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1392,
+    # fix(#1755 item 11, follow-up): -24. The private `_finally_cleanup` copy
+    # moved to `tasks_common.cleanup_step`, and the two `finally` blocks the
+    # first pass left bare are routed too: `ingest_file`'s five steps, and the
+    # nested one that stops the service-import progress heartbeat, where
+    # awaiting the cancelled task re-raises anything the heartbeat body itself
+    # failed with. Cap 1392 -> 1368, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1368,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern
@@ -5062,7 +5084,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # with a valid STORED GENERATED `geom_4326` left the dataset with no
     # spatial index and every `geom_4326 && <envelope>` predicate the readers
     # issue fell back to a sequential scan. Cap 1104 -> 1128, exact.
-    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1128,
+    # fix(#1755 item 11): +2. The `finally` block's heartbeat stop routes
+    # through `cleanup_step`, so a failure in it logs instead of replacing the
+    # refresh exception being propagated. Cap 1128 -> 1130, exact.
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1130,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

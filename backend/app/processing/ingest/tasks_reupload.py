@@ -9,7 +9,7 @@ import structlog
 from sqlalchemy import select, update
 
 from app.core.db.tenant_session import tenant_task
-from app.core.url_redaction import redact_exception_text, scrub_secret_from_exception
+from app.core.url_redaction import scrub_secret_from_exception
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.dataset_origin import classify_origin, service_layer_identity
 from app.platform.jobs.heartbeat import (
@@ -36,6 +36,7 @@ from app.platform.refresh.service import (
 from app.processing.ingest.source_format import derive_source_format
 from app.processing.ingest.tasks_common import (
     _append_job_warning,
+    cleanup_step,
     _append_mercator_clip_warning,
     _apply_reupload_swap,
     _archive_original_file,
@@ -79,28 +80,6 @@ async def _drop_attempt_staging_table(staging_table: str) -> None:
             "attempt_staging_cleanup_failed",
             staging_table=staging_table,
             exc_info=True,
-        )
-
-
-async def _finally_cleanup(coro, *, what: str, job_id: str) -> None:
-    """Run one `finally`-block cleanup step; log rather than raise a failure.
-
-    fix(#1755 item 11): `reupload_service`'s `finally` block used to await
-    `stop_ingest_job_heartbeat` and `_drop_attempt_staging_table` bare, so an
-    exception from either replaced whatever the `try`/`except` above it was
-    already propagating -- silently turning an ingest failure into an
-    unrelated cleanup error in the queue row and the caller's `except`.
-    `_drop_attempt_staging_table` already swallows everything it raises
-    internally; routing it through here too is defence in depth against that
-    contract changing without this call site noticing.
-    """
-    try:
-        await coro
-    except Exception as exc:  # broad: a finally-block cleanup must never replace the exception it is propagating past
-        structlog.get_logger().exception(
-            f"{what} cleanup failed",
-            job_id=job_id,
-            error=redact_exception_text(exc),
         )
 
 
@@ -599,37 +578,44 @@ async def reupload_file(
         final_status = "failed"
         raise
     finally:
-        await stop_ingest_job_heartbeat(heartbeat_task)
-        await _drop_attempt_staging_table(staging_tn)
+        async with cleanup_step("reupload_file heartbeat", job_id=job_id):
+            await stop_ingest_job_heartbeat(heartbeat_task)
+        async with cleanup_step("reupload_file staging table", job_id=job_id):
+            await _drop_attempt_staging_table(staging_tn)
         # Clean up local file on success always; on failure only if it was
         # a resolve_file_path download (source of truth is S3).
-        if final_status == "complete":
-            Path(file_path).unlink(missing_ok=True)
-        elif file_path != original_file_path:
-            Path(file_path).unlink(missing_ok=True)
+        async with cleanup_step("reupload_file local file", job_id=job_id):
+            if final_status == "complete":
+                Path(file_path).unlink(missing_ok=True)
+            elif file_path != original_file_path:
+                Path(file_path).unlink(missing_ok=True)
         # fix(#1213 review r2): reap the object the task downloaded FROM, which
         # after a presigned completion is the frozen copy the job is bound to —
         # the unlinks above are local files only, so it was never deleted and a
         # successful reupload job is its dataset's latest-complete row, exempt
         # from the stale purge forever. No fan-out on this surface, so the
         # sibling-sharing guard is left at its default.
-        await reap_downloaded_staging_source(
-            job_id,
-            original_file_path=original_file_path,
-            final_status=final_status,
-            # _retry_capability refuses reupload jobs outright, so nothing
-            # else will ever reap this; reap on failure too.
-            failed_source_replayable=False,
-        )
+        async with cleanup_step("reupload_file downloaded source", job_id=job_id):
+            await reap_downloaded_staging_source(
+                job_id,
+                original_file_path=original_file_path,
+                final_status=final_status,
+                # _retry_capability refuses reupload jobs outright, so nothing
+                # else will ever reap this; reap on failure too.
+                failed_source_replayable=False,
+            )
         # fix(#1207): sweep the presigned staging key. This surface had NO
         # storage reaper at all — the unlinks above are local files only — and
         # the stale purge is not a backstop here, because a successful reupload
         # job is the per-dataset latest-complete row it exempts forever. So
         # every reupload staging object lived forever, recreatable through the
         # client's unexpired PUT URL. Shared helper, same as the ingest tails.
-        await reap_presigned_staging_object(
-            job_id, owned_staging_key, final_status=final_status
-        )
+        async with cleanup_step(
+            "reupload_file presigned staging object", job_id=job_id
+        ):
+            await reap_presigned_staging_object(
+                job_id, owned_staging_key, final_status=final_status
+            )
 
 
 async def _record_failed_origin_contact(
@@ -1315,19 +1301,10 @@ async def reupload_service(
             await err_session.commit()
         raise
     finally:
-        # fix(#1755 item 11): routed through `_finally_cleanup` so a failure
-        # in either call logs rather than replacing the ingest exception
-        # `raise` above is propagating (or the OTHER cleanup call, since each
-        # runs regardless of whether its sibling failed). `purge_token_on_
-        # failure` (`tasks_common.py`), the decorator around this task, still
-        # sees whatever exception `reupload_service` itself raised.
-        await _finally_cleanup(
-            stop_ingest_job_heartbeat(heartbeat_task),
-            what="reupload_service heartbeat",
-            job_id=str(job_uuid),
-        )
-        await _finally_cleanup(
-            _drop_attempt_staging_table(staging_tn),
-            what="reupload_service staging",
-            job_id=str(job_uuid),
-        )
+        # fix(#1755 item 11): `purge_token_on_failure` (`tasks_common.py`), the
+        # decorator around this task, must still see whatever exception
+        # `reupload_service` itself raised, not one from a cleanup step.
+        async with cleanup_step("reupload_service heartbeat", job_id=job_id):
+            await stop_ingest_job_heartbeat(heartbeat_task)
+        async with cleanup_step("reupload_service staging table", job_id=job_id):
+            await _drop_attempt_staging_table(staging_tn)

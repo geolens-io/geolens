@@ -42,6 +42,7 @@ from app.platform.storage import get_storage
 
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
+    cleanup_step,
     _cleanup_staging_on_failure,
     task_app,
 )
@@ -845,17 +846,22 @@ async def ingest_vrt(
                 )
         raise
     finally:
-        await stop_ingest_job_heartbeat(heartbeat_task)
-        if tmp_dir:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+        async with cleanup_step("ingest_vrt heartbeat", job_id=job_id):
+            await stop_ingest_job_heartbeat(heartbeat_task)
+        async with cleanup_step("ingest_vrt temp dir", job_id=job_id):
+            if tmp_dir:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
         # fix(#430 BA-30): reap storage bytes written before a terminal commit
         # that never became durable (mirrors ingest_raster's GAP-017 guard).
-        if not publish_committed and written_storage_keys:
-            from app.processing.ingest.tasks_raster import (
-                _cleanup_orphaned_storage_keys,
-            )
+        async with cleanup_step("ingest_vrt orphaned storage keys", job_id=job_id):
+            if not publish_committed and written_storage_keys:
+                from app.processing.ingest.tasks_raster import (
+                    _cleanup_orphaned_storage_keys,
+                )
 
-            await _cleanup_orphaned_storage_keys(written_storage_keys, job_id=job_id)
+                await _cleanup_orphaned_storage_keys(
+                    written_storage_keys, job_id=job_id
+                )
 
 
 @task_app.task(queue="raster", retry=0, aliases=["app.ingest.tasks.regenerate_vrt"])
@@ -1572,16 +1578,22 @@ async def regenerate_vrt(
             await err_session.commit()
         raise
     finally:
-        await stop_ingest_job_heartbeat(generation_heartbeat_task)
-        await stop_ingest_job_heartbeat(heartbeat_task)
-        if tmp_dir:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-        if not publish_committed and written_storage_keys:
-            from app.processing.ingest.tasks_raster import (
-                _cleanup_orphaned_storage_keys,
-            )
+        async with cleanup_step("regenerate_vrt generation heartbeat", job_id=job_id):
+            await stop_ingest_job_heartbeat(generation_heartbeat_task)
+        async with cleanup_step("regenerate_vrt heartbeat", job_id=job_id):
+            await stop_ingest_job_heartbeat(heartbeat_task)
+        async with cleanup_step("regenerate_vrt temp dir", job_id=job_id):
+            if tmp_dir:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+        async with cleanup_step("regenerate_vrt orphaned storage keys", job_id=job_id):
+            if not publish_committed and written_storage_keys:
+                from app.processing.ingest.tasks_raster import (
+                    _cleanup_orphaned_storage_keys,
+                )
 
-            await _cleanup_orphaned_storage_keys(written_storage_keys, job_id=job_id)
+                await _cleanup_orphaned_storage_keys(
+                    written_storage_keys, job_id=job_id
+                )
 
 
 # fix(#1327 codex P1): a SECOND registered name for the SAME regeneration, used

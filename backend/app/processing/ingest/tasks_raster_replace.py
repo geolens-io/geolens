@@ -64,6 +64,7 @@ from app.processing.raster.quicklook import generate_quicklook
 
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
+    cleanup_step,
     _job_phase_session,
     _validate_upload_file_safety,
     reap_downloaded_staging_source,
@@ -881,7 +882,8 @@ async def reupload_raster(
         final_status = "failed"
         raise
     finally:
-        await stop_ingest_job_heartbeat(heartbeat_task)
+        async with cleanup_step("reupload_raster heartbeat", job_id=job_id):
+            await stop_ingest_job_heartbeat(heartbeat_task)
         # The failure mirror of the success reap, and the reason both filter
         # rather than delete outright: on this path the keys to remove are the
         # ones this attempt WROTE, minus any the live asset still points at.
@@ -892,13 +894,19 @@ async def reupload_raster(
         # Those diverge in exactly one place and it is the dangerous one: after
         # the swap commits, the written keys ARE the live asset, so a later
         # error must never bring the task through here to delete them.
-        if not swap_committed and written_storage_keys:
-            await _cleanup_orphaned_storage_keys(
-                [key for key in written_storage_keys if key not in prior_physical_keys],
-                job_id=job_id,
-            )
-        if tmp_dir:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+        async with cleanup_step("reupload_raster orphaned storage keys", job_id=job_id):
+            if not swap_committed and written_storage_keys:
+                await _cleanup_orphaned_storage_keys(
+                    [
+                        key
+                        for key in written_storage_keys
+                        if key not in prior_physical_keys
+                    ],
+                    job_id=job_id,
+                )
+        async with cleanup_step("reupload_raster temp dir", job_id=job_id):
+            if tmp_dir:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
         # fix(#1290 review): the local file is one of two different things and
         # only one of them is Decision 7's business. When it differs from
         # `original_file_path` it is a scratch copy this task downloaded from
@@ -915,16 +923,20 @@ async def reupload_raster(
         # statement: the two branches always did the same thing, and merging
         # them is what pays for the stand-down branch above without loosening
         # the McCabe gate this function sits under.
-        if file_path != original_file_path or (
-            final_status == "complete"
-            and (source_preserved_in_cog or lossy_original_archived)
-        ):
-            Path(file_path).unlink(missing_ok=True)
+        async with cleanup_step("reupload_raster local file", job_id=job_id):
+            if file_path != original_file_path or (
+                final_status == "complete"
+                and (source_preserved_in_cog or lossy_original_archived)
+            ):
+                Path(file_path).unlink(missing_ok=True)
         # fix(#1207): the client-writable staging key, which stays recreatable
         # through an unexpired PUT URL until it is swept.
-        await reap_presigned_staging_object(
-            job_id, owned_staging_key, final_status=final_status
-        )
+        async with cleanup_step(
+            "reupload_raster presigned staging object", job_id=job_id
+        ):
+            await reap_presigned_staging_object(
+                job_id, owned_staging_key, final_status=final_status
+            )
         # fix(#1210), ADR-002 Decision 7: the pre-conversion upload, deleted on
         # success and retained on failure as the operator's only diagnostic
         # copy — bounded by the retention purge, which reaps a failed job's
@@ -936,10 +948,11 @@ async def reupload_raster(
         # carrying everything the upload did — true of DEFLATE, false of the
         # JPEG and WEBP profiles the import UI also offers. Same gate as the
         # first-ingest tail, same shared predicate, so the two cannot drift.
-        if source_preserved_in_cog or lossy_original_archived:
-            await reap_downloaded_staging_source(
-                job_id,
-                original_file_path=original_file_path,
-                final_status=final_status,
-                failed_source_replayable=True,
-            )
+        async with cleanup_step("reupload_raster downloaded source", job_id=job_id):
+            if source_preserved_in_cog or lossy_original_archived:
+                await reap_downloaded_staging_source(
+                    job_id,
+                    original_file_path=original_file_path,
+                    final_status=final_status,
+                    failed_source_replayable=True,
+                )
