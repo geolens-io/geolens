@@ -15,7 +15,10 @@ from __future__ import annotations
 from typing import Any
 
 from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.db.sqlstate import is_lock_conflict
 
 # The budget a REQUEST spends waiting for the pair. Matches
 # ``app.platform.jobs.router`` and ``catalog.maps.service_crud``, which spend
@@ -32,6 +35,24 @@ REQUEST_LOCK_TIMEOUT = "2s"
 # Resolved at CALL time, not bound as a default argument, so the value above is
 # the single source of truth (a default argument would snapshot it at import).
 _USE_REQUEST_DEFAULT: Any = object()
+
+
+class CatalogLockConflict(Exception):
+    """Another transaction holds the catalog rows this request needs.
+
+    fix(#1847 review r3): raised HERE rather than left as a DBAPIError for each
+    caller to classify, because they classified it four different ways. The
+    feature router mapped 55P03 to 409; the metadata PATCH caught only
+    ValueError, so the global DBAPIError handler called it an outage and
+    answered 503; the layer DDL routes read it as the caller's bad request and
+    answered 400. One exception with one handler (``app/api/main.py``) is what
+    makes the answer the same wherever the acquisition is reached from.
+
+    A worker sees it as an ordinary exception and fails its job, which is the
+    correct outcome there: the run ledger records the failure and the operator
+    retries. Workers pass ``lock_timeout=None``, so in practice they wait
+    rather than raise this at all.
+    """
 
 
 async def lock_catalog_rows(
@@ -82,16 +103,36 @@ async def lock_catalog_rows(
     # `no_autoflush` so the order below is what actually reaches PostgreSQL. An
     # autoflush triggered by either statement emits the ORM's own flush order,
     # which is the exact inversion this function exists to prevent.
-    with session.no_autoflush:
-        # One column, on each table alone. Reading through a joined
-        # relationship would not lock the joined row anyway, and would put the
-        # statement on the records row ahead of the lock it is ordering.
-        await session.execute(
-            select(dataset_cls.id).where(dataset_cls.id == dataset_id).with_for_update()
-        )
-        if record_id is not None:
+    try:
+        with session.no_autoflush:
+            # One column, on each table alone. Reading through a joined
+            # relationship would not lock the joined row anyway, and would put
+            # the statement on the records row ahead of the lock it is ordering.
             await session.execute(
-                select(record_cls.id)
-                .where(record_cls.id == record_id)
+                select(dataset_cls.id)
+                .where(dataset_cls.id == dataset_id)
                 .with_for_update()
             )
+            if record_id is not None:
+                await session.execute(
+                    select(record_cls.id)
+                    .where(record_cls.id == record_id)
+                    .with_for_update()
+                )
+    except DBAPIError as exc:
+        if not is_lock_conflict(exc):
+            raise
+        # Roll back here rather than leaving a failed transaction for the
+        # caller to trip over. Nothing this transaction did survives, which is
+        # the whole point: a caller that loses this race has written nothing,
+        # so its retry is clean.
+        #
+        # Memory trap, and the reason nothing is read off an ORM instance
+        # after this line: `rollback()` EXPIRES every instance in the session,
+        # so touching one from the exception handler would lazy-load in a
+        # context with no greenlet and raise MissingGreenlet instead of the
+        # 409. The message below is built from nothing but literals.
+        await session.rollback()
+        raise CatalogLockConflict(
+            "Another operation is updating this dataset's catalog entry."
+        ) from exc

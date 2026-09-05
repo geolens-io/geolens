@@ -1948,7 +1948,13 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # and the datasets row follows by FK CASCADE, so the database takes the
         # pair records-first. Acquire in the house order first.
         # Cap 483 -> 491, exact.
-        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 491,
+        # fix(#1847 review r3): +16. The acquisition moved AHEAD of
+        # `_reap_managed_storage` in both branches, because that reap deletes
+        # objects permanently and a lock timeout after it rolled the
+        # transaction back with the objects gone and the catalog row intact.
+        # Most of the lines are the note on why it sits ahead of the reap and
+        # behind the DROP. Cap 491 -> 507, exact.
+        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 507,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.
@@ -2960,8 +2966,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1856 item 2): +9 for the conformance list in the API description.
     # It claimed the OAS 3.0 classes while the served document is OpenAPI 3.1,
     # and named three of the five families /api/conformance advertises. Cap
-    # 1903 -> 1912, exact.
-    "backend/app/api/main.py": 1912,
+    # 1903 -> 1912, exact.    # fix(#1847 review r3): +32 for one exception handler. A contended catalog
+    # row was answered 409, 503 and 400 depending on which route reached the
+    # acquisition; the helper now raises one domain exception and this is the
+    # single place that maps it. The lines are the handler plus why it lives
+    # here rather than in four route bodies. Cap 1903 -> 1935, exact.    "backend/app/api/main.py": 1935,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative

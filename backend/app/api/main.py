@@ -949,6 +949,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 from sqlalchemy.exc import DBAPIError  # noqa: E402
 
 from app.core.db.sqlstate import is_operational, sqlstate  # noqa: E402
+from app.platform.catalog_locks import CatalogLockConflict  # noqa: E402
 from app.modules.quota.service import (  # noqa: E402
     DatasetQuotaExceededError,
     StorageQuotaExceededError,
@@ -982,6 +983,36 @@ async def _storage_quota_handler(
         content=ProblemDetail(
             title="Storage quota exceeded",
             status=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=str(exc),
+        ).model_dump(),
+        media_type="application/problem+json",
+    )
+
+
+async def _catalog_lock_conflict_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
+    """Map a contended catalog row to 409, from wherever it was reached.
+
+    fix(#1847 review r3): the acquisition in `app.platform.catalog_locks` is
+    now called from feature writes, metadata edits, layer DDL and dataset
+    deletion, and each of those classified a lost race differently -- 409, 503
+    and 400 for the same SQLSTATE. Handling the domain exception in one place
+    is what makes the answer the same everywhere, without every route growing
+    its own except clause.
+
+    Retryable and safe to retry: the helper rolled its transaction back before
+    raising, so nothing the request attempted survives.
+    """
+    logger.info(
+        "catalog row lock conflict",
+        path=safe_access_log_path(request.url.path),
+    )
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content=ProblemDetail(
+            title="Catalog entry is busy",
+            status=status.HTTP_409_CONFLICT,
             detail=str(exc),
         ).model_dump(),
         media_type="application/problem+json",
@@ -1025,6 +1056,7 @@ async def _database_error_handler(request: Request, exc: DBAPIError) -> JSONResp
 
 app.add_exception_handler(DatasetQuotaExceededError, _dataset_quota_handler)
 app.add_exception_handler(StorageQuotaExceededError, _storage_quota_handler)
+app.add_exception_handler(CatalogLockConflict, _catalog_lock_conflict_handler)
 app.add_exception_handler(DBAPIError, _database_error_handler)
 
 # fix(#1770 round 44 P2): registered FIRST, so it ends up INNERMOST --

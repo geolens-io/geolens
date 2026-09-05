@@ -127,6 +127,7 @@ async def delete_dataset(
     # Hoisting to module-top broke 7 tests in test_vrt_delete_guard_174.py
     # that patch the façade attribute (post-impl-20260501 P3 #11 partial revert).
     from app.modules.catalog.datasets.domain.service import get_dataset
+    from app.modules.catalog.features.service import lock_catalog_rows_for_write
 
     dataset = await get_dataset(session, dataset_id)
     if dataset is None:
@@ -240,6 +241,21 @@ async def delete_dataset(
             raise RuntimeError(
                 "Dataset deletion is missing tenant context in multi-tenant mode"
             )
+        # fix(#1847 review r3): BEFORE the reap below, which permanently
+        # deletes objects. The acquisition can fail with 55P03 when another
+        # writer holds the dataset row past the request budget, and a failure
+        # after the reap would roll the transaction back with the objects
+        # already gone, leaving a catalog row pointing at nothing. Taking the
+        # rows first means the only outcome of losing that race is a 409 with
+        # everything still in place. It keeps this function's original promise
+        # too -- a storage failure prevents any DB change -- because the DROP
+        # and the row delete are transactional and roll back with it.
+        #
+        # AFTER the data-table work of each branch, not before it: the reupload
+        # swap takes ACCESS EXCLUSIVE on the data table ahead of its catalog
+        # rows, so leading with the catalog rows here would invert against it.
+        await lock_catalog_rows_for_write(session, dataset)
+
         await _reap_managed_storage(prefixes, tenant_id)
     else:
         # Vector datasets: drop the PostGIS data table AND clean managed storage.
@@ -295,6 +311,10 @@ async def delete_dataset(
         # the row is going), and the linearization is not reversible at all
         # since the pre-linear geometries are gone. Re-registering the table
         # re-applies all three idempotently.
+        # fix(#1847 review r3): see the sibling acquisition in the raster
+        # branch above for why this sits ahead of the reap and behind the DROP.
+        await lock_catalog_rows_for_write(session, dataset)
+
         await _reap_managed_storage(
             [f"originals/{dataset_id}/", f"vectors/{dataset_id}/"], tenant_id
         )
@@ -396,14 +416,10 @@ async def delete_dataset(
             )
         )
 
-    # fix(#1847 review r2): the DELETE below removes the records row and the
-    # datasets row goes with it by FK CASCADE, so the database takes the pair
-    # records-first -- the inversion. Acquire in the house order first. See
-    # app.platform.catalog_locks.lock_catalog_rows.
-    from app.modules.catalog.features.service import lock_catalog_rows_for_write
-
-    await lock_catalog_rows_for_write(session, dataset)
-
+    # The DELETE below removes the records row and the datasets row goes with
+    # it by FK CASCADE, so the database takes the pair records-first. Both
+    # branches above have already acquired them in the house order, ahead of
+    # the storage reap that cannot be undone.
     # Delete the record (CASCADE handles dataset deletion)
     await session.delete(dataset.record)
 

@@ -757,6 +757,174 @@ class TestMetadataPatchTakesThePairToo:
         assert response.json()["title"] == "Renamed by the metadata patch"
 
 
+class TestOneAnswerForAContendedRow:
+    """fix(#1847 review r3): 409 from every caller, not 409/503/400 by route.
+
+    The acquisition is reached from feature writes, metadata edits, layer DDL
+    and dataset deletion. Each classified a lost race differently until the
+    helper started raising one domain exception with one handler.
+    """
+
+    async def _hold_dataset_row(self, session, dataset_id):
+        await session.execute(
+            select(Dataset.tile_cache_version)
+            .where(Dataset.id == dataset_id)
+            .with_for_update()
+        )
+
+    async def test_metadata_patch_answers_conflict(
+        self, locked_dataset, client: AsyncClient, admin_auth_header, monkeypatch
+    ):
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "150ms")
+        import app.core.db as db_module
+
+        async with db_module.async_session() as holder:
+            await self._hold_dataset_row(holder, locked_dataset.id)
+            response = await client.patch(
+                f"/datasets/{locked_dataset.id}",
+                json={"title": "Should not land", "tile_columns": ["name"]},
+                headers=admin_auth_header,
+            )
+            await holder.rollback()
+
+        assert response.status_code == 409, response.text
+        # The metadata PATCH used to reach the global DBAPIError handler, which
+        # called a contended row an outage.
+        assert response.status_code != 503
+
+        # Rolled back: the title the request carried never landed.
+        async with db_module.async_session() as check:
+            title = await check.scalar(
+                select(Record.title).where(Record.id == locked_dataset.record_id)
+            )
+        assert title != "Should not land"
+
+    async def test_layer_ddl_answers_conflict(
+        self, locked_dataset, client: AsyncClient, admin_auth_header, monkeypatch
+    ):
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "150ms")
+        import app.core.db as db_module
+
+        async with db_module.async_session() as holder:
+            await self._hold_dataset_row(holder, locked_dataset.id)
+            response = await client.post(
+                f"/layers/{locked_dataset.id}/columns/",
+                json={"column": {"name": "note_col", "type": "text"}},
+                headers=admin_auth_header,
+            )
+            await holder.rollback()
+
+        # This route read the same SQLSTATE as the caller's bad request.
+        assert response.status_code == 409, response.text
+        assert response.status_code != 400
+
+    async def test_feature_write_still_answers_conflict(
+        self, locked_dataset, client: AsyncClient, admin_auth_header, monkeypatch
+    ):
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "150ms")
+        import app.core.db as db_module
+
+        async with db_module.async_session() as holder:
+            await self._hold_dataset_row(holder, locked_dataset.id)
+            response = await client.post(
+                f"/datasets/{locked_dataset.id}/features/",
+                json={
+                    "geometry": {"type": "Point", "coordinates": [-73.96, 40.74]},
+                    "properties": {"name": "blocked"},
+                },
+                headers=admin_auth_header,
+            )
+            await holder.rollback()
+
+        assert response.status_code == 409, response.text
+
+
+class TestDeleteNeverReapsStorageItCannotCommit:
+    """fix(#1847 review r3): the irreversible step must be behind the lock.
+
+    `delete_dataset` deletes the managed objects permanently and relies on the
+    transaction rolling back to keep the catalog consistent with them. An
+    acquisition that can time out placed AFTER that reap breaks the
+    arrangement: the objects are gone, the transaction rolls back, and the
+    catalog keeps a dataset whose assets no longer exist.
+    """
+
+    def test_the_lock_precedes_every_irreversible_reap(self):
+        """Source order, because the failure mode is an ordering, not a value."""
+        import ast
+        from pathlib import Path
+
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "app/modules/catalog/datasets/domain/service_lifecycle.py"
+        ).read_text()
+        tree = ast.parse(source)
+        fn = next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.AsyncFunctionDef) and n.name == "delete_dataset"
+        )
+        acquisitions, reaps = [], []
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                if node.func.id == "lock_catalog_rows_for_write":
+                    acquisitions.append(node.lineno)
+                elif node.func.id == "_reap_managed_storage":
+                    reaps.append(node.lineno)
+        assert acquisitions and reaps, (
+            f"expected both calls in delete_dataset; got {acquisitions=} {reaps=}"
+        )
+        for reap in reaps:
+            assert any(a < reap for a in acquisitions), (
+                f"_reap_managed_storage at line {reap} runs before any "
+                "lock_catalog_rows_for_write. A 55P03 after that reap rolls the "
+                "transaction back with the objects already deleted, leaving a "
+                "catalog row pointing at storage that is gone."
+            )
+
+    async def test_a_contended_delete_leaves_the_objects_alone(
+        self, locked_dataset, client: AsyncClient, admin_auth_header, monkeypatch
+    ):
+        """The whole finding end to end: 409, and nothing reaped."""
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "150ms")
+        import app.core.db as db_module
+
+        reaped: list[tuple] = []
+
+        async def _record_only(prefixes, tenant_id):
+            reaped.append((tuple(prefixes), tenant_id))
+
+        from app.modules.catalog.datasets.domain import service_lifecycle
+
+        monkeypatch.setattr(service_lifecycle, "_reap_managed_storage", _record_only)
+
+        async with db_module.async_session() as holder:
+            await holder.execute(
+                select(Dataset.tile_cache_version)
+                .where(Dataset.id == locked_dataset.id)
+                .with_for_update()
+            )
+            response = await client.request(
+                "DELETE",
+                f"/datasets/{locked_dataset.id}",
+                json={"confirm_title": f"Lock order {locked_dataset.table_name}"},
+                headers=admin_auth_header,
+            )
+            await holder.rollback()
+
+        assert response.status_code == 409, response.text
+        assert reaped == [], (
+            "the delete reaped managed storage before losing the lock race, so "
+            f"those objects are gone and the catalog row is not: {reaped}"
+        )
+        # And the row really is still there.
+        async with db_module.async_session() as check:
+            still_there = await check.scalar(
+                select(Dataset.id).where(Dataset.id == locked_dataset.id)
+            )
+        assert still_there == locked_dataset.id
+
+
 # ---------------------------------------------------------------------------
 # The class gate (fix(#1847 review r2))
 # ---------------------------------------------------------------------------
