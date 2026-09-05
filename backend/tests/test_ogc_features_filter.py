@@ -1357,11 +1357,56 @@ def test_the_items_exemption_reads_the_filter_parameter():
     assert _items_request_carries_no_filter(_Req("filter=")) is False
 
 
-@pytest.mark.anyio
-async def test_a_filtered_items_request_is_rate_limited(
-    client: AsyncClient, filter_dataset: Dataset
-):
-    """A 429 arrives well before the global 60/second budget would fire."""
+class _FrozenLimitsClock:
+    """``time`` for ``limits.storage.memory``, with ``time()`` pinned.
+
+    The first version of the two tests below sent a fixed number of requests
+    and expected one of them to trip a 10-per-second window. That is the
+    wall-clock class: on a loaded runner the round trips take longer than a
+    second, the window resets partway through, and the 429 never arrives, so
+    the assertion was really about how fast the machine happened to be.
+    Pinning the clock removes elapsed time from the test and leaves the
+    request COUNT as the only variable.
+
+    The strategy in use is ``FixedWindowRateLimiter`` over ``MemoryStorage``,
+    and that pair reads the clock in exactly one module: ``incr`` stamps an
+    expiry and ``get`` compares against it (``limits/storage/memory.py``).
+    ``FixedWindowRateLimiter.hit`` has no clock of its own. Replacing that one
+    module's ``time`` reference therefore leaves every other clock in the
+    process alone, including ``Entry``'s moving-window bookkeeping and the
+    storage's expiry timer thread, neither of which a fixed window populates.
+
+    Everything other than ``time()`` delegates to the real module, so the
+    substitution stays a clock freeze rather than a stub.
+    """
+
+    def __init__(self) -> None:
+        import time as real_time
+
+        self._real = real_time
+        self._at = real_time.time()
+
+    def time(self) -> float:
+        return self._at
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+def _freeze_rate_limit_window(monkeypatch) -> None:
+    import limits.storage.memory as limits_memory
+
+    monkeypatch.setattr(limits_memory, "time", _FrozenLimitsClock())
+
+
+def _items_filter_budget() -> int:
+    """The route's own per-second budget, read from the source constant."""
+    from app.standards.ogc.router import _FILTERED_ITEMS_RATE_LIMIT
+
+    return int(_FILTERED_ITEMS_RATE_LIMIT.split("/")[0])
+
+
+async def _collect_items_codes(client, dataset, params: dict, count: int) -> list[int]:
     from app.platform.ratelimit import limiter
 
     original = limiter.enabled
@@ -1369,35 +1414,69 @@ async def test_a_filtered_items_request_is_rate_limited(
         limiter.enabled = True
         limiter._storage.reset()
         codes = []
-        for _ in range(14):
-            resp = await client.get(
-                _items_url(filter_dataset), params={"filter": "cat = 1"}
-            )
+        for _ in range(count):
+            resp = await client.get(_items_url(dataset), params=params)
             codes.append(resp.status_code)
-        assert 429 in codes, codes
-        assert codes[0] == 200, codes
+        return codes
     finally:
         limiter.enabled = original
         limiter._storage.reset()
+
+
+@pytest.mark.anyio
+async def test_a_filtered_items_request_is_rate_limited(
+    client: AsyncClient, filter_dataset: Dataset, monkeypatch
+):
+    """Exactly one request past the route budget is refused, and not one before.
+
+    Asserted as an exact sequence rather than "a 429 appears somewhere",
+    because the interesting failure is the limit being TIGHTER than declared,
+    which a membership check would pass.
+    """
+    _freeze_rate_limit_window(monkeypatch)
+    budget = _items_filter_budget()
+
+    codes = await _collect_items_codes(
+        client, filter_dataset, {"filter": "cat = 1"}, budget + 1
+    )
+    assert codes == [200] * budget + [429], codes
 
 
 @pytest.mark.anyio
 async def test_an_unfiltered_items_request_is_not_charged_against_it(
-    client: AsyncClient, filter_dataset: Dataset
+    client: AsyncClient, filter_dataset: Dataset, monkeypatch
 ):
-    """The paired control. A bulk `ogr2ogr OAPIF:` export pages this route as
-    fast as the database answers and buys none of the compile cost."""
-    from app.platform.ratelimit import limiter
+    """The paired control. A bulk ``ogr2ogr OAPIF:`` export pages this route as
+    fast as the database answers and buys none of the compile cost, so it must
+    sail past the point where the filtered request was refused."""
+    _freeze_rate_limit_window(monkeypatch)
+    budget = _items_filter_budget()
 
-    original = limiter.enabled
-    try:
-        limiter.enabled = True
-        limiter._storage.reset()
-        codes = []
-        for _ in range(14):
-            resp = await client.get(_items_url(filter_dataset), params={"limit": 1})
-            codes.append(resp.status_code)
-        assert 429 not in codes, codes
-    finally:
-        limiter.enabled = original
-        limiter._storage.reset()
+    codes = await _collect_items_codes(
+        client, filter_dataset, {"limit": 1}, budget * 2 + 1
+    )
+    assert codes == [200] * (budget * 2 + 1), codes
+
+
+@pytest.mark.anyio
+async def test_the_exempt_request_still_carries_the_global_default(
+    client: AsyncClient, filter_dataset: Dataset, monkeypatch
+):
+    """The behavioural half of ``override_defaults=False``.
+
+    The structural test above pins the flag; this one proves what the flag
+    buys. slowapi decides on the default-limit fallback before it consults
+    ``exempt_when``, so with slowapi's default an exempted route limit would
+    leave this request unlimited. Here the global per-IP budget still bites,
+    one request past it and not before.
+    """
+    from app.core.persistent_config import get_cached_global_rate_limit
+
+    _freeze_rate_limit_window(monkeypatch)
+    global_budget = get_cached_global_rate_limit()
+
+    codes = await _collect_items_codes(
+        client, filter_dataset, {"limit": 1}, global_budget + 1
+    )
+    assert codes[:global_budget] == [200] * global_budget, codes
+    assert codes[-1] == 429, codes
