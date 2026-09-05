@@ -235,6 +235,41 @@ async def test_run_ogr2ogr_service_takes_the_service_variant(spawned):
     assert "OAPIF" not in env["GDAL_SKIP"].split()
 
 
+@pytest.mark.anyio
+async def test_service_preview_takes_the_service_variant(spawned):
+    """The fifth clamped site, measured at the spawn rather than at the call.
+
+    fix(#1857 item 3) clamped `run_service_preview`, which had carried a
+    written justification for having no clamp while the helpers lived somewhere
+    `modules/catalog/` may not import from. The structural gate credits the
+    site, and its own docstring says what that credit does not cover: "whether
+    that call's RESULT is the env handed to the subprocess is not verified".
+
+    That gap matters more here than at the other four, because this is the one
+    clamped site that MUTATES the env after building it -- it adds the header
+    file path, then merges the redirect policy -- so a later change that
+    rebinds `env` between the helper call and the spawn would keep full
+    structural credit. This asserts the link the gate cannot.
+
+    The service variant specifically, for the same reason
+    `run_ogr2ogr_service` takes it: the branch exists to read WFS and OGC API
+    Features, so those two drivers have to survive the skip list while the
+    pointer-following and helper-spawning ones do not. Preview and commit now
+    answer that question identically.
+    """
+    from app.modules.catalog.sources.preview import run_service_preview
+
+    await run_service_preview("WFS:https://example.test/wfs", "topp:parcels")
+
+    _argv, env = spawned[0]
+    skipped = env["GDAL_SKIP"].split()
+    assert "OGR_VRT" in skipped
+    assert "GPSBabel" in skipped
+    # The two drivers this call exists to use are still available.
+    assert "WFS" not in skipped
+    assert "OAPIF" not in skipped
+
+
 # ---------------------------------------------------------------------------
 # The archive-member refusal
 # ---------------------------------------------------------------------------

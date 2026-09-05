@@ -88,7 +88,11 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   friends lead with a mode argument instead and are not modelled; no site in
   ``app/`` uses either shape today -- every GDAL CLI call still builds a list
   and star-unpacks it -- so this closes the door before anyone walks through
-  it rather than after.
+  it rather than after. Neither is the SHELL family
+  (``create_subprocess_shell``, ``shell=True``, ``os.system``, ``os.popen``),
+  where the whole command is one string and there is no argv to read: that is
+  a different detector, and a GDAL call spelled that way would be a finding on
+  its own before it was a gate gap.
 - A GDAL-headed literal counts as an argv only when its value ESCAPES —
   handed to a call, returned, or yielded (fix(#996)). The escape is followed
   directly, out of transparent wrappers (container literals, ternary, ``+``,
@@ -2572,9 +2576,11 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
 # argument, so an argv can exist with no list or tuple display anywhere. The
 # `exec*` families are here for completeness rather than because the tree uses
 # them. Deliberately absent: `os.spawnl` and its variants, whose leading
-# argument is a mode rather than the program, and `subprocess.run` /`Popen`,
-# which take the whole argv as ONE argument and are therefore already covered
-# by the display rule.
+# argument is a mode rather than the program; `subprocess.run` / `Popen`, which
+# take the whole argv as ONE argument and are therefore already covered by the
+# display rule; and the shell family (`create_subprocess_shell`, `shell=True`,
+# `os.system`, `os.popen`), which has no argv at all -- see the module
+# docstring.
 _POSITIONAL_ARGV_SPAWNERS = frozenset(
     {
         "create_subprocess_exec",
