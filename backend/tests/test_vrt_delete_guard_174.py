@@ -26,6 +26,30 @@ from app.modules.catalog.datasets.domain.service import DependentVrtError
 # ``AsyncSession.add`` is synchronous, so an un-overridden AsyncMock turns
 # delete_dataset's retired-name write (#1443) into an un-awaited coroutine
 # that records nothing and raises a RuntimeWarning at garbage-collection.
+#
+# fix(#1847 review r3): and every one of them needs ``execute`` to return a
+# result object rather than a coroutine. delete_dataset now takes the
+# (datasets, records) pair before it reaps storage, and that acquisition
+# reads the stored extent. On a bare AsyncMock, ``result.first()`` is a
+# coroutine and subscripting it raises TypeError. ``_mock_session()``
+# below is the one place that shape is defined.
+
+
+def _mock_session() -> AsyncMock:
+    """An AsyncSession stand-in shaped for delete_dataset's real statements.
+
+    ``first()`` returns None, which reads as "this record has no stored
+    extent" -- the branch these tests do not care about, and the one that
+    keeps the lock acquisition from needing a fabricated geometry row.
+    """
+    result = MagicMock()
+    result.first = MagicMock(return_value=None)
+    result.scalar = MagicMock(return_value=None)
+    session = AsyncMock()
+    session.add = MagicMock()
+    session.delete = AsyncMock()
+    session.execute = AsyncMock(return_value=result)
+    return session
 
 
 def _make_mock_dataset(record_type: str, title: str = "Test Dataset") -> MagicMock:
@@ -333,9 +357,7 @@ class TestVrtDeletion:
         mock_storage.list = AsyncMock(side_effect=fake_list)
         mock_storage.delete = AsyncMock()
 
-        mock_session = AsyncMock()
-        mock_session.add = MagicMock()
-        mock_session.delete = AsyncMock()
+        mock_session = _mock_session()
 
         with patch(
             "app.modules.catalog.datasets.domain.service.get_dataset",
@@ -374,9 +396,7 @@ class TestVrtDeletion:
         mock_storage = AsyncMock()
         mock_storage.list = AsyncMock(return_value=[physical_key])
         mock_storage.delete = AsyncMock()
-        mock_session = AsyncMock()
-        mock_session.add = MagicMock()
-        mock_session.delete = AsyncMock()
+        mock_session = _mock_session()
 
         token = current_tenant_var.set(tenant_id)
         try:
@@ -472,9 +492,7 @@ class TestVrtDeletion:
         mock_storage.list = AsyncMock(side_effect=fake_list)
         mock_storage.delete = AsyncMock()
 
-        mock_session = AsyncMock()
-        mock_session.add = MagicMock()
-        mock_session.delete = AsyncMock()
+        mock_session = _mock_session()
 
         with patch(
             "app.modules.catalog.datasets.domain.service.get_dataset",
@@ -503,9 +521,7 @@ class TestVrtDeletion:
         mock_storage.list = AsyncMock(return_value=[])
         mock_storage.delete = AsyncMock()
 
-        mock_session = AsyncMock()
-        mock_session.add = MagicMock()
-        mock_session.delete = AsyncMock()
+        mock_session = _mock_session()
 
         with patch(
             "app.modules.catalog.datasets.domain.service.get_dataset",
