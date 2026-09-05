@@ -612,11 +612,8 @@ class TestRasterDeleteCascadeRemovesStorage:
             from app.modules.catalog.datasets.domain.service import delete_dataset
 
             # fix(#1847): the reap is the CALLER's, after its commit, so a
-            # failing storage provider cannot be reached from here at all.
-            # This used to raise, and the raise was the guarantee that no DB
-            # change outlived a storage failure. The guarantee is now the other
-            # way round: the rows go first, and a failed reap orphans objects
-            # rather than restoring a dataset whose bytes are gone.
+            # failing provider is unreachable here. The guarantee is inverted:
+            # a failed reap orphans objects rather than restoring a dataset.
             result = await delete_dataset(session, dataset_id, "My Raster")
 
         assert result.storage_prefixes, "the caller is told what to reap"

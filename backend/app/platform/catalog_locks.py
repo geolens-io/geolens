@@ -1,8 +1,8 @@
-"""The one lock order for the (datasets, records) row pair (fix(#1847)).
+"""The one lock order for the (datasets, records) row pair (#1847).
 
-Lives in ``platform/`` because both halves of the application need it:
-``processing/`` may not import ``app.modules.catalog``, so worker callers pass
-the mapped classes ``ProcessingPort`` hands them.
+Lives in ``platform/`` because ``processing/`` may not import
+``app.modules.catalog``: worker callers pass the mapped classes the port hands
+them.
 """
 
 from __future__ import annotations
@@ -31,10 +31,8 @@ _USE_REQUEST_DEFAULT: Any = object()
 CATALOG_LOCK_CONFLICT_CODE = "catalog_lock_conflict"
 
 
-# Set when THIS request installed the catalog timeout. fix(#1847): without it
-# the boundary handler read any 40P01, and any 55P03 from another timeout site,
-# as a busy dataset -- mislabelling an unrelated deadlock and skipping the
-# class-40 operational logging it used to get.
+# fix(#1847): set when THIS request installed the catalog timeout, so the
+# boundary handler does not read an unrelated 40P01 as a busy dataset.
 catalog_timeout_installed: ContextVar[bool] = ContextVar(
     "catalog_timeout_installed", default=False
 )

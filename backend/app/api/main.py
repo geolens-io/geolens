@@ -1021,8 +1021,7 @@ async def _catalog_lock_conflict_handler(
 ) -> JSONResponse:
     """Map a contended catalog row to 409, from wherever it was reached.
 
-    fix(#1847): one handler so the answer does not depend on which route
-    reached the acquisition. Safe to retry: the helper rolled back first.
+    Safe to retry: the acquisition rolled its transaction back first.
     """
     return _catalog_lock_conflict_response(request, str(exc))
 

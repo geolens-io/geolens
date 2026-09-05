@@ -100,13 +100,10 @@ def _make_dataset_stub(table_name: str):
 def _make_port():
     """The ProcessingPort surface ``_apply_reupload_swap`` actually reaches for.
 
-    fix(#1847): the swap takes the (datasets, records) pair before it
-    writes either row, and it resolves both mapped classes through the port
-    because ``processing/`` may not import ``app.modules.catalog``. A stub that
-    offers only ``get_dataset_version_orm_class`` therefore AttributeErrors on
-    a code path this file exists to exercise. The real classes are safe here:
-    the stub dataset carries ids no row has, so each ``FOR UPDATE`` locks
-    nothing and returns no rows.
+    The swap resolves both mapped classes through the port, so a stub offering
+    only ``get_dataset_version_orm_class`` AttributeErrors. The real classes
+    are safe: the stub dataset carries ids no row has, so each ``FOR UPDATE``
+    locks nothing.
     """
     from app.modules.catalog.datasets.domain.models import Dataset, Record
 

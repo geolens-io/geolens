@@ -1342,13 +1342,13 @@ async def lock_catalog_rows_for_write(
     transaction whose records delete cascades to it.
 
     Returns None unless the stored extent is a simple POLYGON: an
-    antimeridian-crossing dataset stores a two-ring MULTIPOLYGON (fix(#934))
+    antimeridian-crossing dataset stores a two-ring MULTIPOLYGON (#934)
     whose ST_XMin/ST_XMax are -180/180, so a longitude in the gap would test as
     inside a box the geometry never occupies.
 
-    fix(#1778 review r1): both metadata paths take the lock before either reads
-    the extent, or two writers interleave read-decide-write and one shrinks the
-    extent from an aggregate taken before the other's row landed.
+    Both metadata paths take the lock before either reads the extent, or two
+    writers interleave read-decide-write and one shrinks the extent from an
+    aggregate taken before the other's row landed (#1778).
     """
     from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
     from app.modules.catalog.datasets.domain.models import Record

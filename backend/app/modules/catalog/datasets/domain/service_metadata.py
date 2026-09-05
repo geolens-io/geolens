@@ -310,11 +310,9 @@ async def update_user_metadata(
 
     record = dataset.record
 
-    # fix(#1847): BEFORE the first assignment below, which is what orders this
-    # function's flush. Only when the body can reach a row beyond the record:
-    # a record-only body writes one row and has no order to get wrong.
-    # `is_dem` writes raster_assets, so it extends the order to that child --
-    # the replace worker takes it first and asks for the pair afterwards.
+    # fix(#1847): BEFORE the first assignment below, and only when the body
+    # reaches beyond the record: one row has no order to get wrong. `is_dem`
+    # writes raster_assets, so it extends the order to that child.
     touches_raster = "is_dem" in meta.model_fields_set
     if touches_raster or meta.model_fields_set & _DATASET_ROW_FIELDS:
         await lock_catalog_rows_for_write(

@@ -444,10 +444,9 @@ async def update_dataset_metadata(
 async def _reap_after_commit(deletion) -> None:
     """Remove a deleted dataset's objects, once its rows are gone for good.
 
-    fix(#1847): the reap is irreversible and the delete's FK cascades can still
-    lose a lock race, so it runs AFTER the commit. A failure here orphans
-    objects, which costs storage; it cannot resurrect a dataset, so it is
-    logged rather than raised at a caller whose rows are already deleted.
+    Runs after the commit because it is irreversible and the delete's FK
+    cascades can still lose a lock race. A failure orphans objects and cannot
+    resurrect a dataset, so it is logged rather than raised.
     """
     from app.modules.catalog.datasets.domain.service import reap_managed_storage
 
@@ -464,19 +463,13 @@ async def _reap_after_commit(deletion) -> None:
 async def _rollback_failed_item(db: AsyncSession, user) -> None:
     """Roll back one failed bulk-delete item without breaking the next one.
 
-    fix(#1847): `AsyncSession.rollback()` expires every instance in the
-    session, including the `user` the per-item access check reads. The next
-    item's `user.id` then lazy-loaded outside the greenlet and raised
-    MissingGreenlet, which the catch-all recorded as "Dataset deletion failed
-    unexpectedly" -- one bad item made every later item fail with a message
-    describing none of them. Reloading the actor is awaited, so the following
-    item's check runs normally.
+    `rollback()` expires every instance in the session, including the actor the
+    per-item access check reads, whose next attribute read would lazy-load
+    outside the greenlet. Reloading it here is awaited.
 
     Only a PERSISTENT mapped instance is reloaded. An `IdentityExtension`
-    supplies an identity that is not a mapped `User` at all, and `refresh()`
-    raises `UnmappedInstanceError` on one -- turning the recovery path into the
-    failure it exists to prevent. Such an identity is not in the session, so
-    the rollback never expired it and there is nothing to restore.
+    identity has no mapper, so `refresh()` would raise UnmappedInstanceError on
+    it; it is also not in the session, so nothing expired it.
     """
     await db.rollback()
     try:
@@ -557,10 +550,9 @@ async def bulk_delete_datasets_endpoint(
             )
             deleted += 1
         except CatalogLockConflict as exc:
-            # fix(#1847): recorded per item, not raised. The batch commits per
-            # item, so aborting here would discard results already committed.
-            # The catch-all below would report a contended row as an
-            # unexpected failure and log a stack trace for it.
+            # fix(#1847): per item, not raised. The batch commits per item, so
+            # aborting would discard results already committed, and the
+            # catch-all would call a contended row an unexpected failure.
             await _rollback_failed_item(db, user)
             results.append(
                 BulkDeleteResultItem(

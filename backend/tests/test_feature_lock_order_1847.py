@@ -1,4 +1,4 @@
-"""Backend audit 2026-09-04 P1-1, tracked in #1847.
+"""The (datasets, records) lock order, and the gate that holds it (#1847).
 
 The feature-edit metadata refresh took ``catalog.records`` FOR UPDATE and left
 ``catalog.datasets`` to the flush. ``refresh_postgis`` phase 3 takes the
@@ -230,11 +230,9 @@ class TestLockOrderAgainstRefreshPhaseThree:
         """The whole ABBA cycle in one assertion.
 
         A cycle needs the request to be holding one row and waiting for the
-        other. With the datasets row taken first there is nothing to hold: the
-        request parks at its very first acquisition, so the third session can
-        still take the records row. Before fix(#1847) the request was parked at
-        its flush with ``catalog.records`` already locked, and this probe raised
-        55P03.
+        other. With the datasets row taken first there is nothing to hold: it
+        parks at its first acquisition, so the third session can still take
+        the records row.
         """
         # This test is about acquisition ORDER, so give the wait a budget the
         # barrier below cannot plausibly exhaust. The 2s production value is
@@ -347,10 +345,8 @@ class TestPropertyOnlyPatchTakesThePairToo:
     ):
         """End to end, over HTTP, with the worker holding the datasets row.
 
-        The request never recomputes an extent, so before fix(#1847)
-        it took no catalog lock at all and its first touch of either row was
-        the flush at ``commit()`` -- records, then datasets. That is the
-        original inversion, on the one handler whose refresh is conditional.
+        This request recomputes no extent, so its only catalog writes are the
+        stamp and the tile-version roll. Both rows, in one flush.
         """
         monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "60s")
 
@@ -367,12 +363,9 @@ class TestPropertyOnlyPatchTakesThePairToo:
         assert create.status_code == 201, create.text
         gid = create.json()["id"]
 
-        # The handler assigns `record.updated_by = user.id`, and the ORM emits
-        # an UPDATE only when that is a real change. The insert above already
-        # stamped this admin, so without this the PATCH would dirty the
-        # datasets row alone and the records half of the pair would go
-        # untested. Clearing it restores the ordinary case: the last editor is
-        # somebody other than the current one.
+        # The ORM emits the records UPDATE only when `updated_by` really
+        # changes, and the insert above already stamped this admin. Clearing it
+        # restores the ordinary case: the last editor is somebody else.
         await test_db_session.execute(
             text("UPDATE catalog.records SET updated_by = NULL WHERE id = :rid"),
             {"rid": locked_dataset.record_id},
@@ -624,7 +617,7 @@ class TestFeatureWriteErrorClassification:
         ],
     )
     def test_lock_conflict_raises_the_shared_exception(self, code: str):
-        """fix(#1847): one condition, one shape.
+        """One condition, one shape.
 
         Returning a 409 of its own here gave a contended row two response
         bodies, depending on whether the acquisition or a later statement hit
@@ -693,7 +686,7 @@ class TestEveryWriteHandlerGoesThroughTheGuard:
         )
 
     def test_every_write_handler_acquires_on_every_path(self):
-        """fix(#1847): unconditionally, or in BOTH arms of the if.
+        """Unconditionally, or in BOTH arms of the if.
 
         Three handlers refresh unconditionally, so they hold the pair before
         they stamp `record.updated_by` and roll `tile_cache_version`. The PATCH
@@ -753,7 +746,7 @@ class TestEveryWriteHandlerGoesThroughTheGuard:
 
 
 class TestMetadataPatchTakesThePairToo:
-    """fix(#1847): the class from the other side.
+    """The class from the other side.
 
     `update_user_metadata` writes record fields and dataset fields and then
     flushes them together. Before this round it acquired nothing, so the flush
@@ -817,7 +810,7 @@ class TestMetadataPatchTakesThePairToo:
 
 
 class TestOneAnswerForAContendedRow:
-    """fix(#1847): 409 from every caller, not 409/503/400 by route.
+    """409 from every caller, not 409/503/400 by route.
 
     The acquisition is reached from feature writes, metadata edits, layer DDL
     and dataset deletion. Each classified a lost race differently until the
@@ -899,7 +892,7 @@ class TestOneAnswerForAContendedRow:
 
 
 class TestDeleteNeverReapsStorageItCannotCommit:
-    """fix(#1847): the irreversible step must be behind the lock.
+    """The irreversible step must be behind the lock.
 
     `delete_dataset` deletes the managed objects permanently and relies on the
     transaction rolling back to keep the catalog consistent with them. An
@@ -952,7 +945,7 @@ class TestDeleteNeverReapsStorageItCannotCommit:
 
 
 class TestOneShapeForEveryContendedRow:
-    """fix(#1847): every endpoint answers a contended row the same way.
+    """Every endpoint answers a contended row the same way.
 
     Two shapes were in play. The feature router returned its own 409 body for
     a lock conflict raised by a statement other than the acquisition, and the
@@ -993,7 +986,7 @@ class TestOneShapeForEveryContendedRow:
     async def test_one_failed_item_does_not_poison_the_rest(
         self, client: AsyncClient, test_db_session, admin_auth_header
     ):
-        """fix(#1847): found while making the conflict per-item.
+        """A pre-existing bug, found while making the conflict per-item.
 
         Any per-item failure rolled the session back, which expires every
         instance in it including the actor. The next item's access check then
@@ -1108,7 +1101,7 @@ class TestOneShapeForEveryContendedRow:
 
 
 class TestTheRasterChildIsHeldBeforeTheReap:
-    """codex r5 P1: the delete reaps raster objects it may not get to commit.
+    """The delete must not reap raster objects it may not get to commit.
 
     The replace worker holds the RasterAsset row across its upload and only
     then takes the pair. A delete that took the pair, reaped the raster prefix,
@@ -1160,7 +1153,7 @@ class TestTheRasterChildIsHeldBeforeTheReap:
 
 
 class TestALaterLockWaitAnswersTheSameWay:
-    """codex r5 P2: the timeout outlives the acquisition it was set for.
+    """The timeout outlives the acquisition it was set for.
 
     `SET LOCAL lock_timeout` holds for the whole transaction, so a wait after
     the pair is taken raises 55P03 from a statement the acquisition's own
@@ -1170,7 +1163,7 @@ class TestALaterLockWaitAnswersTheSameWay:
     async def test_is_dem_waits_at_the_raster_row_holding_nothing(
         self, locked_dataset, client: AsyncClient, admin_auth_header, monkeypatch
     ):
-        """codex r6: the request must reach for raster_assets FIRST.
+        """The request must reach for raster_assets FIRST.
 
         Holding the pair and then asking for the raster row is the opposite of
         the replace worker's order, and the worker is the side that cannot be
@@ -1285,7 +1278,7 @@ class TestALaterLockWaitAnswersTheSameWay:
 
 
 class TestRecoverySurvivesANonMappedIdentity:
-    """codex r5 P2: the recovery path assumed the actor was a mapped User.
+    """The recovery path must not assume the actor is a mapped User.
 
     An `IdentityExtension` supplies an identity that is not a mapped instance,
     and `AsyncSession.refresh()` raises `UnmappedInstanceError` on one -- from
@@ -1318,7 +1311,7 @@ class TestRecoverySurvivesANonMappedIdentity:
 
 
 class TestTheReapFollowsTheCommit:
-    """codex r7 P1: the irreversible step must not precede a cascade that can fail.
+    """The irreversible step must not precede a cascade that can fail.
 
     The record delete cascades to child rows nobody locks (map_layers,
     record_embeddings, dataset_assets). Under the request timeout a contended
@@ -1753,10 +1746,8 @@ class TestWorkerDoorsAcquireBeforeTheirWrites:
 # The class gate (fix(#1847))
 # ---------------------------------------------------------------------------
 
-# A function that writes BOTH catalog rows must acquire them in the house
-# order first, or appear here with the reason it cannot deadlock. Adding a name
-# is a decision, not a formality: read
-# app.platform.catalog_locks.lock_catalog_rows before you do.
+# A function that writes BOTH catalog rows acquires them in the house order
+# first, or appears here with the reason it cannot deadlock.
 _PAIR_WRITER_EXEMPTIONS = {
     # --- both rows are INSERTed by this transaction ------------------------
     # No other transaction can hold either one, so there is nothing to order
@@ -1777,19 +1768,17 @@ _PAIR_WRITER_EXEMPTIONS = {
     # --- writes one half; the caller owns the ordering ---------------------
     "app.processing.ingest.tasks_common.apply_manifest_record_metadata": "record only",
     "app.processing.ingest.tasks_raster_swap._write_swapped_fields": "sync, no session; reupload_raster acquires before calling it",
-    # --- takes the datasets row FOR UPDATE itself --------------------------
-    # These are the sites the house order was chosen to match. They do not go
-    # through the helper because the lock and the superseded-content check are
-    # one indivisible step.
+    # --- takes the datasets row FOR UPDATE itself -------------------------
+    # The lock and the superseded-content check are one step here, so these do
+    # not go through the helper.
     "app.processing.ingest.tasks_postgis_refresh._apply_measurement": "caller refresh_postgis holds datasets FOR UPDATE",
     "app.processing.ingest.tasks_postgis_refresh.refresh_postgis": "takes datasets FOR UPDATE for its superseded guard",
     "app.processing.ingest.tasks_stac_refresh.refresh_stac": "takes datasets FOR UPDATE for its superseded guard",
 }
 
 
-# Functions that assign catalog fields in memory before acquiring, and hold
-# those assignments under `no_autoflush` until after it, so no write reaches
-# the database first. The reason is enforced, not asserted: see
+# Assigns catalog fields in memory before acquiring, held under `no_autoflush`
+# until after it. The reason is enforced by
 # test_the_deferred_flush_exemption_still_holds.
 _INMEMORY_UNTIL_ACQUIRED = {
     "app.processing.ingest.tasks_raster_replace.reupload_raster": (
@@ -1848,11 +1837,8 @@ def _module_qualname(rel) -> str:
 def _local_bindings(tree, module: str) -> dict[str, str]:
     """Local name -> qualified target, from this module's imports and defs.
 
-    fix(#1847): the previous scan keyed everything on the bare
-    function name and merged across files, so any function that happened to
-    share a name with one of the real acquirers inherited its exemption. A
-    call is resolved through the binding that is actually in scope where it
-    appears.
+    A call resolves through the binding in scope where it appears, so a
+    function sharing a name with an acquirer does not inherit its exemption.
     """
     import ast
 
@@ -1917,10 +1903,8 @@ def _classify_base(base) -> str | None:
 def _core_statement_kind(node) -> str | None:
     """'record'/'dataset' for a Core ``update(X)`` / ``delete(X)`` on the pair.
 
-    fix(#1847): latent rather than active today -- the two
-    ``update(Dataset)`` sites write the datasets row alone -- but a Core
-    statement is a write the attribute scan cannot see at all, so the first one
-    that touches both rows would have been invisible.
+    A Core statement is a write the attribute scan cannot see, so the first
+    one to touch both rows would otherwise be invisible.
     """
     import ast
 
@@ -1972,10 +1956,9 @@ def _write_kinds(node) -> set[str]:
     import ast
 
     kinds: set[str] = set()
-    # `session.delete(dataset.record)` removes the records row AND, by the FK
-    # cascade on Dataset.record_id, the datasets row. Neither is an attribute
-    # assignment, so without this the one endpoint that deletes a dataset is
-    # invisible to the scan (fix(#1847)).
+    # `session.delete(dataset.record)` removes the records row AND, by FK
+    # cascade, the datasets row. Neither is an attribute assignment, so the
+    # delete endpoint would otherwise be invisible to the scan.
     if (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
@@ -2185,17 +2168,13 @@ def _acq_predicate(bindings, module, reach):
 def _write_predicate(bindings, module, is_acq, reaches_write):
     """A write here, or a call to something that writes.
 
-    fix(#1847): the scan used to see only assignments in this body, so a
-    wrapper that called a record-writing helper, acquired, then called a
-    dataset-writing helper emitted records-before-datasets and passed.
+    A body-only scan misses a wrapper whose halves are both in callees.
     """
     import ast
 
     def is_write(node) -> bool:
-        # Pair writes only. A raster_assets write belongs BEFORE the pair, not
-        # after it, so requiring the pair acquisition ahead of one would demand
-        # the inversion this file exists to prevent. That ordering is
-        # test_a_raster_writer_orders_the_child_first.
+        # Pair writes only: a raster_assets write belongs BEFORE the pair,
+        # and is ordered by test_a_raster_writer_orders_the_child_first.
         if _write_kinds(node) & {"record", "dataset"}:
             return True
         if not isinstance(node, ast.Call) or is_acq(node):
@@ -2213,11 +2192,9 @@ def acquisition_dominates_writes(
 ) -> tuple[bool, str]:
     """Does an acquisition precede every write, on every path through *fn*?
 
-    fix(#1847): merely calling the helper somewhere in the body proves nothing.
-    After the writes it orders nothing; in one arm of an `if` it orders nothing
-    on the other. *acquirers* and *writers* are the transitive sets, so a
-    handler that acquires or writes through a wrapper is judged on what that
-    wrapper does.
+    Calling the helper somewhere in the body proves nothing: after the writes
+    it orders nothing, and in one arm of an `if` it orders nothing on the
+    other. *acquirers* and *writers* are the transitive sets.
     """
     import ast
 
@@ -2293,7 +2270,7 @@ class TestEveryPairWriterTakesTheHouseOrder:
         )
 
     def test_the_acquisition_precedes_the_writes_on_every_path(self):
-        """fix(#1847): position and branch, not mere presence.
+        """Position and branch, not mere presence.
 
         Calling the helper somewhere in the body proves nothing. After the
         writes it orders nothing, and in one arm of an `if` it orders nothing
@@ -2313,11 +2290,8 @@ class TestEveryPairWriterTakesTheHouseOrder:
                 or key in _INMEMORY_UNTIL_ACQUIRED
             ):
                 continue
-            # Checked for every function that acquires OR writes both rows,
-            # whether its writes are its own or a callee's. Selecting on direct
-            # writes alone skipped the wrapper shape entirely, and selecting on
-            # pair writers alone missed a helper that writes one row and
-            # acquires after it (`layers.service.add_column`).
+            # Every acquirer OR pair writer, whether its writes are its own
+            # or a callee's: either selection alone has a blind spot.
             if key not in acquirers and key not in writers:
                 continue
             if not (_direct_writes(fn) or key in writers):
@@ -2334,12 +2308,10 @@ class TestEveryPairWriterTakesTheHouseOrder:
         )
 
     def test_a_raster_writer_orders_the_child_first(self):
-        """codex r6: the third site of this class, so the gate takes it over.
+        """The gate owns this class now, not a human reading diffs.
 
-        The replace worker holds `raster_assets` across its upload and asks for
-        the pair afterwards. Any request path that takes the pair and then
-        writes that row is the opposite order, which is an ABBA whose victim
-        can be the retry-disabled worker.
+        The replace worker holds `raster_assets` across its upload and asks
+        for the pair afterwards, so taking the pair first is an ABBA.
         """
         acquirers = _acquiring_functions()
         raster_writers = _raster_writer_report()
@@ -2496,7 +2468,7 @@ class TestTheGateRejectsWhatItExistsToCatch:
         )
 
     def test_a_wrapper_whose_writes_are_all_in_callees_is_rejected(self):
-        """fix(#1847): the shape codex round 4 found the gate blind to.
+        """The shape the gate was blind to: writes only in callees.
 
         Nothing in this body assigns a catalog field, so a scan that looked at
         direct writes alone saw no writes to order and skipped the function

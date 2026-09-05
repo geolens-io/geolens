@@ -48,9 +48,9 @@ async def _compute_quality_detail(
     fully-populated one, changed the real score while the displayed one stayed
     stale until the next reupload).
 
-    fix(#1847): returns rather than assigns, so the caller runs it BEFORE
-    taking the catalog rows. It is a COUNT per column over the whole data table
-    plus a geometry pass over 10,000 rows, and it needs neither catalog row.
+    Returns rather than assigns, so the caller runs it BEFORE taking the
+    catalog rows. It is a COUNT per column over the whole data table plus a
+    geometry pass over 10,000 rows, and it needs neither catalog row (#1847).
 
     `no_autoflush` because the caller has not taken the rows yet.
     """

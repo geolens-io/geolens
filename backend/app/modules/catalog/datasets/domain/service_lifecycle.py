@@ -49,13 +49,10 @@ class DatasetTitleMismatchError(ValueError):
 class DatasetDeletion(NamedTuple):
     """What `delete_dataset` did, and what the caller must reap after commit.
 
-    fix(#1847): the storage reap moved OUT of the delete transaction. It is
-    irreversible, and the record delete's FK cascades reach child rows nobody
-    locks (map_layers, record_embeddings, dataset_assets), so a cascade that
-    lost a lock race rolled the row back with the bytes already gone. Deleting
-    the row first inverts the residual: a failed reap orphans objects, which
-    costs storage, where the old order left a catalog entry pointing at
-    nothing, which serves broken tiles and is invisible.
+    The reap is irreversible and the record delete's FK cascades reach child
+    rows nobody locks, so it belongs after the commit. The residual is
+    inverted, not removed: a failed reap orphans objects rather than leaving a
+    catalog entry pointing at nothing.
     """
 
     table_name: str
@@ -257,10 +254,8 @@ async def delete_dataset(
             raise RuntimeError(
                 "Dataset deletion is missing tenant context in multi-tenant mode"
             )
-        # fix(#1847): BEFORE the reap, which deletes objects permanently, and
-        # including the raster child: the record delete cascades to it, and the
-        # replace worker holds that row across its upload. Taking it after the
-        # reap left the bytes gone and the row rolled back.
+        # fix(#1847): includes the raster child, which the record delete
+        # cascades to and the replace worker holds across its upload.
         await lock_catalog_rows_for_write(session, dataset, with_raster_asset=True)
 
         storage_prefixes = tuple(prefixes)

@@ -161,9 +161,6 @@ def _feature_write_db_error(exc: DBAPIError) -> HTTPException:
 async def _guard(db: AsyncSession, step) -> None:
     """Run one post-write catalog step with its database errors classified.
 
-    fix(#1847): the handlers took their row locks after their own
-    `except DBAPIError` had closed, so a conflict escaped as a bare 503.
-
     Narrower than the handlers' own guards on purpose: only `DBAPIError` is
     caught, so a `ValueError` still surfaces as itself.
     """
@@ -185,9 +182,9 @@ async def _refresh_metadata_guarded(db: AsyncSession, dataset, **kwargs) -> None
 async def _lock_catalog_rows_guarded(db: AsyncSession, dataset) -> None:
     """Take the (datasets, records) pair for a write that skips the refresh.
 
-    fix(#1847): every handler stamps `record.updated_by` and rolls
-    `tile_cache_version`, which dirties both rows even when nothing is
-    recomputed. Same helper as the refresh path, so the two cannot drift.
+    Every handler stamps `record.updated_by` and rolls `tile_cache_version`,
+    which dirties both rows even when nothing is recomputed. Same helper as the
+    refresh path, so the two cannot drift.
     """
     await _guard(db, lock_catalog_rows_for_write(db, dataset))
 
