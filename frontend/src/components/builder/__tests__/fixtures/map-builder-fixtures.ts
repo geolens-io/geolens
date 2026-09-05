@@ -105,10 +105,20 @@ export function makeMapLibreMock(
     sources?: string[];
     layers?: string[];
     styleLoaded?: boolean;
+    /** fix(#1877): zoomAfterFit applies only when fitBounds is called with
+     * duration: 0 (mirrors MapLibre's real flyTo-vs-synchronous behavior);
+     * defaults above 2 so callers that don't care about zoom see no setZoom(2). */
+    zoomAfterFit?: number;
   } = {},
 ): MaplibreMap {
   const sources = new Set(initial.sources ?? []);
   const layers = new Set(initial.layers ?? []);
+  let currentZoom = 10;
+  const fitBounds = vi.fn((_bounds: unknown, options?: { duration?: number }) => {
+    if (options?.duration === 0 && initial.zoomAfterFit !== undefined) {
+      currentZoom = initial.zoomAfterFit;
+    }
+  });
 
   return {
     getSource: vi.fn((id: string) =>
@@ -134,7 +144,9 @@ export function makeMapLibreMock(
     getStyle: vi.fn(() => ({ layers: [] })),
     moveLayer: vi.fn(),
     setLayerZoomRange: vi.fn(),
-    fitBounds: vi.fn(),
+    fitBounds,
+    getZoom: vi.fn(() => currentZoom),
+    setZoom: vi.fn((z: number) => { currentZoom = z; }),
     on: vi.fn(),
     off: vi.fn(),
     setTransformRequest: vi.fn(),

@@ -26,10 +26,10 @@ type MaplibreMap = import('maplibre-gl').Map;
 
 function renderWithAddDatasetParam(
   mapData: MapResponse,
-  options: { startWithMapLoaded?: boolean } = {},
+  options: { startWithMapLoaded?: boolean; zoomAfterFit?: number } = {},
 ) {
-  const { startWithMapLoaded = true } = options;
-  const map = makeMapLibreMock();
+  const { startWithMapLoaded = true, zoomAfterFit } = options;
+  const map = makeMapLibreMock({ zoomAfterFit });
   const mapRef = {
     current: startWithMapLoaded ? map : null,
   } as React.RefObject<MaplibreMap | null>;
@@ -89,6 +89,7 @@ function renderWithAddDatasetParam(
     hook,
     mutate,
     fitBounds: map.fitBounds as unknown as ReturnType<typeof vi.fn>,
+    setZoom: map.setZoom as unknown as ReturnType<typeof vi.fn>,
     simulateMapLoad,
   };
 }
@@ -179,5 +180,108 @@ describe('?add_dataset auto-zoom (#1854)', () => {
     });
 
     expect(fitBounds).not.toHaveBeenCalled();
+  });
+
+  // fix(#1867): "fresh map" means no PRIOR layers, not just no saved
+  // center — a centerless map with an existing layer keeps BuilderMap's
+  // own combined-bounds auto-fit, not this single-layer zoom.
+  it('does not auto-zoom a centerless map that already has an existing layer', () => {
+    const existingLayer = makeBuilderLayer({ id: 'existing-layer-id', dataset_id: 'ds-existing' });
+    const mapData = makeBuilderMap([existingLayer], { center_lng: null, center_lat: null });
+    const { mutate, fitBounds } = renderWithAddDatasetParam(mapData);
+
+    expect(mutate).toHaveBeenCalledOnce();
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    const createdLayer = makeBuilderLayer({
+      id: 'new-layer-id',
+      dataset_id: 'ds-1',
+      dataset_extent_bbox: [-74.5, 40.5, -73.5, 41.5],
+    });
+    act(() => {
+      onSuccess(createdLayer);
+    });
+
+    expect(fitBounds).not.toHaveBeenCalled();
+  });
+
+  // fix(#1877): a cold-entry add (BuilderMap not yet mounted) lands in
+  // BuilderMap's own first-render baseline, so its auto-fit never detects
+  // the change — this hook must take charge with the COMBINED bounds fit.
+  it('runs a combined-bounds fit for a cold-entry add on a centerless map with an existing layer', () => {
+    const existingLayer = makeBuilderLayer({
+      id: 'existing-layer-id',
+      dataset_id: 'ds-existing',
+      dataset_extent_bbox: [-80, 35, -75, 40],
+    });
+    const mapData = makeBuilderMap([existingLayer], { center_lng: null, center_lat: null });
+    const { hook, mutate, fitBounds, setZoom, simulateMapLoad } = renderWithAddDatasetParam(mapData, {
+      startWithMapLoaded: false,
+    });
+
+    expect(mutate).toHaveBeenCalledOnce();
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    const createdLayer = makeBuilderLayer({
+      id: 'new-layer-id',
+      dataset_id: 'ds-1',
+      dataset_extent_bbox: [-74.5, 40.5, -73.5, 41.5],
+    });
+    act(() => {
+      onSuccess(createdLayer);
+    });
+
+    // Layer landed, but the map instance does not exist yet — must NOT fire.
+    expect(hook.result.current.localLayers.map((l) => l.id)).toContain('new-layer-id');
+    expect(fitBounds).not.toHaveBeenCalled();
+
+    // Map finishes loading afterward (BuilderMap onLoad -> handleMapRef).
+    act(() => {
+      simulateMapLoad();
+    });
+
+    // The union of BOTH layers' bounds — not just the new layer's — and
+    // exactly once (not also a redundant single-layer zoom).
+    expect(fitBounds).toHaveBeenCalledTimes(1);
+    expect(fitBounds.mock.calls[0][0]).toEqual([
+      [-80, 35],
+      [-73.5, 41.5],
+    ]);
+    // The mock reports a normal post-fit zoom (10, the default) — no clamp needed.
+    expect(setZoom).not.toHaveBeenCalled();
+  });
+
+  // fix(#1877): BuilderMap's own auto-fit clamps a wide fit to zoom 2+
+  // (complex vector tiles fail to render below it) — the cold-entry
+  // combined fit must apply the same clamp.
+  it('clamps a wide cold-entry combined fit to zoom 2, mirroring BuilderMap', () => {
+    const existingLayer = makeBuilderLayer({
+      id: 'existing-layer-id',
+      dataset_id: 'ds-existing',
+      dataset_extent_bbox: [-160, -70, -20, 10],
+    });
+    const mapData = makeBuilderMap([existingLayer], { center_lng: null, center_lat: null });
+    const { mutate, fitBounds, setZoom, simulateMapLoad } = renderWithAddDatasetParam(mapData, {
+      startWithMapLoaded: false,
+      zoomAfterFit: 1,
+    });
+
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    const createdLayer = makeBuilderLayer({
+      id: 'new-layer-id',
+      dataset_id: 'ds-1',
+      dataset_extent_bbox: [20, 10, 160, 70],
+    });
+    act(() => {
+      onSuccess(createdLayer);
+    });
+    act(() => {
+      simulateMapLoad();
+    });
+
+    expect(fitBounds).toHaveBeenCalledTimes(1);
+    // fix(#1877): duration: 0 is what makes this fit settle synchronously —
+    // without it the mock (like real MapLibre's flyTo) would not have
+    // applied zoomAfterFit yet, and the clamp below would read stale zoom.
+    expect(fitBounds.mock.calls[0][1]).toMatchObject({ duration: 0 });
+    expect(setZoom).toHaveBeenCalledWith(2);
   });
 });

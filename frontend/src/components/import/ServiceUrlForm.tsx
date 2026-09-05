@@ -528,7 +528,10 @@ export function ServiceUrlForm() {
       object_id_field: layer.object_id_field,
     };
 
-    await runPreviewSession(startServicePreview(request, isArcGisShaped));
+    // fix(#1835): pairs the minted token with its expiry in the session.
+    await runPreviewSession(
+      startServicePreview(request, isArcGisShaped, isArcGisShaped ? tokenExpiresAt : null),
+    );
   };
 
   const handleCommit = async (metadata: CommitImportRequest) => {
@@ -600,6 +603,18 @@ export function ServiceUrlForm() {
     setUrl(session.url);
     if (session.isArcGisShaped) {
       setToken(session.token ?? '');
+      // fix(#1835): a restored token with no expiry check reads as
+      // never-expiring — re-check and reschedule instead of trusting it.
+      if (session.token && session.tokenExpiresAt) {
+        if (isPast(session.tokenExpiresAt)) {
+          setToken('');
+          setTokenExpiresAt(null);
+          setTokenExpired(true);
+        } else {
+          setTokenExpiresAt(session.tokenExpiresAt);
+          scheduleExpiryTimer(session.tokenExpiresAt, signinGenerationRef.current);
+        }
+      }
       return;
     }
     const auth = session.auth;
@@ -619,6 +634,7 @@ export function ServiceUrlForm() {
       setHeaderName(auth.header_name ?? '');
       setHeaderValue(auth.header_value ?? '');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // fix(#1712): re-attach to a preview or commit that was running (or

@@ -43,7 +43,10 @@ function normalizeApiBasePath(value: string): string {
   return value.startsWith('/') ? value : `/${value}`;
 }
 
-function getRuntimeApiBaseUrl(): string | null {
+// fix(#1867): exported so callers can compare an absolute distribution url
+// against THIS instance's own API origin — the same resolution api/client.ts
+// uses to build its own fetch targets from `API_BASE`.
+export function getRuntimeApiBaseUrl(): string | null {
   const configuredApiBase = API_BASE.trim();
 
   if (configuredApiBase) {
@@ -63,6 +66,30 @@ function getRuntimeApiBaseUrl(): string | null {
   }
 
   return null;
+}
+
+/** True when `value`'s canonical URL.origin and path prefix match this
+ * instance's API (getRuntimeApiBaseUrl()), not a raw string-prefix compare
+ * (fix #1877). */
+export function isSameOriginAbsoluteUrl(value: string): boolean {
+  if (!isAbsoluteUrl(value)) return false;
+  const apiBase = getRuntimeApiBaseUrl();
+  if (!apiBase) return false;
+
+  const parseBase = typeof window !== 'undefined' ? window.location.href : undefined;
+  let valueUrl: URL;
+  let apiBaseUrl: URL;
+  try {
+    valueUrl = new URL(value, parseBase);
+    apiBaseUrl = new URL(apiBase, parseBase);
+  } catch {
+    return false;
+  }
+
+  if (valueUrl.origin !== apiBaseUrl.origin) return false;
+
+  const basePath = stripTrailingSlashes(apiBaseUrl.pathname);
+  return valueUrl.pathname === basePath || valueUrl.pathname.startsWith(`${basePath}/`);
 }
 
 export function getPublicApiBaseUrl(

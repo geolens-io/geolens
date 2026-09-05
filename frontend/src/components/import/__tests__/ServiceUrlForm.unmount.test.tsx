@@ -10,7 +10,7 @@
  * Mirrors UrlImportForm.unmount.test.tsx (#1708) for the module-scoped
  * session this lane adds, `service-url-session.ts`.
  */
-import { render, screen, waitFor } from '@/test/test-utils';
+import { render, screen, waitFor, act } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { ServiceUrlForm } from '../ServiceUrlForm';
 import { clearServiceImport, peekServiceImport } from '@/api/service-url-session';
@@ -276,5 +276,117 @@ describe('ServiceUrlForm unmount survival (#1712)', () => {
     // Never the deprecated bearer field alongside the structured object —
     // this session's shape was 'basic', not ArcGIS bearer.
     expect(mockCommitImport.mock.calls[0][1].token).toBeFalsy();
+  });
+});
+
+// fix(#1835): a restored session used to carry the minted ArcGIS token but
+// not its expiry, so isTokenExpiredOrPast() always read `tokenExpiresAt` as
+// null and a commit could forward an expired token silently.
+describe('ServiceUrlForm resumed ArcGIS token expiry (#1835)', () => {
+  const ARCGIS_URL = 'https://services6.arcgis.com/abcd1234/arcgis/rest/services/Foo/FeatureServer';
+  const ARCGIS_PROBE: ProbeResponse = {
+    service_type: 'arcgis',
+    url: ARCGIS_URL,
+    selected_layer_id: null,
+    layers: [
+      {
+        name: 'Layer0',
+        title: 'Layer0',
+        geometry_type: 'Polygon',
+        feature_count: 5,
+        layer_type: 'Feature Layer',
+        layer_id: 0,
+        object_id_field: 'OBJECTID',
+        kind: 'vector',
+      },
+    ],
+  };
+  const ARCGIS_PREVIEW = {
+    job_id: 'job-arcgis-resume',
+    source_filename: null,
+    columns: [],
+    crs: 4326,
+    geometry_type: 'Polygon',
+    feature_count: 5,
+    sample_rows: [],
+    layer_name: 'Layer0',
+  };
+
+  async function signInAndReachReview(user: ReturnType<typeof userEvent.setup>, expiresAt: string) {
+    const view = render(<ServiceUrlForm />);
+    await user.type(screen.getByPlaceholderText('serviceUrl.placeholder'), ARCGIS_URL);
+    await user.click(screen.getByRole('combobox', { name: 'Authentication' }));
+    await user.click(await screen.findByRole('option', { name: 'Sign in with username and password' }));
+    await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
+    await user.type(screen.getByLabelText('Username'), 'alice');
+    await user.type(screen.getByLabelText('Password'), 'hunter2');
+    mockArcgisSignin.mockResolvedValue({ token: 'minted-token', expires_at: expiresAt });
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => expect(screen.getByLabelText('Token or API key')).toHaveValue('minted-token'));
+
+    mockProbeService.mockResolvedValue(ARCGIS_PROBE);
+    await user.click(screen.getByRole('button', { name: 'Probe →' }));
+    await waitFor(() => expect(mockProbeService).toHaveBeenCalled());
+
+    mockPreviewServiceLayer.mockResolvedValue(ARCGIS_PREVIEW);
+    await user.click(await screen.findByRole('button', { name: /Layer0/ }));
+    await waitFor(() => expect(screen.getByTestId('import-metadata-form')).toBeInTheDocument());
+    return view;
+  }
+
+  test('a resumed session with a deadline already past is treated as expired, refusing Commit', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ delay: null });
+      const view = await signInAndReachReview(user, new Date(Date.now() + 60_000).toISOString());
+
+      // Tab switch unmounts the form (clearing its own timer); real time
+      // passes well past the deadline while nothing is mounted to react.
+      view.unmount();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(70_000);
+      });
+
+      render(<ServiceUrlForm />);
+      await waitFor(() => expect(screen.getByTestId('import-metadata-form')).toBeInTheDocument());
+
+      await user.click(screen.getByRole('button', { name: 'Commit (test)' }));
+
+      expect(mockCommitImport).not.toHaveBeenCalled();
+      expect(
+        screen.getByText(/Your ArcGIS sign-in expired while this was open/),
+      ).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a resumed session with a future deadline reschedules the expiry timer, which fires at it', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ delay: null });
+      const view = await signInAndReachReview(user, new Date(Date.now() + 60_000).toISOString());
+
+      // Unmount and remount immediately — the deadline is still ahead.
+      view.unmount();
+      render(<ServiceUrlForm />);
+      await waitFor(() => expect(screen.getByTestId('import-metadata-form')).toBeInTheDocument());
+
+      // Past the 30s margin on the 60s deadline: the RESCHEDULED timer
+      // (not a leftover from the unmounted first instance, which was
+      // cleared on unmount) must be what fires here.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Commit (test)' }));
+
+      expect(mockCommitImport).not.toHaveBeenCalled();
+      expect(
+        screen.getByText(/Your ArcGIS sign-in expired while this was open/),
+      ).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

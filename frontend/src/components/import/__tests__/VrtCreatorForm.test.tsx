@@ -307,6 +307,12 @@ describe('VrtCreatorForm', () => {
 
     const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
     expect(submitButton).toBeDisabled();
+
+    // fix(#1877): the visible reason must use the same first-known-crs
+    // reference validateSources compares against, not selectedSources[0]
+    // (which can be crs-unset).
+    const reasons = document.getElementById('vrt-mismatch-reasons');
+    expect(reasons?.textContent).toContain('"first":"EPSG:4326"');
   });
 
   // fix(#1778): these three checks read epsg/dtype/nodata/width/height/
@@ -479,6 +485,41 @@ describe('VrtCreatorForm', () => {
 
     const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
     expect(submitButton).toBeDisabled();
+    // fix(#1811): the reason was only ever in a hover tooltip; now also
+    // always-visible text, and the button points at it via aria-describedby.
+    expect(screen.getByText('vrt.gridMismatch')).toBeInTheDocument();
+    expect(submitButton).toHaveAttribute('aria-describedby', 'vrt-mismatch-reasons');
+  });
+
+  // fix(#1811): a matched set must show neither the disabled state nor the
+  // (now absent) reason text — the mismatch UI is error-only.
+  it('a matched band-stack set shows no mismatch reason text and enables submit', async () => {
+    const user = userEvent.setup({ delay: null });
+    const source1 = makeCogSource({ id: 'ds-match-a', title: 'Match Source A', width: 1000, height: 1000, gsd: 0.001 });
+    const source2 = makeCogSource({ id: 'ds-match-b', title: 'Match Source B', width: 1000, height: 1000, gsd: 0.001 });
+
+    mockSearchDatasets.mockResolvedValue({
+      type: 'FeatureCollection',
+      numberMatched: 2,
+      numberReturned: 2,
+      features: [source1, source2],
+    });
+
+    render(<VrtCreatorForm />);
+
+    await user.click(screen.getByRole('radio', { name: 'vrt.modeBandStack' }));
+
+    const searchInput = screen.getByPlaceholderText('vrt.searchPlaceholder');
+    await selectSource(user, searchInput, 'Match Source A');
+    await selectSource(user, searchInput, 'Match Source B');
+
+    const titleInput = screen.getByPlaceholderText('vrt.titlePlaceholder');
+    await user.type(titleInput, 'Matched Grid VRT');
+
+    const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
+    expect(submitButton).not.toBeDisabled();
+    expect(screen.queryByText('vrt.gridMismatch')).not.toBeInTheDocument();
+    expect(submitButton).not.toHaveAttribute('aria-describedby');
   });
 
   // fix(#1805 review round 1 P2): the backend compares res_x/res_y (which
