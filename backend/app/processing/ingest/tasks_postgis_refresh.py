@@ -60,6 +60,7 @@ from app.platform.refresh.service import (
 )
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
+    cleanup_step,
     _current_tenant_role,
     _current_tenant_schema,
     _declared_geometry_type,
@@ -1125,4 +1126,5 @@ async def refresh_postgis(
             await err_session.commit()
         raise
     finally:
-        await stop_ingest_job_heartbeat(heartbeat_task)
+        async with cleanup_step("refresh_postgis heartbeat", job_id=job_id):
+            await stop_ingest_job_heartbeat(heartbeat_task)

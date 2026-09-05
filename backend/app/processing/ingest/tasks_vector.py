@@ -10,7 +10,7 @@ import structlog
 from sqlalchemy import or_, text, update
 
 from app.core.db.tenant_session import tenant_task
-from app.core.url_redaction import redact_exception_text, scrub_secret_from_exception
+from app.core.url_redaction import scrub_secret_from_exception
 from app.platform.dataset_origin import service_layer_identity
 from app.platform.jobs.heartbeat import (
     attempt_scoped_staging_table,
@@ -24,6 +24,7 @@ from app.processing.ingest.metadata import _qtable
 from app.processing.ingest.source_format import derive_source_format
 from app.processing.ingest.tasks_common import (
     IngestContext,
+    cleanup_step,
     reap_downloaded_staging_source,
     reap_presigned_staging_object,
     _append_job_warning,
@@ -115,28 +116,6 @@ async def _drop_attempt_staging_table(staging_table: str) -> None:
             "attempt_staging_cleanup_failed",
             staging_table=staging_table,
             exc_info=True,
-        )
-
-
-async def _finally_cleanup(coro, *, what: str, job_id: str) -> None:
-    """Run one `finally`-block cleanup step; log rather than raise a failure.
-
-    fix(#1755 item 11): `ingest_service`'s `finally` block used to await
-    `stop_ingest_job_heartbeat` and `_drop_attempt_staging_table` bare, so an
-    exception from either replaced whatever the `try`/`except` above it was
-    already propagating -- silently turning an ingest failure into an
-    unrelated cleanup error in the queue row and the caller's `except`.
-    `_drop_attempt_staging_table` already swallows everything it raises
-    internally; routing it through here too is defence in depth against that
-    contract changing without this call site noticing.
-    """
-    try:
-        await coro
-    except Exception as exc:  # broad: a finally-block cleanup must never replace the exception it is propagating past
-        structlog.get_logger().exception(
-            f"{what} cleanup failed",
-            job_id=job_id,
-            error=redact_exception_text(exc),
         )
 
 
@@ -888,8 +867,10 @@ async def ingest_file(
         final_status = "failed"
         raise
     finally:
-        await stop_ingest_job_heartbeat(heartbeat_task)
-        await _drop_attempt_staging_table(staging_table_name)
+        async with cleanup_step("ingest_file heartbeat", job_id=job_id):
+            await stop_ingest_job_heartbeat(heartbeat_task)
+        async with cleanup_step("ingest_file staging table", job_id=job_id):
+            await _drop_attempt_staging_table(staging_table_name)
         # Clean up local file on success always; on failure only if it was
         # a resolve_file_path download (source of truth is S3, not the
         # local copy). Local-only uploads are kept for retry.
@@ -937,35 +918,38 @@ async def ingest_file(
         except Exception:  # broad: cleanup decision is best-effort, never block completion on this query
             is_fan_out_child = True
 
-        if _should_unlink_staging(
-            file_path=file_path,
-            original_file_path=original_file_path,
-            final_status=final_status,
-            is_fan_out_child=is_fan_out_child,
-        ):
-            Path(file_path).unlink(missing_ok=True)
+        async with cleanup_step("ingest_file local file", job_id=job_id):
+            if _should_unlink_staging(
+                file_path=file_path,
+                original_file_path=original_file_path,
+                final_status=final_status,
+                is_fan_out_child=is_fan_out_child,
+            ):
+                Path(file_path).unlink(missing_ok=True)
 
         # fix(#1213 review r2): shared with the reupload tail — after a
         # presigned completion this reaps the FROZEN copy the job is bound to.
-        await reap_downloaded_staging_source(
-            job_id,
-            original_file_path=original_file_path,
-            final_status=final_status,
-            # Ordinary imports: a failed job stays retryable while its
-            # source exists (_retry_capability), so retain on failure and
-            # let the stale purge own it.
-            failed_source_replayable=True,
-            is_fan_out_child=is_fan_out_child,
-        )
+        async with cleanup_step("ingest_file downloaded source", job_id=job_id):
+            await reap_downloaded_staging_source(
+                job_id,
+                original_file_path=original_file_path,
+                final_status=final_status,
+                # Ordinary imports: a failed job stays retryable while its
+                # source exists (_retry_capability), so retain on failure and
+                # let the stale purge own it.
+                failed_source_replayable=True,
+                is_fan_out_child=is_fan_out_child,
+            )
 
         # fix(#1202 review r5): sweep the presigned staging key too. The block
         # above only reaps `original_file_path`, which after a presigned
         # completion is the FROZEN copy — so the key the client still holds a
         # PUT URL for was never touched. Shared with the raster tail so the
         # two cannot drift.
-        await reap_presigned_staging_object(
-            job_id, owned_staging_key, final_status=final_status
-        )
+        async with cleanup_step("ingest_file presigned staging object", job_id=job_id):
+            await reap_presigned_staging_object(
+                job_id, owned_staging_key, final_status=final_status
+            )
 
 
 @task_app.task(
@@ -1215,9 +1199,10 @@ async def ingest_service(
                 _do_import, source_layer, token=token
             )
         finally:
-            service_progress_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await service_progress_task
+            async with cleanup_step("ingest_service progress heartbeat", job_id=job_id):
+                service_progress_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await service_progress_task
 
         # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session): post-ogr2ogr finalization.
@@ -1374,19 +1359,10 @@ async def ingest_service(
                 )
         raise
     finally:
-        # fix(#1755 item 11): routed through `_finally_cleanup` so a failure
-        # in either call logs rather than replacing the ingest exception
-        # `raise` above is propagating (or the OTHER cleanup call, since each
-        # runs regardless of whether its sibling failed). `purge_token_on_
-        # failure` (`tasks_common.py`), the decorator around this task, still
-        # sees whatever exception `ingest_service` itself raised.
-        await _finally_cleanup(
-            stop_ingest_job_heartbeat(heartbeat_task),
-            what="ingest_service heartbeat",
-            job_id=job_id,
-        )
-        await _finally_cleanup(
-            _drop_attempt_staging_table(staging_table_name),
-            what="ingest_service staging",
-            job_id=job_id,
-        )
+        # fix(#1755 item 11): `purge_token_on_failure` (`tasks_common.py`), the
+        # decorator around this task, must still see whatever exception
+        # `ingest_service` itself raised, not one from a cleanup step.
+        async with cleanup_step("ingest_service heartbeat", job_id=job_id):
+            await stop_ingest_job_heartbeat(heartbeat_task)
+        async with cleanup_step("ingest_service staging table", job_id=job_id):
+            await _drop_attempt_staging_table(staging_table_name)

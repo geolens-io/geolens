@@ -26,7 +26,7 @@ from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.dataset_origin import classify_origin, set_dataset_origin
 from app.core.config import settings
 from app.core.service_tokens import reset_registered_credential_secrets
-from app.core.url_redaction import redact_url_credentials
+from app.core.url_redaction import redact_exception_text, redact_url_credentials
 from app.processing.embeddings.helpers import defer_embedding
 from app.processing.ingest.source_format import derive_source_format
 from app.platform.storage import get_storage
@@ -330,6 +330,36 @@ def purge_token_on_failure(fn):
             raise
 
     return _wrapper
+
+
+@asynccontextmanager
+async def cleanup_step(what: str, *, job_id: str) -> AsyncGenerator[None, None]:
+    """Run one terminal-cleanup step; log a failure in it rather than raise it.
+
+    fix(#1755 item 11): a `finally`-block cleanup step must never replace the
+    exception the block is already propagating, and must never skip the steps
+    after it in the same block. Wrap ONE step per `async with` -- the isolation
+    is per block, not per `finally`.
+
+    Catches ``Exception``, not ``BaseException``: the cleanup runs during
+    worker shutdown too, and swallowing that ``CancelledError`` would strand
+    the shutdown it is running under.
+
+    ``what`` names the step for the operator; it is logged verbatim, so keep
+    it a fixed string. The failure is logged with ``exc_info`` and a redacted
+    message, since an ingest exception can carry a credentialed URL.
+    """
+    try:
+        yield
+    except (
+        Exception
+    ) as exc:  # broad: cleanup must not replace the exception it runs past
+        structlog.get_logger().exception(
+            "ingest_cleanup_step_failed",
+            step=what,
+            job_id=job_id,
+            error=redact_exception_text(exc),
+        )
 
 
 # ArcGIS esriFieldType → column_info type mapping

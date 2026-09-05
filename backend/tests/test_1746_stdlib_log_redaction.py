@@ -21,9 +21,9 @@ root logger instead and read back what it actually received.
 ``tests/_logging_state.configured_logging()`` saves and restores every
 logger ``setup_logging()`` is documented to mutate — root, the three uvicorn
 loggers, and (as of fix #1746 codex r5) ``httpx``/``httpcore`` (see
-``_logging_state.py``'s own docstring). ``setup_logging()`` never touches
-``.disabled`` though, so this file still restores that one flag itself; see
-the autouse fixture below for why it needs to.
+``_logging_state.py``'s own docstring). ``.disabled`` is outside that snapshot
+because ``setup_logging()`` never touches it; fix(#1755 item 8) removed the
+only thing that did, so this file no longer restores it either.
 """
 
 import base64
@@ -74,36 +74,6 @@ class _ListHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         self.lines.append(self.format(record))
-
-
-@pytest.fixture(autouse=True)
-def _restore_httpx_logger_disabled_flag():
-    """Undo alembic's `fileConfig()` disabling the "httpx" logger.
-
-    `_logging_state._MUTATED_LOGGERS` and `conftest._LOGGING_MUTATED_LOGGERS`
-    now include "httpx"/"httpcore" (fix #1746 codex r5), so `level` -- what
-    this fixture used to also save and restore -- is covered by
-    `configured_logging()` and the autouse guard already. `.disabled` is not:
-    neither snapshot reads or writes it, because `setup_logging()` itself
-    never touches it, so it was never in scope for either.
-
-    `alembic/env.py` calls `logging.config.fileConfig()` to run migrations,
-    and that defaults to `disable_existing_loggers=True`, which disables
-    every *already-registered* logger not named in alembic.ini's `[loggers]`
-    section. By the time that runs, collection has already imported plenty
-    of other test modules that import httpx, so the "httpx" logger object
-    already exists and gets silently `.disabled = True` for the rest of the
-    session -- independent of this file's own fix, and independent of
-    `setup_logging()` entirely. Restoring the flag here keeps this file
-    exercising the real fix instead of that unrelated side effect.
-    """
-    loggers = [logging.getLogger(name) for name in ("httpx", "httpcore")]
-    saved = [lg.disabled for lg in loggers]
-    for lg in loggers:
-        lg.disabled = False
-    yield
-    for lg, disabled in zip(loggers, saved):
-        lg.disabled = disabled
 
 
 def _emit_through_real_pipeline(

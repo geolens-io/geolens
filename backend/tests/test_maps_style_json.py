@@ -881,10 +881,7 @@ def test_build_maplibre_style_drops_line_gradient_paint_on_unsupported_source_ty
 ):
     """Drop line-gradient paint when the backing source type cannot support lineMetrics.
 
-    Mirrors the Phase 251 _HILLSHADE_PAINT_KEYS silent-filter convention. The
-    `style_json` module logger is re-enabled before the test because the conftest's
-    alembic `fileConfig(...)` call defaults to `disable_existing_loggers=True`,
-    which silences module loggers loaded before alembic ran (see alembic/env.py).
+    Mirrors the Phase 251 _HILLSHADE_PAINT_KEYS silent-filter convention.
     """
     import logging
 
@@ -909,16 +906,8 @@ def test_build_maplibre_style_drops_line_gradient_paint_on_unsupported_source_ty
         filter=None,
         style_config=None,
     )
-    target_logger = logging.getLogger("app.modules.catalog.maps.style_json")
-    was_disabled = target_logger.disabled
-    target_logger.disabled = False
-    try:
-        with caplog.at_level(
-            logging.WARNING, logger="app.modules.catalog.maps.style_json"
-        ):
-            style = build_maplibre_style(_map(), [layer])
-    finally:
-        target_logger.disabled = was_disabled
+    with caplog.at_level(logging.WARNING, logger="app.modules.catalog.maps.style_json"):
+        style = build_maplibre_style(_map(), [layer])
     source = style["sources"][f"geolens-{dataset_id}"]
     assert source["type"] == "raster"
     assert "lineMetrics" not in source
@@ -959,16 +948,8 @@ def test_build_maplibre_style_warns_on_builder_line_gradient_intent_with_unsuppo
         label_config=None,
         filter=None,
     )
-    target_logger = logging.getLogger("app.modules.catalog.maps.style_json")
-    was_disabled = target_logger.disabled
-    target_logger.disabled = False
-    try:
-        with caplog.at_level(
-            logging.WARNING, logger="app.modules.catalog.maps.style_json"
-        ):
-            style = build_maplibre_style(_map(), [layer])
-    finally:
-        target_logger.disabled = was_disabled
+    with caplog.at_level(logging.WARNING, logger="app.modules.catalog.maps.style_json"):
+        style = build_maplibre_style(_map(), [layer])
     source = style["sources"][f"geolens-{dataset_id}"]
     assert source["type"] == "raster"
     assert "lineMetrics" not in source

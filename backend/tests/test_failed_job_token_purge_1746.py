@@ -353,17 +353,21 @@ class TestCleanupFailuresDoNotMaskTheOriginalException:
         async def _boom_credential(*_args, **_kwargs) -> str | None:
             raise RuntimeError("simulated ingest failure")
 
+        cleanup_calls: list[str] = []
+
         async def _stop_heartbeat_and_raise(task) -> None:
             # Real cleanup first (cancels the real background task), THEN the
             # simulated failure — proves the wrapping, not merely that
             # cleanup was skipped.
             await _real_stop_heartbeat(task)
+            cleanup_calls.append("heartbeat")
             raise ValueError("cleanup boom: heartbeat")
 
         real_drop_staging = tasks_vector._drop_attempt_staging_table
 
         async def _drop_staging_and_raise(staging_table: str) -> None:
             await real_drop_staging(staging_table)
+            cleanup_calls.append("staging")
             raise KeyError("cleanup boom: staging")
 
         monkeypatch.setattr(
@@ -393,6 +397,9 @@ class TestCleanupFailuresDoNotMaskTheOriginalException:
                     token=FAKE_TOKEN,
                 )
 
+            # fix(#1755 item 11): the second step ran even though the first
+            # raised. Per-step isolation, not per-`finally`.
+            assert cleanup_calls == ["heartbeat", "staging"]
             after = await _read_args(test_db_session, row_id)
             assert "token" not in after, "the #1753 purge must still run"
         finally:

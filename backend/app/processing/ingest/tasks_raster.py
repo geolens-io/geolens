@@ -47,6 +47,7 @@ from app.processing.ingest.tasks_raster_common import (
 )
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
+    cleanup_step,
     _emit_billing_event,
     _job_phase_session,
     _parse_temporal_fields,
@@ -840,17 +841,22 @@ async def ingest_raster(
         )
         raise
     finally:
-        await stop_ingest_job_heartbeat(heartbeat_task)
+        async with cleanup_step("ingest_raster heartbeat", job_id=job_id):
+            await stop_ingest_job_heartbeat(heartbeat_task)
         # GAP-017: orphan-asset cleanup. If we wrote COG/quicklook bytes to
         # storage but did NOT reach a successful terminal commit, the dataset
         # row those keys belong to was rolled back — delete_dataset will never
         # reap them. Remove them here so a crash/commit-failure mid-ingest does
         # not leave bytes under a rasters/{dataset_id}/ prefix with no DB row.
-        if not publish_committed and written_storage_keys:
-            await _cleanup_orphaned_storage_keys(written_storage_keys, job_id=job_id)
+        async with cleanup_step("ingest_raster orphaned storage keys", job_id=job_id):
+            if not publish_committed and written_storage_keys:
+                await _cleanup_orphaned_storage_keys(
+                    written_storage_keys, job_id=job_id
+                )
         # Clean up temp COG dir
-        if tmp_dir:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+        async with cleanup_step("ingest_raster temp dir", job_id=job_id):
+            if tmp_dir:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
         # Clean up local staging file
         # fix(#1290 review): the local file is one of two different things and
         # only one of them is Decision 7's business. When it differs from
@@ -863,12 +869,13 @@ async def ingest_raster(
         # lossless copy, and it gets the same gate as the object-store reaper —
         # otherwise the RUNBOOK's retention promise held on S3 and quietly
         # failed on every local deployment.
-        if file_path != original_file_path:
-            _Path(file_path).unlink(missing_ok=True)
-        elif final_status == "complete" and (
-            source_preserved_in_cog or lossy_original_archived
-        ):
-            _Path(file_path).unlink(missing_ok=True)
+        async with cleanup_step("ingest_raster local file", job_id=job_id):
+            if file_path != original_file_path:
+                _Path(file_path).unlink(missing_ok=True)
+            elif final_status == "complete" and (
+                source_preserved_in_cog or lossy_original_archived
+            ):
+                _Path(file_path).unlink(missing_ok=True)
         # fix(#1202 review r5): sweep the presigned staging key. Raster has no
         # equivalent of the vector tail's #430 BA-09 block, so before this
         # nothing on this path ever deleted a storage object the client could
@@ -876,9 +883,12 @@ async def ingest_raster(
         # because it exempts the newest complete job per dataset, which is
         # exactly what a successful ingest produces. Shared with the vector
         # tail so the two cannot drift.
-        await reap_presigned_staging_object(
-            job_id, owned_staging_key, final_status=final_status
-        )
+        async with cleanup_step(
+            "ingest_raster presigned staging object", job_id=job_id
+        ):
+            await reap_presigned_staging_object(
+                job_id, owned_staging_key, final_status=final_status
+            )
         # fix(#1210), ADR-002 Decision 7: the pre-conversion source object.
         # This is the vector tail's #430 BA-09 block, which raster never had —
         # so every raster ever ingested kept its uploaded bytes forever beside
@@ -899,10 +909,11 @@ async def ingest_raster(
         # copy. It is now redundant with the gate (a failure never sets the flag)
         # and kept because it states the intent independently. RUNBOOK.md
         # section 9 states both windows for operators.
-        if source_preserved_in_cog or lossy_original_archived:
-            await reap_downloaded_staging_source(
-                job_id,
-                original_file_path=original_file_path,
-                final_status=final_status,
-                failed_source_replayable=True,
-            )
+        async with cleanup_step("ingest_raster downloaded source", job_id=job_id):
+            if source_preserved_in_cog or lossy_original_archived:
+                await reap_downloaded_staging_source(
+                    job_id,
+                    original_file_path=original_file_path,
+                    final_status=final_status,
+                    failed_source_replayable=True,
+                )

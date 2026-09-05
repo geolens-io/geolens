@@ -32,7 +32,10 @@ import app.modules.tenancy.models  # noqa: F401 -- register tenancy models (Phas
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # fix(#1755 item 8): the stdlib default disable_existing_loggers=True sets
+    # .disabled on every logger registered before this call and not named in
+    # alembic.ini, and nothing in the app or the test suite restores that flag.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 import pathlib  # noqa: E402
 from importlib.metadata import entry_points as iter_entry_points  # noqa: E402

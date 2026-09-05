@@ -62,6 +62,7 @@ from app.platform.refresh.service import (
 )
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
+    cleanup_step,
     stamp_failed_origin_health,
     task_app,
 )
@@ -796,4 +797,5 @@ async def refresh_stac(
             await err_session.commit()
         raise
     finally:
-        await stop_ingest_job_heartbeat(heartbeat_task)
+        async with cleanup_step("refresh_stac heartbeat", job_id=job_id):
+            await stop_ingest_job_heartbeat(heartbeat_task)
