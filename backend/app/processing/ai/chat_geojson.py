@@ -16,6 +16,8 @@ import structlog
 from shapely.geometry import shape as shapely_shape
 from sqlglot import exp
 
+from app.platform.sandbox import folded_identifier
+
 logger = structlog.stdlib.get_logger(__name__)
 
 _GEOM_NAMES = {"geom_4326", "geom", "geometry", "the_geom", "wkb_geometry"}
@@ -114,10 +116,11 @@ def ensure_geometry_selected(sql: str, layers) -> str:
     if from_clause is None:
         return sql
     table = from_clause.this
+    # fix(#1891): fold both parts the PostgreSQL way before comparing.
     if (
         not isinstance(table, exp.Table)
-        or table.db != "data"
-        or table.name not in geom_tables
+        or folded_identifier(table.args.get("db")) != "data"
+        or folded_identifier(table.this) not in geom_tables
     ):
         return sql
     for item in stmt.expressions:
