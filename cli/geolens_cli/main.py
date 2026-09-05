@@ -450,14 +450,11 @@ def apply_manifest_command(
         # output.error()/warn() writes bleeding into it.
         #
         # fix(#1778 review round 19): dropped the "resumable": True
-        # field -- it claimed re-running immediately was always safe,
-        # which is not true (see build_apply_timeout_message()'s
-        # docstring: an entry whose source was still downloading when
-        # the timeout hit has no job row yet, so an immediate re-apply
-        # can queue it twice). "guidance" carries the same accurate,
-        # non-blanket explanation --json gets that a human running the
+        # field, because a bare boolean cannot say which entries a
+        # re-apply would skip and which it would apply. "guidance"
+        # carries the explanation --json gets that a human running the
         # same command interactively already sees via report_apply_
-        # timeout(), instead of a bare boolean.
+        # timeout().
         if state.json_mode:
             status = _manifest_apply.attempt_apply_timeout_status_check(
                 sdk.client, payload

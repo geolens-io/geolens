@@ -344,8 +344,12 @@ class TestManifestApplyHelpers:
         dataset = _request(_manifest_dataset(uri="seed.geojson")).datasets[0]
         prepared = await classify_manifest_source(dataset.sources[0])
 
-        first = await _stage_source_if_needed(AsyncMock(), prepared, dry_run=False)
-        second = await _stage_source_if_needed(AsyncMock(), prepared, dry_run=False)
+        first = await _stage_source_if_needed(
+            prepared, dry_run=False, max_size_bytes=1024 * 1024
+        )
+        second = await _stage_source_if_needed(
+            prepared, dry_run=False, max_size_bytes=1024 * 1024
+        )
 
         assert first is not None and second is not None
         assert first != second
@@ -550,10 +554,6 @@ class TestManifestApplyHelpers:
                 "app.platform.security.make_safe_client",
                 return_value=client,
             ),
-            patch(
-                "app.processing.ingest.manifest_service.UPLOAD_MAX_SIZE_MB.get",
-                new=AsyncMock(return_value=100),
-            ),
         ):
             prepared = await classify_manifest_source(source)
             with pytest.raises(
@@ -561,8 +561,8 @@ class TestManifestApplyHelpers:
                 match="remaining storage quota",
             ):
                 await _download_http_source(
-                    test_db_session,
                     prepared,
+                    max_size_bytes=100 * 1024 * 1024,
                     quota_byte_limit=5,
                 )
 
@@ -611,14 +611,12 @@ class TestManifestApplyHelpers:
                 "app.platform.security.make_safe_client",
                 return_value=client,
             ),
-            patch(
-                "app.processing.ingest.manifest_service.UPLOAD_MAX_SIZE_MB.get",
-                new=AsyncMock(return_value=100),
-            ),
             patch.object(Path, "open", new=blocking_open),
         ):
             prepared = await classify_manifest_source(source)
-            task = asyncio.create_task(_download_http_source(test_db_session, prepared))
+            task = asyncio.create_task(
+                _download_http_source(prepared, max_size_bytes=100 * 1024 * 1024)
+            )
             assert await asyncio.to_thread(open_started.wait, 5)
             task.cancel()
             await asyncio.sleep(0)
@@ -845,7 +843,7 @@ class TestManifestApplyService:
 
         with (
             patch(
-                "app.processing.ingest.manifest_service._stage_source_and_check_quota",
+                "app.processing.ingest.manifest_service._stage_source_if_needed",
                 new=AsyncMock(),
             ) as stage,
             patch(
@@ -982,7 +980,7 @@ class TestManifestApplyService:
 
         with (
             patch(
-                "app.processing.ingest.manifest_service._stage_source_and_check_quota",
+                "app.processing.ingest.manifest_service._stage_source_if_needed",
                 new=AsyncMock(),
             ) as stage,
             patch(
@@ -1025,7 +1023,7 @@ class TestManifestApplyService:
         )
 
         with patch(
-            "app.processing.ingest.manifest_service._stage_source_and_check_quota",
+            "app.processing.ingest.manifest_service._stage_source_if_needed",
             new=AsyncMock(),
         ) as stage:
             response = await apply_manifest(
@@ -1258,7 +1256,12 @@ class TestManifestApplyService:
         assert quota_check.await_args.args[1] == user_id
         assert quota_check.await_args.args[2] == 4096
         queue.assert_not_awaited()
-        assert await test_db_session.scalar(select(func.count(IngestJob.id))) == 0
+        # fix(#1814): the reservation is inserted before the download, so a
+        # denial after it leaves that row settled rather than leaving none.
+        reservation = (await test_db_session.execute(select(IngestJob))).scalar_one()
+        assert reservation.status == "failed"
+        assert reservation.file_path is None
+        assert reservation.user_metadata["manifest_key"] == "manifest-http-quota"
 
     async def test_admin_same_bucket_seed_is_sized_and_quota_checked(
         self, test_db_session, clean_tables, monkeypatch
@@ -1301,9 +1304,12 @@ class TestManifestApplyService:
         assert quota_check.await_args.args[1:3] == (user_id, 8192)
         queue.assert_awaited_once()
 
-    async def test_downloaded_http_source_is_removed_if_job_persistence_fails(
+    async def test_downloaded_http_source_is_removed_if_staging_bind_fails(
         self, test_db_session, clean_tables, tmp_path
     ):
+        """fix(#1814): the row is durable before the download now, so the write
+        that can still fail is the one binding the staged path to it. The
+        downloaded bytes belong to that attempt and must not outlive it."""
         user = await _admin_user(test_db_session)
         request = _request(
             _manifest_dataset(
@@ -1327,9 +1333,9 @@ class TestManifestApplyService:
                 "app.modules.quota.service.check_upload_quota",
                 new=AsyncMock(),
             ),
-            patch.object(
-                test_db_session,
-                "flush",
+            patch(
+                "app.processing.ingest.manifest_service."
+                "bind_reservation_to_staged_source",
                 new=AsyncMock(side_effect=RuntimeError("database unavailable")),
             ),
             patch(
@@ -1346,6 +1352,9 @@ class TestManifestApplyService:
         assert "database unavailable" in response.results[0].message
         assert not staged.exists()
         queue.assert_not_awaited()
+        reservation = (await test_db_session.execute(select(IngestJob))).scalar_one()
+        assert reservation.status == "failed"
+        assert reservation.file_path is None
 
 
 @pytest.mark.anyio
@@ -1500,7 +1509,7 @@ class TestManifestDryRun:
         )
 
         with patch(
-            "app.processing.ingest.manifest_service._stage_source_and_check_quota",
+            "app.processing.ingest.manifest_service._stage_source_if_needed",
             new=AsyncMock(),
         ) as stage:
             response = await apply_manifest(

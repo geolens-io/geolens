@@ -25,9 +25,18 @@ from app.platform.extensions.entitlement import enforce_limit
 from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
+    settle_ingest_job_failed,
 )
 
 from app.platform.jobs.models import IngestJob
+from app.processing.ingest.manifest_reservation import (
+    RESERVATION_LOST_MESSAGE,
+    bind_reservation_to_staged_source,
+    downloading_stage_marker,
+    expire_stale_manifest_reservations,
+    latest_in_flight_manifest_job,
+    lock_manifest_key,
+)
 from app.processing.ingest.manifest_schemas import (
     ManifestApplyEntryResult,
     ManifestApplyRequest,
@@ -82,19 +91,25 @@ class _StagedManifestSource:
     incoming_bytes: int
 
 
-async def _latest_in_flight_manifest_job(
-    db: AsyncSession, key: str
-) -> IngestJob | None:
-    result = await db.execute(
-        select(IngestJob)
-        .where(
-            IngestJob.status.in_(["pending", "running"]),
-            IngestJob.user_metadata["manifest_key"].astext == key,
-        )
-        .order_by(desc(IngestJob.created_at))
-        .limit(1)
-    )
-    return result.scalar_one_or_none()
+@dataclass(frozen=True)
+class _ReservedEntry:
+    """A committed reservation plus everything staging it needs afterwards.
+
+    fix(#1814): carries plain values rather than ORM instances (beyond the job
+    row itself), because the session between the reservation commit and the
+    staging bind is free to be handed to another request.
+    """
+
+    job: IngestJob
+    prepared: ManifestPreparedSource
+    dataset_id: uuid.UUID | None
+    max_size_bytes: int
+    quota_byte_limit: int | None
+
+    @property
+    def creates_dataset(self) -> bool:
+        """An entry with no existing dataset to replace is creating one."""
+        return self.dataset_id is None
 
 
 async def _latest_completed_manifest_job(
@@ -162,13 +177,22 @@ async def _authorize_prepared_source(
         )
 
 
+async def _upload_max_size_bytes(db: AsyncSession) -> int:
+    return (await UPLOAD_MAX_SIZE_MB.get(db)) * 1024 * 1024
+
+
 async def _download_http_source(
-    db: AsyncSession,
     prepared: ManifestPreparedSource,
     *,
+    max_size_bytes: int,
     quota_byte_limit: int | None = None,
 ) -> str:
-    max_size_bytes = (await UPLOAD_MAX_SIZE_MB.get(db)) * 1024 * 1024
+    """Stream one manifest source to staging. Takes no database session.
+
+    fix(#1814): the size ceiling is read by the caller, before the reservation
+    commit. A session parameter here would check a pooled connection back out
+    and hold its transaction open for the length of the download.
+    """
     staging_dir = Path(settings.upload_staging_dir)
     staging_dir.mkdir(parents=True, exist_ok=True)
     destination = staging_dir / (
@@ -273,18 +297,18 @@ async def _download_http_source(
 
 
 async def _stage_source_if_needed(
-    db: AsyncSession,
     prepared: ManifestPreparedSource,
     *,
     dry_run: bool,
+    max_size_bytes: int,
     quota_byte_limit: int | None = None,
 ) -> str | None:
     if prepared.kind == "http":
         if dry_run:
             return None
         return await _download_http_source(
-            db,
             prepared,
+            max_size_bytes=max_size_bytes,
             quota_byte_limit=quota_byte_limit,
         )
     if prepared.kind == "local":
@@ -338,103 +362,102 @@ def _cleanup_downloaded_source(
         Path(file_path).unlink(missing_ok=True)
 
 
-async def _stage_source_and_check_quota(
+async def _preflight_quota(
     db: AsyncSession,
-    prepared: ManifestPreparedSource,
     user: Identity,
-    request: Request,
     *,
     creates_dataset: bool,
-    reservation: _ManifestQuotaReservation,
-) -> _StagedManifestSource:
-    """Preflight quota, then stage, size, and admit a manifest source."""
-    # Check the cheap aggregate before opening an untrusted remote response.
-    # The same snapshot supplies a hard byte budget for streaming, so a caller
-    # at (or near) quota cannot force the server to download a whole object
-    # merely to discover that it cannot be admitted.
+    quota: _ManifestQuotaReservation,
+) -> int | None:
+    """Refuse an over-quota caller, and derive the streaming byte budget.
+
+    Runs before the reservation is inserted, so an entry that cannot be
+    admitted leaves no row behind. The same snapshot supplies a hard byte
+    budget for streaming, so a caller at (or near) quota cannot force the
+    server to download a whole object merely to discover that it cannot be
+    admitted.
+    """
     from app.modules.quota.service import get_user_quota_usage
 
     usage = await get_user_quota_usage(db, user.id)
     if (
         creates_dataset
         and usage.count_cap > 0
-        and usage.dataset_count + reservation.datasets_admitted >= usage.count_cap
+        and usage.dataset_count + quota.datasets_admitted >= usage.count_cap
     ):
         raise HTTPException(
             status_code=422,
             detail=(
                 "Dataset quota exceeded: "
-                f"{usage.dataset_count + reservation.datasets_admitted} of "
+                f"{usage.dataset_count + quota.datasets_admitted} of "
                 f"{usage.count_cap} datasets used"
             ),
         )
 
-    quota_byte_limit = (
+    return (
         max(
-            usage.storage_cap - usage.bytes_used - reservation.bytes_admitted,
+            usage.storage_cap - usage.bytes_used - quota.bytes_admitted,
             0,
         )
         if usage.storage_cap > 0
         else None
     )
-    file_path = await _stage_source_if_needed(
-        db,
-        prepared,
-        dry_run=False,
-        quota_byte_limit=quota_byte_limit,
+
+
+async def _admit_staged_source(
+    db: AsyncSession,
+    prepared: ManifestPreparedSource,
+    user: Identity,
+    request: Request,
+    *,
+    file_path: str,
+    creates_dataset: bool,
+    quota: _ManifestQuotaReservation,
+) -> _StagedManifestSource:
+    """Size a staged manifest source and admit it against live quota."""
+    from app.modules.quota.service import get_user_quota_usage
+
+    incoming_bytes = await _manifest_source_size_bytes(prepared, file_path)
+    fresh_usage = await get_user_quota_usage(db, user.id)
+    projected_bytes = fresh_usage.bytes_used + quota.bytes_admitted + incoming_bytes
+    projected_count = (
+        fresh_usage.dataset_count
+        + quota.datasets_admitted
+        + (1 if creates_dataset else 0)
     )
-    if file_path is None:
-        raise ManifestSourceError("Manifest source could not be staged")
-
-    try:
-        incoming_bytes = await _manifest_source_size_bytes(prepared, file_path)
-        fresh_usage = await get_user_quota_usage(db, user.id)
-        projected_bytes = (
-            fresh_usage.bytes_used + reservation.bytes_admitted + incoming_bytes
+    if fresh_usage.storage_cap > 0 and projected_bytes > fresh_usage.storage_cap:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Storage quota exceeded: used "
+                f"{fresh_usage.bytes_used + quota.bytes_admitted} of "
+                f"{fresh_usage.storage_cap} bytes (adding {incoming_bytes} bytes)"
+            ),
         )
-        projected_count = (
-            fresh_usage.dataset_count
-            + reservation.datasets_admitted
-            + (1 if creates_dataset else 0)
+    if (
+        creates_dataset
+        and fresh_usage.count_cap > 0
+        and projected_count > fresh_usage.count_cap
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Dataset quota exceeded: "
+                f"{fresh_usage.dataset_count + quota.datasets_admitted} of "
+                f"{fresh_usage.count_cap} datasets used"
+            ),
         )
-        if fresh_usage.storage_cap > 0 and projected_bytes > fresh_usage.storage_cap:
-            raise HTTPException(
-                status_code=413,
-                detail=(
-                    f"Storage quota exceeded: used "
-                    f"{fresh_usage.bytes_used + reservation.bytes_admitted} of "
-                    f"{fresh_usage.storage_cap} bytes (adding {incoming_bytes} bytes)"
-                ),
-            )
-        if (
-            creates_dataset
-            and fresh_usage.count_cap > 0
-            and projected_count > fresh_usage.count_cap
-        ):
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"Dataset quota exceeded: "
-                    f"{fresh_usage.dataset_count + reservation.datasets_admitted} of "
-                    f"{fresh_usage.count_cap} datasets used"
-                ),
-            )
 
-        # Lazy import preserves the processing -> modules layering boundary.
-        if creates_dataset:
-            from app.modules.quota.service import check_upload_quota
+    # Lazy import preserves the processing -> modules layering boundary.
+    if creates_dataset:
+        from app.modules.quota.service import check_upload_quota
 
-            await check_upload_quota(db, user.id, incoming_bytes, request)
-        await enforce_limit(request, "storage_bytes", projected_bytes)
-        if creates_dataset:
-            await enforce_limit(request, "dataset_count", projected_count)
-    except BaseException:
-        # HTTP downloads are owned by this attempt. Raw operator seeds are not,
-        # and must never be deleted merely because admission was denied.
-        _cleanup_downloaded_source(prepared, file_path)
-        raise
+        await check_upload_quota(db, user.id, incoming_bytes, request)
+    await enforce_limit(request, "storage_bytes", projected_bytes)
+    if creates_dataset:
+        await enforce_limit(request, "dataset_count", projected_count)
 
-    reservation.reserve(
+    quota.reserve(
         incoming_bytes=incoming_bytes,
         creates_dataset=creates_dataset,
     )
@@ -531,7 +554,13 @@ async def _classify_dataset(
     await _validate_prepared_source(db, prepared)
     await _authorize_prepared_source(db, prepared, user)
 
-    in_flight = await _latest_in_flight_manifest_job(db, dataset.key)
+    # fix(#1814): from here to the reservation commit is one locked critical
+    # section on this key, and nothing inside it may touch the network. The
+    # SSRF validation above is deliberately outside it.
+    await lock_manifest_key(db, dataset.key)
+    await expire_stale_manifest_reservations(db, dataset.key)
+
+    in_flight = await latest_in_flight_manifest_job(db, dataset.key)
     if in_flight is not None:
         in_flight_fingerprint = (in_flight.user_metadata or {}).get(
             "manifest_fingerprint"
@@ -610,97 +639,46 @@ def _validate_existing_dataset_update(
         )
 
 
-async def _create_job_and_queue(
+async def _reserve_entry(
     db: AsyncSession,
     dataset: ManifestDataset,
     prepared: ManifestPreparedSource,
     fingerprint: str,
     user: Identity,
-    request: Request,
-    reservation: _ManifestQuotaReservation,
-) -> ManifestApplyEntryResult:
-    staged = await _stage_source_and_check_quota(
+    *,
+    dataset_id: uuid.UUID | None,
+    quota: _ManifestQuotaReservation,
+) -> _ReservedEntry:
+    """Commit this key's claim, and everything staging needs, in one transaction.
+
+    fix(#1814): the row goes in BEFORE the source is fetched, carrying the
+    downloading stage marker, so a client that times out mid-download and
+    retries sees `skip_in_flight` for its own job instead of starting a second
+    download of the same entry. The caller holds this key's advisory lock; the
+    commit here is what publishes the claim and releases both the lock and the
+    pooled connection.
+    """
+    creates_dataset = dataset_id is None
+    quota_byte_limit = await _preflight_quota(
         db,
-        prepared,
         user,
-        request,
-        creates_dataset=True,
-        reservation=reservation,
+        creates_dataset=creates_dataset,
+        quota=quota,
     )
-    file_path = staged.file_path
-    job = IngestJob(
-        source_filename=prepared.source_filename,
-        file_path=file_path,
-        source_url=None,
-        source_layer=prepared.source_layer,
-        created_by=user.id,
-        status="pending",
-        user_metadata=manifest_job_metadata(
-            dataset,
-            prepared,
-            fingerprint=fingerprint,
-        ),
-    )
-    db.add(job)
-    try:
-        await db.flush()
-        await db.commit()
-    except BaseException:
-        # Until the job is durable, no worker/retry owns an HTTP staging file.
-        reservation.release(
-            incoming_bytes=staged.incoming_bytes,
-            creates_dataset=True,
-        )
-        _cleanup_downloaded_source(prepared, file_path)
-        raise
+    max_size_bytes = await _upload_max_size_bytes(db)
 
-    try:
-        await queue_ingest_job(job, str(user.id), db=db)
-    except BaseException:
-        reservation.release(
-            incoming_bytes=staged.incoming_bytes,
-            creates_dataset=True,
-        )
-        _cleanup_downloaded_source(prepared, file_path)
-        raise
-    return ManifestApplyEntryResult(
-        dataset_key=dataset.key,
-        action="create",
-        job_id=job.id,
-        message="Manifest dataset ingest queued.",
-    )
-
-
-async def _create_reupload_job_and_queue(
-    db: AsyncSession,
-    dataset: ManifestDataset,
-    prepared: ManifestPreparedSource,
-    fingerprint: str,
-    existing_dataset: object,
-    user: Identity,
-    request: Request,
-    reservation: _ManifestQuotaReservation,
-) -> ManifestApplyEntryResult:
-    _validate_existing_dataset_update(existing_dataset, prepared)
-    dataset_id = existing_dataset.id
-    staged = await _stage_source_and_check_quota(
-        db,
-        prepared,
-        user,
-        request,
-        creates_dataset=False,
-        reservation=reservation,
-    )
-    file_path = staged.file_path
-    metadata = {
+    metadata: dict[str, object] = {
         **manifest_job_metadata(dataset, prepared, fingerprint=fingerprint),
-        "reupload": True,
-        "dataset_id": str(dataset_id),
+        **downloading_stage_marker(),
     }
+    if dataset_id is not None:
+        metadata["reupload"] = True
+        metadata["dataset_id"] = str(dataset_id)
+
     job = IngestJob(
         dataset_id=dataset_id,
         source_filename=prepared.source_filename,
-        file_path=file_path,
+        file_path=None,
         source_url=None,
         source_layer=prepared.source_layer,
         created_by=user.id,
@@ -708,31 +686,116 @@ async def _create_reupload_job_and_queue(
         user_metadata=metadata,
     )
     db.add(job)
+    await db.flush()
+    await db.commit()
+    return _ReservedEntry(
+        job=job,
+        prepared=prepared,
+        dataset_id=dataset_id,
+        max_size_bytes=max_size_bytes,
+        quota_byte_limit=quota_byte_limit,
+    )
+
+
+async def _fail_reservation(
+    db: AsyncSession, job: IngestJob, exc: BaseException
+) -> None:
+    """Settle a reservation whose source never reached staging.
+
+    Best effort by construction: this runs while an entry is already failing,
+    and the shared settlement is fenced, so a row some other actor has already
+    settled is left exactly as that actor left it.
+    """
     try:
-        await db.flush()
-        await db.commit()
-    except BaseException:
-        reservation.release(
-            incoming_bytes=staged.incoming_bytes,
-            creates_dataset=False,
+        await settle_ingest_job_failed(
+            job, exc, message_prefix="Failed to stage manifest source"
         )
+        await db.commit()
+    except Exception:  # broad: the session may already be unusable
+        await db.rollback()
+
+
+async def _finalize_reserved_entry(
+    db: AsyncSession,
+    reserved: _ReservedEntry,
+    dataset: ManifestDataset,
+    user: Identity,
+    request: Request,
+    quota: _ManifestQuotaReservation,
+) -> ManifestApplyEntryResult:
+    """Stage the reserved entry's source, admit it, and queue the job."""
+    job = reserved.job
+    prepared = reserved.prepared
+    try:
+        file_path = await _stage_source_if_needed(
+            prepared,
+            dry_run=False,
+            max_size_bytes=reserved.max_size_bytes,
+            quota_byte_limit=reserved.quota_byte_limit,
+        )
+        if file_path is None:
+            raise ManifestSourceError("Manifest source could not be staged")
+    except BaseException as exc:
+        await _fail_reservation(db, job, exc)
+        raise
+
+    admitted = False
+    try:
+        staged = await _admit_staged_source(
+            db,
+            prepared,
+            user,
+            request,
+            file_path=file_path,
+            creates_dataset=reserved.creates_dataset,
+            quota=quota,
+        )
+        admitted = True
+        if not await bind_reservation_to_staged_source(db, job, file_path=file_path):
+            raise ManifestSourceError(RESERVATION_LOST_MESSAGE)
+        await db.commit()
+    except BaseException as exc:
+        if admitted:
+            quota.release(
+                incoming_bytes=staged.incoming_bytes,
+                creates_dataset=reserved.creates_dataset,
+            )
+        # HTTP downloads are owned by this attempt. Raw operator seeds are not,
+        # and must never be deleted merely because admission was denied.
         _cleanup_downloaded_source(prepared, file_path)
+        await _fail_reservation(db, job, exc)
         raise
 
     try:
-        await _queue_reupload_job(db, job, dataset_id, user, prepared)
-    except BaseException:
-        reservation.release(
+        if reserved.dataset_id is None:
+            await queue_ingest_job(job, str(user.id), db=db)
+        else:
+            await _queue_reupload_job(db, job, reserved.dataset_id, user, prepared)
+    except BaseException as exc:
+        quota.release(
             incoming_bytes=staged.incoming_bytes,
-            creates_dataset=False,
+            creates_dataset=reserved.creates_dataset,
         )
         _cleanup_downloaded_source(prepared, file_path)
+        # fix(#1814): an entry that did not reach the queue must not go on
+        # holding its key. The orphan guard has already settled the row for
+        # every dispatch failure, and the settlement is fenced on `pending`,
+        # so this only lands for a refusal raised before the guard ran.
+        await _fail_reservation(db, job, exc)
         raise
+
+    if reserved.dataset_id is None:
+        return ManifestApplyEntryResult(
+            dataset_key=dataset.key,
+            action="create",
+            job_id=job.id,
+            message="Manifest dataset ingest queued.",
+        )
     return ManifestApplyEntryResult(
         dataset_key=dataset.key,
         action="update",
         job_id=job.id,
-        dataset_id=dataset_id,
+        dataset_id=reserved.dataset_id,
         message="Manifest dataset reupload queued.",
     )
 
@@ -747,14 +810,29 @@ def _error_result(dataset: ManifestDataset, exc: Exception) -> ManifestApplyEntr
     )
 
 
-async def _run_entry(
+async def _reserve_or_settle_entry(
     db: AsyncSession,
     request: ManifestApplyRequest,
     user: Identity,
     dataset: ManifestDataset,
-    http_request: Request,
-    reservation: _ManifestQuotaReservation,
-) -> ManifestApplyEntryResult:
+    quota: _ManifestQuotaReservation,
+) -> ManifestApplyEntryResult | _ReservedEntry:
+    """The locked half of one entry: classify, then either answer or reserve.
+
+    fix(#1814): every exit from this function ends the transaction, because
+    `_classify_dataset` takes this key's advisory lock and a lock still held
+    when the next entry runs would sit across that entry's download, and could
+    deadlock two manifests that list the same two keys in opposite order.
+    Returning a result means the entry is answered from what the key already
+    holds; returning a reservation means the caller owns the key until it
+    stages or settles the row.
+
+    Ended by committing rather than rolling back, on the answered paths too:
+    `expire_stale_manifest_reservations` may have settled an abandoned
+    reservation for this key, a dry run has to report the same answer a real
+    apply would, and a rollback would expire every instance the caller still
+    holds.
+    """
     (
         classification,
         prepared,
@@ -775,7 +853,9 @@ async def _run_entry(
             raise ManifestSourceError(
                 "Manifest dataset key already has an in-flight apply"
             )
-        return _skip_result_for_in_flight(dataset, job)
+        result = _skip_result_for_in_flight(dataset, job)
+        await db.commit()
+        return result
 
     if classification == "skip_complete" and job is not None:
         if existing_dataset is not None:
@@ -789,14 +869,17 @@ async def _run_entry(
             await check_dataset_write_access(
                 db, existing_dataset, existing_dataset.id, user
             )
-        return ManifestApplyEntryResult(
+        result = ManifestApplyEntryResult(
             dataset_key=dataset.key,
             action="skip",
             job_id=job.id,
             dataset_id=job.dataset_id,
             message=_skip_complete_message(prepared),
         )
+        await db.commit()
+        return result
 
+    update_dataset_id: uuid.UUID | None = None
     if classification == "update" and existing_dataset is not None:
         # fix(#430 BA-02): manifest_key is globally namespaced and taken from the request
         # body, so an editor could otherwise overwrite (or, via dry_run, enumerate
@@ -812,46 +895,58 @@ async def _run_entry(
         # Run after authorization (to avoid leaking another user's dataset
         # type) but before dry-run reporting, staging, or queue creation.
         _validate_existing_dataset_update(existing_dataset, prepared)
+        update_dataset_id = existing_dataset.id
 
     if request.dry_run:
+        # fix(#1814): a preview reserves nothing, so the key is left exactly as
+        # this entry found it.
+        result = None
         if classification == "create":
-            return ManifestApplyEntryResult(
+            result = ManifestApplyEntryResult(
                 dataset_key=dataset.key,
                 action="create",
                 message="Manifest dataset would be created.",
             )
-        if classification == "update" and existing_dataset is not None:
-            return ManifestApplyEntryResult(
+        elif update_dataset_id is not None:
+            result = ManifestApplyEntryResult(
                 dataset_key=dataset.key,
                 action="update",
-                dataset_id=existing_dataset.id,
+                dataset_id=update_dataset_id,
                 message="Manifest dataset would be updated.",
             )
+        if result is not None:
+            await db.commit()
+            return result
 
-    if classification == "create":
-        return await _create_job_and_queue(
-            db,
-            dataset,
-            prepared,
-            fingerprint,
-            user,
-            http_request,
-            reservation,
-        )
+    reserves_update = classification == "update" and update_dataset_id is not None
+    if classification != "create" and not reserves_update:
+        raise ManifestSourceError("Manifest dataset could not be classified")
 
-    if classification == "update" and existing_dataset is not None:
-        return await _create_reupload_job_and_queue(
-            db,
-            dataset,
-            prepared,
-            fingerprint,
-            existing_dataset,
-            user,
-            http_request,
-            reservation,
-        )
+    return await _reserve_entry(
+        db,
+        dataset,
+        prepared,
+        fingerprint,
+        user,
+        dataset_id=update_dataset_id,
+        quota=quota,
+    )
 
-    raise ManifestSourceError("Manifest dataset could not be classified")
+
+async def _run_entry(
+    db: AsyncSession,
+    request: ManifestApplyRequest,
+    user: Identity,
+    dataset: ManifestDataset,
+    http_request: Request,
+    quota: _ManifestQuotaReservation,
+) -> ManifestApplyEntryResult:
+    outcome = await _reserve_or_settle_entry(db, request, user, dataset, quota)
+    if isinstance(outcome, ManifestApplyEntryResult):
+        return outcome
+    return await _finalize_reserved_entry(
+        db, outcome, dataset, user, http_request, quota
+    )
 
 
 async def apply_manifest(
@@ -866,7 +961,7 @@ async def apply_manifest(
     # synchronous lazy load (MissingGreenlet) while checking authorization.
     caller = cast(Identity, _ManifestCaller(id=user.id))
     results: list[ManifestApplyEntryResult] = []
-    reservation = _ManifestQuotaReservation()
+    quota = _ManifestQuotaReservation()
     for dataset in request.datasets:
         try:
             results.append(
@@ -876,10 +971,12 @@ async def apply_manifest(
                     caller,
                     dataset,
                     http_request,
-                    reservation,
+                    quota,
                 )
             )
         except (ManifestSourceError, ValueError, HTTPException) as exc:
+            # fix(#1814): also the release of this key's advisory lock, for an
+            # entry that raised while still holding it.
             await db.rollback()
             results.append(_error_result(dataset, exc))
         except Exception as exc:  # broad: per-entry isolation — any unexpected failure is recorded as that entry's error

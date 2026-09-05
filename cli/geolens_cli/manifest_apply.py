@@ -466,22 +466,15 @@ def build_apply_timeout_message(exc: ManifestApplyTimeout) -> str:
     ``manifest_dataset_fingerprint`` — and reports ``skip_complete``
     for a matching fingerprint instead of reprocessing it).
 
-    fix(#1778 review round 19): round 18's message ALSO claimed
-    re-running the exact same command was therefore always safe
-    immediately — that is not true, and this docstring exists to make
-    sure nobody re-adds the claim. ``_classify_dataset()`` checks for
-    an in-flight job BEFORE ``_create_job_and_queue()`` downloads the
-    entry's source, and the ``IngestJob`` row is only inserted AFTER
-    that download finishes (manifest_service.py). So while an entry's
-    source is still downloading when this timeout hits, the server has
-    no job row for it yet — a second apply submitted during that exact
-    window classifies the SAME entry as ``create`` again and queues it
-    a second time. A server-side reservation that closed this window
-    would be a backend change and is OUT OF SCOPE here (no
-    ``backend/app`` files in this PR); the honest fix on the CLI side
-    is to say so, not to promise blanket idempotency the server does
-    not yet provide for an entry that was mid-download at the exact
-    moment this request gave up.
+    fix(#1814): the window round 19 had to warn about is closed. The
+    server reserves an entry's ``IngestJob`` row BEFORE fetching its
+    source, under a lock on the manifest key, so an entry that was
+    mid-download when this timeout hit is already visible as in flight.
+    A re-apply of the same manifest attaches to that job and reports it
+    as a skip instead of downloading and queueing the entry a second
+    time. The message says what a re-apply does; it still makes no
+    blanket safety claim, because an entry the server had not yet
+    reached is simply applied on the re-run.
 
     fix(#1778 review round 21): the ``budget`` this timeout used is
     only ever a HEURISTIC LOWER BOUND (see
@@ -502,17 +495,14 @@ def build_apply_timeout_message(exc: ManifestApplyTimeout) -> str:
         f"Manifest apply timed out {budget_phrase} "
         f"({exc.entry_count} dataset(s) submitted). The server does "
         "NOT stop applying when this request does -- it keeps "
-        "processing the manifest sequentially, and entries it has "
-        "already queued or completed are skipped on a later re-apply. "
-        "But the entry whose source was still downloading when this "
-        "timeout hit is NOT yet visible as queued (the server only "
-        "records it once the download finishes), so re-applying "
-        "immediately can queue that entry twice. Check the catalog for "
-        "datasets still pending, or run `geolens apply --dry-run "
-        "<path>` to see which entries the server has already settled, "
-        "before re-running this exact command. Or re-run with "
-        "`--timeout 0` to wait for the server, or a larger value, if "
-        "the manifest's own sources are just legitimately slow."
+        "processing the manifest sequentially. Every entry it has "
+        "reached is recorded before its source is downloaded, so "
+        "re-running this exact command attaches to an entry still "
+        "being staged and skips one already queued or completed. Run "
+        "`geolens apply --dry-run <path>` to see which entries the "
+        "server has already settled. Or re-run with `--timeout 0` to "
+        "wait for the server, or a larger value, if the manifest's own "
+        "sources are just legitimately slow."
     )
 
 
@@ -610,10 +600,10 @@ def report_apply_timeout(
             "Could not retrieve a completion status for this manifest "
             "right now (the status check itself failed or timed out "
             f"after {MANIFEST_APPLY_STATUS_CHECK_TIMEOUT_SECONDS:.0f}s). "
-            "Check the catalog for datasets still pending before "
-            "re-running -- an entry that was still downloading when "
-            "the original request timed out is not yet visible as "
-            "queued, and re-applying too soon can queue it twice."
+            "Re-running the same command is still the way forward: the "
+            "server records each entry before downloading its source, "
+            "so a re-apply attaches to one still being staged rather "
+            "than queueing it again."
         )
     return status
 
