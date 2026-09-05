@@ -1,4 +1,4 @@
-"""fix(#1848): five doors must not hold a pooled connection across their I/O.
+"""fix(#1848): seven doors must not hold a pooled connection across their I/O.
 
 `require_permission` queries the database before the handler body runs, so the
 request session has a connection checked out from the first line. Holding it
@@ -771,3 +771,415 @@ async def test_the_release_is_not_a_blanket_rollback_of_the_gates(
     assert resp.status_code == 404, resp.text
     assert ran.called is False
     assert dataset.id is not None
+
+
+# ---------------------------------------------------------------------------
+# datasets/api/router_reupload.py, presigned door
+# ---------------------------------------------------------------------------
+
+
+def _presigned_storage(request_sessions, held: list[bool]):
+    """A storage double whose signing calls record the request session's state."""
+    from unittest.mock import MagicMock
+
+    storage = MagicMock()
+
+    def _initiate(*_args):
+        held.append(_holds_connection(request_sessions))
+        return "upload-a2b"
+
+    def _sign_part(_key, _upload_id, part_number, _expiration):
+        held.append(_holds_connection(request_sessions))
+        return f"https://a2b.example.com/part/{part_number}"
+
+    def _sign_put(*_args):
+        held.append(_holds_connection(request_sessions))
+        return "https://a2b.example.com/put"
+
+    storage.initiate_multipart_upload.side_effect = _initiate
+    storage.generate_presigned_part_url.side_effect = _sign_part
+    storage.generate_presigned_put_url.side_effect = _sign_put
+    return storage
+
+
+async def _request_presigned(
+    client: AsyncClient, admin_auth_header: dict, dataset_id, *, filename, file_size
+):
+    return await client.post(
+        f"/datasets/{dataset_id}/reupload/presigned",
+        json={
+            "filename": filename,
+            "file_size": file_size,
+            "content_type": "application/geo+json",
+        },
+        headers=admin_auth_header,
+    )
+
+
+async def _job_named(session: AsyncSession, filename: str) -> IngestJob:
+    from sqlalchemy import select
+
+    row = (
+        await session.execute(
+            select(IngestJob).where(IngestJob.source_filename == filename)
+        )
+    ).scalar_one()
+    await session.refresh(row)
+    return row
+
+
+async def test_presigned_reupload_commits_the_job_before_asking_storage(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    request_sessions,
+):
+    """The multipart initiation and every part signature ran on a held connection.
+
+    Same shape as the direct door: the row is committed before storage is asked
+    for anything, and the presigned facts land afterwards through the guarded
+    bind rather than an ORM flush.
+    """
+    from app.modules.catalog.datasets.api import router_reupload
+
+    dataset = await _vector_dataset(test_db_session)
+    filename = f"a2b-{uuid.uuid4().hex[:8]}.geojson"
+    held: list[bool] = []
+    storage = _presigned_storage(request_sessions, held)
+
+    with (
+        patch.object(router_reupload.settings, "storage_provider", "s3"),
+        patch.object(router_reupload.settings, "presigned_multipart_threshold_mb", 1),
+        patch.object(router_reupload, "get_storage", return_value=storage),
+    ):
+        resp = await _request_presigned(
+            client,
+            admin_auth_header,
+            dataset.id,
+            filename=filename,
+            file_size=2 * 1024 * 1024,
+        )
+
+    assert resp.status_code == 201, resp.text
+    assert held == [False, False], (
+        "the request session was still in a transaction when storage was "
+        "asked to initiate the multipart upload or to sign a part"
+    )
+    body = resp.json()
+    assert body["upload_id"] == "upload-a2b"
+    job = await _job_named(test_db_session, filename)
+    assert str(job.id) == body["job_id"]
+    assert job.dataset_id == dataset.id
+    assert job.status == "pending"
+    # Everything the completion door reads is on the row, and nothing is
+    # staged yet, so the pending window keeps counting from creation.
+    assert job.user_metadata["presigned"] is True
+    assert job.user_metadata["multipart"] is True
+    assert job.user_metadata["upload_id"] == "upload-a2b"
+    assert job.user_metadata["s3_key"] == f"staging/{job.id}/{filename}"
+    assert job.user_metadata["expected_size"] == 2 * 1024 * 1024
+    assert job.user_metadata["reupload"] is True
+    assert job.user_metadata["dataset_id"] == str(dataset.id)
+    assert "staged_at" not in job.user_metadata
+
+
+async def test_a_presigned_reupload_swept_while_signing_is_refused_and_aborted(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    request_sessions,
+):
+    """The committed row is visible to the sweep while storage answers.
+
+    An ORM flush would have written the presigned facts onto a row the sweep
+    had already cancelled and answered 201 with an upload id whose job is
+    terminal. The bind is guarded instead, the multipart upload is aborted,
+    and the caller is told to start again.
+    """
+    from app.api.main import sweep_stale_jobs_once
+    from app.modules.catalog.datasets.api import router_reupload
+    from app.platform.jobs.sweep import stale_pending_cutoff_seconds
+
+    dataset = await _vector_dataset(test_db_session)
+    filename = f"a2b-{uuid.uuid4().hex[:8]}.geojson"
+    held: list[bool] = []
+    storage = _presigned_storage(request_sessions, held)
+
+    async def _sweep_while_initiating(fn, *args):
+        cutoff = stale_pending_cutoff_seconds(completion_bound=False)
+        aged = datetime.now(timezone.utc) - timedelta(seconds=cutoff + 60)
+        row = await _job_named(test_db_session, filename)
+        row.created_at = aged
+        await test_db_session.commit()
+        await sweep_stale_jobs_once()
+        return fn(*args), None
+
+    with (
+        patch.object(router_reupload.settings, "storage_provider", "s3"),
+        patch.object(router_reupload.settings, "presigned_multipart_threshold_mb", 1),
+        patch.object(router_reupload, "get_storage", return_value=storage),
+        patch.object(
+            router_reupload,
+            "run_in_thread_draining_capture_cancel",
+            new=_sweep_while_initiating,
+        ),
+    ):
+        resp = await _request_presigned(
+            client,
+            admin_auth_header,
+            dataset.id,
+            filename=filename,
+            file_size=2 * 1024 * 1024,
+        )
+
+    assert resp.status_code == 409, resp.text
+    job = await _job_named(test_db_session, filename)
+    # The sweep's verdict stands and no presigned fact was written onto it.
+    assert job.status == "cancelled"
+    assert "presigned" not in (job.user_metadata or {})
+    # The upload id storage handed out is given back on the refusal.
+    (aborted_key, aborted_upload_id), _kwargs = storage.abort_multipart_upload.call_args
+    assert aborted_key.endswith(f"staging/{job.id}/{filename}")
+    assert aborted_upload_id == "upload-a2b"
+
+
+async def test_a_dataset_deleted_while_signing_refuses_the_presigned_bind(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    request_sessions,
+):
+    """The binding is part of the guard on this door too.
+
+    The early commit releases the row's foreign-key lock, so a dataset deleted
+    while storage signs nulls the job's binding. A guard on id and status alone
+    would have written the presigned facts onto an orphan that every later
+    re-upload door refuses.
+    """
+    from app.modules.catalog.datasets.api import router_reupload
+
+    dataset = await _vector_dataset(test_db_session)
+    dataset_id = dataset.id
+    filename = f"a2b-{uuid.uuid4().hex[:8]}.geojson"
+    held: list[bool] = []
+    storage = _presigned_storage(request_sessions, held)
+
+    async def _delete_dataset_while_signing(fn, *args):
+        await test_db_session.delete(dataset)
+        await test_db_session.commit()
+        return fn(*args)
+
+    with (
+        patch.object(router_reupload.settings, "storage_provider", "s3"),
+        patch.object(router_reupload, "get_storage", return_value=storage),
+        patch.object(
+            router_reupload, "run_in_thread_draining", new=_delete_dataset_while_signing
+        ),
+    ):
+        resp = await _request_presigned(
+            client, admin_auth_header, dataset_id, filename=filename, file_size=128
+        )
+
+    assert resp.status_code == 409, resp.text
+    # The single-part signature ran on a released connection as well.
+    assert held == [False]
+    job = await _job_named(test_db_session, filename)
+    # The premise: the FK nulled the binding, and nothing was written onto it.
+    assert job.dataset_id is None
+    assert job.status == "pending"
+    assert "presigned" not in (job.user_metadata or {})
+
+
+# ---------------------------------------------------------------------------
+# processing/ingest/router.py
+# ---------------------------------------------------------------------------
+
+_EMPTY_COLLECTION = b'{"type":"FeatureCollection","features":[]}'
+
+
+async def _post_upload(client: AsyncClient, admin_auth_header: dict, filename: str):
+    return await client.post(
+        "/ingest/upload",
+        files={"file": (filename, BytesIO(_EMPTY_COLLECTION), "application/geo+json")},
+        headers=admin_auth_header,
+    )
+
+
+async def test_upload_commits_the_job_before_streaming_the_file(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    request_sessions,
+    tmp_path: Path,
+):
+    """The whole multipart body streamed on a held connection.
+
+    Same shape as the direct re-upload door: the row is committed first, which
+    frees the connection and leaves a `pending` row the sweep can reap if the
+    upload never finishes, and the bind afterwards is guarded.
+    """
+    from app.processing.ingest import router as ingest_router
+
+    filename = f"a2b-{uuid.uuid4().hex[:8]}.geojson"
+    staged_file = tmp_path / filename
+    held: list[bool] = []
+    visible: list[bool] = []
+
+    async def _recording_save(_file, job_id, **_kwargs):
+        held.append(_holds_connection(request_sessions))
+        # Durable before a byte arrives: another session can already see it.
+        visible.append(
+            await test_db_session.get(IngestJob, uuid.UUID(job_id)) is not None
+        )
+        staged_file.write_bytes(_EMPTY_COLLECTION)
+        return staged_file
+
+    with (
+        patch.object(ingest_router, "save_upload_file", new=_recording_save),
+        patch.object(ingest_router, "validate_file_content", return_value=None),
+    ):
+        resp = await _post_upload(client, admin_auth_header, filename)
+
+    assert resp.status_code == 201, resp.text
+    assert held == [False], (
+        "the request session was still in a transaction while the upload "
+        "streamed, so it held a pooled connection for the whole transfer"
+    )
+    assert visible == [True]
+    job = await _job_named(test_db_session, filename)
+    assert str(job.id) == resp.json()["job_id"]
+    assert job.status == "pending"
+    assert job.file_path == str(staged_file)
+    # The bind restarts the pending window from the moment the bytes landed.
+    assert job.user_metadata["staged_at"]
+
+
+async def test_a_sweep_during_the_upload_refuses_rather_than_binding_the_file(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    tmp_path: Path,
+):
+    """A row the sweep reclaimed mid-upload is left as the sweep left it.
+
+    Bound through an ORM flush, the path would land on a `cancelled` row and
+    the door would answer 201 with a job the preview refuses. The guarded bind
+    matches no row, the staged file is cleaned, and the caller gets a 409.
+    """
+    from app.api.main import sweep_stale_jobs_once
+    from app.platform.jobs.sweep import stale_pending_cutoff_seconds
+    from app.processing.ingest import router as ingest_router
+
+    filename = f"a2b-{uuid.uuid4().hex[:8]}.geojson"
+    staged_file = tmp_path / filename
+
+    async def _sweep_mid_upload(_file, job_id, **_kwargs):
+        cutoff = stale_pending_cutoff_seconds(completion_bound=False)
+        aged = datetime.now(timezone.utc) - timedelta(seconds=cutoff + 60)
+        row = await test_db_session.get(IngestJob, uuid.UUID(job_id))
+        assert row is not None, "the job must be committed before the upload"
+        row.created_at = aged
+        await test_db_session.commit()
+        await sweep_stale_jobs_once()
+        staged_file.write_bytes(_EMPTY_COLLECTION)
+        return staged_file
+
+    with (
+        patch.object(ingest_router, "save_upload_file", new=_sweep_mid_upload),
+        patch.object(ingest_router, "validate_file_content", return_value=None),
+    ):
+        resp = await _post_upload(client, admin_auth_header, filename)
+
+    assert resp.status_code == 409, resp.text
+    job = await _job_named(test_db_session, filename)
+    assert job.status == "cancelled"
+    assert not job.file_path
+    assert not staged_file.exists()
+
+
+async def test_a_slow_local_upload_that_binds_is_not_reaped_by_the_next_sweep(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    tmp_path: Path,
+):
+    """The bind stamps `staged_at`, so the pending window restarts there.
+
+    The local provider binds an absolute path, which never reaches the sweep's
+    `staging/%` completion class, so the row stays in the class measured from
+    `coalesce(staged_at, created_at)`. Without the stamp an upload slower than
+    the pending timeout was accepted with 201 and cancelled by the next sweep.
+    """
+    from app.api.main import sweep_stale_jobs_once
+    from app.platform.jobs.sweep import stale_pending_cutoff_seconds
+    from app.processing.ingest import router as ingest_router
+
+    filename = f"a2b-{uuid.uuid4().hex[:8]}.geojson"
+    staged_file = tmp_path / filename
+
+    async def _slow_local_upload(_file, job_id, **_kwargs):
+        cutoff = stale_pending_cutoff_seconds(completion_bound=False)
+        aged = datetime.now(timezone.utc) - timedelta(seconds=cutoff + 60)
+        row = await test_db_session.get(IngestJob, uuid.UUID(job_id))
+        assert row is not None
+        row.created_at = aged
+        await test_db_session.commit()
+        staged_file.write_bytes(_EMPTY_COLLECTION)
+        return staged_file
+
+    with (
+        patch.object(ingest_router, "save_upload_file", new=_slow_local_upload),
+        patch.object(ingest_router, "validate_file_content", return_value=None),
+    ):
+        resp = await _post_upload(client, admin_auth_header, filename)
+
+    assert resp.status_code == 201, resp.text
+    job = await _job_named(test_db_session, filename)
+    assert not job.file_path.startswith("staging/")
+
+    await sweep_stale_jobs_once()
+
+    await test_db_session.refresh(job)
+    assert job.status == "pending"
+    assert job.user_metadata["staged_at"]
+    assert staged_file.exists()
+
+
+async def test_an_upload_refused_for_content_leaves_a_failed_job(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    tmp_path: Path,
+):
+    """The cost of committing first on the content path, and its shape.
+
+    The 422 used to roll the uncommitted row back. The row is durable now, so
+    it is stamped `failed` with the refusal through the same guard as the bind,
+    which is what the presigned completion door already does for this 422.
+    """
+    from app.processing.ingest import router as ingest_router
+
+    filename = f"a2b-{uuid.uuid4().hex[:8]}.geojson"
+    staged_file = tmp_path / filename
+
+    async def _save(_file, _job_id, **_kwargs):
+        staged_file.write_bytes(b"not a dataset")
+        return staged_file
+
+    with (
+        patch.object(ingest_router, "save_upload_file", new=_save),
+        patch.object(
+            ingest_router,
+            "validate_file_content",
+            side_effect=ValueError("a2b: not a recognised dataset"),
+        ),
+    ):
+        resp = await _post_upload(client, admin_auth_header, filename)
+
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"] == "a2b: not a recognised dataset"
+    job = await _job_named(test_db_session, filename)
+    assert job.status == "failed"
+    assert job.error_message == "a2b: not a recognised dataset"
+    assert not job.file_path
+    assert not staged_file.exists()

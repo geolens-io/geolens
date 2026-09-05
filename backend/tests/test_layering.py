@@ -3348,7 +3348,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # schema check's message is server-authored, names what was refused and
     # says what to upload instead, and the preview is where a presigned upload
     # first meets a whole-file check. Cap 2602 -> 2616, exact.
-    "backend/app/processing/ingest/router.py": 2616,
+    # fix(#1848): +48. `upload_file` commits the job before the body streams
+    # and binds through a guarded UPDATE that stamps `staged_at`; the lines
+    # are that guard helper, the two guarded writes and the 409. 2616 -> 2664.
+    "backend/app/processing/ingest/router.py": 2664,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -4441,7 +4444,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # guarded writes, because the early commit releases the foreign-key lock
     # and a dataset deleted mid-upload nulls the job's binding.
     # Cap 1396 -> 1455, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1455,
+    # fix(#1848): +48. The presigned door commits before storage is asked for
+    # anything and binds through the guard; the guard, the refusal and the
+    # bind are helpers the direct door now shares. Cap 1455 -> 1503, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1503,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python

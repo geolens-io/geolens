@@ -339,7 +339,11 @@ async def test_presigned_reupload_round_trip_uses_tenant_provider_key(monkeypatc
         logical = f"staging/{job.id}/roads.geojson"
         physical = f"tenants/{TENANT_A}/{logical}"
         assert response.s3_key == physical
-        assert job.user_metadata["s3_key"] == logical
+        # fix(#1848): the presigned facts land through a guarded UPDATE rather
+        # than the ORM instance, so they are read off the statement the door ran.
+        bound = db.execute.await_args.args[0].compile().params["user_metadata"]
+        assert bound["s3_key"] == logical
+        job.user_metadata = bound
 
         port.create_ingest_job.reset_mock()
         with patch.object(
