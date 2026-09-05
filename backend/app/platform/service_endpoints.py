@@ -1198,26 +1198,27 @@ def _wfs_feature_types(root: Element) -> tuple[str, list[str]]:
     """The WFS version and the advertised feature type names, in document order.
 
     Read the way the driver reads them: the ``version`` of the first
-    ``WFS_Capabilities`` element (1.0.0 when absent) and the ``Name`` of every
-    ``FeatureType``, each name once.
+    ``WFS_Capabilities`` element (1.0.0 when absent; an empty value stays
+    empty, as the driver sends it) and the ``Name`` of every ``FeatureType``,
+    each name once.
     """
-    version = ""
-    found_root = False
+    version: str | None = None
     names: list[str] = []
     seen: set[str] = set()
     for element in root.iter():
         if not isinstance(element.tag, str):
             continue
         tag = _local_name(element.tag)
-        if not found_root and tag.lower() == "wfs_capabilities":
-            found_root = True
-            version = _xml_value(element, "version") or ""
+        if version is None and tag.lower() == "wfs_capabilities":
+            version = _xml_value(element, "version")
+            if version is None:
+                version = _WFS_DEFAULT_VERSION
         elif tag == "FeatureType":
             name = (_xml_value(element, "name") or "").strip()
             if name and name not in seen:
                 seen.add(name)
                 names.append(name)
-    return version or _WFS_DEFAULT_VERSION, names
+    return _WFS_DEFAULT_VERSION if version is None else version, names
 
 
 def _wfs_prefix(name: str) -> str:
@@ -1336,7 +1337,7 @@ class _WfsSchemaReads:
     """The bounded DescribeFeatureType and include reads of one check.
 
     `batch` is the schema the driver would parse for one request, or None where
-    the driver falls back to one request per type; `single` is a request the
+    the driver falls back to the single-type request; `single` is a request the
     driver has nothing to fall back from, so no schema is a refusal. `check`
     refuses the first include whose location the driver would fetch from
     another origin or open as a path, and reads a same-origin location the way
@@ -1405,39 +1406,23 @@ async def _check_wfs_schemas(
 ) -> None:
     """Refuse the first schema include the driver would fetch off the origin.
 
-    Reads what the driver reads. For a named layer: one DescribeFeatureType
-    for the layer and its prefix siblings, then one for the layer alone, which
-    the driver issues whenever the first answer does not cover it. For no
-    layer: one per prefix batch, then one per remaining type once a batch
-    answers with no schema. A capabilities document advertising no feature
-    type has nothing to read.
+    Reads what the driver reads for the layer it is about to open: one
+    DescribeFeatureType naming the layer and then its prefix siblings, fifty
+    at most, then one naming the layer alone, which the driver issues whenever
+    the first answer does not cover it. With no layer, or one the driver would
+    not resolve, nothing is read and the check is the capabilities check alone.
     """
     version, names = _wfs_feature_types(root)
-    if not names:
+    target = _wfs_layer_name(names, collection) if collection else None
+    if target is None:
         return
     reads = _WfsSchemaReads(client, url, headers)
-    target = _wfs_layer_name(names, collection) if collection else None
-    if target is not None:
-        batch = _wfs_batch(names, target)
-        schema = await reads.batch(version, batch)
-        if schema is not None:
-            await reads.check(schema)
-        if schema is None or batch != [target]:
-            await reads.check(await reads.single(version, target))
-        return
-    pending = list(names)
-    batching = True
-    while pending:
-        if batching:
-            batch = _wfs_batch(pending, pending[0])
-            schema = await reads.batch(version, batch)
-            if schema is None:
-                batching = False
-                continue
-            pending = [name for name in pending if name not in batch]
-        else:
-            schema = await reads.single(version, pending.pop(0))
+    batch = _wfs_batch(names, target)
+    schema = await reads.batch(version, batch)
+    if schema is not None:
         await reads.check(schema)
+    if schema is None or batch != [target]:
+        await reads.check(await reads.single(version, target))
 
 
 async def _check_wfs(

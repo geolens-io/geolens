@@ -3,12 +3,12 @@ location on another origin is refused before GDAL is handed the source.
 
 The WFS driver resolves every ``xs:include`` of the schema it is given, with
 the credential header attached, before any GetFeature. No GDAL option turns
-that off, so `_check_wfs` reads every DescribeFeatureType the driver would
-read, on the submitted origin, and refuses the first include the driver would
-fetch from another origin or open as a path. The import path is not refused:
-GDAL only fetches ``xs:import`` locations under a config value the vector envs
-pin off (`test_gdal_env.py`), and a real schema imports GML from another
-origin.
+that off, so `_check_wfs` reads the DescribeFeatureType the driver reads for
+the layer a door is about to open, on the submitted origin, and refuses the
+first include the driver would fetch from another origin or open as a path.
+The import path and the GetFeature schema download are not refused: the
+vector envs pin both off (`test_gdal_env.py`), and a real schema imports GML
+from another origin.
 
 Every credential value is generated per test, so an assertion that a value
 never reached a host cannot pass by coincidence.
@@ -23,6 +23,8 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
+from app.core.service_tokens import CredentialMethod, ServiceCredential
+from app.modules.catalog.sources import preview as preview_mod
 from app.platform import security
 from app.platform.service_endpoints import (
     CrossOriginEndpointError,
@@ -36,6 +38,7 @@ _SVC_ORIGIN = "https://service.example"
 _SVC_WFS = f"{_SVC_ORIGIN}/geoserver/wfs"
 _FOREIGN = "https://collector.example"
 _XS = "http://www.w3.org/2001/XMLSchema"
+_LAYER = "topp:parcels"
 
 
 def _value() -> str:
@@ -75,7 +78,7 @@ def _schema(
     declared = "".join(
         f'<xs:element name="{n.split(":", 1)[-1]}" type="topp:{n.split(":", 1)[-1]}Type"'
         ' substitutionGroup="gml:AbstractFeature"/>'
-        for n in names or ["topp:parcels"]
+        for n in names or [_LAYER]
     )
     included = "" if include is None else f'<xs:include schemaLocation="{include}"/>'
     return f"""<?xml version="1.0"?>
@@ -161,9 +164,11 @@ async def _check(
     handler,
     *,
     url: str = _SVC_WFS,
-    collection: str | None = None,
+    collection: str | None = _LAYER,
 ) -> tuple[list[httpx.Request], str]:
-    """Run the credentialed check; the recorded requests and the credential."""
+    """Run the credentialed check for a named layer, the shape the preview and
+    worker doors open under; ``collection=None`` is the capabilities-only
+    probe check. Returns the recorded requests and the credential value."""
     recorded = _transport(monkeypatch, handler)
     value = _value()
     await assert_endpoints_stay_on_origin(
@@ -174,6 +179,21 @@ async def _check(
         deadline=None,
     )
     return recorded, value
+
+
+async def _refused(
+    monkeypatch, handler, error: type[Exception], *, collection: str | None = _LAYER
+):
+    recorded = _transport(monkeypatch, handler)
+    with pytest.raises(error) as raised:
+        await assert_endpoints_stay_on_origin(
+            _SVC_WFS,
+            service_format="wfs",
+            credential_line=f"X-Api-Key: {_value()}",
+            collection=collection,
+            deadline=None,
+        )
+    return recorded, raised.value
 
 
 def _described(recorded: list[httpx.Request]) -> list[list[str]]:
@@ -196,7 +216,7 @@ class TestAnIncludeOffTheOriginIsRefused:
         self, monkeypatch
     ) -> None:
         handler = _wfs(
-            _capabilities(["topp:parcels"]),
+            _capabilities([_LAYER]),
             lambda names: _schema(names, include=f"{_FOREIGN}/inc.xsd"),
         )
         recorded = _transport(monkeypatch, handler)
@@ -207,6 +227,7 @@ class TestAnIncludeOffTheOriginIsRefused:
                 _SVC_WFS,
                 service_format="wfs",
                 credential_line=f"X-Api-Key: {value}",
+                collection=_LAYER,
                 deadline=None,
             )
 
@@ -217,13 +238,13 @@ class TestAnIncludeOffTheOriginIsRefused:
         # The check itself read the schema on the submitted origin and nothing
         # else: the other origin was never contacted.
         assert _hosts(recorded) == {"service.example"}
-        assert _described(recorded) == [["topp:parcels"]]
+        assert _described(recorded) == [[_LAYER]]
 
     async def test_every_read_carries_the_credential_to_the_submitted_origin_only(
         self, monkeypatch
     ) -> None:
         handler = _wfs(
-            _capabilities(["topp:parcels"]),
+            _capabilities([_LAYER]),
             lambda names: _schema(names, include=f"{_SVC_ORIGIN}/inc.xsd"),
             files={"/inc.xsd": _schema()},
         )
@@ -256,29 +277,34 @@ class TestAnIncludeOffTheOriginIsRefused:
         stripping any namespace prefix, and `CPLGetXMLValue` also answers a
         text-only child element by that name."""
         handler = _wfs(
-            _capabilities(["topp:parcels"]),
-            lambda names: _schema(names, extra=spelling),
+            _capabilities([_LAYER]), lambda names: _schema(names, extra=spelling)
         )
 
-        with pytest.raises(CrossOriginEndpointError) as raised:
-            await _check(monkeypatch, handler)
+        _recorded, error = await _refused(
+            monkeypatch, handler, CrossOriginEndpointError
+        )
 
-        assert raised.value.origin == _FOREIGN
+        assert error.origin == _FOREIGN
 
-    async def test_an_include_under_redefine_is_refused(self, monkeypatch) -> None:
+    async def test_an_include_under_redefine_is_refused_as_a_superset(
+        self, monkeypatch
+    ) -> None:
+        """The driver resolves only the direct children of the schema element.
+        The walk covers the whole tree, which refuses a shape no real schema
+        has rather than reasoning about which nesting the driver skips."""
         nested = (
             f'<xs:redefine schemaLocation="local.xsd">'
             f'<xs:include schemaLocation="{_FOREIGN}/inc.xsd"/></xs:redefine>'
         )
         handler = _wfs(
-            _capabilities(["topp:parcels"]),
-            lambda names: _schema(names, extra=nested),
+            _capabilities([_LAYER]), lambda names: _schema(names, extra=nested)
         )
 
-        with pytest.raises(CrossOriginEndpointError) as raised:
-            await _check(monkeypatch, handler)
+        _recorded, error = await _refused(
+            monkeypatch, handler, CrossOriginEndpointError
+        )
 
-        assert raised.value.origin == _FOREIGN
+        assert error.origin == _FOREIGN
 
     @pytest.mark.parametrize(
         ("location", "named"),
@@ -309,20 +335,12 @@ class TestAnIncludeOffTheOriginIsRefused:
         rejects is opened as a VSI path, and a VSI path can reach the network
         or the worker's own storage, so it is refused with the same outcome."""
         handler = _wfs(
-            _capabilities(["topp:parcels"]),
-            lambda names: _schema(names, include=location),
+            _capabilities([_LAYER]), lambda names: _schema(names, include=location)
         )
-        recorded = _transport(monkeypatch, handler)
 
-        with pytest.raises(CrossOriginEndpointError) as raised:
-            await assert_endpoints_stay_on_origin(
-                _SVC_WFS,
-                service_format="wfs",
-                credential_line=f"X-Api-Key: {_value()}",
-                deadline=None,
-            )
+        recorded, error = await _refused(monkeypatch, handler, CrossOriginEndpointError)
 
-        assert raised.value.origin == named
+        assert error.origin == named
         assert _hosts(recorded) == {"service.example"}
 
     async def test_a_same_origin_include_that_includes_another_origin_is_refused(
@@ -331,21 +349,14 @@ class TestAnIncludeOffTheOriginIsRefused:
         """The driver splices an included schema in and resolves its includes
         too, so a same-origin include is read the way the driver reads it."""
         handler = _wfs(
-            _capabilities(["topp:parcels"]),
+            _capabilities([_LAYER]),
             lambda names: _schema(names, include=f"{_SVC_ORIGIN}/first.xsd"),
             files={"/first.xsd": _schema(include=f"{_FOREIGN}/second.xsd")},
         )
-        recorded = _transport(monkeypatch, handler)
 
-        with pytest.raises(CrossOriginEndpointError) as raised:
-            await assert_endpoints_stay_on_origin(
-                _SVC_WFS,
-                service_format="wfs",
-                credential_line=f"X-Api-Key: {_value()}",
-                deadline=None,
-            )
+        recorded, error = await _refused(monkeypatch, handler, CrossOriginEndpointError)
 
-        assert raised.value.origin == _FOREIGN
+        assert error.origin == _FOREIGN
         assert [r.url.path for r in recorded][-1] == "/first.xsd"
         assert _hosts(recorded) == {"service.example"}
 
@@ -355,13 +366,13 @@ class TestAnOrdinarySchemaPasses:
 
     async def test_a_relative_include_passes(self, monkeypatch) -> None:
         handler = _wfs(
-            _capabilities(["topp:parcels"]),
+            _capabilities([_LAYER]),
             lambda names: _schema(names, include="types/parcels.xsd"),
         )
 
         recorded, _value_ = await _check(monkeypatch, handler)
 
-        assert _described(recorded) == [["topp:parcels"]]
+        assert _described(recorded) == [[_LAYER]]
         assert len(recorded) == 2
 
     async def test_an_import_on_another_origin_passes(self, monkeypatch) -> None:
@@ -373,8 +384,7 @@ class TestAnOrdinarySchemaPasses:
             f' schemaLocation="{_FOREIGN}/other.xsd"/>'
         )
         handler = _wfs(
-            _capabilities(["topp:parcels"]),
-            lambda names: _schema(names, extra=imported),
+            _capabilities([_LAYER]), lambda names: _schema(names, extra=imported)
         )
 
         recorded, _value_ = await _check(monkeypatch, handler)
@@ -389,7 +399,7 @@ class TestAnOrdinarySchemaPasses:
             f'<xs:include schemaLocation="{_SVC_ORIGIN}/inc.xsd"/>'
         )
         handler = _wfs(
-            _capabilities(["topp:parcels"]),
+            _capabilities([_LAYER]),
             lambda names: _schema(names, extra=twice),
             files={"/inc.xsd": _schema(include="nested-relative.xsd")},
         )
@@ -414,8 +424,7 @@ class TestAnOrdinarySchemaPasses:
         """The caller's own parameters survive; the operation parameters are
         replaced whatever their case; VERSION is the capabilities' own."""
         handler = _wfs(
-            _capabilities(["topp:parcels"], version="1.1.0"),
-            lambda names: _schema(names),
+            _capabilities([_LAYER], version="1.1.0"), lambda names: _schema(names)
         )
         submitted = (
             f"{_SVC_WFS}?request=GetCapabilities&service=wfs&Version=2.0.0&map=x"
@@ -434,68 +443,69 @@ class TestAnOrdinarySchemaPasses:
                 ("SERVICE", "WFS"),
                 ("VERSION", "1.1.0"),
                 ("REQUEST", "DescribeFeatureType"),
-                ("TYPENAME", "topp:parcels"),
+                ("TYPENAME", _LAYER),
             ]
         )
         assert describe[0].url.path == "/geoserver/wfs"
 
-    async def test_a_version_the_capabilities_do_not_state_is_the_drivers_default(
-        self, monkeypatch
+    @pytest.mark.parametrize(
+        ("version", "sent"), [(None, "1.0.0"), ("", "")], ids=["absent", "empty"]
+    )
+    async def test_a_version_the_capabilities_do_not_state_is_sent_as_the_driver_sends_it(
+        self, monkeypatch, version, sent
     ) -> None:
         handler = _wfs(
-            _capabilities(["topp:parcels"], version=None),
-            lambda names: _schema(names),
+            _capabilities([_LAYER], version=version), lambda names: _schema(names)
         )
 
         recorded, _value_ = await _check(monkeypatch, handler)
 
-        assert _params(recorded[-1])["version"] == "1.0.0"
+        assert _params(recorded[-1])["version"] == sent
 
 
-class TestEveryReadTheDriverMakesIsChecked:
-    """The driver asks for every type of a prefix in one DescribeFeatureType,
-    fifty at most, and then for a type alone whenever that answer does not
-    cover it. A schema that is clean for the batch and not for the single
-    request is the shape this class exists to catch."""
+class TestTheReadsTheDriverMakesForTheLayerAreChecked:
+    """The driver asks for the layer and the other types of its prefix in one
+    DescribeFeatureType, fifty at most, and then for the layer alone whenever
+    that answer does not cover it. A schema that is clean for the batch and
+    not for the single request is the shape this class exists to catch."""
 
     uses_the_real_endpoint_check = True
 
-    async def test_one_request_names_every_type_and_a_sibling_include_is_found(
+    async def test_the_batch_names_the_layer_first_then_its_prefix_siblings(
+        self, monkeypatch
+    ) -> None:
+        handler = _wfs(
+            _capabilities([_LAYER, "topp:roads", "sf:x"]), lambda names: _schema(names)
+        )
+
+        recorded, _value_ = await _check(monkeypatch, handler, collection="topp:roads")
+
+        assert _described(recorded) == [["topp:roads", _LAYER], ["topp:roads"]]
+
+    async def test_a_sibling_include_in_the_batch_answer_is_found(
         self, monkeypatch
     ) -> None:
         def describe(names: list[str]) -> str:
             include = f"{_FOREIGN}/inc.xsd" if "topp:roads" in names else None
             return _schema(names, include=include)
 
-        handler = _wfs(_capabilities(["topp:parcels", "topp:roads"]), describe)
-        recorded = _transport(monkeypatch, handler)
+        handler = _wfs(_capabilities([_LAYER, "topp:roads"]), describe)
 
-        with pytest.raises(CrossOriginEndpointError):
-            await assert_endpoints_stay_on_origin(
-                _SVC_WFS,
-                service_format="wfs",
-                credential_line=f"X-Api-Key: {_value()}",
-                deadline=None,
-            )
+        recorded, _error = await _refused(
+            monkeypatch, handler, CrossOriginEndpointError
+        )
 
-        assert _described(recorded) == [["topp:parcels", "topp:roads"]]
+        assert _described(recorded) == [[_LAYER, "topp:roads"]]
 
-    async def test_types_are_batched_by_prefix_fifty_at_a_time(
-        self, monkeypatch
-    ) -> None:
+    async def test_a_batch_carries_at_most_fifty_names(self, monkeypatch) -> None:
         names = [f"a:t{n}" for n in range(1, 121)] + [f"b:t{n}" for n in range(1, 4)]
         handler = _wfs(_capabilities(names), lambda batch: _schema(batch))
 
-        recorded, _value_ = await _check(monkeypatch, handler)
+        recorded, _value_ = await _check(monkeypatch, handler, collection="a:t1")
 
-        assert _described(recorded) == [
-            names[0:50],
-            names[50:100],
-            names[100:120],
-            names[120:123],
-        ]
+        assert _described(recorded) == [names[0:50], ["a:t1"]]
 
-    async def test_a_batch_answered_with_an_exception_report_falls_back_per_type(
+    async def test_a_batch_answered_with_an_exception_report_falls_back_to_the_layer(
         self, monkeypatch
     ) -> None:
         def describe(names: list[str]) -> str:
@@ -504,44 +514,13 @@ class TestEveryReadTheDriverMakesIsChecked:
             include = f"{_FOREIGN}/inc.xsd" if names == ["topp:roads"] else None
             return _schema(names, include=include)
 
-        handler = _wfs(_capabilities(["topp:parcels", "topp:roads"]), describe)
-        recorded = _transport(monkeypatch, handler)
+        handler = _wfs(_capabilities([_LAYER, "topp:roads"]), describe)
 
-        with pytest.raises(CrossOriginEndpointError):
-            await assert_endpoints_stay_on_origin(
-                _SVC_WFS,
-                service_format="wfs",
-                credential_line=f"X-Api-Key: {_value()}",
-                deadline=None,
-            )
+        recorded, _error = await _refused(
+            monkeypatch, handler, CrossOriginEndpointError, collection="topp:roads"
+        )
 
-        assert _described(recorded) == [
-            ["topp:parcels", "topp:roads"],
-            ["topp:parcels"],
-            ["topp:roads"],
-        ]
-
-    async def test_after_a_rejected_batch_every_remaining_type_is_read_alone(
-        self, monkeypatch
-    ) -> None:
-        """The driver stops batching for the rest of the open after one batch
-        it cannot use, so the other prefix is read one type at a time too."""
-
-        def describe(names: list[str]) -> str:
-            return _exception_report() if len(names) > 1 else _schema(names)
-
-        names = ["a:one", "a:two", "b:one", "b:two"]
-        handler = _wfs(_capabilities(names), describe)
-
-        recorded, _value_ = await _check(monkeypatch, handler)
-
-        assert _described(recorded) == [
-            ["a:one", "a:two"],
-            ["a:one"],
-            ["a:two"],
-            ["b:one"],
-            ["b:two"],
-        ]
+        assert _described(recorded) == [["topp:roads", _LAYER], ["topp:roads"]]
 
     async def test_a_named_layer_reads_its_batch_and_then_itself(
         self, monkeypatch
@@ -553,30 +532,22 @@ class TestEveryReadTheDriverMakesIsChecked:
             include = f"{_FOREIGN}/inc.xsd" if names == ["topp:roads"] else None
             return _schema(names, include=include)
 
-        handler = _wfs(_capabilities(["topp:parcels", "topp:roads", "sf:x"]), describe)
-        recorded = _transport(monkeypatch, handler)
+        handler = _wfs(_capabilities([_LAYER, "topp:roads", "sf:x"]), describe)
 
-        with pytest.raises(CrossOriginEndpointError):
-            await assert_endpoints_stay_on_origin(
-                _SVC_WFS,
-                service_format="wfs",
-                credential_line=f"X-Api-Key: {_value()}",
-                collection="topp:roads",
-                deadline=None,
-            )
+        recorded, _error = await _refused(
+            monkeypatch, handler, CrossOriginEndpointError, collection="topp:roads"
+        )
 
-        assert _described(recorded) == [["topp:roads", "topp:parcels"], ["topp:roads"]]
+        assert _described(recorded) == [["topp:roads", _LAYER], ["topp:roads"]]
 
     async def test_a_named_layer_alone_in_its_prefix_is_read_once(
         self, monkeypatch
     ) -> None:
-        handler = _wfs(_capabilities(["topp:parcels"]), lambda names: _schema(names))
+        handler = _wfs(_capabilities([_LAYER]), lambda names: _schema(names))
 
-        recorded, _value_ = await _check(
-            monkeypatch, handler, collection="topp:parcels"
-        )
+        recorded, _value_ = await _check(monkeypatch, handler)
 
-        assert _described(recorded) == [["topp:parcels"]]
+        assert _described(recorded) == [[_LAYER]]
 
     @pytest.mark.parametrize("requested", ["TOPP:ROADS", "roads", "Roads"])
     async def test_a_named_layer_is_resolved_the_way_the_driver_resolves_it(
@@ -586,52 +557,59 @@ class TestEveryReadTheDriverMakesIsChecked:
         the prefix. The request names the advertised spelling, which is what
         the driver puts in its own TYPENAME."""
         handler = _wfs(
-            _capabilities(["topp:parcels", "topp:roads"]),
-            lambda names: _schema(names),
+            _capabilities([_LAYER, "topp:roads"]), lambda names: _schema(names)
         )
 
         recorded, _value_ = await _check(monkeypatch, handler, collection=requested)
 
-        assert _described(recorded) == [["topp:roads", "topp:parcels"], ["topp:roads"]]
+        assert _described(recorded) == [["topp:roads", _LAYER], ["topp:roads"]]
 
     @pytest.mark.parametrize(
         ("names", "requested"),
         [
             (["topp:roads", "sf:roads"], "roads"),
-            (["topp:parcels"], "topp:nothing"),
+            ([_LAYER], "topp:nothing"),
         ],
         ids=["short_name_two_prefixes_share", "not_advertised"],
     )
-    async def test_a_layer_the_driver_would_not_resolve_is_walked_like_no_layer(
+    async def test_a_layer_the_driver_would_not_resolve_makes_no_schema_read(
         self, monkeypatch, names, requested
     ) -> None:
-        handler = _wfs(_capabilities(names), lambda batch: _schema(batch))
+        """The driver opens no layer for such a name, so it reads no schema."""
+        handler = _wfs(
+            _capabilities(names),
+            lambda batch: _schema(batch, include=f"{_FOREIGN}/inc.xsd"),
+        )
 
         recorded, _value_ = await _check(monkeypatch, handler, collection=requested)
 
-        assert _described(recorded) == [[name] for name in names]
+        assert _described(recorded) == []
+
+    async def test_no_layer_is_the_capabilities_check_alone(self, monkeypatch) -> None:
+        """The probe names no layer and runs no GDAL."""
+        handler = _wfs(
+            _capabilities([_LAYER]),
+            lambda names: _schema(names, include=f"{_FOREIGN}/inc.xsd"),
+        )
+
+        recorded, _value_ = await _check(monkeypatch, handler, collection=None)
+
+        assert len(recorded) == 1
+        assert _described(recorded) == []
 
 
 class TestAnUnreadableSchemaFailsClosed:
     uses_the_real_endpoint_check = True
 
-    async def _refused(self, monkeypatch, handler, **kwargs) -> list[httpx.Request]:
-        recorded = _transport(monkeypatch, handler)
-        with pytest.raises(EndpointCheckFailedError) as raised:
-            await assert_endpoints_stay_on_origin(
-                _SVC_WFS,
-                service_format="wfs",
-                credential_line=f"X-Api-Key: {_value()}",
-                deadline=None,
-                **kwargs,
-            )
-        assert raised.value.code == "endpoint_check_failed"
+    async def _failed(self, monkeypatch, handler) -> list[httpx.Request]:
+        recorded, error = await _refused(monkeypatch, handler, EndpointCheckFailedError)
+        assert error.code == "endpoint_check_failed"
         return recorded
 
     async def test_a_body_that_is_not_xml_refuses(self, monkeypatch) -> None:
-        handler = _wfs(_capabilities(["topp:parcels"]), lambda names: "<not xml")
+        handler = _wfs(_capabilities([_LAYER]), lambda names: "<not xml")
 
-        await self._refused(monkeypatch, handler)
+        await self._failed(monkeypatch, handler)
 
     async def test_a_batch_that_does_not_parse_refuses_without_falling_back(
         self, monkeypatch
@@ -643,83 +621,92 @@ class TestAnUnreadableSchemaFailsClosed:
         def describe(names: list[str]) -> str:
             return "<not xml" if len(names) > 1 else _schema(names)
 
-        handler = _wfs(_capabilities(["topp:parcels", "topp:roads"]), describe)
+        handler = _wfs(_capabilities([_LAYER, "topp:roads"]), describe)
 
-        recorded = await self._refused(monkeypatch, handler)
+        recorded = await self._failed(monkeypatch, handler)
 
-        assert _described(recorded) == [["topp:parcels", "topp:roads"]]
+        assert _described(recorded) == [[_LAYER, "topp:roads"]]
 
     async def test_a_document_carrying_a_doctype_refuses(self, monkeypatch) -> None:
         with_doctype = (
             '<?xml version="1.0"?><!DOCTYPE schema>' + _schema().split("?>", 1)[1]
         )
-        handler = _wfs(_capabilities(["topp:parcels"]), lambda names: with_doctype)
+        handler = _wfs(_capabilities([_LAYER]), lambda names: with_doctype)
 
-        await self._refused(monkeypatch, handler)
+        await self._failed(monkeypatch, handler)
 
-    async def test_an_exception_report_for_a_single_type_refuses(
+    async def test_an_exception_report_for_the_layer_alone_refuses(
         self, monkeypatch
     ) -> None:
-        handler = _wfs(
-            _capabilities(["topp:parcels"]), lambda names: _exception_report()
-        )
+        handler = _wfs(_capabilities([_LAYER]), lambda names: _exception_report())
 
-        recorded = await self._refused(monkeypatch, handler)
+        recorded = await self._failed(monkeypatch, handler)
 
-        assert _described(recorded) == [["topp:parcels"], ["topp:parcels"]]
+        assert _described(recorded) == [[_LAYER], [_LAYER]]
 
     async def test_an_http_error_on_a_batch_refuses(self, monkeypatch) -> None:
         def describe(names: list[str]):
             return httpx.Response(500) if len(names) > 1 else _schema(names)
 
-        handler = _wfs(_capabilities(["topp:parcels", "topp:roads"]), describe)
+        handler = _wfs(_capabilities([_LAYER, "topp:roads"]), describe)
 
-        recorded = await self._refused(monkeypatch, handler)
+        recorded = await self._failed(monkeypatch, handler)
 
-        assert _described(recorded) == [["topp:parcels", "topp:roads"]]
+        assert _described(recorded) == [[_LAYER, "topp:roads"]]
 
     async def test_an_unreadable_same_origin_include_refuses(self, monkeypatch) -> None:
         handler = _wfs(
-            _capabilities(["topp:parcels"]),
+            _capabilities([_LAYER]),
             lambda names: _schema(names, include=f"{_SVC_ORIGIN}/inc.xsd"),
         )
 
-        recorded = await self._refused(monkeypatch, handler)
+        recorded = await self._failed(monkeypatch, handler)
 
         assert recorded[-1].url.path == "/inc.xsd"
 
     async def test_reads_past_the_budget_refuse(self, monkeypatch) -> None:
-        """Sixty types, a batch the server rejects, and clean single answers:
-        the fiftieth read is the last one made."""
+        """A schema naming more same-origin includes than the budget allows:
+        the last read the budget admits is the last one made."""
         from app.platform.service_endpoints import _MAX_WFS_SCHEMA_READS
 
-        def describe(names: list[str]) -> str:
-            return _exception_report() if len(names) > 1 else _schema(names)
+        count = _MAX_WFS_SCHEMA_READS + 5
+        includes = "".join(
+            f'<xs:include schemaLocation="{_SVC_ORIGIN}/inc{n}.xsd"/>'
+            for n in range(count)
+        )
+        handler = _wfs(
+            _capabilities([_LAYER]),
+            lambda names: _schema(names, extra=includes),
+            files={f"/inc{n}.xsd": _schema() for n in range(count)},
+        )
 
-        names = [f"a:t{n}" for n in range(1, 61)]
-        handler = _wfs(_capabilities(names), describe)
+        recorded = await self._failed(monkeypatch, handler)
 
-        recorded = await self._refused(monkeypatch, handler)
-
-        assert len(_described(recorded)) == _MAX_WFS_SCHEMA_READS
+        assert _described(recorded) == [[_LAYER]]
+        include_reads = [r for r in recorded if r.url.path.startswith("/inc")]
+        assert len(include_reads) == _MAX_WFS_SCHEMA_READS - 1
 
 
 class TestTheDoorsRefuseBeforeGdalRuns:
-    """The three doors share `assert_endpoints_stay_on_origin`, so the schema
-    check reaches the probe, the preview and the worker without edits. The
-    probe is the first door a caller meets; the worker is the one that spends
-    the credential."""
+    """The three doors share `assert_endpoints_stay_on_origin`. The probe
+    names no layer and runs no GDAL, so its check is the capabilities check
+    alone; the preview and the worker name the layer they open and are
+    refused before their subprocess exists."""
 
     uses_the_real_endpoint_check = True
 
-    async def test_the_probe_refuses_with_the_coded_outcome(
+    @staticmethod
+    def _handler():
+        return _wfs(
+            _capabilities([_LAYER]),
+            lambda names: _schema(names, include=f"{_FOREIGN}/inc.xsd"),
+        )
+
+    async def test_the_probe_reads_no_schema(
         self, client, admin_auth_header: dict
     ) -> None:
         recorded: list[httpx.Request] = []
-        handler = _wfs(
-            _capabilities(["topp:parcels"]),
-            lambda names: _schema(names, include=f"{_FOREIGN}/inc.xsd"),
-        )
+        handler = self._handler()
 
         def _handle(request: httpx.Request) -> httpx.Response:
             recorded.append(request)
@@ -753,9 +740,39 @@ class TestTheDoorsRefuseBeforeGdalRuns:
                 headers=admin_auth_header,
             )
 
-        assert resp.status_code == 422, resp.text
-        assert resp.json()["detail"]["code"] == "cross_origin_endpoint"
+        assert resp.status_code == 200, resp.text
         assert value not in resp.text
+        assert _described(recorded) == []
+        assert _hosts(recorded) == {"service.example"}
+
+    async def test_the_preview_refuses_before_spawning_ogrinfo(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path / "staging"))
+        recorded = _transport(monkeypatch, self._handler())
+        value = _value()
+        credential = ServiceCredential(
+            method=CredentialMethod.HEADER_KEY,
+            service_format="wfs",
+            header_name="X-Api-Key",
+            header_value=value,
+        )
+
+        async def _fake_exec(*cmd, **kwargs):
+            raise AssertionError("ogrinfo must not run for a refused source")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+        with pytest.raises(Exception) as raised:  # noqa: PT011 - HTTPException
+            await preview_mod.run_service_preview(
+                f"WFS:{_SVC_WFS}", _LAYER, credential=credential
+            )
+
+        assert raised.value.detail["code"] == "cross_origin_endpoint"
+        assert value not in str(raised.value.detail)
+        assert _described(recorded) == [[_LAYER]]
         assert _hosts(recorded) == {"service.example"}
 
     async def test_the_worker_refuses_before_spawning_ogr2ogr(
@@ -765,11 +782,7 @@ class TestTheDoorsRefuseBeforeGdalRuns:
         from app.processing.ingest.ogr import run_ogr2ogr_service
 
         monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path / "staging"))
-        handler = _wfs(
-            _capabilities(["topp:parcels"]),
-            lambda names: _schema(names, include=f"{_FOREIGN}/inc.xsd"),
-        )
-        recorded = _transport(monkeypatch, handler)
+        recorded = _transport(monkeypatch, self._handler())
 
         async def _fake_exec(*cmd, **kwargs):
             raise AssertionError("ogr2ogr must not run for a refused source")
@@ -779,7 +792,7 @@ class TestTheDoorsRefuseBeforeGdalRuns:
         with pytest.raises(CrossOriginEndpointError) as raised:
             await run_ogr2ogr_service(
                 gdal_source=f"WFS:{_SVC_WFS}",
-                layer_name="topp:parcels",
+                layer_name=_LAYER,
                 table_name="t",
                 db_conn_str="PG:dummy",
                 service_type="wfs",
@@ -788,4 +801,5 @@ class TestTheDoorsRefuseBeforeGdalRuns:
             )
 
         assert raised.value.origin == _FOREIGN
+        assert _described(recorded) == [[_LAYER]]
         assert _hosts(recorded) == {"service.example"}
