@@ -1,7 +1,7 @@
 import { API_BASE } from '@/lib/constants';
 import { cookieAuthAvailable, cookieAuthHeaders } from '@/lib/auth-transport';
 import { useAuthStore } from '@/stores/auth-store';
-import { apiFetch, safeFetch } from './client';
+import { apiFetch, safeFetch, ApiError } from './client';
 import { translateApiErrorDetail } from '@/lib/error-map';
 import type { TokenResponse, UserResponse, AuthConfigResponse, MessageResponse, SignupResponse, MyApiKeyResponse, ApiKeyCreateResponse, ApiKeyScope, OAuthProviderPublic, UserQuotaUsage } from '@/types/api';
 
@@ -288,7 +288,10 @@ export async function refreshAccessToken(
   });
 
   if (!response.ok) {
-    throw new Error(translateApiErrorDetail(undefined, response.status));
+    // fix(#1849): tryRefresh's 429 back-off branch checks `err instanceof
+    // ApiError`, so a plain Error here made that branch dead code — a
+    // rate-limited refresh never got the pause before the next attempt.
+    throw new ApiError(translateApiErrorDetail(undefined, response.status), response.status);
   }
 
   return response.json() as Promise<TokenResponse>;

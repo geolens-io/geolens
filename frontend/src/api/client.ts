@@ -28,7 +28,7 @@ export class ApiError extends Error {
 // timer in use-auth.ts (which now also calls tryRefresh) collapse to one
 // /auth/refresh/ POST per refresh cycle. Cleared in finally so the next
 // expiration starts fresh.
-let inflightRefresh: Promise<void> | null = null;
+let inflightRefresh: Promise<boolean> | null = null;
 let inflightRefreshAbort: AbortController | null = null;
 
 /**
@@ -91,9 +91,11 @@ export async function tryRefresh(): Promise<boolean> {
   // never leave cookie mode's starting gate.
   if (!refreshToken && !(token && cookieAuthAvailable())) return false;
 
+  // fix(#1849): the outcome of the in-flight refresh IS the answer here, not
+  // whatever token happens to be sitting in the store — see the fix note on
+  // the IIFE's return values below.
   if (inflightRefresh) {
-    await inflightRefresh;
-    return !!useAuthStore.getState().token;
+    return await inflightRefresh;
   }
 
   // The singleton MUST be cleared synchronously when the IIFE settles —
@@ -115,10 +117,15 @@ export async function tryRefresh(): Promise<boolean> {
   const controller = new AbortController();
   inflightRefreshAbort = controller;
 
-  const promise = (async () => {
+  // fix(#1849): report whether a NEW token actually got stored, not whether
+  // some token — possibly the stale one this refresh was trying to replace —
+  // still sits in the store. The old `!!token` check was true on a failed
+  // refresh too, so the caller retried the original request with a dead
+  // token instead of going straight to the logout path.
+  const promise = (async (): Promise<boolean> => {
     try {
       const tokens = await refreshAccessToken(refreshToken, controller.signal);
-      if (useAuthStore.getState().sessionEpoch !== epochAtStart) return;
+      if (useAuthStore.getState().sessionEpoch !== epochAtStart) return false;
       // fix(#1302): null in cookie mode, which also clears the legacy
       // localStorage token once the migrating refresh has spent it.
       useAuthStore.getState().setTokens(
@@ -126,12 +133,14 @@ export async function tryRefresh(): Promise<boolean> {
         tokens.refresh_token ?? null,
         tokens.expires_in,
       );
+      return true;
     } catch (err) {
       // If rate-limited, wait before giving up so the next attempt isn't also blocked
       if (err instanceof ApiError && err.status === 429) {
         await new Promise((r) => setTimeout(r, 2000));
       }
       // Refresh failed -- will fall through to logout
+      return false;
     } finally {
       inflightRefresh = null;
       if (inflightRefreshAbort === controller) inflightRefreshAbort = null;
@@ -139,8 +148,7 @@ export async function tryRefresh(): Promise<boolean> {
   })();
   inflightRefresh = promise;
 
-  await promise;
-  return !!useAuthStore.getState().token;
+  return await promise;
 }
 
 /**
