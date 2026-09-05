@@ -74,12 +74,32 @@ export function getRuntimeApiBaseUrl(): string | null {
  * relative, not an external site. Compared against `getRuntimeApiBaseUrl()`
  * (mirrors api/client.ts's own resolution), not `window.location` alone: a
  * configured `API_BASE_URL` can point at a different origin than the page.
+ *
+ * fix(#1877 codex round 1): a raw string-prefix compare treated a
+ * protocol-relative base, a different host casing, or an explicit default
+ * port as a mismatch even when they name the same origin. `URL.origin`
+ * canonicalises all three, so parse both sides and compare that plus the
+ * path prefix instead of comparing the raw strings.
  */
 export function isSameOriginAbsoluteUrl(value: string): boolean {
   if (!isAbsoluteUrl(value)) return false;
   const apiBase = getRuntimeApiBaseUrl();
   if (!apiBase) return false;
-  return value === apiBase || value.startsWith(`${apiBase}/`) || value.startsWith(`${apiBase}?`);
+
+  const parseBase = typeof window !== 'undefined' ? window.location.href : undefined;
+  let valueUrl: URL;
+  let apiBaseUrl: URL;
+  try {
+    valueUrl = new URL(value, parseBase);
+    apiBaseUrl = new URL(apiBase, parseBase);
+  } catch {
+    return false;
+  }
+
+  if (valueUrl.origin !== apiBaseUrl.origin) return false;
+
+  const basePath = stripTrailingSlashes(apiBaseUrl.pathname);
+  return valueUrl.pathname === basePath || valueUrl.pathname.startsWith(`${basePath}/`);
 }
 
 export function getPublicApiBaseUrl(
