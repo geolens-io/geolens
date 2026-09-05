@@ -457,10 +457,8 @@ def redact_nested(value: Any, _depth: int = 0) -> Any:
     JSON-derived; a self-referencing structure would otherwise not terminate.
 
     ``frozenset``, ``deque`` and dataclass instances are walked; anything else
-    is returned as it came in. A dataclass is read through
-    ``dataclasses.fields`` rather than ``__dict__``, which a ``slots=True``
-    dataclass does not have, and yields a dict of field name to redacted value,
-    so the field NAMES meet the same denylist a mapping's keys do (#1857).
+    is returned as it came in. A dataclass yields a dict of field name to
+    redacted value, read through ``dataclasses.fields`` (#1857).
     """
     if _depth >= _MAX_REDACT_DEPTH:
         return "[TRUNCATED]"

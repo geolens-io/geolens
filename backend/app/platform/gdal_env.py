@@ -1,15 +1,10 @@
 """GDAL driver-registration clamps for every vector subprocess, wherever it runs.
 
-Lives in ``platform/`` because ``modules/catalog/sources/preview.py`` needs
-them and ``modules/catalog/`` may not import ``app.processing.*``
-(``test_layering.py``); moving them under a product domain puts them out of
-reach of that caller. Imports nothing from ``app.modules.*`` or
-``app.processing.*``.
-
-The raster VSI clamps (``gdal_safe_env``, ``gdal_safe_open_env``) stay in
-``processing/raster/vrt.py``, which bounds a different thing and builds a
-``rasterio.Env``. That module re-exports both helpers here, so either import
-path works (#1857 item 3).
+In ``platform/`` because ``modules/catalog/sources/preview.py`` calls these and
+``modules/catalog/`` may not import ``app.processing.*`` (``test_layering.py``);
+imports nothing from ``app.modules.*`` or ``app.processing.*``. The raster VSI
+clamps stay in ``processing/raster/vrt.py``, which re-exports both of these;
+the Rule 2 gate credits either import path (#1857 item 3).
 """
 
 import os

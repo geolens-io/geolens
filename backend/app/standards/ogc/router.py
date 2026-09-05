@@ -599,10 +599,9 @@ def _items_request_carries_no_filter(request: Request) -> bool:
     return "filter" not in request.query_params
 
 
-# fix(#1857 item 7): the generic "invalid query parameters" 400 does not
-# describe what this route actually refuses. Two of the refusals are resource
-# bounds on a VALID filter, and a client that cannot see them in the schema
-# reads them as server faults and retries.
+# fix(#1857 item 7): two of the four refusals are resource bounds on a VALID
+# filter, which the generic "invalid query parameters" 400 the route inherits
+# does not describe.
 FILTER_BAD_REQUEST_RESPONSE = {
     **ERROR_RESPONSES_PUBLIC[400],
     "description": (
