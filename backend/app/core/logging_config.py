@@ -86,8 +86,10 @@ task body ran. `_redact_sensitive_fields` now walks container values through
 `_scrub_text` to nested strings.
 """
 
+import dataclasses
 import logging
 import re
+from collections import deque
 from collections.abc import Mapping, MutableMapping
 from typing import Any
 
@@ -391,7 +393,7 @@ def _redact_sensitive_fields(
         value = event_dict[key]
         if key in _NEVER_WALKED_FIELDS:
             continue
-        if isinstance(value, (Mapping, list, tuple, set)):
+        if _is_walkable(value):
             # fix(#1844 audit round 1): a container in `extra` is third-party
             # input all the way down, and `redact_nested()` calls `.items()`,
             # iterates and takes `len()` on objects this module never
@@ -412,6 +414,30 @@ def _redact_sensitive_fields(
     if isinstance(exception, str):
         event_dict["exception"] = _scrub_text(exception)
     return event_dict
+
+
+# fix(#1857 item 9): the container types the walk knows how to take apart.
+# `frozenset` is NOT a subclass of `set` and `deque` is not a subclass of
+# anything listed, so both used to fall through to the value untouched and be
+# rendered by repr, credential and all. A dataclass instance did the same. One
+# predicate, because the walk and the processor that decides WHETHER to walk
+# used to carry the membership test separately and a type added to one was a
+# type missing from the other.
+_ITERABLE_CONTAINERS = (list, tuple, set, frozenset, deque)
+_WALKABLE_CONTAINERS = (Mapping, *_ITERABLE_CONTAINERS)
+
+
+def _is_dataclass_instance(value: Any) -> bool:
+    """A dataclass INSTANCE, never the class object itself.
+
+    ``dataclasses.is_dataclass`` answers True for both, and a class has no
+    field VALUES to redact.
+    """
+    return dataclasses.is_dataclass(value) and not isinstance(value, type)
+
+
+def _is_walkable(value: Any) -> bool:
+    return isinstance(value, _WALKABLE_CONTAINERS) or _is_dataclass_instance(value)
 
 
 def redact_nested(value: Any, _depth: int = 0) -> Any:
@@ -437,23 +463,51 @@ def redact_nested(value: Any, _depth: int = 0) -> Any:
 
     Depth is capped because a payload here is caller-supplied and need not be
     JSON-derived; a self-referencing structure would otherwise not terminate.
+
+    fix(#1857 item 9): ``frozenset``, ``deque`` and dataclass instances are
+    walked too. The first two were missed because neither is a subclass of the
+    types that were listed, so both were returned untouched and rendered by
+    ``repr``. A dataclass was missed because it is not a container at all by
+    type, only by content, and it is the shape a library is most likely to hand
+    to ``extra``: a settings or context object holding a token as a field.
+
+    A dataclass is read through ``dataclasses.fields`` rather than
+    ``__dict__``, for two reasons. A ``slots=True`` dataclass has no
+    ``__dict__`` at all, and ``__dict__`` would also sweep in attributes that
+    are not fields, which is a wider promise than this can keep. The result is
+    a plain dict of field name to redacted value, so the field NAMES go through
+    the same denylist a mapping's keys do. That changes how the object renders;
+    the alternative is rendering it by ``repr`` with the credential in it.
     """
     if _depth >= _MAX_REDACT_DEPTH:
         return "[TRUNCATED]"
     if isinstance(value, str):
         return _scrub_text(value)
     if isinstance(value, Mapping):
-        return {
-            key: (
-                "[REDACTED]"
-                if str(key).lower() in _SENSITIVE_FIELDS
-                else redact_nested(val, _depth + 1)
-            )
-            for key, val in value.items()
-        }
-    if isinstance(value, (list, tuple, set)):
+        return _redact_items(value.items(), _depth)
+    if isinstance(value, _ITERABLE_CONTAINERS):
         return [redact_nested(item, _depth + 1) for item in value]
+    if _is_dataclass_instance(value):
+        return _redact_items(
+            [
+                (field.name, getattr(value, field.name, None))
+                for field in dataclasses.fields(value)
+            ],
+            _depth,
+        )
     return value
+
+
+def _redact_items(items: Any, _depth: int) -> dict:
+    """Key-denylist plus a recursive walk, for anything with named members."""
+    return {
+        key: (
+            "[REDACTED]"
+            if str(key).lower() in _SENSITIVE_FIELDS
+            else redact_nested(val, _depth + 1)
+        )
+        for key, val in items
+    }
 
 
 def apply_http_logger_levels(root_level: int | str) -> None:
