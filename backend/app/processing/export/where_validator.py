@@ -159,9 +159,10 @@ def canonical_where(where: str) -> str:
     return statements[0].args["where"].this.sql(dialect="postgres")
 
 
-# A single-quoted SQL string literal, '' being the embedded-quote escape. The
-# two branches are disjoint on their first character, so the scan is linear.
-_QUOTED_LITERAL_RE = re.compile(r"'(?:[^']|'')*'")
+# fix(#1870 audit r1): BOTH quote kinds are scanned in one pass, because a
+# single quote inside a double-quoted identifier opens no literal in Postgres
+# and must open none here either.
+_QUOTED_RUN_RE = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"")
 
 
 def mask_quoted_literals(where: str) -> str:
@@ -172,12 +173,22 @@ def mask_quoted_literals(where: str) -> str:
     of spaces of the same width, so two identifiers separated by a literal
     cannot fuse into a third.
 
+    A double-quoted identifier IS code, so it is scanned but returned
+    unchanged: consuming it in the same pass is what stops a quote inside it
+    from opening a literal that blanks the real code after it. Dollar-quoting
+    and E'' are rejected by the AST gate and are deliberately not modelled.
+
     Args:
         where: SQL WHERE-clause fragment.
 
     Returns:
-        The fragment with literal contents replaced by spaces. Trailing text
-        after an unterminated quote is returned unchanged; callers reject an
-        unbalanced clause before masking.
+        The fragment with string-literal contents replaced by spaces. Trailing
+        text after an unterminated quote is returned unchanged; callers reject
+        an unbalanced clause before masking.
     """
-    return _QUOTED_LITERAL_RE.sub(lambda match: " " * len(match.group(0)), where)
+
+    def _blank_literals_only(match: re.Match[str]) -> str:
+        run = match.group(0)
+        return run if run.startswith('"') else " " * len(run)
+
+    return _QUOTED_RUN_RE.sub(_blank_literals_only, where)

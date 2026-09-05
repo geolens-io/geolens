@@ -172,6 +172,22 @@ class TestWhereClauseStringLiterals:
         with pytest.raises(ValueError):
             validate_where_clause("na'x'me = 1", COLS)
 
+    # --- a quote inside a double-quoted identifier is not a literal --------
+
+    def test_quote_in_a_double_quoted_identifier_does_not_hide_a_column(self):
+        """A single quote inside a double-quoted identifier opens no literal
+        in Postgres, so it must open no mask either: the code after it stays
+        visible to the walk."""
+        with pytest.raises(ValueError, match="Unknown column: secret"):
+            validate_where_clause('"name\'" = 1 AND secret = 1 AND "name\'" = 1', COLS)
+
+    def test_lone_quote_in_a_double_quoted_identifier_does_not_hide_a_column(self):
+        with pytest.raises(ValueError, match="Unknown column: secret"):
+            validate_where_clause('"\'" = 1 AND secret = 1 AND "\'" = 1', COLS)
+
+    def test_double_quoted_identifier_beside_a_literal_accepted(self):
+        validate_where_clause("\"name\" = 'x'", COLS)
+
 
 class TestMaskQuotedLiterals:
     """Unit contract of the masking helper the walk runs through."""
@@ -194,6 +210,18 @@ class TestMaskQuotedLiterals:
 
     def test_no_literal_is_a_no_op(self):
         assert mask_quoted_literals("pop > 1000") == "pop > 1000"
+
+    def test_double_quoted_identifier_returned_unchanged(self):
+        assert mask_quoted_literals('"name" = 1') == '"name" = 1'
+
+    def test_quote_inside_a_double_quoted_identifier_opens_no_literal(self):
+        """Two such identifiers, so a scan that saw only single quotes would
+        pair them and blank the code between."""
+        where = '"name\'" = 1 AND secret = 1 AND "name\'" = 1'
+        assert mask_quoted_literals(where) == where
+
+    def test_literal_after_a_double_quoted_identifier_still_blanked(self):
+        assert mask_quoted_literals("\"name\" = 'x'") == '"name" = ' + " " * 3
 
 
 # ---------------------------------------------------------------------------
