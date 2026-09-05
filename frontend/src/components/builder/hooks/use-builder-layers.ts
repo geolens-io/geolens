@@ -118,9 +118,9 @@ export function useBuilderLayers(
   // fix(#1854): id of a just-added layer that still needs its one-time
   // auto-zoom (fresh map only — see the add_dataset effect below).
   const pendingAutoZoomLayerIdRef = useRef<string | null>(null);
-  // fix(#1877 codex round 2): true when the pending id above needs a
-  // combined-bounds fit (cold-entry, non-fresh map) rather than a
-  // single-layer zoom — see the add_dataset effect below.
+  // fix(#1877): true when the pending id above needs a combined-bounds fit
+  // (cold-entry, non-fresh map) rather than a single-layer zoom — see the
+  // add_dataset effect below.
   const pendingCombinedFitRef = useRef(false);
 
   const [localLayers, setLocalLayers] = useState<MapLayerResponse[]>([]);
@@ -583,9 +583,9 @@ export function useBuilderLayers(
   // the pending id until `mapInstance` (the reactive counterpart of the ref —
   // see the parameter above) is actually set, so this effect re-runs and
   // retries when the map finishes loading after the layer already landed.
-  // fix(#1877 codex round 2): the combined-fit branch reuses this SAME
-  // pending-id-plus-readiness gate, just firing getVisibleLayerBounds
-  // (BuilderMap's own bounds merge) across every layer instead of one.
+  // fix(#1877): the combined-fit branch reuses this same pending-id-plus-
+  // readiness gate, firing getVisibleLayerBounds (BuilderMap's own bounds
+  // merge) across every layer instead of one.
   useEffect(() => {
     const pendingId = pendingAutoZoomLayerIdRef.current;
     if (!pendingId) return;
@@ -602,10 +602,9 @@ export function useBuilderLayers(
     const bounds = getVisibleLayerBounds(layersRef.current);
     if (!map || !bounds) return;
     try {
-      // fix(#1877 codex round 5): duration: 0 (matches BuilderMap's own
-      // auto-fit) makes fitBounds settle synchronously — omitting it made
-      // MapLibre animate via flyTo, so the clamp below read the zoom BEFORE
-      // the fit finished and never caught a wide fit landing below 2.
+      // fix(#1877): duration: 0 makes fitBounds settle synchronously (matches
+      // BuilderMap's own auto-fit) — the zoom-2 clamp below must read the
+      // post-fit zoom, not the pre-fit one an animated flyTo would leave.
       map.fitBounds(bounds, { padding: 40, maxZoom: 18, duration: 0 });
       clampMinZoomAfterFit(map);
     } catch {

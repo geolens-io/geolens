@@ -1,12 +1,9 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
 
-// fix(#1877 codex round 3): moved out of BuilderMap.tsx — a hook needed this
-// pure merge, and a static import of ANY export from BuilderMap.tsx defeats
-// MapBuilderPage.tsx's `lazy(() => import('@/components/builder/BuilderMap'))`
-// split (Vite reports INEFFECTIVE_DYNAMIC_IMPORT and folds the map renderer,
-// MapLibre GL and its worker/CSS side effects into the eager entry chunk).
-// This file has no such import anywhere, so it stays safely shareable.
+// fix(#1877): this file must import nothing from BuilderMap.tsx — a static
+// import from it defeats MapBuilderPage's `lazy(() => import(BuilderMap))`
+// code-split boundary.
 
 export type VisibleLayerBounds = [[number, number], [number, number]];
 

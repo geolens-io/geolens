@@ -205,12 +205,9 @@ describe('?add_dataset auto-zoom (#1854)', () => {
     expect(fitBounds).not.toHaveBeenCalled();
   });
 
-  // fix(#1877 codex round 2): BuilderMap's own combined-bounds auto-fit
-  // seeds its "previous layer count" baseline from ITS OWN first render —
-  // on a cold entry (BuilderMap not yet mounted when the add resolves),
-  // that first render already includes the new layer, so BuilderMap never
-  // detects a change and its fit never runs. This hook must take charge in
-  // exactly that case (not the single-layer zoom — the COMBINED bounds).
+  // fix(#1877): a cold-entry add (BuilderMap not yet mounted) lands in
+  // BuilderMap's own first-render baseline, so its auto-fit never detects
+  // the change — this hook must take charge with the COMBINED bounds fit.
   it('runs a combined-bounds fit for a cold-entry add on a centerless map with an existing layer', () => {
     const existingLayer = makeBuilderLayer({
       id: 'existing-layer-id',
@@ -253,10 +250,9 @@ describe('?add_dataset auto-zoom (#1854)', () => {
     expect(setZoom).not.toHaveBeenCalled();
   });
 
-  // fix(#1877 codex round 3): BuilderMap's own auto-fit clamps a wide fit to
-  // zoom 2+ (complex vector tiles fail to render below it, ST_AsMVT) — the
-  // cold-entry combined fit above must apply the same clamp, not just union
-  // the bounds and stop.
+  // fix(#1877): BuilderMap's own auto-fit clamps a wide fit to zoom 2+
+  // (complex vector tiles fail to render below it) — the cold-entry
+  // combined fit must apply the same clamp.
   it('clamps a wide cold-entry combined fit to zoom 2, mirroring BuilderMap', () => {
     const existingLayer = makeBuilderLayer({
       id: 'existing-layer-id',
@@ -283,10 +279,9 @@ describe('?add_dataset auto-zoom (#1854)', () => {
     });
 
     expect(fitBounds).toHaveBeenCalledTimes(1);
-    // fix(#1877 codex round 5): duration: 0 is what makes this fit settle
-    // synchronously — without it the mock (like real MapLibre's flyTo)
-    // would not have applied zoomAfterFit yet, and the clamp below would
-    // read the stale pre-fit zoom.
+    // fix(#1877): duration: 0 is what makes this fit settle synchronously —
+    // without it the mock (like real MapLibre's flyTo) would not have
+    // applied zoomAfterFit yet, and the clamp below would read stale zoom.
     expect(fitBounds.mock.calls[0][1]).toMatchObject({ duration: 0 });
     expect(setZoom).toHaveBeenCalledWith(2);
   });

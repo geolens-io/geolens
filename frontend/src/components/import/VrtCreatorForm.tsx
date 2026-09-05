@@ -202,10 +202,9 @@ function errorMessage(
   code: string,
   src: OGCRecordResponse,
   first: OGCRecordResponse,
-  // fix(#1877 codex round 4): validateSources compares CRS against refCrs
-  // (the first source with a KNOWN crs, not necessarily sources[0] — see
-  // its own comment above), so the message needs that same reference, not
-  // `first`'s crs, or an unset-crs sources[0] renders "... vs" with nothing.
+  // fix(#1877): must use the same reference (refCrs, the first source with
+  // a KNOWN crs) that validateSources compares against — not `first`, which
+  // can itself be crs-unset.
   refCrs: string | null | undefined,
   t: (key: string, opts?: Record<string, unknown>) => string,
 ): string {
@@ -357,9 +356,8 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
     title.trim().length === 0 ||
     createVrtMutation.isPending;
 
-  // fix(#1877 codex round 4): same reference validateSources itself
-  // compares CRS against — the first source with a KNOWN crs, not
-  // necessarily selectedSources[0].
+  // fix(#1877): the same reference validateSources compares CRS against —
+  // the first source with a KNOWN crs, not necessarily selectedSources[0].
   const refCrs = selectedSources.find((s) => s.properties.crs)?.properties.crs;
 
   // fix(#1811): validationErrors only ever reached a per-source tooltip, so

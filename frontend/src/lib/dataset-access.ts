@@ -75,11 +75,9 @@ export function getRuntimeApiBaseUrl(): string | null {
  * (mirrors api/client.ts's own resolution), not `window.location` alone: a
  * configured `API_BASE_URL` can point at a different origin than the page.
  *
- * fix(#1877 codex round 1): a raw string-prefix compare treated a
- * protocol-relative base, a different host casing, or an explicit default
- * port as a mismatch even when they name the same origin. `URL.origin`
- * canonicalises all three, so parse both sides and compare that plus the
- * path prefix instead of comparing the raw strings.
+ * fix(#1877): compares canonical `URL.origin` values, not raw string
+ * prefixes — a protocol-relative base, a host-casing difference, or an
+ * explicit default port must still resolve to the same origin.
  */
 export function isSameOriginAbsoluteUrl(value: string): boolean {
   if (!isAbsoluteUrl(value)) return false;

@@ -105,14 +105,9 @@ export function makeMapLibreMock(
     sources?: string[];
     layers?: string[];
     styleLoaded?: boolean;
-    /** fix(#1877 codex round 3): the zoom getZoom() reports once a
-     * fitBounds({duration: 0}) call has genuinely settled synchronously.
-     * fix(#1877 codex round 5): a fitBounds call WITHOUT duration: 0 does
-     * NOT settle synchronously (MapLibre animates via flyTo) — getZoom()
-     * keeps reporting the pre-fit zoom until one that passes duration: 0
-     * runs, reproducing the race clampMinZoomAfterFit must guard against.
-     * Defaults above 2 so existing callers that don't care about zoom see
-     * no setZoom(2) call. */
+    /** fix(#1877): zoomAfterFit applies only when fitBounds is called with
+     * duration: 0 (mirrors MapLibre's real flyTo-vs-synchronous behavior);
+     * defaults above 2 so callers that don't care about zoom see no setZoom(2). */
     zoomAfterFit?: number;
   } = {},
 ): MaplibreMap {

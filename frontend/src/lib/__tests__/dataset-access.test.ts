@@ -1,10 +1,6 @@
-// fix(#1877 codex round 1): isSameOriginAbsoluteUrl compares an absolute
-// distribution url against getRuntimeApiBaseUrl() (which reads API_BASE from
-// lib/constants.ts). A raw string-prefix compare treated a protocol-relative
-// base, a different host casing, or an explicit default port as a mismatch
-// even when they name the same origin as the parsed URL.origin would show —
-// each vi.doMock below mirrors auth-transport.test.ts's established pattern
-// for exercising a different API_BASE per case.
+// fix(#1877): isSameOriginAbsoluteUrl must compare canonical URL.origin
+// values against getRuntimeApiBaseUrl() (reads API_BASE from lib/constants.ts)
+// — each vi.doMock below exercises a different API_BASE per case.
 describe('isSameOriginAbsoluteUrl (#1877)', () => {
   afterEach(() => {
     vi.doUnmock('@/lib/constants');
