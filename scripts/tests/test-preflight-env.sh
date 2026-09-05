@@ -259,6 +259,44 @@ REQUIRED_LINES="JWT_SECRET_KEY=$NONEMPTY
 GEOLENS_ADMIN_USERNAME=admin
 GEOLENS_ADMIN_PASSWORD=$NONEMPTY"
 
+# ============================================================================
+# CASE 7 (fix(#1886)): a line Compose refuses to load is refused, exported or not.
+# ============================================================================
+run_preflight_env SECRET_ENCRYPTION_KEY "$VALID_KEY" 'SECRET_ENCRYPTION_KEY=${NO_SUCH_VAR:?boom}'
+if [ "$STATUS" -ne 0 ] && grep -q "SECRET_ENCRYPTION_KEY line in .env" "$WORK/out.txt"; then
+    ok "a valid exported key over a line Compose refuses is refused, naming the .env line"
+else
+    bad "a valid exported key masked a line Compose refuses (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+run_preflight 'SECRET_ENCRYPTION_KEY=${NO_SUCH_VAR:?boom}'
+if [ "$STATUS" -ne 0 ] && grep -q "SECRET_ENCRYPTION_KEY line in .env" "$WORK/out.txt"; then
+    ok "the same line is refused with nothing exported"
+else
+    bad "a line Compose refuses passed with nothing exported (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+run_preflight_env SECRET_ENCRYPTION_KEY "$VALID_KEY" 'SECRET_ENCRYPTION_KEY="unterminated'
+if [ "$STATUS" -ne 0 ] && grep -q "SECRET_ENCRYPTION_KEY line in .env" "$WORK/out.txt"; then
+    ok "an unterminated quote is refused under a valid exported key too"
+else
+    bad "a valid exported key masked an unterminated quote (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+run_preflight_env SECRET_ENCRYPTION_KEY "$VALID_KEY" "SECRET_ENCRYPTION_KEY"
+if [ "$STATUS" -eq 0 ]; then
+    ok "a bare KEY line inherits the exported key and is not refused"
+else
+    bad "a bare KEY line was refused under an exported key: $(cat "$WORK/out.txt")"
+fi
+
+run_preflight "SECRET_ENCRYPTION_KEY"
+if [ "$STATUS" -eq 0 ]; then
+    ok "a bare KEY line with nothing exported reads as unset and passes"
+else
+    bad "a bare KEY line with nothing exported was refused: $(cat "$WORK/out.txt")"
+fi
+
 echo "1..$((PASS + FAIL))"
 echo "# ${PASS} passed, ${FAIL} failed"
 [ "$FAIL" -eq 0 ]

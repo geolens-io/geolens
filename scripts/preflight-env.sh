@@ -57,12 +57,35 @@ value_source() {
     fi
 }
 
+# fix(#1886): a line Compose cannot load stops `docker compose up` before any
+# override applies, so it is refused here whether or not $1 is exported.
+refuse_unloadable_line() {
+    cat >&2 <<EOF
+Pre-flight: the $1 line in .env cannot be loaded by docker compose.
+
+Compose reads every line of .env before it applies your shell environment, so
+an unterminated quote, or a \${NAME:?message} reference to a NAME that is not
+set, stops \`docker compose up\` on this line even when $1 is exported. Fix or
+remove the line in .env.
+EOF
+    exit 1
+}
+
+# Sets \`value\` to what Compose will pass for $1, or refuses the .env line.
+read_effective() {
+    value=""
+    rc=0
+    effective_env_value_into value "$1" "$ENV_FILE" || rc=$?
+    if [ "$rc" -eq 2 ]; then
+        refuse_unloadable_line "$1"
+    fi
+}
+
 REQUIRED=(JWT_SECRET_KEY GEOLENS_ADMIN_USERNAME GEOLENS_ADMIN_PASSWORD)
 MISSING=()
 
 for var in "${REQUIRED[@]}"; do
-    value=""
-    effective_env_value_into value "$var" "$ENV_FILE" || true
+    read_effective "$var"
     if [ -z "$value" ]; then
         MISSING+=("$var, read from $(value_source "$var")")
     fi
@@ -89,8 +112,7 @@ fi
 # Accept the standard alphabet too (`+/`), because base64.urlsafe_b64decode
 # does, and refusing a value the app takes would be a false failure.
 for var in SECRET_ENCRYPTION_KEY SECRET_ENCRYPTION_KEY_PREVIOUS; do
-    value=""
-    effective_env_value_into value "$var" "$ENV_FILE" || true
+    read_effective "$var"
     if [ -n "$value" ] && ! printf '%s' "$value" | grep -Eq '^[A-Za-z0-9+/_-]{43}=$'; then
         cat >&2 <<EOF
 Pre-flight: $var in $(value_source "$var") is not a valid encryption key.

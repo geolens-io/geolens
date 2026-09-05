@@ -1755,9 +1755,23 @@ env_is_exported() {
   _env_snapshot_has "$1"
 }
 
+# True when FILE's KEY= line is one Compose refuses to load: an unterminated
+# quote, or a value whose interpolation fails (`${NAME:?msg}` on an unset
+# NAME). A bare `KEY` line inherits from the environment and never counts.
+env_file_refuses_key() {
+  [ -f "$2" ] || return 1
+  _efrk_records="$(_env_tokenize "$2")" || return 1
+  _env_select_record "$_efrk_records" "$1" 0
+  case "${_esr_found}${_esr_type}" in
+    2*) return 0 ;;
+    1A) ! get_env_value "$1" "$2" >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
+
 # fix(#1886): assigns into $1 what a plain ${KEY} interpolates to under
-# Compose: the exported environment when it sets KEY (even to ""), else
-# FILE's last KEY= line. Target validation and rc contract as env_value_into.
+# Compose (the export when set, even to "", else FILE's last KEY= line);
+# rc 1 when neither has KEY, rc 2 when FILE's line is one Compose refuses.
 effective_env_value_into() {
   _eevi_var="$1"
   _eevi_key="$2"
@@ -1765,13 +1779,22 @@ effective_env_value_into() {
 
   _env_assert_var_name "$_eevi_var" effective_env_value_into
 
+  # Compose loads the whole file before any override applies, so a refused
+  # line fails here exported or not; the target stays untouched on rc 2.
+  _eevi_in_file=0
+  if env_value_into "$_eevi_var" "$_eevi_key" "$_eevi_file"; then
+    _eevi_in_file=1
+  elif env_file_refuses_key "$_eevi_key" "$_eevi_file"; then
+    return 2
+  fi
+
   if env_is_exported "$_eevi_key"; then
     _eevi_val="$(_env_snapshot_value "$_eevi_key" && printf x)"
     _eevi_val="${_eevi_val%x}"
     eval "$_eevi_var=\$_eevi_val"
     return 0
   fi
-  env_value_into "$_eevi_var" "$_eevi_key" "$_eevi_file"
+  [ "$_eevi_in_file" -eq 1 ]
 }
 
 # Replace `KEY=...` in .env (or append if missing). Pass the value via ENVIRON
