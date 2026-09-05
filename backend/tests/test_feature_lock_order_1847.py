@@ -31,6 +31,7 @@ from app.platform import catalog_locks
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.features import service as features_service
 from app.modules.catalog.features.router import _feature_write_db_error
+from app.platform.catalog_locks import CatalogLockConflict
 
 from tests.factories import get_user_id
 
@@ -570,10 +571,16 @@ class TestFeatureWriteErrorClassification:
             "55P03",  # lock_not_available
         ],
     )
-    def test_lock_conflict_is_a_conflict(self, code: str):
-        result = _feature_write_db_error(self._error(code))
-        assert result.status_code == 409
-        assert result.detail["code"] == "feature_write_locked"
+    def test_lock_conflict_raises_the_shared_exception(self, code: str):
+        """fix(#1847): one condition, one shape.
+
+        Returning a 409 of its own here gave a contended row two response
+        bodies, depending on whether the acquisition or a later statement hit
+        it. A client keying on the local `code` never saw it on the
+        acquisition path, which raises and answers through the global handler.
+        """
+        with pytest.raises(CatalogLockConflict):
+            _feature_write_db_error(self._error(code))
 
     def test_a_real_outage_is_still_unavailable(self):
         # 08006 is connection_failure: class 08, still operational.
@@ -925,6 +932,80 @@ class TestDeleteNeverReapsStorageItCannotCommit:
         assert still_there == locked_dataset.id
 
 
+class TestOneShapeForEveryContendedRow:
+    """fix(#1847): every endpoint answers a contended row the same way.
+
+    Two shapes were in play. The feature router returned its own 409 body for
+    a lock conflict raised by a statement other than the acquisition, and the
+    bulk delete swallowed one into a per-item "failed unexpectedly" with a
+    stack trace, while single delete answered 409.
+    """
+
+    async def _hold(self, session, dataset_id):
+        await session.execute(
+            select(Dataset.tile_cache_version)
+            .where(Dataset.id == dataset_id)
+            .with_for_update()
+        )
+
+    async def test_a_feature_write_answers_the_shared_problem_detail(
+        self, locked_dataset, client: AsyncClient, admin_auth_header, monkeypatch
+    ):
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "150ms")
+        import app.core.db as db_module
+
+        async with db_module.async_session() as holder:
+            await self._hold(holder, locked_dataset.id)
+            response = await client.post(
+                f"/datasets/{locked_dataset.id}/features/",
+                json={
+                    "geometry": {"type": "Point", "coordinates": [-73.96, 40.74]},
+                    "properties": {"name": "blocked"},
+                },
+                headers=admin_auth_header,
+            )
+            await holder.rollback()
+
+        assert response.status_code == 409, response.text
+        body = response.json()
+        assert body["detail"]["code"] == "catalog_lock_conflict", body
+        assert body["title"] == "Catalog entry is busy", body
+
+    async def test_bulk_delete_answers_conflict_not_unexpected_failure(
+        self, locked_dataset, client: AsyncClient, admin_auth_header, monkeypatch
+    ):
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "150ms")
+        import app.core.db as db_module
+        from app.modules.catalog.datasets.domain import service_lifecycle
+
+        async def _no_reap(prefixes, tenant_id):
+            return None
+
+        monkeypatch.setattr(service_lifecycle, "_reap_managed_storage", _no_reap)
+
+        async with db_module.async_session() as holder:
+            await self._hold(holder, locked_dataset.id)
+            response = await client.post(
+                "/datasets/bulk-delete",
+                json={
+                    "datasets": [
+                        {
+                            "dataset_id": str(locked_dataset.id),
+                            "confirm_title": (
+                                f"Lock order {locked_dataset.table_name}"
+                            ),
+                        }
+                    ]
+                },
+                headers=admin_auth_header,
+            )
+            await holder.rollback()
+
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["code"] == "catalog_lock_conflict"
+        assert "failed unexpectedly" not in response.text
+
+
 class TestTheOtherSitesHoldTheOrderToo:
     """The layers DDL, the delete and the metadata PATCH, against a held row.
 
@@ -1074,10 +1155,62 @@ class TestWorkerDoorsAcquireBeforeTheirWrites:
             for n in ast.walk(tree)
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name
         )
+        key = f"{module}.{name}"
+        if key in _INMEMORY_UNTIL_ACQUIRED:
+            pytest.skip(f"exempt: {_INMEMORY_UNTIL_ACQUIRED[key]}")
         ok, why = acquisition_dominates_writes(
             fn, bindings, module, _acquiring_functions()
         )
         assert ok, f"{rel}::{name}: {why}"
+
+    def test_the_deferred_flush_exemption_still_holds(self):
+        """The `no_autoflush` the exemption rests on must actually be there.
+
+        Without it the in-memory assignments reach the database at whatever
+        statement the archive path runs next, ahead of the acquisition.
+        """
+        import ast
+        from pathlib import Path
+
+        app_dir = Path(__file__).resolve().parents[1] / "app"
+        src = (app_dir / "processing/ingest/tasks_raster_replace.py").read_text()
+        tree = ast.parse(src)
+        fn = next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.AsyncFunctionDef) and n.name == "reupload_raster"
+        )
+        swap = next(
+            n.lineno
+            for n in ast.walk(fn)
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Name)
+            and n.func.id == "_write_swapped_fields"
+        )
+        acquire = next(
+            n.lineno
+            for n in ast.walk(fn)
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Name)
+            and n.func.id == "lock_catalog_rows"
+        )
+        guarded = [
+            n.lineno
+            for n in ast.walk(fn)
+            if isinstance(n, ast.With)
+            and any(
+                isinstance(item.context_expr, ast.Attribute)
+                and item.context_expr.attr == "no_autoflush"
+                for item in n.items
+            )
+        ]
+        assert swap < acquire, "the swap helper must precede the acquisition here"
+        assert any(swap < line < acquire for line in guarded), (
+            "reupload_raster is exempt from the ordering check because its "
+            "in-memory assignments are held under `no_autoflush` until the "
+            "acquisition. That block is gone, so the exemption is now false: "
+            f"swap at {swap}, acquisition at {acquire}, no_autoflush at {guarded}"
+        )
 
     def test_worker_doors_do_not_clamp_their_transaction(self):
         """`lock_timeout=None` at each, and nowhere on a request path.
@@ -1150,6 +1283,19 @@ _PAIR_WRITER_EXEMPTIONS = {
     "app.processing.ingest.tasks_postgis_refresh._apply_measurement": "caller refresh_postgis holds datasets FOR UPDATE",
     "app.processing.ingest.tasks_postgis_refresh.refresh_postgis": "takes datasets FOR UPDATE for its superseded guard",
     "app.processing.ingest.tasks_stac_refresh.refresh_stac": "takes datasets FOR UPDATE for its superseded guard",
+}
+
+
+# Functions that assign catalog fields in memory before acquiring, and hold
+# those assignments under `no_autoflush` until after it, so no write reaches
+# the database first. The reason is enforced, not asserted: see
+# test_the_deferred_flush_exemption_still_holds.
+_INMEMORY_UNTIL_ACQUIRED = {
+    "app.processing.ingest.tasks_raster_replace.reupload_raster": (
+        "`_write_swapped_fields` only assigns; the acquisition sits below "
+        "`archive_lossy_original`, which uploads the whole original raster, "
+        "and `no_autoflush` holds the assignments until after it."
+    ),
 }
 
 
@@ -1408,13 +1554,19 @@ def _closure(seeds: dict[str, set[str]], calls: dict[str, set[str]]):
     return effective
 
 
+@functools.lru_cache(maxsize=1)
+def _effective_writes() -> dict[str, set[str]]:
+    """Qualified name -> the write kinds it reaches, directly or via callees."""
+    writes, calls, _sites = _app_function_facts()
+    return _closure(writes, calls)
+
+
 def _pair_writer_report() -> dict[str, str]:
     """Qualified name -> site, for every function that writes BOTH rows."""
-    writes, calls, sites = _app_function_facts()
-    effective = _closure(writes, calls)
+    _writes, _calls, sites = _app_function_facts()
     return {
         name: sites[name]
-        for name, kinds in effective.items()
+        for name, kinds in _effective_writes().items()
         if kinds >= {"record", "dataset"} and name in sites
     }
 
@@ -1451,21 +1603,8 @@ def _nested_bodies(stmt):
     return nested
 
 
-def acquisition_dominates_writes(
-    fn, bindings, module, acquirers=None
-) -> tuple[bool, str]:
-    """Does an acquisition precede every write, on every path through *fn*?
-
-    fix(#1847): the round-2 check accepted a call to the helper
-    ANYWHERE in the body, so an acquisition placed after the writes, or in one
-    arm of an `if`, passed. Both are the defect this gate exists to catch.
-
-    *acquirers* is the transitive set: a handler that acquires through a
-    wrapper acquires just as surely as one that calls the helper directly.
-    """
+def _acq_predicate(bindings, module, reach):
     import ast
-
-    reach = ACQUIRERS if acquirers is None else acquirers
 
     def is_acq(node) -> bool:
         if not isinstance(node, ast.Call):
@@ -1476,18 +1615,59 @@ def acquisition_dominates_writes(
             return any(a.rsplit(".", 1)[-1] == node.func.attr for a in reach)
         return False
 
+    return is_acq
+
+
+def _write_predicate(bindings, module, is_acq, reaches_write):
+    """A write here, or a call to something that writes.
+
+    fix(#1847): the scan used to see only assignments in this body, so a
+    wrapper that called a record-writing helper, acquired, then called a
+    dataset-writing helper emitted records-before-datasets and passed.
+    """
+    import ast
+
+    def is_write(node) -> bool:
+        if _write_kinds(node):
+            return True
+        if not isinstance(node, ast.Call) or is_acq(node):
+            return False
+        if not isinstance(node.func, ast.Name):
+            return False  # unresolvable attribute call; do not guess
+        return bool(reaches_write.get(_resolve(node.func.id, bindings, module)))
+
+    return is_write
+
+
+def acquisition_dominates_writes(
+    fn, bindings, module, acquirers=None, writers=None
+) -> tuple[bool, str]:
+    """Does an acquisition precede every write, on every path through *fn*?
+
+    fix(#1847): merely calling the helper somewhere in the body proves nothing.
+    After the writes it orders nothing; in one arm of an `if` it orders nothing
+    on the other. *acquirers* and *writers* are the transitive sets, so a
+    handler that acquires or writes through a wrapper is judged on what that
+    wrapper does.
+    """
+    import ast
+
+    is_acq = _acq_predicate(
+        bindings, module, ACQUIRERS if acquirers is None else acquirers
+    )
+    is_write = _write_predicate(
+        bindings, module, is_acq, _effective_writes() if writers is None else writers
+    )
+
     def plain(stmt, acquired):
-        """One non-compound statement: acquisitions and writes by position."""
         acq = [n.lineno for n in ast.walk(stmt) if is_acq(n)]
-        writes = [n.lineno for n in ast.walk(stmt) if _write_kinds(n)]
+        writes = [n.lineno for n in ast.walk(stmt) if is_write(n)]
         if writes and not acquired and (not acq or min(acq) > min(writes)):
             return (
                 False,
                 acquired,
-                (
-                    f"line {min(writes)} writes a catalog row with no acquisition "
-                    "before it on this path"
-                ),
+                f"line {min(writes)} writes a catalog row with no acquisition "
+                "before it on this path",
             )
         return True, acquired or bool(acq), ""
 
@@ -1558,17 +1738,20 @@ class TestEveryPairWriterTakesTheHouseOrder:
         failures = []
         for rel, module, bindings, fn in _walk_app_functions():
             key = f"{module}.{fn.name}"
-            if key in _PAIR_WRITER_EXEMPTIONS or key in _CONDITIONAL_ACQUISITION:
+            if (
+                key in _PAIR_WRITER_EXEMPTIONS
+                or key in _CONDITIONAL_ACQUISITION
+                or key in _INMEMORY_UNTIL_ACQUIRED
+            ):
                 continue
-            if not _direct_writes(fn):
-                continue  # inherits its writes; the callee is checked instead
-            # Every function that acquires must do so before ITS OWN writes,
-            # not only the ones that write both rows. A helper that writes the
-            # datasets row and then acquires has already let the flush order
-            # the pair, even though its own body never touches the record --
-            # which is how the first version of this check missed
-            # `layers.service.add_column` (fix(#1847)).
+            # Checked for every function that acquires OR writes both rows,
+            # whether its writes are its own or a callee's. Selecting on direct
+            # writes alone skipped the wrapper shape entirely, and selecting on
+            # pair writers alone missed a helper that writes one row and
+            # acquires after it (`layers.service.add_column`).
             if key not in acquirers and key not in writers:
+                continue
+            if not (_direct_writes(fn) or key in writers):
                 continue
             ok, why = acquisition_dominates_writes(fn, bindings, module, acquirers)
             if not ok:
@@ -1616,6 +1799,21 @@ class TestTheGateRejectsWhatItExistsToCatch:
     """
 
     MODULE = "app.fixture.probe"
+
+    def _local_writers(self, source: str) -> dict[str, set[str]]:
+        """Effective write kinds per qualified name, for a synthetic module."""
+        import ast
+
+        tree = ast.parse(source)
+        bindings = _local_bindings(tree, self.MODULE)
+        writes, calls = {}, {}
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            key = f"{self.MODULE}.{fn.name}"
+            writes[key] = _direct_writes(fn)
+            calls[key] = _called_targets(fn, bindings, self.MODULE)
+        return _closure(writes, calls)
 
     def _analyse(self, source: str):
         import ast
@@ -1686,6 +1884,54 @@ class TestTheGateRejectsWhatItExistsToCatch:
             "a call resolved to app.somewhere.other.lock_catalog_rows is not an "
             "acquisition; only the two real helpers are"
         )
+
+    def test_a_wrapper_whose_writes_are_all_in_callees_is_rejected(self):
+        """fix(#1847): the shape codex round 4 found the gate blind to.
+
+        Nothing in this body assigns a catalog field, so a scan that looked at
+        direct writes alone saw no writes to order and skipped the function
+        entirely -- while the sequence it emits is records, then the
+        acquisition, then datasets. Exactly the inversion.
+        """
+        source = (
+            "from app.platform.catalog_locks import lock_catalog_rows\n"
+            "async def stamp_record(session, dataset):\n"
+            "    dataset.record.updated_by = 1\n"
+            "async def bump_dataset(session, dataset):\n"
+            "    dataset.srid = 4326\n"
+            "async def probe(session, dataset):\n"
+            "    await stamp_record(session, dataset)\n"
+            "    await lock_catalog_rows(session)\n"
+            "    await bump_dataset(session, dataset)\n"
+        )
+        fn, bindings = self._analyse(source)
+        writers = self._local_writers(source)
+        ok, why = acquisition_dominates_writes(fn, bindings, self.MODULE, None, writers)
+        assert not ok, (
+            "the wrapper writes catalog.records through a callee before it "
+            "acquires, which is the records-before-datasets order the gate "
+            "exists to reject"
+        )
+        assert "no acquisition before it" in why
+
+    def test_the_same_wrapper_with_the_acquisition_first_is_accepted(self):
+        """The control: only the ordering differs."""
+        source = (
+            "from app.platform.catalog_locks import lock_catalog_rows\n"
+            "async def stamp_record(session, dataset):\n"
+            "    dataset.record.updated_by = 1\n"
+            "async def bump_dataset(session, dataset):\n"
+            "    dataset.srid = 4326\n"
+            "async def probe(session, dataset):\n"
+            "    await lock_catalog_rows(session)\n"
+            "    await stamp_record(session, dataset)\n"
+            "    await bump_dataset(session, dataset)\n"
+        )
+        fn, bindings = self._analyse(source)
+        ok, why = acquisition_dominates_writes(
+            fn, bindings, self.MODULE, None, self._local_writers(source)
+        )
+        assert ok, why
 
     def test_core_update_statements_count_as_writes(self):
         """`update(Dataset)` / `delete(Record)` are invisible to an attribute scan."""

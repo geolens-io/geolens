@@ -28,6 +28,7 @@ from app.core.db.sqlstate import (
     sqlstate,
 )
 from app.core.identity import Identity
+from app.platform.catalog_locks import CatalogLockConflict
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.auth.dependencies import (
     get_current_active_user,
@@ -124,19 +125,15 @@ def _feature_write_db_error(exc: DBAPIError) -> HTTPException:
     read path reports it, and an unrecognized state (our own bad SQL, 42601) is
     an honest 500, not the caller's fault.
 
-    fix(#1847): a lock conflict is classified FIRST. 40P01 is SQLSTATE class 40,
-    so `is_operational` would otherwise report a contended row as an outage.
-    409 is already declared on every write endpoint (ERROR_RESPONSES_WRITE).
+    fix(#1847): a lock conflict RAISES, rather than returning a 409 of its own.
+    The acquisition already raises CatalogLockConflict, so returning a second
+    409 body here gave one condition two response shapes depending on which
+    statement hit it. One exception, one mapping in `app/api/main.py`.
     """
     if is_lock_conflict(exc):
-        return HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "feature_write_locked",
-                "message": "This dataset's catalog entry is being updated by "
-                "another operation. Retry shortly.",
-            },
-        )
+        raise CatalogLockConflict(
+            "Another operation is updating this dataset's catalog entry."
+        ) from exc
     if is_operational(exc):
         return HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

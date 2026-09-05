@@ -1006,7 +1006,9 @@ async def _catalog_lock_conflict_handler(
         content=ProblemDetail(
             title="Catalog entry is busy",
             status=status.HTTP_409_CONFLICT,
-            detail=str(exc),
+            # Keyed, because this is now the ONLY shape a contended row
+            # produces and a client cannot match on a title.
+            detail={"code": "catalog_lock_conflict", "message": str(exc)},
         ).model_dump(),
         media_type="application/problem+json",
     )

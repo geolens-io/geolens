@@ -2963,7 +2963,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # single place that maps it. The lines are the handler plus why it lives
     # here rather than in four route bodies. Cap 1903 -> 1935, exact.    # fix(#1847): +32 for one exception handler. A contended catalog row was
     # answered 409, 503 and 400 depending on the route; the helper raises one
-    # domain exception and this maps it. Cap 1903 -> 1928, exact.    "backend/app/api/main.py": 1935,
+    # domain exception and this maps it. Cap 1903 -> 1928, exact.    # domain exception and this maps it, with a machine-readable code now that
+    # it is the only shape a contended row produces. Cap 1903 -> 1930, exact.    "backend/app/api/main.py": 1935,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative

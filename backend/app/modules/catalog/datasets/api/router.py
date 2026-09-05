@@ -15,6 +15,7 @@ from fastapi import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
+from app.platform.catalog_locks import CatalogLockConflict
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.audit.schemas import AuditLogListResponse, AuditLogResponse
 from app.modules.audit.service import AuditEvent, audit_emit, query_audit_logs
@@ -501,6 +502,11 @@ async def bulk_delete_datasets_endpoint(
                 BulkDeleteResultItem(dataset_id=item.dataset_id, status="deleted")
             )
             deleted += 1
+        except CatalogLockConflict:
+            # fix(#1847): the helper already rolled back. Re-raised so the one
+            # 409 mapping applies; the catch-all below would log a stack trace
+            # and report a contended row as an unexpected failure.
+            raise
         except Exception as exc:  # broad: per-item bulk-delete is isolated — any failure is recorded per-item without aborting the batch
             await db.rollback()
             if isinstance(exc, (DependentVrtError, DatasetTitleMismatchError)):
