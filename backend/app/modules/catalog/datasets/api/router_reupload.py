@@ -307,6 +307,11 @@ async def reupload_dataset(
 
     max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
     max_size_bytes = max_size_mb * 1024 * 1024
+    # fix(#1848): the job is committed BEFORE the upload so the pooled
+    # connection is not held across it. The row therefore survives a failed
+    # upload as `pending` with no `file_path`, which the stale-pending sweep
+    # reaps on its one-hour abandonment policy.
+    await db.commit()
     saved_path = await get_catalog_port().save_upload_file(
         file,
         str(job.id),
@@ -326,8 +331,7 @@ async def reupload_dataset(
             get_catalog_port().validate_file_content(validation_path, file.filename)
         except ValueError as exc:
             # Preserve the existing failed-job audit trail for a user content
-            # error; provider/transport failures below roll the uncommitted job
-            # back with the request transaction.
+            # error.
             job.status = "failed"
             job.error_message = str(exc)
             await db.commit()
@@ -383,6 +387,14 @@ async def reupload_service_preview(
     # pipeline executes (vector→raster or any→VRT explodes deep otherwise).
     _assert_compatible_record_type(dataset, None, service_type=request.service_type)
 
+    # fix(#1848): hand the pooled connection back before DNS, the page fetches
+    # and ogrinfo. The rollback expires every ORM instance, so the two dataset
+    # facts the diff needs and the job's owner are read off them first.
+    prior_columns = dataset.column_info or []
+    prior_feature_count = dataset.feature_count
+    user_id = user.id
+    await db.rollback()
+
     try:
         await validate_url_for_ssrf(request.url)
     except SSRFError as exc:
@@ -423,9 +435,9 @@ async def reupload_service_preview(
         )
 
     diff = compute_schema_diff(
-        dataset.column_info or [],
+        prior_columns,
         preview_data["columns"],
-        dataset.feature_count,
+        prior_feature_count,
         preview_data["feature_count"],
     )
     schema_diff = SchemaDiff(**diff)
@@ -435,7 +447,7 @@ async def reupload_service_preview(
         source_filename=request.layer_title or request.layer_name,
         source_url=request.url,
         source_layer=request.layer_name,
-        created_by=user.id,
+        created_by=user_id,
         status="pending",
         user_metadata={
             "reupload": True,
@@ -520,12 +532,21 @@ async def reupload_preview(
             detail="Job already processed",
         )
 
-    # Resolve S3 key to local file for ogrinfo
+    # fix(#1848): hand the pooled connection back before the S3 download and
+    # ogrinfo. The rollback expires every ORM instance, so everything the
+    # response and the diff read off `dataset` and `job` is taken first.
     file_path = job.file_path
+    job_pk = job.id
+    job_source_filename = job.source_filename
+    prior_columns = dataset.column_info or []
+    prior_feature_count = dataset.feature_count
+    await db.rollback()
+
+    # Resolve S3 key to local file for ogrinfo
     downloaded_preview_path: Path | None = None
     if file_path:
         resolved_file_path = await get_catalog_port().resolve_file_path(
-            file_path, str(job.id)
+            file_path, str(job_pk)
         )
         if resolved_file_path != file_path:
             file_path = resolved_file_path
@@ -578,9 +599,9 @@ async def reupload_preview(
             )
 
     diff = compute_schema_diff(
-        dataset.column_info or [],
+        prior_columns,
         info["columns"],
-        dataset.feature_count,
+        prior_feature_count,
         info["feature_count"],
     )
     schema_diff = SchemaDiff(**diff)
@@ -603,8 +624,8 @@ async def reupload_preview(
     previous_source_layer = prior_job.source_layer if prior_job else None
 
     return ReuploadPreviewResponse(
-        job_id=job.id,
-        source_filename=job.source_filename,
+        job_id=job_pk,
+        source_filename=job_source_filename,
         columns=info["columns"],
         crs=info["srid"],
         geometry_type=info["geometry_type"],
