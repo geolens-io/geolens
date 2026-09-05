@@ -307,6 +307,14 @@ describe('VrtCreatorForm', () => {
 
     const submitButton = screen.getByRole('button', { name: 'vrt.submit' });
     expect(submitButton).toBeDisabled();
+
+    // fix(#1877 codex round 4): the visible reason used to pass
+    // selectedSources[0] (the no-CRS source) as the reference, rendering
+    // "CRS mismatch: EPSG:32617 vs" with nothing after "vs". The reference
+    // validateSources itself compares against is the first source with a
+    // KNOWN crs — EPSG:4326 (source2), not source1.
+    const reasons = document.getElementById('vrt-mismatch-reasons');
+    expect(reasons?.textContent).toContain('"first":"EPSG:4326"');
   });
 
   // fix(#1778): these three checks read epsg/dtype/nodata/width/height/

@@ -202,11 +202,16 @@ function errorMessage(
   code: string,
   src: OGCRecordResponse,
   first: OGCRecordResponse,
+  // fix(#1877 codex round 4): validateSources compares CRS against refCrs
+  // (the first source with a KNOWN crs, not necessarily sources[0] — see
+  // its own comment above), so the message needs that same reference, not
+  // `first`'s crs, or an unset-crs sources[0] renders "... vs" with nothing.
+  refCrs: string | null | undefined,
   t: (key: string, opts?: Record<string, unknown>) => string,
 ): string {
   switch (code) {
     case 'crs_mismatch':
-      return t('vrt.crsMismatch', { src: src.properties.crs, first: first.properties.crs });
+      return t('vrt.crsMismatch', { src: src.properties.crs, first: refCrs });
     case 'band_count_mismatch':
       return t('vrt.bandMismatch', { src: src.properties.band_count, first: first.properties.band_count });
     case 'dtype_mismatch':
@@ -352,6 +357,11 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
     title.trim().length === 0 ||
     createVrtMutation.isPending;
 
+  // fix(#1877 codex round 4): same reference validateSources itself
+  // compares CRS against — the first source with a KNOWN crs, not
+  // necessarily selectedSources[0].
+  const refCrs = selectedSources.find((s) => s.properties.crs)?.properties.crs;
+
   // fix(#1811): validationErrors only ever reached a per-source tooltip, so
   // Create disabled with no visible reason. Same messages, deduplicated, as
   // always-visible text.
@@ -359,7 +369,7 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
     ? [...new Set(
         selectedSources.flatMap((source) =>
           (validationErrors[source.id] ?? []).map((code) =>
-            errorMessage(code, source, selectedSources[0], t),
+            errorMessage(code, source, selectedSources[0], refCrs, t),
           ),
         ),
       )]
@@ -590,7 +600,7 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
                         <TooltipContent>
                           <ul className="text-xs space-y-0.5">
                             {errs.map((code) => (
-                              <li key={code}>{errorMessage(code, source, firstSource, t)}</li>
+                              <li key={code}>{errorMessage(code, source, firstSource, refCrs, t)}</li>
                             ))}
                           </ul>
                         </TooltipContent>
