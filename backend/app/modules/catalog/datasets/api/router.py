@@ -538,8 +538,8 @@ async def bulk_delete_datasets_endpoint(
                     ip_address=request.client.host if request.client else None,
                 ),
             )
-            # Commit per-item so a later failure cannot orphan storage objects
-            # that were already deleted for successfully-committed datasets.
+            # Commit per item so one item's failure cannot roll back the rows
+            # of the items before it.
             await db.commit()
             # fix(#1847): the reap is deferred past both invalidations below;
             # awaiting object storage here would delay them per item.

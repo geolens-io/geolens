@@ -245,9 +245,9 @@ async def delete_dataset(
             # vrt_source_links cascade-deleted via ON DELETE CASCADE on vrt_dataset_id FK
             prefixes = [f"rasters/{dataset_id}/"]
 
-        # Clean up managed storage artifacts before touching the DB.
-        # If any storage delete fails the exception propagates and the
-        # caller's transaction rolls back, leaving the DB record intact.
+        # These prefixes are returned, not reaped: the caller commits first and
+        # then reaps best-effort, so a reap failure leaves orphaned objects
+        # rather than a catalog row pointing at deleted bytes.
         tenant_id = current_tenant_var.get()
         if is_multi_tenant() and tenant_id is None:
             raise RuntimeError(
@@ -452,9 +452,9 @@ async def delete_dataset(
     # transaction reads the not-yet-deleted row and re-caches the dataset we
     # just evicted. Only a commit makes the delete visible to that reader.
 
-    # Audit trail for an irreversible operation (DROP TABLE for vector,
-    # storage cleanup for raster/VRT). The DB-side row deletion is logged
-    # by the audit_emit() facade in the calling router.
+    # Audit trail for an irreversible operation (DROP TABLE for vector). The
+    # DB-side row deletion is logged by the audit_emit() facade in the calling
+    # router, which also reaps the storage prefixes after its commit.
     logger.info(
         "dataset_deleted",
         dataset_id=str(dataset_id),
