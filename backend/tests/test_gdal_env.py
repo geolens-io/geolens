@@ -1,5 +1,9 @@
-"""fix(#579): GDAL /vsis3/ AWS_* derivation from the app's S3_* settings."""
+"""fix(#579): GDAL /vsis3/ AWS_* derivation from the app's S3_* settings, and
+fix(#1828): the schema-import clamp both vector subprocess envs carry."""
 
+import os
+import pathlib
+import re
 from types import SimpleNamespace
 
 from pydantic import SecretStr
@@ -103,3 +107,66 @@ def test_configure_sets_missing_and_never_clobbers(monkeypatch):
     assert os.environ["AWS_ACCESS_KEY_ID"] == "test-access-key"
     assert os.environ["AWS_HTTPS"] == "NO"
     assert os.environ["AWS_VIRTUAL_HOSTING"] == "FALSE"
+
+
+_SCHEMA_IMPORT_KEY = "GML_USE_SCHEMA_IMPORT"
+
+# The three shapes an assignment of the key can take in Python source: a dict
+# entry or `KEY=value` pair, an `os.environ[...] = ...` store, and a
+# `setenv("KEY", value)` call.
+_ASSIGNMENTS = (
+    re.compile(_SCHEMA_IMPORT_KEY + r'["\']?\]?\s*[:=]\s*["\']([^"\']*)["\']'),
+    re.compile(_SCHEMA_IMPORT_KEY + r'["\']\s*,\s*["\']([^"\']*)["\']'),
+)
+
+
+def _assigned_values(line: str) -> list[str]:
+    return [m.group(1) for pattern in _ASSIGNMENTS for m in pattern.finditer(line)]
+
+
+class TestSchemaImportResolutionStaysOffByValue:
+    """fix(#1828): `GML_USE_SCHEMA_IMPORT` is NO in both GDAL vector envs.
+
+    The GML driver reads it from the process env and, at YES, fetches every
+    `xs:import` location of a schema with the credential header attached. A
+    value rather than an absence, so an operator's env cannot flip it on.
+    """
+
+    def test_both_envs_pin_it_to_no(self) -> None:
+        from app.platform.gdal_env import gdal_service_safe_env, gdal_vector_safe_env
+
+        for env in (gdal_vector_safe_env(), gdal_service_safe_env()):
+            assert env[_SCHEMA_IMPORT_KEY] == "NO"
+
+    def test_a_process_env_value_cannot_flip_it(self, monkeypatch) -> None:
+        from app.platform.gdal_env import gdal_service_safe_env, gdal_vector_safe_env
+
+        monkeypatch.setenv(_SCHEMA_IMPORT_KEY, "YES")
+
+        for env in (gdal_vector_safe_env(), gdal_service_safe_env()):
+            assert env[_SCHEMA_IMPORT_KEY] == "NO"
+        assert os.environ[_SCHEMA_IMPORT_KEY] == "YES"
+
+    def test_the_grep_sees_every_assignment_shape(self) -> None:
+        """Positive control for the tree walk below."""
+        assert _assigned_values('{"GML_USE_SCHEMA_IMPORT": "YES"}') == ["YES"]
+        assert _assigned_values('env["GML_USE_SCHEMA_IMPORT"] = "YES"') == ["YES"]
+        assert _assigned_values("GML_USE_SCHEMA_IMPORT='YES'") == ["YES"]
+        assert _assigned_values('setenv("GML_USE_SCHEMA_IMPORT", "YES")') == ["YES"]
+        assert _assigned_values("once GML_USE_SCHEMA_IMPORT is YES anywhere") == []
+
+    def test_nothing_under_backend_app_sets_it_to_anything_else(self) -> None:
+        app_root = pathlib.Path(__file__).resolve().parents[1] / "app"
+        assignments: dict[str, list[str]] = {}
+        for path in sorted(app_root.rglob("*.py")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                values = _assigned_values(line)
+                if values:
+                    rel = path.relative_to(app_root).as_posix()
+                    assignments.setdefault(rel, []).extend(values)
+
+        # The pin itself is found, so an empty answer elsewhere means absence
+        # rather than a blind walk.
+        assert assignments.get("platform/gdal_env.py") == ["NO"], assignments
+        for rel, values in assignments.items():
+            assert values == ["NO"] * len(values), (rel, values)
