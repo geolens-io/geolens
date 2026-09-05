@@ -209,9 +209,8 @@ class TestValidateZipSafety:
             validate_archive_safety(str(staged), "renamed-upload.xlsx")
 
     def test_a_repetitive_workbook_clears_the_ratio_check(self, tmp_path: Path):
-        """fix(#1857 item 4): a workbook of repeated values stays an order of
-        magnitude under MAX_COMPRESSION_RATIO, because every cell reference
-        increments and breaks the run deflate would otherwise collapse."""
+        """fix(#1857): a repeated-value workbook deflates an order of magnitude
+        under MAX_COMPRESSION_RATIO."""
         rows = "".join(
             f'<row r="{r}"><c r="A{r}"><v>1</v></c></row>' for r in range(1, 50_001)
         )
