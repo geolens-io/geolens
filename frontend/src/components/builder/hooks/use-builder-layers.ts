@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { toFitBounds } from '@/lib/bbox';
-import { getVisibleLayerBounds } from '@/components/builder/BuilderMap';
+import { getVisibleLayerBounds } from '@/components/builder/builder-bounds';
 import { normalizeTerrainExaggeration, reorderDataLayers } from '@/components/builder/map-sync';
 import type { LayerActions } from '@/components/builder/ChatPanel';
 import {

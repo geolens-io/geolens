@@ -9,7 +9,8 @@ import {
   simplifyPaint,
   TERRAIN_SOURCE_ID,
 } from '../map-sync';
-import { getVisibleLayerBounds, shouldSuppressBuilderMapError } from '../BuilderMap';
+import { shouldSuppressBuilderMapError } from '../BuilderMap';
+import { getVisibleLayerBounds } from '../builder-bounds';
 import type { MapLayerResponse } from '@/types/api';
 import { applyBasemapConfigToStyle, normalizeBasemapConfig } from '@/lib/basemap-utils';
 import type { StyleSpecification } from 'maplibre-gl';
