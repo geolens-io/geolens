@@ -15,7 +15,7 @@ This module closes those gaps structurally. It walks the real FastAPI route
 table, parses each handler's source (plus one level of directly-called
 ``app.*`` helper functions) into an AST, and asserts that any handler whose
 effective source fetches a guarded model (``Record``, ``Dataset``, ``Map``,
-``RecordEmbedding``) also CALLS one of the sanctioned guards. Model names are
+``RecordEmbedding``, ``IngestJob``) also CALLS one of the sanctioned guards. Model names are
 resolved by class identity through the function's module globals and its
 function-local imports, so aliases like ``Dataset as DatasetModel`` or
 ``Map as MapORM`` are covered, and multi-line ``select(\n    Model``
@@ -270,6 +270,43 @@ ALLOWLIST: dict[str, str] = {
     "app.processing.ingest.router.bulk_register_tables": (
         "upload-gated physical-table registration; select is a dedupe existence check"
     ),
+    # ---------------------------------------------------------------------
+    # fix(#1860): the IngestJob sweep. These seven handlers fetch a job
+    # row and none of them calls a CATALOG guard, because a job is owned by
+    # the user who created it rather than reached through a dataset's
+    # visibility. Each names the check it does apply instead.
+    # ---------------------------------------------------------------------
+    # Ops-only stale-job reaper; gated by require_mode_permission
+    # (manage_users single-tenant, manage_tenants multi-tenant). It acts on
+    # the whole stale set on a clock, never on a caller-named row, and its
+    # response is counts.
+    "app.platform.jobs.router.cleanup_stale_jobs": (
+        "ops-gated (manage_users / manage_tenants); acts on the stale set, "
+        "returns counts and no job content"
+    ),
+    # Owner-or-policy: creator passes, everyone else goes through
+    # _can_access_another_users_job (the effective permission matrix), and a
+    # refusal is a 403 recorded as a permission denial.
+    "app.platform.jobs.router.get_job_status": (
+        "owner-or-policy via _can_access_another_users_job; 403 on denial"
+    ),
+    "app.platform.jobs.router.retry_job": (
+        "owner-or-policy via _can_access_another_users_job; 403 on denial"
+    ),
+    # All four ingest doors load the job through get_job_or_404, which is
+    # creator-or-admin and raises 404/403 before the handler sees the row.
+    "app.processing.ingest.router.commit_import": (
+        "creator-or-admin via get_job_or_404 (404 unknown, 403 not yours)"
+    ),
+    "app.processing.ingest.router.commit_fan_out": (
+        "creator-or-admin via get_job_or_404 (404 unknown, 403 not yours)"
+    ),
+    "app.processing.ingest.router.complete_presigned_upload": (
+        "creator-or-admin via get_job_or_404 before lock_presigned_job"
+    ),
+    "app.processing.ingest.router.preview_file": (
+        "creator-or-admin via get_job_or_404 (404 unknown, 403 not yours)"
+    ),
 }
 
 # ---------------------------------------------------------------------------
@@ -311,9 +348,14 @@ def _parse(source: str) -> ast.Module | None:
 def _guarded_model_classes() -> tuple[type, ...]:
     from app.modules.catalog.datasets.domain.models import Dataset, Record
     from app.modules.catalog.maps.models import Map
+    from app.platform.jobs.models import IngestJob
     from app.processing.embeddings.models import RecordEmbedding
 
-    return (Dataset, Record, Map, RecordEmbedding)
+    # fix(#1860): IngestJob joined the set because a job row carries the
+    # uploader's filename and the failure text of their run, and every
+    # job-row endpoint reported "no fetch detected" while it was outside.
+    # A whole class of read was invisible to this gate rather than clean.
+    return (Dataset, Record, Map, RecordEmbedding, IngestJob)
 
 
 # ProcessingPort accessors that hand a guarded ORM class to processing/ code
@@ -1004,7 +1046,8 @@ def test_every_model_fetching_handler_is_guarded_or_allowlisted() -> None:
     """AGENTS.md Rule 1, enforced per handler across the whole route table.
 
     A handler whose effective source (own body + one level of directly-called
-    app.* helpers) fetches Record/Dataset/Map/RecordEmbedding must CALL one
+    app.* helpers) fetches Record/Dataset/Map/RecordEmbedding/IngestJob must
+    CALL one
     of the sanctioned guards. Anything else must be a reviewed ALLOWLIST
     entry — and the allowlist must stay exact, so guarded-later or renamed
     handlers cannot leave stale entries behind.
@@ -1023,7 +1066,8 @@ def test_every_model_fetching_handler_is_guarded_or_allowlisted() -> None:
             )
         pytest.fail(
             "Rule 1 violation: route handler(s) fetch a guarded model "
-            "(Record/Dataset/Map/RecordEmbedding) without a sanctioned access "
+            "(Record/Dataset/Map/RecordEmbedding/IngestJob) without a "
+            "sanctioned access "
             "check. Add check_dataset_access_or_anonymous / "
             "check_dataset_access / check_dataset_write_access / "
             "apply_visibility_filter (or the maps/records domain guards) to "
@@ -1038,6 +1082,85 @@ def test_every_model_fetching_handler_is_guarded_or_allowlisted() -> None:
         "Stale ALLOWLIST entries — these handlers are now guarded, renamed, "
         "or gone. Remove them from ALLOWLIST in this file so the list stays "
         "exact:\n" + "\n".join(f"  {key}: {ALLOWLIST[key]}" for key in stale)
+    )
+
+
+@lru_cache(maxsize=1)
+def _job_disclosure_deciders() -> tuple[Any, ...]:
+    """The two predicates that settle how much of a job row a caller sees.
+
+    ``_can_access_another_users_job`` is the owner-or-policy answer: the
+    caller gets the whole row or a 403. ``can_view_dataset_provenance`` is
+    the graded answer ``list_dataset_refresh_runs`` uses: the full payload
+    for the dataset's owner or an admin, a redacted one for everybody else.
+    Either is a decision. Neither being present is the defect.
+    """
+    from app.modules.catalog.authorization import can_view_dataset_provenance
+    from app.platform.jobs.router import _can_access_another_users_job
+
+    return (_can_access_another_users_job, can_view_dataset_provenance)
+
+
+@pytest.mark.architecture
+def test_every_job_status_route_decides_who_sees_the_job_detail() -> None:
+    """A job payload names its uploader's file and their failure text.
+
+    fix(#1860): Rule 1 above cannot see this class. It asks whether a
+    handler checked access at all, and ``GET /jobs/by-dataset/{dataset_id}``
+    did: it filtered the DATASET through ``apply_visibility_filter`` and then
+    served the whole job row to whoever that let in. Two sibling doors onto
+    the same text had already decided the question the other way, and the
+    third was still credited as guarded.
+
+    So this test asks the narrower question directly. Any route whose
+    response model is a ``JobStatusResponse`` must invoke one of the two
+    disclosure predicates. Resolution is by object identity through the
+    handler's module globals and its function-local imports, the same way
+    guard credit works above, so a same-named local helper earns nothing.
+    """
+    from typing import get_args
+
+    from fastapi.routing import APIRoute, iter_route_contexts
+
+    from app.api.main import app
+    from app.platform.jobs.schemas import JobStatusResponse
+
+    offenders: list[str] = []
+    seen: set[str] = set()
+    for ctx in iter_route_contexts(app.routes):
+        route = ctx.route
+        if not isinstance(route, APIRoute):
+            continue
+        model = route.response_model
+        if JobStatusResponse not in (model, *get_args(model)):
+            continue
+        fn = _unwrap(route.endpoint)
+        key = f"{fn.__module__}.{fn.__qualname__}"
+        if key in seen:  # dual-shape slash aliases register one handler twice
+            continue
+        seen.add(key)
+        tree = _parse(_source_of(fn))
+        decided = False
+        if tree is not None:
+            called = {parts[0] for parts in _called_names(tree) if len(parts) == 1}
+            decided = bool(called & _bound_names(fn, tree, _job_disclosure_deciders()))
+        if not decided:
+            methods = " ".join(sorted(route.methods or ()))
+            offenders.append(f"  {methods} {ctx.path or route.path}\n    {key}")
+
+    assert len(seen) >= 2, (
+        f"only {len(seen)} JobStatusResponse routes found (expected >= 2). The "
+        "response models or the route walk changed; fix this test before "
+        "trusting it, because an empty walk passes vacuously."
+    )
+    assert not offenders, (
+        "Job-status route(s) serve a job payload without deciding who is "
+        "reading. Call _can_access_another_users_job (owner-or-policy, 403 on "
+        "denial) or can_view_dataset_provenance (graded, feeding "
+        "_job_to_status_response's include_detail), and never widen the "
+        "payload on a dataset-visibility check alone: a job row carries its "
+        "uploader's filename and the failure text of their run.\n"
+        + "\n".join(offenders)
     )
 
 

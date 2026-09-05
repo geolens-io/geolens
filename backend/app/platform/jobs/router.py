@@ -447,7 +447,11 @@ async def get_job_status(
                 await db.refresh(job)
                 break
 
-    return await _job_to_status_response(job)
+    # fix(#1860): this handler already refused anyone who is neither the
+    # job's creator nor permitted by policy, so every caller that reaches here
+    # is entitled to the full payload. There is no redacted audience on this
+    # route.
+    return await _job_to_status_response(job, include_detail=True)
 
 
 async def _retry_capability(job: IngestJob) -> tuple[bool, str | None]:
@@ -551,17 +555,98 @@ async def get_retry_capability(job: IngestJob) -> tuple[bool, str | None]:
     return await _retry_capability(job)
 
 
-async def _job_to_status_response(job: IngestJob) -> JobStatusResponse:
+def _redacted_job_status(job: IngestJob) -> JobStatusResponse:
+    """The job payload for a reader with no claim on the job itself.
+
+    fix(#1860): ``GET /jobs/by-dataset/{dataset_id}`` gates on the DATASET
+    being visible and then returned the whole job row, so any signed-in reader
+    of a public or internal dataset saw another user's failure text and upload
+    filename. ``list_dataset_refresh_runs`` already redacts exactly those
+    fields behind ``can_view_dataset_provenance``, and ``GET /jobs/{job_id}``
+    is owner-or-policy. This endpoint was the third door and had neither.
+
+    The projection below is that same provenance rule applied to a job row,
+    decided field by field rather than by copying a field list.
+
+    Kept, because refresh-runs publishes the same fact to the same audience:
+
+    - ``id``: a job id is not a capability. Reading, retrying and cancelling a
+      job by id are all owner-or-policy, and refresh-runs already publishes
+      ``ingest_job_id`` to every reader of a visible dataset.
+    - ``status``: the outcome. Refresh-runs publishes ``status`` unredacted.
+    - ``dataset_id``: the caller supplied it in the path.
+    - ``started_at`` / ``completed_at`` / ``created_at``: the timeline.
+      Refresh-runs publishes its own three timestamps unredacted.
+
+    Redacted, because each one says who ran the job or what was in the data,
+    which is the class refresh-runs nulls for a non-owner:
+
+    - ``source_filename``: the uploader's own filename, the ``origin_uri`` /
+      ``origin_ref`` class.
+    - ``error_message``: the field refresh-runs redacts by name.
+    - ``warning_message`` and ``warnings``: both name source columns, including
+      ORIGINAL names that a renaming ingest never publishes in the dataset
+      schema. This is the ``schema_diff`` class.
+    - ``current_step``: names a step of the ingest toolchain, past what
+      ``status`` already says.
+    - ``rows_processed`` and ``rows_failed``: run content, and redacted as a
+      pair on purpose. ``rows_processed`` alone reads as full coverage for a
+      run that dropped rows, so publishing one without the other is worse than
+      publishing neither.
+    - ``archive_failed``: an internal storage outcome.
+    - ``temporal_parse_errors``: its values are unparsed cell text from the
+      source data.
+    - ``can_retry`` and ``retry_reason``: retry is owner-or-policy, so this
+      reader has no retry capability to report, and the reasons name staging
+      object and credential state. ``False`` is the honest answer for this
+      caller, not a concealed one. Skipping the call also spares a storage
+      round trip that only exists to answer a question this caller cannot act
+      on.
+    """
+    return JobStatusResponse(
+        id=job.id,
+        status=job.status,
+        dataset_id=job.dataset_id,
+        source_filename=None,
+        error_message=None,
+        can_retry=False,
+        retry_reason=None,
+        warning_message=None,
+        warnings=[],
+        progress=None,
+        current_step=None,
+        rows_processed=None,
+        rows_failed=None,
+        archive_failed=False,
+        temporal_parse_errors={},
+        started_at=job.started_at,
+        completed_at=job.completed_at,
+        created_at=job.created_at,
+    )
+
+
+async def _job_to_status_response(
+    job: IngestJob, *, include_detail: bool
+) -> JobStatusResponse:
     """Extract warnings + structured metadata from ``user_metadata`` (S3/TYPE-2).
 
     Shared by ``get_job_status`` (lookup by job_id) and
     ``get_job_status_by_dataset`` (lookup by dataset_id) so the warning-parse
     contract lives in a single place.
 
+    ``include_detail`` is keyword-only and has no default so that every call
+    site has to settle who is reading before it can serialize a job at all:
+    True yields the full payload, False the redacted projection documented on
+    ``_redacted_job_status``. A default here would let a third door open
+    itself, which is how this endpoint came to be one.
+
     Warnings are validated through the ``IngestJobWarning`` discriminated
     union; any malformed entry (unknown ``kind``, missing fields) is logged
     and dropped so a stale-producer bug cannot break the whole endpoint.
     """
+    if not include_detail:
+        return _redacted_job_status(job)
+
     import structlog
     from pydantic import ValidationError
 
@@ -660,12 +745,17 @@ async def get_job_status_by_dataset(
     404 would needlessly pollute the browser console on the dataset detail
     page. A genuine 404 is still raised when the dataset is not visible to the
     user, to avoid leaking job existence (see visibility check below).
+
+    Visibility and disclosure are two questions here, not one. Seeing the
+    dataset decides whether there is an answer at all; who ran the job decides
+    how much of the answer is filled in. See ``_redacted_job_status``.
     """
     # Visibility check: reuse the dataset detail permission so only users
     # who can see the dataset can see the job warnings. Avoid leaking the
     # existence of jobs via 403 vs 404 divergence.
     from app.modules.catalog.authorization import (
         apply_visibility_filter,
+        can_view_dataset_provenance,
         get_user_roles,
     )
     from app.modules.catalog.datasets.domain.models import (
@@ -675,16 +765,21 @@ async def get_job_status_by_dataset(
     )
 
     user_roles = await get_user_roles(db, user)
+    # fix(#1860): selects the Record rather than Dataset.id because the
+    # provenance predicate below reads it. Passing the entity rather than a
+    # scalar keeps this call site correct if that predicate ever consults a
+    # second field.
     dataset_stmt = (
-        select(Dataset.id)
+        select(Record)
+        .select_from(Dataset)
         .join(Record, Dataset.record_id == Record.id)
         .where(Dataset.id == dataset_id)
     )
     dataset_stmt = apply_visibility_filter(
         dataset_stmt, user, user_roles, Record, DatasetGrant
     )
-    dataset_result = await db.execute(dataset_stmt)
-    if dataset_result.scalar_one_or_none() is None:
+    record = (await db.execute(dataset_stmt)).scalar_one_or_none()
+    if record is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found or no ingest job associated",
@@ -703,7 +798,17 @@ async def get_job_status_by_dataset(
         # page can treat it as "no warnings" without a console 404.
         return None
 
-    return await _job_to_status_response(job)
+    # fix(#1860): the gate above is a VISIBILITY check, so it admits any
+    # signed-in reader of a public or internal dataset and says nothing about
+    # whose job row this is. The job's own creator keeps the full payload, both
+    # because it is their run and because this is the route the import flow
+    # polls. Everyone else goes through the same provenance predicate
+    # ``list_dataset_refresh_runs`` applies to the identical error text, so the
+    # two doors onto that text answer the same way.
+    include_detail = job.created_by == user.id or can_view_dataset_provenance(
+        record, user, user_roles
+    )
+    return await _job_to_status_response(job, include_detail=include_detail)
 
 
 @router.post(
