@@ -62,12 +62,10 @@ _ARCGIS_SIGNIN_WINDOW = timedelta(minutes=15)
 # running when the drain gives up on it, so nothing else would.
 _SETTLE_TASKS: set[asyncio.Task] = set()
 
-# fix(#1775): how long _signin_settle_shielded will keep handing the event
-# loop a turn so its shielded audit write can finish. One local INSERT and
-# COMMIT, so a second is three orders of magnitude of headroom; the ceiling is
-# there so a database that has stopped answering cannot hold a shutting-down
-# worker open, not because the write is expected to need it.
-_SETTLE_DRAIN_SECONDS = 1.0
+# fix(#1775, #1825): the ceiling on a settle write (a rollback, then one
+# INSERT and COMMIT on a fresh connection), so a database that has stopped
+# answering cannot hold a shutting-down worker open. A loaded pool needs seconds.
+_SETTLE_DRAIN_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
