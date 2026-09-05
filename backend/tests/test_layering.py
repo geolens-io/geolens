@@ -875,6 +875,7 @@ def test_no_external_imports_of_search_private_service_modules() -> None:
         "service_semantic",
         "service_datasets",
         "service_records",
+        "service_candidates",
     }
     offenders = _private_service_import_offenders(
         package="app.modules.catalog.search",
@@ -1670,7 +1671,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#474, #475): localized ranking/eager loading plus the OGC
         # ids/externalIds filters cross the default by nine lines. Keep the
         # carve-out exact so further growth requires another review.
-        "backend/app/modules/catalog/search/service_datasets.py": 359,
+        # fix(#1855): -78. The search-only filters and the count moved into
+        # service_candidates.py, the selection facets now share. Cap 359 -> 281.
+        "backend/app/modules/catalog/search/service_datasets.py": 281,
         # Phase 1062 CR-04: +13 lines from non-expiring embed-token CSP fix
         # (or_ IS NULL predicate, _create_non_expiring_embed_token helper).
         # Cap raised from 575 → 600 to allow ~12 lines of headroom above 588.
@@ -1794,7 +1797,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # persistent-config read degrades instead of failing the search. Most of
         # the lines are the two rationales, including why verify-after-the-fact
         # was rejected. Cap 456 -> 482, exact.
-        "backend/app/modules/catalog/search/service_semantic.py": 482,
+        # fix(#1855): -71. The vector arm is resolved once into SemanticArm and
+        # counted through the shared candidate set. Cap 482 -> 411, exact.
+        "backend/app/modules/catalog/search/service_semantic.py": 411,
         # fix(#430 V-14): _replace_layers now reconciles layers by id (update-in-place
         # + create/delete) instead of delete-all-then-recreate, so a PUT preserves
         # layer UUIDs. +~35 LOC over the 350 default. Cap → 400 (~34 headroom).
@@ -5527,7 +5532,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # 1536 -> 1489, exact.
     # fix(#1778): +4 -- deterministic ORDER BY tiebreaker on the paginated
     # per-dataset OGC collections query. Cap 1489 -> 1493, exact.
-    "backend/app/modules/catalog/search/router.py": 1493,
+    # fix(#1855): -1. The facets rate-limit note shrank when the endpoint
+    # gained the SEC-S11 limiter. Cap 1493 -> 1492, exact.
+    "backend/app/modules/catalog/search/router.py": 1492,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.

@@ -87,9 +87,10 @@ def build_cache_key(
     handles ``date``/``UUID`` fields on the dataclass; ``sort_keys=True`` makes
     the digest stable across Python versions.
 
-    ``public_api_url``, ``public_app_url`` and ``semantic_enabled`` are included
-    only for the "search" endpoint — facets responses carry no URLs and do not
-    run semantic ranking, so passing ``None`` keeps facet keys stable.
+    ``public_api_url`` and ``public_app_url`` are included only for the
+    "search" endpoint, since facets responses carry no URLs. ``semantic_enabled``
+    is part of both keys: fix(#1855) made facets count over the same
+    semantic-or-lexical candidate set as the results.
     ``public_app_url`` is in the key because raster_tiles asset hrefs are built
     against the app origin (fix(#315)); a multi-origin deployment with a fixed
     PUBLIC_API_URL but request-derived PUBLIC_APP_URL would otherwise serve a
