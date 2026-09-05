@@ -2582,16 +2582,44 @@ _SEQUENCE_ARGV_SPAWNERS: dict[str, int] = {
     "execvpe": 0,
 }
 
+# fix(#1884): the keyword each callee binds its program and argv sequence to.
+# os.execv is positional-only and a keyword-bound os.execl* has the empty argv
+# execv refuses, so neither runs from a keyword spelling and neither is listed.
+_SPAWN_KEYWORDS: dict[str, tuple[str, str | None]] = {
+    "create_subprocess_exec": ("program", None),
+    "subprocess_exec": ("program", None),
+    "execve": ("path", "argv"),
+    "execvp": ("file", "args"),
+    "execvpe": ("file", "args"),
+}
 
-def _positional_argv_tool(node: ast.AST) -> tuple[str, int, bool] | None:
-    """(tool, program-argument index, whether argv follows as one sequence).
+
+def _spawn_argument(node: ast.Call, index: int, keyword: str | None) -> ast.expr | None:
+    """The argument at ``index``, or the one bound to ``keyword`` when that
+    positional slot is absent; None when neither is present."""
+    if len(node.args) > index:
+        return node.args[index]
+    if keyword is not None:
+        for kw in node.keywords:
+            if kw.arg == keyword:
+                return kw.value
+    return None
+
+
+def _positional_argv_tool(
+    node: ast.AST,
+) -> tuple[str, int, ast.expr | None] | None:
+    """(tool, program-argument index, the argv sequence of a sequence callee).
 
     Matched on the callee's terminal name, so `asyncio.create_subprocess_exec`,
     a `from asyncio import create_subprocess_exec` and `loop.subprocess_exec`
     all read the same. Looser than the identity resolution helper credit uses,
     deliberately: this side decides what to LOOK at, where a false positive
     costs a reviewed allowlist entry, while credit decides what to EXEMPT,
-    where one costs the guarantee.
+    where one costs the guarantee. The program and the sequence are read from
+    their positional slot, or from the keyword the callee binds them to when
+    the slot is absent (``create_subprocess_exec(program="ogrinfo")``). The
+    sequence is None for a varargs callee, and for a sequence callee given none.
     """
     if not isinstance(node, ast.Call):
         return None
@@ -2606,13 +2634,19 @@ def _positional_argv_tool(node: ast.AST) -> tuple[str, int, bool] | None:
     index = _SEQUENCE_ARGV_SPAWNERS.get(callee)
     if index is None:
         index = _VARARGS_ARGV_SPAWNERS.get(callee)
-    if index is None or len(node.args) <= index:
+    if index is None:
         return None
-    head = node.args[index]
+    program_keyword, sequence_keyword = _SPAWN_KEYWORDS.get(callee, (None, None))
+    head = _spawn_argument(node, index, program_keyword)
     if not isinstance(head, ast.Constant):
         return None
     tool = _gdal_cli_tool_name(head.value)
-    return None if tool is None else (tool, index, takes_sequence)
+    if tool is None:
+        return None
+    sequence = (
+        _spawn_argument(node, index + 1, sequence_keyword) if takes_sequence else None
+    )
+    return tool, index, sequence
 
 
 def _display_argv_tool(node: ast.AST, rel: str) -> str | None:
@@ -2658,15 +2692,20 @@ def _iter_argv_sites(rel: str, tree: ast.Module):
         spawn = _positional_argv_tool(node)
         if spawn is None:
             continue
-        tool, index, takes_sequence = spawn
-        if takes_sequence:
-            argv_arg = node.args[index + 1] if len(node.args) > index + 1 else None
-            if argv_arg is not None and _display_argv_tool(argv_arg, rel) is not None:
+        tool, index, sequence = spawn
+        tail: list[ast.expr] = node.args[index + 1 :]
+        if isinstance(sequence, (ast.List, ast.Tuple)):
+            if _display_argv_tool(sequence, rel) is not None:
                 # The sequence is a site in its own right, so yielding the call
                 # too would count one subprocess twice.
                 continue
+            # fix(#1884): the display's elements are the tail, so a remote
+            # literal behind a flag head is judged as it is in a headed display.
+            tail = list(sequence.elts)
+        elif sequence is not None:
+            tail = [sequence]
         # No escape test and no name-list exemption: this node is the spawn.
-        yield tool, node, node.args[index + 1 :]
+        yield tool, node, tail
 
 
 def _collect_gdal_cli_violations(
@@ -3185,6 +3224,136 @@ def test_a_sequence_the_display_rule_refuses_still_leaves_one_site():
         violations, total = collect(_fixture_modules(_SEQUENCE_SPAWN_UNHEADED), {})
         assert total == 1, f"{collect.__name__} counted {total} sites, not 1"
         assert len(violations) == 1, violations
+
+
+# fix(#1884): a keyword-bound program is an argv site like a positional one.
+_KEYWORD_PROGRAM_SPAWN = """
+import asyncio
+
+
+async def probe():
+    return await asyncio.create_subprocess_exec(program="ogrinfo")
+"""
+
+_KEYWORD_PROGRAM_SPAWN_CLAMPED = """
+import asyncio
+
+from app.processing.raster.vrt import gdal_vector_safe_env
+
+
+async def probe():
+    return await asyncio.create_subprocess_exec(
+        program="ogrinfo", env=gdal_vector_safe_env()
+    )
+"""
+
+_KEYWORD_PROGRAM_EVENT_LOOP_SPAWN = """
+import asyncio
+
+
+async def probe(loop, factory):
+    return await loop.subprocess_exec(factory, program="ogrinfo")
+"""
+
+_KEYWORD_SEQUENCE_SPAWN = """
+import os
+
+
+def probe(path):
+    os.execvp(file="ogrinfo", args=["ogrinfo", "-so", path])
+"""
+
+_KEYWORD_SEQUENCE_SPAWN_DYNAMIC = """
+import os
+
+
+def probe(cmd):
+    os.execvp(file="ogrinfo", args=cmd)
+"""
+
+
+def test_a_keyword_bound_program_is_still_the_program():
+    """fix(#1884): a keyword-bound program is one argv site for both gates,
+    reported without a safe env and passed with the vector one."""
+    for source in (_KEYWORD_PROGRAM_SPAWN, _KEYWORD_PROGRAM_EVENT_LOOP_SPAWN):
+        for collect in (
+            _collect_gdal_cli_violations,
+            _collect_vector_driver_violations,
+        ):
+            violations, total = collect(_fixture_modules(source), {})
+            assert total == 1, f"{collect.__name__} counted {total} sites, not 1"
+            assert len(violations) == 1, violations
+            assert "ogrinfo" in violations[0] and "probe" in violations[0]
+
+    violations, total = _collect_gdal_cli_violations(
+        _fixture_modules(_KEYWORD_PROGRAM_SPAWN_CLAMPED), {}
+    )
+    assert total == 1, total
+    assert not violations, violations
+
+
+def test_a_keyword_bound_sequence_counts_once():
+    """fix(#1884): a keyword-bound sequence spawn is exactly one site, whether
+    the sequence is a literal (the display) or a name (the call)."""
+    for source in (_KEYWORD_SEQUENCE_SPAWN, _KEYWORD_SEQUENCE_SPAWN_DYNAMIC):
+        for collect in (
+            _collect_gdal_cli_violations,
+            _collect_vector_driver_violations,
+        ):
+            violations, total = collect(_fixture_modules(source), {})
+            assert total == 1, f"{collect.__name__} counted {total} sites, not 1"
+            assert len(violations) == 1, violations
+
+
+# fix(#1884): a remote literal in an unheaded sequence gets no safe-env credit.
+_SEQUENCE_SPAWN_UNHEADED_REMOTE = """
+import os
+
+from app.processing.raster.vrt import gdal_vector_safe_env
+
+
+def probe():
+    env = gdal_vector_safe_env()
+    os.execve("ogrinfo", ["-so", "https://example.com/a.gpkg"], env)
+"""
+
+_SEQUENCE_SPAWN_UNHEADED_LOCAL = """
+import os
+
+from app.processing.raster.vrt import gdal_vector_safe_env
+
+
+def probe(path):
+    env = gdal_vector_safe_env()
+    os.execve("ogrinfo", ["-so", path], env)
+"""
+
+_KEYWORD_SEQUENCE_SPAWN_REMOTE = """
+import os
+
+from app.processing.raster.vrt import gdal_vector_safe_env
+
+
+def probe():
+    env = gdal_vector_safe_env()
+    os.execvpe(file="ogrinfo", args=["-so", "https://example.com/a.gpkg"], env=env)
+"""
+
+
+def test_an_unheaded_sequence_tail_is_its_elements():
+    """fix(#1884): a remote literal in an unheaded sequence gets no safe-env
+    credit, positional or keyword-bound; a local element keeps it."""
+    for source in (_SEQUENCE_SPAWN_UNHEADED_REMOTE, _KEYWORD_SEQUENCE_SPAWN_REMOTE):
+        violations, total = _collect_gdal_cli_violations(_fixture_modules(source), {})
+        assert total == 1, total
+        assert len(violations) == 1, violations
+        assert "literally-remote" in violations[0] and "#937" in violations[0]
+
+    violations, total = _collect_gdal_cli_violations(
+        _fixture_modules(_SEQUENCE_SPAWN_UNHEADED_LOCAL), {}
+    )
+    assert total == 1, total
+    assert not violations, violations
 
 
 def test_positional_argv_is_seen_by_the_vector_driver_policy():
