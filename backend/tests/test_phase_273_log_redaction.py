@@ -73,15 +73,39 @@ def test_processor_redacts_non_string_values():
     assert out["token"] == "[REDACTED]"
 
 
-def test_processor_does_not_recurse_into_nested_dicts():
-    """Documented limitation: redaction is shallow, nested dicts are not walked.
+def test_processor_recurses_into_nested_dicts():
+    """fix(#1844): the deliberate change this test's predecessor demanded.
 
-    This test pins the trade-off — if behavior changes to recursive in the
-    future, the test fails and forces a deliberate change.
+    It used to pin the opposite -- "redaction is shallow, nested dicts are not
+    walked" -- as a documented CPU trade-off, and said in its own docstring
+    that changing the behaviour should have to fail a test first. This is that
+    change, made on purpose: `structlog.stdlib.ExtraAdder()` lifts a stdlib
+    record's whole `extra` mapping into the event dict, so what sits one level
+    down is decided by third-party code, not by our own call sites. Procrastinate
+    puts the job's `task_kwargs` there, which on a default install is the wire
+    credential itself.
+
+    The trade-off did not disappear, it moved: the walk is gated on the value
+    being a container, so a flat record still costs one isinstance per field.
+    `test_processor_leaves_safe_fields_unchanged` above covers that path.
     """
     out = _redact_sensitive_fields(None, "info", {"nested": {"token": "secret"}})
-    # Top-level "nested" is not in the denylist; its inner "token" is left as-is
-    assert out == {"nested": {"token": "secret"}}
+
+    assert out == {"nested": {"token": "[REDACTED]"}}
+
+
+def test_processor_scrubs_strings_inside_a_nested_container():
+    """A nested string is scrubbed even under a key the denylist never matches.
+
+    Key redaction and pattern scrubbing are complements: Procrastinate renders
+    the same kwargs a second time into `call_string`, whose KEY is not
+    sensitive and whose VALUE is.
+    """
+    out = _redact_sensitive_fields(
+        None, "info", {"job": {"call_string": "run(token='secret')"}}
+    )
+
+    assert out["job"]["call_string"] == "run(token='[REDACTED]')"
 
 
 def test_processor_handles_empty_dict():

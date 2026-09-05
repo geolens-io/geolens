@@ -71,6 +71,19 @@ Locals are where a secret variable itself would leak regardless of any
 string scrub, so removing rich from dev closes that path too, not only the
 one the string scrub covers. Dev keeps every other `ConsoleRenderer` default
 (colours included) — only the exception formatter changed.
+
+fix(#1844): #1746 fixed the `event` string and left the STRUCTURED half of
+the same record alone, because `_redact_sensitive_fields` only ever looked at
+top-level keys. `structlog.stdlib.ExtraAdder()` lifts a stdlib record's whole
+`extra` mapping in, and third-party code decides what that mapping holds:
+Procrastinate's worker puts `context.job.log_context()` there, which is the
+job's `task_kwargs` verbatim plus a rendered `call_string` copy of the same
+kwargs. On a default install (no credential store configured) the wire
+credential IS a task kwarg, so every authenticated service import and reupload
+wrote it to the operator log twice per line, on three INFO lines, before the
+task body ran. `_redact_sensitive_fields` now walks container values through
+`redact_nested()`, which redacts denylisted keys at depth and applies the same
+`_scrub_text` to nested strings.
 """
 
 import logging
@@ -106,12 +119,29 @@ _SENSITIVE_FIELDS: frozenset[str] = frozenset(
         "authorization",
         "secret",
         "client_secret",
+        # fix(#1844): a credential-store reference is a single-use bearer
+        # capability with a TTL that the sweepers actively RENEW while the job
+        # sits `todo`, so whoever reads it out of a log line before the worker
+        # claims it can redeem it instead. It is a secret, not a correlation
+        # id, and it travels beside the token in exactly the same places.
+        "credential_ref",
     }
 )
 
 # Depth ceiling for redact_nested(). Audit payloads are two or three levels at
 # most; this only exists so a caller-supplied cyclic structure terminates.
 _MAX_REDACT_DEPTH = 8
+
+# fix(#1844): keys `_redact_sensitive_fields` must never hand to
+# `redact_nested()`. The deep walk returns a LIST for every sequence it
+# rebuilds, and `exc_info` is a `(type, value, traceback)` TUPLE that a
+# renderer downstream unpacks positionally. `format_exc_info` pops it before
+# this processor runs today, so this is a guard against a chain reordering
+# rather than a live case -- and it costs one set lookup per field. The rest
+# of `ProcessorFormatter`'s meta keys (`_record`, `_from_structlog`) need no
+# entry: a LogRecord is not a Mapping or a sequence, so the walk skips them on
+# the isinstance check anyway.
+_NEVER_WALKED_FIELDS: frozenset[str] = frozenset({"exc_info", "positional_args"})
 
 # fix(#1778): share-link and embed paths carry a bearer capability as a PATH
 # segment, so no keyed-field redactor can reach it -- `_redact_sensitive_fields`
@@ -133,13 +163,26 @@ def safe_access_log_path(path: str) -> str:
     return _CAPABILITY_PATH_RE.sub(r"\g<prefix>[REDACTED]", path, count=1)
 
 
+# fix(#1844): the names whose RENDERED value this scrub redacts. `token` has
+# been here since #1746; `credential_ref` joins it because a store reference is
+# a redeemable capability and not a correlation id (see `_SENSITIVE_FIELDS`).
+# Both are matched under a word boundary, so `token_hint=` and a hypothetical
+# `credential_reference=` still do not match: a boundary never falls between
+# two word characters, so a name that merely CONTAINS one of these as a
+# sub-word is left alone.
+#
+# Only a QUOTED value is redacted, which is what keeps the operator signal the
+# #1746 note below wanted: `Job.call_string` renders `None` unquoted, so
+# `credential_ref=None` stays legible and `credential_ref='...'` becomes
+# `credential_ref='[REDACTED]'`. "Was a credential attached to this job" is
+# still answerable from the log; "which one" is not.
+_REDACTED_REPR_NAMES: tuple[str, ...] = ("token", "credential_ref")
+_REPR_NAME_ALTERNATION = "|".join(_REDACTED_REPR_NAMES)
+
 # fix(#1746): catches a token value rendered either as a Python dict repr
 # (`{'token': 'abc', ...}`) or as `key=value!r` keyword arguments — the shape
 # `Job.call_string` actually produces, e.g.
-# `ingest_service[1270](token='abc', credential_ref=None)`. `\btoken\b`
-# excludes `credential_ref=` and `token_hint=`: a word boundary never falls
-# between "n" and "_", so a name that merely CONTAINS "token" as a sub-word
-# never matches either branch.
+# `ingest_service[1270](token='abc', credential_ref=None)`.
 #
 # fix(#1746 codex r3): the value body is `(?:\\.|[^\\])*?`, not a bare `.*?`.
 # `repr()` of a string containing BOTH quote styles picks one as the
@@ -160,11 +203,13 @@ def safe_access_log_path(path: str) -> str:
 # leaves exactly one way to consume each character, so an unterminated match
 # fails in time linear in the input length instead.
 _TOKEN_VALUE_RE = re.compile(
-    r"""
+    rf"""
     (?:
-        (?P<dq>['\"])token(?P=dq)\s*:\s*(?P<dv>['\"])(?:\\.|[^\\])*?(?P=dv)
+        (?P<dq>['\"])(?P<dname>{_REPR_NAME_ALTERNATION})(?P=dq)
+        \s*:\s*(?P<dv>['\"])(?:\\.|[^\\])*?(?P=dv)
       |
-        \btoken\b\s*=\s*(?P<kv>['\"])(?:\\.|[^\\])*?(?P=kv)
+        \b(?P<kname>{_REPR_NAME_ALTERNATION})\b
+        \s*=\s*(?P<kv>['\"])(?:\\.|[^\\])*?(?P=kv)
     )
     """,
     re.VERBOSE,
@@ -177,9 +222,10 @@ def _redact_token_value_repr(value: str) -> str:
     def _sub(match: re.Match[str]) -> str:
         if match.group("dq") is not None:
             quote, value_quote = match.group("dq"), match.group("dv")
-            return f"{quote}token{quote}: {value_quote}[REDACTED]{value_quote}"
+            name = match.group("dname")
+            return f"{quote}{name}{quote}: {value_quote}[REDACTED]{value_quote}"
         value_quote = match.group("kv")
-        return f"token={value_quote}[REDACTED]{value_quote}"
+        return f"{match.group('kname')}={value_quote}[REDACTED]{value_quote}"
 
     return _TOKEN_VALUE_RE.sub(_sub, value)
 
@@ -278,14 +324,31 @@ def _scrub_text(value: str) -> str:
 def _redact_sensitive_fields(
     _logger: Any, _method_name: str, event_dict: MutableMapping[str, Any]
 ) -> MutableMapping[str, Any]:
-    """Redact top-level event_dict values whose key is in the denylist.
+    """Redact event_dict values whose key is in the denylist.
 
     Case-insensitive on key. Replaces the value with the literal string
     "[REDACTED]" regardless of original type (str / int / dict / etc.).
-    Shallow only — does not recursively walk nested dicts. This is a
-    deliberate trade-off: structlog idiomatic usage logs flat key/value
-    pairs; recursing would amplify the redactor's CPU cost on every log
-    line.
+
+    fix(#1844): a value that is itself a CONTAINER goes through
+    `redact_nested()` instead of being emitted verbatim. Shallowness used to be
+    the documented trade-off here -- structlog's idiomatic usage is flat
+    key/value pairs, and recursing costs CPU on every line -- but
+    `structlog.stdlib.ExtraAdder()` (see `setup_logging`) lifts a stdlib
+    record's whole `extra` mapping into this event dict, and a third-party
+    library decides what goes in there. Procrastinate's worker sets
+    `extra["job"] = context.job.log_context()` on `Loaded job info`,
+    `Starting job` and every outcome line, and `log_context()` is `asdict()`
+    plus `call_string`, so it carries the job's `task_kwargs` verbatim AND a
+    second rendered copy. On the service-import and reupload paths those
+    kwargs are the wire credential itself whenever no credential store is
+    configured, which is the default install. The `event` half of those three
+    lines has been scrubbed since #1746; the `job` half was not, twice per
+    line. It leaks before the task body runs, so nothing the task itself does
+    can help.
+
+    The walk is gated on the value actually being a container, so a flat
+    record -- every request-path line -- still costs one `isinstance` per
+    field and nothing else. `redact_nested()` keeps its own depth ceiling.
 
     fix(#1746): the key-based loop above only ever sees STRUCTURED fields, so
     it cannot catch a secret embedded in the rendered MESSAGE STRING itself —
@@ -306,6 +369,12 @@ def _redact_sensitive_fields(
     for key in list(event_dict.keys()):
         if key.lower() in _SENSITIVE_FIELDS:
             event_dict[key] = "[REDACTED]"
+            continue
+        value = event_dict[key]
+        if key in _NEVER_WALKED_FIELDS:
+            continue
+        if isinstance(value, (Mapping, list, tuple, set)):
+            event_dict[key] = redact_nested(value)
     event = event_dict.get("event")
     if isinstance(event, str):
         event_dict["event"] = _scrub_text(event)
@@ -316,25 +385,33 @@ def _redact_sensitive_fields(
 
 
 def redact_nested(value: Any, _depth: int = 0) -> Any:
-    """Deep-redact denylisted keys in a nested payload.
+    """Deep-redact denylisted keys and scrub nested strings in a payload.
 
-    The processor above is shallow on purpose: it runs on every log line and
-    recursing there would put the walk in the hot path. This is the opt-in
-    counterpart for a payload that is known to be nested AND known to be worth
-    the cost, which today means the audit event logged when a sink drops it
-    (fix(#1491)).
+    Two callers, one policy. ``platform/audit.py`` uses it for the audit event
+    logged when a sink drops a row (fix(#1491)): ``persistent_config`` puts
+    ``old_value``/``new_value`` into ``details``, and a ``basemaps`` setting
+    carries an ``api_key`` inside a basemap entry — nested two levels down,
+    where a shallow pass cannot see it, and ``details`` is not itself a
+    denylisted key. ``_redact_sensitive_fields`` uses it for any container that
+    reaches the event dict, which is how a third-party library's stdlib
+    ``extra`` gets covered (see that function for the Procrastinate case).
 
-    That path needs it. ``persistent_config`` puts ``old_value``/``new_value``
-    into ``details``, and a ``basemaps`` setting carries ``api_key`` inside a
-    basemap entry — nested two levels down, where the shallow pass cannot see
-    it. ``details`` is not itself a denylisted key, so without this the whole
-    payload was emitted verbatim, and precisely during an audit failure.
+    fix(#1844): every nested ``str`` also goes through ``_scrub_text``, the
+    same scrub ``event`` and ``exception`` already get. A denylisted KEY is not
+    the only way a credential travels inside a container: Procrastinate renders
+    the job's kwargs a second time into ``call_string``, under a key
+    (``call_string``) that is not sensitive and holds a value that is. Key
+    redaction cannot reach the copy inside a string, and pattern scrubbing
+    cannot reach a value stored under a key it does not recognise, so the two
+    passes are complements rather than alternatives.
 
-    Depth is capped because ``details`` is caller-supplied and need not be
+    Depth is capped because a payload here is caller-supplied and need not be
     JSON-derived; a self-referencing structure would otherwise not terminate.
     """
     if _depth >= _MAX_REDACT_DEPTH:
         return "[TRUNCATED]"
+    if isinstance(value, str):
+        return _scrub_text(value)
     if isinstance(value, Mapping):
         return {
             key: (
