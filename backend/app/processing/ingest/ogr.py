@@ -282,10 +282,21 @@ def _sanitize_authorization_token(
     # covered). Without this, the whole worker service-import path relied on
     # the two explicit `scrub_secret_from_exception` calls and nothing else
     # -- no log line this function's own caller emits was scrubbed by exact
-    # value. Registers the VALUE (`Bearer <token>`/`Basic <blob>`/a named
-    # key's own value), never `name`: the header name is not the secret and
-    # is often a word ("Authorization") worth leaving visible in a log.
-    register_credential_secret(value)
+    # value.
+    #
+    # fix(#1844): registers the LINE, not the value. Round 49 registered
+    # `value` to keep the header NAME out of the registry, on the reasoning
+    # that "Authorization" is a word worth leaving visible in a log. That goal
+    # was right and the mechanism was the wrong half: `_secret_variants`
+    # (`core/url_redaction.py`) derives the bare token, the basic blob and the
+    # decoded `user:pass` cleartext only from a secret that CONTAINS `": "`,
+    # so registering `Bearer <tok>` expanded to nothing and the worker -- the
+    # one process that spends the credential against a hostile origin -- could
+    # not scrub the bare token an origin echoes back, nor the username an
+    # origin names in "authentication failed for user alice". Registering the
+    # line expands to every shape and still never yields the bare word
+    # `Authorization`, because the tail always starts after the `": "`.
+    register_credential_secret(header_line)
     if not value.startswith(BEARER_SCHEME):
         return header_line
 
