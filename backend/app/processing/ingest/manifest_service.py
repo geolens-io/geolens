@@ -733,8 +733,14 @@ async def _reserve_entry(
         user_metadata=metadata,
     )
     db.add(job)
-    await db.flush()
-    await db.commit()
+    try:
+        await db.flush()
+        await _commit_reservation(db)
+    except BaseException as exc:
+        adopted = await _adopt_committed_reservation(db, job, exc)
+        if adopted is None:
+            raise
+        job = adopted
     return _ReservedEntry(
         job=job,
         prepared=prepared,
@@ -742,6 +748,36 @@ async def _reserve_entry(
         max_size_bytes=max_size_bytes,
         quota_byte_limit=quota_byte_limit,
     )
+
+
+async def _adopt_committed_reservation(
+    db: AsyncSession, job: IngestJob, exc: BaseException
+) -> IngestJob | None:
+    """Adopt a reservation whose insert was durable but unacknowledged.
+
+    fix(#1814): the row decides, as at the staging bind. A landed insert is this
+    request's own reservation and holds the key, so it is adopted; anything else
+    releases through the running fence first.
+    """
+    job_id = job.id
+    await reset_session_for_settlement(job, db=db)
+    try:
+        landed = await db.get(IngestJob, job_id, populate_existing=True)
+    except Exception:  # broad: an unreadable row is the ambiguous case
+        landed = None
+    if landed is not None and landed.status == "running":
+        return landed
+    await _fail_reservation(db, job, exc)
+    return None
+
+
+async def _commit_reservation(db: AsyncSession) -> None:
+    """The commit that publishes the reservation, as a named seam.
+
+    fix(#1814): a test cannot ask a real session for the ambiguous shape,
+    durable in PostgreSQL and raising on the acknowledgement.
+    """
+    await db.commit()
 
 
 async def _commit_staged_bind(db: AsyncSession) -> None:
@@ -905,11 +941,9 @@ async def _reserve_or_settle_entry(
 ) -> ManifestApplyEntryResult | _ReservedEntry:
     """The locked half of one entry: classify, then either answer or reserve.
 
-    A result means the entry is answered from what the key already holds; a
-    reservation means the caller owns the key until it stages or settles that
-    row. fix(#1814): every exit ends the transaction, by committing even on the
-    answered paths, so the key lock is never held across the next entry's
-    download and the staleness settlement is not thrown away.
+    A result answers the entry from what the key already holds; a reservation
+    means the caller owns the key until it stages or settles that row.
+    fix(#1814): every exit commits, so no key lock outlives the entry.
     """
     (
         classification,

@@ -2529,19 +2529,10 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     generated). Leaving them was the worse option — a reader who trusts a
 #     stale precondition unwinds the wrong defence.
 _MODULE_LOC_CAPS: dict[str, int] = {
-    # fix(#1814): first entry, crossed _RATCHET_INCLUSION_LOC when the manifest
-    # apply started reserving an entry's key before fetching its source. The
-    # growth is the reserve/stage/bind split of what used to be one
-    # create-and-queue function, the two settlement exits the split needs (a
-    # reservation is `running`, a bound row is `pending`, and the shared
-    # settlement fences on the latter), the quota preflight moving ahead of the
-    # reservation, and the staging deadline that keeps a download inside the
-    # lease it is judged by.
-    # fix(#1814 review): +12. The staging bind's commit is ambiguous on an
-    # acknowledgement loss, so its settlement re-reads the row instead of
-    # deciding from the exception, behind a named commit seam a test can make
-    # durable-then-raising. Cap 1056 -> 1068, exact.
-    "backend/app/processing/ingest/manifest_service.py": 1068,
+    # fix(#1814): first entry. The lines bought the reserve/stage/bind split of
+    # one create-and-queue function, its two fenced settlement exits, the quota
+    # preflight, the staging deadline, and the ambiguous-commit re-reads.
+    "backend/app/processing/ingest/manifest_service.py": 1102,
     # fix(#1770 round 43 P1): crossed _RATCHET_INCLUSION_LOC on the XML
     # streaming preflight (`_xml_preflight`, `MAX_DOCUMENT_ATTRIBUTES`,
     # `MAX_DOCUMENT_DEPTH`) that closes the attribute-bomb/deep-nesting-bomb/

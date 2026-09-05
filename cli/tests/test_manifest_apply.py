@@ -325,17 +325,12 @@ class TestResolveApplyTimeout:
 
 class TestManifestApplyTimeoutReporting:
     """fix(#1778 review round 18) parts (b)/(c), corrected by #1814: the
-    timeout path must be unambiguous -- the server keeps applying after
-    the CLI gives up, and an entry it has already queued or completed is
-    skipped on a later re-apply. Round 19 had to add that an entry still
-    downloading when the timeout hit had no job row yet, so an immediate
-    re-apply could queue it twice; #1814 reserves that row before the
-    download, so the re-apply attaches to it instead. The message says
-    what a re-apply does and still makes no blanket safety claim. A
-    dry-run follow-up on the SAME endpoint (no new status/job-listing
-    endpoint -- out of scope, no async job mode), bounded by a short
-    fixed timeout regardless of entry count (round 19 P2), reports which
-    entries the server had already reached, best-effort."""
+    timeout path must be unambiguous. The server keeps applying after the
+    CLI gives up, and #1814 reserves an entry's row before downloading its
+    source, so a re-apply attaches rather than queueing it twice. A dry-run
+    follow-up on the SAME endpoint, bounded by a short fixed timeout
+    regardless of entry count (round 19 P2), reports which entries the
+    server had already reached, best-effort."""
 
     def _timing_out_client(self) -> FakeSdkClient:
         client = FakeSdkClient(FakeResponse(200, _apply_response()))
@@ -378,12 +373,9 @@ class TestManifestApplyTimeoutReporting:
     def test_timeout_message_explains_what_a_re_apply_does_not_blanket_safety(
         self,
     ) -> None:
-        """fix(#1814): the server records an entry before downloading its
-        source, so the message must say a re-run attaches to an entry
-        still being staged rather than warning it can queue it twice. It
-        must still give actionable advice (dry-run first) and must NOT
-        claim blanket idempotency/safety, which is the round-18
-        overclaim."""
+        """fix(#1814): the message must say a re-run attaches to an entry still
+        being staged, give actionable advice (dry-run first), and make no
+        blanket idempotency claim, which is the round-18 overclaim."""
         from geolens_cli.manifest_apply import (
             ManifestApplyTimeout,
             build_apply_timeout_message,
@@ -1042,14 +1034,10 @@ def test_apply_command_reports_timeout_with_truthful_guidance_and_status_check(
     tmp_xdg_home,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """fix(#1778 review round 18) end-to-end, corrected by round 19: the
-    `apply` command's own timeout handling (not just
-    post_manifest_apply()) prints the in-flight-download-window
-    guidance and renders the dry-run follow-up's status, rather than
-    the old bare "Request timed out" -- and no longer claims an
-    immediate re-run is unconditionally safe/idempotent (round 18 did;
-    it wasn't true). fix(#1814): the guidance now says a re-run attaches
-    to an entry still being staged."""
+    """fix(#1778 review round 18) end-to-end: the `apply` command's own
+    timeout handling prints the guidance and renders the dry-run follow-up's
+    status, rather than the old bare "Request timed out". fix(#1814): that
+    guidance now says a re-run attaches to an entry still being staged."""
     status_response = _apply_response(
         results=[
             {"dataset_key": "roads", "action": "skip", "message": "skip_complete"}

@@ -548,6 +548,91 @@ class TestReservationFailureReleasesTheKey:
         assert retried.results[0].action == "create"
         queue.assert_awaited_once()
 
+    async def test_a_durable_reservation_whose_commit_raises_is_adopted(
+        self, test_db_session, clean_tables
+    ):
+        """fix(#1814): the reservation insert is ambiguous too.
+
+        A durable insert whose acknowledgement is lost used to leave a running
+        row holding the key with nothing that would ever stage or queue it, and
+        every re-apply reported skip until the lease expired.
+        """
+        _stage_fixture()
+        user = await _admin_user(test_db_session)
+        request = _request(_manifest_dataset(key="manifest-1814-adopt"))
+
+        async def _durable_then_raise(db) -> None:
+            await db.commit()
+            raise RuntimeError("acknowledgement lost")
+
+        with (
+            patch(
+                "app.processing.ingest.manifest_service._commit_reservation",
+                new=_durable_then_raise,
+            ),
+            patch(
+                "app.processing.ingest.manifest_service.queue_ingest_job",
+                new=AsyncMock(),
+            ) as queue,
+        ):
+            response = await apply_manifest(
+                test_db_session, request, user, _http_request()
+            )
+
+        # Adopted, so the entry finishes rather than stranding its key.
+        assert response.results[0].action == "create"
+        queue.assert_awaited_once()
+
+        rows = await _jobs_for_key(test_db_session, "manifest-1814-adopt")
+        assert len(rows) == 1
+        assert rows[0].status == "pending"
+        assert rows[0].file_path is not None
+        assert MANIFEST_STAGE_METADATA_KEY not in rows[0].user_metadata
+
+    async def test_a_reservation_that_never_landed_leaves_the_key_free(
+        self, test_db_session, clean_tables
+    ):
+        """The other side of the same branch: nothing durable, nothing held."""
+        _stage_fixture()
+        user = await _admin_user(test_db_session)
+        request = _request(_manifest_dataset(key="manifest-1814-not-landed"))
+
+        async def _rollback_then_raise(db) -> None:
+            await db.rollback()
+            raise RuntimeError("connection reset")
+
+        with (
+            patch(
+                "app.processing.ingest.manifest_service._commit_reservation",
+                new=_rollback_then_raise,
+            ),
+            patch(
+                "app.processing.ingest.manifest_service.queue_ingest_job",
+                new=AsyncMock(),
+            ) as queue,
+        ):
+            response = await apply_manifest(
+                test_db_session, request, user, _http_request()
+            )
+
+        assert response.results[0].action == "error"
+        assert "connection reset" in response.results[0].message
+        queue.assert_not_awaited()
+        assert await _jobs_for_key(test_db_session, "manifest-1814-not-landed") == []
+
+        with patch(
+            "app.processing.ingest.manifest_service.queue_ingest_job",
+            new=AsyncMock(),
+        ) as queue:
+            retried = await apply_manifest(
+                test_db_session,
+                request,
+                await _admin_user(test_db_session),
+                _http_request(),
+            )
+        assert retried.results[0].action == "create"
+        queue.assert_awaited_once()
+
     async def test_a_durable_bind_whose_commit_raises_keeps_its_bytes(
         self, test_db_session, clean_tables
     ):
@@ -698,12 +783,9 @@ class TestReservationFailureReleasesTheKey:
 class TestStaleReservations:
     """The reservation runs under the fixed running lease, not the pending one.
 
-    fix(#1814 audit): a committed `pending` row with no file_path and no queue
-    task matches every clause of `stale_pending_clauses`, and
-    `pending_job_timeout_seconds` may legally be 61s while a manifest download
-    has no wall-clock bound of its own. The reservation was therefore reapable
-    mid-flight by the sweep, the worker's startup recovery, the status poll and
-    the next apply, and every retry repeated the loss.
+    fix(#1814): a pending row with no file_path and no queue task is reapable by
+    four actors while its source is still downloading, and
+    `pending_job_timeout_seconds` may legally be 61s. The fixed lease is not.
     """
 
     def _reservation(self, user, dataset, prepared, *, age_seconds: float) -> IngestJob:
@@ -924,10 +1006,9 @@ class TestStaleReservations:
 class TestFencedWritesAreSingleStatements:
     """One fenced UPDATE per transition, not a fenced one plus an ORM flush.
 
-    fix(#1814): the instance has to describe the row after a fenced write, but
-    plain assignment marks it dirty and the caller's own commit then flushes a
-    second, unfenced update over the fenced one. `set_committed_value` writes
-    the attribute as already-committed state instead.
+    fix(#1814): the instance must describe the row after a fenced write, but
+    plain assignment marks it dirty and the caller's commit then flushes a
+    second, unfenced update. `set_committed_value` writes committed state.
     """
 
     async def test_the_staging_bind_emits_one_update(

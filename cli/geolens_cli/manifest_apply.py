@@ -466,15 +466,9 @@ def build_apply_timeout_message(exc: ManifestApplyTimeout) -> str:
     ``manifest_dataset_fingerprint`` — and reports ``skip_complete``
     for a matching fingerprint instead of reprocessing it).
 
-    fix(#1814): the window round 19 had to warn about is closed. The
-    server reserves an entry's ``IngestJob`` row BEFORE fetching its
-    source, under a lock on the manifest key, so an entry that was
-    mid-download when this timeout hit is already visible as in flight.
-    A re-apply of the same manifest attaches to that job and reports it
-    as a skip instead of downloading and queueing the entry a second
-    time. The message says what a re-apply does; it still makes no
-    blanket safety claim, because an entry the server had not yet
-    reached is simply applied on the re-run.
+    fix(#1814): the server reserves an entry's ``IngestJob`` row BEFORE
+    fetching its source, so a re-apply attaches to one still being staged.
+    The message says that, and still makes no blanket safety claim.
 
     fix(#1778 review round 21): the ``budget`` this timeout used is
     only ever a HEURISTIC LOWER BOUND (see

@@ -44,10 +44,9 @@ def downloading_stage_marker() -> dict[str, str]:
 async def lock_manifest_key(db: AsyncSession, key: str) -> None:
     """Serialize check-and-reserve for one manifest key.
 
-    Transaction-scoped, and blocking: the section it guards is bounded by
+    fix(#1814): transaction-scoped and blocking, guarding a section bounded by
     database work alone. The caller must end its transaction before any network
-    I/O and before the next entry, or two manifests naming the same two keys in
-    opposite order deadlock on each other (fix(#1814)).
+    I/O and before the next entry, or two manifests deadlock on two keys.
     """
     await db.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
@@ -72,10 +71,8 @@ async def latest_in_flight_manifest_job(db: AsyncSession, key: str) -> IngestJob
 def _reservation_lease_clauses(now: datetime, key: str) -> tuple:
     """Every predicate that identifies an abandoned reservation for ``key``.
 
-    fix(#1814): the running sweep's own predicate (`jobs/sweep.py`,
-    `status='running'` past ``coalesce(heartbeat_at, started_at)`` plus
-    ``JOB_TIMEOUT_SECONDS``), narrowed to one key's downloading stage, so the
-    sweep and the in-flight check cannot disagree about which rows are live.
+    fix(#1814): the running sweep's own predicate, narrowed to one key's
+    downloading stage, so the two cannot disagree about which rows are live.
     """
     return (
         IngestJob.status == "running",
@@ -179,10 +176,9 @@ async def release_manifest_reservation(
 ) -> bool:
     """Fenced running -> failed for a reservation that never staged its source.
 
-    fix(#1814): the shared ``settle_ingest_job_failed`` fences on ``pending``,
-    which a reservation is not until it binds, so the lease has its own exit. The
-    trap: ``user_metadata`` is not mirrored, because reading it after the reset is
-    a lazy load.
+    fix(#1814): the shared settlement fences on ``pending``, which a reservation
+    is not until it binds, so the lease has its own exit. The trap:
+    ``user_metadata`` is not mirrored, because reading it after a reset queries.
     """
     now = now or datetime.now(timezone.utc)
     result = await db.execute(
