@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useUpdateDataset } from '@/components/dataset/hooks/use-dataset';
@@ -46,6 +46,18 @@ export function useDraftEditing({ datasetId, dataset, isGeometryEditDirty }: Use
   // that just-staged field, whereas the callback's pendingDrafts closure does not
   // and used to drop it (then setPendingDrafts({}) discarded it for good).
   const pendingDraftsRef = useRef<PendingDrafts>({});
+
+  // fix(#1851): DatasetPage stays mounted across a route change from one
+  // dataset's edit view to another — only `datasetId` changes, not the
+  // component instance — so without this, staged drafts for dataset A
+  // survived into dataset B's render and a subsequent Save PATCHed them onto
+  // B. Reset every time the id changes, including into this hook's first
+  // render for a given id.
+  useEffect(() => {
+    setPendingDrafts({});
+    pendingDraftsRef.current = {};
+    setDirtyFields(new Set());
+  }, [datasetId]);
 
   const stagePendingDraft = useCallback(
     (field: PendingDraftField, value: string) => {

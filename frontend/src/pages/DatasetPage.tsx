@@ -725,7 +725,16 @@ export function DatasetPage() {
             <AlertDialogCancel onClick={() => blocker.reset?.()}>
               {t('unsaved.stay', { defaultValue: 'Stay' })}
             </AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={() => blocker.proceed?.()}>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                // fix(#1851): "Leave" claimed to discard but only navigated —
+                // the staged drafts stayed in state and reappeared (then could
+                // PATCH) on whatever mounted next.
+                discardPendingDrafts();
+                blocker.proceed?.();
+              }}
+            >
               {t('unsaved.leave', { defaultValue: 'Leave' })}
             </AlertDialogAction>
           </AlertDialogFooter>
