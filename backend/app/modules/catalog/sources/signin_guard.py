@@ -39,9 +39,9 @@ from fastapi import HTTPException, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.audit.models import AuditLog
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.catalog.sources.arcgis_signin import (
-    AUDIT_CANCELLED,
     AUDIT_CONCURRENT,
     AUDIT_RATE_LIMITED,
     UNCOUNTED_SIGNIN_RESULTS,
@@ -62,7 +62,7 @@ _ARCGIS_SIGNIN_WINDOW = timedelta(minutes=15)
 # running when the drain gives up on it, so nothing else would.
 _SETTLE_TASKS: set[asyncio.Task] = set()
 
-# fix(#1775): how long _signin_settle_cancelled will keep handing the event
+# fix(#1775): how long _signin_settle_shielded will keep handing the event
 # loop a turn so its shielded audit write can finish. One local INSERT and
 # COMMIT, so a second is three orders of magnitude of headroom; the ceiling is
 # there so a database that has stopped answering cannot hold a shutting-down
@@ -109,6 +109,7 @@ async def _signin_audit(
     note: str | None = None,
     *,
     reserved: bool = False,
+    attempt_id: uuid.UUID | None = None,
 ) -> None:
     """Record one sign-in attempt: who, which portal, which account, what happened.
 
@@ -144,6 +145,10 @@ async def _signin_audit(
                 # counted on, and it is the only trace of which ArcGIS account
                 # was addressed that survives the request.
                 "account_key": target.account_key,
+                # fix(#1825 codex r1): the reservation this outcome settles.
+                # Nothing else links the two, so nothing else can tell a
+                # retry of one attempt from a second attempt.
+                **({"attempt_id": str(attempt_id)} if attempt_id else {}),
                 # fix(#1758 codex r9): present only when discovery turned up
                 # something an operator should see, so the common row keeps
                 # its shape.
@@ -274,8 +279,11 @@ async def _signin_reserve(
     user_id: uuid.UUID,
     target: SignInTarget,
     note: str | None = None,
-) -> None:
+) -> uuid.UUID:
     """Spend one attempt DURABLY, in one short transaction, before any password moves.
+
+    Returns the ledger row's id, which the settle writes carry so one attempt
+    cannot end up with two audit rows.
 
     fix(#1775): this is the whole of the issue's shape. Take both locks, read
     both budgets, insert the ledger row, commit. Everything in that sentence
@@ -320,6 +328,9 @@ async def _signin_reserve(
     the budget's own ceiling, still strictly below the five failures Esri
     locks an account on.
     """
+    # Client-side rather than the column default: the caller needs the id and
+    # a server default would cost a flush and a read back to learn it.
+    reservation_id = uuid.uuid4()
     async with _signin_locks(
         db, f"user:{user_id}:host:{target.host}", f"account:{target.account_key}"
     ) as locked:
@@ -329,19 +340,41 @@ async def _signin_reserve(
             await _signin_refusal(db, user_id, target, _signin_rate_limited(), note)
         db.add(
             ArcGISSignInAttempt(
-                account_key=target.account_key, user_scope=target.user_scope
+                id=reservation_id,
+                account_key=target.account_key,
+                user_scope=target.user_scope,
             )
         )
         await _sweep_expired_signin_attempts(db)
         await db.commit()
+    return reservation_id
 
 
-async def _write_cancelled_outcome(
+async def _settled_already(session: AsyncSession, attempt_id: uuid.UUID) -> bool:
+    """Whether this reservation already has its audit row.
+
+    fix(#1825): an interrupted commit is ambiguous, so the finaliser looks
+    before it writes or one attempt ends up with two rows.
+    """
+    found = await session.scalar(
+        select(AuditLog.id)
+        .where(
+            AuditLog.action == "arcgis_signin",
+            AuditLog.details["attempt_id"].astext == str(attempt_id),
+        )
+        .limit(1)
+    )
+    return found is not None
+
+
+async def _write_settled_outcome(
     user_id: uuid.UUID,
     target: SignInTarget,
+    result: str,
     note: str | None = None,
+    attempt_id: uuid.UUID | None = None,
 ) -> None:
-    """Write the cancelled attempt's audit row on a session of its OWN.
+    """Write one settled attempt's audit row on a session of its OWN.
 
     fix(#1775 audit): NOT the request's session. The caller below stops
     waiting at a deadline and the route then re-raises, so FastAPI runs
@@ -360,8 +393,12 @@ async def _write_cancelled_outcome(
     from app.core.db import async_session
 
     async with async_session() as session:
+        if attempt_id is not None and await _settled_already(session, attempt_id):
+            return
+        # `reserved=True` unconditionally: every caller of this reaches it
+        # after `_signin_reserve` committed, so the ledger row already exists.
         await _signin_audit(
-            session, user_id, target, AUDIT_CANCELLED, note, reserved=True
+            session, user_id, target, result, note, reserved=True, attempt_id=attempt_id
         )
 
 
@@ -388,79 +425,64 @@ def _settle_failure(settle: asyncio.Future) -> str | None:
     return None if exc is None else type(exc).__name__
 
 
-async def _signin_settle_cancelled(
+async def _drain_shielded(coro, deadline: float) -> asyncio.Future:
+    """Run *coro* under a shield until it finishes or *deadline* passes.
+
+    The caller is inside ``except asyncio.CancelledError`` and every request
+    runs under an anyio cancel scope that re-arms cancellation on every await,
+    so the shield keeps the work alive and the loop is what waits for it: one
+    shielded await per event-loop turn until the work lands or time runs out.
+
+    Returns the future, so a caller can read the outcome. Holds a strong
+    reference throughout, because the event loop keeps only a weak one, and
+    cancels at the ceiling rather than leaving the work unbounded.
+    """
+    task = asyncio.ensure_future(coro)
+    _SETTLE_TASKS.add(task)
+    task.add_done_callback(_SETTLE_TASKS.discard)
+    loop = asyncio.get_running_loop()
+    while not task.done() and loop.time() < deadline:
+        with contextlib.suppress(BaseException):  # broad: the loop decides
+            await asyncio.shield(task)
+    if not task.done():
+        task.cancel()
+    return task
+
+
+async def _signin_settle_shielded(
     user_id: uuid.UUID,
     target: SignInTarget,
+    result: str,
     note: str | None = None,
+    *,
+    attempt_id: uuid.UUID | None = None,
+    release: AsyncSession | None = None,
 ) -> None:
-    """Record the outcome of an attempt whose credential POST was cancelled.
+    """Record *result* for an attempt whose settlement a cancellation cut short.
 
-    fix(#1775): a shielded finaliser rather than a bare ``finally``, and the
-    distinction matters in both directions.
+    Best effort, and deliberately so: the ledger row is already durable, and
+    what is missing after a cancellation is the operator-facing half. A
+    failure here is logged and swallowed rather than replacing a cancellation
+    with a database error.
 
-    Why a finaliser at all, when the count is already durable: the ledger row
-    was committed by :func:`_signin_reserve` before the POST, so the budget is
-    correct whether or not this ever runs. What is missing after a cancellation
-    is the OPERATOR-facing half — the audit row that says a password went to
-    this token service on this caller's say-so. Silence there reads as "no
-    attempt", which is the one thing that is not true.
+    *release* is the request's session, rolled back first so this write does
+    not queue behind a connection FastAPI has not torn down yet. *attempt_id*
+    is the reservation, and a row already carrying it means an interrupted
+    commit landed after all, so nothing is written.
 
-    Why a shield rather than a plain await, and why the loop. The caller
-    reaches here from ``except asyncio.CancelledError``, and a plain await
-    would simply be cancelled again. Measured rather than assumed: a bare
-    ``await asyncio.shield(...)`` here returns ``CancelledError``, not the
-    written row. Every request runs as a child of the anyio task group each
-    ``BaseHTTPMiddleware`` layer starts the downstream app in
-    (``task_group.start_soon(coro)``, middleware/base.py:148), and an anyio
-    cancel scope re-arms cancellation on EVERY await a task makes inside it
-    while the scope is cancelled. The same call under a bare
-    ``asyncio.Task.cancel()``, with no middleware, completes first time. So
-    the shield is necessary and not sufficient: it keeps the write itself
-    alive across those re-arms, and the loop is what waits for it.
-
-    The loop is a bounded drain, not a spin. Each pass awaits, so each pass
-    hands the event loop a turn and the shielded write is what makes progress;
-    it ends the moment that write finishes, and a wall-clock deadline ends it
-    anyway. One local INSERT and COMMIT is milliseconds against a one-second
-    ceiling, and this runs at most once per request still in flight when a
-    worker shuts down.
-
-    Why not a ``finally`` covering all three outcomes: success and a classified
-    refusal have to raise or return through their own paths, and the
-    single-exit refusal helper #1758 built (:func:`_signin_refusal`) would have
-    to be unpicked to route them through one block, for no gain.
-
-    Still best effort, and it says so by swallowing. The database may be
-    unreachable under a shutting-down worker, and there is nothing useful to do
-    about that from inside a cancelled request; re-raising would only replace a
-    cancellation with a database error. Durability lives in the reservation.
+    Everything runs under one ceiling. A rollback that cannot finish spends
+    it, and the write is then abandoned with a warning.
     """
     loop = asyncio.get_running_loop()
     deadline = loop.time() + _SETTLE_DRAIN_SECONDS
-    settle = asyncio.ensure_future(_write_cancelled_outcome(user_id, target, note))
-    # fix(#1775 audit): the event loop keeps only a WEAK reference to a task,
-    # so a settle this function stops awaiting at the deadline could be
-    # collected mid-write. Held here until it finishes, whichever way it
-    # finishes, which is also what keeps the abandoned case a task that
-    # completes rather than one that vanishes.
-    _SETTLE_TASKS.add(settle)
-    settle.add_done_callback(_SETTLE_TASKS.discard)
-    while not settle.done() and loop.time() < deadline:
-        # One shield future per event-loop turn, which is the price of
-        # surviving anyio's re-arm and is only paid while a re-arm is
-        # happening: with no cancel scope re-arming this awaits ONCE and
-        # blocks there until the write finishes. Every outcome is handled by
-        # the loop condition rather than here — a completed write ends it, a
-        # failed one ends it with `settle.done()` true and is reported below,
-        # and a re-armed cancellation is the thing this exists to absorb.
-        with contextlib.suppress(BaseException):  # broad: the loop decides
-            await asyncio.shield(settle)
-    if not settle.done():
-        # fix(#1775 audit): the task keeps a session of its own, so leaving it
-        # to unwind after this returns cannot fault against a session somebody
-        # else closed. Cancelling is still right: a write that lands after the
-        # request is gone is a row nobody is waiting for.
-        settle.cancel()
+    if release is not None:
+        # fix(#1825 codex r1): the request session owns its connection until
+        # FastAPI's teardown, which does not run until the route re-raises, so
+        # the write below would queue behind it on a pool with no spare slot.
+        await _drain_shielded(release.rollback(), deadline)
+    settle = await _drain_shielded(
+        _write_settled_outcome(user_id, target, result, note, attempt_id), deadline
+    )
     failure = _settle_failure(settle)
     if failure is not None:
         # No credential, no token and no username in this line: the scope is
@@ -565,6 +587,7 @@ async def _signin_refusal(
     note: str | None = None,
     *,
     reserved: bool = False,
+    attempt_id: uuid.UUID | None = None,
 ) -> NoReturn:
     """Log, audit and raise one classified refusal.
 
@@ -584,7 +607,13 @@ async def _signin_refusal(
     )
     try:
         await _signin_audit(
-            db, user_id, target, exc.audit_result, note, reserved=reserved
+            db,
+            user_id,
+            target,
+            exc.audit_result,
+            note,
+            reserved=reserved,
+            attempt_id=attempt_id,
         )
     except Exception:  # broad: any failed transaction, whatever poisoned it
         # fix(#1758 codex r11): a refusal has to be recorded even when the
@@ -596,7 +625,13 @@ async def _signin_refusal(
         # so there is never uncommitted work of ours to discard.
         await db.rollback()
         await _signin_audit(
-            db, user_id, target, exc.audit_result, note, reserved=reserved
+            db,
+            user_id,
+            target,
+            exc.audit_result,
+            note,
+            reserved=reserved,
+            attempt_id=attempt_id,
         )
     # `from None`: the chained cause of a transport failure is an httpx error
     # holding the request whose encoded body is the password, and nothing
