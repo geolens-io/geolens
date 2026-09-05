@@ -3,6 +3,7 @@
 import asyncio
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import (
     APIRouter,
@@ -18,6 +19,7 @@ from sqlalchemy.orm import joinedload
 from app.core.identity import Identity
 from app.modules.auth.dependencies import get_current_active_user
 from app.modules.catalog.authorization import (
+    can_view_dataset_provenance,
     check_dataset_access,
     check_dataset_write_access,
 )
@@ -346,6 +348,48 @@ async def get_vrt_status(
     )
 
 
+def _vrt_generation_item(generation: Any, *, include_detail: bool) -> VrtGenerationItem:
+    """One row of a VRT dataset's regeneration history.
+
+    fix(#1860): the listing gated on ``check_dataset_access``, which is a
+    VISIBILITY check by its own contract, admitting any signed-in caller on a
+    published public or internal dataset. It then returned every row's
+    ``error_message`` and ``triggered_by``: failure text plus who edits the
+    dataset, behind visibility alone. That is the same door this change closes
+    on ``GET /jobs/by-dataset/{dataset_id}``, and the one
+    ``list_dataset_refresh_runs`` had already closed on its own identical
+    fields.
+
+    ``include_detail`` is the ``can_view_dataset_provenance`` answer, and there
+    is deliberately no per-row "you triggered this one" arm. Every writer of a
+    ``VrtGeneration`` row goes through ``check_dataset_write_access``
+    (``regenerate_vrt_endpoint`` here, ``add_vrt_source`` and
+    ``remove_vrt_source`` in the ingest router), which is owner-or-admin, so
+    every actor who can appear in ``triggered_by`` already passes the
+    predicate. Such an arm would select nobody.
+
+    Kept for a reader who fails the predicate, because ``get_vrt_status`` on
+    the same dataset already publishes the same facts to the same audience:
+    ``id`` (no route reads a generation by id), ``status``, ``started_at``,
+    ``completed_at``, ``duration_seconds`` and ``source_count``.
+
+    Redacted: ``error_message``, which is GDAL and VRT failure text naming
+    server paths and member assets, and ``triggered_by``, which is a raw user
+    id. Those are the two fields ``DatasetRefreshRunResponse`` nulls for this
+    same reader.
+    """
+    return VrtGenerationItem(
+        id=generation.id,
+        status=generation.status,
+        started_at=generation.started_at,
+        completed_at=generation.completed_at,
+        duration_seconds=generation.duration_seconds,
+        error_message=generation.error_message if include_detail else None,
+        source_count=generation.source_count,
+        triggered_by=generation.triggered_by if include_detail else None,
+    )
+
+
 @router.get(
     "/{dataset_id}/vrt/generations/",
     response_model=VrtGenerationListResponse,
@@ -368,7 +412,13 @@ async def list_vrt_generations(
     user: Identity = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> VrtGenerationListResponse:
-    """Return paginated generation history for a VRT dataset."""
+    """Return paginated generation history for a VRT dataset.
+
+    Not every caller gets every field. Seeing the dataset decides whether there
+    is a history at all; the provenance predicate decides whether its rows carry
+    their failure text and the id of whoever triggered them. See
+    ``_vrt_generation_item``.
+    """
     VrtGeneration = get_catalog_port().vrt_generation_orm_class()
     pagination_offset = offset if offset is not None else skip
 
@@ -377,7 +427,11 @@ async def list_vrt_generations(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
-    await check_dataset_access(db, dataset, dataset_id, user)
+    user_roles = await check_dataset_access(db, dataset, dataset_id, user)
+    # fix(#1860): visibility and disclosure are two questions. The check above
+    # settles the first and admits any signed-in reader of a published public
+    # or internal dataset; this settles the second.
+    can_view_detail = can_view_dataset_provenance(dataset.record, user, user_roles)
 
     # Total count
     count_result = await db.execute(
@@ -396,16 +450,7 @@ async def list_vrt_generations(
         .offset(pagination_offset)
     )
     generations = [
-        VrtGenerationItem(
-            id=g.id,
-            status=g.status,
-            started_at=g.started_at,
-            completed_at=g.completed_at,
-            duration_seconds=g.duration_seconds,
-            error_message=g.error_message,
-            source_count=g.source_count,
-            triggered_by=g.triggered_by,
-        )
+        _vrt_generation_item(g, include_detail=can_view_detail)
         for g in gen_result.scalars().all()
     ]
 

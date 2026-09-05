@@ -2800,6 +2800,11 @@ export interface paths {
         /**
          * List Vrt Generations
          * @description Return paginated generation history for a VRT dataset.
+         *
+         *     Not every caller gets every field. Seeing the dataset decides whether there
+         *     is a history at all; the provenance predicate decides whether its rows carry
+         *     their failure text and the id of whoever triggered them. See
+         *     ``_vrt_generation_item``.
          */
         get: operations["list_vrt_generations_datasets__dataset_id__vrt_generations__get"];
         put?: never;
@@ -3254,6 +3259,16 @@ export interface paths {
          *     404 would needlessly pollute the browser console on the dataset detail
          *     page. A genuine 404 is still raised when the dataset is not visible to the
          *     user, to avoid leaking job existence (see visibility check below).
+         *
+         *     Not every caller gets every field. Seeing the dataset decides whether there
+         *     is an answer at all; who ran the job decides how much of the answer is
+         *     filled in. The dataset's owner, an admin, and the job's own creator get the
+         *     full payload. Any other reader of a visible dataset gets the job id, its
+         *     status and its timestamps, with the run's own detail nulled: no
+         *     ``error_message``, ``source_filename``, warnings, step, row counts or
+         *     retry hint. That is the redaction ``GET /datasets/{dataset_id}/refresh-runs``
+         *     already applies to the same failure text, and ``_redacted_job_status``
+         *     documents the decision field by field.
          */
         get: operations["get_job_status_by_dataset_jobs_by_dataset__dataset_id__get"];
         put?: never;

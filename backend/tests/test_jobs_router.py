@@ -808,6 +808,201 @@ class TestGetJobStatusByDataset:
         # Non-visible dataset should return 404, not 403 or 200.
         assert resp.status_code == 404
 
+    # ------------------------------------------------------------------
+    # fix(#1860): who sees the job DETAIL, as opposed to who sees that a
+    # job exists. The dataset gate is a visibility check and admits any
+    # signed-in reader of a public or internal dataset, so these three cases
+    # pin the disclosure decision separately from it: a stranger, the job's
+    # creator, and the dataset's owner.
+    # ------------------------------------------------------------------
+
+    async def _seed_detail_rich_job(
+        self,
+        test_db_session,
+        *,
+        dataset_owner: uuid.UUID,
+        job_creator: uuid.UUID,
+    ):
+        """A public dataset plus a failed job carrying every redactable field."""
+        from tests.factories import create_dataset
+
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=dataset_owner,
+            visibility="public",
+        )
+        job = await _create_job(
+            test_db_session,
+            created_by=job_creator,
+            status="failed",
+            source_filename="quarterly-internal-extract.geojson",
+            error_message="ogr2ogr failed reading /srv/private-staging/parcels.gdb",
+        )
+        job.dataset_id = dataset.id
+        job.progress = 0.5
+        job.current_step = "ogr2ogr"
+        job.rows_processed = 120
+        job.user_metadata = {
+            "collision_warning": "table parcels_2026 already existed",
+            "warnings": [
+                {
+                    "kind": "reserved_rename",
+                    "details": [{"original": "owner_ref", "renamed": "src_owner_ref"}],
+                }
+            ],
+            "archive_failed": True,
+            "rows_failed": 7,
+            "temporal_parse_errors": {"temporal_start": "not-a-date-1998"},
+        }
+        await test_db_session.commit()
+        return dataset, job
+
+    async def test_third_party_on_a_public_dataset_gets_the_redacted_projection(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """A signed-in stranger sees the timeline, not the run's content.
+
+        The case the sibling refresh-runs redaction was written for and this
+        endpoint missed: not anonymous (that is 401 here), but a NAMED reader
+        with no claim on the dataset or the job.
+        """
+        from tests.conftest import _create_test_user
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        stranger_header, _ = await _create_test_user(
+            client, admin_auth_header, "editor"
+        )
+        dataset, job = await self._seed_detail_rich_job(
+            test_db_session, dataset_owner=admin_id, job_creator=admin_id
+        )
+
+        resp = await client.get(
+            f"/jobs/by-dataset/{dataset.id}", headers=stranger_header
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        # Kept: the job exists, how it ended, and when.
+        assert data["id"] == str(job.id)
+        assert data["dataset_id"] == str(dataset.id)
+        assert data["status"] == "failed"
+        assert data["created_at"] is not None
+
+        # Redacted: every field enumerated on _redacted_job_status.
+        assert data["error_message"] is None
+        assert data["source_filename"] is None
+        assert data["warning_message"] is None
+        assert data["warnings"] == []
+        assert data["progress"] is None
+        assert data["current_step"] is None
+        assert data["rows_processed"] is None
+        assert data["rows_failed"] is None
+        assert data["archive_failed"] is False
+        assert data["temporal_parse_errors"] == {}
+        assert data["can_retry"] is False
+        assert data["retry_reason"] is None
+
+        # Whole-body check, so a field added to the schema later without a
+        # decision cannot smuggle any of this back out under a new name.
+        body = resp.text
+        for leaked in (
+            "private-staging",
+            "quarterly-internal-extract",
+            "owner_ref",
+            "parcels_2026",
+            "not-a-date-1998",
+        ):
+            assert leaked not in body, f"{leaked} reached a third-party reader"
+
+    async def test_job_creator_sees_the_full_payload(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """The creator's own run, on a dataset owned by someone else."""
+        from tests.conftest import _create_test_user
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        creator_header, creator_id = await _create_test_user(
+            client, admin_auth_header, "editor"
+        )
+        dataset, _ = await self._seed_detail_rich_job(
+            test_db_session,
+            dataset_owner=admin_id,
+            job_creator=uuid.UUID(creator_id),
+        )
+
+        resp = await client.get(
+            f"/jobs/by-dataset/{dataset.id}", headers=creator_header
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert (
+            data["error_message"]
+            == "ogr2ogr failed reading /srv/private-staging/parcels.gdb"
+        )
+        assert data["source_filename"] == "quarterly-internal-extract.geojson"
+        assert data["warnings"][0]["kind"] == "reserved_rename"
+        assert data["rows_failed"] == 7
+        assert data["retry_reason"] is not None
+
+    async def test_dataset_owner_sees_the_full_payload_for_another_users_job(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """The provenance arm: owner of the dataset, not creator of the job."""
+        from tests.conftest import _create_test_user
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        owner_header, owner_id = await _create_test_user(
+            client, admin_auth_header, "editor"
+        )
+        dataset, _ = await self._seed_detail_rich_job(
+            test_db_session,
+            dataset_owner=uuid.UUID(owner_id),
+            job_creator=admin_id,
+        )
+
+        resp = await client.get(f"/jobs/by-dataset/{dataset.id}", headers=owner_header)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert (
+            data["error_message"]
+            == "ogr2ogr failed reading /srv/private-staging/parcels.gdb"
+        )
+        assert data["source_filename"] == "quarterly-internal-extract.geojson"
+        assert data["archive_failed"] is True
+        assert data["rows_processed"] == 120
+
+    async def test_admin_sees_the_full_payload_for_another_users_job(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        editor_auth_header: dict,
+        test_db_session,
+    ):
+        """Admins keep the operator view the retry and cleanup surfaces need."""
+        from tests.conftest import _create_test_user
+
+        _, other_id = await _create_test_user(client, admin_auth_header, "editor")
+        dataset, _ = await self._seed_detail_rich_job(
+            test_db_session,
+            dataset_owner=uuid.UUID(other_id),
+            job_creator=uuid.UUID(other_id),
+        )
+
+        resp = await client.get(
+            f"/jobs/by-dataset/{dataset.id}", headers=admin_auth_header
+        )
+        assert resp.status_code == 200
+        assert resp.json()["source_filename"] == "quarterly-internal-extract.geojson"
+
     async def test_unauthenticated_rejected(self, client: AsyncClient):
         resp = await client.get(f"/jobs/by-dataset/{uuid.uuid4()}")
         assert resp.status_code == 401

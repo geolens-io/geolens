@@ -15,7 +15,7 @@ This module closes those gaps structurally. It walks the real FastAPI route
 table, parses each handler's source (plus one level of directly-called
 ``app.*`` helper functions) into an AST, and asserts that any handler whose
 effective source fetches a guarded model (``Record``, ``Dataset``, ``Map``,
-``RecordEmbedding``) also CALLS one of the sanctioned guards. Model names are
+``RecordEmbedding``, ``IngestJob``) also CALLS one of the sanctioned guards. Model names are
 resolved by class identity through the function's module globals and its
 function-local imports, so aliases like ``Dataset as DatasetModel`` or
 ``Map as MapORM`` are covered, and multi-line ``select(\n    Model``
@@ -76,6 +76,7 @@ import ast
 import inspect
 import sys
 import textwrap
+import typing
 from functools import lru_cache
 from typing import Any, NamedTuple
 
@@ -270,6 +271,43 @@ ALLOWLIST: dict[str, str] = {
     "app.processing.ingest.router.bulk_register_tables": (
         "upload-gated physical-table registration; select is a dedupe existence check"
     ),
+    # ---------------------------------------------------------------------
+    # fix(#1860): the IngestJob sweep. These seven handlers fetch a job
+    # row and none of them calls a CATALOG guard, because a job is owned by
+    # the user who created it rather than reached through a dataset's
+    # visibility. Each names the check it does apply instead.
+    # ---------------------------------------------------------------------
+    # Ops-only stale-job reaper; gated by require_mode_permission
+    # (manage_users single-tenant, manage_tenants multi-tenant). It acts on
+    # the whole stale set on a clock, never on a caller-named row, and its
+    # response is counts.
+    "app.platform.jobs.router.cleanup_stale_jobs": (
+        "ops-gated (manage_users / manage_tenants); acts on the stale set, "
+        "returns counts and no job content"
+    ),
+    # Owner-or-policy: creator passes, everyone else goes through
+    # _can_access_another_users_job (the effective permission matrix), and a
+    # refusal is a 403 recorded as a permission denial.
+    "app.platform.jobs.router.get_job_status": (
+        "owner-or-policy via _can_access_another_users_job; 403 on denial"
+    ),
+    "app.platform.jobs.router.retry_job": (
+        "owner-or-policy via _can_access_another_users_job; 403 on denial"
+    ),
+    # All four ingest doors load the job through get_job_or_404, which is
+    # creator-or-admin and raises 404/403 before the handler sees the row.
+    "app.processing.ingest.router.commit_import": (
+        "creator-or-admin via get_job_or_404 (404 unknown, 403 not yours)"
+    ),
+    "app.processing.ingest.router.commit_fan_out": (
+        "creator-or-admin via get_job_or_404 (404 unknown, 403 not yours)"
+    ),
+    "app.processing.ingest.router.complete_presigned_upload": (
+        "creator-or-admin via get_job_or_404 before lock_presigned_job"
+    ),
+    "app.processing.ingest.router.preview_file": (
+        "creator-or-admin via get_job_or_404 (404 unknown, 403 not yours)"
+    ),
 }
 
 # ---------------------------------------------------------------------------
@@ -311,9 +349,14 @@ def _parse(source: str) -> ast.Module | None:
 def _guarded_model_classes() -> tuple[type, ...]:
     from app.modules.catalog.datasets.domain.models import Dataset, Record
     from app.modules.catalog.maps.models import Map
+    from app.platform.jobs.models import IngestJob
     from app.processing.embeddings.models import RecordEmbedding
 
-    return (Dataset, Record, Map, RecordEmbedding)
+    # fix(#1860): IngestJob joined the set because a job row carries the
+    # uploader's filename and the failure text of their run, and every
+    # job-row endpoint reported "no fetch detected" while it was outside.
+    # A whole class of read was invisible to this gate rather than clean.
+    return (Dataset, Record, Map, RecordEmbedding, IngestJob)
 
 
 # ProcessingPort accessors that hand a guarded ORM class to processing/ code
@@ -1004,7 +1047,8 @@ def test_every_model_fetching_handler_is_guarded_or_allowlisted() -> None:
     """AGENTS.md Rule 1, enforced per handler across the whole route table.
 
     A handler whose effective source (own body + one level of directly-called
-    app.* helpers) fetches Record/Dataset/Map/RecordEmbedding must CALL one
+    app.* helpers) fetches Record/Dataset/Map/RecordEmbedding/IngestJob must
+    CALL one
     of the sanctioned guards. Anything else must be a reviewed ALLOWLIST
     entry — and the allowlist must stay exact, so guarded-later or renamed
     handlers cannot leave stale entries behind.
@@ -1023,7 +1067,8 @@ def test_every_model_fetching_handler_is_guarded_or_allowlisted() -> None:
             )
         pytest.fail(
             "Rule 1 violation: route handler(s) fetch a guarded model "
-            "(Record/Dataset/Map/RecordEmbedding) without a sanctioned access "
+            "(Record/Dataset/Map/RecordEmbedding/IngestJob) without a "
+            "sanctioned access "
             "check. Add check_dataset_access_or_anonymous / "
             "check_dataset_access / check_dataset_write_access / "
             "apply_visibility_filter (or the maps/records domain guards) to "
@@ -1038,6 +1083,166 @@ def test_every_model_fetching_handler_is_guarded_or_allowlisted() -> None:
         "Stale ALLOWLIST entries — these handlers are now guarded, renamed, "
         "or gone. Remove them from ALLOWLIST in this file so the list stays "
         "exact:\n" + "\n".join(f"  {key}: {ALLOWLIST[key]}" for key in stale)
+    )
+
+
+@lru_cache(maxsize=1)
+def _disclosure_deciders() -> tuple[Any, ...]:
+    """The two predicates that settle how much of a run's record a caller sees.
+
+    ``_can_access_another_users_job`` is the owner-or-policy answer: the
+    caller gets the whole row or a 403. ``can_view_dataset_provenance`` is
+    the graded answer ``list_dataset_refresh_runs`` uses: the full payload
+    for the dataset's owner or an admin, a redacted one for everybody else.
+    Either is a decision. Neither being present is the defect.
+    """
+    from app.modules.catalog.authorization import can_view_dataset_provenance
+    from app.platform.jobs.router import _can_access_another_users_job
+
+    return (_can_access_another_users_job, can_view_dataset_provenance)
+
+
+# The three field names the provenance projection already decided are not for
+# a reader who merely passed a visibility check. ``DatasetRefreshRunResponse``
+# nulls all three, and its schema docstring is the rationale: a public
+# dataset's history otherwise enumerates who edits it, and failure text leaks
+# internal origin detail.
+#
+# ``source_filename`` is deliberately NOT here. ``dataset_to_response`` and
+# ``list_dataset_versions`` publish it to the same audience on purpose, so a
+# gate demanding a predicate wherever it appears would be asserting a rule the
+# codebase has decided against. ``_redacted_job_status`` is stricter than those
+# two siblings for a reason its own docstring gives, which is a local choice
+# rather than a tree-wide one.
+_PROVENANCE_DETAIL_FIELDS = frozenset({"error_message", "triggered_by", "error_code"})
+
+# Routes that publish a provenance-detail field with no per-caller predicate,
+# each unguarded BY DESIGN. Same exactness discipline as ALLOWLIST above.
+PROVENANCE_ALLOWLIST: dict[str, str] = {
+    # The operator's cross-user job console. Gated by a route-level
+    # require_permission("manage_users") dependency rather than a call in the
+    # handler body, and its whole purpose is the fleet-wide view: it filters by
+    # user_id and searches across owners.
+    "app.modules.admin.router.list_admin_jobs": (
+        "manage_users-gated operator console; the cross-user view is the feature"
+    ),
+}
+
+
+def _response_models(annotation: Any, depth: int = 0, seen: set[Any] | None = None):
+    """Every pydantic model reachable from a response annotation.
+
+    Walks into ``list[...]``, ``X | None`` and nested model fields, so a field
+    on an ITEM model counts for the route that returns a list of them. Depth
+    capped and cycle-guarded; a model graph deeper than that does not occur
+    here and would be worth flattening if it did.
+    """
+    from pydantic import BaseModel
+
+    if seen is None:
+        seen = set()
+    if depth > 3:
+        return
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        if annotation in seen:
+            return
+        seen.add(annotation)
+        yield annotation
+        for field in annotation.model_fields.values():
+            yield from _response_models(field.annotation, depth + 1, seen)
+        return
+    for arg in typing.get_args(annotation) or ():
+        yield from _response_models(arg, depth + 1, seen)
+
+
+@pytest.mark.architecture
+def test_every_provenance_detail_route_decides_who_sees_it() -> None:
+    """A run's failure text and the id of who triggered it are not visibility.
+
+    fix(#1860): Rule 1 above cannot see this class. It asks whether a handler
+    checked access at all, and both handlers this test was written for did:
+    they filtered the DATASET and then served every field of the run to
+    whoever that let in. Two sibling doors onto the same fields had already
+    decided the question the other way, and the ones that had not were still
+    credited as guarded.
+
+    So this test asks the narrower question directly, keyed on the RESPONSE
+    FIELDS rather than on a response model, because keying on the model is
+    what let the second door hide behind a different one. Any route whose
+    response model, or any model nested inside it, declares one of
+    ``_PROVENANCE_DETAIL_FIELDS`` must invoke one of the two disclosure
+    predicates. Resolution is by object identity through the handler's module
+    globals and its function-local imports, the same way guard credit works
+    above, so a same-named local helper earns nothing.
+
+    Like the Rule 1 gate, this credits a call that is merely PRESENT rather
+    than proving it reached the response. That is the same approximation, not
+    a new one, and it is fail-loud in the direction that matters: adding a
+    field to a response model is what puts a route in scope.
+    """
+    from fastapi.routing import APIRoute, iter_route_contexts
+
+    from app.api.main import app
+
+    scoped: dict[str, tuple[str, str, frozenset[str]]] = {}
+    undecided: dict[str, tuple[str, str, frozenset[str]]] = {}
+    for ctx in iter_route_contexts(app.routes):
+        route = ctx.route
+        if not isinstance(route, APIRoute):
+            continue
+        hits: set[str] = set()
+        for model in _response_models(route.response_model):
+            hits |= set(model.model_fields) & _PROVENANCE_DETAIL_FIELDS
+        if not hits:
+            continue
+        fn = _unwrap(route.endpoint)
+        key = f"{fn.__module__}.{fn.__qualname__}"
+        if key in scoped:  # dual-shape slash aliases register one handler twice
+            continue
+        methods = " ".join(sorted(route.methods or ()))
+        entry = (methods, ctx.path or route.path, frozenset(hits))
+        scoped[key] = entry
+        tree = _parse(_source_of(fn))
+        decided = False
+        if tree is not None:
+            called = {parts[0] for parts in _called_names(tree) if len(parts) == 1}
+            decided = bool(called & _bound_names(fn, tree, _disclosure_deciders()))
+        if not decided:
+            undecided[key] = entry
+
+    assert len(scoped) >= 5, (
+        f"only {len(scoped)} routes publish a provenance-detail field (expected "
+        ">= 5). The response models or the route walk changed; fix this test "
+        "before trusting it, because an empty walk passes vacuously."
+    )
+
+    missing = sorted(set(undecided) - set(PROVENANCE_ALLOWLIST))
+    if missing:
+        details = []
+        for key in missing:
+            methods, path, hits = undecided[key]
+            details.append(
+                f"  {methods} {path}\n    {key}\n      publishes {sorted(hits)}"
+            )
+        pytest.fail(
+            "Route(s) publish a run's failure text or the id of whoever "
+            "triggered it without deciding who is reading. Call "
+            "can_view_dataset_provenance (graded: full payload for the "
+            "dataset's owner or an admin, a redacted projection for every "
+            "other reader) or _can_access_another_users_job (owner-or-policy, "
+            "403 on denial). A dataset-visibility check alone is not an "
+            "answer: it admits any signed-in reader of a published public or "
+            "internal dataset. Only for routes unguarded by design, add a "
+            "PROVENANCE_ALLOWLIST entry in this file with a one-line "
+            "justification.\n" + "\n".join(details)
+        )
+
+    stale = sorted(set(PROVENANCE_ALLOWLIST) - set(undecided))
+    assert not stale, (
+        "Stale PROVENANCE_ALLOWLIST entries — these routes now decide, were "
+        "renamed, or no longer publish a provenance-detail field. Remove them "
+        "so the list stays exact:\n"
+        + "\n".join(f"  {key}: {PROVENANCE_ALLOWLIST[key]}" for key in stale)
     )
 
 

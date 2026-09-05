@@ -5888,7 +5888,23 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # now refuses to trust or to write anything while the generation is
     # unusable, so a positive cached during that window cannot outlive a later
     # revocation. Cap 1174 -> 1192, exact.
-    "backend/app/modules/embed_tokens/service.py": 1192,
+    # fix(#1860): +59. The mint took its dataset snapshot straight off the map's
+    # layers with no visibility filter and ignored who was asking, so a map
+    # owner who lost access to a layer could still freeze it into a fresh
+    # anonymous tile capability of up to 365 days. Adds
+    # _assert_scope_visible_to_minter and its EmbedScopeNotVisibleError, and
+    # moves the snapshot ahead of the revoke block. Most of the lines are the
+    # two docstrings, which carry the parts a later reader would otherwise
+    # simplify away: why the minter is resolved from user_id rather than passed
+    # in (so the row's created_by and the checked identity cannot diverge), and
+    # why the refusal has to precede the revoke (the cache denial it writes is
+    # not rolled back with the transaction). Cap 1192 -> 1254, exact.
+    # fix(#1860 audit P3): +1 for EmbedScopeNotVisibleError's docstring naming
+    # the 403 it is answered with. The maps-router siblings it copies its shape
+    # from answer 403, and the licensing refusal on the same handler answers
+    # 400, so the status is what separates "your deployment cannot do that"
+    # from "you cannot see that data". Cap 1254 -> 1255, exact.
+    "backend/app/modules/embed_tokens/service.py": 1255,
     # fix(#1778): first entry for this module — it crossed the 1000-line
     # inclusion threshold on the property-filter typing. Property filters used
     # to bind the raw query-string value, so PostgreSQL had no

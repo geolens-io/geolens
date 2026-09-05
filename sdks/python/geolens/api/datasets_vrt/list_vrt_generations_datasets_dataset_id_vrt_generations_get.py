@@ -130,6 +130,11 @@ def sync_detailed(
 
      Return paginated generation history for a VRT dataset.
 
+    Not every caller gets every field. Seeing the dataset decides whether there
+    is a history at all; the provenance predicate decides whether its rows carry
+    their failure text and the id of whoever triggered them. See
+    ``_vrt_generation_item``.
+
     Args:
         dataset_id (UUID):
         limit (int | Unset):  Default: 20.
@@ -170,6 +175,11 @@ def sync(
 
      Return paginated generation history for a VRT dataset.
 
+    Not every caller gets every field. Seeing the dataset decides whether there
+    is a history at all; the provenance predicate decides whether its rows carry
+    their failure text and the id of whoever triggered them. See
+    ``_vrt_generation_item``.
+
     Args:
         dataset_id (UUID):
         limit (int | Unset):  Default: 20.
@@ -204,6 +214,11 @@ async def asyncio_detailed(
     """List Vrt Generations
 
      Return paginated generation history for a VRT dataset.
+
+    Not every caller gets every field. Seeing the dataset decides whether there
+    is a history at all; the provenance predicate decides whether its rows carry
+    their failure text and the id of whoever triggered them. See
+    ``_vrt_generation_item``.
 
     Args:
         dataset_id (UUID):
@@ -242,6 +257,11 @@ async def asyncio(
     """List Vrt Generations
 
      Return paginated generation history for a VRT dataset.
+
+    Not every caller gets every field. Seeing the dataset decides whether there
+    is a history at all; the provenance predicate decides whether its rows carry
+    their failure text and the id of whoever triggered them. See
+    ``_vrt_generation_item``.
 
     Args:
         dataset_id (UUID):

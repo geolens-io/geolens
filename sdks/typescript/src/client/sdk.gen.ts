@@ -3007,6 +3007,11 @@ export const listVrtSourcesDatasetsDatasetIdVrtSourcesGet = <ThrowOnError extend
  * List Vrt Generations
  *
  * Return paginated generation history for a VRT dataset.
+ *
+ * Not every caller gets every field. Seeing the dataset decides whether there
+ * is a history at all; the provenance predicate decides whether its rows carry
+ * their failure text and the id of whoever triggered them. See
+ * ``_vrt_generation_item``.
  */
 export const listVrtGenerationsDatasetsDatasetIdVrtGenerationsGet = <ThrowOnError extends boolean = false>(options: Options<ListVrtGenerationsDatasetsDatasetIdVrtGenerationsGetData, ThrowOnError>): RequestResult<ListVrtGenerationsDatasetsDatasetIdVrtGenerationsGetResponses, ListVrtGenerationsDatasetsDatasetIdVrtGenerationsGetErrors, ThrowOnError> => (options.client ?? client).get<ListVrtGenerationsDatasetsDatasetIdVrtGenerationsGetResponses, ListVrtGenerationsDatasetsDatasetIdVrtGenerationsGetErrors, ThrowOnError>({
     security: [
@@ -3475,6 +3480,16 @@ export const removeVrtSourceIngestVrtDatasetIdSourcesSourceDatasetIdDelete = <Th
  * 404 would needlessly pollute the browser console on the dataset detail
  * page. A genuine 404 is still raised when the dataset is not visible to the
  * user, to avoid leaking job existence (see visibility check below).
+ *
+ * Not every caller gets every field. Seeing the dataset decides whether there
+ * is an answer at all; who ran the job decides how much of the answer is
+ * filled in. The dataset's owner, an admin, and the job's own creator get the
+ * full payload. Any other reader of a visible dataset gets the job id, its
+ * status and its timestamps, with the run's own detail nulled: no
+ * ``error_message``, ``source_filename``, warnings, step, row counts or
+ * retry hint. That is the redaction ``GET /datasets/{dataset_id}/refresh-runs``
+ * already applies to the same failure text, and ``_redacted_job_status``
+ * documents the decision field by field.
  */
 export const getJobStatusByDatasetJobsByDatasetDatasetIdGet = <ThrowOnError extends boolean = false>(options: Options<GetJobStatusByDatasetJobsByDatasetDatasetIdGetData, ThrowOnError>): RequestResult<GetJobStatusByDatasetJobsByDatasetDatasetIdGetResponses, GetJobStatusByDatasetJobsByDatasetDatasetIdGetErrors, ThrowOnError> => (options.client ?? client).get<GetJobStatusByDatasetJobsByDatasetDatasetIdGetResponses, GetJobStatusByDatasetJobsByDatasetDatasetIdGetErrors, ThrowOnError>({
     security: [
