@@ -66,11 +66,13 @@ Frontend code uses TypeScript, React, ESLint, React Hooks rules, and JSX accessi
 
 ### Inline review-comment convention
 
-When an in-source comment references a finding from a code review or audit, anchor it to a stable, lookup-able reference (a PR or issue number) plus a one-line context, so future readers can find the rationale:
+When an in-source comment references a finding from a code review or audit, anchor it to a stable, lookup-able reference (a PR or issue number) plus the invariant the code now holds, so future readers can find the rationale:
 
 ```
 // fix(#1234): suppress basemap row click during multi-selection
 ```
+
+Keep it to the anchor and the invariant, three lines at most. The history behind it (what the review said, what was tried, which alternative was rejected and why) goes in the PR body or the issue the anchor names, not in the source. Docstrings state the contract (inputs, outputs, errors, the one trap a caller must know) and do not carry review history either. Do not write a comment that restates what the next line does. When you edit a file, trim any comment you touch to this rule.
 
 Avoid bare, unscoped finding ids that only resolve in a private tracker.
 
