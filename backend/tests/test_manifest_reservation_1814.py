@@ -713,6 +713,96 @@ class TestReservationFailureReleasesTheKey:
         assert retried.results[0].job_id != settled[0].id
         queue.assert_awaited_once()
 
+    async def test_a_poisoned_reconciliation_read_still_settles(
+        self, test_db_session, clean_tables
+    ):
+        """fix(#1814): any step of a settlement can find the transaction already
+        unusable, so each attempt resets first and one retry follows a database
+        error. A failure at the read cannot strand the writes behind it."""
+        request = _request(
+            _manifest_dataset(
+                key="manifest-1814-poisoned-read",
+                uri="https://data.example.test/roads.geojson",
+            )
+        )
+        staged = _staged_bytes("manifest_1814_poisoned_read.geojson")
+        real_read = manifest_service.staged_source_is_referenced
+        reads = {"n": 0}
+
+        async def _poisoning_read(db, job_id, *, file_path: str) -> bool:
+            reads["n"] += 1
+            if reads["n"] == 1:
+                # A failing statement before the read leaves the transaction
+                # refusing every statement after it.
+                try:
+                    await db.execute(text("SELECT 1 / 0"))
+                except Exception:
+                    pass
+                return True
+            return await real_read(db, job_id, file_path=file_path)
+
+        with (
+            patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
+            patch(
+                "app.processing.ingest.manifest_service._download_http_source",
+                new=AsyncMock(return_value=str(staged)),
+            ),
+            patch(
+                "app.modules.quota.service.check_upload_quota",
+                new=AsyncMock(
+                    side_effect=HTTPException(status_code=413, detail="quota denied")
+                ),
+            ),
+            patch(
+                "app.processing.ingest.manifest_service.staged_source_is_referenced",
+                new=_poisoning_read,
+            ),
+            patch(
+                "app.processing.ingest.manifest_service.queue_ingest_job",
+                new=AsyncMock(),
+            ) as queue,
+        ):
+            response = await apply_manifest(
+                test_db_session,
+                request,
+                await _admin_user(test_db_session),
+                _http_request(),
+            )
+
+        assert response.results[0].action == "error"
+        queue.assert_not_awaited()
+        assert reads["n"] == 2, "the settlement was not retried on a fresh transaction"
+
+        settled = await _jobs_for_key(test_db_session, "manifest-1814-poisoned-read")
+        assert len(settled) == 1
+        assert settled[0].status == "failed"
+        assert MANIFEST_STAGE_METADATA_KEY not in settled[0].user_metadata
+        # The bind never ran, so nothing references these bytes.
+        assert not staged.exists()
+
+        # The key is free: a re-apply does not attach.
+        retry_staged = _staged_bytes("manifest_1814_poisoned_read_retry.geojson")
+        with (
+            patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
+            patch(
+                "app.processing.ingest.manifest_service._download_http_source",
+                new=AsyncMock(return_value=str(retry_staged)),
+            ),
+            patch(
+                "app.processing.ingest.manifest_service.queue_ingest_job",
+                new=AsyncMock(),
+            ) as queue,
+        ):
+            retried = await apply_manifest(
+                test_db_session,
+                request,
+                await _admin_user(test_db_session),
+                _http_request(),
+            )
+
+        assert retried.results[0].action == "create"
+        queue.assert_awaited_once()
+
     async def test_a_post_admission_failure_returns_its_bytes_to_the_batch_ledger(
         self, test_db_session, clean_tables
     ):

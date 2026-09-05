@@ -215,14 +215,11 @@ async def staged_source_is_referenced(
 ) -> bool:
     """Does the committed row point at these staged bytes?
 
-    fix(#1814): a commit can be durable in PostgreSQL and still raise on the
-    acknowledgement, so the row decides. A read that fails answers True: orphaned
-    bytes are reclaimable, bytes a durable row points at are not.
+    fix(#1814): a durable but unacknowledged commit leaves live state, so the
+    row decides. Raises rather than guessing; the caller's settlement wrapper
+    resets and retries, and keeps the bytes if neither attempt can read.
     """
-    try:
-        row = (
-            await db.execute(select(IngestJob.file_path).where(IngestJob.id == job_id))
-        ).one_or_none()
-    except Exception:  # broad: an unreadable row is the ambiguous case
-        return True
+    row = (
+        await db.execute(select(IngestJob.file_path).where(IngestJob.id == job_id))
+    ).one_or_none()
     return row is not None and row.file_path == file_path

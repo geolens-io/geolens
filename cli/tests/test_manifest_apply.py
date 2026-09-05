@@ -325,12 +325,8 @@ class TestResolveApplyTimeout:
 
 class TestManifestApplyTimeoutReporting:
     """fix(#1778 review round 18) parts (b)/(c), corrected by #1814: the
-    timeout path must be unambiguous. The server keeps applying after the
-    CLI gives up, and #1814 reserves an entry's row before downloading its
-    source, so a re-apply attaches rather than queueing it twice. A dry-run
-    follow-up on the SAME endpoint, bounded by a short fixed timeout
-    regardless of entry count (round 19 P2), reports which entries the
-    server had already reached, best-effort."""
+    server keeps applying after the CLI gives up, and reserves an entry's row
+    before downloading, so a re-apply attaches rather than queueing twice."""
 
     def _timing_out_client(self) -> FakeSdkClient:
         client = FakeSdkClient(FakeResponse(200, _apply_response()))
@@ -1034,10 +1030,9 @@ def test_apply_command_reports_timeout_with_truthful_guidance_and_status_check(
     tmp_xdg_home,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """fix(#1778 review round 18) end-to-end: the `apply` command's own
-    timeout handling prints the guidance and renders the dry-run follow-up's
-    status, rather than the old bare "Request timed out". fix(#1814): that
-    guidance now says a re-run attaches to an entry still being staged."""
+    """fix(#1778 review round 18) end-to-end: the `apply` command prints the
+    guidance and renders the dry-run follow-up's status. fix(#1814): that
+    guidance says a re-run attaches to an entry still being staged."""
     status_response = _apply_response(
         results=[
             {"dataset_key": "roads", "action": "skip", "message": "skip_complete"}

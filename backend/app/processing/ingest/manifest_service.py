@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -760,13 +761,16 @@ async def _adopt_committed_reservation(
     releases through the running fence first.
     """
     job_id = job.id
-    await reset_session_for_settlement(job, db=db)
-    try:
-        landed = await db.get(IngestJob, job_id, populate_existing=True)
-    except Exception:  # broad: an unreadable row is the ambiguous case
-        landed = None
-    if landed is not None and landed.status == "running":
-        return landed
+    adopted: IngestJob | None = None
+
+    async def _read_back() -> None:
+        nonlocal adopted
+        row = await db.get(IngestJob, job_id, populate_existing=True)
+        adopted = row if row is not None and row.status == "running" else None
+
+    await _settle_under_reset(db, job, _read_back, job_id=job_id)
+    if adopted is not None:
+        return adopted
     await _fail_reservation(db, job, exc)
     return None
 
@@ -790,26 +794,44 @@ async def _commit_staged_bind(db: AsyncSession) -> None:
     await db.commit()
 
 
+async def _settle_under_reset(
+    db: AsyncSession,
+    job: IngestJob,
+    body: Callable[[], Awaitable[None]],
+    *,
+    job_id: uuid.UUID,
+) -> None:
+    """Run every statement of one settlement on a session that was just reset.
+
+    fix(#1814): a settlement follows a failure, so any statement in it can find
+    the transaction already unusable. The body is fenced reads and CAS writes, so
+    one reset-and-retry lands nothing twice; a second failure is the sweep's.
+    """
+    for attempt in (1, 2):
+        await reset_session_for_settlement(job, db=db)
+        try:
+            await body()
+            await db.commit()
+            return
+        except Exception:  # broad: any database error is a reset-and-retry
+            if attempt == 2:
+                log.exception("Could not settle a manifest job", job_id=str(job_id))
+                await db.rollback()
+
+
 async def _fail_reservation(
     db: AsyncSession, job: IngestJob, exc: BaseException
 ) -> None:
-    """Settle a reservation that never staged its source, freeing its key.
-
-    fix(#1814): the session is reset first, because a settlement issued onto
-    the failed transaction would raise there too and leave the key held.
-    """
-    # Read before the reset: the restore covers the identifiers, but a log line
-    # in the handler below must not be the thing that raises.
+    """Settle a reservation that never staged its source, freeing its key."""
+    # Read before the first reset: a log line must not be what raises.
     job_id = job.id
-    await reset_session_for_settlement(job, db=db)
-    try:
+
+    async def _release() -> None:
         await release_manifest_reservation(
             db, job, f"Failed to stage manifest source: {exc}"
         )
-        await db.commit()
-    except Exception:  # broad: a session this far gone is the sweep's problem
-        log.exception("Could not settle a manifest reservation", job_id=str(job_id))
-        await db.rollback()
+
+    await _settle_under_reset(db, job, _release, job_id=job_id)
 
 
 async def _settle_staged_entry(
@@ -825,24 +847,29 @@ async def _settle_staged_entry(
     fix(#1814): the row decides, not the exception, because a durable but
     unacknowledged bind leaves live catalog state. The two settlements fence on
     disjoint states, so at most one can match and the row picks it.
+
+    Read and settlement are one body, so the read cannot poison the writes.
     """
     job_id = job.id
-    await reset_session_for_settlement(job, db=db)
-    if not await staged_source_is_referenced(db, job_id, file_path=file_path):
-        # HTTP downloads are owned by this attempt. Raw operator seeds are not,
-        # and must never be deleted merely because admission was denied.
-        _cleanup_downloaded_source(prepared, file_path)
-    try:
+    # The safe default if neither attempt can read: keep the bytes, because
+    # orphaned ones are reclaimable and ones a durable row names are not.
+    referenced = True
+
+    async def _decide_and_settle() -> None:
+        nonlocal referenced
+        referenced = await staged_source_is_referenced(db, job_id, file_path=file_path)
         if not await release_manifest_reservation(
             db, job, f"Failed to stage manifest source: {exc}"
         ):
             await settle_ingest_job_failed(
                 job, exc, message_prefix="Failed to queue manifest job"
             )
-        await db.commit()
-    except Exception:  # broad: a session this far gone is the sweep's problem
-        log.exception("Could not settle a manifest job", job_id=str(job_id))
-        await db.rollback()
+
+    await _settle_under_reset(db, job, _decide_and_settle, job_id=job_id)
+    # Outside the retry: the filesystem is not part of the transaction, and an
+    # HTTP download is owned by this attempt while a raw operator seed is not.
+    if not referenced:
+        _cleanup_downloaded_source(prepared, file_path)
 
 
 async def _finalize_reserved_entry(
