@@ -56,30 +56,16 @@ async def lock_catalog_rows(
     lock_timeout: str | None = _USE_REQUEST_DEFAULT,
     raster_asset_cls: Any = None,
 ) -> None:
-    """Take the datasets row, then the records row.
+    """Lock the catalog rows for a write: ``raster_assets`` (when given), then
+    ``datasets``, then ``records``.
 
-    **THE ORDER: datasets first, records second.** Call this from any
-    transaction that will write both rows, before it writes either, and after
-    any network I/O or data-table work it does. Cite this docstring rather than
-    restating the rule.
+    Call it before the transaction's first write to either row, and after any
+    network I/O or data-table work. A writer that touches "only" one row still
+    needs it: stamping ``record.updated_by`` and rolling ``tile_cache_version``
+    is both, and the ORM flushes ``records`` before ``datasets`` on its own.
 
-    The order is the one the refresh workers and the VRT publish already take,
-    to make a superseded-content check and its dependent write indivisible.
-
-    Calling it is not optional for a writer that "only" touches one row.
-    Stamping ``record.updated_by`` and rolling ``tile_cache_version`` is both,
-    and SQLAlchemy flushes ``catalog.records`` first because
-    ``Dataset.record_id`` makes ``Record`` the parent mapper. A transaction
-    that acquires nothing therefore inverts by default. The acquisition must
-    precede the transaction's FIRST write to either row, not merely sit in the
-    same flush as both.
-
-    ``raster_asset_cls`` extends the order downwards for a transaction that
-    will also reach ``raster_assets`` -- by FK cascade from the records delete,
-    say. That row is taken FIRST, because the raster replace worker takes it
-    before the pair (``tasks_raster_replace``) and holds it across its upload.
-    A caller that took the pair first would wait on the worker while holding
-    rows the worker's own acquisition needs.
+    ``raster_asset_cls`` puts the raster child at the front of the order, for a
+    transaction that will also reach ``raster_assets``.
 
     Raises ``CatalogLockConflict`` on 55P03 or 40P01, having rolled back.
     """
