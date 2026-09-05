@@ -141,6 +141,53 @@ def test_schema_rewrite_preserves_non_single_quoted_literals():
     assert out2.count("<=>") == 1
 
 
+@pytest.mark.parametrize("spelling", ["DATA", "Data"])
+def test_schema_rewrite_folds_unquoted_logical_schema(spelling):
+    """fix(#1891): an unquoted schema folds to lowercase, as PostgreSQL and the
+    validator fold it, so ``DATA.roads`` is the logical schema and must reach
+    the physical tenant schema instead of the shared one."""
+    from app.platform.sandbox.executor import _rewrite_logical_data_schema
+
+    rewritten = _rewrite_logical_data_schema(
+        f"SELECT * FROM {spelling}.roads", _SCHEMA_A
+    )
+
+    assert f'FROM "{_SCHEMA_A}".roads' in rewritten
+    assert f"{spelling}.roads" not in rewritten
+
+
+def test_schema_rewrite_folds_unquoted_three_part_column():
+    """fix(#1891): a schema-qualified column reference folds the same way as a
+    table reference."""
+    from app.platform.sandbox.executor import _rewrite_logical_data_schema
+
+    rewritten = _rewrite_logical_data_schema(
+        "SELECT DATA.roads.geom FROM DATA.roads", _SCHEMA_A
+    )
+
+    assert f'"{_SCHEMA_A}".roads.geom' in rewritten
+    assert f'FROM "{_SCHEMA_A}".roads' in rewritten
+    assert "DATA." not in rewritten
+
+
+def test_schema_rewrite_leaves_quoted_uppercase_schema_alone():
+    """fix(#1891): quoted ``"DATA"`` keeps its case, so it is another schema:
+    the rewrite leaves it in place and the access check refuses it."""
+    from app.platform.sandbox.executor import _rewrite_logical_data_schema
+    from app.platform.sandbox.validator import check_table_access, validate_sql
+
+    sql = 'SELECT * FROM "DATA".roads'
+    rewritten = _rewrite_logical_data_schema(sql, _SCHEMA_A)
+    assert '"DATA".roads' in rewritten
+    assert _SCHEMA_A not in rewritten
+
+    validated = validate_sql(sql)
+    assert validated.tables == {("DATA", "roads")}
+    with pytest.raises(SandboxError) as exc_info:
+        check_table_access(validated.tables, {"roads"}, validated.cte_names)
+    assert exc_info.value.category == "table_not_accessible"
+
+
 @pytest.mark.asyncio
 async def test_multi_tenant_rewrites_only_logical_data_schema(monkeypatch):
     monkeypatch.setattr("app.platform.sandbox.executor.is_multi_tenant", lambda: True)
