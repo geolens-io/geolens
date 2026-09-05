@@ -52,6 +52,11 @@ ELSEWHERE_TOKEN_URL = "https://elsewhere.example.net/token"
 # validator stay hermetic.
 LOOPBACK_TOKEN_URL = "http://127.0.0.1:9/token"
 LOOPBACK_USERINFO_URL = "http://127.0.0.1:9/userinfo"
+# An unclosed bracket in the authority: urlparse refuses this outright, so
+# validate_url_for_ssrf raises before reaching any of its own checks.
+MALFORMED_TOKEN_URL = "http://[invalid/token"
+CALLBACK_URL = "https://app.example.com/callback"
+ISSUER = "https://idp.example.com"
 DISCOVERY_DOCUMENT = {
     "issuer": "https://idp.example.com",
     "authorization_endpoint": "https://idp.example.com/authorize",
@@ -705,39 +710,89 @@ async def test_every_discovered_endpoint_is_ssrf_validated(
     }
 
 
+async def _discovery_refusal(
+    db: AsyncSession, authlib_transport, token_endpoint: str
+) -> tuple:
+    """Drive one login against a document naming *token_endpoint*.
+
+    Returns the refusal, the warning the operator log received, and every
+    request the client actually made. The real validator runs: both addresses
+    used here are literals that need no DNS, so these assert the shipped policy
+    rather than a stand-in for it.
+    """
+    from app.modules.auth.oauth import router as router_module
+
+    provider = await _make_discovery_provider(db)
+    await db.commit()
+    recorded = authlib_transport(
+        lambda _request: httpx.Response(
+            200, json={"issuer": ISSUER, "token_endpoint": token_endpoint}
+        )
+    )
+    client, _ = await _client_for(db, provider)
+
+    with (
+        patch.object(router_module, "logger") as logger,
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        await client.fetch_access_token(
+            code=uuid.uuid4().hex, redirect_uri=CALLBACK_URL
+        )
+
+    return exc_info.value, logger.warning.call_args, recorded
+
+
 @pytest.mark.anyio
 async def test_a_private_discovered_token_endpoint_refuses_the_login(
     test_db_session: AsyncSession, authlib_transport
 ) -> None:
-    """A refusal before the exchange, so the client secret is never sent.
-
-    The real validator runs here: a literal address needs no DNS, so the
-    refusal is the shipped policy rather than a stand-in for it.
-    """
-    provider = await _make_discovery_provider(test_db_session)
-    await test_db_session.commit()
-    recorded = authlib_transport(
-        lambda _request: httpx.Response(
-            200,
-            json={
-                "issuer": "https://idp.example.com",
-                "token_endpoint": LOOPBACK_TOKEN_URL,
-            },
-        )
+    """A refusal before the exchange, so the client secret is never sent."""
+    refusal, warning, recorded = await _discovery_refusal(
+        test_db_session, authlib_transport, LOOPBACK_TOKEN_URL
     )
-    client, _ = await _client_for(test_db_session, provider)
 
-    with pytest.raises(HTTPException) as exc_info:
-        await client.fetch_access_token(
-            code=uuid.uuid4().hex, redirect_uri="https://app.example.com/callback"
-        )
-
-    assert exc_info.value.status_code == 503
+    assert refusal.status_code == 503
     # The route is unauthenticated, so the refusal names no address.
-    assert "127.0.0.1" not in exc_info.value.detail
+    assert "127.0.0.1" not in refusal.detail
     # Only the discovery document was fetched; nothing was posted to the
     # endpoint the document named.
     assert [str(request.url) for request in recorded] == [DISCOVERY_URL]
+    assert warning.args == ("OAuth provider endpoint rejected",)
+    assert warning.kwargs["endpoint"] == "token_endpoint"
+    assert warning.kwargs["host"] == "127.0.0.1"
+
+
+@pytest.mark.anyio
+async def test_a_malformed_discovered_endpoint_refuses_without_reparsing(
+    test_db_session: AsyncSession, authlib_transport
+) -> None:
+    """fix(#1861 codex r1): the refusal path itself must not raise.
+
+    urlparse rejects a malformed authority with ValueError, so
+    validate_url_for_ssrf raises before reaching its own checks and the refusal
+    branch receives exactly the string that will not parse. Deriving a hostname
+    for the log from it a second time raised inside the handler, which turned
+    the sanitized 503 into an unhandled 500 on an unauthenticated route.
+    """
+    refusal, warning, recorded = await _discovery_refusal(
+        test_db_session, authlib_transport, MALFORMED_TOKEN_URL
+    )
+    private, private_warning, _ = await _discovery_refusal(
+        test_db_session, authlib_transport, LOOPBACK_TOKEN_URL
+    )
+
+    assert refusal.status_code == private.status_code == 503
+    assert refusal.detail == private.detail
+    # Nothing of the offending URL reaches the caller.
+    assert "invalid" not in refusal.detail
+    assert [str(request.url) for request in recorded] == [DISCOVERY_URL]
+    # The same log line as every other refusal, with the one field that cannot
+    # be derived left empty rather than raised over.
+    assert warning.args == private_warning.args
+    assert set(warning.kwargs) == set(private_warning.kwargs)
+    assert warning.kwargs["endpoint"] == "token_endpoint"
+    assert warning.kwargs["host"] is None
+    assert warning.kwargs["error_type"] == "ValueError"
 
 
 @pytest.mark.anyio

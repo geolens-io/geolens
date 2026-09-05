@@ -136,6 +136,23 @@ def _endpoint_refused(
     )
 
 
+def _loggable_hostname(url: str) -> str | None:
+    """The hostname for the operator log, or None when the URL will not parse.
+
+    fix(#1861 codex r1): the refusal path must not raise. urlparse rejects a
+    malformed authority such as ``http://[invalid/token`` with ValueError, so
+    validate_url_for_ssrf never reaches its own checks and the refusal branch
+    receives exactly the string that cannot be parsed. Parsing it a second time
+    there raised inside the handler, replacing the sanitized 503 with an
+    unhandled 500 on an unauthenticated route. None reads as unparseable in the
+    log line, and error_type carries the reason.
+    """
+    try:
+        return urlparse(url).hostname
+    except ValueError:
+        return None
+
+
 async def _validate_discovery_endpoints(
     provider_slug: str, metadata: dict[str, object]
 ) -> None:
@@ -150,9 +167,10 @@ async def _validate_discovery_endpoints(
             await validate_url_for_ssrf(url)
         except ValueError as exc:
             # SSRFError and SSRFResolutionError are both ValueError, which is
-            # also what the row-level check raises.
+            # also what the row-level check raises, and so is the plain
+            # ValueError urlparse raises on a malformed authority.
             raise _endpoint_refused(
-                provider_slug, exc, endpoint=key, host=urlparse(url).hostname
+                provider_slug, exc, endpoint=key, host=_loggable_hostname(url)
             ) from exc
 
 
