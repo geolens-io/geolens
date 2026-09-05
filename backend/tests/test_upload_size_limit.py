@@ -166,7 +166,9 @@ async def test_upload_commit_failure_cleans_owned_staged_file(tmp_path):
     staged.write_bytes(b"{}")
     job = MagicMock(id=uuid.uuid4(), user_metadata={})
     db = AsyncMock()
-    db.commit.side_effect = RuntimeError("commit failed")
+    # fix(#1848): the first commit is the one that frees the pooled connection
+    # before the upload. The failure under test is still the one after it.
+    db.commit.side_effect = [None, RuntimeError("commit failed")]
     cleanup = AsyncMock()
 
     with (
@@ -180,8 +182,6 @@ async def test_upload_commit_failure_cleans_owned_staged_file(tmp_path):
         patch.object(router, "create_ingest_job", AsyncMock(return_value=job)),
         patch.object(router, "save_upload_file", AsyncMock(return_value=staged)),
         patch.object(router, "validate_file_content"),
-        # fix(#1186): _stamp_raster_metadata is a synchronous filename check now.
-        patch.object(router, "_stamp_raster_metadata", MagicMock()),
         patch.object(router, "_cleanup_saved_upload", cleanup),
     ):
         with pytest.raises(HTTPException) as exc:

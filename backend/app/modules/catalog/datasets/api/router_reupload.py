@@ -173,6 +173,52 @@ async def _cleanup_uncommitted_reupload_source(
         )
 
 
+def _pending_reupload_update(job_id: uuid.UUID, dataset_id: uuid.UUID):
+    """An UPDATE that matches the job only while it is pending and bound here.
+
+    Every write after the row is committed goes through this guard, so a row
+    the sweep reclaimed, or one a dataset deletion unbound, is left as it was
+    and the caller learns that from a zero rowcount.
+    """
+    return update(IngestJob).where(
+        IngestJob.id == job_id,
+        IngestJob.dataset_id == dataset_id,
+        IngestJob.status == "pending",
+    )
+
+
+def _reupload_bind_refusal() -> HTTPException:
+    """The 409 for a guarded write that matched no row."""
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            "This upload could not be attached to the dataset. It may "
+            "have taken too long, or the dataset may no longer exist. "
+            "Start the re-upload again."
+        ),
+    )
+
+
+async def _bind_presigned_reupload(
+    db: AsyncSession,
+    *,
+    job_id: uuid.UUID,
+    dataset_id: uuid.UUID,
+    metadata: dict,
+) -> bool:
+    """Write the presigned facts onto the job; False when no row matched.
+
+    No `staged_at` is stamped: nothing is staged until the completion door
+    binds the frozen key, which moves the row into the sweep's 24-hour
+    completion-bound class, still measured from `created_at`.
+    """
+    bound = await db.execute(
+        _pending_reupload_update(job_id, dataset_id).values(user_metadata=metadata)
+    )
+    await db.commit()
+    return bool(bound.rowcount)
+
+
 def _assert_compatible_record_type(
     dataset,
     filename: str | None,
@@ -336,13 +382,11 @@ async def reupload_dataset(
             # fix(#1848 audit): guarded like the bind below, so a row the sweep
             # already reclaimed keeps its terminal status and message.
             await db.execute(
-                update(IngestJob)
-                .where(
-                    IngestJob.id == job.id,
-                    IngestJob.dataset_id == dataset_id,
-                    IngestJob.status == "pending",
+                _pending_reupload_update(job.id, dataset_id).values(
+                    status="failed",
+                    error_message=str(exc),
+                    completed_at=datetime.now(timezone.utc),
                 )
-                .values(status="failed", error_message=str(exc))
             )
             await db.commit()
             raise HTTPException(
@@ -354,13 +398,7 @@ async def reupload_dataset(
         # to this dataset, stamping `staged_at` so the pending window restarts
         # here. The carried-through metadata is what the binding gate reads.
         bound = await db.execute(
-            update(IngestJob)
-            .where(
-                IngestJob.id == job.id,
-                IngestJob.dataset_id == dataset_id,
-                IngestJob.status == "pending",
-            )
-            .values(
+            _pending_reupload_update(job.id, dataset_id).values(
                 file_path=str(saved_path),
                 user_metadata={
                     **(job.user_metadata or {}),
@@ -370,14 +408,7 @@ async def reupload_dataset(
         )
         await db.commit()
         if not bound.rowcount:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    "This upload could not be attached to the dataset. It may "
-                    "have taken too long, or the dataset may no longer exist. "
-                    "Start the re-upload again."
-                ),
-            )
+            raise _reupload_bind_refusal()
     except BaseException:
         await _cleanup_uncommitted_reupload_source(saved_path, job_id=job.id)
         raise
@@ -1196,8 +1227,15 @@ async def request_presigned_reupload(
 
     job = await get_catalog_port().create_ingest_job(db, request.filename, "", user.id)
     job.dataset_id = dataset_id
+    # fix(#1848): the markers the binding gate reads are committed with the
+    # row; the presigned facts land through the guarded bind once storage
+    # has answered, so a row cancelled or unbound meanwhile is refused.
+    job.user_metadata = {"reupload": True, "dataset_id": str(dataset_id)}
+    job_id = job.id
+    job_created_at = job.created_at
+    job_metadata = job.user_metadata
     storage = get_storage()
-    s3_key = f"staging/{job.id}/{request.filename}"
+    s3_key = f"staging/{job_id}/{request.filename}"
     physical_s3_key = resolve_current_storage_key(s3_key)
     threshold = settings.presigned_multipart_threshold_mb * 1024 * 1024
 
@@ -1206,7 +1244,10 @@ async def request_presigned_reupload(
     # its own expiration inside the signing thread, and this call is here only
     # so a job with no usable lifetime left is refused before an upload id
     # exists. The return is deliberately discarded. Same as the upload door.
-    get_catalog_port().require_signable_job_lifetime(job.created_at)
+    get_catalog_port().require_signable_job_lifetime(job_created_at)
+    # fix(#1848): committed before storage is asked for anything, so the pooled
+    # connection is not held across the multipart initiation or the signing.
+    await db.commit()
 
     if request.file_size > threshold:
         upload_id: str | None = None
@@ -1226,7 +1267,7 @@ async def request_presigned_reupload(
                 await run_in_thread_draining(
                     get_catalog_port().sign_url_with_deadline,
                     storage.generate_presigned_part_url,
-                    job.created_at,
+                    job_created_at,
                     physical_s3_key,
                     upload_id,
                     part_num,
@@ -1239,7 +1280,7 @@ async def request_presigned_reupload(
                     storage,
                     key=physical_s3_key,
                     upload_id=upload_id,
-                    job_id=job.id,
+                    job_id=job_id,
                 )
             # fix(#1235 review r5): an HTTPException from here is the lifetime
             # refusal and must survive as its own 409; the abort above has
@@ -1251,27 +1292,32 @@ async def request_presigned_reupload(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Storage service unavailable",
             ) from exc
-        job.user_metadata = {
-            "presigned": True,
-            "s3_key": s3_key,
-            "upload_id": upload_id,
-            "multipart": True,
-            "reupload": True,
-            "dataset_id": str(dataset_id),
-            "expected_size": request.file_size,
-        }
         try:
-            await db.commit()
+            bound = await _bind_presigned_reupload(
+                db,
+                job_id=job_id,
+                dataset_id=dataset_id,
+                metadata={
+                    **job_metadata,
+                    "presigned": True,
+                    "s3_key": s3_key,
+                    "upload_id": upload_id,
+                    "multipart": True,
+                    "expected_size": request.file_size,
+                },
+            )
+            if not bound:
+                raise _reupload_bind_refusal()
         except BaseException:
             await get_catalog_port().abort_presigned_multipart_upload(
                 storage,
                 key=physical_s3_key,
                 upload_id=upload_id,
-                job_id=job.id,
+                job_id=job_id,
             )
             raise
         return PresignedUploadResponse(
-            job_id=job.id,
+            job_id=job_id,
             urls=urls,
             s3_key=physical_s3_key,
             upload_id=upload_id,
@@ -1281,21 +1327,26 @@ async def request_presigned_reupload(
         url = await run_in_thread_draining(
             get_catalog_port().sign_url_with_deadline,
             storage.generate_presigned_put_url,
-            job.created_at,  # expires with the job, not 3600s from now
+            job_created_at,  # expires with the job, not 3600s from now
             physical_s3_key,
             request.content_type,
         )
-        job.user_metadata = {
-            "presigned": True,
-            "s3_key": s3_key,
-            "multipart": False,
-            "reupload": True,
-            "dataset_id": str(dataset_id),
-            "expected_size": request.file_size,
-        }
-        await db.commit()
+        bound = await _bind_presigned_reupload(
+            db,
+            job_id=job_id,
+            dataset_id=dataset_id,
+            metadata={
+                **job_metadata,
+                "presigned": True,
+                "s3_key": s3_key,
+                "multipart": False,
+                "expected_size": request.file_size,
+            },
+        )
+        if not bound:
+            raise _reupload_bind_refusal()
         return PresignedUploadResponse(
-            job_id=job.id,
+            job_id=job_id,
             urls=[url],
             s3_key=physical_s3_key,
         )

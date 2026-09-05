@@ -127,14 +127,18 @@ class TestUpload:
         assert resp.status_code == 422
         assert "standalone vrt" in resp.json()["detail"].lower()
 
-    async def test_s3_validation_download_failure_deletes_uncommitted_source(
+    async def test_s3_validation_download_failure_deletes_the_staged_source(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         test_db_session,
         mock_file_save,
     ):
-        """A failed validation download cannot orphan its just-written S3 key."""
+        """A failed validation download cannot orphan its just-written S3 key.
+
+        The job row is committed before the upload, so it stays `pending` with
+        nothing bound for the sweep to reap; the staged source is what must go.
+        """
         source_filename = f"resolve-failure-{uuid.uuid4()}.geojson"
         storage_key = f"staging/{uuid.uuid4()}/{source_filename}"
         mock_file_save.side_effect = None
@@ -165,7 +169,10 @@ class TestUpload:
         result = await test_db_session.execute(
             select(IngestJob).where(IngestJob.source_filename == source_filename)
         )
-        assert result.scalar_one_or_none() is None
+        job = result.scalar_one_or_none()
+        assert job is not None
+        assert job.status == "pending"
+        assert not job.file_path
 
     async def test_upload_success(
         self,
