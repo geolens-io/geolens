@@ -7,7 +7,18 @@
 // bundles so a locale regression shows up as a literal duplicate substring.
 import i18n from 'i18next';
 import { render, screen } from '@/test/test-utils';
+import { changeTestLanguage } from '@/test/i18n';
 import { FileDropzone } from '../FileDropzone';
+import type { SupportedLng } from '@/i18n/config';
+
+// fix(#1866): the real, non-English browse word per locale, proving
+// changeTestLanguage loaded the bundle instead of falling back to English.
+const NON_ENGLISH_LOCALES: Exclude<SupportedLng, 'en'>[] = ['es', 'fr', 'de'];
+const NON_ENGLISH_BROWSE_WORD: Record<Exclude<SupportedLng, 'en'>, string> = {
+  es: 'Examinar',
+  fr: 'Parcourir',
+  de: 'Durchsuchen',
+};
 
 function composedInstructions(): string {
   // The heading text is split across a plain text node and a bolded <span>
@@ -31,14 +42,15 @@ describe('FileDropzone instructions text (#1853)', () => {
     expect(text.match(/browse/gi)).toHaveLength(1);
   });
 
-  it.each(['es', 'fr', 'de'])('does not repeat the browse verb in %s', async (lng) => {
-    await i18n.changeLanguage(lng);
+  it.each(NON_ENGLISH_LOCALES)('does not repeat the browse verb in %s', async (lng) => {
+    await changeTestLanguage(lng);
     render(<FileDropzone onFilesAccepted={() => {}} />);
 
     const text = composedInstructions();
     const browseWord = i18n.t('import:dropzone.browse');
-    // Count occurrences of the locale's own browse word — the pre-fix bug
-    // was a literal duplicate of it (once from `instructions`, once bolded).
+    expect(browseWord).toBe(NON_ENGLISH_BROWSE_WORD[lng]);
+    // The pre-fix bug duplicated the locale's own browse word (once from
+    // `instructions`, once bolded).
     const occurrences = text.split(browseWord).length - 1;
     expect(occurrences).toBe(1);
   });
