@@ -805,11 +805,12 @@ async def _settle_under_reset(
     body: Callable[[], Awaitable[None]],
     *,
     job_id: uuid.UUID,
-) -> None:
+) -> bool:
     """Run every statement of one settlement on a session that was just reset.
 
-    fix(#1814): any statement in a settlement can find the transaction unusable.
-    The body is fenced, so one reset-and-retry lands nothing twice.
+    Returns whether an attempt committed. fix(#1814): any statement in a
+    settlement can find the transaction unusable. The body is fenced, so one
+    reset-and-retry lands nothing twice.
     """
     # fix(#1814): pinned once, never re-read. A retry can rotate the token
     # between the two attempts, and a reset reloads the new one, so the retry
@@ -822,11 +823,12 @@ async def _settle_under_reset(
         try:
             await body()
             await db.commit()
-            return
+            return True
         except Exception:  # broad: any database error is a reset-and-retry
             if attempt == 2:
                 log.exception("Could not settle a manifest job", job_id=str(job_id))
                 await db.rollback()
+    return False
 
 
 async def _fail_reservation(
@@ -844,6 +846,14 @@ async def _fail_reservation(
     await _settle_under_reset(db, job, _release, job_id=job_id)
 
 
+async def _settled_failed(db: AsyncSession, job_id: uuid.UUID) -> bool:
+    """Does the row for ``job_id`` read ``failed`` on this transaction?"""
+    row = (
+        await db.execute(select(IngestJob.status).where(IngestJob.id == job_id))
+    ).one_or_none()
+    return row is not None and row.status == "failed"
+
+
 async def _settle_staged_entry(
     db: AsyncSession,
     job: IngestJob,
@@ -852,7 +862,7 @@ async def _settle_staged_entry(
     prepared: ManifestPreparedSource,
     file_path: str,
 ) -> None:
-    """Settle an entry that failed after its source was staged.
+    """Settle an entry that failed after its source was staged, then reap the copy.
 
     fix(#1814): the row decides, not the exception. The two settlements fence on
     disjoint states, and read and settlement share one body.
@@ -861,9 +871,10 @@ async def _settle_staged_entry(
     # The safe default if neither attempt can read: keep the bytes, because
     # orphaned ones are reclaimable and ones a durable row names are not.
     referenced = True
+    failed = False
 
     async def _decide_and_settle() -> None:
-        nonlocal referenced
+        nonlocal referenced, failed
         referenced = await staged_source_is_referenced(db, job_id, file_path=file_path)
         if not await release_manifest_reservation(
             db, job, f"Failed to stage manifest source: {exc}"
@@ -871,12 +882,17 @@ async def _settle_staged_entry(
             await settle_ingest_job_failed(
                 job, exc, message_prefix="Failed to queue manifest job"
             )
+        failed = await _settled_failed(db, job_id)
 
-    await _settle_under_reset(db, job, _decide_and_settle, job_id=job_id)
+    committed = await _settle_under_reset(db, job, _decide_and_settle, job_id=job_id)
     # Outside the retry: the filesystem is not part of the transaction, and an
     # HTTP download is owned by this attempt while a raw operator seed is not.
-    if not referenced:
-        _cleanup_downloaded_source(prepared, file_path)
+    # fix(#1888): only a committed settlement may reap; a failed row has no retry.
+    if committed and (failed or not referenced):
+        try:
+            _cleanup_downloaded_source(prepared, file_path)
+        except OSError:
+            log.warning("Could not reap a staged manifest source", job_id=str(job_id))
 
 
 async def _finalize_reserved_entry(
