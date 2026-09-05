@@ -1,12 +1,15 @@
-"""fix(#1814): a manifest entry claims its key before its source is fetched.
+"""An apply claims a manifest key before fetching that entry's source.
 
-The in-flight check and the row that makes it true were separated by a network
-fetch, so a client that timed out mid-download and retried queued it twice.
+Covers the claim itself, the fenced transitions out of the downloading stage,
+the running lease the reservation is judged by, and the reconciliation each
+ambiguous commit in the path performs.
 """
 
 from __future__ import annotations
 
 from contextlib import contextmanager
+import asyncio
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from shutil import copyfile
@@ -20,6 +23,7 @@ from sqlalchemy import event, func, select, text, update
 from app.core.config import settings
 from app.modules.auth.models import User
 from app.modules.quota.schemas import UserQuotaUsage
+from app.platform.jobs.defer_guard import settle_ingest_job_failed
 from app.platform.jobs.models import IngestJob
 from app.platform.jobs.sweep import (
     JOB_TIMEOUT_SECONDS,
@@ -119,8 +123,11 @@ async def _jobs_for_key(session, key: str) -> list[IngestJob]:
 def _ingest_job_writes(session):
     """Record every INSERT and UPDATE issued against ``catalog.ingest_jobs``.
 
-    Listens on the sync engine, so it sees what the database was asked to do.
-    Each entry carries its rowcount, so a caller can ask either question.
+    Yields a list of (statement, rowcount) pairs, appended as they execute.
+    Listens on the session's sync engine, so it sees what the database was
+    actually asked to do rather than what the ORM was asked to do, and the
+    rowcount lets a caller ask either question: did anything reach the table
+    at all, or did anything change a row.
     """
     bind = session.get_bind()
     engine = getattr(bind, "sync_engine", bind)
@@ -788,6 +795,100 @@ class TestReservationFailureReleasesTheKey:
 
         assert retried.results[0].action == "create"
         queue.assert_awaited_once()
+
+    async def test_the_settlement_retry_cannot_settle_a_rotated_attempt(
+        self, test_db_session, clean_tables
+    ):
+        """fix(#1814): the settlement CAS pins the attempt it started with.
+
+        A durable settlement whose acknowledgement is lost can be followed by
+        /jobs/{id}/retry rotating the token, and a reset reloads the new one.
+        """
+        user = await _admin_user(test_db_session)
+        job = IngestJob(
+            source_filename="rotate.geojson",
+            created_by=user.id,
+            status="running",
+            started_at=datetime.now(timezone.utc),
+            user_metadata={
+                "manifest_key": "manifest-1814-rotate",
+                MANIFEST_STAGE_METADATA_KEY: MANIFEST_STAGE_DOWNLOADING,
+            },
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+        job_id, rotated = job.id, uuid.uuid4()
+        landed: list[bool] = []
+        calls = {"n": 0}
+        exc = RuntimeError("quota denied")
+
+        async def _body() -> None:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                # The settlement lands, its acknowledgement is lost, and a
+                # retry rotates the token and returns the row to pending.
+                await test_db_session.execute(
+                    update(IngestJob)
+                    .where(IngestJob.id == job_id)
+                    .values(status="pending", attempt_id=rotated)
+                    .execution_options(synchronize_session=False)
+                )
+                await test_db_session.commit()
+                raise RuntimeError("acknowledgement lost")
+            landed.append(
+                await settle_ingest_job_failed(job, exc, message_prefix="Failed")
+            )
+
+        await manifest_service._settle_under_reset(
+            test_db_session, job, _body, job_id=job_id
+        )
+
+        assert calls["n"] == 2
+        assert landed == [False], "the retry settled the row under a rotated token"
+        row = await test_db_session.get(IngestJob, job_id, populate_existing=True)
+        assert row.status == "pending"
+        assert row.attempt_id == rotated
+
+    async def test_a_cancelled_reservation_commit_is_not_swallowed(
+        self, test_db_session, clean_tables
+    ):
+        """fix(#1814): a cancellation must not become a staging run.
+
+        The reservation is reconciled either way, but a request cancelled at
+        the commit stops instead of downloading through a shutdown.
+        """
+        _stage_fixture()
+        user = await _admin_user(test_db_session)
+        request = _request(_manifest_dataset(key="manifest-1814-cancelled"))
+
+        async def _durable_then_cancel(db) -> None:
+            await db.commit()
+            raise asyncio.CancelledError()
+
+        with (
+            patch(
+                "app.processing.ingest.manifest_service._commit_reservation",
+                new=_durable_then_cancel,
+            ),
+            patch(
+                "app.processing.ingest.manifest_service._stage_source_if_needed",
+                new=AsyncMock(),
+            ) as stage,
+            patch(
+                "app.processing.ingest.manifest_service.queue_ingest_job",
+                new=AsyncMock(),
+            ) as queue,
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await apply_manifest(test_db_session, request, user, _http_request())
+
+        stage.assert_not_awaited()
+        queue.assert_not_awaited()
+        settled = await _jobs_for_key(test_db_session, "manifest-1814-cancelled")
+        assert len(settled) == 1
+        assert settled[0].status == "failed"
+        assert MANIFEST_STAGE_METADATA_KEY not in settled[0].user_metadata
 
     async def test_a_post_admission_failure_returns_its_bytes_to_the_batch_ledger(
         self, test_db_session, clean_tables

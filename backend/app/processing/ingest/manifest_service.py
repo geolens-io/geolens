@@ -13,7 +13,9 @@ from typing import cast
 import structlog
 from fastapi import HTTPException, Request
 from sqlalchemy import desc, select
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm import joinedload
 
 from app.core.async_io import (
@@ -410,8 +412,11 @@ async def _preflight_quota(
 ) -> int | None:
     """Refuse an over-quota caller, and derive the streaming byte budget.
 
-    Runs before the reservation, so a refused entry leaves no row. The snapshot
-    also bounds streaming, so a caller at quota cannot force a whole download.
+    Runs before the reservation is inserted, so an entry that cannot be
+    admitted leaves no row behind. The same snapshot supplies a hard byte
+    budget for streaming, so a caller at or near quota cannot force the server
+    to download a whole object merely to discover that it cannot be admitted.
+    Returns None when the caller has no storage cap.
     """
     from app.modules.quota.service import get_user_quota_usage
 
@@ -732,7 +737,12 @@ async def _reserve_entry(
         await db.flush()
         await _commit_reservation(db)
     except BaseException as exc:
-        adopted = await _adopt_committed_reservation(db, job, exc)
+        # fix(#1814): a cancellation is not a failure to recover from. The
+        # durable row is reconciled either way, but staging must not run on
+        # through a shutdown, so only an ordinary exception continues.
+        adopted = await _adopt_committed_reservation(
+            db, job, exc, adopt=isinstance(exc, Exception)
+        )
         if adopted is None:
             raise
         job = adopted
@@ -746,12 +756,15 @@ async def _reserve_entry(
 
 
 async def _adopt_committed_reservation(
-    db: AsyncSession, job: IngestJob, exc: BaseException
+    db: AsyncSession, job: IngestJob, exc: BaseException, *, adopt: bool = True
 ) -> IngestJob | None:
-    """Adopt a reservation whose insert was durable but unacknowledged.
+    """Reconcile a reservation whose insert was durable but unacknowledged.
 
-    fix(#1814): the row decides, as at the staging bind. A landed insert is
-    adopted; anything else releases through the running fence first.
+    Returns the row when this request may go on using it, and None when the
+    caller must re-raise. Either way the key is not left held.
+
+    fix(#1814): the row decides, as at the staging bind. ``adopt`` is False
+    for a cancellation, which releases the landed row instead.
     """
     job_id = job.id
     adopted: IngestJob | None = None
@@ -762,7 +775,7 @@ async def _adopt_committed_reservation(
         adopted = row if row is not None and row.status == "running" else None
 
     await _settle_under_reset(db, job, _read_back, job_id=job_id)
-    if adopted is not None:
+    if adopted is not None and adopt:
         return adopted
     await _fail_reservation(db, job, exc)
     return None
@@ -798,8 +811,14 @@ async def _settle_under_reset(
     fix(#1814): any statement in a settlement can find the transaction unusable.
     The body is fenced, so one reset-and-retry lands nothing twice.
     """
+    # fix(#1814): pinned once, never re-read. A retry can rotate the token
+    # between the two attempts, and a reset reloads the new one, so the retry
+    # body would settle a fresh attempt for the previous attempt's error.
+    pinned_attempt = getattr(job, "attempt_id", None)
     for attempt in (1, 2):
         await reset_session_for_settlement(job, db=db)
+        if sa_inspect(job, raiseerr=False) is not None:
+            set_committed_value(job, "attempt_id", pinned_attempt)
         try:
             await body()
             await db.commit()

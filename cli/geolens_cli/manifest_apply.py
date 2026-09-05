@@ -485,56 +485,31 @@ def attempt_apply_timeout_status_check(
     to report which entries the server had already reached. Returns
     ``None`` if the follow-up itself failed or timed out.
 
-    fix(#1778 review round 18) part (c): ``dry_run=True`` on this SAME
-    endpoint already classifies every entry
-    (create/update/skip_complete/skip_in_flight) WITHOUT downloading or
-    queuing anything — ``_stage_source_if_needed`` (backend/app/
-    processing/ingest/manifest_service.py) short-circuits before the
-    network fetch when ``dry_run``. That makes it materially cheaper
-    than the apply that just timed out, and it is EXACTLY the "which
-    entries completed" answer: this PR does not add a separate status
-    or job-listing endpoint (out of scope — no async job mode), because
-    the existing dry-run classification on this same endpoint already
-    covers the question.
+    ``dry_run=True`` on this same endpoint classifies every entry
+    (create/update/skip_complete/skip_in_flight) without downloading or
+    queuing anything, which makes it materially cheaper than the apply that
+    just timed out and is exactly the "which entries did the server reach"
+    answer.
 
-    fix(#1778 review round 19): bounded by
-    ``MANIFEST_APPLY_STATUS_CHECK_TIMEOUT_SECONDS`` (a short, FIXED
-    30s) rather than the entry-scaled budget the real apply needed —
-    ``dry_run`` does no download/queue work, so its own cost does not
-    grow with entry count. Best-effort either way: if the follow-up
-    ALSO fails or times out, the entry-by-entry answer just was not
-    available right now. This does NOT mean re-running is therefore
-    safe — see ``build_apply_timeout_message``'s docstring for why an
-    entry that was mid-download when the ORIGINAL request timed out is
-    invisible to this check too (no job row exists for it yet either
-    way), so its absence from a "settled" classification specifically
-    does not distinguish "not reached" from "actively downloading,
-    about to double-queue if you re-apply right now".
+    fix(#1814): an entry still being staged holds a reservation and classifies
+    ``skip_in_flight``, so absence from the answer means the server had not
+    reached that entry.
+
+    Bounded by ``MANIFEST_APPLY_STATUS_CHECK_TIMEOUT_SECONDS``, a short fixed
+    30s rather than the entry-scaled budget the real apply needed, because
+    ``dry_run`` does no download or queue work. Best-effort: if the follow-up
+    also fails or times out, the entry-by-entry answer was not available.
 
     Side-effect-free (no ``output`` printing) so a ``--json`` caller
     can build one clean structured payload from the result instead of
     inheriting rich-console/stderr writes meant for a human — see
     ``report_apply_timeout`` for that human-mode convenience wrapper.
 
-    fix(#1778 review round 21): only caught ``ManifestApplyTimeout``/
-    ``ManifestApplyRequestError`` -- both raised by
-    ``post_manifest_apply`` itself once it has a response (or a clean
-    timeout) to reason about. A plain network failure (connection
-    refused/reset) never reaches either: ``call_sdk()`` maps
-    ``httpx.NetworkError`` straight to ``typer.Exit(EXIT_NETWORK)``
-    on its own, which propagated uncaught here and blew up the whole
-    ``--json`` branch in main.py before it could ever emit the
-    promised single structured payload -- the ORIGINAL timeout's
-    result never reached the caller at all. This is best-effort
-    by design (see the module docstring above); ANY failure during the
-    follow-up must degrade to "status unavailable," not crash the
-    command that is already in its error-reporting path. Catches
-    ``typer.Exit`` explicitly (even though it is technically also an
-    ``Exception`` — ``click.exceptions.Exit`` subclasses
-    ``RuntimeError``) for clarity at the call site about exactly which
-    shape this is guarding against, alongside the deliberately broad
-    ``Exception`` catch-all for anything else the follow-up could
-    raise.
+    Catches every failure shape the follow-up can raise, including
+    ``typer.Exit`` (which ``call_sdk`` raises for a plain network error, and
+    which subclasses ``RuntimeError`` rather than ``Exception``). Any failure
+    here must degrade to "status unavailable" rather than crash a command
+    already in its error-reporting path.
     """
     status_payload = dict(payload)
     status_payload["dry_run"] = True
