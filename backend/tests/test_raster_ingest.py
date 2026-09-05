@@ -552,10 +552,20 @@ class TestRasterDeleteCascadeRemovesStorage:
 
             result = await delete_dataset(session, dataset_id, "My Raster")
 
-        assert result == "test_table"
+        assert result.table_name == "test_table"
 
         # All raster and original keys must be deleted
         expected_deleted = set(raster_keys + original_keys)
+        # fix(#1847): the reap is the caller's, after its commit. Run it here
+        # with what delete_dataset returned, so this still covers which objects
+        # go, in the shape the endpoints now use.
+        from app.modules.catalog.datasets.domain.service import reap_managed_storage
+
+        with mock.patch(
+            "app.platform.storage.provider.get_storage", return_value=storage
+        ):
+            await reap_managed_storage(list(result.storage_prefixes), result.tenant_id)
+
         assert set(storage.deleted_keys) == expected_deleted
 
         # No DROP TABLE should have been executed
@@ -601,11 +611,19 @@ class TestRasterDeleteCascadeRemovesStorage:
         ):
             from app.modules.catalog.datasets.domain.service import delete_dataset
 
-            with pytest.raises(RuntimeError, match="Storage delete failed"):
-                await delete_dataset(session, dataset_id, "My Raster")
+            # fix(#1847): the reap is the CALLER's, after its commit, so a
+            # failing storage provider cannot be reached from here at all.
+            # This used to raise, and the raise was the guarantee that no DB
+            # change outlived a storage failure. The guarantee is now the other
+            # way round: the rows go first, and a failed reap orphans objects
+            # rather than restoring a dataset whose bytes are gone.
+            result = await delete_dataset(session, dataset_id, "My Raster")
 
-        # DB delete must NOT have been called
-        session.delete.assert_not_called()
+        assert result.storage_prefixes, "the caller is told what to reap"
+        assert storage.deleted_keys == [], (
+            "delete_dataset touched storage; the reap belongs after the commit"
+        )
+        session.delete.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_vector_delete_still_drops_table(self):
@@ -664,13 +682,23 @@ class TestRasterDeleteCascadeRemovesStorage:
 
             result = await delete_dataset(session, dataset_id, "My Vector")
 
-        assert result == "test_table"
+        assert result.table_name == "test_table"
 
         drop_calls = [s for s in executed_sqls if "DROP TABLE" in s.upper()]
         assert len(drop_calls) == 1, f"Expected exactly 1 DROP TABLE, got: {drop_calls}"
         assert "test_table" in drop_calls[0]
 
         # fix(#430 BA-17): both managed-storage prefixes reaped
+        # fix(#1847): the reap is the caller's, after its commit. Run it here
+        # with what delete_dataset returned, so this still covers which objects
+        # go, in the shape the endpoints now use.
+        from app.modules.catalog.datasets.domain.service import reap_managed_storage
+
+        with mock.patch(
+            "app.platform.storage.provider.get_storage", return_value=storage
+        ):
+            await reap_managed_storage(list(result.storage_prefixes), result.tenant_id)
+
         assert set(storage.deleted_keys) == set(original_keys + vector_keys)
 
         session.delete.assert_called_once_with(mock_dataset.record)

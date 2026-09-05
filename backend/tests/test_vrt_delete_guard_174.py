@@ -13,6 +13,8 @@ branch is SQL a mocked session cannot exercise.
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from app.modules.catalog.datasets.domain.service import reap_managed_storage
+
 import pytest
 
 from app.modules.catalog.datasets.domain.service import DependentVrtError
@@ -109,7 +111,11 @@ class TestDeleteGuard:
             AsyncMock(return_value=mock_dataset),
         ):
             with pytest.raises(DependentVrtError) as exc_info:
-                await delete_dataset(mock_session, dataset_id, "My COG")
+                _deletion = await delete_dataset(mock_session, dataset_id, "My COG")
+                # fix(#1847): the reap is the caller's, after its commit.
+                await reap_managed_storage(
+                    list(_deletion.storage_prefixes), _deletion.tenant_id
+                )
 
         err = exc_info.value
         assert len(err.dependents) == 1
@@ -147,7 +153,7 @@ class TestDeleteGuard:
                     mock_session, dataset_id, "Standalone COG"
                 )
 
-        assert result == "test_table"
+        assert result.table_name == "test_table"
         mock_session.delete.assert_called_once_with(mock_dataset.record)
 
     @pytest.mark.asyncio
@@ -180,7 +186,11 @@ class TestDeleteGuard:
             AsyncMock(return_value=mock_dataset),
         ):
             with pytest.raises(DependentVrtError) as exc_info:
-                await delete_dataset(mock_session, dataset_id, "Shared COG")
+                _deletion = await delete_dataset(mock_session, dataset_id, "Shared COG")
+                # fix(#1847): the reap is the caller's, after its commit.
+                await reap_managed_storage(
+                    list(_deletion.storage_prefixes), _deletion.tenant_id
+                )
 
         err = exc_info.value
         assert len(err.dependents) == 3
@@ -323,7 +333,13 @@ async def test_delete_dataset_fails_closed_without_multi_tenant_context(monkeypa
             AsyncMock(return_value=mock_dataset),
         ):
             with pytest.raises(RuntimeError, match="missing tenant context"):
-                await delete_dataset(mock_session, dataset_id, "Tenant vector")
+                _deletion = await delete_dataset(
+                    mock_session, dataset_id, "Tenant vector"
+                )
+                # fix(#1847): the reap is the caller's, after its commit.
+                await reap_managed_storage(
+                    list(_deletion.storage_prefixes), _deletion.tenant_id
+                )
     finally:
         current_tenant_var.reset(token)
 
@@ -367,8 +383,12 @@ class TestVrtDeletion:
                 "app.platform.storage.provider.get_storage", return_value=mock_storage
             ):
                 result = await delete_dataset(mock_session, dataset_id, "My VRT")
+                # fix(#1847): the reap is the caller's, after its commit.
+                await reap_managed_storage(
+                    list(result.storage_prefixes), result.tenant_id
+                )
 
-        assert result == "test_table"
+        assert result.table_name == "test_table"
 
         # Should list rasters/ prefix
         list_calls = [c.args[0] for c in mock_storage.list.call_args_list]
@@ -408,7 +428,11 @@ class TestVrtDeletion:
                     "app.platform.storage.provider.get_storage",
                     return_value=mock_storage,
                 ):
-                    await delete_dataset(mock_session, dataset_id, "My VRT")
+                    _deletion = await delete_dataset(mock_session, dataset_id, "My VRT")
+                    # fix(#1847): the reap is the caller's, after its commit.
+                    await reap_managed_storage(
+                        list(_deletion.storage_prefixes), _deletion.tenant_id
+                    )
         finally:
             current_tenant_var.reset(token)
 
@@ -455,7 +479,11 @@ class TestVrtDeletion:
             with patch(
                 "app.platform.storage.provider.get_storage", return_value=mock_storage
             ):
-                await delete_dataset(mock_session, dataset_id, "My COG")
+                _deletion = await delete_dataset(mock_session, dataset_id, "My COG")
+                # fix(#1847): the reap is the caller's, after its commit.
+                await reap_managed_storage(
+                    list(_deletion.storage_prefixes), _deletion.tenant_id
+                )
 
         list_calls = [c.args[0] for c in mock_storage.list.call_args_list]
         assert f"rasters/{dataset_id}/" in list_calls
@@ -501,7 +529,11 @@ class TestVrtDeletion:
             with patch(
                 "app.platform.storage.provider.get_storage", return_value=mock_storage
             ):
-                await delete_dataset(mock_session, vrt_id, "My VRT")
+                _deletion = await delete_dataset(mock_session, vrt_id, "My VRT")
+                # fix(#1847): the reap is the caller's, after its commit.
+                await reap_managed_storage(
+                    list(_deletion.storage_prefixes), _deletion.tenant_id
+                )
 
         # Source COG key should never be deleted
         delete_calls = [c.args[0] for c in mock_storage.delete.call_args_list]
@@ -530,7 +562,11 @@ class TestVrtDeletion:
             with patch(
                 "app.platform.storage.provider.get_storage", return_value=mock_storage
             ):
-                await delete_dataset(mock_session, dataset_id, "My VRT")
+                _deletion = await delete_dataset(mock_session, dataset_id, "My VRT")
+                # fix(#1847): the reap is the caller's, after its commit.
+                await reap_managed_storage(
+                    list(_deletion.storage_prefixes), _deletion.tenant_id
+                )
 
         # Verify record deletion is invoked (CASCADE handles vrt_source_links)
         mock_session.delete.assert_called_once_with(mock_dataset.record)

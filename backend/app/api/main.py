@@ -956,6 +956,7 @@ from app.core.db.sqlstate import (  # noqa: E402
 from app.platform.catalog_locks import (  # noqa: E402
     CATALOG_LOCK_CONFLICT_CODE,
     CatalogLockConflict,
+    catalog_timeout_installed,
 )
 from app.modules.quota.service import (  # noqa: E402
     DatasetQuotaExceededError,
@@ -1041,12 +1042,13 @@ async def _database_error_handler(request: Request, exc: DBAPIError) -> JSONResp
     fix(#1847): a lock conflict is answered here too, not only when it arrives
     as CatalogLockConflict from the acquisition. `SET LOCAL lock_timeout` stays
     in effect for the whole transaction, so a later wait in the same request
-    raises 55P03 from a statement no per-site translation wraps. Closing it at
-    the boundary keeps one mapping instead of one per call site.
+    raises 55P03 from a statement no per-site translation wraps. Gated on this
+    request having installed that timeout, so an unrelated deadlock keeps its
+    operational classification instead of being reported as a busy dataset.
 
     The detail is deliberately generic: the SQLSTATE and statement go to the log.
     """
-    if is_lock_conflict(exc):
+    if is_lock_conflict(exc) and catalog_timeout_installed.get():
         return _catalog_lock_conflict_response(
             request, "Another operation is updating this dataset's catalog entry."
         )

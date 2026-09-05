@@ -1947,8 +1947,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # which deletes objects permanently, and behind the DROP. The Valkey
         # purge stays under the lock, with its bound. The acquisition includes
         # the raster child, whose row the replace worker holds across its
-        # upload. Cap 483 -> 498, exact.
-        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 498,
+        # upload. The storage reap moved OUT to the callers, past their
+        # commit, because the record delete's FK cascades reach child rows
+        # nobody locks. Cap 483 -> 512, exact.
+        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 512,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.
@@ -2973,7 +2975,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # it is the only shape a contended row produces, from one shared constant,
     # and answered at the boundary too: SET LOCAL lock_timeout outlives the
     # acquisition, so a later wait in the same request raises 55P03 from a
-    # statement no per-site translation wraps. Cap 1903 -> 1952, exact.    "backend/app/api/main.py": 1952,
+    # statement no per-site translation wraps. Cap 1903 -> 1952, exact.    # statement no per-site translation wraps, gated on this request having
+    # installed that timeout. Cap 1903 -> 1954, exact.    "backend/app/api/main.py": 1954,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative

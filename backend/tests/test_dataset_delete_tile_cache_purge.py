@@ -97,7 +97,10 @@ async def _run_delete(dataset: MagicMock) -> str:
         ),
         patch("app.platform.storage.provider.get_storage", return_value=_MockStorage()),
     ):
-        return await delete_dataset(session, dataset.id, dataset.record.title)
+        # fix(#1847): delete_dataset returns a DatasetDeletion now; these
+        # tests are about the tile purge, so hand back the table name.
+        deletion = await delete_dataset(session, dataset.id, dataset.record.title)
+        return deletion.table_name
 
 
 @pytest.mark.asyncio

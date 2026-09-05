@@ -441,6 +441,26 @@ async def update_dataset_metadata(
     return response
 
 
+async def _reap_after_commit(deletion) -> None:
+    """Remove a deleted dataset's objects, once its rows are gone for good.
+
+    fix(#1847): the reap is irreversible and the delete's FK cascades can still
+    lose a lock race, so it runs AFTER the commit. A failure here orphans
+    objects, which costs storage; it cannot resurrect a dataset, so it is
+    logged rather than raised at a caller whose rows are already deleted.
+    """
+    from app.modules.catalog.datasets.domain.service import reap_managed_storage
+
+    try:
+        await reap_managed_storage(list(deletion.storage_prefixes), deletion.tenant_id)
+    except Exception:  # broad: the rows are already gone, so no failure here can be raised at a caller that could act on it
+        logger.exception(
+            "Dataset rows are deleted but their storage was not reaped",
+            table_name=deletion.table_name,
+            prefixes=list(deletion.storage_prefixes),
+        )
+
+
 async def _rollback_failed_item(db: AsyncSession, user) -> None:
     """Roll back one failed bulk-delete item without breaking the next one.
 
@@ -511,7 +531,8 @@ async def bulk_delete_datasets_endpoint(
                 )
                 continue
 
-            table_name = await delete_dataset(db, item.dataset_id, item.confirm_title)
+            deletion = await delete_dataset(db, item.dataset_id, item.confirm_title)
+            table_name = deletion.table_name
             await audit_emit(
                 db,
                 AuditEvent(
@@ -526,6 +547,7 @@ async def bulk_delete_datasets_endpoint(
             # Commit per-item so a later failure cannot orphan storage objects
             # that were already deleted for successfully-committed datasets.
             await db.commit()
+            await _reap_after_commit(deletion)
             # fix(#1429): only now is the delete visible to a concurrent tile
             # request, so only now can the tile router's table_name -> metadata
             # map be evicted without the request re-caching the deleted row.
@@ -594,7 +616,8 @@ async def delete_dataset_endpoint(
     await check_dataset_write_access(db, dataset, dataset_id, user)
 
     try:
-        table_name = await delete_dataset(db, dataset_id, body.confirm_title)
+        deletion = await delete_dataset(db, dataset_id, body.confirm_title)
+        table_name = deletion.table_name
     except DependentVrtError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -635,6 +658,7 @@ async def delete_dataset_endpoint(
         ),
     )
     await db.commit()
+    await _reap_after_commit(deletion)
 
     # Invalidate caches after dataset deletion
     await invalidate_catalog_cache()

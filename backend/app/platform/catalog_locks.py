@@ -7,6 +7,7 @@ the mapped classes ``ProcessingPort`` hands them.
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from typing import Any
 
 from sqlalchemy import select, text
@@ -28,6 +29,15 @@ _USE_REQUEST_DEFAULT: Any = object()
 # The machine-readable code for a contended row, wherever it is reported: the
 # 409 body, and a bulk-delete item that carries its conflict instead of raising.
 CATALOG_LOCK_CONFLICT_CODE = "catalog_lock_conflict"
+
+
+# Set when THIS request installed the catalog timeout. fix(#1847): without it
+# the boundary handler read any 40P01, and any 55P03 from another timeout site,
+# as a busy dataset -- mislabelling an unrelated deadlock and skipping the
+# class-40 operational logging it used to get.
+catalog_timeout_installed: ContextVar[bool] = ContextVar(
+    "catalog_timeout_installed", default=False
+)
 
 
 class CatalogLockConflict(Exception):
@@ -82,6 +92,8 @@ async def lock_catalog_rows(
         # `SET LOCAL` takes a literal; this value is a constant, never
         # request-supplied.
         await session.execute(text(f"SET LOCAL lock_timeout = '{lock_timeout}'"))
+        # Each request runs in its own task, so this cannot leak across them.
+        catalog_timeout_installed.set(True)
 
     # `no_autoflush` so the order below is what reaches PostgreSQL: an
     # autoflush here emits the ORM's own order, which is the inversion.

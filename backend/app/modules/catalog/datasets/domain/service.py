@@ -42,10 +42,12 @@ from app.modules.catalog.datasets.domain.service_create import (
     create_empty_dataset,
 )
 from app.modules.catalog.datasets.domain.service_lifecycle import (
+    DatasetDeletion,
     DatasetTitleMismatchError,
     DependentVrtError,
     delete_dataset,
     get_dataset_versions,
+    reap_managed_storage,
 )
 from app.modules.catalog.datasets.domain.service_metadata import (
     compute_schema_diff,
@@ -74,6 +76,8 @@ from app.modules.catalog.datasets.domain.service_relationships import (
 )
 
 __all__ = [
+    "DatasetDeletion",
+    "reap_managed_storage",
     "DatasetTitleMismatchError",
     "DependentVrtError",
     "PREVIEW_FEATURE_CAP",

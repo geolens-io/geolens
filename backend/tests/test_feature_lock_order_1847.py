@@ -908,39 +908,6 @@ class TestDeleteNeverReapsStorageItCannotCommit:
     catalog keeps a dataset whose assets no longer exist.
     """
 
-    def test_the_lock_precedes_every_irreversible_reap(self):
-        """Source order, because the failure mode is an ordering, not a value."""
-        import ast
-        from pathlib import Path
-
-        source = (
-            Path(__file__).resolve().parents[1]
-            / "app/modules/catalog/datasets/domain/service_lifecycle.py"
-        ).read_text()
-        tree = ast.parse(source)
-        fn = next(
-            n
-            for n in ast.walk(tree)
-            if isinstance(n, ast.AsyncFunctionDef) and n.name == "delete_dataset"
-        )
-        acquisitions, reaps = [], []
-        for node in ast.walk(fn):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                if node.func.id == "lock_catalog_rows_for_write":
-                    acquisitions.append(node.lineno)
-                elif node.func.id == "_reap_managed_storage":
-                    reaps.append(node.lineno)
-        assert acquisitions and reaps, (
-            f"expected both calls in delete_dataset; got {acquisitions=} {reaps=}"
-        )
-        for reap in reaps:
-            assert any(a < reap for a in acquisitions), (
-                f"_reap_managed_storage at line {reap} runs before any "
-                "lock_catalog_rows_for_write. A 55P03 after that reap rolls the "
-                "transaction back with the objects already deleted, leaving a "
-                "catalog row pointing at storage that is gone."
-            )
-
     async def test_a_contended_delete_leaves_the_objects_alone(
         self, locked_dataset, client: AsyncClient, admin_auth_header, monkeypatch
     ):
@@ -955,7 +922,7 @@ class TestDeleteNeverReapsStorageItCannotCommit:
 
         from app.modules.catalog.datasets.domain import service_lifecycle
 
-        monkeypatch.setattr(service_lifecycle, "_reap_managed_storage", _record_only)
+        monkeypatch.setattr(service_lifecycle, "reap_managed_storage", _record_only)
 
         async with db_module.async_session() as holder:
             await holder.execute(
@@ -1092,7 +1059,7 @@ class TestOneShapeForEveryContendedRow:
         async def _no_reap(prefixes, tenant_id):
             return None
 
-        monkeypatch.setattr(service_lifecycle, "_reap_managed_storage", _no_reap)
+        monkeypatch.setattr(service_lifecycle, "reap_managed_storage", _no_reap)
 
         admin_id = await get_user_id(test_db_session, "admin")
         datasets = [
@@ -1166,7 +1133,7 @@ class TestTheRasterChildIsHeldBeforeTheReap:
         async def _record_only(prefixes, tenant_id):
             reaped.append(tuple(prefixes))
 
-        monkeypatch.setattr(service_lifecycle, "_reap_managed_storage", _record_only)
+        monkeypatch.setattr(service_lifecycle, "reap_managed_storage", _record_only)
 
         title = locked_raster_dataset.record.title
         async with db_module.async_session() as holder:
@@ -1350,6 +1317,151 @@ class TestRecoverySurvivesANonMappedIdentity:
         )
 
 
+class TestTheReapFollowsTheCommit:
+    """codex r7 P1: the irreversible step must not precede a cascade that can fail.
+
+    The record delete cascades to child rows nobody locks (map_layers,
+    record_embeddings, dataset_assets). Under the request timeout a contended
+    child raises 55P03 and the transaction rolls back, so a reap that ran first
+    left the dataset restored with its objects gone.
+    """
+
+    async def test_a_contended_cascade_child_leaves_the_objects_alone(
+        self,
+        locked_raster_dataset,
+        client: AsyncClient,
+        admin_auth_header,
+        test_db_session,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "150ms")
+        import app.core.db as db_module
+        from app.modules.catalog.datasets.api import router as datasets_router
+        from app.modules.catalog.maps.models import Map, MapLayer
+
+        reaped: list = []
+
+        async def _record_only(prefixes, tenant_id):
+            reaped.append(tuple(prefixes))
+
+        monkeypatch.setattr(
+            datasets_router,
+            "_reap_after_commit",
+            lambda deletion: _record_only(deletion.storage_prefixes, None),
+        )
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        the_map = Map(name="lock order map", created_by=admin_id)
+        test_db_session.add(the_map)
+        await test_db_session.flush()
+        layer = MapLayer(
+            map_id=the_map.id,
+            dataset_id=locked_raster_dataset.id,
+            sort_order=0,
+        )
+        test_db_session.add(layer)
+        await test_db_session.commit()
+
+        title = locked_raster_dataset.record.title
+        try:
+            async with db_module.async_session() as holder:
+                # A cascade child the acquisition does not lock.
+                await holder.execute(
+                    select(MapLayer.id).where(MapLayer.id == layer.id).with_for_update()
+                )
+                response = await client.request(
+                    "DELETE",
+                    f"/datasets/{locked_raster_dataset.id}",
+                    json={"confirm_title": title},
+                    headers=admin_auth_header,
+                )
+                await holder.rollback()
+
+            async with db_module.async_session() as check:
+                still_there = await check.scalar(
+                    select(Dataset.id).where(Dataset.id == locked_raster_dataset.id)
+                )
+            # Either outcome is sound; what must never happen is the dataset
+            # surviving with its objects reaped.
+            assert not (still_there is not None and reaped), (
+                f"the dataset survived ({still_there}) with storage already "
+                f"reaped ({reaped}); response was {response.status_code}"
+            )
+        finally:
+            await test_db_session.execute(
+                text("DELETE FROM catalog.maps WHERE id = :m"), {"m": the_map.id}
+            )
+            await test_db_session.commit()
+
+    def test_delete_dataset_does_not_reap(self):
+        """Source-level: the reap is the caller's, after its commit."""
+        import ast
+        from pathlib import Path
+
+        app_dir = Path(__file__).resolve().parents[1] / "app"
+        tree = ast.parse(
+            (
+                app_dir / "modules/catalog/datasets/domain/service_lifecycle.py"
+            ).read_text()
+        )
+        fn = next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.AsyncFunctionDef) and n.name == "delete_dataset"
+        )
+        reaps = [
+            n
+            for n in ast.walk(fn)
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Name)
+            and "reap" in n.func.id
+        ]
+        assert not reaps, (
+            "delete_dataset reaps storage inside its own transaction again. A "
+            "cascade that loses a lock race then rolls the rows back with the "
+            "objects already gone."
+        )
+
+
+class TestOnlyThisRequestsTimeoutIsAnswered:
+    """codex r7 P2: a 40P01 from elsewhere is not a busy dataset."""
+
+    def _handler_input(self, code: str):
+        import types
+
+        class _Orig:
+            sqlstate = code
+
+        from sqlalchemy.exc import DBAPIError
+
+        return DBAPIError("SELECT 1", {}, _Orig()), types.SimpleNamespace(
+            url=types.SimpleNamespace(path="/datasets/x")
+        )
+
+    async def test_a_conflict_after_our_timeout_answers_409(self):
+        from app.api.main import _database_error_handler
+
+        token = catalog_locks.catalog_timeout_installed.set(True)
+        try:
+            exc, request = self._handler_input("40P01")
+            response = await _database_error_handler(request, exc)
+        finally:
+            catalog_locks.catalog_timeout_installed.reset(token)
+        assert response.status_code == 409
+
+    async def test_an_unrelated_conflict_keeps_its_operational_answer(self):
+        """No catalog timeout in this request, so class 40 stays a 503."""
+        from app.api.main import _database_error_handler
+
+        assert catalog_locks.catalog_timeout_installed.get() is False
+        exc, request = self._handler_input("40P01")
+        response = await _database_error_handler(request, exc)
+        assert response.status_code == 503, (
+            "a deadlock from a request that never installed the catalog "
+            "timeout was reported as a busy dataset"
+        )
+
+
 class TestTheOtherSitesHoldTheOrderToo:
     """The layers DDL, the delete and the metadata PATCH, against a held row.
 
@@ -1410,7 +1522,7 @@ class TestTheOtherSitesHoldTheOrderToo:
         async def _record_only(prefixes, tenant_id):
             reaped.append(tuple(prefixes))
 
-        monkeypatch.setattr(service_lifecycle, "_reap_managed_storage", _record_only)
+        monkeypatch.setattr(service_lifecycle, "reap_managed_storage", _record_only)
 
         async with (
             db_module.async_session() as holder,
