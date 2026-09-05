@@ -31,6 +31,7 @@ import json
 import logging
 import time
 from collections.abc import Mapping
+from urllib.parse import urlsplit
 
 import pytest
 from procrastinate.jobs import Job
@@ -861,8 +862,17 @@ def test_nested_url_credential_in_an_extra_is_scrubbed():
     )
 
     assert _TOKEN not in line
-    assert "?<redacted>" in data["job"]["detail"]
-    assert "services6.arcgis.com" in data["job"]["detail"]
+    # fix(#1844 audit round 1): compare the host EXACTLY, and the string as a
+    # whole, rather than asserting the hostname is a substring of the scrubbed
+    # detail. `"services6.arcgis.com" in <text>` is satisfied by
+    # `services6.arcgis.com.evil.test` too, so as an assertion about a URL it
+    # says less than it looks like it says -- and CodeQL flags the shape
+    # (py/incomplete-url-substring-sanitization) whether or not the particular
+    # use is a sanitiser. Deriving the expectation from `_ARCGIS_URL` keeps it
+    # in step with the constant.
+    scrubbed = data["job"]["detail"].removeprefix("GET ").removesuffix(" failed")
+    assert urlsplit(scrubbed).hostname == "services6.arcgis.com"
+    assert scrubbed == f"{_ARCGIS_URL.partition('?')[0]}?<redacted>"
 
 
 def test_a_flat_record_is_left_alone_by_the_deep_walk():
