@@ -38,4 +38,17 @@ describe('#1866: changeTestLanguage loads real locale bundles', () => {
     expect(i18n.language).toBe('en');
     expect(i18n.t('import:dropzone.browse')).toBe('browse');
   });
+
+  it('leaves the fallback map frozen after a round trip', async () => {
+    // The short-circuit fixes the throw by never touching the fallback
+    // map at all, rather than by cloning or unfreezing it. Pins that the
+    // freeze complete-heroTitle-plural.test.ts relies on is still real.
+    await changeTestLanguage('de');
+    await changeTestLanguage('en');
+    const store = i18n.services.resourceStore;
+    expect(Object.isFrozen(store.data.en)).toBe(true);
+    expect(() => {
+      store.data.en.common = {};
+    }).toThrow(TypeError);
+  });
 });
