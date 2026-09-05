@@ -239,23 +239,10 @@ async def test_run_ogr2ogr_service_takes_the_service_variant(spawned):
 async def test_service_preview_takes_the_service_variant(spawned):
     """The fifth clamped site, measured at the spawn rather than at the call.
 
-    fix(#1857 item 3) clamped `run_service_preview`, which had carried a
-    written justification for having no clamp while the helpers lived somewhere
-    `modules/catalog/` may not import from. The structural gate credits the
-    site, and its own docstring says what that credit does not cover: "whether
-    that call's RESULT is the env handed to the subprocess is not verified".
-
-    That gap matters more here than at the other four, because this is the one
-    clamped site that MUTATES the env after building it -- it adds the header
-    file path, then merges the redirect policy -- so a later change that
-    rebinds `env` between the helper call and the spawn would keep full
-    structural credit. This asserts the link the gate cannot.
-
-    The service variant specifically, for the same reason
-    `run_ogr2ogr_service` takes it: the branch exists to read WFS and OGC API
-    Features, so those two drivers have to survive the skip list while the
-    pointer-following and helper-spawning ones do not. Preview and commit now
-    answer that question identically.
+    fix(#1857 item 3). The structural gate stops at the CALL, and this is the
+    one clamped site that mutates the env after building it, so a change
+    rebinding `env` before the spawn would keep full structural credit. The
+    SERVICE variant, like `run_ogr2ogr_service`: WFS and OAPIF must survive.
     """
     from app.modules.catalog.sources.preview import run_service_preview
 

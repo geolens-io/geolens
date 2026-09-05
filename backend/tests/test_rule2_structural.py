@@ -74,25 +74,15 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   which ``subprocess.run`` is reviewer territory.
 - Argv built dynamically (``cmd = [tool_var, ...]``) is not matched. Every
   GDAL CLI call in the codebase starts from a string-literal argv head.
-- ARGV PASSED AS SEPARATE POSITIONAL ARGUMENTS is matched too, since
-  fix(#1857 item 2): ``create_subprocess_exec("ogrinfo", "-so", path)`` is an
-  argv site even though no list or tuple display is ever built. The two shapes
-  are proved to execute in different ways, which is the whole reason they are
-  detected separately. A display is inert until its value ESCAPES, so it earns
-  its place through the escape analysis below. A varargs spawn does not need
-  that argument: the call IS the spawn, so reaching the node is the proof, and
-  neither the escape rule nor the tool-NAME-list exemption applies to it.
-  ``_POSITIONAL_ARGV_SPAWNERS`` names the callees whose FIRST positional
-  argument is the program (``asyncio.create_subprocess_exec``,
-  ``loop.subprocess_exec``, and the ``os.exec*`` families). ``os.spawnl`` and
-  friends lead with a mode argument instead and are not modelled; no site in
-  ``app/`` uses either shape today -- every GDAL CLI call still builds a list
-  and star-unpacks it -- so this closes the door before anyone walks through
-  it rather than after. Neither is the SHELL family
+- ARGV PASSED AS SEPARATE POSITIONAL ARGUMENTS is an argv site too
+  (``create_subprocess_exec("ogrinfo", "-so", path)``), matched on the callees
+  in ``_POSITIONAL_ARGV_SPAWNERS``. Neither the escape rule nor the
+  tool-NAME-list exemption applies to it: the call IS the spawn, so reaching
+  the node is proof it executes, where a display is inert until its value
+  escapes. NOT modelled, and no site in ``app/`` uses either: ``os.spawnl`` and
+  friends, which lead with a mode argument, and the shell family
   (``create_subprocess_shell``, ``shell=True``, ``os.system``, ``os.popen``),
-  where the whole command is one string and there is no argv to read: that is
-  a different detector, and a GDAL call spelled that way would be a finding on
-  its own before it was a gate gap.
+  where the command is one string and there is no argv to read (#1857 item 2).
 - A GDAL-headed literal counts as an argv only when its value ESCAPES —
   handed to a call, returned, or yielded (fix(#996)). The escape is followed
   directly, out of transparent wrappers (container literals, ternary, ``+``,
@@ -176,11 +166,9 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   and reassigned in one scope is NOT credited — the failure mode is a spurious
   violation prompting a review, never silent credit for a shadow. Class
   bodies are not modeled as scopes, and ``global``/``nonlocal``
-  rebinding is not tracked. fix(#1857 item 3): "unnamed" is doing the work
-  there. ``CANONICAL_HELPER_MODULES`` lists two import paths and, per path,
-  which helpers it may vouch for, so ``processing/raster/vrt.py``'s re-export
-  of the two driver clamps is credited because the map names that module
-  rather than because a chain was followed. Nothing chases a re-export.
+  rebinding is not tracked. "Unnamed" is doing the work there:
+  ``CANONICAL_HELPER_MODULES`` lists the import paths that may vouch, and
+  which helpers each may vouch for. Nothing chases a re-export chain.
 - CLI credit stops at the CALL level: a call to the canonical
   ``gdal_safe_env`` in an allowlisted position credits the argv, but whether
   that call's RESULT is the env handed to the subprocess is not verified.
@@ -392,15 +380,10 @@ THREAD_OFFLOAD_HELPER = "run_in_thread_draining"
 # imports only the absolute form; relative imports (`from .vrt import ...`)
 # are not used and get no credit — the conservative failure direction.
 #
-# fix(#1857 item 3): there are TWO canonical modules now, and the map says
-# which helpers each may vouch for rather than crediting any name imported
-# from either. The GDAL_SKIP driver clamps moved to app/platform/gdal_env.py
-# so `modules/catalog/sources/preview.py` could reach them at all, and
-# `processing/raster/vrt.py` re-exports them because every existing caller
-# imports from there. That re-export is credited because this map NAMES the
-# module, not because re-exports are credited in general: an unnamed
-# intermediate still earns nothing, which is the rule the paragraph above
-# describes and this does not relax.
+# fix(#1857 item 3): TWO canonical modules, each vouching only for the helpers
+# the map gives it. `processing/raster/vrt.py`'s re-export of the driver clamps
+# is credited because the map NAMES that module; an unnamed intermediate still
+# earns nothing.
 CANONICAL_HELPER_MODULE = "app.processing.raster.vrt"
 DRIVER_SKIP_MODULE = "app.platform.gdal_env"
 CANONICAL_HELPER_PARENT = "app.processing.raster"
@@ -2572,15 +2555,9 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
     return best
 
 
-# fix(#1857 item 2): callees that take the program as their FIRST POSITIONAL
-# argument, so an argv can exist with no list or tuple display anywhere. The
-# `exec*` families are here for completeness rather than because the tree uses
-# them. Deliberately absent: `os.spawnl` and its variants, whose leading
-# argument is a mode rather than the program; `subprocess.run` / `Popen`, which
-# take the whole argv as ONE argument and are therefore already covered by the
-# display rule; and the shell family (`create_subprocess_shell`, `shell=True`,
-# `os.system`, `os.popen`), which has no argv at all -- see the module
-# docstring.
+# fix(#1857 item 2): callees taking the program as their FIRST POSITIONAL
+# argument, so an argv exists with no display anywhere. What is deliberately
+# absent, and why, is in the module docstring.
 _POSITIONAL_ARGV_SPAWNERS = frozenset(
     {
         "create_subprocess_exec",
@@ -2628,12 +2605,9 @@ def _iter_argv_sites(rel: str, tree: ast.Module):
     """Yield (tool, argv node, the argv's tail expressions) for one module.
 
     The single definition of "an argv site", shared by the GDAL CLI env gate
-    and the vector driver policy so the two cannot drift apart on what they
-    are looking at. Requires ``_annotate_parents(tree)`` to have run.
-
-    The tail is what follows the program: the remaining display elements, or
-    the remaining positional arguments. Callers scan it for a literally remote
-    source, which is the one thing a safe env cannot defend against.
+    and the vector driver policy so the two cannot drift. Requires
+    ``_annotate_parents(tree)`` to have run. The tail is what follows the
+    program, which callers scan for a literally remote source.
     """
     for node in ast.walk(tree):
         if isinstance(node, (ast.List, ast.Tuple)) and node.elts:
@@ -2662,9 +2636,7 @@ def _iter_argv_sites(rel: str, tree: ast.Module):
             continue
         tool = _positional_argv_tool(node)
         if tool is not None:
-            # No escape test and no name-list exemption: this node is the
-            # spawn, so it executes by construction, and there is no display
-            # that could be mistaken for inert data.
+            # No escape test and no name-list exemption: this node is the spawn.
             yield tool, node, node.args[1:]
 
 
@@ -2689,9 +2661,6 @@ def _collect_gdal_cli_violations(
 
     for rel, tree in modules:
         _annotate_parents(tree)
-        # codex round 9: tuples build argv vectors just as well as lists
-        # (subprocess.run(("gdalinfo", url))) — match both. fix(#1857 item 2):
-        # and a varargs spawn that builds no display at all.
         for tool_name, node, tail in _iter_argv_sites(rel, tree):
             total_argv_sites += 1
             func_node = _enclosing_function_node(node)
@@ -2853,16 +2822,11 @@ def _collect_vector_driver_violations(
     violations: list[str] = []
     counts: dict[tuple[str, str, str], int] = {}
     lines: dict[tuple[str, str, str], list[int]] = {}
-    # fix(#1857 item 1): keys whose env helper this file cannot resolve. The
-    # site loop below feeds that string into name resolution as a binding
-    # KIND, and _classify_name indexes the per-scope kind map with it, so an
-    # unrecognised name raised KeyError from inside _resolve_credit before the
-    # authored violation above ever reached the caller. CI still failed, but
-    # on a traceback naming a helper rather than on the sentence that says
-    # which entry is wrong and what the allowed names are. Only the env helper
-    # earns a place here: it is the one policy field that becomes a name to
-    # resolve. An unknown KIND is inert, since every use of it is a set
-    # membership test that simply answers False.
+    # fix(#1857 item 1): keys whose env helper cannot be resolved. The site
+    # loop feeds that string to _classify_name as a binding KIND, which indexes
+    # a dict with it, so an unrecognised name raises instead of reporting. Only
+    # the env helper needs this; an unknown KIND is only ever a set membership
+    # test.
     unresolvable_env_helper: set[tuple[str, str, str]] = set()
     total = 0
 
@@ -2894,9 +2858,8 @@ def _collect_vector_driver_violations(
             )
             continue
         if key in unresolvable_env_helper:
-            # Already reported above, with the name and the allowed set. Asking
-            # whether an unresolvable helper covers this argv is not a question
-            # with an answer, and attempting it is what used to raise.
+            # Already reported above. Whether an unresolvable helper covers this
+            # argv is not a question with an answer.
             continue
         _expected, kind, env_helper, _why = entry
         if kind in _POLICY_NEEDS_DRIVER_ALLOWLIST:
@@ -2956,17 +2919,10 @@ def _collect_vector_driver_violations(
 
 
 def test_policy_naming_an_unknown_env_helper_reports_instead_of_raising():
-    """A typo in VECTOR_CLI_DRIVER_POLICY must read as a sentence.
+    """A typo in VECTOR_CLI_DRIVER_POLICY reports, and names the allowed set.
 
-    fix(#1857 item 1). The validator already authored the right message, and
-    nobody ever saw it. The site loop resolves the named env helper as a
-    binding kind, and the per-scope kind map raised KeyError on a name it did
-    not know, so the run died on a traceback before the violation list was
-    returned. A gate whose misconfiguration surfaces as an internal error
-    teaches the next person to distrust the gate rather than fix the entry.
-
-    The site key is a REAL one, because the crash needed an argv site to match
-    it; a policy entry pointing nowhere just reports as stale.
+    fix(#1857 item 1). The site key must be a REAL one: an entry pointing
+    nowhere reports as stale and never reaches the resolution under test.
     """
     key = ("processing/export/ogr.py", "run_ogr2ogr_export", "ogr2ogr")
     policy = dict(VECTOR_CLI_DRIVER_POLICY)
@@ -3061,11 +3017,9 @@ def test_every_sqlite_family_extension_is_content_checked():
     assert ZIP_CONTAINER_EXTENSIONS, "container list went empty"
 
 
-# fix(#1857 item 2): the shape the gate could not see. Both fixtures spawn the
-# same tool with the same arguments and differ only in the env, so a pass on
-# the clamped one and a report on the other isolates exactly what is measured.
-# Written as source rather than as a file in app/, because a real one would be
-# a real unclamped subprocess.
+# fix(#1857 item 2): both fixtures spawn the same tool with the same arguments
+# and differ only in the env, so one passing and one reporting isolates what is
+# measured. Source rather than a file in app/, which would be a real spawn.
 _POSITIONAL_ARGV_UNCLAMPED = """
 import asyncio
 
@@ -3102,17 +3056,10 @@ def _fixture_modules(source: str) -> list[tuple[str, ast.Module]]:
 
 
 def test_positional_argv_is_seen_by_the_cli_env_gate():
-    """An argv passed as separate arguments is still an argv.
+    """An argv passed as separate arguments is still an argv (#1857 item 2).
 
-    fix(#1857 item 2). Detection keyed on a list or tuple DISPLAY whose head
-    names a GDAL tool, so a spawn that never builds one was invisible to every
-    rule in this file: no env requirement, no allowlist entry, no count. The
-    tree had no such site, which is why it went unnoticed, and a gate that goes
-    quiet on a shape it cannot read fails in the wrong direction.
-
-    The clamped fixture is the half that makes this a measurement rather than a
-    tautology. Without it, "the new shape reports" would also be true of a
-    change that reported every varargs spawn unconditionally.
+    The clamped fixture is what makes this a measurement: without it, "the new
+    shape reports" would hold for a change that reported every varargs spawn.
     """
     violations, total = _collect_gdal_cli_violations(
         _fixture_modules(_POSITIONAL_ARGV_UNCLAMPED), {}
@@ -3129,12 +3076,10 @@ def test_positional_argv_is_seen_by_the_cli_env_gate():
 
 
 def test_positional_argv_is_seen_by_the_vector_driver_policy():
-    """The same shape reaches the per-site driver policy, from one change.
+    """Both gates read ``_iter_argv_sites``, so one widening reaches both.
 
-    fix(#1857 item 2). Both gates read what an argv site is from
-    ``_iter_argv_sites``, so widening detection in one place widens both. A
-    positional ogrinfo with no entry reports as unreviewed rather than as
-    absent, which is the answer that gets a new site looked at.
+    fix(#1857 item 2). A positional ogrinfo with no entry must report as
+    unreviewed rather than as absent.
     """
     violations, total = _collect_vector_driver_violations(
         _fixture_modules(_POSITIONAL_ARGV_UNCLAMPED), {}

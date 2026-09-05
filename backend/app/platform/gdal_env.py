@@ -1,26 +1,15 @@
 """GDAL driver-registration clamps for every vector subprocess, wherever it runs.
 
-fix(#1857 item 3). These lived in ``processing/raster/vrt.py`` beside the
-raster VSI clamps, and one call site could not reach them:
-``run_service_preview`` in ``modules/catalog/sources/preview.py``, because
-``modules/catalog/`` may not import ``app.processing.*`` (``test_layering.py``).
-That site spawned ``ogrinfo`` on a caller-supplied service URL with a bare
-``os.environ`` and carried a written justification saying so. A justification
-is what you write when the code cannot be fixed; this one described a layering
-accident rather than a property of the site.
+Lives in ``platform/`` because ``modules/catalog/sources/preview.py`` needs
+them and ``modules/catalog/`` may not import ``app.processing.*``
+(``test_layering.py``); moving them under a product domain puts them out of
+reach of that caller. Imports nothing from ``app.modules.*`` or
+``app.processing.*``.
 
-``platform/`` is where cross-cutting infrastructure lives that auth, catalog and
-processing all depend on, which is the same argument AGENTS.md Rule 2 makes for
-keeping ``platform/security.py`` out of a product domain. This module imports
-nothing from ``app.modules.*`` or ``app.processing.*`` and holds no catalog
-logic.
-
-The raster clamps (``gdal_safe_env``, ``gdal_safe_open_env``, ``_VRT_SAFE_ENV``)
-deliberately stayed in ``processing/raster/vrt.py``. They are about which
-``/vsicurl`` extensions a raster build may fetch and whether overviews expand,
-which is that pipeline's own question, and one of them constructs a
-``rasterio.Env``. ``processing/raster/vrt.py`` re-exports the two helpers below
-so every existing importer keeps working unchanged.
+The raster VSI clamps (``gdal_safe_env``, ``gdal_safe_open_env``) stay in
+``processing/raster/vrt.py``, which bounds a different thing and builds a
+``rasterio.Env``. That module re-exports both helpers here, so either import
+path works (#1857 item 3).
 """
 
 import os

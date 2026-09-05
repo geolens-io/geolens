@@ -12,13 +12,9 @@ from app.core.geo import (
     wrap_longitude,
 )
 
-# fix(#1857 item 3): the GDAL_SKIP driver clamps moved to
-# app/platform/gdal_env.py so `modules/catalog/sources/preview.py` can reach
-# them; `modules/catalog/` may not import `app.processing.*`. Re-exported here
-# because every existing caller imports them from this module, and because a
-# vector GDAL subprocess is still a processing concern even though the clamp
-# it needs is not. `app.platform.gdal_env` is named in the Rule 2 gate's
-# canonical-module map, so a site is credited for importing from either.
+# fix(#1857 item 3): re-export. The clamps live in platform/ so
+# modules/catalog/ can reach them; both import paths are credited by the
+# Rule 2 gate's canonical-module map.
 from app.platform.gdal_env import (  # noqa: F401
     gdal_service_safe_env,
     gdal_vector_safe_env,

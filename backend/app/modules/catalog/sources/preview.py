@@ -333,20 +333,8 @@ async def run_service_preview(
         # submission time; libcurl under GDAL follows redirects
         # unconditionally, so post-validation redirects must be bounded
         # operationally (worker egress firewall).
-        # fix(#1857 item 3): the driver clamp this site used to carry a written
-        # justification for NOT having. It spawns ogrinfo on a caller-supplied
-        # service URL, and several OGR drivers read the document they are
-        # handed as instructions naming somewhere else to read from, so the
-        # prefix on the source string was the only thing deciding the driver.
-        # The service variant specifically: it keeps WFS and OAPIF, which the
-        # service branch exists to use, and skips the pointer-following and
-        # helper-spawning drivers on both branches. Harmless on the localised
-        # branch, whose source is a bare local path already pinned by
-        # -if GeoJSON.
-        #
-        # The helpers used to be unreachable from here, not inapplicable:
-        # modules/catalog/ may not import app.processing.* and that is where
-        # they lived. They live in app/platform/gdal_env.py now.
+        # fix(#1857 item 3): the SERVICE variant, not the vector one: this
+        # branch exists to read WFS and OAPIF, which the vector variant skips.
         env = gdal_service_safe_env()
         pair: tuple[str, str] | None = None
         if credential is not None and (

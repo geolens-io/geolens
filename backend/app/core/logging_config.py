@@ -416,23 +416,15 @@ def _redact_sensitive_fields(
     return event_dict
 
 
-# fix(#1857 item 9): the container types the walk knows how to take apart.
-# `frozenset` is NOT a subclass of `set` and `deque` is not a subclass of
-# anything listed, so both used to fall through to the value untouched and be
-# rendered by repr, credential and all. A dataclass instance did the same. One
-# predicate, because the walk and the processor that decides WHETHER to walk
-# used to carry the membership test separately and a type added to one was a
-# type missing from the other.
+# fix(#1857 item 9): the container types the walk takes apart. One tuple,
+# because the walk and the processor that decides WHETHER to walk must agree:
+# a type in one and not the other is walkable and never walked.
 _ITERABLE_CONTAINERS = (list, tuple, set, frozenset, deque)
 _WALKABLE_CONTAINERS = (Mapping, *_ITERABLE_CONTAINERS)
 
 
 def _is_dataclass_instance(value: Any) -> bool:
-    """A dataclass INSTANCE, never the class object itself.
-
-    ``dataclasses.is_dataclass`` answers True for both, and a class has no
-    field VALUES to redact.
-    """
+    """A dataclass INSTANCE, never the class, which has no field values."""
     return dataclasses.is_dataclass(value) and not isinstance(value, type)
 
 
@@ -464,20 +456,11 @@ def redact_nested(value: Any, _depth: int = 0) -> Any:
     Depth is capped because a payload here is caller-supplied and need not be
     JSON-derived; a self-referencing structure would otherwise not terminate.
 
-    fix(#1857 item 9): ``frozenset``, ``deque`` and dataclass instances are
-    walked too. The first two were missed because neither is a subclass of the
-    types that were listed, so both were returned untouched and rendered by
-    ``repr``. A dataclass was missed because it is not a container at all by
-    type, only by content, and it is the shape a library is most likely to hand
-    to ``extra``: a settings or context object holding a token as a field.
-
-    A dataclass is read through ``dataclasses.fields`` rather than
-    ``__dict__``, for two reasons. A ``slots=True`` dataclass has no
-    ``__dict__`` at all, and ``__dict__`` would also sweep in attributes that
-    are not fields, which is a wider promise than this can keep. The result is
-    a plain dict of field name to redacted value, so the field NAMES go through
-    the same denylist a mapping's keys do. That changes how the object renders;
-    the alternative is rendering it by ``repr`` with the credential in it.
+    ``frozenset``, ``deque`` and dataclass instances are walked; anything else
+    is returned as it came in. A dataclass is read through
+    ``dataclasses.fields`` rather than ``__dict__``, which a ``slots=True``
+    dataclass does not have, and yields a dict of field name to redacted value,
+    so the field NAMES meet the same denylist a mapping's keys do (#1857).
     """
     if _depth >= _MAX_REDACT_DEPTH:
         return "[TRUNCATED]"
