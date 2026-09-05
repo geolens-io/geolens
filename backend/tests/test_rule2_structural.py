@@ -2749,6 +2749,17 @@ def _collect_vector_driver_violations(
     violations: list[str] = []
     counts: dict[tuple[str, str, str], int] = {}
     lines: dict[tuple[str, str, str], list[int]] = {}
+    # fix(#1857 item 1): keys whose env helper this file cannot resolve. The
+    # site loop below feeds that string into name resolution as a binding
+    # KIND, and _classify_name indexes the per-scope kind map with it, so an
+    # unrecognised name raised KeyError from inside _resolve_credit before the
+    # authored violation above ever reached the caller. CI still failed, but
+    # on a traceback naming a helper rather than on the sentence that says
+    # which entry is wrong and what the allowed names are. Only the env helper
+    # earns a place here: it is the one policy field that becomes a name to
+    # resolve. An unknown KIND is inert, since every use of it is a set
+    # membership test that simply answers False.
+    unresolvable_env_helper: set[tuple[str, str, str]] = set()
     total = 0
 
     for key, (_count, kind, env_helper, justification) in sorted(policy.items()):
@@ -2757,6 +2768,7 @@ def _collect_vector_driver_violations(
                 f"unknown VECTOR_CLI_DRIVER_POLICY kind {kind!r} for {key}"
             )
         if env_helper is not None and env_helper not in SUBPROCESS_ENV_HELPERS:
+            unresolvable_env_helper.add(key)
             violations.append(
                 f"VECTOR_CLI_DRIVER_POLICY names {env_helper!r} for {key}, which "
                 f"is not one of {', '.join(SUBPROCESS_ENV_HELPERS)}"
@@ -2776,6 +2788,11 @@ def _collect_vector_driver_violations(
                 "VECTOR_CLI_DRIVER_POLICY entry — say what its input is and "
                 "clamp it accordingly (AGENTS.md Rule 2, #1846)"
             )
+            continue
+        if key in unresolvable_env_helper:
+            # Already reported above, with the name and the allowed set. Asking
+            # whether an unresolvable helper covers this argv is not a question
+            # with an answer, and attempting it is what used to raise.
             continue
         _expected, kind, env_helper, _why = entry
         if kind in _POLICY_NEEDS_DRIVER_ALLOWLIST:
@@ -2832,6 +2849,50 @@ def _collect_vector_driver_violations(
         )
 
     return violations, total
+
+
+def test_policy_naming_an_unknown_env_helper_reports_instead_of_raising():
+    """A typo in VECTOR_CLI_DRIVER_POLICY must read as a sentence.
+
+    fix(#1857 item 1). The validator already authored the right message, and
+    nobody ever saw it. The site loop resolves the named env helper as a
+    binding kind, and the per-scope kind map raised KeyError on a name it did
+    not know, so the run died on a traceback before the violation list was
+    returned. A gate whose misconfiguration surfaces as an internal error
+    teaches the next person to distrust the gate rather than fix the entry.
+
+    The site key is a REAL one, because the crash needed an argv site to match
+    it; a policy entry pointing nowhere just reports as stale.
+    """
+    key = ("processing/export/ogr.py", "run_ogr2ogr_export", "ogr2ogr")
+    policy = dict(VECTOR_CLI_DRIVER_POLICY)
+    assert key in policy, (
+        "the site this test names has moved; point it at another real vector "
+        "CLI argv site, since an entry with no matching site reports as stale "
+        "and never reaches the resolution that used to raise"
+    )
+    count, kind, real_helper, why = policy[key]
+    assert real_helper is not None
+    typo = real_helper + "_typo"
+    assert typo not in SUBPROCESS_ENV_HELPERS
+    policy[key] = (count, kind, typo, why)
+
+    violations, _total = _collect_vector_driver_violations(_app_modules(), policy)
+
+    named = [v for v in violations if typo in v]
+    assert len(named) == 1, (
+        f"expected exactly one violation naming {typo!r}, got {violations}"
+    )
+    # The message has to carry the allowed set, or the reader has to go read
+    # this file to learn what they may write instead.
+    for allowed in SUBPROCESS_ENV_HELPERS:
+        assert allowed in named[0], named[0]
+
+    # And the entry's own credit check is skipped rather than attempted, so
+    # the run does not also blame the site for a policy typo.
+    assert not [v for v in violations if "run_ogr2ogr_export" in v and typo not in v], (
+        violations
+    )
 
 
 def test_vector_gdal_argv_restricts_input_drivers():
