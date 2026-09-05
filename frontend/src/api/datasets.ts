@@ -74,7 +74,11 @@ export function getCogDownloadUrl(id: string): string {
   return `${API_BASE}/datasets/${id}/download/cog`;
 }
 
-async function authenticatedDownload(url: string, filename: string): Promise<void> {
+// fix(#1863 P1): exported so any same-origin GeoLens API resource can be
+// downloaded through the same refresh-aware, bearer-authenticated flow —
+// a plain <a href> browser navigation carries no Authorization header, so a
+// private or unpublished dataset's export endpoint rejects it as anonymous.
+export async function authenticatedDownload(url: string, filename: string): Promise<void> {
   // BUG-035: refresh-aware raw fetch so a download issued as the first request
   // after a long idle transparently refreshes the JWT instead of 401-ing.
   const response = await authenticatedRawFetch(url);

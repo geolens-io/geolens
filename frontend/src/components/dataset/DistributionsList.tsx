@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import {
   useDistributions,
   useSetPrimaryDistribution,
@@ -8,12 +9,15 @@ import { useTileConfig } from '@/hooks/use-settings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Copy, Check, Circle, CircleDot, Loader2 } from 'lucide-react';
+import { Copy, Check, Circle, CircleDot, Loader2, Download } from 'lucide-react';
 import { LoadingState } from '@/components/layout/LoadingState';
 import {
   getPublicApiBaseUrl,
   resolveDistributionUrl,
+  isAbsoluteUrl,
+  isFetchableDistributionUrl,
 } from '@/lib/dataset-access';
+import { authenticatedDownload } from '@/api/datasets';
 import type { DistributionResponse } from '@/types/api';
 
 interface DistributionsListProps {
@@ -46,11 +50,31 @@ const DISTRIBUTION_GROUPS: Record<string, DistributionGroup> = {
   other: 'other',
 };
 
-function CopyableUrl({ url, publicApiUrl }: { url: string; publicApiUrl: string | null | undefined }) {
+function CopyableUrl({
+  distribution,
+  publicApiUrl,
+}: {
+  distribution: DistributionResponse;
+  publicApiUrl: string | null | undefined;
+}) {
   const { t } = useTranslation('dataset');
   const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const resolvedUrl = resolveDistributionUrl(url, publicApiUrl);
+  const resolvedUrl = resolveDistributionUrl(distribution.url, publicApiUrl);
+  // fix(#1863 P1): resolveDistributionUrl only prefixes a RELATIVE url with
+  // the API base — an already-absolute url (a manual distribution, e.g. an
+  // external viewer app) passes through unchanged and is not a GeoLens API
+  // resource, so it must never receive this session's bearer token.
+  const isSameOriginApiResource = !isAbsoluteUrl(distribution.url);
+  // fix(#1863 P2): a vector-tile row's url is a template
+  // (/tiles/data.<table>/{z}/{x}/{y}.pbf — no literal resource at that
+  // path) and a raster/VRT row's url is a bare object-storage key
+  // (rasters/<id>/<sha>/source.cog.tif — not the real, token-gated COG
+  // download route). Neither is something a single fetch resolves, so ONLY
+  // an actually-fetchable url gets a download action at all; the rest stay
+  // copy-only rows.
+  const isFetchable = isFetchableDistributionUrl(distribution.url);
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
@@ -72,11 +96,72 @@ function CopyableUrl({ url, publicApiUrl }: { url: string; publicApiUrl: string 
     timerRef.current = setTimeout(() => setCopied(false), 2000);
   }
 
+  // fix(#1863 P1): a plain <a href download> browser navigation carries no
+  // Authorization header, so a private or unpublished dataset's export
+  // endpoint rejected it as anonymous. Route same-origin GeoLens resources
+  // through the same refresh-aware, bearer-authenticated fetch-and-save flow
+  // ExportButton already uses (api/datasets.ts's authenticatedDownload).
+  async function handleAuthenticatedDownload() {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const base = (distribution.title?.trim() || distribution.distribution_type).replace(/[/\\]/g, '_');
+      await authenticatedDownload(resolvedUrl, `${base}.${distribution.format}`);
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : t('distributions.downloadFailed', { defaultValue: 'Failed to download.' }),
+      );
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <div className="flex items-center gap-2">
       <code className="flex-1 rounded-sm bg-muted px-2 py-1.5 font-mono text-xs text-foreground truncate" title={resolvedUrl}>
         {resolvedUrl}
       </code>
+      {/* fix(#1856): these were copyable text with no way to actually fetch
+          the resource. Same-origin GeoLens resources download through the
+          authenticated fetch flow (needed for private/unpublished datasets);
+          an external URL from a manual distribution is a plain link instead
+          — it is not ours to attach a bearer token to.
+          fix(#1863 P2): a tile-template or bare-storage-key row (see
+          isFetchable above) gets no download action at all — copy remains
+          the only way to get the value, since there is nothing a single
+          fetch or plain navigation could resolve. */}
+      {isFetchable &&
+        (isSameOriginApiResource ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0"
+            onClick={handleAuthenticatedDownload}
+            disabled={downloading}
+            aria-label={t('distributions.downloadUrl')}
+            title={t('distributions.downloadUrl')}
+          >
+            {downloading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        ) : (
+          <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" asChild>
+            <a
+              href={resolvedUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={t('distributions.downloadUrl')}
+              title={t('distributions.downloadUrl')}
+            >
+              <Download className="h-3.5 w-3.5" />
+            </a>
+          </Button>
+        ))}
       <Button
         variant="ghost"
         size="icon"
@@ -243,7 +328,7 @@ export function DistributionsList({ recordId, canEdit = false }: DistributionsLi
                 {dist.description && (
                   <p className="text-xs text-muted-foreground">{dist.description}</p>
                 )}
-                <CopyableUrl url={dist.url} publicApiUrl={publicApiBaseUrl} />
+                <CopyableUrl distribution={dist} publicApiUrl={publicApiBaseUrl} />
               </div>
             ))}
           </CardContent>

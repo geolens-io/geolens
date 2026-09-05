@@ -596,6 +596,8 @@
     "auto": "auto",
     "primary": "Primär",
     "copyUrl": "URL kopieren",
+    "downloadUrl": "Herunterladen",
+    "downloadFailed": "Herunterladen fehlgeschlagen.",
     "loadError": "Verteilungen konnten nicht geladen werden.",
     "setPrimary": "{{name}} als primär festlegen",
     "currentPrimary": "{{name}} ist die primäre Distribution",

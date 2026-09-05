@@ -1,10 +1,13 @@
-import { fireEvent, render, screen } from '@/test/test-utils';
+import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
+import userEvent from '@testing-library/user-event';
+import { toast } from 'sonner';
 import {
   useDistributions,
   useSetPrimaryDistribution,
 } from '@/components/dataset/hooks/use-records';
 import { useTileConfig } from '@/hooks/use-settings';
 import { resolveDistributionUrl } from '@/lib/dataset-access';
+import { authenticatedDownload } from '@/api/datasets';
 import {
   DistributionsList,
   getDistributionGroup,
@@ -19,9 +22,25 @@ vi.mock('@/hooks/use-settings', () => ({
   useTileConfig: vi.fn(),
 }));
 
+vi.mock('sonner', () => ({
+  toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
+}));
+
+// fix(#1863 P1): a plain <a href download> browser navigation carries no
+// Authorization header, so a private/unpublished dataset's export endpoint
+// rejected it as anonymous. Same-origin distributions now route through
+// this authenticated helper instead — mocked here the same way
+// ExportButton.test.tsx mocks downloadExport (the sibling wrapper around
+// the same underlying authenticatedRawFetch + token-refresh machinery,
+// which is covered at the api/client.test.ts level already).
+vi.mock('@/api/datasets', () => ({
+  authenticatedDownload: vi.fn(),
+}));
+
 const mockUseDistributions = vi.mocked(useDistributions);
 const mockUseSetPrimaryDistribution = vi.mocked(useSetPrimaryDistribution);
 const mockUseTileConfig = vi.mocked(useTileConfig);
+const mockAuthenticatedDownload = vi.mocked(authenticatedDownload);
 const mutate = vi.fn();
 
 /** A manual, non-primary "Viewer App" row alongside the three generated ones
@@ -193,6 +212,165 @@ describe('DistributionsList', () => {
     expect(screen.getByText('https://catalog.example.com/api/collections/1/items')).toBeInTheDocument();
     expect(screen.getByText('https://catalog.example.com/api/tiles/data.example/{z}/{x}/{y}.pbf')).toBeInTheDocument();
     expect(screen.getByText('https://example.com/app')).toBeInTheDocument();
+  });
+
+  // fix(#1856): each distribution row was copyable text only — there was no
+  // way to actually fetch the resource without hand-editing the URL.
+  //
+  // fix(#1863 P1): the first fix made every row a plain <a href download>,
+  // which is a bare browser navigation with no Authorization header — a
+  // private/unpublished dataset's export endpoint rejected it as anonymous.
+  // Same-origin (relative-url) distributions now download through
+  // authenticatedDownload; an already-absolute url (a manual distribution
+  // pointing off-site, e.g. the "Viewer App" row) stays a plain link, since
+  // it is not a GeoLens API resource and must never receive the session's
+  // bearer token.
+  describe('download control (#1856 / #1863)', () => {
+    beforeEach(() => {
+      mockUseDistributions.mockReturnValue({
+        data: { distributions: DISTRIBUTIONS_WITH_MANUAL_ROW, total: 3 },
+        isLoading: false,
+      } as unknown as ReturnType<typeof useDistributions>);
+      mockAuthenticatedDownload.mockReset();
+      mockAuthenticatedDownload.mockResolvedValue(undefined);
+    });
+
+    it('downloads a same-origin distribution through the authenticated fetch, not a bare link', async () => {
+      const user = userEvent.setup();
+      render(<DistributionsList recordId="record-1" />);
+
+      // Relative-url rows (download-1, ogc-1) are buttons, not links — a
+      // bare <a href> would carry no auth token.
+      const buttons = screen.getAllByRole('button', { name: 'Download' });
+      expect(buttons).toHaveLength(2);
+
+      await user.click(buttons[0]);
+
+      expect(mockAuthenticatedDownload).toHaveBeenCalledTimes(1);
+      expect(mockAuthenticatedDownload).toHaveBeenCalledWith(
+        'https://catalog.example.com/api/datasets/1/export?format=gpkg',
+        'GeoPackage Download.gpkg',
+      );
+    });
+
+    it('keeps a plain external link for an absolute-url manual distribution, never routing it through the authenticated fetch', () => {
+      render(<DistributionsList recordId="record-1" />);
+
+      const links = screen.getAllByRole('link', { name: 'Download' });
+      expect(links).toHaveLength(1);
+      expect(links[0]).toHaveAttribute('href', 'https://example.com/app');
+      expect(links[0]).toHaveAttribute('target', '_blank');
+      expect(links[0].getAttribute('rel')).toContain('noopener');
+      // No download attribute here on purpose — download is meaningless
+      // cross-origin, and this is not a resource authenticatedDownload
+      // should ever be asked to fetch with our token.
+      expect(mockAuthenticatedDownload).not.toHaveBeenCalled();
+    });
+
+    it('shows an error toast and re-enables the button when the authenticated download fails', async () => {
+      mockAuthenticatedDownload.mockRejectedValueOnce(new Error('Access denied'));
+      const user = userEvent.setup();
+      render(<DistributionsList recordId="record-1" />);
+
+      const [firstButton] = screen.getAllByRole('button', { name: 'Download' });
+      await user.click(firstButton);
+
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Access denied'));
+      expect(firstButton).not.toBeDisabled();
+    });
+
+    // The copy button's behavior must be unchanged by the P1 fix — same
+    // resolved-URL clipboard write as before, on every row regardless of
+    // same-origin vs. external.
+    it('leaves the copy button unchanged', async () => {
+      const user = userEvent.setup();
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        configurable: true,
+      });
+      render(<DistributionsList recordId="record-1" />);
+
+      const copyButtons = screen.getAllByRole('button', { name: 'Copy URL' });
+      expect(copyButtons).toHaveLength(3);
+
+      await user.click(copyButtons[0]);
+      expect(writeText).toHaveBeenCalledWith(
+        'https://catalog.example.com/api/datasets/1/export?format=gpkg',
+      );
+      expect(mockAuthenticatedDownload).not.toHaveBeenCalled();
+    });
+
+    // fix(#1863 P2, codex round 2): the relative-url predicate above routed
+    // EVERY relative url through authenticatedDownload, including a
+    // vector-tile template (/tiles/data.<table>/{z}/{x}/{y}.pbf — a
+    // template, no literal resource at that path) and a raster/VRT row's
+    // bare object-storage key (rasters/<id>/<sha>/source.cog.tif — not the
+    // real, token-gated /datasets/{id}/download/cog route) — so the
+    // Download button always 404'd for those rows. Neither gets a download
+    // action at all now; copy is the only way to get the value.
+    it('shows no download action for a vector-tile template row (copy only)', () => {
+      mockUseDistributions.mockReturnValue({
+        data: {
+          distributions: [
+            {
+              id: 'tiles-1',
+              record_id: 'record-1',
+              distribution_type: 'vector_tiles',
+              format: 'pbf',
+              url: '/tiles/data.test_table/{z}/{x}/{y}.pbf',
+              title: 'Vector Tiles',
+              description: null,
+              protocol: 'XYZ',
+              media_type: 'application/vnd.mapbox-vector-tile',
+              is_primary: false,
+              auto_generated: true,
+            },
+          ],
+          total: 1,
+        },
+        isLoading: false,
+      } as unknown as ReturnType<typeof useDistributions>);
+
+      render(<DistributionsList recordId="record-1" />);
+
+      expect(screen.queryByRole('button', { name: 'Download' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Download' })).not.toBeInTheDocument();
+      // The value is still reachable — just not fetchable as one file.
+      expect(screen.getByRole('button', { name: 'Copy URL' })).toBeInTheDocument();
+      expect(mockAuthenticatedDownload).not.toHaveBeenCalled();
+    });
+
+    it('shows no download action for a raster/VRT bare-storage-key row (copy only)', () => {
+      mockUseDistributions.mockReturnValue({
+        data: {
+          distributions: [
+            {
+              id: 'raster-1',
+              record_id: 'record-1',
+              distribution_type: 'download',
+              format: 'geotiff',
+              url: 'rasters/dataset-1/abc123sha256/source.cog.tif',
+              title: 'GeoTIFF Download',
+              description: null,
+              protocol: 'HTTP',
+              media_type: 'image/tiff',
+              is_primary: false,
+              auto_generated: true,
+            },
+          ],
+          total: 1,
+        },
+        isLoading: false,
+      } as unknown as ReturnType<typeof useDistributions>);
+
+      render(<DistributionsList recordId="record-1" />);
+
+      expect(screen.queryByRole('button', { name: 'Download' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Download' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Copy URL' })).toBeInTheDocument();
+      expect(mockAuthenticatedDownload).not.toHaveBeenCalled();
+    });
   });
 
   // feat(#1395): set-primary control.

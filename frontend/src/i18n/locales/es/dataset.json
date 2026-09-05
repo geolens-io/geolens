@@ -596,6 +596,8 @@
     "auto": "auto",
     "primary": "Primario",
     "copyUrl": "Copiar URL",
+    "downloadUrl": "Descargar",
+    "downloadFailed": "Error al descargar.",
     "loadError": "No se pudieron cargar las distribuciones.",
     "setPrimary": "Establecer {{name}} como primario",
     "currentPrimary": "{{name}} es la distribución primaria",

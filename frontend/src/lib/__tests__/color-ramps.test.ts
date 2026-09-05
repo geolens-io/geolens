@@ -115,6 +115,29 @@ describe('getRampColors with reversed flag', () => {
   });
 });
 
+// fix(#1856): qualitative palettes are discrete categories, not a gradient —
+// sampling them continuously blended unrelated hues and washed small counts
+// out toward grey. getRampColors now assigns palette entries directly.
+describe('getRampColors on qualitative ramps (#1856)', () => {
+  it('five categories on Set2 yield five distinct palette members', () => {
+    const colors = getRampColors('Set2', 5);
+    expect(new Set(colors).size).toBe(5);
+    expect(colors).toEqual(getRampColors('Set2', 8).slice(0, 5));
+  });
+
+  it('cycles past the palette length instead of repeating the last color', () => {
+    const eight = getRampColors('Set2', 8);
+    const ten = getRampColors('Set2', 10);
+    expect(ten.slice(0, 8)).toEqual(eight);
+    expect(ten[8]).toBe(eight[0]);
+    expect(ten[9]).toBe(eight[1]);
+  });
+
+  it('still resolves case-insensitively for a qualitative name', () => {
+    expect(getRampColors('set2', 5)).toEqual(getRampColors('Set2', 5));
+  });
+});
+
 describe('cvdSafeRamps', () => {
   it('excludes Spectral (cvdSafe: false) from diverging ramps', () => {
     const safe = cvdSafeRamps(DIVERGING_RAMPS);
