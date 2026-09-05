@@ -23,6 +23,8 @@ Allowed WHERE expression types (deny-by-default — anything not in this tuple r
 
 from __future__ import annotations
 
+import re
+
 import sqlglot
 from sqlglot import exp
 
@@ -155,3 +157,38 @@ def canonical_where(where: str) -> str:
     wrapped = f"SELECT 1 FROM _t WHERE {where}"
     statements = sqlglot.parse(wrapped, dialect="postgres")
     return statements[0].args["where"].this.sql(dialect="postgres")
+
+
+# fix(#1870 audit r1): BOTH quote kinds are scanned in one pass, because a
+# single quote inside a double-quoted identifier opens no literal in Postgres
+# and must open none here either.
+_QUOTED_RUN_RE = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"")
+
+
+def mask_quoted_literals(where: str) -> str:
+    """Blank every single-quoted literal in ``where``, preserving its length.
+
+    A caller that scans the clause for code (an identifier walk, a token
+    classifier) must not read the values as code. Each literal becomes a run
+    of spaces of the same width, so two identifiers separated by a literal
+    cannot fuse into a third.
+
+    A double-quoted identifier IS code, so it is scanned but returned
+    unchanged: consuming it in the same pass is what stops a quote inside it
+    from opening a literal that blanks the real code after it. Dollar-quoting
+    and E'' are rejected by the AST gate and are deliberately not modelled.
+
+    Args:
+        where: SQL WHERE-clause fragment.
+
+    Returns:
+        The fragment with string-literal contents replaced by spaces. Trailing
+        text after an unterminated quote is returned unchanged; callers reject
+        an unbalanced clause before masking.
+    """
+
+    def _blank_literals_only(match: re.Match[str]) -> str:
+        run = match.group(0)
+        return run if run.startswith('"') else " " * len(run)
+
+    return _QUOTED_RUN_RE.sub(_blank_literals_only, where)
