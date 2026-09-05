@@ -46,7 +46,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from sqlalchemy import select, text
 
-from app.core.persistent_config import EMBEDDING_DIMS, EMBEDDING_MODEL
+from app.core.persistent_config import (
+    EMBEDDING_DIMS,
+    EMBEDDING_MODEL,
+    SEMANTIC_SEARCH_ENABLED,
+)
 from app.modules.catalog.datasets.domain.models import Record
 from app.modules.catalog.search import service_semantic
 from app.modules.catalog.search.service_filters import SearchFilters
@@ -109,6 +113,9 @@ async def test_foreign_rows_nearer_than_live_ones_do_not_starve_the_scan(
 ):
     """150 rejected neighbours in front of 5 usable ones, window of 100."""
     session = test_db_session
+    # fix(#1855): resolve_semantic_arm gates on the flag itself, so the test
+    # sets it rather than inheriting whatever an earlier test left cached.
+    await SEMANTIC_SEARCH_ENABLED.set(session, True)
     model_name = await EMBEDDING_MODEL.get(session)
     dimensions = await EMBEDDING_DIMS.get(session)
     base_url = await resolve_embedding_base_url(session)
