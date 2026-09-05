@@ -105,11 +105,12 @@ setting `SECRET_ENCRYPTION_KEY` on an existing install, and after replacing an
 existing `SECRET_ENCRYPTION_KEY` with a new one.
 
 ```bash
-docker compose exec api uv run python scripts/rotate_secrets.py --dry-run
-docker compose exec api uv run python scripts/rotate_secrets.py
+docker compose exec api uv run python -m scripts.rotate_secrets --dry-run
+docker compose exec api uv run python -m scripts.rotate_secrets
 ```
 
 It refuses to run when `SECRET_ENCRYPTION_KEY` is unset, decrypts every row
 before writing any of them (a row no configured key opens aborts the run and
-leaves the table untouched), and is safe to re-run. `RUNBOOK.md` section 11 is
+leaves the table untouched), holds a row lock across the sweep so a provider
+saved mid-run is not overwritten, and is safe to re-run. `RUNBOOK.md` section 11 is
 the operator procedure, including which rotation invalidates what.

@@ -1336,6 +1336,21 @@ class Settings(BaseSettings):
                 "SECRET_ENCRYPTION_KEY, or unset it."
             )
 
+        if (
+            self.secret_encryption_key is not None
+            and self.secret_encryption_key_previous is not None
+            and self.secret_encryption_key.get_secret_value()
+            == self.secret_encryption_key_previous.get_secret_value()
+        ):
+            raise ValueError(
+                "SECRET_ENCRYPTION_KEY_PREVIOUS is the same value as "
+                "SECRET_ENCRYPTION_KEY, so nothing is being rotated. The key "
+                "chain would hold one key twice, and rotate_secrets.py would "
+                "report every row rewritten under the key they already use "
+                "and then tell you to retire that key. Set the previous key "
+                "to the one you are actually retiring, or unset it."
+            )
+
         return self
 
     @property

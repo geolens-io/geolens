@@ -2940,10 +2940,16 @@ openssl rand -base64 32 | tr '+/' '-_'
 #    Reads still fall back to the JWT-derived key, so nothing breaks here.
 docker compose up -d api worker
 
-# 3. Re-encrypt the stored rows under the new key.
-docker compose exec api uv run python scripts/rotate_secrets.py --dry-run
-docker compose exec api uv run python scripts/rotate_secrets.py
+# 3. Re-encrypt the stored rows under the new key. The script is
+#    backend/scripts/rotate_secrets.py; the api container's working directory
+#    is the backend, so it is addressed there as a module.
+docker compose exec api uv run python -m scripts.rotate_secrets --dry-run
+docker compose exec api uv run python -m scripts.rotate_secrets
 ```
+
+The API can stay up for step 3. The script locks the provider rows for the
+length of the sweep, so an admin saving a provider at that moment waits instead
+of having the save overwritten.
 
 Back the key up wherever you keep `.env`. Losing it is the same as losing the
 stored secrets: they can only be re-entered, not recovered.
@@ -2957,7 +2963,7 @@ Generate a new key, move the current one to `SECRET_ENCRYPTION_KEY_PREVIOUS`,
 put the new one in `SECRET_ENCRYPTION_KEY`, restart, then:
 
 ```bash
-docker compose exec api uv run python scripts/rotate_secrets.py
+docker compose exec api uv run python -m scripts.rotate_secrets
 ```
 
 Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` from `.env` and restart again. The API

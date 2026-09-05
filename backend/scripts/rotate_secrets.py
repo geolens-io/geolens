@@ -4,12 +4,14 @@
 GeoLens encrypts ``catalog.oauth_providers.client_secret_encrypted`` and
 ``idp_certificate`` at rest. Reads try every configured key in turn, so a row
 written under an older key keeps working; writes only ever use the newest one.
-This script rewrites the rows still on an older key, which is what lets you
-then retire that key (#1871).
+This script rewrites every row under the newest key, which is what lets you
+then retire the older ones (#1871). Fernet ciphertext does not say which key
+made it, so a run cannot tell an already-current row from a stale one: it
+rewrites all of them and the count it prints is the whole table.
 
 Usage:
-    docker compose exec api uv run python scripts/rotate_secrets.py --dry-run
-    docker compose exec api uv run python scripts/rotate_secrets.py
+    docker compose exec api uv run python -m scripts.rotate_secrets --dry-run
+    docker compose exec api uv run python -m scripts.rotate_secrets
 
 Run it after setting SECRET_ENCRYPTION_KEY on an existing install, and after
 replacing one SECRET_ENCRYPTION_KEY with another. RUNBOOK.md section 11 is the
@@ -23,8 +25,12 @@ Behaviour:
 - Decrypts every row before writing any of them. A row no configured key opens
   exits 1 and leaves the table untouched, because a partial rewrite would
   strand the rest behind a key you are about to retire.
-- Idempotent. Re-running changes neither the plaintext nor which keys can read
-  the rows.
+- Locks the provider rows for the whole sweep, including under --dry-run. An
+  admin save or config import that lands mid-sweep waits rather than being
+  overwritten. The table holds one row per identity provider, so the wait is
+  short, and the API can stay up.
+- Idempotent. Re-running rewrites the same rows again under the same key,
+  changing neither the plaintext nor which keys can read them.
 - Prints provider ids and counts only, never key material, ciphertext, or a
   decrypted value.
 """
@@ -37,6 +43,34 @@ import sys
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+
+# fix(#1882 codex r1): the lock spans the read and the write, so a provider
+# saved between them is never overwritten by ciphertext of the values this
+# SELECT saw. Ordered by id, and oauth_providers is the first table
+# acquire_config_import_lock takes, so the two cannot deadlock.
+_SELECT_PROVIDERS_FOR_UPDATE = text(
+    "SELECT id, client_secret_encrypted, idp_certificate "
+    "FROM catalog.oauth_providers ORDER BY id FOR UPDATE"
+)
+
+
+def make_engine(database_url: str):
+    """Engine for the sweep.
+
+    ``hide_parameters`` keeps bound ciphertext out of ``StatementError``
+    messages, which a failed UPDATE would otherwise print (#1778 sets it on
+    the app engine for the same reason). ``connect_args`` carries the SSL
+    settings, without which this cannot reach a managed Postgres at all.
+    """
+    from app.core.config import settings
+
+    return create_async_engine(
+        database_url,
+        pool_size=2,
+        connect_args=settings.database_connect_args,
+        hide_parameters=True,
+    )
 
 
 class UndecryptableRowsError(RuntimeError):
@@ -57,20 +91,17 @@ async def rotate_oauth_provider_secrets(
 ) -> int:
     """Re-encrypt every OAuth provider secret under the newest configured key.
 
-    Returns the number of rows rewritten (the number that would be rewritten,
-    under ``dry_run``). Raises :class:`UndecryptableRowsError` without writing
+    Locks the provider rows for the whole sweep, so it must run inside one
+    transaction and the caller commits by way of this function. Returns the
+    number of rows rewritten (the number that would be rewritten, under
+    ``dry_run``). Raises :class:`UndecryptableRowsError` without writing
     anything when any row fails to decrypt.
     """
     from cryptography.fernet import InvalidToken
 
     from app.modules.auth.oauth.encryption import rotate_secret
 
-    result = await db.execute(
-        text(
-            "SELECT id, client_secret_encrypted, idp_certificate "
-            "FROM catalog.oauth_providers ORDER BY id"
-        )
-    )
+    result = await db.execute(_SELECT_PROVIDERS_FOR_UPDATE)
     rows = result.fetchall()
     if not rows:
         print("No oauth_providers rows to rotate.")
@@ -127,7 +158,7 @@ async def _run(dry_run: bool) -> int:
         )
         return 2
 
-    engine = create_async_engine(settings.database_url, pool_size=2)
+    engine = make_engine(settings.database_url)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with session_factory() as db:

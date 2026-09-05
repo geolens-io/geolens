@@ -4127,7 +4127,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # checks them against, and the guard itself, which is most of it because
     # each of its four refusals has to say in its message what the operator got
     # wrong and how to generate a valid key. Cap 1589 -> 1659, exact.
-    "backend/app/core/config.py": 1659,
+    # fix(#1882 audit): +15 refusing SECRET_ENCRYPTION_KEY_PREVIOUS equal to
+    # SECRET_ENCRYPTION_KEY. The chain would hold one key twice, so the
+    # rotation script would report every row rewritten under the key they
+    # already use and then say to retire it. Cap 1659 -> 1674, exact.
+    "backend/app/core/config.py": 1674,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of

@@ -197,13 +197,17 @@ class TestBootGuard:
         with pytest.raises(ValidationError, match="same value as JWT_SECRET_KEY"):
             _make_settings(jwt_secret_key=shared, secret_encryption_key=shared)
 
+    # fix(#1882): fixed values with explicit ids. A key generated here would be
+    # generated once per xdist worker, and pytest-xdist aborts the run when two
+    # workers collect different test ids.
     @pytest.mark.parametrize(
         "malformed",
         [
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            "not-a-fernet-key-but-long-enough-to-pass-a-length-check",
-            Fernet.generate_key().decode()[:-1],
+            "0" * 64,
+            "not a key at all",
+            "A" * 43,
         ],
+        ids=["hex_decodes_to_48_bytes", "not_base64", "unpadded_43_chars"],
     )
     def test_refuses_a_malformed_key(self, malformed):
         with pytest.raises(ValidationError, match="not a valid Fernet key"):
@@ -216,6 +220,14 @@ class TestBootGuard:
             _make_settings(
                 secret_encryption_key=_new_key(),
                 secret_encryption_key_previous="not-a-key",
+            )
+
+    def test_refuses_a_previous_key_equal_to_the_current_one(self):
+        """fix(#1882 audit): the chain would hold one key twice."""
+        shared = _new_key()
+        with pytest.raises(ValidationError, match="nothing is being rotated"):
+            _make_settings(
+                secret_encryption_key=shared, secret_encryption_key_previous=shared
             )
 
     def test_refuses_a_previous_key_on_its_own(self):
@@ -445,6 +457,97 @@ class TestRotationScript:
         assert after == before
         assert decrypt_secret(after) == plaintext
 
+    async def test_a_provider_saved_mid_sweep_is_not_overwritten(
+        self, monkeypatch, test_db_session, secret_settings, empty_oauth_providers
+    ):
+        """fix(#1882 codex r1): rotation serialises with provider writers.
+
+        The concurrent write is fired after the locking SELECT and before the
+        first UPDATE, which is the window that used to lose it.
+        """
+        from sqlalchemy import text
+
+        import app.core.db as db_module
+        from scripts.rotate_secrets import rotate_oauth_provider_secrets
+
+        provider_id, plaintext, _ = await self._seed_provider(test_db_session)
+        dedicated = _new_key()
+        monkeypatch.setattr(
+            secret_settings, "secret_encryption_key", SecretStr(dedicated)
+        )
+
+        outcome: list[str] = []
+
+        async def _save_from_another_session() -> None:
+            """What an admin save or a config import does to the same row."""
+            async with db_module.async_session() as other:
+                try:
+                    await other.execute(text("SET LOCAL lock_timeout = '750ms'"))
+                    await other.execute(
+                        text(
+                            "UPDATE catalog.oauth_providers "
+                            "SET client_secret_encrypted = :secret WHERE id = :id"
+                        ),
+                        {
+                            "secret": encrypt_secret("entered-during-the-rotation"),
+                            "id": provider_id,
+                        },
+                    )
+                    await other.commit()
+                    outcome.append("wrote")
+                except Exception:
+                    await other.rollback()
+                    outcome.append("blocked")
+
+        original_execute = test_db_session.execute
+        statements: list[int] = []
+
+        async def _execute_then_contend(statement, *args, **kwargs):
+            result = await original_execute(statement, *args, **kwargs)
+            statements.append(1)
+            if len(statements) == 1:
+                await _save_from_another_session()
+            return result
+
+        monkeypatch.setattr(test_db_session, "execute", _execute_then_contend)
+        await rotate_oauth_provider_secrets(test_db_session)
+        monkeypatch.undo()
+
+        assert outcome == ["blocked"], (
+            "the concurrent save landed inside the rotation's read-to-write "
+            "window, so the rotation's own UPDATE reverted it"
+        )
+
+        stored = (
+            await test_db_session.execute(
+                text(
+                    "SELECT client_secret_encrypted FROM catalog.oauth_providers "
+                    "WHERE id = :id"
+                ),
+                {"id": provider_id},
+            )
+        ).scalar_one()
+        assert (
+            MultiFernet([Fernet(dedicated)]).decrypt(stored.encode()).decode()
+            == plaintext
+        )
+
+        # The blocked writer is only blocked. Retried after the sweep it lands,
+        # and nothing reverts it.
+        await _save_from_another_session()
+        assert outcome == ["blocked", "wrote"]
+        await test_db_session.commit()
+        stored = (
+            await test_db_session.execute(
+                text(
+                    "SELECT client_secret_encrypted FROM catalog.oauth_providers "
+                    "WHERE id = :id"
+                ),
+                {"id": provider_id},
+            )
+        ).scalar_one()
+        assert decrypt_secret(stored) == "entered-during-the-rotation"
+
     async def test_dry_run_writes_nothing(
         self, monkeypatch, test_db_session, secret_settings, empty_oauth_providers
     ):
@@ -478,6 +581,47 @@ class TestRotationScript:
             )
         ).scalar_one()
         assert after == before
+
+    async def test_a_failed_write_does_not_print_the_ciphertext(
+        self, test_db_session, secret_settings, empty_oauth_providers
+    ):
+        """fix(#1882 audit): the sweep's engine sets hide_parameters.
+
+        A StatementError renders its bound parameters into the message, and
+        the API's DB error handler logs that message. Bound here is the new
+        key's ciphertext.
+        """
+        from sqlalchemy import text
+        from sqlalchemy.exc import DBAPIError
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        import app.core.db as db_module
+        from scripts.rotate_secrets import make_engine
+
+        provider_id, _, _ = await self._seed_provider(test_db_session)
+        ciphertext = encrypt_secret("a-secret-that-must-not-be-logged")
+
+        engine = make_engine(db_module.engine.url.render_as_string(hide_password=False))
+        try:
+            async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+                with pytest.raises(DBAPIError) as excinfo:
+                    # provider_type has a CHECK constraint, so this fails with
+                    # the ciphertext already bound.
+                    await session.execute(
+                        text(
+                            "UPDATE catalog.oauth_providers "
+                            "SET client_secret_encrypted = :secret, "
+                            "provider_type = 'not-a-provider-type' WHERE id = :id"
+                        ),
+                        {"secret": ciphertext, "id": provider_id},
+                    )
+                await session.rollback()
+        finally:
+            await engine.dispose()
+
+        rendered = str(excinfo.value)
+        assert ciphertext not in rendered
+        assert "hidden due to hide_parameters" in rendered
 
     def test_refuses_to_run_without_a_dedicated_key(self, monkeypatch):
         """Otherwise the "rotation" rewrites every row under the JWT-derived key."""
