@@ -5,6 +5,7 @@ import { useDrawingStore } from '@/stores/drawing-store';
 import { useSearchStore } from '@/stores/search-store';
 import { clearUploadBatch, clearPendingUploadFiles } from '@/api/upload-session';
 import { clearStacImport } from '@/api/stac-import-session';
+import { removeSessionStorage } from '@/lib/storage';
 
 /**
  * fix(#1850): the AI chat transcript (`geolens-chat-<mapId>`, ChatPanel.tsx)
@@ -15,6 +16,13 @@ import { clearStacImport } from '@/api/stac-import-session';
  * metadata. Same choke point, same rule as the stores below: identity
  * changed, drop it. Collecting keys first, then removing, because removing
  * mid-loop shifts sessionStorage's live index and skips entries.
+ *
+ * fix(#1536 gate): the enumeration (`.length`/`.key`) has no helper in
+ * lib/storage.ts, so it stays raw here, guarded by the try/catch below —
+ * kept as a plain loop rather than `.forEach`, which would cross a function
+ * boundary and fall outside the try's frame. The removal itself goes
+ * through `removeSessionStorage`, which is already exception-safe on its
+ * own.
  */
 function clearChatSessionStorage(): void {
   try {
@@ -23,7 +31,9 @@ function clearChatSessionStorage(): void {
       const key = sessionStorage.key(i);
       if (key?.startsWith('geolens-chat-')) toRemove.push(key);
     }
-    toRemove.forEach((key) => sessionStorage.removeItem(key));
+    for (const key of toRemove) {
+      removeSessionStorage(key);
+    }
   } catch {
     // storage unavailable (private mode / disabled) — nothing to clear.
   }
