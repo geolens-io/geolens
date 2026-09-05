@@ -108,7 +108,7 @@
   },
   "dropzone": {
     "ariaLabel": "Dateien hochladen",
-    "instructions": "Dateien hierher ziehen oder klicken zum Durchsuchen",
+    "instructions": "Dateien hierher ziehen oder",
     "dropHere": "Dateien hier ablegen",
     "unsupportedType": "Dieser Dateityp wird nicht unterstützt",
     "sizeLimit": "Maximal 500 MB pro Datei",
@@ -515,7 +515,8 @@
   "eyebrow": "Importieren",
   "pageDescription": "Dateien hochladen, Tabellen aus Ihrem Postgres registrieren oder einen Remote-Service verbinden. GeoLens erkennt Geometrie, Schema und KRS und macht die Daten abfragbar, stilisierbar und einbettbar.",
   "complete": {
-    "heroTitle": "{{count}} Datensätze zum Katalog hinzugefügt",
+    "heroTitle_one": "{{count}} Datensatz zum Katalog hinzugefügt",
+    "heroTitle_other": "{{count}} Datensätze zum Katalog hinzugefügt",
     "heroDesc": "Alle Dateien aufgenommen, gekachelt und indiziert. Bereit zum Abfragen, Gestalten und Kartografieren.",
     "statDatasets": "Datensätze",
     "statVector": "Vektor",

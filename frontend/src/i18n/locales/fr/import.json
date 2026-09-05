@@ -108,7 +108,7 @@
   },
   "dropzone": {
     "ariaLabel": "Téléverser des fichiers",
-    "instructions": "Glissez-déposez des fichiers ici, ou cliquez pour parcourir",
+    "instructions": "Glissez-déposez des fichiers ici, ou",
     "dropHere": "Déposez les fichiers ici",
     "unsupportedType": "Ce type de fichier n'est pas pris en charge",
     "sizeLimit": "500 Mo maximum par fichier",
@@ -515,7 +515,8 @@
   "eyebrow": "Importer",
   "pageDescription": "Chargez des fichiers, enregistrez des tables depuis votre Postgres ou connectez un service distant. GeoLens détecte la géométrie, le schéma et le SCR, puis rend les données interrogeables, stylisables et intégrables.",
   "complete": {
-    "heroTitle": "{{count}} jeux de données ajoutés au catalogue",
+    "heroTitle_one": "{{count}} jeu de données ajouté au catalogue",
+    "heroTitle_other": "{{count}} jeux de données ajoutés au catalogue",
     "heroDesc": "Tous les fichiers ingérés, tuilés et indexés. Prêts à être interrogés, stylisés et cartographiés.",
     "statDatasets": "Jeux de données",
     "statVector": "Vecteur",

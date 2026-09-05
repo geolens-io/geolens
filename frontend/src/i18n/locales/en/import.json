@@ -107,7 +107,8 @@
     }
   },
   "complete": {
-    "heroTitle": "{{count}} datasets added to the catalog",
+    "heroTitle_one": "{{count}} dataset added to the catalog",
+    "heroTitle_other": "{{count}} datasets added to the catalog",
     "heroDesc": "All files ingested, tiled, and indexed. Ready to query, style, and map.",
     "statDatasets": "Datasets",
     "statVector": "Vector",
@@ -120,7 +121,7 @@
   },
   "dropzone": {
     "ariaLabel": "Upload files",
-    "instructions": "Drag and drop files here, or click to browse",
+    "instructions": "Drag and drop files here, or",
     "browse": "browse",
     "toUpload": "to upload",
     "subtext": "GeoLens will detect geometry, CRS, and schema before committing to the catalog. Batches up to {{max}} files.",

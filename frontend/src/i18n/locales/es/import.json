@@ -108,7 +108,7 @@
   },
   "dropzone": {
     "ariaLabel": "Subir archivos",
-    "instructions": "Arrastre y suelte archivos aquí, o haga clic para explorar",
+    "instructions": "Arrastre y suelte archivos aquí, o",
     "dropHere": "Suelte los archivos aquí",
     "unsupportedType": "Este tipo de archivo no es compatible",
     "sizeLimit": "Máximo 500 MB por archivo",
@@ -515,7 +515,8 @@
   "eyebrow": "Importar",
   "pageDescription": "Sube archivos, registra tablas de tu Postgres o conecta un servicio remoto. GeoLens detecta geometría, esquema y CRS, luego hace los datos consultables, estilizables e integrables.",
   "complete": {
-    "heroTitle": "{{count}} conjuntos de datos añadidos al catálogo",
+    "heroTitle_one": "{{count}} conjunto de datos añadido al catálogo",
+    "heroTitle_other": "{{count}} conjuntos de datos añadidos al catálogo",
     "heroDesc": "Todos los archivos ingestados, teselados e indexados. Listos para consultar, estilizar y mapear.",
     "statDatasets": "Conjuntos de datos",
     "statVector": "Vector",
