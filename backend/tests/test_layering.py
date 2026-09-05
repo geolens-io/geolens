@@ -2964,7 +2964,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # here rather than in four route bodies. Cap 1903 -> 1935, exact.    # fix(#1847): +32 for one exception handler. A contended catalog row was
     # answered 409, 503 and 400 depending on the route; the helper raises one
     # domain exception and this maps it. Cap 1903 -> 1928, exact.    # domain exception and this maps it, with a machine-readable code now that
-    # it is the only shape a contended row produces. Cap 1903 -> 1930, exact.    "backend/app/api/main.py": 1935,
+    # it is the only shape a contended row produces. Cap 1903 -> 1930, exact.    # domain exception and this maps it, with a machine-readable code now that
+    # it is the only shape a contended row produces, from one shared constant.
+    # Cap 1903 -> 1933, exact.    "backend/app/api/main.py": 1935,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -5303,7 +5305,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # than a second spelling of the vocabulary, plus the description telling a
     # client author what the field buys and that omitting it is supported.
     # Cap 1524 -> 1536, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1536,
+    # fix(#1847): +5. BulkDeleteResultItem gained an optional `code`, so a
+    # per-item conflict is machine-readable with the same code the
+    # single-delete 409 carries. Cap 1536 -> 1541, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1541,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

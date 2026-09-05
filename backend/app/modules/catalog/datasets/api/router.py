@@ -15,7 +15,10 @@ from fastapi import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
-from app.platform.catalog_locks import CatalogLockConflict
+from app.platform.catalog_locks import (
+    CATALOG_LOCK_CONFLICT_CODE,
+    CatalogLockConflict,
+)
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.audit.schemas import AuditLogListResponse, AuditLogResponse
 from app.modules.audit.service import AuditEvent, audit_emit, query_audit_logs
@@ -435,6 +438,21 @@ async def update_dataset_metadata(
     return response
 
 
+async def _rollback_failed_item(db: AsyncSession, user) -> None:
+    """Roll back one failed bulk-delete item without breaking the next one.
+
+    fix(#1847): `AsyncSession.rollback()` expires every instance in the
+    session, including the `user` the per-item access check reads. The next
+    item's `user.id` then lazy-loaded outside the greenlet and raised
+    MissingGreenlet, which the catch-all recorded as "Dataset deletion failed
+    unexpectedly" -- one bad item made every later item fail with a message
+    describing none of them. Reloading the actor is awaited, so the following
+    item's check runs normally.
+    """
+    await db.rollback()
+    await db.refresh(user)
+
+
 # ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
 # no-trailing-slash variants register against the same handler. Slash form
 # stays canonical (already in OpenAPI); no-slash is a hidden alias closing
@@ -502,13 +520,23 @@ async def bulk_delete_datasets_endpoint(
                 BulkDeleteResultItem(dataset_id=item.dataset_id, status="deleted")
             )
             deleted += 1
-        except CatalogLockConflict:
-            # fix(#1847): the helper already rolled back. Re-raised so the one
-            # 409 mapping applies; the catch-all below would log a stack trace
-            # and report a contended row as an unexpected failure.
-            raise
+        except CatalogLockConflict as exc:
+            # fix(#1847): recorded per item, not raised. The batch commits per
+            # item, so aborting here would discard results already committed.
+            # The catch-all below would report a contended row as an
+            # unexpected failure and log a stack trace for it.
+            await _rollback_failed_item(db, user)
+            results.append(
+                BulkDeleteResultItem(
+                    dataset_id=item.dataset_id,
+                    status="error",
+                    detail=str(exc),
+                    code=CATALOG_LOCK_CONFLICT_CODE,
+                )
+            )
+            continue
         except Exception as exc:  # broad: per-item bulk-delete is isolated — any failure is recorded per-item without aborting the batch
-            await db.rollback()
+            await _rollback_failed_item(db, user)
             if isinstance(exc, (DependentVrtError, DatasetTitleMismatchError)):
                 detail = str(exc)
             else:

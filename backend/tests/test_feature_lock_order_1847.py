@@ -971,9 +971,68 @@ class TestOneShapeForEveryContendedRow:
         assert body["detail"]["code"] == "catalog_lock_conflict", body
         assert body["title"] == "Catalog entry is busy", body
 
-    async def test_bulk_delete_answers_conflict_not_unexpected_failure(
-        self, locked_dataset, client: AsyncClient, admin_auth_header, monkeypatch
+    async def test_one_failed_item_does_not_poison_the_rest(
+        self, client: AsyncClient, test_db_session, admin_auth_header
     ):
+        """fix(#1847): found while making the conflict per-item.
+
+        Any per-item failure rolled the session back, which expires every
+        instance in it including the actor. The next item's access check then
+        read `user.id`, lazy-loaded outside the greenlet, and raised
+        MissingGreenlet -- recorded as "Dataset deletion failed unexpectedly".
+        One bad item made every later item fail for a reason that had nothing
+        to do with it. No lock involved: an ordinary title mismatch does it.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        datasets = [
+            await _seed_dataset(test_db_session, created_by=admin_id) for _ in range(3)
+        ]
+        try:
+            response = await client.post(
+                "/datasets/bulk-delete",
+                json={
+                    "datasets": [
+                        {
+                            "dataset_id": str(datasets[0].id),
+                            "confirm_title": f"Lock order {datasets[0].table_name}",
+                        },
+                        {
+                            "dataset_id": str(datasets[1].id),
+                            "confirm_title": "not the title",
+                        },
+                        {
+                            "dataset_id": str(datasets[2].id),
+                            "confirm_title": f"Lock order {datasets[2].table_name}",
+                        },
+                    ]
+                },
+                headers=admin_auth_header,
+            )
+            assert response.status_code == 200, response.text
+            body = response.json()
+            by_id = {r["dataset_id"]: r for r in body["results"]}
+            assert by_id[str(datasets[0].id)]["status"] == "deleted", body
+            assert by_id[str(datasets[2].id)]["status"] == "deleted", body
+            middle = by_id[str(datasets[1].id)]
+            assert middle["status"] == "error"
+            assert "title does not match" in middle["detail"], middle
+            assert "failed unexpectedly" not in response.text
+        finally:
+            for d in datasets:
+                await test_db_session.execute(
+                    text(f"DROP TABLE IF EXISTS data.{d.table_name}")
+                )
+            await test_db_session.commit()
+
+    async def test_bulk_delete_records_a_conflict_per_item(
+        self, client: AsyncClient, test_db_session, admin_auth_header, monkeypatch
+    ):
+        """A conflict on one item must not discard the items around it.
+
+        The endpoint commits per item and returns per-item results, so raising
+        would throw away work that is already committed. The conflicting entry
+        carries the same code the single-delete 409 does.
+        """
         monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "150ms")
         import app.core.db as db_module
         from app.modules.catalog.datasets.domain import service_lifecycle
@@ -983,27 +1042,50 @@ class TestOneShapeForEveryContendedRow:
 
         monkeypatch.setattr(service_lifecycle, "_reap_managed_storage", _no_reap)
 
-        async with db_module.async_session() as holder:
-            await self._hold(holder, locked_dataset.id)
-            response = await client.post(
-                "/datasets/bulk-delete",
-                json={
-                    "datasets": [
-                        {
-                            "dataset_id": str(locked_dataset.id),
-                            "confirm_title": (
-                                f"Lock order {locked_dataset.table_name}"
-                            ),
-                        }
-                    ]
-                },
-                headers=admin_auth_header,
-            )
-            await holder.rollback()
+        admin_id = await get_user_id(test_db_session, "admin")
+        datasets = [
+            await _seed_dataset(test_db_session, created_by=admin_id) for _ in range(3)
+        ]
+        try:
+            async with db_module.async_session() as holder:
+                # The MIDDLE one is contended; the other two are untouched.
+                await self._hold(holder, datasets[1].id)
+                response = await client.post(
+                    "/datasets/bulk-delete",
+                    json={
+                        "datasets": [
+                            {
+                                "dataset_id": str(d.id),
+                                "confirm_title": f"Lock order {d.table_name}",
+                            }
+                            for d in datasets
+                        ]
+                    },
+                    headers=admin_auth_header,
+                )
+                await holder.rollback()
 
-        assert response.status_code == 409, response.text
-        assert response.json()["detail"]["code"] == "catalog_lock_conflict"
-        assert "failed unexpectedly" not in response.text
+            assert response.status_code != 409, response.text
+            assert response.status_code == 200, response.text
+            body = response.json()
+            by_id = {r["dataset_id"]: r for r in body["results"]}
+
+            first = by_id[str(datasets[0].id)]
+            middle = by_id[str(datasets[1].id)]
+            third = by_id[str(datasets[2].id)]
+
+            assert first["status"] == "deleted", body
+            assert third["status"] == "deleted", body
+            assert middle["status"] == "error", body
+            assert middle["code"] == "catalog_lock_conflict", body
+            assert "failed unexpectedly" not in response.text
+            assert body["deleted"] == 2 and body["errors"] == 1, body
+        finally:
+            for d in datasets:
+                await test_db_session.execute(
+                    text(f"DROP TABLE IF EXISTS data.{d.table_name}")
+                )
+            await test_db_session.commit()
 
 
 class TestTheOtherSitesHoldTheOrderToo:

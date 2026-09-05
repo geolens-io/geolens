@@ -949,7 +949,10 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 from sqlalchemy.exc import DBAPIError  # noqa: E402
 
 from app.core.db.sqlstate import is_operational, sqlstate  # noqa: E402
-from app.platform.catalog_locks import CatalogLockConflict  # noqa: E402
+from app.platform.catalog_locks import (  # noqa: E402
+    CATALOG_LOCK_CONFLICT_CODE,
+    CatalogLockConflict,
+)
 from app.modules.quota.service import (  # noqa: E402
     DatasetQuotaExceededError,
     StorageQuotaExceededError,
@@ -1008,7 +1011,7 @@ async def _catalog_lock_conflict_handler(
             status=status.HTTP_409_CONFLICT,
             # Keyed, because this is now the ONLY shape a contended row
             # produces and a client cannot match on a title.
-            detail={"code": "catalog_lock_conflict", "message": str(exc)},
+            detail={"code": CATALOG_LOCK_CONFLICT_CODE, "message": str(exc)},
         ).model_dump(),
         media_type="application/problem+json",
     )

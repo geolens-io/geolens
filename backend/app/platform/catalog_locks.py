@@ -25,6 +25,11 @@ REQUEST_LOCK_TIMEOUT = "2s"
 _USE_REQUEST_DEFAULT: Any = object()
 
 
+# The machine-readable code for a contended row, wherever it is reported: the
+# 409 body, and a bulk-delete item that carries its conflict instead of raising.
+CATALOG_LOCK_CONFLICT_CODE = "catalog_lock_conflict"
+
+
 class CatalogLockConflict(Exception):
     """Another transaction holds the catalog rows this one needs.
 
