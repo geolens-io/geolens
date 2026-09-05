@@ -371,6 +371,55 @@ else
     bad "a multiline value's continuation was misjudged (exit $STATUS): $(cat "$WORK/out.txt")"
 fi
 
+# fix(#1899 codex r1): a key outside the shell-identifier charset is a record
+# too, so its value is interpolated where Compose interpolates it.
+run_preflight 'ODD-KEY=${MISSING:?boom}'
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (ODD-KEY)" "$WORK/out.txt"; then
+    ok "a hyphenated key with a value Compose refuses is refused"
+else
+    bad "a hyphenated key's value was never interpolated (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+run_preflight 'DOTTED.KEY=${X'
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (DOTTED.KEY)" "$WORK/out.txt"; then
+    ok "a dotted key with an unclosed \${ is refused"
+else
+    bad "a dotted key's value was never interpolated (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+run_preflight 'COLON: ${MISSING:?boom}'
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (COLON)" "$WORK/out.txt"; then
+    ok "a colon-terminated key with a value Compose refuses is refused"
+else
+    bad "a colon-terminated key's value was never interpolated (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+run_preflight '1ODD=${MISSING:?boom}'
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (1ODD)" "$WORK/out.txt"; then
+    ok "a digit-leading key with a value Compose refuses is refused"
+else
+    bad "a digit-leading key's value was never interpolated (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+printf '%s\n' "$REQUIRED_LINES" > "$FAKE/.env"
+printf 'BRACKET[0]=${MISSING:?boom}\n' >> "$FAKE/.env"
+touch "$WORK/BRACKET0"
+( cd "$WORK" && bash "$FAKE/scripts/preflight-env.sh" > "$WORK/out.txt" 2>&1 )
+STATUS=$?
+if [ "$STATUS" -ne 0 ] && grep -qF "line 4 (BRACKET[0])" "$WORK/out.txt"; then
+    ok "a bracketed key is refused by its own name even beside a file its brackets would glob to"
+else
+    bad "a bracketed key was mishandled (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+ODD_MULTI="$(printf 'ODD-KEY="a\nb c\n"')"
+run_preflight "$ODD_MULTI"
+if [ "$STATUS" -eq 0 ]; then
+    ok "a multiline value under a hyphenated key keeps its continuation lines exempt"
+else
+    bad "a multiline value under a hyphenated key was refused: $(cat "$WORK/out.txt")"
+fi
+
 echo "1..$((PASS + FAIL))"
 echo "# ${PASS} passed, ${FAIL} failed"
 [ "$FAIL" -eq 0 ]

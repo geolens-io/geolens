@@ -618,9 +618,11 @@ _env_parse_assignment_line() {
       ;;
   esac
 
+  # fix(#1899): Compose's key grammar: letters, digits and `_.-[]`, ended by
+  # `=` or `:`; whitespace ends the scan too and the parse phase judges it.
   _epa_first="${_epa_s%"${_epa_s#?}"}"
   case "$_epa_first" in
-    [A-Za-z_]) : ;;
+    []A-Za-z0-9_.[-]) : ;;
     *) return 0 ;;
   esac
 
@@ -628,15 +630,15 @@ _env_parse_assignment_line() {
   while [ -n "$_epa_scan" ]; do
     _epa_c="${_epa_scan%"${_epa_scan#?}"}"
     case "$_epa_c" in
-      [A-Za-z0-9_]) _epa_key="${_epa_key}${_epa_c}"; _epa_scan="${_epa_scan#?}" ;;
+      []A-Za-z0-9_.[-]) _epa_key="${_epa_key}${_epa_c}"; _epa_scan="${_epa_scan#?}" ;;
       *) break ;;
     esac
   done
 
   _epa_scan="$(_env_lstrip_ws "$_epa_scan")"
   case "$_epa_scan" in
-    "="*)
-      _epa_value="$(_env_lstrip_ws "${_epa_scan#=}")"
+    "="*|":"*)
+      _epa_value="$(_env_lstrip_ws "${_epa_scan#?}")"
       _epa_bare=0
       ;;
     *)
@@ -771,15 +773,14 @@ _env_select_record() {
         ;;
     esac
     [ -n "$_esr_rec" ] || continue
-    # shellcheck disable=SC2086  # deliberate word-splitting: _esr_rec is
-    # this function's own machine-generated "TYPE START END KEY" record
-    # (from _env_tokenize), never glob-special, exactly 4 space-separated
-    # fields -- quoting it would parse it as ONE field instead of four.
-    set -- $_esr_rec
-    _esr_rtype="$1"
-    _esr_rstart="$2"
-    _esr_rend="$3"
-    _esr_rkey="$4"
+    # fix(#1899): a key may hold `[` or `]`, which glob under an unquoted
+    # expansion, so the "TYPE START END KEY" record is split by expansion.
+    _esr_rtype="${_esr_rec%% *}"
+    _esr_rest="${_esr_rec#* }"
+    _esr_rstart="${_esr_rest%% *}"
+    _esr_rest="${_esr_rest#* }"
+    _esr_rend="${_esr_rest%% *}"
+    _esr_rkey="${_esr_rest#* }"
     if [ "$_esr_rkey" = "$_esr_key" ] && { [ "$_esr_before" = "0" ] || [ "$_esr_rstart" -lt "$_esr_before" ]; }; then
       _esr_type="$_esr_rtype"
       _esr_start="$_esr_rstart"

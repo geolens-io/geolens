@@ -615,6 +615,38 @@ _assert_file_like_compose "$FILE_DIR/unclosed-ref" "an unclosed \${ reference"
 printf 'CONTROL=ok\nFOO="a\nb c\n"\nBAR # after\n' > "$FILE_DIR/continuation"
 _assert_file_like_compose "$FILE_DIR/continuation" "a spaced continuation line is exempt and the key error after it is the one named"
 
+# fix(#1899 codex r1): a key outside the shell-identifier charset is a record
+# too, so its value is interpolated where Compose interpolates it.
+printf 'CONTROL=ok\nODD-KEY=${MISSING:?boom}\n' > "$FILE_DIR/odd-hyphen"
+_assert_file_like_compose "$FILE_DIR/odd-hyphen" "a hyphenated key whose value Compose refuses"
+
+printf 'CONTROL=ok\nDOTTED.KEY=${X\n' > "$FILE_DIR/odd-dotted"
+_assert_file_like_compose "$FILE_DIR/odd-dotted" "a dotted key with an unclosed \${"
+
+printf 'CONTROL=ok\nCOLON: ${MISSING:?boom}\n' > "$FILE_DIR/odd-colon"
+_assert_file_like_compose "$FILE_DIR/odd-colon" "a colon-terminated key whose value Compose refuses"
+
+printf 'CONTROL=ok\n1ODD=${MISSING:?boom}\n' > "$FILE_DIR/odd-digit"
+_assert_file_like_compose "$FILE_DIR/odd-digit" "a digit-leading key whose value Compose refuses"
+
+printf 'CONTROL=ok\nBRACKET[0]=${MISSING:?boom}\n' > "$FILE_DIR/odd-bracket"
+touch "$FILE_DIR/BRACKET0"
+_afl_pwd="$PWD"
+cd "$FILE_DIR" || bad "could not cd into $FILE_DIR"
+_assert_file_like_compose "$FILE_DIR/odd-bracket" "a bracketed key whose value Compose refuses, beside a file its brackets would glob to"
+cd "$_afl_pwd" || bad "could not cd back to $_afl_pwd"
+if [ "${_afl_ours%% *}" = "2" ] && [ "${_afl_ours#* }" = "BRACKET[0] unresolvable" ]; then
+  ok "the refused key is reported by its own name, not the file its brackets glob to"
+else
+  bad "the refused key was reported as [$_afl_ours]"
+fi
+
+printf 'CONTROL=ok\nODD-KEY="a\nb c\n"\n' > "$FILE_DIR/odd-multiline"
+_assert_file_like_compose "$FILE_DIR/odd-multiline" "a multiline value under a hyphenated key keeps its continuation lines exempt"
+
+printf 'COLON: sep value\n' > "$FILE_DIR/colon-value"
+_assert_matches_compose COLON "$FILE_DIR/colon-value" "a colon ends the key and the value after it is what Compose reads"
+
 
 # ============================================================================
 # Round 14 (review 5104197320) — closes the WHOLE Compose interpolation

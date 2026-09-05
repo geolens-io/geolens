@@ -63,18 +63,21 @@ value_source() {
 # fix(#1899): Compose loads every line of .env before anything else, so the
 # whole file is checked first and the first line it would refuse is named.
 check_env_file() {
-    local hit why
+    local hit line key reason why
     hit="$(env_file_first_refused_line "$ENV_FILE")" || return 0
-    # shellcheck disable=SC2086  # "LINE KEY REASON", none of which holds whitespace
-    set -- $hit
-    case "$3" in
+    # "LINE KEY REASON", split by expansion: a key may hold `[`, which globs.
+    line="${hit%% *}"
+    reason="${hit##* }"
+    key="${hit#* }"
+    key="${key% *}"
+    case "$reason" in
         whitespace-in-key) why="its key contains a space" ;;
         unexpected-character) why="its key contains a character docker compose does not allow" ;;
         unterminated-quote) why="its quoted value never closes" ;;
         *) why="a \${NAME:?message} reference names a NAME that is not set, or a \${ never closes" ;;
     esac
     cat >&2 <<EOF
-Pre-flight: .env line $1 ($2) cannot be loaded by docker compose: $why.
+Pre-flight: .env line $line ($key) cannot be loaded by docker compose: $why.
 
 Compose reads every line of .env before it applies your shell environment, so
 \`docker compose up\` stops on this line even if the key is not one GeoLens
