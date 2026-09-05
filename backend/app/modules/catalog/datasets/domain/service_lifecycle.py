@@ -241,10 +241,11 @@ async def delete_dataset(
             raise RuntimeError(
                 "Dataset deletion is missing tenant context in multi-tenant mode"
             )
-        # fix(#1847): BEFORE the reap, which deletes objects permanently. A
-        # 55P03 after it would roll back with the bytes already gone. After the
-        # branch's data-table work, to match the reupload swap's order.
-        await lock_catalog_rows_for_write(session, dataset)
+        # fix(#1847): BEFORE the reap, which deletes objects permanently, and
+        # including the raster child: the record delete cascades to it, and the
+        # replace worker holds that row across its upload. Taking it after the
+        # reap left the bytes gone and the row rolled back.
+        await lock_catalog_rows_for_write(session, dataset, with_raster_asset=True)
 
         await _reap_managed_storage(prefixes, tenant_id)
     else:

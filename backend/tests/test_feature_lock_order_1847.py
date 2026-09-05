@@ -97,6 +97,58 @@ async def _seed_dataset(session, *, created_by: uuid.UUID) -> Dataset:
     return dataset
 
 
+async def _seed_raster_dataset(session, *, created_by: uuid.UUID) -> Dataset:
+    """A raster dataset with its RasterAsset child, for the delete path.
+
+    No data table: `delete_dataset`'s raster branch reaps storage prefixes and
+    drops nothing, and the record delete cascades to `raster_assets`.
+    """
+    from app.processing.raster.models import RasterAsset
+
+    record = Record(
+        title=f"Lock order raster {uuid.uuid4().hex[:8]}",
+        summary="Fixture raster",
+        theme_category=["test"],
+        visibility="private",
+        record_status="published",
+        record_type="raster_dataset",
+        created_by=created_by,
+    )
+    session.add(record)
+    await session.flush()
+    dataset = Dataset(
+        record_id=record.id,
+        table_name=f"raster_{uuid.uuid4().hex[:8]}",
+        srid=4326,
+        geometry_type=None,
+        feature_count=0,
+        column_info=[],
+        source_format="geotiff",
+    )
+    session.add(dataset)
+    await session.flush()
+    session.add(
+        RasterAsset(
+            dataset_id=dataset.id,
+            asset_uri=f"rasters/{dataset.id}/source.cog.tif",
+        )
+    )
+    await session.commit()
+    await session.refresh(dataset)
+    return dataset
+
+
+@pytest.fixture
+async def locked_raster_dataset(client: AsyncClient, test_db_session):
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _seed_raster_dataset(test_db_session, created_by=admin_id)
+    yield dataset
+    await test_db_session.execute(
+        text("DELETE FROM catalog.records WHERE id = :r"), {"r": dataset.record_id}
+    )
+    await test_db_session.commit()
+
+
 @pytest.fixture
 async def locked_dataset(client: AsyncClient, test_db_session):
     admin_id = await get_user_id(test_db_session, "admin")
@@ -1086,6 +1138,142 @@ class TestOneShapeForEveryContendedRow:
                     text(f"DROP TABLE IF EXISTS data.{d.table_name}")
                 )
             await test_db_session.commit()
+
+
+class TestTheRasterChildIsHeldBeforeTheReap:
+    """codex r5 P1: the delete reaps raster objects it may not get to commit.
+
+    The replace worker holds the RasterAsset row across its upload and only
+    then takes the pair. A delete that took the pair, reaped the raster prefix,
+    and met that row for the first time at the cascade would wait on the worker
+    with the bytes already gone.
+    """
+
+    async def test_a_held_raster_row_stops_the_delete_before_it_reaps(
+        self,
+        locked_raster_dataset,
+        client: AsyncClient,
+        admin_auth_header,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "150ms")
+        import app.core.db as db_module
+        from app.modules.catalog.datasets.domain import service_lifecycle
+        from app.processing.raster.models import RasterAsset
+
+        reaped: list = []
+
+        async def _record_only(prefixes, tenant_id):
+            reaped.append(tuple(prefixes))
+
+        monkeypatch.setattr(service_lifecycle, "_reap_managed_storage", _record_only)
+
+        title = locked_raster_dataset.record.title
+        async with db_module.async_session() as holder:
+            # Exactly what the replace worker holds across its upload.
+            await holder.execute(
+                select(RasterAsset.dataset_id)
+                .where(RasterAsset.dataset_id == locked_raster_dataset.id)
+                .with_for_update()
+            )
+            response = await client.request(
+                "DELETE",
+                f"/datasets/{locked_raster_dataset.id}",
+                json={"confirm_title": title},
+                headers=admin_auth_header,
+            )
+            await holder.rollback()
+
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["code"] == "catalog_lock_conflict"
+        assert reaped == [], (
+            "the delete reaped storage before it held the raster row, so those "
+            f"objects are gone and the dataset is not: {reaped}"
+        )
+
+
+class TestALaterLockWaitAnswersTheSameWay:
+    """codex r5 P2: the timeout outlives the acquisition it was set for.
+
+    `SET LOCAL lock_timeout` holds for the whole transaction, so a wait after
+    the pair is taken raises 55P03 from a statement the acquisition's own
+    translation never wrapped.
+    """
+
+    async def test_is_dem_contending_on_the_raster_row_answers_409(
+        self, locked_dataset, client: AsyncClient, admin_auth_header, monkeypatch
+    ):
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "150ms")
+        import app.core.db as db_module
+        from app.processing.raster.models import RasterAsset
+
+        async with db_module.async_session() as owner:
+            owner.add(
+                RasterAsset(
+                    dataset_id=locked_dataset.id,
+                    asset_uri=f"rasters/{locked_dataset.id}/source.cog.tif",
+                )
+            )
+            await owner.commit()
+
+        try:
+            async with db_module.async_session() as holder:
+                await holder.execute(
+                    select(RasterAsset.dataset_id)
+                    .where(RasterAsset.dataset_id == locked_dataset.id)
+                    .with_for_update()
+                )
+                # tile_columns takes the pair; is_dem then writes the raster
+                # row, which the holder has.
+                response = await client.patch(
+                    f"/datasets/{locked_dataset.id}",
+                    json={"tile_columns": ["name"], "is_dem": True},
+                    headers=admin_auth_header,
+                )
+                await holder.rollback()
+
+            assert response.status_code == 409, response.text
+            assert response.json()["detail"]["code"] == "catalog_lock_conflict"
+        finally:
+            async with db_module.async_session() as cleanup:
+                await cleanup.execute(
+                    text("DELETE FROM catalog.raster_assets WHERE dataset_id = :d"),
+                    {"d": locked_dataset.id},
+                )
+                await cleanup.commit()
+
+
+class TestRecoverySurvivesANonMappedIdentity:
+    """codex r5 P2: the recovery path assumed the actor was a mapped User.
+
+    An `IdentityExtension` supplies an identity that is not a mapped instance,
+    and `AsyncSession.refresh()` raises `UnmappedInstanceError` on one -- from
+    inside the handler that exists to keep one bad item from taking the rest.
+    """
+
+    async def test_refresh_is_skipped_for_an_unmapped_identity(self):
+        from app.modules.catalog.datasets.api.router import _rollback_failed_item
+
+        class _Identity:
+            """What an overlay supplies: the protocol surface, no mapper."""
+
+            id = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
+            username = "overlay"
+
+        refreshed: list = []
+
+        class _Session:
+            async def rollback(self):
+                return None
+
+            async def refresh(self, obj):
+                refreshed.append(obj)
+
+        await _rollback_failed_item(_Session(), _Identity())
+        assert refreshed == [], (
+            "refresh() was called on an identity with no mapper; it raises "
+            "UnmappedInstanceError there, aborting the recovery path"
+        )
 
 
 class TestTheOtherSitesHoldTheOrderToo:

@@ -1944,8 +1944,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Cap 451 -> 483, exact.
         # fix(#1847): +36. `delete_dataset` acquires ahead of the storage reap,
         # which deletes objects permanently, and behind the DROP. The Valkey
-        # purge stays under the lock, with its bound. Cap 483 -> 497, exact.
-        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 497,
+        # purge stays under the lock, with its bound. The acquisition includes
+        # the raster child, whose row the replace worker holds across its
+        # upload. Cap 483 -> 498, exact.
+        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 498,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.
@@ -2966,7 +2968,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # domain exception and this maps it. Cap 1903 -> 1928, exact.    # domain exception and this maps it, with a machine-readable code now that
     # it is the only shape a contended row produces. Cap 1903 -> 1930, exact.    # domain exception and this maps it, with a machine-readable code now that
     # it is the only shape a contended row produces, from one shared constant.
-    # Cap 1903 -> 1933, exact.    "backend/app/api/main.py": 1935,
+    # Cap 1903 -> 1933, exact.    # domain exception and this maps it, with a machine-readable code now that
+    # it is the only shape a contended row produces, from one shared constant,
+    # and answered at the boundary too: SET LOCAL lock_timeout outlives the
+    # acquisition, so a later wait in the same request raises 55P03 from a
+    # statement no per-site translation wraps. Cap 1903 -> 1952, exact.    "backend/app/api/main.py": 1952,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -6112,8 +6118,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1847): +65 for the (datasets, records) lock order, then -37 when the
     # acquisition moved to app/platform/catalog_locks.py, which `processing/`
     # can reach and this module is not. What stays is the catalog-side entry
-    # point and the extent read. Cap 1541 -> 1550, exact.
-    "backend/app/modules/catalog/features/service.py": 1550,
+    # point, the extent read, and the opt-in raster child for a caller whose
+    # record delete cascades to it. Cap 1541 -> 1560, exact.
+    "backend/app/modules/catalog/features/service.py": 1560,
 }
 
 

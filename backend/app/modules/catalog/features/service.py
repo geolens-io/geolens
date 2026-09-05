@@ -1330,13 +1330,16 @@ def _update_capturing_prior_bounds(quoted_table: str, sets: list[str]) -> str:
 
 
 async def lock_catalog_rows_for_write(
-    session: AsyncSession, dataset: Dataset
+    session: AsyncSession, dataset: Dataset, *, with_raster_asset: bool = False
 ) -> Bounds | None:
     """Take this dataset's catalog rows in the house order, then read its extent.
 
     The catalog-side entry point to `platform.catalog_locks.lock_catalog_rows`,
     which states the order. Call it from ANY request path that will dirty
     either row, not only from the metadata refresh.
+
+    `with_raster_asset` extends the order to the raster child, for a
+    transaction whose records delete cascades to it.
 
     Returns None unless the stored extent is a simple POLYGON: an
     antimeridian-crossing dataset stores a two-ring MULTIPOLYGON (fix(#934))
@@ -1351,12 +1354,19 @@ async def lock_catalog_rows_for_write(
     from app.modules.catalog.datasets.domain.models import Record
     from app.platform.catalog_locks import lock_catalog_rows
 
+    # Through the port: `catalog/` may not import `app.processing.*`
+    # (test_layering CATPORT-02).
+    raster_asset_cls = (
+        get_catalog_port().raster_asset_orm_class() if with_raster_asset else None
+    )
+
     await lock_catalog_rows(
         session,
         dataset_cls=DatasetModel,
         record_cls=Record,
         dataset_id=dataset.id,
         record_id=dataset.record_id,
+        raster_asset_cls=raster_asset_cls,
     )
 
     # Both rows are held now, so this is an ordinary read.

@@ -948,7 +948,11 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
 from sqlalchemy.exc import DBAPIError  # noqa: E402
 
-from app.core.db.sqlstate import is_operational, sqlstate  # noqa: E402
+from app.core.db.sqlstate import (  # noqa: E402
+    is_lock_conflict,
+    is_operational,
+    sqlstate,
+)
 from app.platform.catalog_locks import (  # noqa: E402
     CATALOG_LOCK_CONFLICT_CODE,
     CatalogLockConflict,
@@ -992,14 +996,8 @@ async def _storage_quota_handler(
     )
 
 
-async def _catalog_lock_conflict_handler(
-    request: Request, exc: Exception
-) -> JSONResponse:
-    """Map a contended catalog row to 409, from wherever it was reached.
-
-    fix(#1847): one handler so the answer does not depend on which route
-    reached the acquisition. Safe to retry: the helper rolled back first.
-    """
+def _catalog_lock_conflict_response(request: Request, message: str) -> JSONResponse:
+    """The one 409 body for a contended catalog row."""
     logger.info(
         "catalog row lock conflict",
         path=safe_access_log_path(request.url.path),
@@ -1009,12 +1007,23 @@ async def _catalog_lock_conflict_handler(
         content=ProblemDetail(
             title="Catalog entry is busy",
             status=status.HTTP_409_CONFLICT,
-            # Keyed, because this is now the ONLY shape a contended row
-            # produces and a client cannot match on a title.
-            detail={"code": CATALOG_LOCK_CONFLICT_CODE, "message": str(exc)},
+            # Keyed, because this is the ONLY shape a contended row produces
+            # and a client cannot match on a title.
+            detail={"code": CATALOG_LOCK_CONFLICT_CODE, "message": message},
         ).model_dump(),
         media_type="application/problem+json",
     )
+
+
+async def _catalog_lock_conflict_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
+    """Map a contended catalog row to 409, from wherever it was reached.
+
+    fix(#1847): one handler so the answer does not depend on which route
+    reached the acquisition. Safe to retry: the helper rolled back first.
+    """
+    return _catalog_lock_conflict_response(request, str(exc))
 
 
 async def _database_error_handler(request: Request, exc: DBAPIError) -> JSONResponse:
@@ -1029,8 +1038,18 @@ async def _database_error_handler(request: Request, exc: DBAPIError) -> JSONResp
     re-raised so they keep their existing 500 path; calling a unique-constraint
     collision "database unavailable" would just invite a retry loop.
 
+    fix(#1847): a lock conflict is answered here too, not only when it arrives
+    as CatalogLockConflict from the acquisition. `SET LOCAL lock_timeout` stays
+    in effect for the whole transaction, so a later wait in the same request
+    raises 55P03 from a statement no per-site translation wraps. Closing it at
+    the boundary keeps one mapping instead of one per call site.
+
     The detail is deliberately generic: the SQLSTATE and statement go to the log.
     """
+    if is_lock_conflict(exc):
+        return _catalog_lock_conflict_response(
+            request, "Another operation is updating this dataset's catalog entry."
+        )
     if not is_operational(exc):
         raise exc
     logger.exception(

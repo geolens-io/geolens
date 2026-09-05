@@ -47,6 +47,7 @@ async def lock_catalog_rows(
     dataset_id: Any,
     record_id: Any,
     lock_timeout: str | None = _USE_REQUEST_DEFAULT,
+    raster_asset_cls: Any = None,
 ) -> None:
     """Take the datasets row, then the records row.
 
@@ -66,6 +67,13 @@ async def lock_catalog_rows(
     precede the transaction's FIRST write to either row, not merely sit in the
     same flush as both.
 
+    ``raster_asset_cls`` extends the order downwards for a transaction that
+    will also reach ``raster_assets`` -- by FK cascade from the records delete,
+    say. That row is taken FIRST, because the raster replace worker takes it
+    before the pair (``tasks_raster_replace``) and holds it across its upload.
+    A caller that took the pair first would wait on the worker while holding
+    rows the worker's own acquisition needs.
+
     Raises ``CatalogLockConflict`` on 55P03 or 40P01, having rolled back.
     """
     if lock_timeout is _USE_REQUEST_DEFAULT:
@@ -79,6 +87,12 @@ async def lock_catalog_rows(
     # autoflush here emits the ORM's own order, which is the inversion.
     try:
         with session.no_autoflush:
+            if raster_asset_cls is not None:
+                await session.execute(
+                    select(raster_asset_cls.dataset_id)
+                    .where(raster_asset_cls.dataset_id == dataset_id)
+                    .with_for_update()
+                )
             # One column on each table alone; a joined relationship would not
             # lock the joined row and would touch records first.
             await session.execute(

@@ -14,6 +14,9 @@ from fastapi import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.exc import NoInspectionAvailable
+
 from app.core.identity import Identity
 from app.platform.catalog_locks import (
     CATALOG_LOCK_CONFLICT_CODE,
@@ -448,9 +451,20 @@ async def _rollback_failed_item(db: AsyncSession, user) -> None:
     unexpectedly" -- one bad item made every later item fail with a message
     describing none of them. Reloading the actor is awaited, so the following
     item's check runs normally.
+
+    Only a PERSISTENT mapped instance is reloaded. An `IdentityExtension`
+    supplies an identity that is not a mapped `User` at all, and `refresh()`
+    raises `UnmappedInstanceError` on one -- turning the recovery path into the
+    failure it exists to prevent. Such an identity is not in the session, so
+    the rollback never expired it and there is nothing to restore.
     """
     await db.rollback()
-    await db.refresh(user)
+    try:
+        state = sa_inspect(user)
+    except NoInspectionAvailable:
+        return
+    if state.persistent:
+        await db.refresh(user)
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — both trailing-slash and
