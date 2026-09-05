@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { ArrowRight, Layers, Search, Upload } from 'lucide-react';
 import { LoadingState } from '@/components/layout/LoadingState';
+import { AppFooter } from '@/components/layout/AppFooter';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/stores/auth-store';
 import { getAuthConfig } from '@/api/auth';
@@ -14,6 +15,7 @@ import { OAuthButtons } from '@/components/auth/OAuthButtons';
 import { Button } from '@/components/ui/button';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useBranding } from '@/hooks/use-settings';
+import { useEdition } from '@/hooks/use-edition';
 import { isSafeHttpUrl } from '@/lib/safe-http-url';
 import { writeSessionStorage } from '@/lib/storage';
 
@@ -221,6 +223,12 @@ export function LoginPage() {
   useDocumentTitle(t('common:pageTitle.login'));
   const { data: branding } = useBranding();
   const privacyUrl = branding?.privacy_url;
+  // fix(#1852): /login sits outside AppLayout (it renders before the user has
+  // a session to gate a route on), so it never got AppLayout's automatic
+  // footer. Mirror AppLayout's own showFooterBranding rule so self-hosters
+  // who hide the badge on every other page don't see it reappear here.
+  const { isEnterprise } = useEdition();
+  const showFooterBranding = !isEnterprise || branding?.show_badge !== false;
   const token = useAuthStore((s) => s.token);
   const location = useLocation();
   const navigate = useNavigate();
@@ -288,7 +296,12 @@ export function LoginPage() {
   ];
 
   return (
-    <main className="grid min-h-screen grid-cols-1 min-[880px]:grid-cols-[1.05fr_0.95fr]">
+    // fix(#1852): /login sits outside AppLayout (see the showFooterBranding
+    // comment above), so it's the only route that never got the site footer
+    // (GitHub / Docs / Community / API / license / version). Wrap in a flex
+    // column so AppFooter can render below the two-column grid.
+    <div className="flex min-h-screen flex-col">
+    <main className="grid flex-1 grid-cols-1 min-[880px]:grid-cols-[1.05fr_0.95fr]">
       {/* ───────── LEFT — brand / map panel (hidden ≤880px) ───────── */}
       <section className="relative hidden overflow-hidden border-e border-border bg-map-paper px-14 py-12 min-[880px]:flex min-[880px]:flex-col min-[880px]:justify-between">
         <BrandMapBackdrop />
@@ -298,12 +311,17 @@ export function LoginPage() {
         <div className="relative z-10 flex h-full flex-col">
           {/* Top — logo lockup + eyebrow */}
           <div>
-            <Link
-              to="/"
+            {/* fix(#1852): this used to Link to="/", which with landing_first
+                on redirects straight back to /login — a dead click for a
+                signed-out visitor. Route through the same guest-browse escape
+                hatch as the "Browse the catalog" buttons below instead. */}
+            <button
+              type="button"
+              onClick={handleBrowseCatalog}
               className="inline-flex text-foreground transition-colors hover:text-primary focus-visible:rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               <GeoLensLogo size="lg" />
-            </Link>
+            </button>
             <p className="eyebrow mt-2.5">
               {t('geospatialDataCatalog')}
             </p>
@@ -354,10 +372,20 @@ export function LoginPage() {
         </Button>
 
         <div className="w-full max-w-[360px]">
-          {/* Mobile-only level-1 heading: the desktop brand panel's <h1> is
-              display:none below 880px, so screen-reader heading nav has no h1
-              on mobile without this. Hidden on desktop to keep a single h1. */}
-          <h1 className="sr-only min-[880px]:hidden">{t('signIn')}</h1>
+          {/* fix(#1852): below 880px the desktop brand panel is hidden
+              entirely (section className="hidden ... min-[880px]:flex"
+              above), so a phone visitor saw a bare, unbranded password form.
+              Show a compact wordmark + one-line headline instead of hiding
+              branding outright. Also doubles as the page's level-1 heading
+              below 880px — the desktop panel's own <h1> is display:none
+              here, and screen-reader heading nav needs exactly one h1 per
+              width; hidden on desktop to keep it that way. */}
+          <div className="mb-6 flex flex-col items-center gap-2 text-center min-[880px]:hidden">
+            <GeoLensLogo size="md" />
+            <h1 className="text-pretty text-lg font-semibold leading-snug tracking-[-0.01em] text-foreground">
+              {t('loginHero')}
+            </h1>
+          </div>
           {/* Form head */}
           <div className="mb-5">
             <h2 className="text-xl font-semibold tracking-[-0.01em] text-foreground">
@@ -455,5 +483,7 @@ export function LoginPage() {
         </div>
       </section>
     </main>
+    <AppFooter showBranding={showFooterBranding} />
+    </div>
   );
 }

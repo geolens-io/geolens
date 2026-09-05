@@ -77,4 +77,30 @@ describe('OAuthButtons', () => {
       ).toBeInTheDocument();
     });
   });
+
+  // fix(#1852): a 2026-09-04 UX audit flagged "three unlabelled icon
+  // buttons" on the login page's SSO row. The compact (2-3 branded
+  // providers) layout renders icon-only, with the label carried on
+  // aria-label/title instead of visible text — but no test exercised that
+  // path, so a regression here would have shipped silently. Locking it in.
+  it('gives each icon-only button in the compact (3-provider) layout an accessible name', async () => {
+    const { getOAuthProviders } = await import('@/api/auth');
+    (getOAuthProviders as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { slug: 'google', display_name: 'Google', provider_type: 'google' },
+      { slug: 'microsoft', display_name: 'Microsoft', provider_type: 'microsoft' },
+      { slug: 'github', display_name: 'GitHub', provider_type: 'github' },
+    ]);
+
+    render(<OAuthButtons />);
+
+    const google = await screen.findByRole('button', { name: /sign in with google/i });
+    const microsoft = await screen.findByRole('button', { name: /sign in with microsoft/i });
+    const github = await screen.findByRole('button', { name: /sign in with github/i });
+
+    // Icon-only: no visible label text inside the button, only the icon.
+    for (const button of [google, microsoft, github]) {
+      expect(button).toHaveAttribute('aria-label');
+      expect(button.querySelector('span')).not.toBeInTheDocument();
+    }
+  });
 });
