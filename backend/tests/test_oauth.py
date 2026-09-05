@@ -164,10 +164,12 @@ class TestSecretEncryption:
 
     def test_encryption_key_derived_via_hkdf(self):
         """Key derivation uses HKDF, not raw JWT secret."""
-        from app.modules.auth.oauth.encryption import _get_fernet
+        # fix(#1871): reads the legacy key directly. _get_fernet() is now the
+        # whole key chain (MultiFernet), which exposes no single signing key.
+        from app.modules.auth.oauth.encryption import _jwt_derived_fernet
         from app.core.config import settings
 
-        fernet = _get_fernet()
+        fernet = _jwt_derived_fernet()
         # The Fernet key should NOT be a simple encoding of jwt_secret_key
         import base64
 

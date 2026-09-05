@@ -376,6 +376,10 @@ jobs:
               - 'scripts/restore.sh'
               - 'scripts/check-env.sh'
               - 'scripts/lib/common.sh'
+              # fix(#1882): preflight now reads .env through common.sh's
+              # get_env_value, so both it and its test belong on this filter.
+              - 'scripts/preflight-env.sh'
+              - 'scripts/tests/test-preflight-env.sh'
               - 'scripts/backup-entrypoint.sh'
               - 'scripts/tests/test-install-tag-resolution.sh'
               - 'scripts/tests/test-install-secret-generation.sh'
@@ -567,6 +571,9 @@ jobs:
 
       - name: restore.sh/check-env.sh .env sourcing safety regression test
         run: sh scripts/tests/test-restore-env-sourcing-safety.sh
+
+      - name: preflight-env.sh .env parsing regression test
+        run: sh scripts/tests/test-preflight-env.sh
 
       # fix(#1798 review round 13, P2, review 5103870781): get_env_value's
       # .env interpolation/decoding checked against REAL `docker compose`

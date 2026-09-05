@@ -23,6 +23,7 @@ documentation.
 8. [Audit log retention](#8-audit-log-retention)
 9. [Uploaded source-file retention](#9-uploaded-source-file-retention)
 10. [Routine version upgrade: outage and rollback](#10-routine-version-upgrade-outage-and-rollback)
+11. [Secret rotation](#11-secret-rotation)
 
 ---
 
@@ -2899,3 +2900,120 @@ that would have carried them across the queue was never in a form the old
 worker could read, so the user who started each one has to resubmit it once
 the instance is back on a release that supports the format they are
 importing.
+
+---
+
+## 11. Secret rotation
+
+GeoLens has two independent secrets an operator ever rotates: `JWT_SECRET_KEY`,
+which authenticates things the deployment issues and later verifies, and
+`SECRET_ENCRYPTION_KEY`, which encrypts the secrets it stores. They invalidate
+completely different things, so start from what happened.
+
+| What happened | Rotate | Cost |
+| --- | --- | --- |
+| A JWT, a session cookie, or `JWT_SECRET_KEY` itself leaked | `JWT_SECRET_KEY` | Every signed-in user is signed out. See "Rotating JWT_SECRET_KEY" for the rest. |
+| A database dump or backup leaked, and the encryption key did not | `SECRET_ENCRYPTION_KEY`, if you cannot rule the key out | Nothing, once `rotate_secrets.py` has run. |
+| `SECRET_ENCRYPTION_KEY` leaked, alone or with a dump | `SECRET_ENCRYPTION_KEY`, **and** every stored SSO secret at its identity provider | The key rotation costs nothing. Re-entering the provider secrets is the work. |
+| An identity provider's client secret leaked | Neither. Rotate it at the identity provider and re-enter it in the admin UI. | Nothing. |
+
+Rotating `SECRET_ENCRYPTION_KEY` re-encrypts what is stored. It does not undo a
+disclosure: anyone who already holds both a dump and the old key holds the
+plaintext, and only the identity provider can invalidate that. Treat a leaked
+encryption key as a leak of every secret it protected.
+
+`SECRET_ENCRYPTION_KEY` is optional, and unset on every install created before
+it existed. **Set it before you ever need to rotate the JWT secret.** Unset,
+stored SSO secrets are encrypted under a key derived from `JWT_SECRET_KEY`, and
+rotating that key destroys them.
+
+### Adopting SECRET_ENCRYPTION_KEY
+
+Fresh installs get one from `scripts/install.sh`. On an existing install:
+
+```bash
+# 1. Generate a key. This is NOT the same shape as JWT_SECRET_KEY: it must be
+#    url-safe base64 of 32 random bytes, not hex.
+openssl rand -base64 32 | tr '+/' '-_'
+
+# 2. Put it in .env as SECRET_ENCRYPTION_KEY and restart the API and worker.
+#    Reads still fall back to the JWT-derived key, so nothing breaks here.
+docker compose up -d api worker
+
+# 3. Re-encrypt the stored rows under the new key. The script is
+#    backend/scripts/rotate_secrets.py; the api container's working directory
+#    is the backend, so it is addressed there as a module.
+docker compose exec api uv run python -m scripts.rotate_secrets --dry-run
+docker compose exec api uv run python -m scripts.rotate_secrets
+```
+
+The API can stay up for step 3. The script locks the provider rows for the
+length of the sweep, so an admin saving a provider at that moment waits instead
+of having the save overwritten.
+
+Back the key up wherever you keep `.env`. Losing it is the same as losing the
+stored secrets: they can only be re-entered, not recovered.
+
+Step 3 is what decouples the two. Until it has run, rows written before step 2
+are still readable only through `JWT_SECRET_KEY`.
+
+### Rotating SECRET_ENCRYPTION_KEY
+
+Generate a new key, move the current one to `SECRET_ENCRYPTION_KEY_PREVIOUS`,
+put the new one in `SECRET_ENCRYPTION_KEY`, restart, then:
+
+```bash
+docker compose exec api uv run python -m scripts.rotate_secrets
+```
+
+Remove `SECRET_ENCRYPTION_KEY_PREVIOUS` from `.env` and restart again. The API
+refuses to boot with `SECRET_ENCRYPTION_KEY_PREVIOUS` set on its own, because
+the newest key is the one every write uses and that must never be the key you
+are retiring.
+
+This rotation invalidates nothing. No session ends, no user notices.
+
+If `rotate_secrets.py` reports rows it cannot decrypt, it has written nothing.
+Either the key those rows were written under is missing from `.env`, or they
+predate step 3 above and `JWT_SECRET_KEY` has changed since. Add the missing
+key, or re-enter those providers' credentials in the admin UI under Settings >
+Auth & Security, which rewrites them under the current key.
+
+### Rotating JWT_SECRET_KEY
+
+```bash
+# Generate a new value, replace JWT_SECRET_KEY in .env, then:
+docker compose up -d api worker
+```
+
+Every access token, refresh token and session cookie stops verifying at once,
+so every signed-in user is signed out and has to sign in again. That is the
+point of the rotation, and it is immediate: there is no dual-key grace period.
+
+Four other things are keyed off the same secret and change with it. None
+require action, but each is worth knowing before an incident call:
+
+- **Signed tile URLs** stop verifying unless `TILE_SIGNING_SECRET` is set,
+  because they fall back to `JWT_SECRET_KEY`. Clients fetch fresh signed URLs
+  on the next map load, so the effect is a burst of 403s, not a broken map.
+- **Signed export job tokens** in flight stop verifying. The affected exports
+  have to be re-requested.
+- **ArcGIS sign-in rate-limit counters** are keyed by a digest derived from the
+  secret, so existing per-account lockout counters reset to zero.
+- **Config import preview tokens** stop verifying. Re-run the preview.
+
+**If `SECRET_ENCRYPTION_KEY` is not set, this rotation also destroys every
+stored SSO secret and SAML IdP certificate.** They were encrypted under a key
+derived from the value you just replaced, and nothing re-encrypts them. SSO
+logins fail with a decryption error at the token exchange.
+
+To recover, open Settings > Auth & Security in the admin UI and, for each row
+under OAuth Providers and SAML SSO, re-enter the client secret (and, for SAML,
+the IdP signing certificate) from your identity provider and save. Saving
+re-encrypts under the current key. Then set
+`SECRET_ENCRYPTION_KEY` and run `rotate_secrets.py` as above so the next
+rotation costs nothing.
+
+If you still have the old `JWT_SECRET_KEY`, the cheaper recovery is to put it
+back, set `SECRET_ENCRYPTION_KEY`, run `rotate_secrets.py`, and only then
+rotate the JWT secret again.
