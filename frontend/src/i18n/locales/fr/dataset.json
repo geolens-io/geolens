@@ -596,6 +596,7 @@
     "auto": "auto",
     "primary": "Principal",
     "copyUrl": "Copier l'URL",
+    "downloadUrl": "Télécharger",
     "loadError": "Impossible de charger les distributions.",
     "setPrimary": "Définir {{name}} comme principal",
     "currentPrimary": "{{name}} est la distribution principale",

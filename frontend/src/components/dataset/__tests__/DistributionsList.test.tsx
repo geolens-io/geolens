@@ -195,6 +195,27 @@ describe('DistributionsList', () => {
     expect(screen.getByText('https://example.com/app')).toBeInTheDocument();
   });
 
+  // fix(#1856): each distribution row was copyable text only — there was no
+  // way to actually fetch the resource without hand-editing the URL.
+  it('renders a download link per row that points at the resolved URL', () => {
+    mockUseDistributions.mockReturnValue({
+      data: { distributions: DISTRIBUTIONS_WITH_MANUAL_ROW, total: 3 },
+      isLoading: false,
+    } as unknown as ReturnType<typeof useDistributions>);
+
+    render(<DistributionsList recordId="record-1" />);
+
+    const links = screen.getAllByRole('link', { name: 'Download' });
+    expect(links).toHaveLength(3);
+    expect(links[0]).toHaveAttribute(
+      'href',
+      'https://catalog.example.com/api/datasets/1/export?format=gpkg',
+    );
+    expect(links[0]).toHaveAttribute('download');
+    expect(links[0]).toHaveAttribute('target', '_blank');
+    expect(links[0].getAttribute('rel')).toContain('noopener');
+  });
+
   // feat(#1395): set-primary control.
   describe('set-primary control', () => {
     beforeEach(() => {

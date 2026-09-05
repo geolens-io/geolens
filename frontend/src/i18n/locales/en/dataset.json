@@ -547,6 +547,7 @@
     "auto": "auto",
     "primary": "Primary",
     "copyUrl": "Copy URL",
+    "downloadUrl": "Download",
     "loadError": "Failed to load distributions.",
     "setPrimary": "Set {{name}} as primary",
     "currentPrimary": "{{name}} is the primary distribution",

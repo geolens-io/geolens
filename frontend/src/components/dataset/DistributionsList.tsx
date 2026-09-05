@@ -8,7 +8,7 @@ import { useTileConfig } from '@/hooks/use-settings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Copy, Check, Circle, CircleDot, Loader2 } from 'lucide-react';
+import { Copy, Check, Circle, CircleDot, Loader2, Download } from 'lucide-react';
 import { LoadingState } from '@/components/layout/LoadingState';
 import {
   getPublicApiBaseUrl,
@@ -77,6 +77,21 @@ function CopyableUrl({ url, publicApiUrl }: { url: string; publicApiUrl: string 
       <code className="flex-1 rounded-sm bg-muted px-2 py-1.5 font-mono text-xs text-foreground truncate" title={resolvedUrl}>
         {resolvedUrl}
       </code>
+      {/* fix(#1856): these were copyable text with no way to actually fetch
+          the resource. `download` is honored for same-origin URLs; a
+          cross-origin export ignores it and just opens in the new tab. */}
+      <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" asChild>
+        <a
+          href={resolvedUrl}
+          download
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={t('distributions.downloadUrl')}
+          title={t('distributions.downloadUrl')}
+        >
+          <Download className="h-3.5 w-3.5" />
+        </a>
+      </Button>
       <Button
         variant="ghost"
         size="icon"
