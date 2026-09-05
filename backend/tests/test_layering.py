@@ -2529,6 +2529,10 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     generated). Leaving them was the worse option — a reader who trusts a
 #     stale precondition unwinds the wrong defence.
 _MODULE_LOC_CAPS: dict[str, int] = {
+    # fix(#1814): first entry. The lines bought the reserve/stage/bind split of
+    # one create-and-queue function, its two fenced settlement exits, the quota
+    # preflight, the staging deadline, and the reset-and-retry settlement.
+    "backend/app/processing/ingest/manifest_service.py": 1130,
     # fix(#1770 round 43 P1): crossed _RATCHET_INCLUSION_LOC on the XML
     # streaming preflight (`_xml_preflight`, `MAX_DOCUMENT_ATTRIBUTES`,
     # `MAX_DOCUMENT_DEPTH`) that closes the attribute-bomb/deep-nesting-bomb/

@@ -512,6 +512,15 @@ async def _retry_capability(job: IngestJob) -> tuple[bool, str | None]:
             False,
             "Embedding backfill runs cannot be replayed as imports. Start the backfill again from Settings.",
         )
+    if (job.user_metadata or {}).get("manifest_key"):
+        # fix(#1814): generic retry runs its own failed -> pending CAS without
+        # the manifest key's advisory lock, so it can queue a second job for a
+        # key a concurrent re-apply is claiming. Re-apply owns manifest retries.
+        return (
+            False,
+            "Manifest imports cannot be replayed here. Apply the manifest "
+            "again, which is what serializes work on its own keys.",
+        )
     if job.source_url and not job.file_path:
         return True, None
     if not job.file_path:

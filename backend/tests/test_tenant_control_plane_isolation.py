@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.modules.admin.service import AdminService
 from app.modules.auth.dependencies import require_mode_permission
 from app.modules.catalog.maps.service_public import revoke_share_token
-from app.processing.ingest.manifest_service import _latest_in_flight_manifest_job
+from app.processing.ingest.manifest_reservation import latest_in_flight_manifest_job
 from app.processing.ingest.service import get_job_or_404
 
 
@@ -99,7 +99,7 @@ async def test_manifest_in_flight_lookup_relies_on_durable_rls_scope(multi_tenan
     db = AsyncMock()
     db.execute.return_value = result
 
-    assert await _latest_in_flight_manifest_job(db, "shared-key") is None
+    assert await latest_in_flight_manifest_job(db, "shared-key") is None
 
     sql = str(db.execute.await_args.args[0])
     assert "catalog.ingest_jobs" in sql

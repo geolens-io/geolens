@@ -455,43 +455,8 @@ def post_manifest_apply(
 def build_apply_timeout_message(exc: ManifestApplyTimeout) -> str:
     """Human-readable explanation for a batch-aware apply timeout.
 
-    fix(#1778 review round 18) part (b): the CLI giving up here does
-    NOT mean the apply failed. ``apply_manifest()`` (backend/app/
-    processing/ingest/manifest_service.py) keeps processing the
-    manifest SEQUENTIALLY after this client stops waiting — a POST
-    already accepted by the ASGI server runs to completion there
-    regardless of whether the CLI is still listening, so entries
-    already committed and queued stay committed and queued, and a
-    later re-apply skips them (the server fingerprints each dataset —
-    ``manifest_dataset_fingerprint`` — and reports ``skip_complete``
-    for a matching fingerprint instead of reprocessing it).
-
-    fix(#1778 review round 19): round 18's message ALSO claimed
-    re-running the exact same command was therefore always safe
-    immediately — that is not true, and this docstring exists to make
-    sure nobody re-adds the claim. ``_classify_dataset()`` checks for
-    an in-flight job BEFORE ``_create_job_and_queue()`` downloads the
-    entry's source, and the ``IngestJob`` row is only inserted AFTER
-    that download finishes (manifest_service.py). So while an entry's
-    source is still downloading when this timeout hits, the server has
-    no job row for it yet — a second apply submitted during that exact
-    window classifies the SAME entry as ``create`` again and queues it
-    a second time. A server-side reservation that closed this window
-    would be a backend change and is OUT OF SCOPE here (no
-    ``backend/app`` files in this PR); the honest fix on the CLI side
-    is to say so, not to promise blanket idempotency the server does
-    not yet provide for an entry that was mid-download at the exact
-    moment this request gave up.
-
-    fix(#1778 review round 21): the ``budget`` this timeout used is
-    only ever a HEURISTIC LOWER BOUND (see
-    ``compute_manifest_apply_timeout``'s docstring) derived from the
-    API's documented per-request inactivity (read) timeout on a
-    source download — not a download deadline. A slow-but-still-active
-    large source can legitimately outlast it while the apply is still
-    succeeding server-side, so the message now names the escape hatch:
-    ``--timeout 0`` (or a larger explicit value) waits for the server
-    instead of guessing again with a bigger heuristic.
+    fix(#1778, #1814): the CLI giving up does not stop the server, which
+    reserves each entry before fetching, so a re-apply attaches or skips.
     """
     budget_phrase = (
         "with no client-side timeout"
@@ -502,17 +467,14 @@ def build_apply_timeout_message(exc: ManifestApplyTimeout) -> str:
         f"Manifest apply timed out {budget_phrase} "
         f"({exc.entry_count} dataset(s) submitted). The server does "
         "NOT stop applying when this request does -- it keeps "
-        "processing the manifest sequentially, and entries it has "
-        "already queued or completed are skipped on a later re-apply. "
-        "But the entry whose source was still downloading when this "
-        "timeout hit is NOT yet visible as queued (the server only "
-        "records it once the download finishes), so re-applying "
-        "immediately can queue that entry twice. Check the catalog for "
-        "datasets still pending, or run `geolens apply --dry-run "
-        "<path>` to see which entries the server has already settled, "
-        "before re-running this exact command. Or re-run with "
-        "`--timeout 0` to wait for the server, or a larger value, if "
-        "the manifest's own sources are just legitimately slow."
+        "processing the manifest sequentially. Every entry it has "
+        "reached is recorded before its source is downloaded, so "
+        "re-running this exact command attaches to an entry still "
+        "being staged and skips one already queued or completed. Run "
+        "`geolens apply --dry-run <path>` to see which entries the "
+        "server has already settled. Or re-run with `--timeout 0` to "
+        "wait for the server, or a larger value, if the manifest's own "
+        "sources are just legitimately slow."
     )
 
 
@@ -523,56 +485,31 @@ def attempt_apply_timeout_status_check(
     to report which entries the server had already reached. Returns
     ``None`` if the follow-up itself failed or timed out.
 
-    fix(#1778 review round 18) part (c): ``dry_run=True`` on this SAME
-    endpoint already classifies every entry
-    (create/update/skip_complete/skip_in_flight) WITHOUT downloading or
-    queuing anything — ``_stage_source_if_needed`` (backend/app/
-    processing/ingest/manifest_service.py) short-circuits before the
-    network fetch when ``dry_run``. That makes it materially cheaper
-    than the apply that just timed out, and it is EXACTLY the "which
-    entries completed" answer: this PR does not add a separate status
-    or job-listing endpoint (out of scope — no async job mode), because
-    the existing dry-run classification on this same endpoint already
-    covers the question.
+    ``dry_run=True`` on this same endpoint classifies every entry
+    (create/update/skip_complete/skip_in_flight) without downloading or
+    queuing anything, which makes it materially cheaper than the apply that
+    just timed out and is exactly the "which entries did the server reach"
+    answer.
 
-    fix(#1778 review round 19): bounded by
-    ``MANIFEST_APPLY_STATUS_CHECK_TIMEOUT_SECONDS`` (a short, FIXED
-    30s) rather than the entry-scaled budget the real apply needed —
-    ``dry_run`` does no download/queue work, so its own cost does not
-    grow with entry count. Best-effort either way: if the follow-up
-    ALSO fails or times out, the entry-by-entry answer just was not
-    available right now. This does NOT mean re-running is therefore
-    safe — see ``build_apply_timeout_message``'s docstring for why an
-    entry that was mid-download when the ORIGINAL request timed out is
-    invisible to this check too (no job row exists for it yet either
-    way), so its absence from a "settled" classification specifically
-    does not distinguish "not reached" from "actively downloading,
-    about to double-queue if you re-apply right now".
+    fix(#1814): an entry still being staged holds a reservation and classifies
+    ``skip_in_flight``, so absence from the answer means the server had not
+    reached that entry.
+
+    Bounded by ``MANIFEST_APPLY_STATUS_CHECK_TIMEOUT_SECONDS``, a short fixed
+    30s rather than the entry-scaled budget the real apply needed, because
+    ``dry_run`` does no download or queue work. Best-effort: if the follow-up
+    also fails or times out, the entry-by-entry answer was not available.
 
     Side-effect-free (no ``output`` printing) so a ``--json`` caller
     can build one clean structured payload from the result instead of
     inheriting rich-console/stderr writes meant for a human — see
     ``report_apply_timeout`` for that human-mode convenience wrapper.
 
-    fix(#1778 review round 21): only caught ``ManifestApplyTimeout``/
-    ``ManifestApplyRequestError`` -- both raised by
-    ``post_manifest_apply`` itself once it has a response (or a clean
-    timeout) to reason about. A plain network failure (connection
-    refused/reset) never reaches either: ``call_sdk()`` maps
-    ``httpx.NetworkError`` straight to ``typer.Exit(EXIT_NETWORK)``
-    on its own, which propagated uncaught here and blew up the whole
-    ``--json`` branch in main.py before it could ever emit the
-    promised single structured payload -- the ORIGINAL timeout's
-    result never reached the caller at all. This is best-effort
-    by design (see the module docstring above); ANY failure during the
-    follow-up must degrade to "status unavailable," not crash the
-    command that is already in its error-reporting path. Catches
-    ``typer.Exit`` explicitly (even though it is technically also an
-    ``Exception`` — ``click.exceptions.Exit`` subclasses
-    ``RuntimeError``) for clarity at the call site about exactly which
-    shape this is guarding against, alongside the deliberately broad
-    ``Exception`` catch-all for anything else the follow-up could
-    raise.
+    Catches every failure shape the follow-up can raise, including
+    ``typer.Exit`` (which ``call_sdk`` raises for a plain network error, and
+    which subclasses ``RuntimeError`` rather than ``Exception``). Any failure
+    here must degrade to "status unavailable" rather than crash a command
+    already in its error-reporting path.
     """
     status_payload = dict(payload)
     status_payload["dry_run"] = True
@@ -610,10 +547,10 @@ def report_apply_timeout(
             "Could not retrieve a completion status for this manifest "
             "right now (the status check itself failed or timed out "
             f"after {MANIFEST_APPLY_STATUS_CHECK_TIMEOUT_SECONDS:.0f}s). "
-            "Check the catalog for datasets still pending before "
-            "re-running -- an entry that was still downloading when "
-            "the original request timed out is not yet visible as "
-            "queued, and re-applying too soon can queue it twice."
+            "Re-running the same command is still the way forward: the "
+            "server records each entry before downloading its source, "
+            "so a re-apply attaches to one still being staged rather "
+            "than queueing it again."
         )
     return status
 

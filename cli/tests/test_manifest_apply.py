@@ -324,21 +324,9 @@ class TestResolveApplyTimeout:
 
 
 class TestManifestApplyTimeoutReporting:
-    """fix(#1778 review round 18) parts (b)/(c), corrected by round 19:
-    the timeout path must be unambiguous -- the server keeps applying
-    after the CLI gives up, and an entry it has already queued or
-    completed is skipped on a later re-apply. Round 18 additionally
-    claimed re-running the SAME command was therefore always safe
-    immediately; round 19 removes that claim, because it is false: an
-    entry whose source was still downloading when the timeout hit has
-    no job row yet (_classify_dataset()'s in-flight check runs before
-    _create_job_and_queue()'s download, and the IngestJob row is only
-    inserted after it -- manifest_service.py), so re-applying right
-    away can queue that entry twice. A dry-run follow-up on the SAME
-    endpoint (no new status/job-listing endpoint -- out of scope, no
-    async job mode), bounded by a short fixed timeout regardless of
-    entry count (round 19 P2), reports which entries the server had
-    already reached, best-effort."""
+    """fix(#1814): the timeout report must be accurate about what a re-apply
+    does. The server keeps applying after the CLI gives up, and reserves each
+    entry before downloading, so a re-apply attaches rather than queueing twice."""
 
     def _timing_out_client(self) -> FakeSdkClient:
         client = FakeSdkClient(FakeResponse(200, _apply_response()))
@@ -378,16 +366,12 @@ class TestManifestApplyTimeoutReporting:
         assert exc.budget == compute_manifest_apply_timeout(1)
         assert exc.exit_code == EXIT_NETWORK
 
-    def test_timeout_message_explains_the_in_flight_download_window_not_blanket_safety(
+    def test_timeout_message_explains_what_a_re_apply_does_not_blanket_safety(
         self,
     ) -> None:
-        """fix(#1778 review round 19): round 18's message claimed
-        re-running immediately was always safe -- untrue, since an
-        entry whose source was still downloading when the timeout hit
-        has no job row yet and can be queued twice by an immediate
-        re-apply. The message must explain THAT risk and give
-        actionable advice (check the catalog, or dry-run first), and
-        must NOT claim blanket idempotency/safety any more."""
+        """fix(#1814): the message must say a re-run attaches to an entry still
+        being staged, give actionable advice (dry-run first), and make no
+        blanket idempotency claim, which is the round-18 overclaim."""
         from geolens_cli.manifest_apply import (
             ManifestApplyTimeout,
             build_apply_timeout_message,
@@ -399,11 +383,12 @@ class TestManifestApplyTimeoutReporting:
         assert "810s" in message
         assert "3 dataset" in message
         assert "does not stop" in message.lower()
-        assert "downloading" in message.lower()
-        assert "twice" in message.lower()
+        assert "before its source is downloaded" in message.lower()
+        assert "attaches" in message.lower()
         assert "dry-run" in message.lower()
         assert "re-running" in message.lower()
-        # The round-18 overclaim must not have crept back in.
+        # The stale warning, and the round-18 overclaim, must both stay out.
+        assert "twice" not in message.lower()
         assert "idempotent" not in message.lower()
         assert "is safe" not in message.lower()
         assert "safely" not in message.lower()
@@ -1045,13 +1030,9 @@ def test_apply_command_reports_timeout_with_truthful_guidance_and_status_check(
     tmp_xdg_home,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """fix(#1778 review round 18) end-to-end, corrected by round 19: the
-    `apply` command's own timeout handling (not just
-    post_manifest_apply()) prints the in-flight-download-window
-    guidance and renders the dry-run follow-up's status, rather than
-    the old bare "Request timed out" -- and no longer claims an
-    immediate re-run is unconditionally safe/idempotent (round 18 did;
-    it wasn't true)."""
+    """fix(#1814): end to end, the `apply` command prints the guidance and
+    renders the dry-run follow-up's status, and that guidance says a re-run
+    attaches to an entry still being staged."""
     status_response = _apply_response(
         results=[
             {"dataset_key": "roads", "action": "skip", "message": "skip_complete"}
@@ -1063,9 +1044,9 @@ def test_apply_command_reports_timeout_with_truthful_guidance_and_status_check(
 
     assert result.exit_code == EXIT_NETWORK, result.output
     assert "skip_complete" in result.output
-    assert "downloading" in result.output.lower()
-    assert "twice" in result.output.lower()
+    assert "attaches" in result.output.lower()
     assert "dry-run" in result.output.lower()
+    assert "twice" not in result.output.lower()
     assert "idempotent" not in result.output.lower()
     assert sdk.client.httpx_client.calls_made["n"] == 2, (
         "the original POST, then the dry-run status follow-up"
@@ -1101,8 +1082,9 @@ def test_apply_json_output_reports_timeout_as_one_structured_payload(
     payload = json.loads(lines[0])
     assert payload["ok"] is False
     assert "resumable" not in payload
-    assert "downloading" in payload["guidance"].lower()
-    assert "twice" in payload["guidance"].lower()
+    assert "before its source is downloaded" in payload["guidance"].lower()
+    assert "attaches" in payload["guidance"].lower()
+    assert "twice" not in payload["guidance"].lower()
     assert "idempotent" not in payload["guidance"].lower()
     assert payload["status_check"]["counts"]["skip"] == 1
 
