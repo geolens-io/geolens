@@ -352,6 +352,19 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
     title.trim().length === 0 ||
     createVrtMutation.isPending;
 
+  // fix(#1811): validationErrors only ever reached a per-source tooltip, so
+  // Create disabled with no visible reason. Same messages, deduplicated, as
+  // always-visible text.
+  const mismatchReasons = hasErrors
+    ? [...new Set(
+        selectedSources.flatMap((source) =>
+          (validationErrors[source.id] ?? []).map((code) =>
+            errorMessage(code, source, selectedSources[0], t),
+          ),
+        ),
+      )]
+    : [];
+
   function resetForm() {
     setVrtType('mosaic');
     setResolutionStrategy('finest');
@@ -600,6 +613,18 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
           {selectedSources.length < 2 && (
             <p className="text-xs text-muted-foreground">{t('vrt.minSources')}</p>
           )}
+
+          {/* fix(#1811): same reasons the per-source tooltip already
+              carries, surfaced as always-visible text. */}
+          {hasErrors && (
+            <div id="vrt-mismatch-reasons" className="space-y-0.5">
+              {mismatchReasons.map((reason) => (
+                <p key={reason} className="text-xs text-destructive">
+                  {reason}
+                </p>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Title */}
@@ -632,7 +657,11 @@ export function VrtCreatorForm({ initialSourceId, initialSourceIds, onCancel }: 
               {t('common:cancel')}
             </Button>
           )}
-          <Button onClick={handleSubmit} disabled={isSubmitDisabled}>
+          <Button
+            onClick={handleSubmit}
+            disabled={isSubmitDisabled}
+            aria-describedby={hasErrors ? 'vrt-mismatch-reasons' : undefined}
+          >
             {createVrtMutation.isPending ? (
               <>
                 <Loader2 className="me-2 h-4 w-4 animate-spin" />
