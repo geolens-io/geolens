@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { getSourceIdForLayer } from '@/components/builder/map-sync';
-import { readMapCamera } from '@/components/builder/builder-camera';
+import { readMapCamera, sameMapCamera, type BuilderCamera } from '@/components/builder/builder-camera';
 import { hasGlobeSpaceBackdrop } from '@/components/builder/map-composition-sync';
 import { ApiError } from '@/api/client';
 import { useUpdateMap, useDuplicateMap, usePatchMapLayers } from '@/hooks/use-maps';
@@ -1003,8 +1003,14 @@ export function useBuilderSave(state: SaveState) {
   function editedDuringSave(
     sent: SaveState,
     sentPluginSet: ReadonlySet<string>,
+    sentCamera: BuilderCamera,
   ): boolean {
     const latest = latestStateRef.current;
+    // fix(#1854): the camera is read off the map, not off SaveState, so a pan
+    // during the round trip changes none of the fields below. What was
+    // persisted is sentCamera; any other view on screen now is still unsaved,
+    // and clearing the flag here would hide it until a refetch that may fail.
+    if (!sameMapCamera(sentCamera, readMapCamera(latest.mapInstanceRef.current))) return true;
     // codex(#792): the plugins payload reads usePluginStore directly, not
     // SaveState, so a mid-save plugin toggle changes none of the fields
     // below — compare the store's Set identity too (every toggle produces
@@ -1151,7 +1157,7 @@ export function useBuilderSave(state: SaveState) {
               await updateMap.mutateAsync({ id, data: metadataPayload });
               baselineLayersRef.current = stampPersistedFolderGroupExpanded(localLayers, groupMeta);
               toast.warning(t('toasts.mapSavedAfterRemoteChange'));
-              if (!editedDuringSave(state, sentPluginSet)) {
+              if (!editedDuringSave(state, sentPluginSet, camera)) {
                 state.setHasUnsavedChanges(false);
               }
               if (map && id) captureThumbnail(map, id, queryClient, localLayers);
@@ -1175,7 +1181,7 @@ export function useBuilderSave(state: SaveState) {
             // fix(#756): the baseline above is the SENT snapshot; only clear
             // the dirty flag when nothing was edited during the await, so a
             // mid-save edit stays diffable and guarded.
-            if (!editedDuringSave(state, sentPluginSet)) {
+            if (!editedDuringSave(state, sentPluginSet, camera)) {
               state.setHasUnsavedChanges(false);
             }
             if (map && id) captureThumbnail(map, id, queryClient, localLayers);
@@ -1193,7 +1199,7 @@ export function useBuilderSave(state: SaveState) {
       // dirty flag when nothing was edited during the network await —
       // otherwise the baseline effect would absorb the mid-save edit and the
       // query-invalidation resync would overwrite it on screen.
-      if (!editedDuringSave(state, sentPluginSet)) {
+      if (!editedDuringSave(state, sentPluginSet, camera)) {
         state.setHasUnsavedChanges(false);
       }
 

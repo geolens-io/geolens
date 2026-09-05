@@ -272,6 +272,30 @@ describe('fix(#1854): the dirty check mirrors the persisted precision', () => {
     expect(payload.zoom).toBe(12.345679);
   });
 
+  it('keeps the flag when the camera moves during an in-flight save', async () => {
+    // editedDuringSave compares SAVE_SNAPSHOT_FIELDS and the plugin set, and
+    // the camera is in neither: it is read off the map. Without it in the
+    // comparison the save clears the flag for a view it never persisted, and a
+    // refetch that fails leaves the map falsely clean.
+    let release!: () => void;
+    mockUpdateMapMutateAsync.mockImplementation(
+      () => new Promise<void>((resolve) => { release = () => resolve(); }),
+    );
+    const { hook, moveTo } = render(savedMap());
+
+    moveTo({ lng: -71.1, lat: 42.4, zoom: 14 });
+    let saving!: Promise<void>;
+    await act(async () => {
+      saving = hook.result.current.handleSave();
+      await Promise.resolve();
+    });
+
+    moveTo({ lng: -70.2, lat: 43.6 });
+    await act(async () => { release(); await saving; });
+
+    expect(hook.result.current.hasUnsavedChanges).toBe(true);
+  });
+
   it('clears the flag on save and re-dirties on the next pan', async () => {
     const { hook, moveTo, setMapData } = render(savedMap());
 
@@ -287,6 +311,46 @@ describe('fix(#1854): the dirty check mirrors the persisted precision', () => {
     expect(hook.result.current.hasUnsavedChanges).toBe(false);
 
     moveTo({ lng: -70.2, lat: 43.6 });
+    expect(hook.result.current.hasUnsavedChanges).toBe(true);
+  });
+});
+
+describe('fix(#1854): a camera sample belongs to the map it was taken on', () => {
+  // A direct /maps/:id navigation keeps this hook and the MapGL instance
+  // mounted, and nothing repositions the instance, so the previous map's view
+  // is still on screen. It is nobody's edit on the map now being shown.
+  const OTHER: Camera = { lng: 5.5, lat: 10.25, zoom: 6 };
+  const otherMap = () => savedMap({ id: 'map-2' }, OTHER);
+
+  it('goes clean when the map identity changes under a panned camera', () => {
+    const { hook, moveTo, setMapData } = render(savedMap());
+
+    moveTo({ lng: -71.1, lat: 42.4, zoom: 14 });
+    expect(hook.result.current.hasUnsavedChanges).toBe(true);
+
+    setMapData(otherMap());
+
+    expect(hook.result.current.hasUnsavedChanges).toBe(false);
+  });
+
+  it('stays clean when the leftover view merely settles on the new map', () => {
+    // maplibre's resize() fires movestart/move/moveend with no camera change,
+    // so the switched-to map does get a sample of the previous map's position.
+    const { hook, moveTo, setMapData } = render(savedMap());
+
+    moveTo({ lng: -71.1, lat: 42.4, zoom: 14 });
+    setMapData(otherMap());
+    moveTo({});
+
+    expect(hook.result.current.hasUnsavedChanges).toBe(false);
+  });
+
+  it('still dirties on a real pan made after the switch', () => {
+    const { hook, moveTo, setMapData } = render(savedMap());
+
+    setMapData(otherMap());
+    moveTo({ lng: 12.5, lat: 41.9, zoom: 9 });
+
     expect(hook.result.current.hasUnsavedChanges).toBe(true);
   });
 });
