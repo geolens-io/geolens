@@ -2582,9 +2582,9 @@ _SEQUENCE_ARGV_SPAWNERS: dict[str, int] = {
     "execvpe": 0,
 }
 
-# fix(#1884): the parameters a keyword-bound program and argv sequence bind to.
-# os.execv is positional-only, and a keyword-bound os.execl* leaves the empty
-# argv that execv refuses, so neither has a keyword spelling that runs.
+# fix(#1884): the keyword each callee binds its program and argv sequence to.
+# os.execv is positional-only and a keyword-bound os.execl* has the empty argv
+# execv refuses, so neither runs from a keyword spelling and neither is listed.
 _SPAWN_KEYWORDS: dict[str, tuple[str, str | None]] = {
     "create_subprocess_exec": ("program", None),
     "subprocess_exec": ("program", None),
@@ -3226,7 +3226,7 @@ def test_a_sequence_the_display_rule_refuses_still_leaves_one_site():
         assert len(violations) == 1, violations
 
 
-# fix(#1884): the program bound by keyword sits outside ``node.args``.
+# fix(#1884): a keyword-bound program is an argv site like a positional one.
 _KEYWORD_PROGRAM_SPAWN = """
 import asyncio
 
@@ -3273,11 +3273,8 @@ def probe(cmd):
 
 
 def test_a_keyword_bound_program_is_still_the_program():
-    """fix(#1884): ``create_subprocess_exec(program="ogrinfo")`` and
-    ``loop.subprocess_exec(factory, program="ogrinfo")`` are one argv site
-    each for both gates. The clamped twin passing is what makes it a
-    measurement: the keyword form is judged, not merely counted.
-    """
+    """fix(#1884): a keyword-bound program is one argv site for both gates,
+    reported without a safe env and passed with the vector one."""
     for source in (_KEYWORD_PROGRAM_SPAWN, _KEYWORD_PROGRAM_EVENT_LOOP_SPAWN):
         for collect in (
             _collect_gdal_cli_violations,
@@ -3296,10 +3293,8 @@ def test_a_keyword_bound_program_is_still_the_program():
 
 
 def test_a_keyword_bound_sequence_counts_once():
-    """fix(#1884): ``os.execvp(file="ogrinfo", args=...)`` binds both halves
-    by keyword. A literal sequence is the site and the call is not a second
-    one; a dynamic sequence leaves the call as the only site.
-    """
+    """fix(#1884): a keyword-bound sequence spawn is exactly one site, whether
+    the sequence is a literal (the display) or a name (the call)."""
     for source in (_KEYWORD_SEQUENCE_SPAWN, _KEYWORD_SEQUENCE_SPAWN_DYNAMIC):
         for collect in (
             _collect_gdal_cli_violations,
@@ -3310,8 +3305,7 @@ def test_a_keyword_bound_sequence_counts_once():
             assert len(violations) == 1, violations
 
 
-# fix(#1884): a remote literal behind a flag head, which the display rule
-# refuses, so only the call's tail can carry it to the remote check.
+# fix(#1884): a remote literal in an unheaded sequence gets no safe-env credit.
 _SEQUENCE_SPAWN_UNHEADED_REMOTE = """
 import os
 
@@ -3347,11 +3341,8 @@ def probe():
 
 
 def test_an_unheaded_sequence_tail_is_its_elements():
-    """fix(#1884): the remote literal inside ``["-so", url]`` gets no safe-env
-    credit, exactly as it would not in a headed display, whether the sequence
-    is positional or keyword-bound. The local twin keeps its credit, so the
-    difference is the element, not the shape.
-    """
+    """fix(#1884): a remote literal in an unheaded sequence gets no safe-env
+    credit, positional or keyword-bound; a local element keeps it."""
     for source in (_SEQUENCE_SPAWN_UNHEADED_REMOTE, _KEYWORD_SEQUENCE_SPAWN_REMOTE):
         violations, total = _collect_gdal_cli_violations(_fixture_modules(source), {})
         assert total == 1, total
