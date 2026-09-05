@@ -2917,7 +2917,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # as the innermost middleware, plus the import and the comment on why it
     # has to be registered first and be a plain ASGI callable. Cap
     # 1883 -> 1897, exact.
-    "backend/app/api/main.py": 1897,
+    # fix(#1845): +6. The published description of the deprecated `?api_key=`
+    # lane now states the read-only restriction the resolver enforces, in both
+    # places a client reads it: the auth section of the API description and
+    # the ApiKeyQuery security scheme. Cap 1897 -> 1903, exact.
+    "backend/app/api/main.py": 1903,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative

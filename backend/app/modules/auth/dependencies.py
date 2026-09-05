@@ -186,6 +186,77 @@ def _read_only_key_may_call(
     return value.strip().lower() in _FALSEY_QUERY_VALUES
 
 
+def _query_key_may_authenticate(
+    method: str,
+    route_template: str,
+    query_params: Mapping[str, str] | None = None,
+) -> bool:
+    """Whether a key that arrived in the QUERY STRING may authenticate this.
+
+    fix(#1845): the deprecated ``?api_key=`` lane is documented as read-only
+    ("kept for external clients that cannot set headers, e.g. XYZ tile URLs in
+    desktop GIS tools") and nothing enforced it, so the same credential
+    authorized admin mutations. This is the enforcement.
+
+    The restriction is on the TRANSPORT, not on the key. A key in a URL is
+    written into browser history, bookmarks, screen shares, an operator's
+    upstream load balancer or CDN access log, and a cross-origin ``Referer``.
+    It is a value that leaks by construction, so what it may do is bounded
+    independently of what its owner may do.
+
+    It composes with, rather than duplicates, the #875 scope rule: the same
+    ``_READ_ONLY_KEY_WRITING_GET_ROUTES`` classification decides which GETs
+    are really writes, so "which requests are reads" has one definition. The
+    query lane is deliberately the stricter of the two and does NOT inherit
+    ``_READ_ONLY_KEY_EXEMPT_ROUTES``. Those two POSTs are reads a key's OWNER
+    chose to make with a scoped credential; a URL that ends up in a log is a
+    credential nobody chose to hand out, and the tile-URL clients this lane
+    exists for issue GETs.
+
+    Header keys are untouched.
+    """
+    return method in _READ_ONLY_SAFE_METHODS and _read_only_key_may_call(
+        method, route_template, query_params
+    )
+
+
+def _supplied_api_key(request: Request) -> str | None:
+    """The API key this request may authenticate with, header first.
+
+    fix(#1845): ONE place decides whether a query-string key counts, so the
+    resolver and ``request_carries_credentials`` cannot answer differently and
+    turn an ignored credential into a confusing 401. When the query lane is
+    refused the key is treated as absent, exactly as if it had never been
+    supplied: the caller gets the 401/403/404 the request would have earned
+    anonymously, not a new error shape that tells an attacker their key parsed.
+    """
+    header_key = request.headers.get("X-Api-Key")
+    if header_key:
+        return header_key
+    query_key = request.query_params.get("api_key")
+    if not query_key:
+        return None
+    route_template = _route_template(request)
+    if not _query_key_may_authenticate(
+        request.method, route_template, request.query_params
+    ):
+        # No key material and no key identifier: resolving one would need the
+        # database lookup this refusal deliberately skips, and would turn an
+        # unauthenticated request into an oracle for whether a key is live.
+        # Once per request, because the resolver and
+        # ``request_carries_credentials`` both ask this question on an
+        # optional-auth route and one refusal is one event.
+        if not getattr(request.state, "api_key_query_lane_refused", False):
+            request.state.api_key_query_lane_refused = True
+            log.warning(
+                "api_key_query_lane_refused",
+                method=request.method,
+                path=route_template,
+            )
+        return None
+    return query_key
+
+
 def log_permission_denial(
     request: Request,
     user: Identity,
@@ -222,10 +293,12 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
     kept for external clients that cannot set headers (e.g. XYZ tile URLs in
     desktop GIS tools) but new integrations must use the ``X-Api-Key`` header.
     Resolution precedence is unchanged: header > query param.
+
+    fix(#1845): that read-only justification is now enforced rather than
+    merely stated. ``_supplied_api_key`` drops a query-string key on anything
+    but a read, so the deprecated lane can no longer authorize a mutation.
     """
-    api_key = request.headers.get("X-Api-Key")
-    if not api_key:
-        api_key = request.query_params.get("api_key")
+    api_key = _supplied_api_key(request)
     if not api_key:
         return None
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()
@@ -312,12 +385,14 @@ def request_carries_credentials(request: Request) -> bool:
     maps to ``None``. The latter should get 401, not 404, so the client's
     refresh-and-retry path fires instead of a misleading "not found". Mirrors
     the credential sources ``_resolve_api_key`` + the bearer scheme accept.
+
+    fix(#1845): "mirrors" is load-bearing, hence the shared
+    ``_supplied_api_key``. A query-string key the resolver refuses to read is
+    not a credential that failed to resolve; it is a credential that was never
+    accepted, and reporting it here would answer 401 where the request would
+    otherwise have been served anonymously.
     """
-    return bool(
-        request.headers.get("Authorization")
-        or request.headers.get("X-Api-Key")
-        or request.query_params.get("api_key")
-    )
+    return bool(request.headers.get("Authorization") or _supplied_api_key(request))
 
 
 def reject_unresolvable_credentials(request: Request, user: Identity | None) -> None:

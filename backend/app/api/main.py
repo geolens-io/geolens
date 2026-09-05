@@ -659,10 +659,13 @@ without credentials; private/restricted datasets require one of:
 
 Priority: header API key > query param API key > JWT > anonymous.
 
-**The `?api_key=` query parameter is deprecated.** A key sent in the URL is
-recorded by server access logs and any proxy in between. Prefer the
-`X-Api-Key` header; keep the query parameter only for clients that cannot
-send headers (e.g. XYZ tile URLs in desktop GIS tools).
+**The `?api_key=` query parameter is deprecated, and it authenticates reads
+only.** A key sent in the URL is recorded by server access logs and any proxy
+in between, so it authenticates `GET`, `HEAD` and `OPTIONS` and nothing else.
+On any other method the key is ignored and the request is answered as if no
+credential had been sent. Prefer the `X-Api-Key` header, which carries reads
+and writes alike; keep the query parameter only for clients that cannot send
+headers (e.g. XYZ tile URLs in desktop GIS tools).
 
 API keys may carry an optional expiry (`expires_at` at mint time). Expired
 keys stop authenticating, and keys are also invalidated by security events
@@ -1382,7 +1385,10 @@ def _normalize_security_contract(schema: dict) -> None:
         "type": "apiKey",
         "in": "query",
         "name": "api_key",
-        "description": "Legacy API-key query parameter; prefer X-Api-Key.",
+        "description": (
+            "Legacy API-key query parameter, accepted on GET/HEAD/OPTIONS "
+            "only; ignored on any other method. Prefer X-Api-Key."
+        ),
     }
 
     # ``get_optional_user_no_security_schema`` deliberately keeps public STAC
