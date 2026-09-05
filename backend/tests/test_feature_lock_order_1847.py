@@ -96,8 +96,9 @@ async def _seed_dataset(session, *, created_by: uuid.UUID) -> Dataset:
 async def _seed_raster_dataset(session, *, created_by: uuid.UUID) -> Dataset:
     """A raster dataset with its RasterAsset child, for the delete path.
 
-    No data table: `delete_dataset`'s raster branch reaps storage prefixes and
-    drops nothing, and the record delete cascades to `raster_assets`.
+    No data table: `delete_dataset`'s raster branch drops nothing and returns
+    the storage prefixes for the router to reap after commit; the record
+    delete cascades to `raster_assets`.
     """
     from app.processing.raster.models import RasterAsset
 
@@ -2456,7 +2457,8 @@ def _acquires_raster_first(fn) -> bool:
     ]
     if not calls:
         return False
-    for call in calls:
+
+    def _extends(call) -> bool:
         for kw in call.keywords:
             if kw.arg == "with_raster_asset" and not (
                 isinstance(kw.value, ast.Constant) and kw.value.value is False
@@ -2466,7 +2468,11 @@ def _acquires_raster_first(fn) -> bool:
                 isinstance(kw.value, ast.Constant) and kw.value.value is None
             ):
                 return True
-    return False
+        return False
+
+    # Every site, not any: an arm that takes the plain pair and later writes
+    # the child is the ABBA this gate exists to reject.
+    return all(_extends(call) for call in calls)
 
 
 def _acquiring_functions() -> set[str]:
@@ -2867,7 +2873,7 @@ class TestTheGateRejectsWhatItExistsToCatch:
         assert ok, why
 
     def test_a_raster_writer_that_takes_the_pair_first_is_rejected(self):
-        """codex r6: the shape that inverts against the replace worker."""
+        """The shape that inverts against the replace worker."""
         import ast
 
         source = (
@@ -2911,6 +2917,33 @@ class TestTheGateRejectsWhatItExistsToCatch:
             if isinstance(n, ast.AsyncFunctionDef) and n.name == "probe"
         )
         assert _acquires_raster_first(fn)
+
+    def test_one_unguarded_acquisition_among_two_is_rejected(self):
+        """Every site must extend the order, not any one of them."""
+        import ast
+
+        source = (
+            "from app.modules.catalog.features.service import "
+            "lock_catalog_rows_for_write\n"
+            "async def probe(session, dataset, flag):\n"
+            "    if flag:\n"
+            "        await lock_catalog_rows_for_write(\n"
+            "            session, dataset, with_raster_asset=True\n"
+            "        )\n"
+            "    else:\n"
+            "        await lock_catalog_rows_for_write(session, dataset)\n"
+            "    ra = await get_raster_asset(session, dataset.id)\n"
+            "    ra.is_dem = True\n"
+        )
+        tree = ast.parse(source)
+        fn = next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.AsyncFunctionDef) and n.name == "probe"
+        )
+        assert not _acquires_raster_first(fn), (
+            "one arm takes the plain pair and later writes raster_assets"
+        )
 
     def test_core_update_statements_count_as_writes(self):
         """`update(Dataset)` / `delete(Record)` are invisible to an attribute scan."""
