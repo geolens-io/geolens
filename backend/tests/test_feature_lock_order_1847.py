@@ -630,6 +630,27 @@ class TestWorkerSitesLeadWithTheDatasetRow:
         )
         assert lock < write
 
+    def test_stac_refresh_locks_the_raster_row_before_the_dataset(self):
+        """Phase 3 writes raster_assets after its binding guard, so the child
+        row is taken first, the order the is_dem PATCH and the replace hold."""
+        lines = self._lines("processing/ingest/tasks_stac_refresh.py")
+        raster_lock = next(
+            i
+            for i, line in enumerate(lines)
+            if "select(RasterAsset.dataset_id)" in line
+        )
+        dataset_lock = next(
+            i
+            for i, line in enumerate(lines)
+            if "with_for_update" in line
+            and any("Dataset.origin_uri" in prev for prev in lines[max(0, i - 8) : i])
+        )
+        assert raster_lock < dataset_lock, (
+            "refresh_stac must take raster_assets before the datasets row; "
+            "holding datasets first and then repointing the asset is an ABBA "
+            "against the is_dem PATCH."
+        )
+
 
 class TestFeatureWriteErrorClassification:
     """A lock conflict is a retryable 409, not a 503 telling clients to back off."""
@@ -2152,6 +2173,10 @@ _ORDERS_RASTER_ITSELF = {
     "app.processing.ingest.tasks_vrt.regenerate_vrt": (
         "claims the row with an UPDATE and re-reads it FOR UPDATE through its "
         "asset join, both ahead of the pair"
+    ),
+    "app.processing.ingest.tasks_stac_refresh.refresh_stac": (
+        "takes RasterAsset FOR UPDATE ahead of the datasets FOR UPDATE that is "
+        "its binding guard; the repoint writes that row after the guard"
     ),
 }
 

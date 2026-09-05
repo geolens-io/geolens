@@ -576,6 +576,16 @@ async def refresh_stac(
             # the compare and the write one indivisible step; a single-column
             # select keeps the statement off any joined relationship, which
             # PostgreSQL will not lock through an outer join.
+            # fix(#1847): the raster child before the datasets row, the order
+            # the is_dem PATCH and the raster replace hold; the moved-asset
+            # write below touches that row after this guard.
+            from app.processing.raster.models import RasterAsset
+
+            await session.execute(
+                select(RasterAsset.dataset_id)
+                .where(RasterAsset.dataset_id == dataset_uuid)
+                .with_for_update()
+            )
             locked = (
                 await session.execute(
                     select(
