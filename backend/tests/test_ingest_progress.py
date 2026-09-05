@@ -274,7 +274,6 @@ async def test_service_worker_advances_ogr2ogr_progress_while_remote_import_is_r
     test_db_session, monkeypatch
 ):
     """Service URL ingest must publish progress during the remote load window."""
-    from app.core import db as db_module
     from app.processing.ingest import tasks_vector
     from app.processing.ingest.ogr import IngestionError
 
@@ -350,6 +349,25 @@ async def test_service_worker_advances_ogr2ogr_progress_while_remote_import_is_r
         raising=False,
     )
 
+    # fix(#1859): wait on an event the heartbeat tick itself sets, instead of
+    # polling the job row on a 1-second wall-clock deadline. The poll loop
+    # opened a fresh `db_module.async_session()` every 10ms (matching the
+    # heartbeat's own mocked 0.01s interval), and under a loaded CI runner
+    # that session churn was what produced `ConnectionError: unexpected
+    # connection_lost() call`, not a real ingest bug -- the production
+    # heartbeat already shields each tick from cancellation (fix(#1778)).
+    # Watching the tick complete is both deterministic and cheaper: one read
+    # after the event fires, not up to 100 of them.
+    tick_committed = asyncio.Event()
+    real_tick = tasks_vector._service_import_heartbeat_tick
+
+    async def _tracking_tick(job_uuid, attempt_id):
+        keep_going = await real_tick(job_uuid, attempt_id)
+        tick_committed.set()
+        return keep_going
+
+    monkeypatch.setattr(tasks_vector, "_service_import_heartbeat_tick", _tracking_tick)
+
     worker_task = asyncio.create_task(
         tasks_vector.ingest_service.func(
             job_id=str(job_id),
@@ -361,21 +379,18 @@ async def test_service_worker_advances_ogr2ogr_progress_while_remote_import_is_r
     )
 
     try:
-        await asyncio.wait_for(remote_import_started.wait(), timeout=1)
+        await asyncio.wait_for(remote_import_started.wait(), timeout=5)
 
-        deadline = asyncio.get_running_loop().time() + 1
-        while asyncio.get_running_loop().time() < deadline:
-            async with db_module.async_session() as poll_session:
-                result = await poll_session.execute(
-                    select(IngestJob).where(IngestJob.id == job_id)
-                )
-                current_job = result.scalar_one()
-                last_progress = current_job.progress
-                if last_progress is not None and last_progress > 0.1:
-                    break
+        # A generous hang guard, not the source of the assertions below --
+        # the heartbeat's own mocked interval is 0.01s, so a healthy tick
+        # lands almost immediately.
+        await asyncio.wait_for(tick_committed.wait(), timeout=5)
+        assert not worker_task.done()
 
-            assert not worker_task.done()
-            await asyncio.sleep(0.01)
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.id == job_id)
+        )
+        last_progress = result.scalar_one().progress
     finally:
         release_remote_import.set()
         # fix(#422): join the worker directly instead of wait_for(timeout=2).
