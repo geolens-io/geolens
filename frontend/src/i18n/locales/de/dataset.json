@@ -372,9 +372,11 @@
     "completeMessage": "Der Datensatz wurde aktualisiert.",
     "errorFallback": "Ein unerwarteter Fehler ist aufgetreten.",
     "tryAgain": "Erneut versuchen",
+    "refreshingOrigin": "Wird aktualisiert...",
     "toastSuccess": "Erneutes Hochladen abgeschlossen!",
     "uploadFailed": "Hochladen fehlgeschlagen. Bitte versuchen Sie es erneut.",
     "commitFailed": "Übernahme fehlgeschlagen. Bitte versuchen Sie es erneut.",
+    "originRefreshFailed": "Die Datensatzinformationen konnten nach diesem Konflikt nicht aktualisiert werden. Laden Sie die Seite neu und versuchen Sie es erneut.",
     "jobFailed": "Auftrag zum erneuten Hochladen fehlgeschlagen.",
     "jobCancelled": "Der erneute Upload wurde abgebrochen."
   },

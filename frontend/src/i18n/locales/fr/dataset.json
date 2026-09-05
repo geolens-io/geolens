@@ -372,9 +372,11 @@
     "completeMessage": "Le jeu de données a été mis à jour.",
     "errorFallback": "Une erreur inattendue s'est produite.",
     "tryAgain": "Réessayer",
+    "refreshingOrigin": "Actualisation...",
     "toastSuccess": "Rechargement terminé !",
     "uploadFailed": "Échec du téléchargement. Veuillez réessayer.",
     "commitFailed": "Échec de la validation. Veuillez réessayer.",
+    "originRefreshFailed": "Impossible d'actualiser les informations du jeu de données après ce conflit. Rechargez la page et réessayez.",
     "jobFailed": "La tâche de rechargement a échoué.",
     "jobCancelled": "Le renvoi a été annulé."
   },

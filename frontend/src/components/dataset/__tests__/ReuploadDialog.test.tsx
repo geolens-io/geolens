@@ -602,7 +602,8 @@ describe('ReuploadDialog', () => {
   // re-captured from the `dataset` prop, which is served from the cache the
   // server just disagreed with. Without the invalidation the retry re-sends
   // the same stale kind and 409s forever.
-  it('invalidates the dataset detail query when the commit reports origin_changed', async () => {
+  // fix(#1822): "Try Again" stays disabled until the origin refetch lands.
+  it('keeps "Try Again" disabled until the origin refetch resolves, then enables it', async () => {
     const user = userEvent.setup();
     commitMutateAsync.mockRejectedValueOnce(
       new ApiError('This dataset’s source changed', 409, {
@@ -615,9 +616,13 @@ describe('ReuploadDialog', () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
     });
-    const invalidate = vi
-      .spyOn(queryClient, 'invalidateQueries')
-      .mockResolvedValue(undefined);
+    let resolveRefetch: () => void = () => {};
+    const refetch = vi.spyOn(queryClient, 'refetchQueries').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRefetch = () => resolve(undefined);
+        }),
+    );
 
     rtlRender(
       <QueryClientProvider client={queryClient}>
@@ -634,15 +639,73 @@ describe('ReuploadDialog', () => {
     await screen.findByRole('button', { name: 'Confirm Re-Upload' });
     await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
 
+    const retryButton = await screen.findByTestId('reupload-try-again');
     await waitFor(() => {
-      expect(invalidate).toHaveBeenCalledWith({
-        queryKey: queryKeys.datasets.detail('dataset-1'),
-      });
+      expect(retryButton).toBeDisabled();
     });
+    expect(retryButton).toHaveTextContent('Refreshing...');
+    expect(refetch).toHaveBeenCalledWith(
+      { queryKey: queryKeys.datasets.detail('dataset-1') },
+      { throwOnError: true },
+    );
+
+    // A click while disabled must not proceed — retrying now would still
+    // send the stale prop's origin.
+    await user.click(retryButton);
+    expect(commitMutateAsync).toHaveBeenCalledTimes(1);
+
+    resolveRefetch();
+
+    await waitFor(() => {
+      expect(retryButton).not.toBeDisabled();
+    });
+    expect(retryButton).toHaveTextContent('Try Again');
   });
 
-  it('does not invalidate the dataset detail query for an unrelated commit failure', async () => {
-    // The counterfactual's other half: the invalidation is keyed on the
+  it('shows the refetch error and keeps "Try Again" disabled when the origin refetch fails', async () => {
+    const user = userEvent.setup();
+    commitMutateAsync.mockRejectedValueOnce(
+      new ApiError('This dataset’s source changed', 409, {
+        code: 'origin_changed',
+        origin_kind: 'service',
+        expected_origin_kind: 'upload',
+      }),
+    );
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+    });
+    vi.spyOn(queryClient, 'refetchQueries').mockRejectedValue(new Error('network error'));
+
+    rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <ReuploadDialog
+          dataset={{ ...makeDataset(), origin: 'upload' }}
+          open
+          onOpenChange={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    await openFileSource(user);
+    await dropFile();
+    await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+    await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+    await screen.findByText(
+      "Could not refresh the dataset's info after this conflict. Reload the page and try again.",
+    );
+    // The original commit error is superseded — retrying is dead either way,
+    // and the refetch failure is the one the user needs to act on.
+    expect(screen.queryByText('This dataset’s source changed')).not.toBeInTheDocument();
+
+    const retryButton = screen.getByTestId('reupload-try-again');
+    expect(retryButton).toBeDisabled();
+    expect(retryButton).toHaveTextContent('Try Again');
+  });
+
+  it('does not touch the origin refetch or disable "Try Again" for an unrelated commit failure', async () => {
+    // The counterfactual's other half: the recovery refetch is keyed on the
     // refusal code, not fired on every commit error.
     const user = userEvent.setup();
     commitMutateAsync.mockRejectedValueOnce(
@@ -652,9 +715,7 @@ describe('ReuploadDialog', () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
     });
-    const invalidate = vi
-      .spyOn(queryClient, 'invalidateQueries')
-      .mockResolvedValue(undefined);
+    const refetch = vi.spyOn(queryClient, 'refetchQueries').mockResolvedValue(undefined);
 
     rtlRender(
       <QueryClientProvider client={queryClient}>
@@ -672,9 +733,10 @@ describe('ReuploadDialog', () => {
     await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
 
     await screen.findByText('A refresh is already running');
-    expect(invalidate).not.toHaveBeenCalledWith({
-      queryKey: queryKeys.datasets.detail('dataset-1'),
-    });
+    const retryButton = screen.getByTestId('reupload-try-again');
+    expect(retryButton).not.toBeDisabled();
+    expect(retryButton).toHaveTextContent('Try Again');
+    expect(refetch).not.toHaveBeenCalled();
   });
 });
 
