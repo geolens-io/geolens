@@ -1,12 +1,8 @@
 """The (datasets, records) lock order, and the gate that holds it (#1847).
 
-The feature-edit metadata refresh took ``catalog.records`` FOR UPDATE and left
-``catalog.datasets`` to the flush. ``refresh_postgis`` phase 3 takes the
-datasets row FOR UPDATE first and writes the record row inside that same
-transaction, so an ordinary feature edit during a refresh was an ABBA cycle:
-PostgreSQL aborted one side with 40P01 after ``deadlock_timeout``, and because
-the refresh call sat outside the write handlers' ``except DBAPIError`` the abort
-surfaced as a generic 503 with the edit lost.
+Every transaction that writes both catalog rows takes the datasets row and
+then the records row before its first write; a raster child comes before the
+pair, the attribute row after it. A wait on a contended row answers 409.
 
 The concurrency tests here assert on LOCK STATE, never on elapsed time. The
 barrier is ``pg_stat_activity.wait_event_type``, and whether a lock is held is
