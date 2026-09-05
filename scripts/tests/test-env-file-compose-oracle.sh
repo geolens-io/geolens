@@ -113,6 +113,44 @@ _our_value_via_env_value_into() {
   ( . "$REPO_ROOT/lib/common.sh" && env_value_into _test_target "$1" "$2" && printf '%s' "$_test_target" )
 }
 
+# effective_env_value_into's resolution, the same way: source in a subshell,
+# assign into a scratch variable, read it back.
+_our_effective_value() {
+  # shellcheck disable=SC2154  # _test_effective is assigned by the eval
+  # inside effective_env_value_into (scripts/lib/common.sh).
+  ( . "$REPO_ROOT/lib/common.sh" && effective_env_value_into _test_effective "$1" "$2" && printf '%s' "$_test_effective" )
+}
+
+# fix(#1886): a top-level ${KEY} resolves from the process environment first,
+# so this compares effective_env_value_into against the oracle (get_env_value
+# keeps its file-only contract and is not what preflight-env.sh reads).
+_assert_effective_matches_compose() {
+  _aem_key="$1"
+  _aem_file="$2"
+  _aem_desc="$3"
+
+  _aem_ours="$(_our_effective_value "$_aem_key" "$_aem_file" && printf x)"
+  _aem_ours_rc=$?
+  _aem_ours="${_aem_ours%x}"
+
+  if [ "$_aem_ours_rc" -ne 0 ]; then
+    bad "$_aem_desc (effective_env_value_into itself failed unexpectedly, rc=$_aem_ours_rc)"
+    return
+  fi
+
+  _aem_theirs="$(_compose_value "$_aem_key" "$_aem_file" && printf x)" || {
+    bad "$_aem_desc (docker compose config itself failed to resolve $_aem_key)"
+    return
+  }
+  _aem_theirs="${_aem_theirs%x}"
+
+  if [ "$_aem_ours" = "$_aem_theirs" ]; then
+    ok "$_aem_desc (both resolve to [$_aem_ours])"
+  else
+    bad "$_aem_desc (effective_env_value_into=[$_aem_ours] Compose=[$_aem_theirs])"
+  fi
+}
+
 # Compares get_env_value's resolution of KEY in FILE against Compose's own.
 # Both captures are sentinel-protected so neither side loses a real
 # trailing newline before the comparison even runs.
@@ -227,20 +265,22 @@ _assert_errors_like_compose() {
   _aelc_key="$1"
   _aelc_file="$2"
   _aelc_desc="$3"
+  # fix(#1886): optional resolver, default get_env_value's own path.
+  _aelc_resolve="${4:-_our_value}"
 
-  if _our_value "$_aelc_key" "$_aelc_file" >/dev/null 2>&1; then
-    bad "$_aelc_desc (get_env_value succeeded, expected it to fail closed)"
+  if "$_aelc_resolve" "$_aelc_key" "$_aelc_file" >/dev/null 2>&1; then
+    bad "$_aelc_desc ($_aelc_resolve succeeded, expected it to fail closed)"
     return
   fi
 
   _aelc_compose_rc=0
   _compose_resolve_json "$_aelc_key" "$_aelc_file" >/dev/null 2>&1 || _aelc_compose_rc=$?
   if [ "$_aelc_compose_rc" -eq 0 ]; then
-    bad "$_aelc_desc (get_env_value failed closed, but real Compose did NOT — the pinned expectation may be wrong)"
+    bad "$_aelc_desc ($_aelc_resolve failed closed, but real Compose did NOT. The pinned expectation may be wrong)"
     return
   fi
 
-  ok "$_aelc_desc (both get_env_value and Compose itself fail to resolve it)"
+  ok "$_aelc_desc (both $_aelc_resolve and Compose itself fail to resolve it)"
 }
 
 # fix(#1778 round 22, P2): _compose_value/_assert_matches_compose cannot
@@ -444,6 +484,33 @@ unset TARGETVAR
 _assert_matches_compose USES_PLAIN "$PREC_ENV"   "env unset + file key set (fromfile): falls back to the file"
 
 _assert_matches_compose USES_UNSET_COLON_DASH "$PREC_ENV"   "env unset + file key also unset + \${X:-default}: the default applies"
+
+# fix(#1886): the key ITSELF, not a reference to it, resolves the same way
+# for a plain ${TARGETVAR}; this is the read preflight-env.sh now performs.
+export TARGETVAR=fromenv
+_assert_effective_matches_compose TARGETVAR "$PREC_ENV"   "env set (fromenv) + the same key in the file (fromfile): effective_env_value_into takes the environment, like Compose"
+unset TARGETVAR
+
+export TARGETVAR=
+_assert_effective_matches_compose TARGETVAR "$PREC_ENV"   "env set but EMPTY + the same key in the file: the empty environment value wins over the file line"
+unset TARGETVAR
+
+_assert_effective_matches_compose TARGETVAR "$PREC_ENV"   "env unset + the key in the file: effective_env_value_into falls back to the file line"
+
+# fix(#1886): Compose loads the whole file before the override applies, so
+# a line it refuses fails even with the key exported; a bare line does not.
+REFUSED_ENV="$WORK/.env.refused"
+printf 'TARGETVAR=${NO_SUCH_VAR:?boom}\n' > "$REFUSED_ENV"
+export TARGETVAR=fromenv
+_assert_errors_like_compose TARGETVAR "$REFUSED_ENV"   "env set (fromenv) + the same key's file line is \${NO_SUCH_VAR:?boom}: the exported value does not rescue a file Compose refuses to load" _our_effective_value
+unset TARGETVAR
+_assert_errors_like_compose TARGETVAR "$REFUSED_ENV"   "env unset + the same refused line: effective_env_value_into fails closed like Compose" _our_effective_value
+
+BARE_ENV="$WORK/.env.bare"
+printf 'TARGETVAR\n' > "$BARE_ENV"
+export TARGETVAR=fromenv
+_assert_effective_matches_compose TARGETVAR "$BARE_ENV"   "env set (fromenv) + a bare TARGETVAR line: the line inherits the export and is not refused"
+unset TARGETVAR
 
 
 # ============================================================================

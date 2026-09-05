@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pre-flight: verify boot-required env vars are non-empty in .env BEFORE running
+# Pre-flight: verify boot-required env vars are non-empty BEFORE running
 # `docker compose up` (which takes 5-10 minutes on a cold cache only to crash
 # at startup if these are empty).
 #
@@ -14,6 +14,9 @@
 # Both must be url-safe base64 of 32 random bytes, and a malformed value fails
 # API boot. Leaving them unset is fine; the app derives a key from
 # JWT_SECRET_KEY instead. See RUNBOOK.md section 11.
+#
+# Each value is read the way Compose resolves it: from the exported
+# environment when that sets the name (even to an empty string), else .env.
 #
 # Run automatically by `make dev` unless SKIP_PREFLIGHT=1.
 
@@ -44,24 +47,60 @@ fi
 # shellcheck source=scripts/lib/common.sh
 . "$PROJECT_ROOT/scripts/lib/common.sh"
 
+# fix(#1886): an exported name overrides its .env line for Compose, so every
+# check below runs on the value the API container will actually receive.
+value_source() {
+    if env_is_exported "$1"; then
+        echo "your shell environment (which overrides .env)"
+    else
+        echo ".env"
+    fi
+}
+
+# fix(#1886): a line Compose cannot load stops `docker compose up` before any
+# override applies, so it is refused here whether or not $1 is exported.
+refuse_unloadable_line() {
+    cat >&2 <<EOF
+Pre-flight: the $1 line in .env cannot be loaded by docker compose.
+
+Compose reads every line of .env before it applies your shell environment, so
+an unterminated quote, or a \${NAME:?message} reference to a NAME that is not
+set, stops \`docker compose up\` on this line even when $1 is exported. Fix or
+remove the line in .env.
+EOF
+    exit 1
+}
+
+# Sets \`value\` to what Compose will pass for $1, or refuses the .env line.
+read_effective() {
+    value=""
+    rc=0
+    effective_env_value_into value "$1" "$ENV_FILE" || rc=$?
+    if [ "$rc" -eq 2 ]; then
+        refuse_unloadable_line "$1"
+    fi
+}
+
 REQUIRED=(JWT_SECRET_KEY GEOLENS_ADMIN_USERNAME GEOLENS_ADMIN_PASSWORD)
 MISSING=()
 
 for var in "${REQUIRED[@]}"; do
-    value="$(get_env_value "$var" "$ENV_FILE" || true)"
+    read_effective "$var"
     if [ -z "$value" ]; then
-        MISSING+=("$var")
+        MISSING+=("$var, read from $(value_source "$var")")
     fi
 done
 
 if [ ${#MISSING[@]} -gt 0 ]; then
     cat >&2 <<EOF
-Pre-flight: the following required vars are empty in .env:
+Pre-flight: the following required vars are empty:
 
 $(printf '  - %s\n' "${MISSING[@]}")
 
 The API container will fail to boot. To fix:
     bash scripts/install.sh        # generates secrets and prompts for admin creds
+
+A name exported in your shell overrides its .env line; unset it to use .env.
 
 To bypass this check (e.g., for unusual deployment paths):
     make dev SKIP_PREFLIGHT=1
@@ -73,10 +112,10 @@ fi
 # Accept the standard alphabet too (`+/`), because base64.urlsafe_b64decode
 # does, and refusing a value the app takes would be a false failure.
 for var in SECRET_ENCRYPTION_KEY SECRET_ENCRYPTION_KEY_PREVIOUS; do
-    value="$(get_env_value "$var" "$ENV_FILE" || true)"
+    read_effective "$var"
     if [ -n "$value" ] && ! printf '%s' "$value" | grep -Eq '^[A-Za-z0-9+/_-]{43}=$'; then
         cat >&2 <<EOF
-Pre-flight: $var in .env is not a valid encryption key.
+Pre-flight: $var in $(value_source "$var") is not a valid encryption key.
 
 The API refuses to boot on a malformed value. It must be url-safe base64 of 32
 random bytes, which is not what \`openssl rand -hex 32\` produces:
@@ -90,4 +129,4 @@ EOF
     fi
 done
 
-echo "Pre-flight: .env required vars OK (JWT_SECRET_KEY, GEOLENS_ADMIN_USERNAME, GEOLENS_ADMIN_PASSWORD)"
+echo "Pre-flight: required vars OK (JWT_SECRET_KEY, GEOLENS_ADMIN_USERNAME, GEOLENS_ADMIN_PASSWORD)"
