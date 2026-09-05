@@ -1,6 +1,7 @@
 import { apiFetch, ApiError, onSessionExpired } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
 import { refreshAccessToken, logoutSession } from '@/api/auth';
+import type { TokenResponse } from '@/types/api';
 
 // fix(#628): the fetch core must treat "401 + the follow-up refresh is also
 // dead" as a single session-death event: clear the persisted auth state and
@@ -128,6 +129,45 @@ describe('session-expiry notification (fix #628)', () => {
 
     await expect(apiFetch('/a/')).resolves.toEqual({ ok: true });
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  // fix(#1862 review P2): before the fix, tryRefresh reported failure here
+  // regardless of what the store actually held, so this retried with a dead
+  // token, got 401 again, and notified — logging out (and revoking) the
+  // session the peer tab had just refreshed.
+  it('does not invoke the handler when a peer tab rotates the token while this refresh fails', async () => {
+    signIn();
+
+    let rejectRefresh: (err: unknown) => void = () => {};
+    vi.mocked(refreshAccessToken).mockImplementation(
+      () =>
+        new Promise<TokenResponse>((_resolve, reject) => {
+          rejectRefresh = reject;
+        }),
+    );
+
+    mockFetch
+      .mockResolvedValueOnce(errorResponse(401))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }));
+
+    const pending = apiFetch('/a/');
+
+    // Yield until the fetch mock's own resolution, the 401 branch, and the
+    // tryRefresh call all clear their microtask hops and refreshAccessToken
+    // is actually invoked (same pattern as the SP-09 concurrent-dedup test).
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // auth-store.ts's cross-tab `storage` listener rehydrating a peer tab's
+    // successful refresh into this tab's store while this attempt is still
+    // in flight.
+    useAuthStore.setState({ token: 'peer-rotated-token' });
+    rejectRefresh(new ApiError('network error', 0));
+
+    await expect(pending).resolves.toEqual({ ok: true });
+    expect(handler).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().token).toBe('peer-rotated-token');
   });
 
   it('notifies once per dead session, and again for the next dead session', async () => {

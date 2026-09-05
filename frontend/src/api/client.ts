@@ -122,6 +122,14 @@ export async function tryRefresh(): Promise<boolean> {
   // still sits in the store. The old `!!token` check was true on a failed
   // refresh too, so the caller retried the original request with a dead
   // token instead of going straight to the logout path.
+  //
+  // fix(#1862 review P2): captured here, before the attempt, so a failure
+  // below can tell "nothing changed" from "a peer tab changed it". The
+  // access token also lives in localStorage (auth-store.ts's cross-tab
+  // `storage` listener), so a PEER tab's successful refresh can rehydrate a
+  // new token into this tab's store while this attempt is still in flight —
+  // most easily during the 429 backoff wait. `token` is that pre-attempt
+  // value from the destructure above.
   const promise = (async (): Promise<boolean> => {
     try {
       const tokens = await refreshAccessToken(refreshToken, controller.signal);
@@ -138,6 +146,16 @@ export async function tryRefresh(): Promise<boolean> {
       // If rate-limited, wait before giving up so the next attempt isn't also blocked
       if (err instanceof ApiError && err.status === 429) {
         await new Promise((r) => setTimeout(r, 2000));
+      }
+      // fix(#1862 review P2): our own attempt failed, but if a peer tab's
+      // refresh landed a different token while we waited, the session IS
+      // live — just not because of anything this attempt did. Reporting
+      // failure here would make the caller treat a peer's valid replacement
+      // as a terminal session death and log out (and revoke) the session
+      // that tab just refreshed.
+      const currentToken = useAuthStore.getState().token;
+      if (currentToken && currentToken !== token) {
+        return true;
       }
       // Refresh failed -- will fall through to logout
       return false;

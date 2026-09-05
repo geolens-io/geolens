@@ -1,4 +1,4 @@
-import { apiFetch, ApiError } from '@/api/client';
+import { apiFetch, ApiError, tryRefresh } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
 import type { TokenResponse } from '@/types/api';
 
@@ -362,6 +362,46 @@ describe('apiFetch', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    // fix(#1862 review P2): a regression of the fix above. Before it, the
+    // stale-token truthiness masked this case by accident — `!!token` was
+    // true regardless of whose refresh put it there. Reporting failure here
+    // for an outcome the store shows as success would make the caller treat
+    // a peer tab's valid session as dead.
+    it('returns true when a peer tab rotates the token while this refresh fails', async () => {
+      const { refreshAccessToken } = await import('@/api/auth');
+      let rejectRefresh: (err: unknown) => void = () => {};
+      vi.mocked(refreshAccessToken).mockImplementation(
+        () =>
+          new Promise<TokenResponse>((_resolve, reject) => {
+            rejectRefresh = reject;
+          }),
+      );
+
+      useAuthStore.setState({ token: 'stale-local-token', refreshToken: 'r' });
+
+      const pending = tryRefresh();
+      await Promise.resolve();
+
+      // Simulate auth-store.ts's cross-tab `storage` listener rehydrating a
+      // peer tab's successful refresh into this tab's store while this
+      // attempt is still in flight.
+      useAuthStore.setState({ token: 'peer-rotated-token' });
+      rejectRefresh(new Error('network error'));
+
+      await expect(pending).resolves.toBe(true);
+      expect(useAuthStore.getState().token).toBe('peer-rotated-token');
+    });
+
+    it('still returns false when the token is unchanged after a failed refresh', async () => {
+      const { refreshAccessToken } = await import('@/api/auth');
+      vi.mocked(refreshAccessToken).mockRejectedValueOnce(new Error('boom'));
+
+      useAuthStore.setState({ token: 'unchanged-token', refreshToken: 'r' });
+
+      await expect(tryRefresh()).resolves.toBe(false);
+      expect(useAuthStore.getState().token).toBe('unchanged-token');
     });
   });
 
