@@ -2469,7 +2469,8 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     body on a GET is the defect being fixed.
 #   api/main.py 1499 -> 1558. fix(#1518 codex P2): +59 for
 #     `_document_unresolvable_credential_401`, which publishes the 401 that
-#     #1518 made normal runtime behaviour on every credential-aware anonymous
+#
+# 1518 made normal runtime behaviour on every credential-aware anonymous
 #     operation. Most of it is the docstring explaining why it targets all
 #     THREE optional dependencies while `_normalize_security_contract` targets
 #     two: a 401 RESPONSE is not a security REQUIREMENT, so the no-security-
@@ -2962,21 +2963,29 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1856 item 2): +9 for the conformance list in the API description.
     # It claimed the OAS 3.0 classes while the served document is OpenAPI 3.1,
     # and named three of the five families /api/conformance advertises. Cap
-    # 1903 -> 1912, exact.    # fix(#1847 review r3): +32 for one exception handler. A contended catalog
+    # 1903 -> 1912, exact.
+    # fix(#1847 review r3): +32 for one exception handler. A contended catalog
     # row was answered 409, 503 and 400 depending on which route reached the
     # acquisition; the helper now raises one domain exception and this is the
     # single place that maps it. The lines are the handler plus why it lives
-    # here rather than in four route bodies. Cap 1903 -> 1935, exact.    # fix(#1847): +32 for one exception handler. A contended catalog row was
+    # here rather than in four route bodies. Cap 1903 -> 1935, exact.
+    # fix(#1847): +32 for one exception handler. A contended catalog row was
     # answered 409, 503 and 400 depending on the route; the helper raises one
-    # domain exception and this maps it. Cap 1903 -> 1928, exact.    # domain exception and this maps it, with a machine-readable code now that
-    # it is the only shape a contended row produces. Cap 1903 -> 1930, exact.    # domain exception and this maps it, with a machine-readable code now that
+    # domain exception and this maps it. Cap 1903 -> 1928, exact.
+    # domain exception and this maps it, with a machine-readable code now that
+    # it is the only shape a contended row produces. Cap 1903 -> 1930, exact.
+    # domain exception and this maps it, with a machine-readable code now that
     # it is the only shape a contended row produces, from one shared constant.
-    # Cap 1903 -> 1933, exact.    # domain exception and this maps it, with a machine-readable code now that
+    # Cap 1903 -> 1933, exact.
+    # domain exception and this maps it, with a machine-readable code now that
     # it is the only shape a contended row produces, from one shared constant,
     # and answered at the boundary too: SET LOCAL lock_timeout outlives the
     # acquisition, so a later wait in the same request raises 55P03 from a
-    # statement no per-site translation wraps. Cap 1903 -> 1952, exact.    # statement no per-site translation wraps, gated on this request having
-    # installed that timeout. Cap 1903 -> 1954, exact.    "backend/app/api/main.py": 1954,
+    # statement no per-site translation wraps. Cap 1903 -> 1952, exact.
+    # statement no per-site translation wraps, gated on this request having
+    # installed that timeout. Cap 1903 -> 1954, exact.
+    # fix(#1847 rebase): re-measured on top of main. Cap 1963, exact.
+    "backend/app/api/main.py": 1963,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -3584,23 +3593,29 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `CancelledError` a worker shutdown delivers. It replaces two private
     # copies that had grown in tasks_vector.py and tasks_reupload.py, whose
     # bodies differed only in the task name in their docstrings.
-    # Cap 2551 -> 2581, exact.    # fix(#1847): +5 correcting `bump_tile_cache_version_atomic`'s docstring.
+    # Cap 2551 -> 2581, exact.
+    # fix(#1847): +5 correcting `bump_tile_cache_version_atomic`'s docstring.
     # It said the feature-edit routers "never lock the row", which stopped
     # being true when their metadata refresh started taking the datasets row
     # FOR UPDATE. The helper's conclusion is unchanged, its reason is not.
-    # Cap 2551 -> 2556, exact.    # Cap 2551 -> 2556, exact.
+    # Cap 2551 -> 2556, exact.
+    # Cap 2551 -> 2556, exact.
     # fix(#1847 review r1): +3. Every feature-write handler now locks, so the
     # note had to stop saying "not on every path" and give the real reason the
     # atomic helper is still needed: those handlers read the counter BEFORE
-    # they take the lock. Cap 2556 -> 2559, exact.    # they take the lock. Cap 2556 -> 2559, exact.
+    # they take the lock. Cap 2556 -> 2559, exact.
+    # they take the lock. Cap 2556 -> 2559, exact.
     # fix(#1847 review r2): +20. `_apply_reupload_swap` writes both catalog
     # rows and acquired nothing, so its flush took them records-first and could
     # deadlock against a request or a refresh holding the dataset row. The
     # lines are the acquisition plus why it passes `lock_timeout=None` (SET
     # LOCAL would clamp the rest of an ingest transaction to a request's
-    # budget). Cap 2559 -> 2579, exact.    # fix(#1847): +28. `_apply_reupload_swap` writes both catalog rows and
+    # budget). Cap 2559 -> 2579, exact.
+    # fix(#1847): +28. `_apply_reupload_swap` writes both catalog rows and
     # acquired nothing, and `bump_tile_cache_version_atomic`'s note had to stop
-    # saying the feature routers never lock. Cap 2551 -> 2571, exact.    "backend/app/processing/ingest/tasks_common.py": 2581,
+    # saying the feature routers never lock. Cap 2551 -> 2571, exact.
+    # fix(#1847 rebase): re-measured on top of main. Cap 2601, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2601,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -4572,13 +4587,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # 1600 -> 1628, exact.
     # fix(#1755 item 11): +12. Both task tails route every cleanup step
     # through `cleanup_step`: three in `ingest_vrt`, four in `regenerate_vrt`,
-    # which stops two heartbeats. Cap 1628 -> 1640, exact.    # fix(#1847 review r2): +19 making the publish transaction's datasets lock
+    # which stops two heartbeats. Cap 1628 -> 1640, exact.
+    # fix(#1847 review r2): +19 making the publish transaction's datasets lock
     # explicit. The asset SELECT joins Dataset under a plain FOR UPDATE, so the
     # row was already locked -- incidentally, as a property of the join, with
     # nothing saying so before the writes to dataset.record below.
-    # Cap 1628 -> 1647, exact.    # fix(#1847): +19 making the publish transaction's datasets lock explicit.
+    # Cap 1628 -> 1647, exact.
+    # fix(#1847): +19 making the publish transaction's datasets lock explicit.
     # The asset SELECT locks that row through its join, incidentally, with
-    # nothing saying so before the record writes. Cap 1628 -> 1641, exact.    "backend/app/processing/ingest/tasks_vrt.py": 1647,
+    # nothing saying so before the record writes. Cap 1628 -> 1641, exact.
+    # fix(#1847 rebase): re-measured on top of main. Cap 1653, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1653,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.
@@ -5144,13 +5163,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # issue fell back to a sequential scan. Cap 1104 -> 1128, exact.
     # fix(#1755 item 11): +2. The `finally` block's heartbeat stop routes
     # through `cleanup_step`, so a failure in it logs instead of replacing the
-    # refresh exception being propagated. Cap 1128 -> 1130, exact.    # fix(#1847): +12 comment lines on the phase 3 `FOR UPDATE`, recording that
+    # refresh exception being propagated. Cap 1128 -> 1130, exact.
+    # fix(#1847): +12 comment lines on the phase 3 `FOR UPDATE`, recording that
     # it is the first half of the house (datasets, records) lock order rather
     # than an incidental choice, and pointing at the docstring that states the
     # order. The feature-edit path used to take the records row first, which
     # made an ordinary edit during this phase an ABBA deadlock.
-    # Cap 1128 -> 1140, exact.    # fix(#1847): +12 recording that the phase 3 `FOR UPDATE` is the first half
-    # of the house (datasets, records) order. Cap 1128 -> 1132, exact.    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1140,
+    # Cap 1128 -> 1140, exact.
+    # fix(#1847): +12 recording that the phase 3 `FOR UPDATE` is the first half
+    # of the house (datasets, records) order. Cap 1128 -> 1132, exact.
+    # fix(#1847 rebase): re-measured on top of main. Cap 1134, exact.
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1134,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.
