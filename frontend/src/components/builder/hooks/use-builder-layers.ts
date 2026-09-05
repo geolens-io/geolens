@@ -602,10 +602,11 @@ export function useBuilderLayers(
     const bounds = getVisibleLayerBounds(layersRef.current);
     if (!map || !bounds) return;
     try {
-      map.fitBounds(bounds, { padding: 40, maxZoom: 18 });
-      // fix(#1877 codex round 3): mirrors BuilderMap's own auto-fit clamp —
-      // a wide union can land below zoom 2, where complex vector tiles fail
-      // to render (ST_AsMVT).
+      // fix(#1877 codex round 5): duration: 0 (matches BuilderMap's own
+      // auto-fit) makes fitBounds settle synchronously — omitting it made
+      // MapLibre animate via flyTo, so the clamp below read the zoom BEFORE
+      // the fit finished and never caught a wide fit landing below 2.
+      map.fitBounds(bounds, { padding: 40, maxZoom: 18, duration: 0 });
       clampMinZoomAfterFit(map);
     } catch {
       // Silently ignore invalid bounds (e.g. out-of-range coordinates)

@@ -283,6 +283,11 @@ describe('?add_dataset auto-zoom (#1854)', () => {
     });
 
     expect(fitBounds).toHaveBeenCalledTimes(1);
+    // fix(#1877 codex round 5): duration: 0 is what makes this fit settle
+    // synchronously — without it the mock (like real MapLibre's flyTo)
+    // would not have applied zoomAfterFit yet, and the clamp below would
+    // read the stale pre-fit zoom.
+    expect(fitBounds.mock.calls[0][1]).toMatchObject({ duration: 0 });
     expect(setZoom).toHaveBeenCalledWith(2);
   });
 });

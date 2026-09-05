@@ -105,14 +105,25 @@ export function makeMapLibreMock(
     sources?: string[];
     layers?: string[];
     styleLoaded?: boolean;
-    /** fix(#1877 codex round 3): getZoom() reading AFTER fitBounds — tests
-     * the same clampMinZoomAfterFit callers use. Defaults above 2 so
-     * existing callers that don't care about zoom see no setZoom(2) call. */
+    /** fix(#1877 codex round 3): the zoom getZoom() reports once a
+     * fitBounds({duration: 0}) call has genuinely settled synchronously.
+     * fix(#1877 codex round 5): a fitBounds call WITHOUT duration: 0 does
+     * NOT settle synchronously (MapLibre animates via flyTo) — getZoom()
+     * keeps reporting the pre-fit zoom until one that passes duration: 0
+     * runs, reproducing the race clampMinZoomAfterFit must guard against.
+     * Defaults above 2 so existing callers that don't care about zoom see
+     * no setZoom(2) call. */
     zoomAfterFit?: number;
   } = {},
 ): MaplibreMap {
   const sources = new Set(initial.sources ?? []);
   const layers = new Set(initial.layers ?? []);
+  let currentZoom = 10;
+  const fitBounds = vi.fn((_bounds: unknown, options?: { duration?: number }) => {
+    if (options?.duration === 0 && initial.zoomAfterFit !== undefined) {
+      currentZoom = initial.zoomAfterFit;
+    }
+  });
 
   return {
     getSource: vi.fn((id: string) =>
@@ -138,9 +149,9 @@ export function makeMapLibreMock(
     getStyle: vi.fn(() => ({ layers: [] })),
     moveLayer: vi.fn(),
     setLayerZoomRange: vi.fn(),
-    fitBounds: vi.fn(),
-    getZoom: vi.fn(() => initial.zoomAfterFit ?? 10),
-    setZoom: vi.fn(),
+    fitBounds,
+    getZoom: vi.fn(() => currentZoom),
+    setZoom: vi.fn((z: number) => { currentZoom = z; }),
     on: vi.fn(),
     off: vi.fn(),
     setTransformRequest: vi.fn(),
