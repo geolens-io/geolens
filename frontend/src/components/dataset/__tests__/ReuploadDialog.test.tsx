@@ -1,6 +1,6 @@
 import { act, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { render } from '@/test/test-utils';
 import {
   useReuploadDataset,
@@ -10,6 +10,7 @@ import {
 } from '@/components/dataset/hooks/use-dataset';
 import { useJobStatus, useUploadConfig } from '@/components/import/hooks/use-ingest';
 import { probeService } from '@/api/ingest';
+import { getDataset } from '@/api/datasets';
 import { ApiError } from '@/api/client';
 import { queryKeys } from '@/lib/query-keys';
 import { ReuploadDialog } from '../ReuploadDialog';
@@ -47,6 +48,7 @@ vi.mock('@/api/ingest', () => ({
 
 vi.mock('@/api/datasets', () => ({
   reuploadPresigned: vi.fn(),
+  getDataset: vi.fn(),
 }));
 
 vi.mock('sonner', () => ({
@@ -64,6 +66,7 @@ const mockUseReuploadCommit = vi.mocked(useReuploadCommit);
 const mockUseUploadConfig = vi.mocked(useUploadConfig);
 const mockUseJobStatus = vi.mocked(useJobStatus);
 const mockProbeService = vi.mocked(probeService);
+const mockGetDataset = vi.mocked(getDataset);
 
 const uploadMutateAsync = vi.fn();
 const previewMutateAsync = vi.fn();
@@ -617,7 +620,7 @@ describe('ReuploadDialog', () => {
       defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
     });
     let resolveRefetch: () => void = () => {};
-    const refetch = vi.spyOn(queryClient, 'refetchQueries').mockImplementation(
+    const fetchQuery = vi.spyOn(queryClient, 'fetchQuery').mockImplementation(
       () =>
         new Promise((resolve) => {
           resolveRefetch = () => resolve(undefined);
@@ -644,10 +647,11 @@ describe('ReuploadDialog', () => {
       expect(retryButton).toBeDisabled();
     });
     expect(retryButton).toHaveTextContent('Refreshing...');
-    expect(refetch).toHaveBeenCalledWith(
-      { queryKey: queryKeys.datasets.detail('dataset-1') },
-      { throwOnError: true },
-    );
+    expect(fetchQuery).toHaveBeenCalledWith({
+      queryKey: queryKeys.datasets.detail('dataset-1'),
+      queryFn: expect.any(Function),
+      staleTime: 0,
+    });
 
     // A click while disabled must not proceed — retrying now would still
     // send the stale prop's origin.
@@ -675,7 +679,7 @@ describe('ReuploadDialog', () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
     });
-    vi.spyOn(queryClient, 'refetchQueries').mockRejectedValue(new Error('network error'));
+    vi.spyOn(queryClient, 'fetchQuery').mockRejectedValue(new Error('network error'));
 
     rtlRender(
       <QueryClientProvider client={queryClient}>
@@ -715,7 +719,7 @@ describe('ReuploadDialog', () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
     });
-    const refetch = vi.spyOn(queryClient, 'refetchQueries').mockResolvedValue(undefined);
+    const fetchQuery = vi.spyOn(queryClient, 'fetchQuery').mockResolvedValue(undefined);
 
     rtlRender(
       <QueryClientProvider client={queryClient}>
@@ -736,7 +740,7 @@ describe('ReuploadDialog', () => {
     const retryButton = screen.getByTestId('reupload-try-again');
     expect(retryButton).not.toBeDisabled();
     expect(retryButton).toHaveTextContent('Try Again');
-    expect(refetch).not.toHaveBeenCalled();
+    expect(fetchQuery).not.toHaveBeenCalled();
   });
 
   // fix(#1822 review P2): DatasetPage always renders ReuploadDialog and only
@@ -759,7 +763,7 @@ describe('ReuploadDialog', () => {
     });
     let settleFirst: () => void = () => {};
     let settleSecond: () => void = () => {};
-    vi.spyOn(queryClient, 'refetchQueries')
+    vi.spyOn(queryClient, 'fetchQuery')
       .mockImplementationOnce(
         () =>
           new Promise((_resolve, reject) => {
@@ -819,6 +823,62 @@ describe('ReuploadDialog', () => {
     settleSecond();
     await waitFor(() => expect(retryButton).not.toBeDisabled());
     expect(retryButton).toHaveTextContent('Try Again');
+  });
+
+  // fix(#1822 review P2 round 2): retry stays disabled through an offline
+  // pause. Real QueryClient/fetchQuery (no spy) to exercise TanStack
+  // Query's own pause/resume.
+  it('keeps "Try Again" disabled while offline, then enables it once reconnecting lets the fetch land', async () => {
+    const user = userEvent.setup();
+    commitMutateAsync.mockRejectedValueOnce(
+      new ApiError('This dataset’s source changed', 409, {
+        code: 'origin_changed',
+        origin_kind: 'service',
+        expected_origin_kind: 'upload',
+      }),
+    );
+    mockGetDataset.mockResolvedValue({ ...makeDataset(), origin: 'upload' });
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+    });
+
+    try {
+      onlineManager.setOnline(false);
+
+      rtlRender(
+        <QueryClientProvider client={queryClient}>
+          <ReuploadDialog
+            dataset={{ ...makeDataset(), origin: 'upload' }}
+            open
+            onOpenChange={vi.fn()}
+          />
+        </QueryClientProvider>,
+      );
+
+      await openFileSource(user);
+      await dropFile();
+      await screen.findByRole('button', { name: 'Confirm Re-Upload' });
+      await user.click(screen.getByRole('button', { name: 'Confirm Re-Upload' }));
+
+      const retryButton = await screen.findByTestId('reupload-try-again');
+      await waitFor(() => expect(retryButton).toBeDisabled());
+      // Paused: the fetch never actually runs while offline.
+      expect(mockGetDataset).not.toHaveBeenCalled();
+      expect(
+        screen.queryByText(
+          "Could not refresh the dataset's info after this conflict. Reload the page and try again.",
+        ),
+      ).not.toBeInTheDocument();
+
+      onlineManager.setOnline(true);
+
+      await waitFor(() => expect(retryButton).not.toBeDisabled());
+      expect(mockGetDataset).toHaveBeenCalled();
+      expect(retryButton).toHaveTextContent('Try Again');
+    } finally {
+      onlineManager.setOnline(true);
+    }
   });
 });
 

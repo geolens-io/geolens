@@ -37,7 +37,7 @@ import { Globe, Loader2, CheckCircle2, AlertCircle, Upload } from 'lucide-react'
 import { toast } from 'sonner';
 import { probeService } from '@/api/ingest';
 import { ApiError } from '@/api/client';
-import { reuploadPresigned } from '@/api/datasets';
+import { reuploadPresigned, getDataset } from '@/api/datasets';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { formatNumber } from '@/lib/format';
 import type {
@@ -500,17 +500,18 @@ export function ReuploadDialog({
       );
       setStep('error');
 
-      // fix(#1768, #1822): origin_changed means `dataset.origin` is stale;
-      // await a refetch (throwOnError) before re-enabling retry so it can't
-      // resend the same stale value.
+      // fix(#1768, #1822): dataset.origin is stale; wait for a landed fetch
+      // (fetchQuery, not refetchQueries, which resolves early when paused)
+      // before re-enabling retry.
       if (isOriginChangedError(err)) {
         const generation = ++refreshGenerationRef.current;
         setIsRefreshingOrigin(true);
         try {
-          await queryClient.refetchQueries(
-            { queryKey: queryKeys.datasets.detail(dataset.id) },
-            { throwOnError: true },
-          );
+          await queryClient.fetchQuery({
+            queryKey: queryKeys.datasets.detail(dataset.id),
+            queryFn: () => getDataset(dataset.id),
+            staleTime: 0,
+          });
         } catch {
           // fix(#1822 review P2): a reset (dialog closed) or a newer attempt
           // bumped the generation — this completion is orphaned, ignore it.
