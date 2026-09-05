@@ -1491,7 +1491,8 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     facade_line_budgets = {
         "backend/app/modules/catalog/maps/service.py": 100,
         "backend/app/modules/catalog/search/service.py": 80,
-        "backend/app/modules/catalog/datasets/domain/service.py": 110,
+        # fix(#1847): +2, sample_example_values re-exported. Cap 110 -> 112, exact.
+        "backend/app/modules/catalog/datasets/domain/service.py": 112,
         # Phase 276 CODE-02 — chat_service.py is now a facade re-exporting
         # from chat_*.py sub-modules. 400 was the established Phase-226 cap
         # for facade modules that retain a meaty orchestrator + system-prompt
@@ -1869,7 +1870,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # case that reaches it is a service preview whose collection size the
         # service never published.
         # fix(#1847): the lock order, its gate and its 409 mapping. Cap 507, exact.
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 507,
+        # fix(#1847): +12. sample_example_values reads the data table on its own so
+        # the reset can sample before it takes the pair. Cap 507 -> 519, exact.
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 519,
         # fix(#435 codex r1): +6 LOC in get_dataset_rows to probe schema existence
         # before degrading a 42P01 to an empty page. Postgres reports a missing
         # tenant data schema with the same code as a raster dataset's synthetic

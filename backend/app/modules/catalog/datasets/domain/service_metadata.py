@@ -32,6 +32,7 @@ __all__ = [
     "get_attribute",
     "list_attributes",
     "reset_attribute",
+    "sample_example_values",
     "update_attribute",
     "update_user_metadata",
 ]
@@ -441,21 +442,70 @@ async def update_attribute(
     return attr
 
 
+_UNSAMPLED = object()
+
+
+async def sample_example_values(
+    session: AsyncSession, table_name: str, col_name: str, data_type: str | None
+) -> list | None:
+    """Up to ten distinct non-null values of one column, or None.
+
+    Reads the data table, so call it BEFORE the catalog pair is locked: every
+    column DDL holds its ALTER TABLE before taking the pair (#1847). None for a
+    geometry column, an unsafe name, or any query failure; the read runs in a
+    savepoint so a failure leaves the transaction usable.
+    """
+    if not data_type or "geometry" in data_type.lower():
+        return None
+    if not (
+        SAFE_TABLE_NAME_RE.match(col_name) and SAFE_TABLE_NAME_RE.match(table_name)
+    ):
+        return None
+    try:
+        table_ref = get_catalog_port().quote_table(table_name)
+        async with session.begin_nested():
+            result = await session.execute(
+                text(
+                    f"SELECT DISTINCT {col_name}::text AS val "
+                    f"FROM (SELECT {col_name} FROM {table_ref} "
+                    f"WHERE {col_name} IS NOT NULL LIMIT 1000) sub LIMIT 10"
+                )
+            )
+            values = [row[0] for row in result.all() if row[0] is not None]
+    except Exception:  # broad: example-value sampling is best-effort; any DB error degrades to no examples
+        logger.warning(
+            "Failed to sample example_values for %s.%s",
+            table_name,
+            col_name,
+            exc_info=True,
+        )
+        return None
+    return values if values else None
+
+
 async def reset_attribute(
-    session: AsyncSession, attribute_id: uuid.UUID, table_name: str
+    session: AsyncSession,
+    attribute_id: uuid.UUID,
+    table_name: str,
+    *,
+    example_values: Any = _UNSAMPLED,
 ) -> AttributeMetadata:
     """Reset attribute metadata to auto-populated values.
 
-    Re-infers title, semantic_role, domain_type, units from field_name/data_type.
-    Re-samples example_values from the data table.
-    Clears user_modified_fields and description.
-    Raises ValueError if attribute not found.
+    Re-infers title, semantic_role, domain_type, units from field_name/data_type
+    and clears user_modified_fields and description. `example_values` is the
+    result of `sample_example_values`; a caller that holds the catalog pair must
+    have sampled before taking it, since sampling reads the data table (#1847).
+    Left unset, this samples first. Raises ValueError if attribute not found.
     """
     attr = await get_attribute(session, attribute_id)
     if attr is None:
         raise ValueError("Attribute not found")
+    if example_values is _UNSAMPLED:
+        example_values = await sample_example_values(
+            session, table_name, attr.field_name, attr.data_type
+        )
 
-    # Re-compute inferred values
     port = get_catalog_port()
     attr.title = port.humanize_column_name(attr.field_name)
     attr.semantic_role = port.infer_semantic_role(attr.field_name, attr.data_type or "")
@@ -463,43 +513,7 @@ async def reset_attribute(
     attr.units = port.infer_units(attr.field_name)
     attr.description = None
     attr.user_modified_fields = []
-
-    # Re-sample example_values from data table. Default to None on every
-    # rejected/error path so the inverted guards stay flat.
-    attr.example_values = None
-    col_name = attr.field_name
-
-    if not attr.data_type or "geometry" in attr.data_type.lower():
-        await session.flush()
-        return attr
-
-    if not (
-        SAFE_TABLE_NAME_RE.match(col_name) and SAFE_TABLE_NAME_RE.match(table_name)
-    ):
-        await session.flush()
-        return attr
-
-    try:
-        table_ref = port.quote_table(table_name)
-        result = await session.execute(
-            text(
-                f"SELECT DISTINCT {col_name}::text AS val "
-                f"FROM (SELECT {col_name} FROM {table_ref} "
-                f"WHERE {col_name} IS NOT NULL LIMIT 1000) sub LIMIT 10"
-            )
-        )
-        values = [row[0] for row in result.all() if row[0] is not None]
-        attr.example_values = values if values else None
-    except Exception:  # broad: example-value sampling is best-effort; any DB error degrades to no examples
-        # Sampling is best-effort; don't fail the reset because we
-        # couldn't gather example values, but do log so operators can
-        # notice if this breaks consistently (RES-N9).
-        logger.warning(
-            "Failed to sample example_values for %s.%s",
-            table_name,
-            col_name,
-            exc_info=True,
-        )
+    attr.example_values = example_values
 
     await session.flush()
     return attr

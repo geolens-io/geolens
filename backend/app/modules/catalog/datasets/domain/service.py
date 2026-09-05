@@ -54,6 +54,7 @@ from app.modules.catalog.datasets.domain.service_metadata import (
     get_attribute,
     list_attributes,
     reset_attribute,
+    sample_example_values,
     update_attribute,
     update_user_metadata,
 )
@@ -103,6 +104,7 @@ __all__ = [
     "list_relationships",
     "list_relationships_with_total",
     "reset_attribute",
+    "sample_example_values",
     "resolve_source_feature_count",
     "run_analysis_preview",
     "update_attribute",

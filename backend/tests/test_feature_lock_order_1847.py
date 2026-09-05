@@ -236,6 +236,23 @@ async def _holds_attribute_lock(probe, attribute_id: uuid.UUID) -> bool:
     return False
 
 
+async def _await_relation_waiter(probe, table_name: str) -> None:
+    """Block until somebody is queued on a lock of ``data.<table_name>``."""
+    for _ in range(_BARRIER_POLLS):
+        waiters = await probe.scalar(
+            text(
+                "SELECT count(*) FROM pg_locks WHERE NOT granted "
+                "AND locktype = 'relation' AND relation = to_regclass(:rel)"
+            ),
+            {"rel": f"data.{table_name}"},
+        )
+        await probe.rollback()
+        if waiters:
+            return
+        await asyncio.sleep(_BARRIER_INTERVAL_SECONDS)
+    raise AssertionError(f"nobody queued on data.{table_name}")
+
+
 class TestLockOrderAgainstRefreshPhaseThree:
     """The request must reach for the datasets row before the records row."""
 
@@ -936,6 +953,83 @@ class TestAttributeEditsTakeThePairToo:
             assert calls["lock_catalog_rows_for_write"] < calls[writer], (
                 f"{handler} writes the attribute row before taking the pair"
             )
+        reset_calls = seen["reset_attribute_endpoint"]
+        assert "sample_example_values" in reset_calls
+        assert (
+            reset_calls["sample_example_values"]
+            < reset_calls["lock_catalog_rows_for_write"]
+        ), "reset_attribute_endpoint reads the data table after taking the pair"
+
+    async def test_reset_holds_no_catalog_row_while_waiting_for_the_table(
+        self,
+        locked_dataset,
+        client: AsyncClient,
+        test_db_session,
+        admin_auth_header,
+        monkeypatch,
+    ):
+        """The reset samples the data table; a DDL holds that table before it
+        takes the pair, so the reset must reach for the table holding nothing.
+        """
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "60s")
+
+        import app.core.db as db_module
+        from app.modules.catalog.datasets.domain.models import AttributeMetadata
+
+        attr = AttributeMetadata(
+            dataset_id=locked_dataset.id,
+            field_name="name",
+            title="Name",
+            data_type="text",
+        )
+        test_db_session.add(attr)
+        await test_db_session.commit()
+        await test_db_session.refresh(attr)
+
+        async with (
+            db_module.async_session() as holder,
+            db_module.async_session() as probe,
+        ):
+            # A column DDL's first lock, held until its transaction ends.
+            await holder.execute(
+                text(
+                    f"LOCK TABLE data.{locked_dataset.table_name} "
+                    "IN ACCESS EXCLUSIVE MODE"
+                )
+            )
+            reset = asyncio.create_task(
+                client.post(
+                    f"/datasets/{locked_dataset.id}/attributes/{attr.id}/reset/",
+                    headers=admin_auth_header,
+                )
+            )
+            try:
+                await _await_relation_waiter(probe, locked_dataset.table_name)
+                assert not await _holds_record_lock(probe, locked_dataset.record_id), (
+                    "the attribute reset is parked on the data table while "
+                    "holding the catalog pair, which deadlocks against a column "
+                    "DDL holding the table and taking the pair next."
+                )
+                # The DDL's next step; NOWAIT so a held pair fails instead of
+                # deadlocking the test itself.
+                await holder.execute(
+                    select(Dataset.tile_cache_version)
+                    .where(Dataset.id == locked_dataset.id)
+                    .with_for_update(nowait=True)
+                )
+                await holder.execute(
+                    select(Record.id)
+                    .where(Record.id == locked_dataset.record_id)
+                    .with_for_update(nowait=True)
+                )
+                await holder.commit()
+            except BaseException:
+                await holder.rollback()
+                raise
+            response = await reset
+
+        assert response.status_code == 200, response.text
+        assert response.json()["example_values"] == ["seed"]
 
 
 class TestOneAnswerForAContendedRow:
