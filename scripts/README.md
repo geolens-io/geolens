@@ -84,7 +84,7 @@ needs the `upload` and `export` capabilities on the seeding account.
 | Script | Purpose |
 |--------|---------|
 | `install.sh` | First-run installer (see below) |
-| `preflight-env.sh` | Statically validate `.env` (JWT secret, admin creds) before boot via `make preflight` / `make dev` |
+| `preflight-env.sh` | Validate the boot-required settings (JWT secret, admin creds, encryption key shape) as Compose will resolve them, shell environment first and then `.env`, via `make preflight` / `make dev` |
 | `check-env.sh` | Probe the running stack's env, DB connectivity, and GDAL via `make doctor` (requires the stack up) |
 | `init-db.sh` | Initialize the PostGIS database schema (mounted into the db container's init) |
 | `init-test-db.sh` | Initialize a host-accessible `geolens_test` database (extensions, schemas, roles) for local `psql` debugging. Not used by CI. CI and pytest each bootstrap their own test databases. |
