@@ -1,8 +1,7 @@
 """Let PostgreSQL enforce one settled audit row per ArcGIS sign-in attempt.
 
-fix(#1889). The sign-in settle finaliser deduplicated on ``attempt_id`` with a
-SELECT before its INSERT, and a commit the cancellation interrupted can become
-visible between the two. The invariant belongs in the schema, as in 0051.
+fix(#1889): one settled row per ``attempt_id`` is a schema invariant, as in
+0051, not a read-then-write in the finaliser.
 
 The predicate pins ``action = 'arcgis_signin'`` and a present ``attempt_id``,
 so no other audit action is constrained, and rows written before #1887 carry
