@@ -1104,6 +1104,116 @@ class TestExportWhereColonLiteral:
         assert resp.status_code == 413
 
 
+# ---------------------------------------------------------------------------
+# Word-shaped literal inside a where filter — fix(#1870)
+# ---------------------------------------------------------------------------
+
+
+class TestExportWhereWordLiteral:
+    """fix(#1870): the identifier walk in validate_where_clause ran over the
+    raw clause, so `name = 'Main Street'` was refused with "Unknown column:
+    Main" and text filtering was unusable through every export door.
+
+    The cap is lowered so the bounded filtered COUNT executes against a real
+    table, which is what proves the clause is applied rather than dropped.
+    """
+
+    @pytest.fixture
+    async def capped_word_dataset(self, test_db_session, monkeypatch):
+        """Real 3-row table whose varchar values are ordinary words."""
+        from sqlalchemy import text
+
+        from app.processing.export import router as export_router
+
+        monkeypatch.setattr(export_router, "_MAX_EXPORT_FEATURES", 2)
+
+        table_name = f"exp_word_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table_name} "
+                "(gid serial PRIMARY KEY, name varchar, "
+                "geom geometry(Point, 4326), geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table_name} (name, geom, geom_4326) VALUES "
+                "(:n1, ST_SetSRID(ST_MakePoint(0, 0), 4326), "
+                " ST_SetSRID(ST_MakePoint(0, 0), 4326)), "
+                "(:n2, ST_SetSRID(ST_MakePoint(1, 1), 4326), "
+                " ST_SetSRID(ST_MakePoint(1, 1), 4326)), "
+                "(:n3, ST_SetSRID(ST_MakePoint(2, 2), 4326), "
+                " ST_SetSRID(ST_MakePoint(2, 2), 4326))"
+            ).bindparams(n1="Main Street", n2="Elm Avenue", n3="O'Brien Park")
+        )
+        await test_db_session.commit()
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="WordWhereDS",
+            table_name=table_name,
+            geometry_type="Point",
+            feature_count=3,
+            column_info=[
+                {"name": "gid", "type": "integer"},
+                {"name": "name", "type": "varchar"},
+            ],
+        )
+        yield ds
+        await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}"))
+        await test_db_session.commit()
+
+    @pytest.mark.anyio
+    async def test_word_literal_with_a_space_exports(
+        self, client: AsyncClient, admin_auth_header: dict, capped_word_dataset
+    ):
+        """Selects 1 of 3 rows, under the cap of 2. This 400'd before #1870."""
+        resp = await client.get(
+            f"/datasets/{capped_word_dataset.id}/export",
+            params={"where": "name = 'Main Street'"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+
+    @pytest.mark.anyio
+    async def test_escaped_quote_literal_exports(
+        self, client: AsyncClient, admin_auth_header: dict, capped_word_dataset
+    ):
+        resp = await client.get(
+            f"/datasets/{capped_word_dataset.id}/export",
+            params={"where": "name = 'O''Brien Park'"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+
+    @pytest.mark.anyio
+    async def test_word_literal_selecting_over_cap_413(
+        self, client: AsyncClient, admin_auth_header: dict, capped_word_dataset
+    ):
+        """A word literal that fails to narrow the selection still hits the
+        cap's 413, so the clause is executed rather than silently dropped."""
+        resp = await client.get(
+            f"/datasets/{capped_word_dataset.id}/export",
+            params={"where": "name != 'Nowhere Road'"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 413
+
+    @pytest.mark.anyio
+    async def test_unknown_column_beside_a_literal_still_400(
+        self, client: AsyncClient, admin_auth_header: dict, capped_word_dataset
+    ):
+        resp = await client.get(
+            f"/datasets/{capped_word_dataset.id}/export",
+            params={"where": "name = 'Main Street' AND nope = 1"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+        assert "nope" in resp.text
+
+
 class TestPmtilesMaxzoomForExtent:
     """fix(#1686 codex r1): the PMTiles writer materializes the whole pyramid,
     so MAXZOOM is budgeted from extent instead of fixed at 14."""

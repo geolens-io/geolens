@@ -13,7 +13,10 @@ from app.core.async_io import run_in_thread_draining
 from app.core.config import settings
 from app.core.csv_safety import numeric_column_names
 from app.processing.export.ogr import FORMAT_MAP, run_ogr2ogr_export
-from app.processing.export.where_validator import validate_where_ast
+from app.processing.export.where_validator import (
+    mask_quoted_literals,
+    validate_where_ast,
+)
 from app.core.runtime.staging import ensure_staging_ready
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -388,7 +391,10 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
     # aren't in this dataset's column_info, even if they parse cleanly.
     valid_names = {col["name"].lower() for col in column_info}
 
-    identifiers = _IDENTIFIER_RE.findall(where)
+    # fix(#1870): the walk reads the code around the values, never the values.
+    # A quoted literal is never a column reference, so masking it here cannot
+    # admit an unknown column before, after or between literals.
+    identifiers = _IDENTIFIER_RE.findall(mask_quoted_literals(where))
     for ident in identifiers:
         upper = ident.upper()
         if upper in _SQL_KEYWORDS:

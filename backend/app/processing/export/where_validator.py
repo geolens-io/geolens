@@ -23,6 +23,8 @@ Allowed WHERE expression types (deny-by-default — anything not in this tuple r
 
 from __future__ import annotations
 
+import re
+
 import sqlglot
 from sqlglot import exp
 
@@ -155,3 +157,27 @@ def canonical_where(where: str) -> str:
     wrapped = f"SELECT 1 FROM _t WHERE {where}"
     statements = sqlglot.parse(wrapped, dialect="postgres")
     return statements[0].args["where"].this.sql(dialect="postgres")
+
+
+# A single-quoted SQL string literal, '' being the embedded-quote escape. The
+# two branches are disjoint on their first character, so the scan is linear.
+_QUOTED_LITERAL_RE = re.compile(r"'(?:[^']|'')*'")
+
+
+def mask_quoted_literals(where: str) -> str:
+    """Blank every single-quoted literal in ``where``, preserving its length.
+
+    A caller that scans the clause for code (an identifier walk, a token
+    classifier) must not read the values as code. Each literal becomes a run
+    of spaces of the same width, so two identifiers separated by a literal
+    cannot fuse into a third.
+
+    Args:
+        where: SQL WHERE-clause fragment.
+
+    Returns:
+        The fragment with literal contents replaced by spaces. Trailing text
+        after an unterminated quote is returned unchanged; callers reject an
+        unbalanced clause before masking.
+    """
+    return _QUOTED_LITERAL_RE.sub(lambda match: " " * len(match.group(0)), where)

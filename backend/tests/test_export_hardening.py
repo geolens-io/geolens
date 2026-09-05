@@ -20,6 +20,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.processing.export.service import validate_where_clause
+from app.processing.export.where_validator import mask_quoted_literals
 from app.processing.export.ogr import FORMAT_MAP
 
 from tests.factories import create_dataset, get_user_id
@@ -74,10 +75,9 @@ class TestWhereClauseInjectionRejection:
         IA-P1-04 checks (statement terminator / comment / unbalanced quote)
         and the v1014 SEC-S09 AST allowlist.
 
-        Note: the identifier regex inside validate_where_clause may flag
-        text-inside-quotes as a candidate identifier (pre-existing v1014
-        behavior, out of IA-P1-04 scope). To exercise just the IA-P1-04
-        layer we use a quoted value that doesn't look like an identifier."""
+        fix(#1870): word-shaped values are covered by
+        TestWhereClauseStringLiterals below; these two stay as the
+        numeric-shaped IA-P1-04 cases they were written as."""
         # Numeric-only string (passes identifier check, passes IA-P1-04).
         validate_where_clause("name = '42'", COLS)
         # SQL-escaped doubled quote — IA-P1-04 must accept (collapses to even).
@@ -86,6 +86,114 @@ class TestWhereClauseInjectionRejection:
     def test_numeric_comparison_accepted(self):
         validate_where_clause("pop > 1000", COLS)
         validate_where_clause("pop BETWEEN 100 AND 200", COLS)
+
+
+# ---------------------------------------------------------------------------
+# fix(#1870): a string VALUE is not a column reference
+# ---------------------------------------------------------------------------
+
+
+class TestWhereClauseStringLiterals:
+    """The identifier walk reads the code around the values, never the values.
+
+    Before #1870 it ran over the raw clause, so any quoted value containing a
+    word was refused as an unknown column and text filtering was unusable.
+    Every case here raised ValueError on main.
+    """
+
+    def test_literal_containing_a_space_accepted(self):
+        assert (
+            validate_where_clause("name = 'Main Street'", COLS)
+            == "name = 'Main Street'"
+        )
+
+    def test_literal_in_like_pattern_accepted(self):
+        validate_where_clause("pop > 10 AND name LIKE 'Water%'", COLS)
+
+    def test_literal_equal_to_a_sql_keyword_accepted(self):
+        validate_where_clause("name = 'SELECT'", COLS)
+        validate_where_clause("name = 'DROP TABLE'", COLS)
+
+    def test_literal_naming_a_foreign_column_accepted(self):
+        """A value that happens to be some other dataset's column name is a
+        value here, not a reference to a column this dataset does not have."""
+        validate_where_clause("name = 'elevation'", COLS)
+
+    def test_literal_naming_this_datasets_own_column_accepted(self):
+        validate_where_clause("name = 'country'", COLS)
+
+    def test_escaped_quote_in_literal_accepted(self):
+        validate_where_clause("name = 'O''Brien Park'", COLS)
+
+    def test_empty_literal_accepted(self):
+        validate_where_clause("name = ''", COLS)
+
+    def test_in_list_of_literals_accepted(self):
+        validate_where_clause("name IN ('Main Street', 'Elm Ave')", COLS)
+
+    # --- counterfactuals: nothing outside a literal got looser -------------
+
+    def test_unknown_column_after_a_literal_still_refused(self):
+        with pytest.raises(ValueError, match="Unknown column: nope"):
+            validate_where_clause("name = 'x' AND nope = 1", COLS)
+
+    def test_unknown_column_before_a_literal_still_refused(self):
+        with pytest.raises(ValueError, match="Unknown column: nope"):
+            validate_where_clause("nope = 'Main Street'", COLS)
+
+    def test_unknown_column_between_two_literals_still_refused(self):
+        with pytest.raises(ValueError, match="Unknown column: nope"):
+            validate_where_clause("name = 'a' AND nope = 'b' AND pop > 1", COLS)
+
+    def test_terminator_inside_a_literal_still_refused(self):
+        """The meta-SQL checks deliberately run over the RAW clause, so a ';'
+        is refused wherever it appears. Narrowing them to code-only would be a
+        separate change with its own review."""
+        with pytest.raises(ValueError, match="terminator"):
+            validate_where_clause("name = 'a;b'", COLS)
+
+    def test_line_comment_inside_a_literal_still_refused(self):
+        with pytest.raises(ValueError, match="comment"):
+            validate_where_clause("name = 'a--b'", COLS)
+
+    def test_unbalanced_quote_still_refused(self):
+        with pytest.raises(ValueError, match="quote"):
+            validate_where_clause("name = 'Main Street", COLS)
+
+    def test_ast_gate_still_runs_before_the_walk(self):
+        with pytest.raises(ValueError) as exc:
+            validate_where_clause("name = 'a' OR 1=1 UNION SELECT 1", COLS)
+        assert "unknown column" not in str(exc.value).lower()
+
+    def test_identifiers_split_by_a_literal_do_not_fuse(self):
+        """Masking preserves width, so `na'x'me` cannot become the column
+        `name`. The AST gate rejects this shape first; the assertion is that
+        no layer accepts it."""
+        with pytest.raises(ValueError):
+            validate_where_clause("na'x'me = 1", COLS)
+
+
+class TestMaskQuotedLiterals:
+    """Unit contract of the masking helper the walk runs through."""
+
+    def test_masking_preserves_length(self):
+        where = "name = 'Main Street' AND pop > 1"
+        assert len(mask_quoted_literals(where)) == len(where)
+
+    def test_literal_contents_are_blanked(self):
+        assert mask_quoted_literals("name = 'Main Street'") == "name = " + " " * 13
+
+    def test_escaped_quote_consumed_as_one_literal(self):
+        assert mask_quoted_literals("name = 'O''Brien'") == "name = " + " " * 10
+
+    def test_code_between_literals_survives(self):
+        assert mask_quoted_literals("'a' AND nope = 'b'") == "    AND nope =    "
+
+    def test_empty_literal_blanked(self):
+        assert mask_quoted_literals("name = ''") == "name =   "
+
+    def test_no_literal_is_a_no_op(self):
+        assert mask_quoted_literals("pop > 1000") == "pop > 1000"
 
 
 # ---------------------------------------------------------------------------
