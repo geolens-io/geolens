@@ -83,6 +83,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 import xml.parsers.expat
 from collections.abc import Callable
@@ -1201,21 +1202,8 @@ def _parsed_json(body: bytes) -> object:
 _WFS_SCHEMA_BATCH = 50
 _MAX_WFS_SCHEMA_READS = 50
 _WFS_DEFAULT_VERSION = "1.0.0"
-# What the driver replaces or drops on the URL it builds, whatever their case.
-_WFS_DESCRIBE_DROPPED_KEYS = frozenset(
-    {
-        "service",
-        "version",
-        "request",
-        "typename",
-        "typenames",
-        "propertyname",
-        "maxfeatures",
-        "count",
-        "filter",
-        "outputformat",
-    }
-)
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+_C_INT_PREFIX = re.compile(r"\s*([+-]?\d+)")
 
 
 def _xml_value(element: Element, name: str) -> str | None:
@@ -1294,28 +1282,97 @@ def _wfs_layer_name(names: list[str], requested: str) -> str | None:
     return None
 
 
-def _describe_feature_type_url(url: str, version: str, names: list[str]) -> str:
-    """The DescribeFeatureType URL the driver builds from the submitted URL.
+def _url_get_value(url: str, key: str) -> str:
+    """``CPLURLGetValue`` (GDAL 3.10.3): the raw value of the first
+    case-insensitive ``KEY=`` that follows ``?`` or ``&``, else empty."""
+    needle = f"{key}=".translate(_ASCII_LOWER)
+    position = url.translate(_ASCII_LOWER).find(needle)
+    if position > 0 and url[position - 1] in "?&":
+        value = url[position + len(needle) :]
+        separator = value.find("&")
+        return value if separator == -1 else value[:separator]
+    return ""
 
-    The caller's own parameters survive; the ones the driver sets or drops are
-    replaced whatever their case, and the type names are joined by commas.
-    ``url`` is the caller's own submission, never a value read out of a
-    response, so its query is unbounded for the reason `_capabilities_url`
-    gives.
+
+def _url_add_kvp(url: str, key: str, value: str | None) -> str:
+    """``CPLURLAddKVP`` (GDAL 3.10.3), byte for byte.
+
+    The first case-insensitive ``KEY=`` that follows ``?`` or ``&`` is
+    replaced in place with the driver's own spelling, or removed when
+    ``value`` is None; an absent key is appended. Every other byte of the
+    URL is left as submitted, and a URL with no query gains its ``?``.
     """
-    parsed = urlparse(url)
-    pairs = parse_qsl(parsed.query, keep_blank_values=True)  # parse_qs: unbounded
-    query = [(k, v) for k, v in pairs if k.lower() not in _WFS_DESCRIBE_DROPPED_KEYS]
-    query.extend(
-        [
-            ("SERVICE", "WFS"),
-            ("VERSION", version),
-            ("REQUEST", "DescribeFeatureType"),
-            ("TYPENAME", ",".join(names)),
-        ]
-    )
-    encoded = urlencode(query, safe=":,", quote_via=quote)
-    return urlunparse(parsed._replace(query=encoded))
+    if "?" not in url:
+        url += "?"
+    needle = f"{key}=".translate(_ASCII_LOWER)
+    position = url.translate(_ASCII_LOWER).find(needle)
+    if position > 0 and url[position - 1] in "?&":
+        rebuilt = url[:position]
+        if value is not None:
+            rebuilt += f"{key}={value}"
+        separator = url.find("&", position)
+        if separator != -1:
+            rest = url[separator:]
+            rebuilt += rest[1:] if rebuilt[-1] in "&?" else rest
+        return rebuilt
+    if value is None:
+        return url
+    if url[-1] not in "&?":
+        url += "&"
+    return f"{url}{key}={value}"
+
+
+def _wfs_escape(value: str) -> str:
+    """``WFS_EscapeURL``: ASCII letters and digits, ``_``, ``.``, ``:`` and
+    ``,`` pass; every other byte is percent-encoded."""
+    escaped: list[str] = []
+    for byte in value.encode("utf-8"):
+        char = chr(byte)
+        if (byte < 128 and char.isalnum()) or char in "_.:,":
+            escaped.append(char)
+        else:
+            escaped.append(f"%{byte:02X}")
+    return "".join(escaped)
+
+
+def _wfs_base_url(url: str, version: str) -> str:
+    """The base URL the driver holds after opening a WFS: for a version whose
+    leading integer is 2 or more, a ``MAXFEATURES`` with no ``COUNT`` beside it
+    is rewritten to ``COUNT``; everything else is the submitted URL."""
+    match = _C_INT_PREFIX.match(version)
+    if match is None or int(match.group(1)) < 2 or _url_get_value(url, "COUNT"):
+        return url
+    max_features = _url_get_value(url, "MAXFEATURES")
+    if not max_features:
+        return url
+    url = _url_add_kvp(url, "MAXFEATURES", None)
+    return _url_add_kvp(url, "COUNT", max_features)
+
+
+def _describe_feature_type_url(
+    url: str, version: str, names: list[str], *, single: bool
+) -> str:
+    """The DescribeFeatureType URL the driver builds from the submitted URL,
+    byte for byte: the driver's own keys replaced or removed in place, the
+    type names escaped as the driver escapes them, every other parameter
+    kept as submitted. ``single`` is the one-layer request, which also
+    drops ``COUNT``; the batch request keeps it.
+    """
+    request = _wfs_base_url(url, version)
+    steps: list[tuple[str, str | None]] = [
+        ("SERVICE", "WFS"),
+        ("VERSION", version),
+        ("REQUEST", "DescribeFeatureType"),
+        ("TYPENAME", _wfs_escape(",".join(names))),
+        ("PROPERTYNAME", None),
+        ("MAXFEATURES", None),
+    ]
+    if single:
+        steps.append(("COUNT", None))
+    steps.extend([("FILTER", None), ("OUTPUTFORMAT", None)])
+    for key, value in steps:
+        request = _url_add_kvp(request, key, value)
+    return request
 
 
 def _gdal_relative_filename(name: str) -> bool:
@@ -1407,12 +1464,17 @@ class _WfsSchemaReads:
         )
         return body
 
-    async def batch(self, version: str, names: list[str]) -> Element | None:
-        request_url = _describe_feature_type_url(self._url, version, names)
+    async def _describe(self, version: str, names: list[str], *, single: bool):
+        request_url = _describe_feature_type_url(
+            self._url, version, names, single=single
+        )
         return _wfs_schema(await self._read(request_url, what="DescribeFeatureType"))
 
+    async def batch(self, version: str, names: list[str]) -> Element | None:
+        return await self._describe(version, names, single=False)
+
     async def single(self, version: str, name: str) -> Element:
-        schema = await self.batch(version, [name])
+        schema = await self._describe(version, [name], single=True)
         if schema is None:
             raise EndpointCheckFailedError("DescribeFeatureType is not a schema")
         return schema

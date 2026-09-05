@@ -424,8 +424,9 @@ class TestAnOrdinarySchemaPasses:
     async def test_the_request_is_built_the_way_the_driver_builds_it(
         self, monkeypatch
     ) -> None:
-        """The caller's own parameters survive; the operation parameters are
-        replaced whatever their case; VERSION is the capabilities' own."""
+        """The driver's own keys are replaced in place with its spelling, the
+        submitted parameters keep their order, and VERSION is the
+        capabilities' own."""
         handler = _wfs(
             _capabilities([_LAYER], version="1.1.0"), lambda names: _schema(names)
         )
@@ -439,16 +440,13 @@ class TestAnOrdinarySchemaPasses:
             r for r in recorded if _params(r).get("request") == "DescribeFeatureType"
         ]
         assert len(describe) == 1
-        pairs = describe[0].url.params.multi_items()
-        assert sorted(pairs) == sorted(
-            [
-                ("map", "x"),
-                ("SERVICE", "WFS"),
-                ("VERSION", "1.1.0"),
-                ("REQUEST", "DescribeFeatureType"),
-                ("TYPENAME", _LAYER),
-            ]
-        )
+        assert describe[0].url.params.multi_items() == [
+            ("REQUEST", "DescribeFeatureType"),
+            ("SERVICE", "WFS"),
+            ("VERSION", "1.1.0"),
+            ("map", "x"),
+            ("TYPENAME", _LAYER),
+        ]
         assert describe[0].url.path == "/geoserver/wfs"
 
     @pytest.mark.parametrize(
@@ -1038,3 +1036,182 @@ class TestACredentialedWfsNeverReachesGdalWithoutALayer:
         for site, (check_line, require_line) in spawn_points.items():
             assert require_line is not None, site
             assert require_line < check_line, site
+
+
+class TestTheRequestCarriesTheSubmittedParametersAsTheDriverDoes:
+    """`CPLURLAddKVP` replaces the first case-insensitive `KEY=` in place with
+    the driver's spelling, removes a key the same way, appends an absent one,
+    and leaves every other byte of the submitted URL alone. A parameter the
+    driver keeps, such as WFS 2.0's `TYPENAMES`, reaches the server on the
+    check's request exactly as it reaches it on the driver's."""
+
+    uses_the_real_endpoint_check = True
+
+    def test_add_kvp_is_the_drivers_byte_for_byte(self) -> None:
+        from app.platform.service_endpoints import _url_add_kvp
+
+        base = "https://s.example/wfs?service=wfs&map=x&TypeName=old&foo=bar"
+        assert (
+            _url_add_kvp(base, "SERVICE", "WFS")
+            == "https://s.example/wfs?SERVICE=WFS&map=x&TypeName=old&foo=bar"
+        )
+        assert (
+            _url_add_kvp(base, "TYPENAME", "topp:parcels")
+            == "https://s.example/wfs?service=wfs&map=x&TYPENAME=topp:parcels&foo=bar"
+        )
+        assert (
+            _url_add_kvp(base, "TYPENAME", None)
+            == "https://s.example/wfs?service=wfs&map=x&foo=bar"
+        )
+        assert (
+            _url_add_kvp(base, "REQUEST", "DescribeFeatureType")
+            == base + "&REQUEST=DescribeFeatureType"
+        )
+        assert _url_add_kvp("https://s.example/wfs", "SERVICE", "WFS") == (
+            "https://s.example/wfs?SERVICE=WFS"
+        )
+        assert _url_add_kvp("https://s.example/wfs", "COUNT", None) == (
+            "https://s.example/wfs?"
+        )
+        # Removing the last pair leaves its separator behind, as the driver does.
+        assert (
+            _url_add_kvp("https://s.example/wfs?a=1&COUNT=5", "COUNT", None)
+            == "https://s.example/wfs?a=1&"
+        )
+
+    def test_get_value_reads_the_raw_first_match(self) -> None:
+        from app.platform.service_endpoints import _url_get_value
+
+        url = "https://s.example/wfs?Count=5&count=6&x=%2F"
+        assert _url_get_value(url, "COUNT") == "5"
+        assert _url_get_value(url, "x") == "%2F"
+        assert _url_get_value(url, "missing") == ""
+        assert _url_get_value("https://s.example/wfs?acount=1", "count") == ""
+
+    def test_type_names_are_escaped_as_the_driver_escapes_them(self) -> None:
+        from app.platform.service_endpoints import _wfs_escape
+
+        assert _wfs_escape("topp:parcels,sf:x_1.2") == "topp:parcels,sf:x_1.2"
+        assert _wfs_escape("a b/c-d") == "a%20b%2Fc%2Dd"
+        assert _wfs_escape("caf\u00e9") == "caf%C3%A9"
+
+    def test_the_batch_and_single_requests_differ_only_by_count(self) -> None:
+        from app.platform.service_endpoints import _describe_feature_type_url
+
+        submitted = "https://s.example/wfs?TYPENAMES=other&foo=bar&count=7&filter=x"
+        batch = _describe_feature_type_url(
+            submitted, "2.0.0", ["topp:a", "topp:b"], single=False
+        )
+        single = _describe_feature_type_url(submitted, "2.0.0", ["topp:a"], single=True)
+        assert batch == (
+            "https://s.example/wfs?TYPENAMES=other&foo=bar&count=7"
+            "&SERVICE=WFS&VERSION=2.0.0&REQUEST=DescribeFeatureType&TYPENAME=topp:a,topp:b"
+        )
+        assert single == (
+            "https://s.example/wfs?TYPENAMES=other&foo=bar"
+            "&SERVICE=WFS&VERSION=2.0.0&REQUEST=DescribeFeatureType&TYPENAME=topp:a"
+        )
+
+    @pytest.mark.parametrize(
+        ("version", "submitted_query", "batch_keys", "single_keys"),
+        [
+            (
+                "2.0.0",
+                "MAXFEATURES=5",
+                [("COUNT", "5")],
+                [],
+            ),
+            (
+                "2.0.0",
+                "MAXFEATURES=5&COUNT=9",
+                [("COUNT", "9")],
+                [],
+            ),
+            (
+                "1.1.0",
+                "MAXFEATURES=5",
+                [],
+                [],
+            ),
+        ],
+        ids=["wfs2_rewrites_maxfeatures", "wfs2_keeps_count", "wfs1_drops_maxfeatures"],
+    )
+    def test_maxfeatures_and_count_follow_the_driver(
+        self, version, submitted_query, batch_keys, single_keys
+    ) -> None:
+        from urllib.parse import parse_qsl, urlparse
+
+        from app.platform.service_endpoints import _describe_feature_type_url
+
+        submitted = f"https://s.example/wfs?{submitted_query}"
+
+        def limits(url: str) -> list[tuple[str, str]]:
+            return [
+                (k, v)
+                for k, v in parse_qsl(urlparse(url).query)
+                if k.lower() in ("count", "maxfeatures")
+            ]
+
+        batch = _describe_feature_type_url(submitted, version, [_LAYER], single=False)
+        single = _describe_feature_type_url(submitted, version, [_LAYER], single=True)
+        assert limits(batch) == batch_keys
+        assert limits(single) == single_keys
+
+    async def test_a_submitted_typenames_and_an_unrelated_parameter_reach_both_requests(
+        self, monkeypatch
+    ) -> None:
+        handler = _wfs(
+            _capabilities([_LAYER, "topp:roads"]), lambda names: _schema(names)
+        )
+        submitted = f"{_SVC_WFS}?TYPENAMES=other&foo=bar"
+
+        recorded, _value_ = await _check(
+            monkeypatch, handler, url=submitted, collection="topp:roads"
+        )
+
+        describe = [
+            r.url.params.multi_items()
+            for r in recorded
+            if _params(r).get("request") == "DescribeFeatureType"
+        ]
+        assert describe == [
+            [
+                ("TYPENAMES", "other"),
+                ("foo", "bar"),
+                ("SERVICE", "WFS"),
+                ("VERSION", "2.0.0"),
+                ("REQUEST", "DescribeFeatureType"),
+                ("TYPENAME", "topp:roads,topp:parcels"),
+            ],
+            [
+                ("TYPENAMES", "other"),
+                ("foo", "bar"),
+                ("SERVICE", "WFS"),
+                ("VERSION", "2.0.0"),
+                ("REQUEST", "DescribeFeatureType"),
+                ("TYPENAME", "topp:roads"),
+            ],
+        ]
+
+    async def test_a_lower_cased_typename_is_replaced_not_duplicated(
+        self, monkeypatch
+    ) -> None:
+        handler = _wfs(_capabilities([_LAYER]), lambda names: _schema(names))
+        submitted = f"{_SVC_WFS}?typename=old&foo=bar"
+
+        recorded, _value_ = await _check(monkeypatch, handler, url=submitted)
+
+        describe = [
+            r.url.params.multi_items()
+            for r in recorded
+            if _params(r).get("request") == "DescribeFeatureType"
+        ]
+        assert describe == [
+            [
+                ("TYPENAME", _LAYER),
+                ("foo", "bar"),
+                ("SERVICE", "WFS"),
+                ("VERSION", "2.0.0"),
+                ("REQUEST", "DescribeFeatureType"),
+            ]
+        ]
