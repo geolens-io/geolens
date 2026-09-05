@@ -253,6 +253,17 @@ MAX_FEATURE_FILTER_BINDS = 1_000
 # never looking at it.
 _BIND_NAME_RE = re.compile(r"(?<!:):(\w+)")
 
+# fix(#1845): a filter can nest deeper than the interpreter recursion limit
+# while staying inside MAX_FEATURE_FILTER_LENGTH. ``a=1 OR `` is eight
+# characters, so a 10,000-character filter reaches roughly 1,250 levels
+# against a default limit of 1,000; measured, an anonymous 500 from depth
+# 1,100 up. RecursionError subclasses RuntimeError, so it escaped every
+# except clause on this path that names ValueError, and the one that does
+# catch it (``parse_cql2_filter``) covers only the parse itself. Both
+# remaining recursive walks on the caller's path raise it through the same
+# coded 400 instead.
+_FILTER_TOO_DEEP_DETAIL = "Invalid CQL2 expression: filter nests too deeply"
+
 _GEOMETRY_MARKER = "geometry"
 
 # Postgres type -> JSON Schema fragment for the queryables document. A column
@@ -742,7 +753,13 @@ def parse_feature_cql2(filter_expr: str, filter_lang: str) -> Any:
     if filter_lang == "cql2-text":
         filter_expr = _quote_single_char_attributes(filter_expr)
     ast_root = parse_cql2_filter(filter_expr, filter_lang)
-    return _rewrite_text_bbox_literals(ast_root)
+    try:
+        return _rewrite_text_bbox_literals(ast_root)
+    except RecursionError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_FILTER_TOO_DEEP_DETAIL,
+        )
 
 
 def compile_feature_cql2(
@@ -754,6 +771,29 @@ def compile_feature_cql2(
     return compile_feature_cql2_ast(
         parse_feature_cql2(filter_expr, filter_lang), queryables
     )
+
+
+def _refuse_unsupported_filter(ast_root: Any, queryables: dict[str, str]) -> None:
+    """Run the whitelist walk and turn anything it refuses into a 400.
+
+    A function rather than an inline block so both refusals the walk can
+    produce -- the collected ``errors`` and the RecursionError a filter nested
+    past the interpreter limit raises out of the walk itself -- leave through
+    one place.
+    """
+    errors: list[str] = []
+    try:
+        _validate_feature_filter_node(ast_root, queryables, errors)
+    except RecursionError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_FILTER_TOO_DEEP_DETAIL,
+        )
+    if errors:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported CQL2 filter: " + "; ".join(sorted(set(errors))),
+        )
 
 
 def compile_feature_cql2_ast(
@@ -776,13 +816,7 @@ def compile_feature_cql2_ast(
     from sqlalchemy import types as sa_types
     from sqlalchemy.dialects import postgresql
 
-    errors: list[str] = []
-    _validate_feature_filter_node(ast_root, queryables, errors)
-    if errors:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unsupported CQL2 filter: " + "; ".join(sorted(set(errors))),
-        )
+    _refuse_unsupported_filter(ast_root, queryables)
 
     # fix(#1614 codex r3): the asyncpg dialect casts every bind to its
     # SQLAlchemy type ($1::FLOAT ...), and a float8-cast bind against a REAL

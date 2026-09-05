@@ -840,3 +840,86 @@ def test_an_unresolvable_route_fails_closed_on_the_transport_gate():
     exemption list, and a mutation on one is refused."""
     assert _query_key_may_authenticate("POST", "<unmatched-route>") is False
     assert _query_key_may_authenticate("GET", "<unmatched-route>") is True
+
+
+# ---------------------------------------------------------------------------
+# fix(#1845): the refusal warning is throttled, not one line per request
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _clean_query_lane_log_state():
+    from app.modules.auth import dependencies
+
+    dependencies._query_lane_log_last.clear()
+    yield dependencies
+    dependencies._query_lane_log_last.clear()
+
+
+def test_the_refusal_warning_is_written_once_per_route_per_interval(
+    _clean_query_lane_log_state,
+):
+    """An anonymous caller decides how often the refusal path runs, so an
+    unthrottled warning would let whoever holds the URL choose how many log
+    lines an operator stores."""
+    deps = _clean_query_lane_log_state
+
+    assert deps._should_log_query_lane_refusal("/datasets/") is True
+    assert deps._should_log_query_lane_refusal("/datasets/") is False
+    assert deps._should_log_query_lane_refusal("/datasets/") is False
+
+    # A different route is its own budget: the volume is bounded by the route
+    # table, which is fixed at deploy time.
+    assert deps._should_log_query_lane_refusal("/maps/") is True
+    assert deps._should_log_query_lane_refusal("/maps/") is False
+
+
+def test_the_refusal_warning_resumes_after_the_interval(
+    _clean_query_lane_log_state, monkeypatch
+):
+    """Throttled, not silenced: a client still stuck on the query lane keeps
+    showing up in the log."""
+    deps = _clean_query_lane_log_state
+
+    clock = {"now": 1_000.0}
+    monkeypatch.setattr(deps, "monotonic", lambda: clock["now"])
+
+    assert deps._should_log_query_lane_refusal("/datasets/") is True
+    clock["now"] += deps._QUERY_LANE_LOG_INTERVAL_SECONDS - 0.01
+    assert deps._should_log_query_lane_refusal("/datasets/") is False
+    clock["now"] += 0.02
+    assert deps._should_log_query_lane_refusal("/datasets/") is True
+
+
+def test_the_throttle_key_space_is_the_route_table(_clean_query_lane_log_state):
+    """Keyed by the matched route TEMPLATE, never by anything caller-supplied.
+
+    `_route_template` answers `<unmatched-route>` for anything it cannot
+    resolve, so a caller cannot grow this dict by varying a path segment. The
+    same reasoning `_route_template`'s own docstring gives for logging it.
+    """
+    deps = _clean_query_lane_log_state
+
+    for _ in range(50):
+        deps._should_log_query_lane_refusal("<unmatched-route>")
+    assert set(deps._query_lane_log_last) == {"<unmatched-route>"}
+
+
+@pytest.mark.anyio
+async def test_a_refused_query_key_still_logs_the_first_time(
+    client: AsyncClient, _clean_query_lane_log_state
+):
+    """End to end: the refusal that the throttle governs is still emitted."""
+    deps = _clean_query_lane_log_state
+    headers = await get_auth_header(client, ADMIN_USER, ADMIN_PASS)
+    raw_key = (await _mint(client, headers))["key"]
+
+    resp = await client.post(
+        "/auth/api-keys/", json={"name": "Throttle Probe"}, params={"api_key": raw_key}
+    )
+    assert resp.status_code == 401, resp.text
+    assert set(deps._query_lane_log_last), (
+        "the refusal did not reach the throttled warning"
+    )
+    for route in deps._query_lane_log_last:
+        assert raw_key not in route

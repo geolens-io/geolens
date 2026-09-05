@@ -1261,3 +1261,143 @@ async def test_oversized_bind_expansion_is_a_400_on_the_items_route(
     )
     assert resp.status_code == 400, resp.text
     assert "parameters" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# fix(#1845): nesting past the interpreter limit is a 400, not a 500
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_a_filter_nested_past_the_recursion_limit_is_a_400(
+    client: AsyncClient, filter_dataset: Dataset
+):
+    """`x=1 OR ` is eight characters, so the character cap admits about 1,250
+    levels against a default recursion limit of 1,000. The walk that rewrites
+    bbox literals after parsing raised RecursionError, which subclasses
+    RuntimeError and escaped every except clause on this path naming
+    ValueError, so an anonymous caller got a 500."""
+    deep = " OR ".join(["x=1"] * 1_250)
+    assert len(deep) < 10_000, "the character cap must not be what refuses this"
+
+    resp = await client.get(_items_url(filter_dataset), params={"filter": deep})
+    assert resp.status_code == 400, resp.text
+    assert "nests too deeply" in resp.json()["detail"]
+
+
+def test_the_validation_walk_refuses_deep_nesting_too():
+    """The second recursive walk on the caller's path, reached directly.
+
+    The parse-stage guard fires first for anything a caller can type, so this
+    one is exercised against an AST built in memory. Both were guarded
+    together because a change to either walk's stack cost moves which of them
+    is the one that blows.
+    """
+    from fastapi import HTTPException
+    from pygeofilter import ast as pgf_ast
+
+    from app.standards.ogc.filtering import (
+        compile_feature_cql2_ast,
+        parse_feature_cql2,
+    )
+
+    leaf = parse_feature_cql2("ada = 1", "cql2-text")
+    node = leaf
+    for _ in range(2_000):
+        node = pgf_ast.And(node, leaf)
+
+    with pytest.raises(HTTPException) as exc:
+        compile_feature_cql2_ast(node, _RENAME_QUERYABLES)
+    assert exc.value.status_code == 400
+    assert "nests too deeply" in exc.value.detail
+
+
+# ---------------------------------------------------------------------------
+# fix(#1845): the filtered items route carries its own per-IP limit
+# ---------------------------------------------------------------------------
+
+
+def _items_route_limits():
+    import app.api.main  # noqa: F401  (registers every router)
+    from app.platform.ratelimit import limiter
+
+    return limiter._route_limits.get(
+        "app.standards.ogc.router.get_collection_items", []
+    )
+
+
+def test_the_items_limit_is_registered_alongside_the_global_default():
+    """Pins the CONSTRAINT in `_items_request_carries_no_filter`'s docstring.
+
+    slowapi decides whether to fall back to the default limits from the route
+    limit's `override_defaults`, and it decides BEFORE `exempt_when` runs. With
+    slowapi's default of True, an exempted route limit would leave an
+    unfiltered items request with no limit at all, which is looser than having
+    added no decorator.
+    """
+    (lim,) = _items_route_limits()
+    assert lim.override_defaults is False
+    assert lim.exempt_when is not None
+    assert lim._exempt_when_takes_request is True
+
+
+def test_the_items_exemption_reads_the_filter_parameter():
+    from starlette.datastructures import QueryParams
+
+    from app.standards.ogc.router import _items_request_carries_no_filter
+
+    class _Req:
+        def __init__(self, qs: str) -> None:
+            self.query_params = QueryParams(qs)
+
+    assert _items_request_carries_no_filter(_Req("limit=10")) is True
+    assert _items_request_carries_no_filter(_Req("limit=10&filter=cat+%3D+1")) is False
+    # Present but empty still counts as a filtered request: the handler treats
+    # an empty string as a filter and takes it to the parser.
+    assert _items_request_carries_no_filter(_Req("filter=")) is False
+
+
+@pytest.mark.anyio
+async def test_a_filtered_items_request_is_rate_limited(
+    client: AsyncClient, filter_dataset: Dataset
+):
+    """A 429 arrives well before the global 60/second budget would fire."""
+    from app.platform.ratelimit import limiter
+
+    original = limiter.enabled
+    try:
+        limiter.enabled = True
+        limiter._storage.reset()
+        codes = []
+        for _ in range(14):
+            resp = await client.get(
+                _items_url(filter_dataset), params={"filter": "cat = 1"}
+            )
+            codes.append(resp.status_code)
+        assert 429 in codes, codes
+        assert codes[0] == 200, codes
+    finally:
+        limiter.enabled = original
+        limiter._storage.reset()
+
+
+@pytest.mark.anyio
+async def test_an_unfiltered_items_request_is_not_charged_against_it(
+    client: AsyncClient, filter_dataset: Dataset
+):
+    """The paired control. A bulk `ogr2ogr OAPIF:` export pages this route as
+    fast as the database answers and buys none of the compile cost."""
+    from app.platform.ratelimit import limiter
+
+    original = limiter.enabled
+    try:
+        limiter.enabled = True
+        limiter._storage.reset()
+        codes = []
+        for _ in range(14):
+            resp = await client.get(_items_url(filter_dataset), params={"limit": 1})
+            codes.append(resp.status_code)
+        assert 429 not in codes, codes
+    finally:
+        limiter.enabled = original
+        limiter._storage.reset()

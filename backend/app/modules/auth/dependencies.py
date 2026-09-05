@@ -3,6 +3,7 @@
 import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
+from time import monotonic
 from collections.abc import Mapping
 from typing import Annotated, NoReturn
 
@@ -220,6 +221,33 @@ def _query_key_may_authenticate(
     )
 
 
+# fix(#1845): the refusal below is reachable by an unauthenticated caller at
+# the global rate limit, so one warning per refused request is a log
+# amplification primitive: whoever holds the URL chooses how many lines an
+# operator stores. One line per route template per minute is enough to notice
+# a client that needs moving to the header, and the volume is then bounded by
+# the size of the route table rather than by request volume.
+#
+# Keyed by route template, never by anything caller-supplied: ``_route_template``
+# answers ``<unmatched-route>`` for anything it cannot resolve, so the key
+# space is the route table plus one and the dict cannot be grown by a caller.
+# Unsynchronised on purpose. A lost race costs one extra log line, and a lock
+# on the request path to protect a log throttle would be the more expensive
+# mistake.
+_QUERY_LANE_LOG_INTERVAL_SECONDS = 60.0
+_query_lane_log_last: dict[str, float] = {}
+
+
+def _should_log_query_lane_refusal(route_template: str) -> bool:
+    """True at most once per route template per interval."""
+    now = monotonic()
+    last = _query_lane_log_last.get(route_template)
+    if last is not None and now - last < _QUERY_LANE_LOG_INTERVAL_SECONDS:
+        return False
+    _query_lane_log_last[route_template] = now
+    return True
+
+
 def _supplied_api_key(request: Request) -> str | None:
     """The API key this request may authenticate with, header first.
 
@@ -243,11 +271,10 @@ def _supplied_api_key(request: Request) -> str | None:
         # No key material and no key identifier: resolving one would need the
         # database lookup this refusal deliberately skips, and would turn an
         # unauthenticated request into an oracle for whether a key is live.
-        # Once per request, because the resolver and
-        # ``request_carries_credentials`` both ask this question on an
-        # optional-auth route and one refusal is one event.
-        if not getattr(request.state, "api_key_query_lane_refused", False):
-            request.state.api_key_query_lane_refused = True
+        # Throttled, because an anonymous caller decides how often this runs
+        # (the resolver and ``request_carries_credentials`` both reach it on an
+        # optional-auth route, so it is not even one call per request).
+        if _should_log_query_lane_refusal(route_template):
             log.warning(
                 "api_key_query_lane_refused",
                 method=request.method,

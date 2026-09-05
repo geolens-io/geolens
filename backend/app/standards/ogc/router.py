@@ -30,6 +30,7 @@ from app.modules.catalog.features.service import (
     number_matched_headers,
     parse_bbox,
 )
+from app.platform.ratelimit import limiter
 from app.platform.extensions import (
     get_billing_extensions,
     get_data_serving_extension,
@@ -562,6 +563,40 @@ async def get_collection_queryables(
     )
 
 
+# fix(#1845): the CQL2 compile is synchronous work on the event loop, and the
+# filter is the one input that lets an anonymous caller choose how much of it
+# to buy. The single-pass rename in filtering.py took the pathological case
+# from 2.4 s to 40 ms, but 40 ms is still 40 ms of blocked loop, and shapes
+# that stay under the bind cap (a long chain of LIKE predicates) still reach
+# hundreds of binds. The rename bounds the cost per request; this bounds the
+# rate, which is the half a compiler change cannot reach.
+#
+# 10/second against a global default of 60: far above any interactive client
+# (QGIS redraws a canvas extent, pygeoapi proxies a page) and far below what
+# it takes to keep the loop busy.
+_FILTERED_ITEMS_RATE_LIMIT = "10/second"
+
+
+def _items_request_carries_no_filter(request: Request) -> bool:
+    """Exempt an unfiltered items request from the filter-specific limit.
+
+    A bulk ``ogr2ogr OAPIF:`` export pages this route as fast as the database
+    answers and buys none of the compile cost the limit exists for, so only a
+    request that actually carries ``filter=`` is charged against it.
+
+    CONSTRAINT: the decorator below MUST keep ``override_defaults=False``.
+    slowapi decides whether to fall back to the global default limits from the
+    presence of a route limit and its ``override_defaults`` flag, and it makes
+    that decision BEFORE ``exempt_when`` is consulted
+    (``slowapi/extension.py::_check_request_limit`` builds ``all_limits``, then
+    ``__evaluate_limits`` applies the exemption). With the slowapi default of
+    ``override_defaults=True`` an exempted route limit would therefore leave
+    the ordinary paging request with no limit at all, which is looser than
+    before this decorator existed.
+    """
+    return "filter" not in request.query_params
+
+
 @ogc_features_router.get(
     "/collections/{dataset_id}/items/",
     response_class=JSONResponse,
@@ -591,6 +626,11 @@ async def get_collection_queryables(
         **COLD_WARMING_RESPONSE,
         **ERROR_RESPONSES_PUBLIC,
     },
+)
+@limiter.limit(
+    _FILTERED_ITEMS_RATE_LIMIT,
+    exempt_when=_items_request_carries_no_filter,
+    override_defaults=False,
 )
 async def get_collection_items(
     request: Request,
