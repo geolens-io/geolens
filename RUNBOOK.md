@@ -2826,19 +2826,25 @@ supported rollback; see §7 for why.
 
 v1.18.0 and v1.18.1 dispatched a WFS or OGC API Features import that carried
 a Basic or named-header credential on a dedicated queue named
-`ingest-auth-v2`, so a worker from an older release never dequeued a job it
-could not read. v1.18.2 retires that queue (#1812): those jobs go on the
-default `ingest` queue again, and the worker's default `WORKER_QUEUES` no
-longer lists `ingest-auth-v2`. Two things follow for an operator.
+`ingest-auth-v2`, so a worker from a release before v1.18.0 never dequeued a
+job it could not read. v1.18.2 stops producing on that queue (#1812): those
+jobs go on the default `ingest` queue again. The worker still subscribes to
+`ingest-auth-v2` for this one release, so anything a v1.18.0 or v1.18.1 API
+left queued there is drained by a v1.18.2 worker on its default queues. The
+release after v1.18.2 drops the name.
 
-**A worker older than v1.18.1 must be upgraded before or with the v1.18.2
-API.** Such a worker dequeues a header-line job from the default queue, cannot
-parse the line, and fails the import after spending its single-use credential.
-Upgrade the worker first, or both together as the recipe above does.
+Upgrade order:
 
-**A job still `todo` on `ingest-auth-v2` when you upgrade is never dequeued by
-a v1.18.2 worker on the default queues.** Before upgrading, check whether
-anything is waiting there:
+- From v1.18.0 or v1.18.1: upgrade the API and the worker together, as the
+  recipe above does, or the API first. Both of those workers read the header
+  line and listen on `ingest` as well, so nothing is stranded either way.
+- From a release before v1.18.0: upgrade the worker before or with the API. A
+  worker that old dequeues a header-line job from `ingest`, cannot parse the
+  line, and fails the import after spending its single-use credential.
+
+Rows can still be stranded on `ingest-auth-v2` by a worker that never lists
+it: a rollback to a release before v1.18.0, or a `WORKER_QUEUES` override that
+omits the name. They sit `todo` indefinitely. Count them:
 
 ```bash
 docker compose -f docker-compose.prod.yml exec -T db \
@@ -2850,22 +2856,14 @@ docker compose -f docker-compose.prod.yml exec -T db \
 `Settings.procrastinate_schema` in `core/config.py`, not the bare
 `procrastinate_jobs` name Procrastinate's own docs default to.)
 
-If the count is not zero, let the v1.18.1 worker drain it before you upgrade.
-If you have already upgraded, either run the v1.18.2 worker with
-`WORKER_QUEUES=priority,ingest,ingest-auth-v2,raster` until the count reaches
-zero and then drop the override, or mark every `todo` row on that queue
-`failed` and have the users resubmit:
+Then either run a worker that lists the queue until the count reaches zero, or
+mark the rows `failed` and have the users resubmit:
 
 ```bash
 docker compose -f docker-compose.prod.yml exec -T db \
   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
   "UPDATE catalog.procrastinate_jobs SET status = 'failed' WHERE queue_name = 'ingest-auth-v2' AND status = 'todo'"
 ```
-
-Rolling v1.18.2 back to v1.18.0 or v1.18.1 needs no queue work: that worker
-lists both queues and reads the header line. Rolling back to a release before
-v1.18.0 puts you in the older-worker case above for any header-auth job still
-queued.
 
 Three things worth knowing before you run the UPDATE or read back what it did:
 

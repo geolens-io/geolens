@@ -9905,13 +9905,15 @@ class TestASecretDoesNotSurviveInTheChain:
 
 
 class TestAHeaderAuthJobUsesTheTasksOwnQueue:
-    """chore(#1812): the `ingest-auth-v2` transition queue is retired.
+    """chore(#1812): nothing produces on the `ingest-auth-v2` queue any more.
 
     #1770 routed a header-line credentialed job through a dedicated queue so a
-    worker from the release before it never dequeued a header line its own
+    worker from a release before v1.18.0 never dequeued a header line its own
     validator could not parse. Every supported worker reads that line now, so
-    the three defer sites dispatch on the task's own queue again. D9 is
-    untouched: the credential still crosses as one header line under `token`.
+    the three defer sites dispatch on the task's own queue again, and the
+    worker keeps subscribing to the old queue for one release to drain what a
+    v1.18.0 or v1.18.1 API left there. D9 is untouched: the credential still
+    crosses as one header line under `token`.
     """
 
     async def test_a_header_auth_import_defers_on_the_default_queue(
@@ -9965,6 +9967,14 @@ class TestAHeaderAuthJobUsesTheTasksOwnQueue:
         kwargs = task.defer_async.call_args.kwargs
         assert kwargs["token"] == f"Authorization: Bearer {secret}"
         assert kwargs["credential_ref"] is None
+
+    def test_the_worker_default_keeps_the_legacy_queue_as_a_consumer(self) -> None:
+        """The class default still lists `ingest-auth-v2`, with nothing producing on it."""
+        from app.core.config import Settings
+
+        default = Settings.model_fields["worker_queues"].default
+        queues = [q.strip() for q in default.split(",") if q.strip()]
+        assert "ingest-auth-v2" in queues
 
     def test_docker_compose_and_env_example_name_every_queue_in_the_default(
         self,

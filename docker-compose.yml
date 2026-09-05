@@ -493,9 +493,10 @@ services:
       # tasks.py) and the subscription list is this var + worker_queues in
       # backend/app/core/config.py — and this default is duplicated in BOTH
       # compose files; changing one leaves prod and dev subscribing differently.
-      # chore(#1812): this fallback shadows the Settings default, so it must
-      # name every queue `worker_queues` in backend/app/core/config.py does.
-      WORKER_QUEUES: "${WORKER_QUEUES:-priority,ingest,raster}"
+      # fix(#1812): this fallback shadows the Settings default, so it must name
+      # every queue `worker_queues` in backend/app/core/config.py does, including
+      # "ingest-auth-v2", kept as a consumer-only queue for this one release.
+      WORKER_QUEUES: "${WORKER_QUEUES:-priority,ingest,raster,ingest-auth-v2}"
       # Mirror the api service: ingest tuning + procrastinate schema reach
       # the worker container so operator overrides take effect.
       INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"

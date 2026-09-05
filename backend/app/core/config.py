@@ -606,10 +606,10 @@ class Settings(BaseSettings):
     # worker service dedicated to e.g. WORKER_QUEUES=raster so long raster jobs
     # never stall vector ingests.
     #
-    # chore(#1812): the "ingest-auth-v2" transition queue from #1770 is retired.
-    # Both compose fallbacks and .env.example must name every queue listed here;
-    # a worker older than v1.18.1 must be upgraded before or with this API.
-    worker_queues: str = "priority,ingest,raster"
+    # fix(#1812): "ingest-auth-v2" is consumer-only. Nothing enqueues there since
+    # #1812, the worker drains what v1.18.0/1.18.1 left, and the release after
+    # 1.18.2 drops the name. Both compose fallbacks and .env.example match this.
+    worker_queues: str = "priority,ingest,raster,ingest-auth-v2"
 
     # CONF-04 (Phase 277 / M-39): replaces raw os.environ.get("ENV_ONLY_CONFIG") in core/public_urls.py
     # Security-relevant: when true, the PersistentConfig DB layer is bypassed for reads
