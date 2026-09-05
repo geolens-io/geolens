@@ -30,6 +30,7 @@ from app.platform.service_endpoints import (
     CrossOriginEndpointError,
     EndpointCheckFailedError,
     assert_endpoints_stay_on_origin,
+    require_wfs_layer,
 )
 
 _SUBPROCESS_FLOOR_SECONDS = 1.0
@@ -373,6 +374,13 @@ async def run_service_preview(
             # rule can see. Checked again in the worker: the document can
             # change between a preview and the import it leads to.
             try:
+                # fix(#1828): a credentialed WFS never reaches GDAL without a
+                # layer, since GDAL opened layerless reads every layer's schema.
+                require_wfs_layer(
+                    layer_name,
+                    service_format=_gdal_source_format(gdal_source),
+                    credential_line=credential_header_line(pair),
+                )
                 await assert_endpoints_stay_on_origin(
                     _service_url(gdal_source),
                     service_format=_gdal_source_format(gdal_source),

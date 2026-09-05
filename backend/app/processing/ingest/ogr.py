@@ -20,6 +20,7 @@ from app.core.runtime.staging import (
 from app.platform.service_items import materialise_oapif_items
 from app.platform.service_endpoints import (
     assert_endpoints_stay_on_origin,
+    require_wfs_layer,
     fire_once,
 )
 from app.core.service_tokens import (
@@ -1312,6 +1313,11 @@ async def run_ogr2ogr_service(
                 token, service_format=service_type
             )  # SEC-FU-04: raises ValueError before subprocess
 
+            # fix(#1828): a credentialed WFS never reaches GDAL without a
+            # layer, since GDAL opened layerless reads every layer's schema.
+            require_wfs_layer(
+                layer_name, service_format=service_type, credential_line=header_line
+            )
             # fix(#1746 B2b review r13): GDAL applies the header file to the
             # operation endpoints the service's own description advertises,
             # and those are fresh requests no redirect rule can see. Checked

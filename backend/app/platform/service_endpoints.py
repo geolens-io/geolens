@@ -435,6 +435,46 @@ class EndpointCheckFailedError(Exception):
         super().__init__(self.policy)
 
 
+LAYER_REQUIRED_CODE = "layer_required"
+LAYER_REQUIRED_POLICY = (
+    "This request carries a credential and names no WFS layer. A credentialed "
+    "WFS import reads the description of the layer it opens before GDAL does, "
+    "so the layer has to be named. Choose a layer and try again."
+)
+
+
+class LayerRequiredError(EndpointCheckFailedError):
+    """A credentialed WFS reached a GDAL spawn point without a layer name.
+
+    A subclass, so the doors that already turn `EndpointCheckFailedError`
+    into a coded 422 or a job failure do the same with this one; the code,
+    field and policy are its own.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("no layer named")
+        self.code = LAYER_REQUIRED_CODE
+        self.field = "layer_name"
+        self.policy = LAYER_REQUIRED_POLICY
+        self.args = (self.policy,)
+
+
+def require_wfs_layer(
+    layer_name: str | None, *, service_format: str | None, credential_line: str | None
+) -> None:
+    """Refuse a credentialed WFS that names no layer, before GDAL is spawned.
+
+    fix(#1828): the schema check reads the description of the layer a door
+    opens, and GDAL opened without a layer reads every layer's. Does nothing
+    without a credential, for a format whose credential is not a header, or
+    for any other format. Raises :class:`LayerRequiredError`.
+    """
+    if not credential_line or not requires_header_token_policy(service_format):
+        return
+    if service_format == "wfs" and not (layer_name or "").strip():
+        raise LayerRequiredError()
+
+
 def _origin_of(url: str) -> str:
     """``scheme://host:port`` for a message, with userinfo and path dropped.
 

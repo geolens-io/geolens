@@ -2595,10 +2595,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # caller's real `headers`, and the soft stop is safe because `_next_page`
     # itself refuses a cross-origin/unparseable `next`, not because the
     # pages are anonymous. Cap 1319 -> 1330, exact.
-    # fix(#1828): +294. `_check_wfs` now reads the DescribeFeatureType the WFS
-    # driver reads for the named layer and refuses a schema `include` off the
-    # origin (the `_WfsSchemaReads` walk and its mirrors). Cap 1330 -> 1624, exact.
-    "backend/app/platform/service_endpoints.py": 1624,
+    # fix(#1828): +334. `_check_wfs` reads the layer's DescribeFeatureType and
+    # refuses a schema `include` off the origin; `require_wfs_layer` refuses a
+    # layerless credentialed WFS at the spawn points. Cap 1330 -> 1664, exact.
+    "backend/app/platform/service_endpoints.py": 1664,
     # fix(#1770 round 42): first entry, crossed _RATCHET_INCLUSION_LOC on the
     # completeness-predicate unification. `_page_proves_complete` is the one
     # function round 41's full-walk-only proof and round 42's sampled-preview
@@ -4838,7 +4838,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # content check through `run_in_thread_draining` instead of inline, so a
     # schema walk cannot sit on the event loop of the request that uploaded the
     # file. Cap 1428 -> 1433, exact.
-    "backend/app/processing/ingest/ogr.py": 1433,
+    # fix(#1828): +6. `run_ogr2ogr_service` refuses a credentialed WFS that
+    # names no layer before the origin check and the spawn. Cap 1433 -> 1439.
+    "backend/app/processing/ingest/ogr.py": 1439,
     # fix(#1846, GHSA-hrf5-v3cq-frx5): first entry. This module crossed the
     # 1000-line threshold when the content check landed: the SQLite schema
     # reader, the archive member walk that identifies members by their bytes

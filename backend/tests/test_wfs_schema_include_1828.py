@@ -6,6 +6,8 @@ the credential header attached, before any GetFeature. No GDAL option turns
 that off, so `_check_wfs` reads the DescribeFeatureType the driver reads for
 the layer a door is about to open, on the submitted origin, and refuses the
 first include the driver would fetch from another origin or open as a path.
+Both spawn points refuse a credentialed WFS that names no layer before GDAL
+starts, so GDAL never opens every layer on the credential's behalf.
 The import path and the GetFeature schema download are not refused: the
 vector envs pin both off (`test_gdal_env.py`), and a real schema imports GML
 from another origin.
@@ -17,6 +19,7 @@ never reached a host cannot pass by coincidence.
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from unittest.mock import AsyncMock, patch
 
@@ -803,3 +806,235 @@ class TestTheDoorsRefuseBeforeGdalRuns:
         assert raised.value.origin == _FOREIGN
         assert _described(recorded) == [[_LAYER]]
         assert _hosts(recorded) == {"service.example"}
+
+
+class TestACredentialedWfsNeverReachesGdalWithoutALayer:
+    """The schema check reads the description of the layer a door opens, and
+    GDAL opened without a layer reads every layer's. So both spawn points
+    refuse a credentialed WFS that names no layer before the process starts,
+    with the coded shape the origin check uses, and nothing is read from the
+    service at all. A credential-free layerless preview is unchanged."""
+
+    uses_the_real_endpoint_check = True
+
+    @pytest.mark.parametrize(
+        ("layer_name", "service_format", "credentialed", "refused"),
+        [
+            ("", "wfs", True, True),
+            ("   ", "wfs", True, True),
+            (None, "wfs", True, True),
+            (_LAYER, "wfs", True, False),
+            ("", "wfs", False, False),
+            ("", "ogcapi_features", True, False),
+            ("", "arcgis_featureserver", True, False),
+        ],
+        ids=[
+            "empty",
+            "blank",
+            "missing",
+            "named",
+            "no_credential",
+            "oapif",
+            "arcgis",
+        ],
+    )
+    def test_only_a_credentialed_layerless_wfs_is_refused(
+        self, layer_name, service_format, credentialed, refused
+    ) -> None:
+        from app.platform.service_endpoints import (
+            LayerRequiredError,
+            require_wfs_layer,
+        )
+
+        line = f"X-Api-Key: {_value()}" if credentialed else None
+        if not refused:
+            require_wfs_layer(
+                layer_name, service_format=service_format, credential_line=line
+            )
+            return
+        with pytest.raises(LayerRequiredError) as raised:
+            require_wfs_layer(
+                layer_name, service_format=service_format, credential_line=line
+            )
+        assert raised.value.code == "layer_required"
+        assert raised.value.field == "layer_name"
+        assert isinstance(raised.value, EndpointCheckFailedError)
+
+    async def test_the_worker_refuses_before_any_request_or_spawn(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        from app.core.config import settings
+        from app.platform.service_endpoints import LayerRequiredError
+        from app.processing.ingest.ogr import run_ogr2ogr_service
+
+        monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path / "staging"))
+        recorded = _transport(monkeypatch, _wfs(_capabilities([_LAYER]), _schema))
+
+        async def _fake_exec(*cmd, **kwargs):
+            raise AssertionError("ogr2ogr must not run for a refused source")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+        with pytest.raises(LayerRequiredError):
+            await run_ogr2ogr_service(
+                gdal_source=f"WFS:{_SVC_WFS}",
+                layer_name="",
+                table_name="t",
+                db_conn_str="PG:dummy",
+                service_type="wfs",
+                token=f"X-Api-Key: {_value()}",
+                schema="data",
+            )
+
+        assert recorded == []
+
+    async def test_the_preview_refuses_before_any_request_or_spawn(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path / "staging"))
+        recorded = _transport(monkeypatch, _wfs(_capabilities([_LAYER]), _schema))
+        value = _value()
+        credential = ServiceCredential(
+            method=CredentialMethod.HEADER_KEY,
+            service_format="wfs",
+            header_name="X-Api-Key",
+            header_value=value,
+        )
+
+        async def _fake_exec(*cmd, **kwargs):
+            raise AssertionError("ogrinfo must not run for a refused source")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+        with pytest.raises(Exception) as raised:  # noqa: PT011 - HTTPException
+            await preview_mod.run_service_preview(
+                f"WFS:{_SVC_WFS}", "", credential=credential
+            )
+
+        assert raised.value.status_code == 422
+        assert raised.value.detail["code"] == "layer_required"
+        assert raised.value.detail["field"] == "layer_name"
+        assert value not in str(raised.value.detail)
+        assert recorded == []
+
+    async def test_a_credential_free_layerless_preview_still_lists_layers(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path / "staging"))
+        spawned: list[tuple] = []
+
+        class _FakeProc:
+            returncode = 0
+
+            async def communicate(self):
+                listing = {
+                    "layers": [
+                        {
+                            "name": "l",
+                            "fields": [],
+                            "features": [],
+                            "geometryFields": [],
+                        }
+                    ]
+                }
+                return (json.dumps(listing).encode(), b"")
+
+        async def _fake_exec(*cmd, **kwargs):
+            spawned.append(cmd)
+            return _FakeProc()
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+        result = await preview_mod.run_service_preview(f"WFS:{_SVC_WFS}", "")
+
+        assert result["layer_name"] == "l"
+        assert len(spawned) == 1
+        assert spawned[0][-1] == f"WFS:{_SVC_WFS}"
+
+    async def test_the_reupload_preview_door_answers_422_before_ogrinfo(
+        self, client, admin_auth_header: dict, test_db_session, monkeypatch
+    ) -> None:
+        from tests.factories import create_dataset, get_user_id
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(
+            test_db_session, created_by=admin_id, name="Layerless WFS"
+        )
+        recorded = _transport(monkeypatch, _wfs(_capabilities([_LAYER]), _schema))
+        monkeypatch.setattr(
+            "app.modules.catalog.datasets.api.router_reupload.validate_url_for_ssrf",
+            AsyncMock(),
+        )
+
+        async def _fake_exec(*cmd, **kwargs):
+            raise AssertionError("ogrinfo must not run for a refused source")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+        value = _value()
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/reupload/service/preview",
+            json={
+                "url": _SVC_WFS,
+                "service_type": "WFS 2.0.0",
+                "layer_name": "",
+                "auth": {
+                    "method": "header",
+                    "header_name": "X-Api-Key",
+                    "header_value": value,
+                },
+            },
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "layer_required"
+        assert value not in resp.text
+        assert recorded == []
+
+    def test_every_spawn_point_that_names_a_layer_passes_through_the_refusal(
+        self,
+    ) -> None:
+        """Every call of `assert_endpoints_stay_on_origin` that passes a
+        `collection` is a GDAL spawn point, and its function must call
+        `require_wfs_layer` first. The set is exact, so a new spawn point has
+        to be added here as well as inherit the refusal."""
+        import ast
+        import pathlib
+
+        app_root = pathlib.Path(__file__).resolve().parents[1] / "app"
+        spawn_points: dict[tuple[str, str], tuple[int, int | None]] = {}
+        for path in sorted(app_root.rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for func in ast.walk(tree):
+                if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                check_line = None
+                require_line = None
+                for node in ast.walk(func):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    name = getattr(node.func, "id", None) or getattr(
+                        node.func, "attr", None
+                    )
+                    if name == "assert_endpoints_stay_on_origin" and any(
+                        kw.arg == "collection" for kw in node.keywords
+                    ):
+                        check_line = node.lineno
+                    elif name == "require_wfs_layer":
+                        require_line = node.lineno
+                if check_line is not None:
+                    rel = path.relative_to(app_root).as_posix()
+                    spawn_points[(rel, func.name)] = (check_line, require_line)
+
+        assert set(spawn_points) == {
+            ("modules/catalog/sources/preview.py", "run_service_preview"),
+            ("processing/ingest/ogr.py", "run_ogr2ogr_service"),
+        }, spawn_points
+        for site, (check_line, require_line) in spawn_points.items():
+            assert require_line is not None, site
+            assert require_line < check_line, site
