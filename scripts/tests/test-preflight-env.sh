@@ -1,5 +1,5 @@
 #!/bin/sh
-# Regression test for scripts/preflight-env.sh (fix(#1882)).
+# Regression test for scripts/preflight-env.sh (fix(#1882), fix(#1886)).
 #
 # `make dev` runs preflight before any Compose build, so a false failure here
 # blocks the stack on a well-formed .env. The encryption-key shape check added
@@ -64,6 +64,17 @@ run_preflight() {
         printf '%s\n' "$1" >> "$FAKE/.env"
     fi
     bash "$FAKE/scripts/preflight-env.sh" > "$WORK/out.txt" 2>&1
+    STATUS=$?
+}
+
+# Same, with NAME=VALUE exported into preflight's environment, the way an
+# operator's shell hands it to `make dev` and then to Compose.
+run_preflight_env() {
+    printf '%s\n' "$REQUIRED_LINES" > "$FAKE/.env"
+    if [ $# -gt 2 ]; then
+        printf '%s\n' "$3" >> "$FAKE/.env"
+    fi
+    env "$1=$2" bash "$FAKE/scripts/preflight-env.sh" > "$WORK/out.txt" 2>&1
     STATUS=$?
 }
 
@@ -185,6 +196,68 @@ if [ "$STATUS" -ne 0 ] && grep -q "not found" "$WORK/out.txt"; then
 else
     bad "a missing .env did not fail as expected (exit $STATUS)"
 fi
+
+# ============================================================================
+# CASE 6 (fix(#1886)): an exported name overrides its .env line for Compose.
+# ============================================================================
+run_preflight_env SECRET_ENCRYPTION_KEY "$HEX_VALUE" "SECRET_ENCRYPTION_KEY=$VALID_KEY"
+if [ "$STATUS" -ne 0 ] && grep -q "SECRET_ENCRYPTION_KEY" "$WORK/out.txt" && grep -q "environment" "$WORK/out.txt"; then
+    ok "a malformed exported key is refused over a valid .env line, naming the environment as the source"
+else
+    bad "a malformed exported key was masked by a valid .env line (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+run_preflight_env SECRET_ENCRYPTION_KEY "$VALID_KEY" "SECRET_ENCRYPTION_KEY=$HEX_VALUE"
+if [ "$STATUS" -eq 0 ]; then
+    ok "a valid exported key passes over a malformed .env line"
+else
+    bad "a valid exported key was rejected because of the .env line: $(cat "$WORK/out.txt")"
+fi
+
+run_preflight_env SECRET_ENCRYPTION_KEY_PREVIOUS not-a-key "SECRET_ENCRYPTION_KEY_PREVIOUS=$VALID_KEY"
+if [ "$STATUS" -ne 0 ] && grep -q "SECRET_ENCRYPTION_KEY_PREVIOUS" "$WORK/out.txt"; then
+    ok "the previous key is checked from the environment too"
+else
+    bad "a malformed exported previous key was accepted over a valid .env line (exit $STATUS)"
+fi
+
+run_preflight_env SECRET_ENCRYPTION_KEY "$HEX_VALUE"
+if [ "$STATUS" -ne 0 ] && grep -q "SECRET_ENCRYPTION_KEY" "$WORK/out.txt"; then
+    ok "a malformed exported key is refused when .env has no line for it"
+else
+    bad "a malformed exported key was accepted when .env had no line for it (exit $STATUS)"
+fi
+
+# Compose passes the key as "${SECRET_ENCRYPTION_KEY:-}", so an exported empty
+# value reaches the app as unset even when .env holds a line.
+run_preflight_env SECRET_ENCRYPTION_KEY "" "SECRET_ENCRYPTION_KEY=$HEX_VALUE"
+if [ "$STATUS" -eq 0 ]; then
+    ok "an exported empty key passes over a malformed .env line (Compose sends the empty value)"
+else
+    bad "an exported empty key did not mask the .env line: $(cat "$WORK/out.txt")"
+fi
+
+# The required trio reaches Compose as a plain ${VAR}, so an exported empty
+# value is what the container gets.
+run_preflight_env JWT_SECRET_KEY ""
+if [ "$STATUS" -ne 0 ] && grep -q "JWT_SECRET_KEY" "$WORK/out.txt" && grep -q "environment" "$WORK/out.txt"; then
+    ok "an exported empty JWT_SECRET_KEY is refused over a non-empty .env line, naming the environment"
+else
+    bad "an exported empty JWT_SECRET_KEY was masked by the .env line (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+REQUIRED_LINES="JWT_SECRET_KEY=
+GEOLENS_ADMIN_USERNAME=admin
+GEOLENS_ADMIN_PASSWORD=$NONEMPTY"
+run_preflight_env JWT_SECRET_KEY "$NONEMPTY"
+if [ "$STATUS" -eq 0 ]; then
+    ok "an exported JWT_SECRET_KEY satisfies the check over an empty .env line"
+else
+    bad "an exported JWT_SECRET_KEY was ignored over an empty .env line: $(cat "$WORK/out.txt")"
+fi
+REQUIRED_LINES="JWT_SECRET_KEY=$NONEMPTY
+GEOLENS_ADMIN_USERNAME=admin
+GEOLENS_ADMIN_PASSWORD=$NONEMPTY"
 
 echo "1..$((PASS + FAIL))"
 echo "# ${PASS} passed, ${FAIL} failed"

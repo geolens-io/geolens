@@ -1722,13 +1722,7 @@ env_value_into() {
   _evi_key="$2"
   _evi_file="$3"
 
-  case "$_evi_var" in
-    [A-Za-z_]*) : ;;
-    *) fail "env_value_into: invalid target variable name: '$_evi_var'" ;;
-  esac
-  case "$_evi_var" in
-    *[!A-Za-z0-9_]*) fail "env_value_into: invalid target variable name: '$_evi_var'" ;;
-  esac
+  _env_assert_var_name "$_evi_var" env_value_into
 
   # Sentinel-protected for the SAME reason every decode capture in this
   # file is (see _env_dequote's callers, get_env_value's own quoted-value
@@ -1741,6 +1735,43 @@ env_value_into() {
   _evi_val="$(get_env_value "$_evi_key" "$_evi_file" && printf x)" || return 1
   _evi_val="${_evi_val%x}"
   eval "$_evi_var=\$_evi_val"
+}
+
+# Aborts unless $1 is a valid shell identifier; $2 names the caller for the
+# message. Guards every `eval "$name=..."` in this file.
+_env_assert_var_name() {
+  case "$1" in
+    [A-Za-z_]*) : ;;
+    *) fail "$2: invalid target variable name: '$1'" ;;
+  esac
+  case "$1" in
+    *[!A-Za-z0-9_]*) fail "$2: invalid target variable name: '$1'" ;;
+  esac
+}
+
+# True when NAME was in the exported environment this file was sourced
+# under, which is the environment Compose itself interpolates from.
+env_is_exported() {
+  _env_snapshot_has "$1"
+}
+
+# fix(#1886): assigns into $1 what a plain ${KEY} interpolates to under
+# Compose: the exported environment when it sets KEY (even to ""), else
+# FILE's last KEY= line. Target validation and rc contract as env_value_into.
+effective_env_value_into() {
+  _eevi_var="$1"
+  _eevi_key="$2"
+  _eevi_file="$3"
+
+  _env_assert_var_name "$_eevi_var" effective_env_value_into
+
+  if env_is_exported "$_eevi_key"; then
+    _eevi_val="$(_env_snapshot_value "$_eevi_key" && printf x)"
+    _eevi_val="${_eevi_val%x}"
+    eval "$_eevi_var=\$_eevi_val"
+    return 0
+  fi
+  env_value_into "$_eevi_var" "$_eevi_key" "$_eevi_file"
 }
 
 # Replace `KEY=...` in .env (or append if missing). Pass the value via ENVIRON

@@ -113,6 +113,44 @@ _our_value_via_env_value_into() {
   ( . "$REPO_ROOT/lib/common.sh" && env_value_into _test_target "$1" "$2" && printf '%s' "$_test_target" )
 }
 
+# effective_env_value_into's resolution, the same way: source in a subshell,
+# assign into a scratch variable, read it back.
+_our_effective_value() {
+  # shellcheck disable=SC2154  # _test_effective is assigned by the eval
+  # inside effective_env_value_into (scripts/lib/common.sh).
+  ( . "$REPO_ROOT/lib/common.sh" && effective_env_value_into _test_effective "$1" "$2" && printf '%s' "$_test_effective" )
+}
+
+# fix(#1886): a top-level ${KEY} resolves from the process environment first,
+# so this compares effective_env_value_into against the oracle (get_env_value
+# keeps its file-only contract and is not what preflight-env.sh reads).
+_assert_effective_matches_compose() {
+  _aem_key="$1"
+  _aem_file="$2"
+  _aem_desc="$3"
+
+  _aem_ours="$(_our_effective_value "$_aem_key" "$_aem_file" && printf x)"
+  _aem_ours_rc=$?
+  _aem_ours="${_aem_ours%x}"
+
+  if [ "$_aem_ours_rc" -ne 0 ]; then
+    bad "$_aem_desc (effective_env_value_into itself failed unexpectedly, rc=$_aem_ours_rc)"
+    return
+  fi
+
+  _aem_theirs="$(_compose_value "$_aem_key" "$_aem_file" && printf x)" || {
+    bad "$_aem_desc (docker compose config itself failed to resolve $_aem_key)"
+    return
+  }
+  _aem_theirs="${_aem_theirs%x}"
+
+  if [ "$_aem_ours" = "$_aem_theirs" ]; then
+    ok "$_aem_desc (both resolve to [$_aem_ours])"
+  else
+    bad "$_aem_desc (effective_env_value_into=[$_aem_ours] Compose=[$_aem_theirs])"
+  fi
+}
+
 # Compares get_env_value's resolution of KEY in FILE against Compose's own.
 # Both captures are sentinel-protected so neither side loses a real
 # trailing newline before the comparison even runs.
@@ -444,6 +482,18 @@ unset TARGETVAR
 _assert_matches_compose USES_PLAIN "$PREC_ENV"   "env unset + file key set (fromfile): falls back to the file"
 
 _assert_matches_compose USES_UNSET_COLON_DASH "$PREC_ENV"   "env unset + file key also unset + \${X:-default}: the default applies"
+
+# fix(#1886): the key ITSELF, not a reference to it, resolves the same way
+# for a plain ${TARGETVAR}; this is the read preflight-env.sh now performs.
+export TARGETVAR=fromenv
+_assert_effective_matches_compose TARGETVAR "$PREC_ENV"   "env set (fromenv) + the same key in the file (fromfile): effective_env_value_into takes the environment, like Compose"
+unset TARGETVAR
+
+export TARGETVAR=
+_assert_effective_matches_compose TARGETVAR "$PREC_ENV"   "env set but EMPTY + the same key in the file: the empty environment value wins over the file line"
+unset TARGETVAR
+
+_assert_effective_matches_compose TARGETVAR "$PREC_ENV"   "env unset + the key in the file: effective_env_value_into falls back to the file line"
 
 
 # ============================================================================
