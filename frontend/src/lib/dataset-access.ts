@@ -8,7 +8,11 @@ function stripTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
-function isAbsoluteUrl(value: string): boolean {
+// fix(#1863 P1): exported so callers can tell a same-origin, relative
+// GeoLens API path (needs the session's bearer token) apart from an
+// already-qualified external URL (a manual distribution, e.g. a viewer app)
+// that resolveDistributionUrl leaves untouched and that must never receive it.
+export function isAbsoluteUrl(value: string): boolean {
   return ABSOLUTE_URL_RE.test(value) || value.startsWith('//');
 }
 

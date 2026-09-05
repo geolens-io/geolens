@@ -269,6 +269,10 @@ export function MapBuilderPage() {
     addLayer,
     removeLayer,
     saveBaselineSyncRef,
+    // fix(#1863 P2): reactive counterpart of mapInstanceRef, so the #1854
+    // auto-zoom watcher can retry once the (possibly still-loading) map
+    // becomes ready, instead of silently losing a zoom that arrived first.
+    mapInstance,
   );
   const {
     handleBulkVisibility: applyBulkVisibility,

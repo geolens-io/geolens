@@ -1,10 +1,13 @@
-import { fireEvent, render, screen } from '@/test/test-utils';
+import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
+import userEvent from '@testing-library/user-event';
+import { toast } from 'sonner';
 import {
   useDistributions,
   useSetPrimaryDistribution,
 } from '@/components/dataset/hooks/use-records';
 import { useTileConfig } from '@/hooks/use-settings';
 import { resolveDistributionUrl } from '@/lib/dataset-access';
+import { authenticatedDownload } from '@/api/datasets';
 import {
   DistributionsList,
   getDistributionGroup,
@@ -19,9 +22,25 @@ vi.mock('@/hooks/use-settings', () => ({
   useTileConfig: vi.fn(),
 }));
 
+vi.mock('sonner', () => ({
+  toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
+}));
+
+// fix(#1863 P1): a plain <a href download> browser navigation carries no
+// Authorization header, so a private/unpublished dataset's export endpoint
+// rejected it as anonymous. Same-origin distributions now route through
+// this authenticated helper instead — mocked here the same way
+// ExportButton.test.tsx mocks downloadExport (the sibling wrapper around
+// the same underlying authenticatedRawFetch + token-refresh machinery,
+// which is covered at the api/client.test.ts level already).
+vi.mock('@/api/datasets', () => ({
+  authenticatedDownload: vi.fn(),
+}));
+
 const mockUseDistributions = vi.mocked(useDistributions);
 const mockUseSetPrimaryDistribution = vi.mocked(useSetPrimaryDistribution);
 const mockUseTileConfig = vi.mocked(useTileConfig);
+const mockAuthenticatedDownload = vi.mocked(authenticatedDownload);
 const mutate = vi.fn();
 
 /** A manual, non-primary "Viewer App" row alongside the three generated ones
@@ -197,23 +216,90 @@ describe('DistributionsList', () => {
 
   // fix(#1856): each distribution row was copyable text only — there was no
   // way to actually fetch the resource without hand-editing the URL.
-  it('renders a download link per row that points at the resolved URL', () => {
-    mockUseDistributions.mockReturnValue({
-      data: { distributions: DISTRIBUTIONS_WITH_MANUAL_ROW, total: 3 },
-      isLoading: false,
-    } as unknown as ReturnType<typeof useDistributions>);
+  //
+  // fix(#1863 P1): the first fix made every row a plain <a href download>,
+  // which is a bare browser navigation with no Authorization header — a
+  // private/unpublished dataset's export endpoint rejected it as anonymous.
+  // Same-origin (relative-url) distributions now download through
+  // authenticatedDownload; an already-absolute url (a manual distribution
+  // pointing off-site, e.g. the "Viewer App" row) stays a plain link, since
+  // it is not a GeoLens API resource and must never receive the session's
+  // bearer token.
+  describe('download control (#1856 / #1863)', () => {
+    beforeEach(() => {
+      mockUseDistributions.mockReturnValue({
+        data: { distributions: DISTRIBUTIONS_WITH_MANUAL_ROW, total: 3 },
+        isLoading: false,
+      } as unknown as ReturnType<typeof useDistributions>);
+      mockAuthenticatedDownload.mockReset();
+      mockAuthenticatedDownload.mockResolvedValue(undefined);
+    });
 
-    render(<DistributionsList recordId="record-1" />);
+    it('downloads a same-origin distribution through the authenticated fetch, not a bare link', async () => {
+      const user = userEvent.setup();
+      render(<DistributionsList recordId="record-1" />);
 
-    const links = screen.getAllByRole('link', { name: 'Download' });
-    expect(links).toHaveLength(3);
-    expect(links[0]).toHaveAttribute(
-      'href',
-      'https://catalog.example.com/api/datasets/1/export?format=gpkg',
-    );
-    expect(links[0]).toHaveAttribute('download');
-    expect(links[0]).toHaveAttribute('target', '_blank');
-    expect(links[0].getAttribute('rel')).toContain('noopener');
+      // Relative-url rows (download-1, ogc-1) are buttons, not links — a
+      // bare <a href> would carry no auth token.
+      const buttons = screen.getAllByRole('button', { name: 'Download' });
+      expect(buttons).toHaveLength(2);
+
+      await user.click(buttons[0]);
+
+      expect(mockAuthenticatedDownload).toHaveBeenCalledTimes(1);
+      expect(mockAuthenticatedDownload).toHaveBeenCalledWith(
+        'https://catalog.example.com/api/datasets/1/export?format=gpkg',
+        'GeoPackage Download.gpkg',
+      );
+    });
+
+    it('keeps a plain external link for an absolute-url manual distribution, never routing it through the authenticated fetch', () => {
+      render(<DistributionsList recordId="record-1" />);
+
+      const links = screen.getAllByRole('link', { name: 'Download' });
+      expect(links).toHaveLength(1);
+      expect(links[0]).toHaveAttribute('href', 'https://example.com/app');
+      expect(links[0]).toHaveAttribute('target', '_blank');
+      expect(links[0].getAttribute('rel')).toContain('noopener');
+      // No download attribute here on purpose — download is meaningless
+      // cross-origin, and this is not a resource authenticatedDownload
+      // should ever be asked to fetch with our token.
+      expect(mockAuthenticatedDownload).not.toHaveBeenCalled();
+    });
+
+    it('shows an error toast and re-enables the button when the authenticated download fails', async () => {
+      mockAuthenticatedDownload.mockRejectedValueOnce(new Error('Access denied'));
+      const user = userEvent.setup();
+      render(<DistributionsList recordId="record-1" />);
+
+      const [firstButton] = screen.getAllByRole('button', { name: 'Download' });
+      await user.click(firstButton);
+
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Access denied'));
+      expect(firstButton).not.toBeDisabled();
+    });
+
+    // The copy button's behavior must be unchanged by the P1 fix — same
+    // resolved-URL clipboard write as before, on every row regardless of
+    // same-origin vs. external.
+    it('leaves the copy button unchanged', async () => {
+      const user = userEvent.setup();
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        configurable: true,
+      });
+      render(<DistributionsList recordId="record-1" />);
+
+      const copyButtons = screen.getAllByRole('button', { name: 'Copy URL' });
+      expect(copyButtons).toHaveLength(3);
+
+      await user.click(copyButtons[0]);
+      expect(writeText).toHaveBeenCalledWith(
+        'https://catalog.example.com/api/datasets/1/export?format=gpkg',
+      );
+      expect(mockAuthenticatedDownload).not.toHaveBeenCalled();
+    });
   });
 
   // feat(#1395): set-primary control.

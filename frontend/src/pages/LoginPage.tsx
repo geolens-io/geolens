@@ -227,8 +227,16 @@ export function LoginPage() {
   // a session to gate a route on), so it never got AppLayout's automatic
   // footer. Mirror AppLayout's own showFooterBranding rule so self-hosters
   // who hide the badge on every other page don't see it reappear here.
-  const { isEnterprise } = useEdition();
-  const showFooterBranding = !isEnterprise || branding?.show_badge !== false;
+  // fix(#1863 P2): useEdition() reports isEnterprise === false (its default)
+  // until the edition query resolves — an enterprise instance with
+  // show_badge false would briefly render the badge, then remove it. Gate on
+  // `isResolved` (useEdition's own "the endpoint has actually answered" flag
+  // — see its docstring; use-settings-admin.ts gates the same way). AppLayout
+  // reads isEnterprise the same unguarded way LoginPage used to and likely
+  // shares this race on every other route — out of scope here (this PR only
+  // touches LoginPage), left as noted debt rather than a drive-by fix.
+  const { isEnterprise, isResolved: editionResolved } = useEdition();
+  const showFooterBranding = editionResolved && (!isEnterprise || branding?.show_badge !== false);
   const token = useAuthStore((s) => s.token);
   const location = useLocation();
   const navigate = useNavigate();

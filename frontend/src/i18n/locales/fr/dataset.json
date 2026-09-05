@@ -597,6 +597,7 @@
     "primary": "Principal",
     "copyUrl": "Copier l'URL",
     "downloadUrl": "Télécharger",
+    "downloadFailed": "Échec du téléchargement.",
     "loadError": "Impossible de charger les distributions.",
     "setPrimary": "Définir {{name}} comme principal",
     "currentPrimary": "{{name}} est la distribution principale",

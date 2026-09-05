@@ -90,6 +90,7 @@ describe('LoginPage footer and mobile branding (#1852)', () => {
     mockedUseEdition.mockReturnValue({
       isEnterprise: false,
       isLoading: false,
+      isResolved: true,
     } as unknown as ReturnType<typeof useEdition>);
   });
 
@@ -138,5 +139,72 @@ describe('LoginPage footer and mobile branding (#1852)', () => {
     // production to avoid bouncing the visitor straight back to /login.
     await waitFor(() => expect(screen.getByTestId('home')).toBeInTheDocument());
     expect(sessionStorage.getItem('gl-guest-browse')).toBe('true');
+  });
+
+  // fix(#1863 P2, codex round 1): useEdition() reports isEnterprise === false
+  // (its default) until the edition query resolves, so an enterprise
+  // instance with show_badge false briefly rendered the "Powered by
+  // GeoLens" badge, then removed it once isEnterprise flipped true.
+  describe('footer badge does not flash before the edition query resolves (#1863 P2)', () => {
+    it('does not render the badge while the edition query is unresolved, even on an enterprise instance with the badge hidden', async () => {
+      mockedUseBranding.mockReturnValue({
+        data: { show_badge: false, privacy_url: null },
+      } as ReturnType<typeof useBranding>);
+      mockedUseEdition.mockReturnValue({
+        // Matches useEdition's real defaults while its query is in flight —
+        // isEnterprise defaults false, NOT yet known to be true.
+        isEnterprise: false,
+        isLoading: true,
+        isResolved: false,
+      } as unknown as ReturnType<typeof useEdition>);
+
+      const { Wrapper } = makeWrapper();
+      render(<LoginPage />, { wrapper: Wrapper });
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
+      });
+
+      // Unresolved: must not show the badge on the strength of a default
+      // that has not been confirmed yet.
+      expect(screen.queryByRole('link', { name: /powered by geolens/i })).not.toBeInTheDocument();
+    });
+
+    it('renders the badge once resolved on a community instance', async () => {
+      mockedUseEdition.mockReturnValue({
+        isEnterprise: false,
+        isLoading: false,
+        isResolved: true,
+      } as unknown as ReturnType<typeof useEdition>);
+
+      const { Wrapper } = makeWrapper();
+      render(<LoginPage />, { wrapper: Wrapper });
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('link', { name: /powered by geolens/i })).toBeInTheDocument();
+    });
+
+    it('hides the badge once resolved on an enterprise instance with the badge disabled', async () => {
+      mockedUseBranding.mockReturnValue({
+        data: { show_badge: false, privacy_url: null },
+      } as ReturnType<typeof useBranding>);
+      mockedUseEdition.mockReturnValue({
+        isEnterprise: true,
+        isLoading: false,
+        isResolved: true,
+      } as unknown as ReturnType<typeof useEdition>);
+
+      const { Wrapper } = makeWrapper();
+      render(<LoginPage />, { wrapper: Wrapper });
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
+      });
+
+      expect(screen.queryByRole('link', { name: /powered by geolens/i })).not.toBeInTheDocument();
+    });
   });
 });

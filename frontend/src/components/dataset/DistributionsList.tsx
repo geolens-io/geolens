@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import {
   useDistributions,
   useSetPrimaryDistribution,
@@ -13,7 +14,9 @@ import { LoadingState } from '@/components/layout/LoadingState';
 import {
   getPublicApiBaseUrl,
   resolveDistributionUrl,
+  isAbsoluteUrl,
 } from '@/lib/dataset-access';
+import { authenticatedDownload } from '@/api/datasets';
 import type { DistributionResponse } from '@/types/api';
 
 interface DistributionsListProps {
@@ -46,11 +49,23 @@ const DISTRIBUTION_GROUPS: Record<string, DistributionGroup> = {
   other: 'other',
 };
 
-function CopyableUrl({ url, publicApiUrl }: { url: string; publicApiUrl: string | null | undefined }) {
+function CopyableUrl({
+  distribution,
+  publicApiUrl,
+}: {
+  distribution: DistributionResponse;
+  publicApiUrl: string | null | undefined;
+}) {
   const { t } = useTranslation('dataset');
   const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const resolvedUrl = resolveDistributionUrl(url, publicApiUrl);
+  const resolvedUrl = resolveDistributionUrl(distribution.url, publicApiUrl);
+  // fix(#1863 P1): resolveDistributionUrl only prefixes a RELATIVE url with
+  // the API base — an already-absolute url (a manual distribution, e.g. an
+  // external viewer app) passes through unchanged and is not a GeoLens API
+  // resource, so it must never receive this session's bearer token.
+  const isSameOriginApiResource = !isAbsoluteUrl(distribution.url);
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
@@ -72,26 +87,67 @@ function CopyableUrl({ url, publicApiUrl }: { url: string; publicApiUrl: string 
     timerRef.current = setTimeout(() => setCopied(false), 2000);
   }
 
+  // fix(#1863 P1): a plain <a href download> browser navigation carries no
+  // Authorization header, so a private or unpublished dataset's export
+  // endpoint rejected it as anonymous. Route same-origin GeoLens resources
+  // through the same refresh-aware, bearer-authenticated fetch-and-save flow
+  // ExportButton already uses (api/datasets.ts's authenticatedDownload).
+  async function handleAuthenticatedDownload() {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const base = (distribution.title?.trim() || distribution.distribution_type).replace(/[/\\]/g, '_');
+      await authenticatedDownload(resolvedUrl, `${base}.${distribution.format}`);
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : t('distributions.downloadFailed', { defaultValue: 'Failed to download.' }),
+      );
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <div className="flex items-center gap-2">
       <code className="flex-1 rounded-sm bg-muted px-2 py-1.5 font-mono text-xs text-foreground truncate" title={resolvedUrl}>
         {resolvedUrl}
       </code>
       {/* fix(#1856): these were copyable text with no way to actually fetch
-          the resource. `download` is honored for same-origin URLs; a
-          cross-origin export ignores it and just opens in the new tab. */}
-      <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" asChild>
-        <a
-          href={resolvedUrl}
-          download
-          target="_blank"
-          rel="noopener noreferrer"
+          the resource. Same-origin GeoLens resources download through the
+          authenticated fetch flow (needed for private/unpublished datasets);
+          an external URL from a manual distribution is a plain link instead
+          — it is not ours to attach a bearer token to. */}
+      {isSameOriginApiResource ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 shrink-0"
+          onClick={handleAuthenticatedDownload}
+          disabled={downloading}
           aria-label={t('distributions.downloadUrl')}
           title={t('distributions.downloadUrl')}
         >
-          <Download className="h-3.5 w-3.5" />
-        </a>
-      </Button>
+          {downloading ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Download className="h-3.5 w-3.5" />
+          )}
+        </Button>
+      ) : (
+        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" asChild>
+          <a
+            href={resolvedUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={t('distributions.downloadUrl')}
+            title={t('distributions.downloadUrl')}
+          >
+            <Download className="h-3.5 w-3.5" />
+          </a>
+        </Button>
+      )}
       <Button
         variant="ghost"
         size="icon"
@@ -258,7 +314,7 @@ export function DistributionsList({ recordId, canEdit = false }: DistributionsLi
                 {dist.description && (
                   <p className="text-xs text-muted-foreground">{dist.description}</p>
                 )}
-                <CopyableUrl url={dist.url} publicApiUrl={publicApiBaseUrl} />
+                <CopyableUrl distribution={dist} publicApiUrl={publicApiBaseUrl} />
               </div>
             ))}
           </CardContent>

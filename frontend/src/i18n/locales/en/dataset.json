@@ -548,6 +548,7 @@
     "primary": "Primary",
     "copyUrl": "Copy URL",
     "downloadUrl": "Download",
+    "downloadFailed": "Failed to download.",
     "loadError": "Failed to load distributions.",
     "setPrimary": "Set {{name}} as primary",
     "currentPrimary": "{{name}} is the primary distribution",

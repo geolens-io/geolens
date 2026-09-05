@@ -24,9 +24,23 @@ import type { MapResponse } from '@/types/api';
 
 type MaplibreMap = import('maplibre-gl').Map;
 
-function renderWithAddDatasetParam(mapData: MapResponse) {
+function renderWithAddDatasetParam(
+  mapData: MapResponse,
+  options: { startWithMapLoaded?: boolean } = {},
+) {
+  const { startWithMapLoaded = true } = options;
   const map = makeMapLibreMock();
-  const mapRef = { current: map } as React.RefObject<MaplibreMap | null>;
+  const mapRef = {
+    current: startWithMapLoaded ? map : null,
+  } as React.RefObject<MaplibreMap | null>;
+  // fix(#1863 P2): mirrors MapBuilderPage's OWN pair — mapInstanceRef (read
+  // imperatively) and a reactive `mapInstance` state, both flipped together
+  // in handleMapRef. `mapInstance` here is a plain mutable binding (not
+  // React state) because this hook is rendered directly with renderHook, not
+  // through MapBuilderPage; `simulateMapLoad` below re-invokes the hook
+  // closure via `hook.rerender()` so the NEW value is what the next render
+  // of useBuilderLayers actually receives as its 7th argument.
+  let mapInstance: MaplibreMap | null = startWithMapLoaded ? map : null;
   const mutate = vi.fn();
   const addLayerMutation = { mutate } as unknown as Parameters<typeof useBuilderLayers>[3];
   const removeLayerMutation = { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4];
@@ -56,11 +70,27 @@ function renderWithAddDatasetParam(mapData: MapResponse) {
         addLayerMutation,
         removeLayerMutation,
         saveBaselineSyncRef,
+        mapInstance,
       ),
     { wrapper: Wrapper },
   );
 
-  return { hook, mutate, fitBounds: map.fitBounds as unknown as ReturnType<typeof vi.fn> };
+  // fix(#1863 P2): simulates BuilderMap's onLoad -> MapBuilderPage's
+  // handleMapRef, which sets mapInstanceRef.current synchronously BEFORE
+  // calling setMapInstance — so the ref is always in sync by the time a
+  // render sees the new mapInstance value.
+  function simulateMapLoad() {
+    mapRef.current = map;
+    mapInstance = map;
+    hook.rerender();
+  }
+
+  return {
+    hook,
+    mutate,
+    fitBounds: map.fitBounds as unknown as ReturnType<typeof vi.fn>,
+    simulateMapLoad,
+  };
 }
 
 describe('?add_dataset auto-zoom (#1854)', () => {
@@ -87,6 +117,45 @@ describe('?add_dataset auto-zoom (#1854)', () => {
     expect(hook.result.current.localLayers.map((l) => l.id)).toContain('new-layer-id');
     // ...and the auto-zoom watcher fired against the COMMITTED layer, so the
     // lookup inside handleZoomToLayer actually found dataset_extent_bbox.
+    expect(fitBounds).toHaveBeenCalledTimes(1);
+    expect(fitBounds.mock.calls[0][0]).toEqual([
+      [-74.5, 40.5],
+      [-73.5, 41.5],
+    ]);
+  });
+
+  // fix(#1863 P2, codex round 1): on a cold builder entry the add-layer POST
+  // can resolve — landing the layer in localLayers — before the lazily
+  // loaded BuilderMap has finished mounting and firing onLoad. The old
+  // watcher effect cleared pendingAutoZoomLayerIdRef as soon as the layer
+  // appeared, regardless of map readiness, so handleZoomToLayer's `if
+  // (!map) return;` silently swallowed the zoom and nothing ever retried it.
+  it('retries the auto-zoom once the map finishes loading, when the layer commits first (cold entry)', () => {
+    const mapData = makeBuilderMap([], { center_lng: null, center_lat: null });
+    const { hook, mutate, fitBounds, simulateMapLoad } = renderWithAddDatasetParam(mapData, {
+      startWithMapLoaded: false,
+    });
+
+    expect(mutate).toHaveBeenCalledOnce();
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    const createdLayer = makeBuilderLayer({
+      id: 'new-layer-id',
+      dataset_id: 'ds-1',
+      dataset_extent_bbox: [-74.5, 40.5, -73.5, 41.5],
+    });
+    act(() => {
+      onSuccess(createdLayer);
+    });
+
+    // Layer landed, but the map instance does not exist yet — must NOT fire.
+    expect(hook.result.current.localLayers.map((l) => l.id)).toContain('new-layer-id');
+    expect(fitBounds).not.toHaveBeenCalled();
+
+    // Map finishes loading afterward (BuilderMap onLoad -> handleMapRef).
+    act(() => {
+      simulateMapLoad();
+    });
+
     expect(fitBounds).toHaveBeenCalledTimes(1);
     expect(fitBounds.mock.calls[0][0]).toEqual([
       [-74.5, 40.5],
