@@ -208,6 +208,27 @@ class TestValidateZipSafety:
         with pytest.raises(ValueError, match="maximum"):
             validate_archive_safety(str(staged), "renamed-upload.xlsx")
 
+    def test_a_repetitive_workbook_clears_the_ratio_check(self, tmp_path: Path):
+        """fix(#1857 item 4): a workbook of repeated values stays an order of
+        magnitude under MAX_COMPRESSION_RATIO, because every cell reference
+        increments and breaks the run deflate would otherwise collapse."""
+        rows = "".join(
+            f'<row r="{r}"><c r="A{r}"><v>1</v></c></row>' for r in range(1, 50_001)
+        )
+        sheet = f"<worksheet><sheetData>{rows}</sheetData></worksheet>".encode()
+        staged = tmp_path / "repetitive.xlsx"
+        with zipfile.ZipFile(staged, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("[Content_Types].xml", b"<Types/>")
+            zf.writestr("xl/workbook.xml", b"<workbook/>")
+            zf.writestr("xl/worksheets/sheet1.xml", sheet)
+
+        validate_archive_safety(str(staged), "repetitive.xlsx")
+
+        with zipfile.ZipFile(staged) as zf:
+            info = zf.getinfo("xl/worksheets/sheet1.xml")
+        ratio = info.file_size / info.compress_size
+        assert 5 < ratio < validation.MAX_COMPRESSION_RATIO / 10, ratio
+
     def test_decompressed_size_over_2gb_rejected(self, tmp_path: Path):
         """ZIP with total decompressed size >2GB is rejected."""
         f = tmp_path / "huge.zip"
