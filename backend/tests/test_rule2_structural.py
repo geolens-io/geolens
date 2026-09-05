@@ -74,16 +74,21 @@ Known limits (accepted trade-offs, same posture as the Rule-1 guard):
   which ``subprocess.run`` is reviewer territory.
 - Argv built dynamically (``cmd = [tool_var, ...]``) is not matched. Every
   GDAL CLI call in the codebase starts from a string-literal argv head.
-- ARGV PASSED AS SEPARATE POSITIONAL ARGUMENTS is not matched either
-  (``create_subprocess_exec("ogrinfo", "-so", path)``). Detection keys on a
-  list or tuple DISPLAY whose first element names a GDAL tool, so a call that
-  never builds one is invisible to every rule here. No such site exists in
-  ``app/`` -- every GDAL CLI call builds an argv list first, which is why the
-  gate has always been written this way -- but a new one would pass silently
-  rather than loudly, and that is the wrong direction for this file. Closing it
-  means matching on the CALL's arguments as well as on displays, which changes
-  what "an argv site" means everywhere below; recorded here rather than done
-  under a security fix (#1846 review round 4).
+- ARGV PASSED AS SEPARATE POSITIONAL ARGUMENTS is matched too, since
+  fix(#1857 item 2): ``create_subprocess_exec("ogrinfo", "-so", path)`` is an
+  argv site even though no list or tuple display is ever built. The two shapes
+  are proved to execute in different ways, which is the whole reason they are
+  detected separately. A display is inert until its value ESCAPES, so it earns
+  its place through the escape analysis below. A varargs spawn does not need
+  that argument: the call IS the spawn, so reaching the node is the proof, and
+  neither the escape rule nor the tool-NAME-list exemption applies to it.
+  ``_POSITIONAL_ARGV_SPAWNERS`` names the callees whose FIRST positional
+  argument is the program (``asyncio.create_subprocess_exec``,
+  ``loop.subprocess_exec``, and the ``os.exec*`` families). ``os.spawnl`` and
+  friends lead with a mode argument instead and are not modelled; no site in
+  ``app/`` uses either shape today -- every GDAL CLI call still builds a list
+  and star-unpacks it -- so this closes the door before anyone walks through
+  it rather than after.
 - A GDAL-headed literal counts as an argv only when its value ESCAPES —
   handed to a call, returned, or yielded (fix(#996)). The escape is followed
   directly, out of transparent wrappers (container literals, ternary, ``+``,
@@ -2530,6 +2535,100 @@ def _argv_escape_kind(node: ast.List | ast.Tuple, rel: str) -> int:
     return best
 
 
+# fix(#1857 item 2): callees that take the program as their FIRST POSITIONAL
+# argument, so an argv can exist with no list or tuple display anywhere. The
+# `exec*` families are here for completeness rather than because the tree uses
+# them. Deliberately absent: `os.spawnl` and its variants, whose leading
+# argument is a mode rather than the program, and `subprocess.run` /`Popen`,
+# which take the whole argv as ONE argument and are therefore already covered
+# by the display rule.
+_POSITIONAL_ARGV_SPAWNERS = frozenset(
+    {
+        "create_subprocess_exec",
+        "subprocess_exec",
+        "execl",
+        "execlp",
+        "execle",
+        "execlpe",
+        "execv",
+        "execvp",
+        "execve",
+        "execvpe",
+    }
+)
+
+
+def _positional_argv_tool(node: ast.AST) -> str | None:
+    """The GDAL tool a varargs spawn names, when argv is passed positionally.
+
+    Matched on the callee's terminal name, so `asyncio.create_subprocess_exec`,
+    a `from asyncio import create_subprocess_exec` and `loop.subprocess_exec`
+    all read the same. That is looser than the identity resolution the helper
+    credit uses, and deliberately so: this side of the gate decides what to
+    LOOK at, where a false positive costs a reviewed allowlist entry, while
+    credit decides what to EXEMPT, where a false positive costs the guarantee.
+    """
+    if not isinstance(node, ast.Call) or not node.args:
+        return None
+    func = node.func
+    if isinstance(func, ast.Attribute):
+        callee: str | None = func.attr
+    elif isinstance(func, ast.Name):
+        callee = func.id
+    else:
+        callee = None
+    if callee not in _POSITIONAL_ARGV_SPAWNERS:
+        return None
+    head = node.args[0]
+    if not isinstance(head, ast.Constant):
+        return None
+    return _gdal_cli_tool_name(head.value)
+
+
+def _iter_argv_sites(rel: str, tree: ast.Module):
+    """Yield (tool, argv node, the argv's tail expressions) for one module.
+
+    The single definition of "an argv site", shared by the GDAL CLI env gate
+    and the vector driver policy so the two cannot drift apart on what they
+    are looking at. Requires ``_annotate_parents(tree)`` to have run.
+
+    The tail is what follows the program: the remaining display elements, or
+    the remaining positional arguments. Callers scan it for a literally remote
+    source, which is the one thing a safe env cannot defend against.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.List, ast.Tuple)) and node.elts:
+            first = node.elts[0]
+            tool = (
+                _gdal_cli_tool_name(first.value)
+                if isinstance(first, ast.Constant)
+                else None
+            )
+            if tool is None:
+                continue
+            # fix(#996): a GDAL-looking sequence is only a command vector if
+            # it is one. Flagging plain data was a false positive that blocked
+            # correct code and offered only misleading ways out.
+            escape = _argv_escape_kind(node, rel)
+            if escape == _ESCAPE_NONE:
+                continue  # inert: the value never leaves, so it cannot execute
+            if escape != _ESCAPE_CALL and _tool_name_list(node):
+                # A tool-NAME list that is only returned is a choices helper.
+                # fix(#996 review): the exemption stops at _ESCAPE_CALL. A
+                # literal handed into a call is a plausible argv whatever it
+                # contains -- a dataset or output path may legitimately be
+                # named `ogrinfo` -- and shape alone cannot tell the two apart.
+                continue
+            yield tool, node, node.elts[1:]
+            continue
+        tool = _positional_argv_tool(node)
+        if tool is not None:
+            # No escape test and no name-list exemption: this node is the
+            # spawn, so it executes by construction, and there is no display
+            # that could be mistaken for inert data.
+            yield tool, node, node.args[1:]
+
+
 def _collect_gdal_cli_violations(
     modules: list[tuple[str, ast.Module]],
     allowlist: dict[tuple[str, str, str], tuple[int, str]],
@@ -2551,32 +2650,10 @@ def _collect_gdal_cli_violations(
 
     for rel, tree in modules:
         _annotate_parents(tree)
-        for node in ast.walk(tree):
-            # codex round 9: tuples build argv vectors just as well as lists
-            # (subprocess.run(("gdalinfo", url))) — match both.
-            if not (isinstance(node, (ast.List, ast.Tuple)) and node.elts):
-                continue
-            first = node.elts[0]
-            tool_name = (
-                _gdal_cli_tool_name(first.value)
-                if isinstance(first, ast.Constant)
-                else None
-            )
-            if tool_name is None:
-                continue
-            # fix(#996): a GDAL-looking sequence is only a command vector if
-            # it is one. Flagging plain data was a false positive that blocked
-            # correct code and offered only misleading ways out.
-            escape = _argv_escape_kind(node, rel)
-            if escape == _ESCAPE_NONE:
-                continue  # inert: the value never leaves, so it cannot execute
-            if escape != _ESCAPE_CALL and _tool_name_list(node):
-                # A tool-NAME list that is only returned is a choices helper.
-                # fix(#996 review): the exemption stops at _ESCAPE_CALL. A
-                # literal handed into a call is a plausible argv whatever it
-                # contains — a dataset or output path may legitimately be
-                # named `ogrinfo` — and shape alone cannot tell the two apart.
-                continue
+        # codex round 9: tuples build argv vectors just as well as lists
+        # (subprocess.run(("gdalinfo", url))) — match both. fix(#1857 item 2):
+        # and a varargs spawn that builds no display at all.
+        for tool_name, node, tail in _iter_argv_sites(rel, tree):
             total_argv_sites += 1
             func_node = _enclosing_function_node(node)
             func_name = func_node.name if func_node is not None else "<module>"
@@ -2584,7 +2661,7 @@ def _collect_gdal_cli_violations(
             # codex round 7 on #974: an argv carrying a literally-remote
             # element gets no safe-env credit — the safe env cannot stop a
             # redirect (#937), so the site needs its own reviewed entry.
-            remote = any(_is_remote_literal(elt) for elt in node.elts[1:])
+            remote = any(_is_remote_literal(elt) for elt in tail)
             # fix(#1846 codex P2): which helper this argv may be credited by
             # depends on the tool family. A raster CLI needs the raster clamps
             # and nothing else vouches for it; a vector CLI may use any of the
@@ -2714,26 +2791,14 @@ def _argv_has_helper_credit(
 def _iter_vector_cli_argv_sites(modules: list[tuple[str, ast.Module]]):
     """Yield (rel, function, tool, argv node, enclosing scope) per vector argv.
 
-    Same detection as ``_collect_gdal_cli_violations`` -- a GDAL-headed literal
-    whose value escapes -- narrowed to the two OGR command-line tools.
+    Same detection as ``_collect_gdal_cli_violations`` -- through the shared
+    ``_iter_argv_sites`` so the two cannot drift on what an argv site is --
+    narrowed to the two OGR command-line tools.
     """
     for rel, tree in modules:
         _annotate_parents(tree)
-        for node in ast.walk(tree):
-            if not (isinstance(node, (ast.List, ast.Tuple)) and node.elts):
-                continue
-            first = node.elts[0]
-            tool = (
-                _gdal_cli_tool_name(first.value)
-                if isinstance(first, ast.Constant)
-                else None
-            )
+        for tool, node, _tail in _iter_argv_sites(rel, tree):
             if tool not in VECTOR_CLI_TOOLS:
-                continue
-            escape = _argv_escape_kind(node, rel)
-            if escape == _ESCAPE_NONE:
-                continue
-            if escape != _ESCAPE_CALL and _tool_name_list(node):
                 continue
             func_node = _enclosing_function_node(node)
             func_name = func_node.name if func_node is not None else "<module>"
@@ -2955,6 +3020,89 @@ def test_every_sqlite_family_extension_is_content_checked():
     # has to be scanned for members too.
     assert schema_readers & set(ARCHIVE_MEMBER_DRIVERS)
     assert ZIP_CONTAINER_EXTENSIONS, "container list went empty"
+
+
+# fix(#1857 item 2): the shape the gate could not see. Both fixtures spawn the
+# same tool with the same arguments and differ only in the env, so a pass on
+# the clamped one and a report on the other isolates exactly what is measured.
+# Written as source rather than as a file in app/, because a real one would be
+# a real unclamped subprocess.
+_POSITIONAL_ARGV_UNCLAMPED = """
+import asyncio
+
+
+async def probe(path):
+    proc = await asyncio.create_subprocess_exec(
+        "ogrinfo", "-so", path, stdout=asyncio.subprocess.PIPE
+    )
+    return proc
+"""
+
+_POSITIONAL_ARGV_CLAMPED = """
+import asyncio
+
+from app.processing.raster.vrt import gdal_vector_safe_env
+
+
+async def probe(path):
+    proc = await asyncio.create_subprocess_exec(
+        "ogrinfo",
+        "-so",
+        path,
+        stdout=asyncio.subprocess.PIPE,
+        env=gdal_vector_safe_env(),
+    )
+    return proc
+"""
+
+_POSITIONAL_FIXTURE_REL = "processing/ingest/_positional_spawn_fixture.py"
+
+
+def _fixture_modules(source: str) -> list[tuple[str, ast.Module]]:
+    return [(_POSITIONAL_FIXTURE_REL, ast.parse(source))]
+
+
+def test_positional_argv_is_seen_by_the_cli_env_gate():
+    """An argv passed as separate arguments is still an argv.
+
+    fix(#1857 item 2). Detection keyed on a list or tuple DISPLAY whose head
+    names a GDAL tool, so a spawn that never builds one was invisible to every
+    rule in this file: no env requirement, no allowlist entry, no count. The
+    tree had no such site, which is why it went unnoticed, and a gate that goes
+    quiet on a shape it cannot read fails in the wrong direction.
+
+    The clamped fixture is the half that makes this a measurement rather than a
+    tautology. Without it, "the new shape reports" would also be true of a
+    change that reported every varargs spawn unconditionally.
+    """
+    violations, total = _collect_gdal_cli_violations(
+        _fixture_modules(_POSITIONAL_ARGV_UNCLAMPED), {}
+    )
+    assert total == 1, f"the positional spawn was not counted as an argv: {total}"
+    assert len(violations) == 1, violations
+    assert "ogrinfo" in violations[0] and "probe" in violations[0], violations[0]
+
+    violations, total = _collect_gdal_cli_violations(
+        _fixture_modules(_POSITIONAL_ARGV_CLAMPED), {}
+    )
+    assert total == 1, total
+    assert not violations, violations
+
+
+def test_positional_argv_is_seen_by_the_vector_driver_policy():
+    """The same shape reaches the per-site driver policy, from one change.
+
+    fix(#1857 item 2). Both gates read what an argv site is from
+    ``_iter_argv_sites``, so widening detection in one place widens both. A
+    positional ogrinfo with no entry reports as unreviewed rather than as
+    absent, which is the answer that gets a new site looked at.
+    """
+    violations, total = _collect_vector_driver_violations(
+        _fixture_modules(_POSITIONAL_ARGV_UNCLAMPED), {}
+    )
+    assert total == 1, total
+    assert len(violations) == 1, violations
+    assert "VECTOR_CLI_DRIVER_POLICY" in violations[0], violations[0]
 
 
 def test_gdal_cli_argv_uses_safe_env_or_is_allowlisted():
