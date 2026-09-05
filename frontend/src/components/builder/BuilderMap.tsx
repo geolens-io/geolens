@@ -60,7 +60,7 @@ import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapLayerResponse, MapTerrainConfig } from '@/types/api';
 import type { TileToken, VectorTileToken } from '@/api/tiles';
-import { getVisibleLayerBounds, visibleLayerBoundsKey } from './builder-bounds';
+import { getVisibleLayerBounds, visibleLayerBoundsKey, clampMinZoomAfterFit } from './builder-bounds';
 import 'maplibre-gl/dist/maplibre-gl.css';
 // feat(#846): wires maplibre v6's worker URL. Side-effect import, kept out of
 // main.tsx so map-vendor stays out of the eager entry graph (fix(#1624)).
@@ -1322,10 +1322,7 @@ export const BuilderMap = memo(function BuilderMap({
       { padding: 40, maxZoom: 18, duration: 0 },
     );
 
-    // Clamp zoom to 2+ so tiles render (ST_AsMVT fails at z0/z1 for complex geometries)
-    if (map.getZoom() < 2) {
-      map.setZoom(2);
-    }
+    clampMinZoomAfterFit(map);
 
     if (!isFirstFit) {
       // Replace rather than stack: a second auto-fit makes the older offer stale,

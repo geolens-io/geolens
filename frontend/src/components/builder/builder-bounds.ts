@@ -1,3 +1,4 @@
+import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
 
 // fix(#1877 codex round 3): moved out of BuilderMap.tsx — a hook needed this
@@ -88,4 +89,12 @@ export function visibleLayerBoundsKey(bounds: VisibleLayerBounds | null): string
   return bounds
     ? `${bounds[0][0]},${bounds[0][1]},${bounds[1][0]},${bounds[1][1]}`
     : '';
+}
+
+/** A wide bounds fit can land below zoom 2, where complex vector tiles fail
+ * to render (ST_AsMVT). Call right after any fitBounds to a merged extent. */
+export function clampMinZoomAfterFit(map: Pick<MaplibreMap, 'getZoom' | 'setZoom'>): void {
+  if (map.getZoom() < 2) {
+    map.setZoom(2);
+  }
 }

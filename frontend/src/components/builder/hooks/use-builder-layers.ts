@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { toFitBounds } from '@/lib/bbox';
-import { getVisibleLayerBounds } from '@/components/builder/builder-bounds';
+import { getVisibleLayerBounds, clampMinZoomAfterFit } from '@/components/builder/builder-bounds';
 import { normalizeTerrainExaggeration, reorderDataLayers } from '@/components/builder/map-sync';
 import type { LayerActions } from '@/components/builder/ChatPanel';
 import {
@@ -603,6 +603,10 @@ export function useBuilderLayers(
     if (!map || !bounds) return;
     try {
       map.fitBounds(bounds, { padding: 40, maxZoom: 18 });
+      // fix(#1877 codex round 3): mirrors BuilderMap's own auto-fit clamp —
+      // a wide union can land below zoom 2, where complex vector tiles fail
+      // to render (ST_AsMVT).
+      clampMinZoomAfterFit(map);
     } catch {
       // Silently ignore invalid bounds (e.g. out-of-range coordinates)
     }

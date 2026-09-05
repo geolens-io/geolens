@@ -26,10 +26,10 @@ type MaplibreMap = import('maplibre-gl').Map;
 
 function renderWithAddDatasetParam(
   mapData: MapResponse,
-  options: { startWithMapLoaded?: boolean } = {},
+  options: { startWithMapLoaded?: boolean; zoomAfterFit?: number } = {},
 ) {
-  const { startWithMapLoaded = true } = options;
-  const map = makeMapLibreMock();
+  const { startWithMapLoaded = true, zoomAfterFit } = options;
+  const map = makeMapLibreMock({ zoomAfterFit });
   const mapRef = {
     current: startWithMapLoaded ? map : null,
   } as React.RefObject<MaplibreMap | null>;
@@ -89,6 +89,7 @@ function renderWithAddDatasetParam(
     hook,
     mutate,
     fitBounds: map.fitBounds as unknown as ReturnType<typeof vi.fn>,
+    setZoom: map.setZoom as unknown as ReturnType<typeof vi.fn>,
     simulateMapLoad,
   };
 }
@@ -217,7 +218,7 @@ describe('?add_dataset auto-zoom (#1854)', () => {
       dataset_extent_bbox: [-80, 35, -75, 40],
     });
     const mapData = makeBuilderMap([existingLayer], { center_lng: null, center_lat: null });
-    const { hook, mutate, fitBounds, simulateMapLoad } = renderWithAddDatasetParam(mapData, {
+    const { hook, mutate, fitBounds, setZoom, simulateMapLoad } = renderWithAddDatasetParam(mapData, {
       startWithMapLoaded: false,
     });
 
@@ -248,5 +249,40 @@ describe('?add_dataset auto-zoom (#1854)', () => {
       [-80, 35],
       [-73.5, 41.5],
     ]);
+    // The mock reports a normal post-fit zoom (10, the default) — no clamp needed.
+    expect(setZoom).not.toHaveBeenCalled();
+  });
+
+  // fix(#1877 codex round 3): BuilderMap's own auto-fit clamps a wide fit to
+  // zoom 2+ (complex vector tiles fail to render below it, ST_AsMVT) — the
+  // cold-entry combined fit above must apply the same clamp, not just union
+  // the bounds and stop.
+  it('clamps a wide cold-entry combined fit to zoom 2, mirroring BuilderMap', () => {
+    const existingLayer = makeBuilderLayer({
+      id: 'existing-layer-id',
+      dataset_id: 'ds-existing',
+      dataset_extent_bbox: [-160, -70, -20, 10],
+    });
+    const mapData = makeBuilderMap([existingLayer], { center_lng: null, center_lat: null });
+    const { mutate, fitBounds, setZoom, simulateMapLoad } = renderWithAddDatasetParam(mapData, {
+      startWithMapLoaded: false,
+      zoomAfterFit: 1,
+    });
+
+    const [, { onSuccess }] = mutate.mock.calls[0];
+    const createdLayer = makeBuilderLayer({
+      id: 'new-layer-id',
+      dataset_id: 'ds-1',
+      dataset_extent_bbox: [20, 10, 160, 70],
+    });
+    act(() => {
+      onSuccess(createdLayer);
+    });
+    act(() => {
+      simulateMapLoad();
+    });
+
+    expect(fitBounds).toHaveBeenCalledTimes(1);
+    expect(setZoom).toHaveBeenCalledWith(2);
   });
 });

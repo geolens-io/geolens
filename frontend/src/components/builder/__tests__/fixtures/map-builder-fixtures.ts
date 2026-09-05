@@ -105,6 +105,10 @@ export function makeMapLibreMock(
     sources?: string[];
     layers?: string[];
     styleLoaded?: boolean;
+    /** fix(#1877 codex round 3): getZoom() reading AFTER fitBounds — tests
+     * the same clampMinZoomAfterFit callers use. Defaults above 2 so
+     * existing callers that don't care about zoom see no setZoom(2) call. */
+    zoomAfterFit?: number;
   } = {},
 ): MaplibreMap {
   const sources = new Set(initial.sources ?? []);
@@ -135,6 +139,8 @@ export function makeMapLibreMock(
     moveLayer: vi.fn(),
     setLayerZoomRange: vi.fn(),
     fitBounds: vi.fn(),
+    getZoom: vi.fn(() => initial.zoomAfterFit ?? 10),
+    setZoom: vi.fn(),
     on: vi.fn(),
     off: vi.fn(),
     setTransformRequest: vi.fn(),
