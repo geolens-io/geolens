@@ -70,6 +70,15 @@ def _swap_operator_tokens(sql: str, token_type: TokenType, replacement: str) -> 
     return out
 
 
+def _is_logical_data_schema(identifier: exp.Expression | None) -> bool:
+    """True when ``identifier`` folds to the logical ``data`` schema: unquoted
+    folds to lowercase, quoted keeps its case, so quoted ``"DATA"`` is not it."""
+    if not isinstance(identifier, exp.Identifier):
+        return False
+    name = identifier.name if identifier.quoted else identifier.name.lower()
+    return name == "data"
+
+
 def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
     """Rewrite validated ``data.*`` references to one physical tenant schema.
 
@@ -96,12 +105,13 @@ def _rewrite_logical_data_schema(sql: str, physical_schema: str) -> str:
     # quoting form) tokenizes as a string and leaves `guarded` unchanged.
     protect_cosine = guarded != sql
 
+    # fix(#1891): fold like the validator, so unquoted DATA is rewritten too.
     for table in statement.find_all(exp.Table):
-        if table.db == "data":
+        if _is_logical_data_schema(table.args.get("db")):
             table.set("db", exp.to_identifier(physical_schema, quoted=True))
 
     for column in statement.find_all(exp.Column):
-        if column.db == "data":
+        if _is_logical_data_schema(column.args.get("db")):
             column.set("db", exp.to_identifier(physical_schema, quoted=True))
 
     rendered = statement.sql(dialect="postgres")
