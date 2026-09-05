@@ -516,6 +516,7 @@
   "pageDescription": "Chargez des fichiers, enregistrez des tables depuis votre Postgres ou connectez un service distant. GeoLens détecte la géométrie, le schéma et le SCR, puis rend les données interrogeables, stylisables et intégrables.",
   "complete": {
     "heroTitle_one": "{{count}} jeu de données ajouté au catalogue",
+    "heroTitle_many": "{{count}} de jeux de données ajoutés au catalogue",
     "heroTitle_other": "{{count}} jeux de données ajoutés au catalogue",
     "heroDesc": "Tous les fichiers ingérés, tuilés et indexés. Prêts à être interrogés, stylisés et cartographiés.",
     "statDatasets": "Jeux de données",

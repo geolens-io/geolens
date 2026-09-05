@@ -15,6 +15,7 @@ import {
   getPublicApiBaseUrl,
   resolveDistributionUrl,
   isAbsoluteUrl,
+  isFetchableDistributionUrl,
 } from '@/lib/dataset-access';
 import { authenticatedDownload } from '@/api/datasets';
 import type { DistributionResponse } from '@/types/api';
@@ -66,6 +67,14 @@ function CopyableUrl({
   // external viewer app) passes through unchanged and is not a GeoLens API
   // resource, so it must never receive this session's bearer token.
   const isSameOriginApiResource = !isAbsoluteUrl(distribution.url);
+  // fix(#1863 P2): a vector-tile row's url is a template
+  // (/tiles/data.<table>/{z}/{x}/{y}.pbf — no literal resource at that
+  // path) and a raster/VRT row's url is a bare object-storage key
+  // (rasters/<id>/<sha>/source.cog.tif — not the real, token-gated COG
+  // download route). Neither is something a single fetch resolves, so ONLY
+  // an actually-fetchable url gets a download action at all; the rest stay
+  // copy-only rows.
+  const isFetchable = isFetchableDistributionUrl(distribution.url);
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
@@ -118,36 +127,41 @@ function CopyableUrl({
           the resource. Same-origin GeoLens resources download through the
           authenticated fetch flow (needed for private/unpublished datasets);
           an external URL from a manual distribution is a plain link instead
-          — it is not ours to attach a bearer token to. */}
-      {isSameOriginApiResource ? (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 shrink-0"
-          onClick={handleAuthenticatedDownload}
-          disabled={downloading}
-          aria-label={t('distributions.downloadUrl')}
-          title={t('distributions.downloadUrl')}
-        >
-          {downloading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Download className="h-3.5 w-3.5" />
-          )}
-        </Button>
-      ) : (
-        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" asChild>
-          <a
-            href={resolvedUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+          — it is not ours to attach a bearer token to.
+          fix(#1863 P2): a tile-template or bare-storage-key row (see
+          isFetchable above) gets no download action at all — copy remains
+          the only way to get the value, since there is nothing a single
+          fetch or plain navigation could resolve. */}
+      {isFetchable &&
+        (isSameOriginApiResource ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0"
+            onClick={handleAuthenticatedDownload}
+            disabled={downloading}
             aria-label={t('distributions.downloadUrl')}
             title={t('distributions.downloadUrl')}
           >
-            <Download className="h-3.5 w-3.5" />
-          </a>
-        </Button>
-      )}
+            {downloading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        ) : (
+          <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" asChild>
+            <a
+              href={resolvedUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={t('distributions.downloadUrl')}
+              title={t('distributions.downloadUrl')}
+            >
+              <Download className="h-3.5 w-3.5" />
+            </a>
+          </Button>
+        ))}
       <Button
         variant="ghost"
         size="icon"

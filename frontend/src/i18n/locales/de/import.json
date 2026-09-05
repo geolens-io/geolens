@@ -516,6 +516,7 @@
   "pageDescription": "Dateien hochladen, Tabellen aus Ihrem Postgres registrieren oder einen Remote-Service verbinden. GeoLens erkennt Geometrie, Schema und KRS und macht die Daten abfragbar, stilisierbar und einbettbar.",
   "complete": {
     "heroTitle_one": "{{count}} Datensatz zum Katalog hinzugefügt",
+    "heroTitle_many": "{{count}} Datensätze zum Katalog hinzugefügt",
     "heroTitle_other": "{{count}} Datensätze zum Katalog hinzugefügt",
     "heroDesc": "Alle Dateien aufgenommen, gekachelt und indiziert. Bereit zum Abfragen, Gestalten und Kartografieren.",
     "statDatasets": "Datensätze",

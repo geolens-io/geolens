@@ -108,6 +108,7 @@
   },
   "complete": {
     "heroTitle_one": "{{count}} dataset added to the catalog",
+    "heroTitle_many": "{{count}} datasets added to the catalog",
     "heroTitle_other": "{{count}} datasets added to the catalog",
     "heroDesc": "All files ingested, tiled, and indexed. Ready to query, style, and map.",
     "statDatasets": "Datasets",

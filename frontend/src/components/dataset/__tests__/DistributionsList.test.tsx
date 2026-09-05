@@ -300,6 +300,77 @@ describe('DistributionsList', () => {
       );
       expect(mockAuthenticatedDownload).not.toHaveBeenCalled();
     });
+
+    // fix(#1863 P2, codex round 2): the relative-url predicate above routed
+    // EVERY relative url through authenticatedDownload, including a
+    // vector-tile template (/tiles/data.<table>/{z}/{x}/{y}.pbf — a
+    // template, no literal resource at that path) and a raster/VRT row's
+    // bare object-storage key (rasters/<id>/<sha>/source.cog.tif — not the
+    // real, token-gated /datasets/{id}/download/cog route) — so the
+    // Download button always 404'd for those rows. Neither gets a download
+    // action at all now; copy is the only way to get the value.
+    it('shows no download action for a vector-tile template row (copy only)', () => {
+      mockUseDistributions.mockReturnValue({
+        data: {
+          distributions: [
+            {
+              id: 'tiles-1',
+              record_id: 'record-1',
+              distribution_type: 'vector_tiles',
+              format: 'pbf',
+              url: '/tiles/data.test_table/{z}/{x}/{y}.pbf',
+              title: 'Vector Tiles',
+              description: null,
+              protocol: 'XYZ',
+              media_type: 'application/vnd.mapbox-vector-tile',
+              is_primary: false,
+              auto_generated: true,
+            },
+          ],
+          total: 1,
+        },
+        isLoading: false,
+      } as unknown as ReturnType<typeof useDistributions>);
+
+      render(<DistributionsList recordId="record-1" />);
+
+      expect(screen.queryByRole('button', { name: 'Download' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Download' })).not.toBeInTheDocument();
+      // The value is still reachable — just not fetchable as one file.
+      expect(screen.getByRole('button', { name: 'Copy URL' })).toBeInTheDocument();
+      expect(mockAuthenticatedDownload).not.toHaveBeenCalled();
+    });
+
+    it('shows no download action for a raster/VRT bare-storage-key row (copy only)', () => {
+      mockUseDistributions.mockReturnValue({
+        data: {
+          distributions: [
+            {
+              id: 'raster-1',
+              record_id: 'record-1',
+              distribution_type: 'download',
+              format: 'geotiff',
+              url: 'rasters/dataset-1/abc123sha256/source.cog.tif',
+              title: 'GeoTIFF Download',
+              description: null,
+              protocol: 'HTTP',
+              media_type: 'image/tiff',
+              is_primary: false,
+              auto_generated: true,
+            },
+          ],
+          total: 1,
+        },
+        isLoading: false,
+      } as unknown as ReturnType<typeof useDistributions>);
+
+      render(<DistributionsList recordId="record-1" />);
+
+      expect(screen.queryByRole('button', { name: 'Download' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Download' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Copy URL' })).toBeInTheDocument();
+      expect(mockAuthenticatedDownload).not.toHaveBeenCalled();
+    });
   });
 
   // feat(#1395): set-primary control.

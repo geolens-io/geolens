@@ -16,6 +16,29 @@ export function isAbsoluteUrl(value: string): boolean {
   return ABSOLUTE_URL_RE.test(value) || value.startsWith('//');
 }
 
+// fix(#1863 P2): a `{z}`/`{x}`/`{y}`-style placeholder (the auto-generated
+// vector_tiles row is exactly `/tiles/data.<table>/{z}/{x}/{y}.pbf`) names a
+// TEMPLATE, not a literal resource — no single fetch resolves it.
+const TILE_TEMPLATE_RE = /\{[^{}]+\}/;
+
+/**
+ * A URL a single fetch can actually resolve to a resource — as opposed to a
+ * tile URL template (a `{z}`/`{x}`/`{y}` placeholder, or similar) or a bare
+ * object-storage key. Raster/VRT distributions store the latter directly as
+ * their `url` (e.g. `rasters/<dataset_id>/<sha256>/source.cog.tif` — no
+ * leading slash, not the real `/datasets/{id}/download/cog` route, which
+ * additionally needs a short-lived download-scoped token `mintDownloadToken`
+ * mints separately). Every GeoLens-generated same-origin API path (exports,
+ * OGC Features, …) is written with a leading slash — see the backend's
+ * `_DISTRIBUTION_TEMPLATES` — so that is the signal used to exclude a raw
+ * storage key without an explicit "this is a storage key" field to check.
+ */
+export function isFetchableDistributionUrl(value: string): boolean {
+  if (TILE_TEMPLATE_RE.test(value)) return false;
+  if (isAbsoluteUrl(value)) return true;
+  return value.startsWith('/');
+}
+
 function normalizeApiBasePath(value: string): string {
   return value.startsWith('/') ? value : `/${value}`;
 }

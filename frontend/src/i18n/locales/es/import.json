@@ -516,6 +516,7 @@
   "pageDescription": "Sube archivos, registra tablas de tu Postgres o conecta un servicio remoto. GeoLens detecta geometría, esquema y CRS, luego hace los datos consultables, estilizables e integrables.",
   "complete": {
     "heroTitle_one": "{{count}} conjunto de datos añadido al catálogo",
+    "heroTitle_many": "{{count}} de conjuntos de datos añadidos al catálogo",
     "heroTitle_other": "{{count}} conjuntos de datos añadidos al catálogo",
     "heroDesc": "Todos los archivos ingestados, teselados e indexados. Listos para consultar, estilizar y mapear.",
     "statDatasets": "Conjuntos de datos",
