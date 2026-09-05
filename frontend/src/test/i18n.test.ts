@@ -29,4 +29,13 @@ describe('#1866: changeTestLanguage loads real locale bundles', () => {
     await i18n.changeLanguage('en');
     expect(i18n.t('import:dropzone.browse')).toBe('browse');
   });
+
+  it('switches back to English through the helper without throwing', async () => {
+    // fix(#1866 codex r2): English's bundle is already loaded and frozen,
+    // so registering it again (instead of just switching) used to throw.
+    await changeTestLanguage('de');
+    await expect(changeTestLanguage('en')).resolves.toBeUndefined();
+    expect(i18n.language).toBe('en');
+    expect(i18n.t('import:dropzone.browse')).toBe('browse');
+  });
 });
