@@ -512,10 +512,13 @@ jobs:
         run: node frontend/scripts/check-api-error-boundary.mjs
 
       - name: Install gitleaks
+        # fix(#1859): retries a transient download failure instead of letting
+        # it evict the whole merge-queue entry on a required job.
         run: |
           GL=8.30.1
           GL_SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
-          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GL}/gitleaks_${GL}_linux_x64.tar.gz" \
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 2 \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GL}/gitleaks_${GL}_linux_x64.tar.gz" \
             -o gitleaks.tar.gz
           echo "${GL_SHA256}  gitleaks.tar.gz" | sha256sum --check --strict
           tar -xz -f gitleaks.tar.gz gitleaks
