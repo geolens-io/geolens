@@ -468,6 +468,23 @@ def _secret_variants(secret: str) -> list[str]:
     of the pair matches none of it. So the pair is decoded and both halves join
     the variants, alongside every encoded form.
     """
+    # fix(#1844 codex r2): there is NO length floor here, on the derived forms
+    # or on the secret itself. Round 1 added one and it was wrong: a floor
+    # decides which VALID credentials stop being scrubbed.
+    # `credential_input_rejection_reason` (`core/service_tokens.py`) accepts any
+    # nonempty printable username, password or header value with no minimum, so
+    # a Basic password of `admin` and a six-character named API key are both
+    # well-formed credentials a user can really configure -- and a floor of 8
+    # silently stopped redacting them from worker logs and from the persisted
+    # exception text. The malformed-short-bearer case the floor was reaching
+    # for is closed at the other end instead, by
+    # `_sanitize_authorization_token` validating before it registers; a VALID
+    # bearer is already at least `HEADER_TOKEN_MIN_LENGTH`, so a bearer-derived
+    # bare token can never be short in the first place.
+    #
+    # Over-scrubbing a short secret stays the deliberate trade-off documented
+    # on `scrub_secret_value` below. Under-scrubbing a valid one is not a trade
+    # this module gets to make.
     forms = {secret}
     _, separator, tail = secret.partition(HEADER_LINE_SEPARATOR)
     if separator and tail:

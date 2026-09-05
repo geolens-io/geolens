@@ -26,18 +26,36 @@ loggers, and (as of fix #1746 codex r5) ``httpx``/``httpcore`` (see
 the autouse fixture below for why it needs to.
 """
 
+import base64
 import json
 import logging
 import time
+from collections.abc import Mapping
+from urllib.parse import urlsplit
 
 import pytest
 from procrastinate.jobs import Job
 
-from app.core.logging_config import _redact_token_value_repr, _scrub_text
+from app.core.logging_config import (
+    _REDACTED_REPR_NAMES,
+    _SENSITIVE_FIELDS,
+    _redact_token_value_repr,
+    _scrub_text,
+)
 from app.core.url_redaction import URL_LIKE_RE
 from tests._logging_state import configured_logging
 
 _TOKEN = "SECRETTOKEN123"
+# fix(#1844): the throwaway credential the job-context tests below put on the
+# wire. Deliberately unmistakable filler rather than anything that reads like a
+# real credential, while still carrying every SHAPE the scrubber has to
+# recognise: a finished basic header line, the base64 blob inside it, and the
+# two cleartext halves that blob decodes to.
+_BASIC_USER = "AAAAAAAAA"
+_BASIC_SECRET = "BBBBBBBBB"
+_BASIC_BLOB = base64.b64encode(f"{_BASIC_USER}:{_BASIC_SECRET}".encode()).decode()
+_BASIC_LINE = f"Authorization: Basic {_BASIC_BLOB}"
+_CREDENTIAL_REF = "REF00000000000001"
 _ARCGIS_URL = f"https://services6.arcgis.com/x/FeatureServer/0?f=json&token={_TOKEN}"
 # fix(#1746 codex r11): an apostrophe in the URL PATH (not the token) stops
 # URL_LIKE_RE's match before the query ever starts -- see _QUERY_TAIL_RE's
@@ -87,7 +105,13 @@ def _restore_httpx_logger_disabled_flag():
 
 
 def _emit_through_real_pipeline(
-    logger_name: str, level: int, message: str
+    logger_name: str,
+    level: int,
+    message: str,
+    *,
+    extra: dict | None = None,
+    json_logs: bool = False,
+    log_level: str = "INFO",
 ) -> list[str]:
     """Run `setup_logging()` for real and capture what reaches the root logger.
 
@@ -96,17 +120,42 @@ def _emit_through_real_pipeline(
     `foreign_pre_chain` includes `_redact_sensitive_fields`), so redaction is
     exercised exactly as it runs in production rather than by calling the
     processor function directly.
+
+    fix(#1844): `extra` is passed straight through to the stdlib call.
+    Every test written for #1746 emitted a message and nothing else, which is
+    exactly why the P1-2 leak stayed green through that whole review: the
+    processor chain's `structlog.stdlib.ExtraAdder()` lifts a stdlib record's
+    `extra` mapping into the event dict, and no test here ever put anything
+    there. `json_logs` / `log_level` are exposed for the same reason -- the
+    worker's first job line is a DEBUG one, and the structured half of a
+    record is far easier to assert on when the renderer emits JSON.
     """
-    with configured_logging(json_logs=False, log_level="INFO", production=True):
+    with configured_logging(json_logs=json_logs, log_level=log_level, production=True):
         root = logging.getLogger()
         capture = _ListHandler()
         capture.setFormatter(root.handlers[0].formatter)
         root.addHandler(capture)
         try:
-            logging.getLogger(logger_name).log(level, message)
+            logging.getLogger(logger_name).log(level, message, extra=extra)
         finally:
             root.removeHandler(capture)
     return capture.lines
+
+
+def _emit_json_with_extra(
+    logger_name: str, level: int, message: str, extra: dict, log_level: str = "INFO"
+) -> tuple[str, dict]:
+    """`_emit_through_real_pipeline` with JSON output, returning (line, parsed)."""
+    lines = _emit_through_real_pipeline(
+        logger_name,
+        level,
+        message,
+        extra=extra,
+        json_logs=True,
+        log_level=log_level,
+    )
+    assert len(lines) == 1
+    return lines[0], json.loads(lines[0])
 
 
 def test_httpx_info_request_line_never_reaches_the_handler():
@@ -618,3 +667,351 @@ def test_scrub_text_leaves_a_bare_question_mark_in_prose_unchanged():
     text = "are we done? yes, all set"
 
     assert _scrub_text(text) == text
+
+
+def _worker_log_extra(job: Job, action: str) -> dict:
+    """The `extra` mapping Procrastinate's worker actually attaches to a record.
+
+    Mirrors `procrastinate/worker.py`'s `Worker._log_extra()` (pinned
+    procrastinate 3.9.0): an `action`, a `worker` dict, and `job` set to
+    `context.job.log_context()`. `log_context()` is the load-bearing part and
+    is called for real here rather than hand-typed, so this breaks if
+    Procrastinate ever changes what it puts in there instead of silently
+    staying green against a guess.
+    """
+    return {
+        "action": action,
+        "worker": {
+            "name": "worker-0",
+            "worker_id": 0,
+            "job_id": job.id,
+            "queues": ["ingest-auth-v2"],
+        },
+        "job": job.log_context(),
+    }
+
+
+def _authenticated_service_job() -> Job:
+    """A job shaped like the ones the default install actually queues.
+
+    `credential_store_available()` is False whenever `REDIS_URL` is unset --
+    which is how `.env.example` ships -- so `resolve_dispatch_credential()`
+    returns the raw wire credential and it crosses the queue as the `token`
+    kwarg of every authenticated service import and reupload.
+    """
+    return Job(
+        id=1270,
+        queue="ingest-auth-v2",
+        lock=None,
+        queueing_lock=None,
+        task_name="ingest_service",
+        task_kwargs={
+            "job_id": "abc",
+            "token": _BASIC_LINE,
+            "credential_ref": _CREDENTIAL_REF,
+            "dataset_id": "d-42",
+        },
+    )
+
+
+# Every spelling of the throwaway credential that must not survive the
+# pipeline: the finished header line, the base64 blob inside it, and the two
+# cleartext halves an origin's own error text would name ("authentication
+# failed for user AAAAAAAAA"). The store reference joins them because it is
+# redeemable too.
+_JOB_CREDENTIAL_SPELLINGS = (
+    _BASIC_LINE,
+    _BASIC_BLOB,
+    _BASIC_USER,
+    _BASIC_SECRET,
+    _CREDENTIAL_REF,
+)
+
+# The three records `procrastinate/worker.py` emits per job, with the level and
+# message text each one really uses: `_process_job()`'s DEBUG "Loaded job info"
+# and INFO "Starting job", and `_log_job_outcome()`'s outcome line.
+_WORKER_JOB_RECORDS = (
+    ("loaded_job_info", logging.DEBUG, "Loaded job info, about to start job {call}"),
+    ("start_job", logging.INFO, "Starting job {call}"),
+    ("job_error", logging.ERROR, "Job {call} ended with status: Error, lasted 1.000 s"),
+)
+
+
+@pytest.mark.parametrize(
+    ("action", "level", "template"),
+    _WORKER_JOB_RECORDS,
+    ids=[record[0] for record in _WORKER_JOB_RECORDS],
+)
+def test_worker_job_context_never_carries_a_credential(action, level, template):
+    """fix(#1844): the structured half of every worker job line.
+
+    #1746 scrubbed the `event` STRING of exactly these three records and
+    stopped there, because `_redact_sensitive_fields` only looked at top-level
+    keys and no test in this file ever passed an `extra=`. The worker's
+    `extra["job"]` is `Job.log_context()`, which carries `task_kwargs`
+    verbatim AND a second rendered copy in `call_string`, so the credential
+    went out twice per line, at INFO, before the task body ran -- early enough
+    that nothing the task does about its own log context can help.
+    """
+    job = _authenticated_service_job()
+    extra = _worker_log_extra(job, action)
+    message = template.format(call=job.call_string)
+
+    # Pin the premise: the credential really is in this record, in both halves,
+    # before the pipeline sees it.
+    assert _BASIC_LINE in message
+    assert extra["job"]["task_kwargs"]["token"] == _BASIC_LINE
+    assert _BASIC_LINE in extra["job"]["call_string"]
+
+    line, data = _emit_json_with_extra(
+        "procrastinate.worker", level, message, extra, log_level="DEBUG"
+    )
+
+    for spelling in _JOB_CREDENTIAL_SPELLINGS:
+        assert spelling not in line, spelling
+    assert data["job"]["task_kwargs"]["token"] == "[REDACTED]"
+    assert data["job"]["task_kwargs"]["credential_ref"] == "[REDACTED]"
+    assert "[REDACTED]" in data["job"]["call_string"]
+    assert "[REDACTED]" in data["event"]
+    # The non-secret kwargs an operator debugging a stuck job actually needs
+    # are untouched, in both the structured copy and the rendered one.
+    assert data["job"]["task_kwargs"]["dataset_id"] == "d-42"
+    assert data["job"]["task_name"] == "ingest_service"
+    assert "dataset_id='d-42'" in data["job"]["call_string"]
+    assert data["action"] == action
+
+
+def test_an_extra_container_reaches_the_rendered_line_at_all():
+    """Positive control for the assertions above.
+
+    Every one of them is an ABSENCE claim, and an absence claim passes
+    vacuously if `extra` never reaches the output in the first place -- a
+    dropped record, an `ExtraAdder` that is not in the chain, a renderer that
+    ignores unknown fields. This pins the opposite: a container under a
+    non-sensitive key, holding a string with no credential shape, arrives
+    whole.
+    """
+    extra = {"job": {"task_kwargs": {"dataset_id": "d-42"}, "attempts": 3}}
+
+    _, data = _emit_json_with_extra("procrastinate.worker", logging.INFO, "hi", extra)
+
+    assert data["job"] == {"task_kwargs": {"dataset_id": "d-42"}, "attempts": 3}
+
+
+def test_the_same_job_context_leaks_through_a_shallow_key_pass():
+    """Positive control on the MECHANISM, not just on delivery.
+
+    Shows what the shallow pass this fix replaced would have emitted for the
+    identical record: a top-level key-only walk leaves `job` untouched, so
+    both copies of the credential survive. Written against the real
+    `log_context()` so it measures the payload the worker sends rather than a
+    restatement of the fix.
+    """
+    job = _authenticated_service_job()
+    event_dict = dict(_worker_log_extra(job, "start_job"))
+    event_dict["event"] = f"Starting job {job.call_string}"
+
+    shallow = {
+        key: ("[REDACTED]" if key.lower() in _SENSITIVE_FIELDS else value)
+        for key, value in event_dict.items()
+    }
+
+    assert shallow["job"]["task_kwargs"]["token"] == _BASIC_LINE
+    assert _BASIC_BLOB in shallow["job"]["call_string"]
+
+
+def test_credential_ref_absence_stays_distinguishable_from_a_real_ref():
+    """Redacting a ref must not cost the operator the one bit they need.
+
+    "Did this job carry a credential at all" is the question a stuck-job
+    triage actually asks, and `Job.call_string` renders `None` UNQUOTED. The
+    rendered-value scrub only touches a QUOTED value, so absence still reads
+    as `credential_ref=None` while a real ref reads as `[REDACTED]`.
+    """
+    job = Job(
+        id=1271,
+        queue="ingest-auth-v2",
+        lock=None,
+        queueing_lock=None,
+        task_name="ingest_service",
+        task_kwargs={"job_id": "abc", "token": None, "credential_ref": None},
+    )
+    extra = _worker_log_extra(job, "start_job")
+
+    _, data = _emit_json_with_extra(
+        "procrastinate.worker", logging.INFO, f"Starting job {job.call_string}", extra
+    )
+
+    assert "credential_ref=None" in data["job"]["call_string"]
+    assert "credential_ref=None" in data["event"]
+
+
+def test_nested_url_credential_in_an_extra_is_scrubbed():
+    """The deep walk scrubs nested STRINGS, not only denylisted keys.
+
+    A credential does not have to sit under a name the denylist knows.
+    `call_string` is the case that matters in production -- a rendered copy of
+    the kwargs, under a key that is not sensitive -- and this pins the same
+    behaviour for the other shape a nested string can carry, a URL with a
+    credential query. Key redaction cannot reach either one.
+    """
+    extra = {"job": {"detail": f"GET {_ARCGIS_URL} failed", "attempts": 1}}
+
+    line, data = _emit_json_with_extra(
+        "procrastinate.worker", logging.INFO, "outcome", extra
+    )
+
+    assert _TOKEN not in line
+    # fix(#1844 audit round 1): compare the host EXACTLY, and the string as a
+    # whole, rather than asserting the hostname is a substring of the scrubbed
+    # detail. `"services6.arcgis.com" in <text>` is satisfied by
+    # `services6.arcgis.com.evil.test` too, so as an assertion about a URL it
+    # says less than it looks like it says -- and CodeQL flags the shape
+    # (py/incomplete-url-substring-sanitization) whether or not the particular
+    # use is a sanitiser. Deriving the expectation from `_ARCGIS_URL` keeps it
+    # in step with the constant.
+    scrubbed = data["job"]["detail"].removeprefix("GET ").removesuffix(" failed")
+    assert urlsplit(scrubbed).hostname == "services6.arcgis.com"
+    assert scrubbed == f"{_ARCGIS_URL.partition('?')[0]}?<redacted>"
+
+
+def test_a_flat_record_is_left_alone_by_the_deep_walk():
+    """The walk is gated on the value being a container.
+
+    Over-redaction destroys log usefulness, and this is the hot path: every
+    request-path line is flat. Scalars under non-sensitive keys must come
+    through exactly as they went in.
+    """
+    extra = {"job_id": "abc", "task": "ingest_vrt", "attempts": 2, "ok": True}
+
+    _, data = _emit_json_with_extra("app.worker", logging.INFO, "flat", extra)
+
+    for key, value in extra.items():
+        assert data[key] == value
+
+
+def test_a_cyclic_extra_terminates():
+    """`extra` is third-party input, so the walk must not trust its shape.
+
+    Procrastinate builds a plain JSON-able dict today, but the processor runs
+    on whatever any library puts in `extra`. `redact_nested()`'s depth ceiling
+    is what makes a self-referencing structure terminate; without it this
+    hangs the logging call on the event loop rather than raising.
+    """
+    cyclic: dict = {"name": "loop"}
+    cyclic["self"] = cyclic
+
+    started = time.monotonic()
+    _, data = _emit_json_with_extra(
+        "app.worker", logging.INFO, "cycle", {"payload": cyclic}
+    )
+
+    assert time.monotonic() - started < 5
+    assert "[TRUNCATED]" in json.dumps(data["payload"])
+
+
+def test_repr_scrub_covers_every_denylisted_name():
+    """fix(#1844 audit round 1): the key pass and the text pass must agree.
+
+    The first cut of the rendered-value scrub knew `token` and
+    `credential_ref` -- 2 of the 14 denylisted names -- so the other 12 were
+    redacted as keys and then emitted verbatim in the `call_string` rendering
+    beside them. That is the same key-pass/text-pass asymmetry that produced
+    this PR's own finding, one level down. Pinning the two sets equal is what
+    keeps adding a name to the denylist from covering only half a record.
+    """
+    assert set(_REDACTED_REPR_NAMES) == _SENSITIVE_FIELDS
+
+
+@pytest.mark.parametrize("name", sorted(_SENSITIVE_FIELDS))
+def test_every_denylisted_name_is_redacted_in_both_rendered_shapes(name):
+    """Each denylisted name, in the kwarg shape and the dict-repr shape.
+
+    Not a restatement of the set equality above: this exercises the compiled
+    alternation, so a name the set contains but the regex cannot actually
+    match (an unescaped metacharacter, a boundary that never falls where the
+    name starts) fails here rather than passing on the set comparison alone.
+    """
+    kwarg = _scrub_text(f"call({name}='ULTRASECRET')")
+    mapping = _scrub_text(f"{{'{name}': 'ULTRASECRET'}}")
+
+    assert "ULTRASECRET" not in kwarg, kwarg
+    assert "ULTRASECRET" not in mapping, mapping
+
+
+def test_rendered_names_are_matched_case_insensitively():
+    """The key pass has always compared `key.lower()`; the text pass now does too.
+
+    `Token='...'` reaches a log line exactly as readily as `token='...'` --
+    third-party code picks the casing -- and a case-sensitive text pass would
+    reopen the same asymmetry in a narrower form.
+    """
+    assert "ULTRASECRET" not in _scrub_text("call(Token='ULTRASECRET')")
+    assert "ULTRASECRET" not in _scrub_text("call(API_KEY='ULTRASECRET')")
+
+
+def test_a_sub_word_name_is_still_left_alone():
+    """Positive control for the two tests above.
+
+    They are absence claims, and a scrub that simply redacted every quoted
+    value would satisfy both. The word-boundary rule that keeps `token_hint`
+    legible has to survive the switch to the full denylist.
+    """
+    text = "call(token_hint='ab', credential_reference='keepme')"
+
+    assert _scrub_text(text) == text
+
+
+def test_worker_job_context_is_redacted_in_the_console_renderer_too():
+    """The JSON assertions have a console twin, because dev and prod differ.
+
+    `setup_logging()` picks `ConsoleRenderer` when `json_logs` is false, and
+    that renderer reaches the containers by a different path -- `repr()` of
+    the already-walked structure rather than `json.dumps`. A fix verified only
+    against the JSON renderer would be unverified for every self-hoster
+    running the default console output.
+    """
+    job = _authenticated_service_job()
+    extra = _worker_log_extra(job, "start_job")
+
+    lines = _emit_through_real_pipeline(
+        "procrastinate.worker",
+        logging.INFO,
+        f"Starting job {job.call_string}",
+        extra=extra,
+    )
+
+    assert len(lines) == 1
+    for spelling in _JOB_CREDENTIAL_SPELLINGS:
+        assert spelling not in lines[0], spelling
+    assert "[REDACTED]" in lines[0]
+    # Positive control: the container really is rendered into this line, so the
+    # absence assertions above are not passing on a dropped field.
+    assert "dataset_id" in lines[0]
+
+
+def test_a_container_that_raises_costs_the_payload_and_not_the_line():
+    """fix(#1844 audit round 1): `extra` is third-party input all the way down.
+
+    `redact_nested()` calls `.items()` on objects this module never built. A
+    lazy Mapping that raises there would take the exception out through the
+    processor chain and cost the entire record -- during an incident, on a
+    line someone put a credential in. The payload is dropped instead.
+    """
+
+    class _Exploding(Mapping):
+        def __iter__(self):
+            raise RuntimeError("boom")
+
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, key):
+            raise RuntimeError("boom")
+
+    _, data = _emit_json_with_extra(
+        "app.worker", logging.INFO, "hostile", {"payload": _Exploding()}
+    )
+
+    assert data["payload"] == "[UNREDACTABLE]"
+    assert data["event"] == "hostile"

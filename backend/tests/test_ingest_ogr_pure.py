@@ -1220,9 +1220,14 @@ class TestSecFu04SanitizeAuthorizationToken:
         current job actually uses, and only the two explicit
         `scrub_secret_from_exception` calls covered exceptions -- an
         ordinary log line calling `_scrub_text` directly was not covered at
-        all. Counterfactual: remove the `register_credential_secret(value)`
+        all. Counterfactual: remove the `register_credential_secret(...)`
         call from `_sanitize_authorization_token` and the secret below
         survives `_scrub_text` untouched.
+
+        fix(#1844): that call registers the LINE now, not the value -- see
+        `test_sec_fu_04_registration_expands_to_every_wire_shape` below for
+        the shapes only the line expands to. A named API key's own value is
+        the tail of its own line, so this test reads the same either way.
         """
         from app.core.logging_config import _scrub_text
         from app.core.service_tokens import reset_registered_credential_secrets
@@ -1251,3 +1256,242 @@ class TestSecFu04SanitizeAuthorizationToken:
             reset_registered_credential_secrets()
 
         assert "never-sanitized" in rendered
+
+    def test_sec_fu_04_registration_expands_to_every_wire_shape(self) -> None:
+        """fix(#1844): register the LINE, because only a line expands.
+
+        `_secret_variants` (`core/url_redaction.py`) derives the bare token,
+        the basic blob and the decoded `user:pass` cleartext from a secret
+        that CONTAINS `": "`, and from nothing else. Round 49 registered the
+        VALUE (`Bearer <tok>` / `Basic <blob>`) to keep the header NAME out of
+        the registry, which meant the worker -- the one process that spends
+        the credential against a hostile origin -- registered a shape the
+        expansion could not open. So an origin echoing the bare token back in
+        a URL path, or naming the basic username in its own error text
+        ("authentication failed for user ..."), passed the exact-value scrub
+        untouched, and only the two explicit `scrub_secret_from_exception`
+        calls (which are handed the full line) covered anything.
+
+        The name is still never registered on its own: every variant starts
+        after the `": "`, so the bare word `Authorization` stays legible.
+        """
+        import base64
+
+        from app.core.logging_config import _scrub_text
+        from app.core.service_tokens import reset_registered_credential_secrets
+
+        user, other_half = "AAAAAAAAA", "BBBBBBBBB"
+        blob = base64.b64encode(f"{user}:{other_half}".encode()).decode()
+
+        reset_registered_credential_secrets()
+        try:
+            assert _sanitize(f"Authorization: Basic {blob}") == (
+                f"Authorization: Basic {blob}"
+            )
+            echoed_blob = _scrub_text(f"GDAL error on https://host/oops/{blob}")
+            named_user = _scrub_text(f"authentication failed for user {user}")
+            named_half = _scrub_text(f"rejected {other_half} at the origin")
+            header_name = _scrub_text("an Authorization header was sent")
+        finally:
+            reset_registered_credential_secrets()
+
+        assert blob not in echoed_blob
+        assert user not in named_user
+        assert other_half not in named_half
+        assert "Authorization" in header_name
+
+    def test_sec_fu_04_a_bearer_token_is_registered_without_its_scheme(self) -> None:
+        """The other half of the same expansion, on the bearer format.
+
+        An origin that reflects the credential reflects the TOKEN, not the
+        `Bearer ` wrapper GeoLens put around it, so the bare token has to be a
+        registered variant in its own right.
+        """
+        from app.core.logging_config import _scrub_text
+        from app.core.service_tokens import reset_registered_credential_secrets
+
+        token = "AAAAAAAAAAAAAAAAAAAA"
+
+        reset_registered_credential_secrets()
+        try:
+            _sanitize(f"Authorization: Bearer {token}")
+            reflected = _scrub_text(f"GDAL error on https://host/oops/{token}")
+        finally:
+            reset_registered_credential_secrets()
+
+        assert token not in reflected
+
+    def test_sec_fu_04_an_unregistered_bare_token_is_not_scrubbed(self) -> None:
+        """Positive control for the two tests above.
+
+        Both are absence claims about a value the scrubber is supposed to know
+        by exact match. If `_scrub_text` were replacing everything, or the
+        probe strings were somehow not reaching it, they would pass with the
+        registration removed. A token of the same shape that was never
+        sanitised survives.
+        """
+        from app.core.logging_config import _scrub_text
+        from app.core.service_tokens import reset_registered_credential_secrets
+
+        reset_registered_credential_secrets()
+        try:
+            rendered = _scrub_text("GDAL error on https://host/oops/CCCCCCCCCCCCCCCC")
+        finally:
+            reset_registered_credential_secrets()
+
+        assert "CCCCCCCCCCCCCCCC" in rendered
+
+    def test_sec_fu_04_a_refused_short_bearer_registers_nothing(self) -> None:
+        """fix(#1844 codex r1): a line this function REFUSES is not a secret.
+
+        Registration used to run above the bearer grammar checks, so a refused
+        line still seeded the registry. `Authorization: Bearer e` seeded the
+        one-character variant `e`, and every later `_scrub_text` in the same
+        job then replaced every "e" in every log line with the redaction
+        marker -- destroying the diagnostic exactly when something upstream
+        had let a malformed credential through.
+        """
+        from app.core.logging_config import _scrub_text
+        from app.core.service_tokens import (
+            registered_credential_secrets,
+            reset_registered_credential_secrets,
+        )
+
+        reset_registered_credential_secrets()
+        try:
+            with pytest.raises(ValueError):
+                _sanitize("Authorization: Bearer e")
+
+            registered = set(registered_credential_secrets())
+            prose = _scrub_text("the feature set never loaded")
+        finally:
+            reset_registered_credential_secrets()
+
+        assert registered == set()
+        # The whole point: unrelated text is untouched afterwards.
+        assert prose == "the feature set never loaded"
+
+    def test_sec_fu_04_a_refused_bad_charset_bearer_registers_nothing(self) -> None:
+        """The other refusal on the same branch, for the same reason.
+
+        Both raises sit below the registration now, so neither can seed the
+        registry. Covering only the length one would leave the charset one to
+        regress on its own.
+        """
+        from app.core.service_tokens import (
+            registered_credential_secrets,
+            reset_registered_credential_secrets,
+        )
+
+        reset_registered_credential_secrets()
+        try:
+            with pytest.raises(ValueError):
+                _sanitize("Authorization: Bearer valid.jwt.sig!")
+            registered = set(registered_credential_secrets())
+        finally:
+            reset_registered_credential_secrets()
+
+        assert registered == set()
+
+    def test_sec_fu_04_an_accepted_line_is_still_registered(self) -> None:
+        """Positive control: moving the call must not disable it.
+
+        Both tests above are absence claims about the registry, and deleting
+        the registration entirely would satisfy both. A well-formed bearer
+        still registers and still expands to its bare token.
+        """
+        from app.core.logging_config import _scrub_text
+        from app.core.service_tokens import reset_registered_credential_secrets
+
+        token = "AAAAAAAAAAAAAAAAAAAA"
+
+        reset_registered_credential_secrets()
+        try:
+            _sanitize(f"Authorization: Bearer {token}")
+            reflected = _scrub_text(f"GDAL error on https://host/oops/{token}")
+        finally:
+            reset_registered_credential_secrets()
+
+        assert token not in reflected
+
+    def test_sec_fu_04_a_valid_short_basic_pair_still_expands_to_both_halves(
+        self,
+    ) -> None:
+        """fix(#1844 codex r2): no length floor on a derived variant.
+
+        Round 1 added one and it was wrong. `credential_input_rejection_reason`
+        (`core/service_tokens.py`) accepts any nonempty printable username or
+        password with no minimum, so a one-character half is a VALID credential
+        a user can really configure, not a malformed one -- and a floor decides
+        which valid credentials stop being scrubbed. A Basic password of
+        `admin` had exactly this regression: `authentication failed for user
+        admin` stopped being redacted out of worker logs and the persisted
+        exception text.
+
+        Over-scrubbing a short secret is the deliberate trade-off documented on
+        `scrub_secret_value`. Under-scrubbing a valid one is not a trade this
+        module gets to make.
+        """
+        import base64
+
+        from app.core.logging_config import _scrub_text
+        from app.core.service_tokens import reset_registered_credential_secrets
+        from app.core.url_redaction import _secret_variants
+
+        user, other_half = "a", "b"
+        blob = base64.b64encode(f"{user}:{other_half}".encode()).decode()
+        line = f"Authorization: Basic {blob}"
+
+        reset_registered_credential_secrets()
+        try:
+            assert _sanitize(line) == line
+            variants = _secret_variants(line)
+            named = _scrub_text(f"authentication failed for user {user}")
+        finally:
+            reset_registered_credential_secrets()
+
+        assert user in variants
+        assert other_half in variants
+        # End to end, not just in the variant list: the origin's own wording
+        # for the half is what reaches a log, and it comes back redacted.
+        assert user not in named
+
+    def test_sec_fu_04_a_valid_short_named_header_key_is_still_scrubbed(self) -> None:
+        """The same regression on the named-header method.
+
+        A header key has no length floor either, so a six-character API key is
+        well-formed. This is a separate branch of `_secret_variants` from the
+        Basic pair above (the tail after `": "`, with no scheme word to strip),
+        so covering only one would leave the other free to regress.
+        """
+        from app.core.logging_config import _scrub_text
+        from app.core.service_tokens import reset_registered_credential_secrets
+
+        key = "k3yk3y"
+
+        reset_registered_credential_secrets()
+        try:
+            _sanitize(f"X-Api-Key: {key}")
+            reflected = _scrub_text(f"origin rejected {key} at the door")
+        finally:
+            reset_registered_credential_secrets()
+
+        assert key not in reflected
+
+    def test_sec_fu_04_a_long_basic_pair_still_expands_to_both_halves(self) -> None:
+        """The ordinary case, so the short ones above are not the only coverage.
+
+        The reason the halves are derived at all is that an origin's own error
+        text names them ("authentication failed for user ...").
+        """
+        import base64
+
+        from app.core.url_redaction import _secret_variants
+
+        user, other_half = "AAAAAAAAA", "BBBBBBBBB"
+        blob = base64.b64encode(f"{user}:{other_half}".encode()).decode()
+
+        variants = _secret_variants(f"Authorization: Basic {blob}")
+
+        assert user in variants
+        assert other_half in variants

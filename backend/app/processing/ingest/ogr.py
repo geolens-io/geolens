@@ -282,28 +282,49 @@ def _sanitize_authorization_token(
     # covered). Without this, the whole worker service-import path relied on
     # the two explicit `scrub_secret_from_exception` calls and nothing else
     # -- no log line this function's own caller emits was scrubbed by exact
-    # value. Registers the VALUE (`Bearer <token>`/`Basic <blob>`/a named
-    # key's own value), never `name`: the header name is not the secret and
-    # is often a word ("Authorization") worth leaving visible in a log.
-    register_credential_secret(value)
-    if not value.startswith(BEARER_SCHEME):
-        return header_line
+    # value.
+    #
+    # fix(#1844): registers the LINE, not the value. Round 49 registered
+    # `value` to keep the header NAME out of the registry, on the reasoning
+    # that "Authorization" is a word worth leaving visible in a log. That goal
+    # was right and the mechanism was the wrong half: `_secret_variants`
+    # (`core/url_redaction.py`) derives the bare token, the basic blob and the
+    # decoded `user:pass` cleartext only from a secret that CONTAINS `": "`,
+    # so registering `Bearer <tok>` expanded to nothing and the worker -- the
+    # one process that spends the credential against a hostile origin -- could
+    # not scrub the bare token an origin echoes back, nor the username an
+    # origin names in "authentication failed for user alice". Registering the
+    # line expands to every shape and still never yields the bare word
+    # `Authorization`, because the tail always starts after the `": "`.
+    #
+    # fix(#1844 codex r1): and it registers only AFTER the bearer grammar below
+    # has been checked. The registration used to sit here, above those checks,
+    # so a line this function goes on to REFUSE still seeded the registry --
+    # and `Authorization: Bearer e` seeds the one-character variant `e`, after
+    # which every `_scrub_text` for the rest of the job replaces every "e" in
+    # every log line with the redaction marker. That destroys the diagnostic
+    # exactly when something upstream has let a malformed credential through,
+    # which is when it is most needed. A refused line is not a secret in play,
+    # so nothing is registered for it.
+    if value.startswith(BEARER_SCHEME):
+        token = value[len(BEARER_SCHEME) :]
+        if len(token) < HEADER_TOKEN_MIN_LENGTH:
+            raise ValueError(
+                "SEC-FU-04: Authorization token is empty or implausibly short "
+                f"(minimum {HEADER_TOKEN_MIN_LENGTH} characters required to "
+                "prevent single-char attack payloads)."
+            )
+        bad = [c for c in token if c not in HEADER_TOKEN_CHARSET]
+        if bad:
+            sample = bad[0]
+            raise ValueError(
+                f"SEC-FU-04: Authorization token contains non-base64url "
+                f"character (first offender: {sample!r}); only "
+                "[A-Za-z0-9._\\-=] are permitted to prevent CRLF header "
+                "smuggling via GDAL_HTTP_HEADERS env var."
+            )
 
-    token = value[len(BEARER_SCHEME) :]
-    if len(token) < HEADER_TOKEN_MIN_LENGTH:
-        raise ValueError(
-            "SEC-FU-04: Authorization token is empty or implausibly short "
-            f"(minimum {HEADER_TOKEN_MIN_LENGTH} characters required to "
-            "prevent single-char attack payloads)."
-        )
-    bad = [c for c in token if c not in HEADER_TOKEN_CHARSET]
-    if bad:
-        sample = bad[0]
-        raise ValueError(
-            f"SEC-FU-04: Authorization token contains non-base64url character "
-            f"(first offender: {sample!r}); only [A-Za-z0-9._\\-=] are permitted "
-            "to prevent CRLF header smuggling via GDAL_HTTP_HEADERS env var."
-        )
+    register_credential_secret(header_line)
     return header_line
 
 
