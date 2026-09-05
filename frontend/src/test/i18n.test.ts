@@ -15,10 +15,8 @@ describe('#1866: changeTestLanguage loads real locale bundles', () => {
   });
 
   it('switches between two non-English, non-fallback locales', async () => {
-    // Registering a SECOND locale exercises the branch where the resource
-    // store's data[lng] key already exists from a previous call — the case
-    // that does not need the frozen-object workaround, only the ordinary
-    // addResourceBundle path.
+    // fix(#1866): a second locale exercises the plain addResourceBundle
+    // path (data[lng] already exists), not just the placeholder branch.
     await changeTestLanguage('de');
     expect(i18n.t('import:dropzone.browse')).toBe('Durchsuchen');
 

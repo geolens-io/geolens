@@ -1,26 +1,10 @@
-// fix(#1866): structural gate for the vitest-only locale-bundle bug.
+// fix(#1866): a test file calling changeLanguage(/changeAppLanguage( must
+// also import changeTestLanguage from @/test/i18n, or t() silently renders
+// English under vitest instead of the target locale.
 //
-// A bare `i18n.changeLanguage(lng)`, or the app's own `changeAppLanguage(lng)`,
-// silently switches `i18n.language` under vitest without ever loading that
-// locale's strings, so `t()` keeps rendering English — see `@/test/i18n.ts`
-// for the two i18next behaviours that combine to cause it. A test that
-// switches language and asserts on `t()` output is then checking English and
-// passes as long as English also satisfies the assertion, which is exactly
-// how the FileDropzone es/fr/de sub-tests and the original heroTitle
-// "distinct singular form" test in #1863 went vacuous without failing.
-//
-// The rule: any test file that calls `changeLanguage(` or
-// `changeAppLanguage(` must also import `changeTestLanguage` from
-// `@/test/i18n`, which registers the target locale's real bundles first.
-// This is a text check, not a full AST walk (contrast
-// `web-storage-guard.test.ts`, which needs one because storage denial is a
-// security invariant with adversarial-shaped call sites). Getting the
-// language-switch helper right is a testing convention, not a security
-// boundary, so a scan for the two call names — real invocations only, an
-// immediate `(` after the identifier — is proportionate. It will not catch a
-// renamed import (`import { changeLanguage as go } from 'i18next'`) or a
-// dynamic property access; neither shows up anywhere in this codebase today,
-// and either is a bug in this file the moment one does.
+// Text check, not an AST walk (contrast web-storage-guard.test.ts): this is
+// a testing convention, not a security boundary. Flags a real invocation
+// only; misses a renamed import or dynamic property access.
 import { describe, expect, it } from 'vitest';
 
 const TEST_FILES = import.meta.glob('/src/**/*.test.{ts,tsx}', {
@@ -29,15 +13,19 @@ const TEST_FILES = import.meta.glob('/src/**/*.test.{ts,tsx}', {
   eager: true,
 }) as Record<string, string>;
 
-// A named import of the helper, from any specifier — `@/test/i18n` from most
-// files, `./i18n` from the co-located `src/test/i18n.test.ts`. Matching the
-// imported NAME rather than a hardcoded path is what makes both work.
+// A named import of the helper, from any specifier (alias or relative).
 const HELPER_IMPORT = /\bimport\s*\{[^}]*\bchangeTestLanguage\b[^}]*\}\s*from/;
 const CALL_PATTERN = /\b(?:changeLanguage|changeAppLanguage)\(/;
 
+// fix(#1866): strips // and /* */ comments before matching CALL_PATTERN, so
+// prose mentioning `i18n.changeLanguage('fr')` isn't read as a real call.
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+}
+
 /** True when `source` calls changeLanguage/changeAppLanguage without importing the fix helper. */
 function callsWithoutHelper(source: string): boolean {
-  return CALL_PATTERN.test(source) && !HELPER_IMPORT.test(source);
+  return CALL_PATTERN.test(stripComments(source)) && !HELPER_IMPORT.test(source);
 }
 
 const violations = Object.entries(TEST_FILES)
@@ -74,11 +62,9 @@ describe('#1866: detector fixtures', () => {
     expect(callsWithoutHelper(src)).toBe(true);
   });
 
-  it('flags changeLanguage even when the helper is imported for something else in the same file, if the call itself is not through it', () => {
-    // The gate cannot tell WHICH call site used the helper — it only checks
-    // that the file imports it at all. A file mixing a helper-backed switch
-    // with a stray bare call is a real gap; documented here rather than
-    // silently assumed away.
+  it('does not flag a stray bare call once the file imports the helper for something else', () => {
+    // Known gap: the gate checks only that the file imports the helper,
+    // not that each call site uses it.
     const src = `import { changeTestLanguage } from '@/test/i18n';\nawait i18n.changeLanguage('fr');`;
     expect(callsWithoutHelper(src)).toBe(false);
   });
@@ -94,8 +80,15 @@ describe('#1866: detector fixtures', () => {
 
   it('does not flag a mock declaration that merely names changeAppLanguage', () => {
     // No `(` immediately after the identifier, so this is a property key,
-    // not an invocation — matches src/pages/__tests__/SettingsPage.a11y.test.tsx.
+    // not an invocation.
     const src = `vi.mock('@/i18n', () => ({ changeAppLanguage: vi.fn() }));`;
+    expect(callsWithoutHelper(src)).toBe(false);
+  });
+
+  it('does not flag a comment that only mentions changeLanguage in prose', () => {
+    // Real case: complete-heroTitle-plural.test.ts's comment explains why
+    // `i18n.changeLanguage('fr')` doesn't work, without ever calling it.
+    const src = `// i18n.changeLanguage('fr') can't reach t() in this suite.\nconst x = 1;`;
     expect(callsWithoutHelper(src)).toBe(false);
   });
 });
