@@ -2459,8 +2459,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     body on a GET is the defect being fixed.
 #   api/main.py 1499 -> 1558. fix(#1518 codex P2): +59 for
 #     `_document_unresolvable_credential_401`, which publishes the 401 that
-#
-# 1518 made normal runtime behaviour on every credential-aware anonymous
+#     #1518 made normal runtime behaviour on every credential-aware anonymous
 #     operation. Most of it is the docstring explaining why it targets all
 #     THREE optional dependencies while `_normalize_security_contract` targets
 #     two: a 401 RESPONSE is not a security REQUIREMENT, so the no-security-
