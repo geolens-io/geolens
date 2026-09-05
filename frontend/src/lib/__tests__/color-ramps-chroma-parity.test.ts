@@ -20,9 +20,16 @@ import {
 const ALL_RAMPS = [...SEQUENTIAL_RAMPS, ...DIVERGING_RAMPS, ...QUALITATIVE_RAMPS].map(
   (r) => r.name as string,
 );
+const QUALITATIVE_NAMES = new Set(QUALITATIVE_RAMPS.map((r) => r.name as string));
 // chroma-js has no brewer entry for Inferno/Plasma — the pre-#448 try/catch
 // already served the YlOrRd fallback for them, which getRampColors preserves.
-const CHROMA_KNOWN = ALL_RAMPS.filter((n) => n !== 'Inferno' && n !== 'Plasma');
+// fix(#1856): qualitative ramps (Set2 etc.) are no longer sampled
+// continuously — getRampColors now cycles discrete palette entries for
+// them, so they intentionally diverge from chroma.scale()'s gradient output
+// and are excluded from the bit-parity checks below.
+const CHROMA_KNOWN = ALL_RAMPS.filter(
+  (n) => n !== 'Inferno' && n !== 'Plasma' && !QUALITATIVE_NAMES.has(n),
+);
 
 describe('getRampColors ↔ chroma-js parity', () => {
   it.each(CHROMA_KNOWN)('%s matches chroma output for counts 1..14', (name) => {

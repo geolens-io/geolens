@@ -239,6 +239,10 @@ const BREWER_STOPS_BY_LOWER: Record<string, readonly string[]> = Object.fromEntr
   Object.entries(BREWER_STOPS).map(([name, stops]) => [name.toLowerCase(), stops]),
 );
 
+// fix(#1856): names (lowercased) of the qualitative palettes, so getRampColors
+// can tell a discrete category palette from a continuous gradient.
+const QUALITATIVE_NAMES = new Set(QUALITATIVE_RAMPS.map((r) => r.name.toLowerCase()));
+
 /**
  * Generate an array of hex color strings from a named ColorBrewer color scale
  * (case-insensitive, matching chroma.scale()'s name resolution).
@@ -250,11 +254,21 @@ const BREWER_STOPS_BY_LOWER: Record<string, readonly string[]> = Object.fromEntr
  * try/catch already served YlOrRd for them).
  */
 export function getRampColors(rampName: string, count: number, reversed = false): string[] {
-  const stops = BREWER_STOPS_BY_LOWER[rampName.toLowerCase()] ?? BREWER_STOPS.YlOrRd;
-  const colors =
-    count === 1
-      ? [sampleStops(stops, 0.5)]
-      : Array.from({ length: count }, (_, i) => sampleStops(stops, i / (count - 1)));
+  const lower = rampName.toLowerCase();
+  const stops = BREWER_STOPS_BY_LOWER[lower] ?? BREWER_STOPS.YlOrRd;
+  let colors: string[];
+  if (QUALITATIVE_NAMES.has(lower)) {
+    // fix(#1856): a qualitative palette is a set of unrelated category
+    // colors, not a gradient — sampling it continuously (as below) blends
+    // adjacent unrelated hues and washes small counts out toward grey.
+    // Assign palette entries directly, cycling past the palette length.
+    colors = Array.from({ length: count }, (_, i) => stops[i % stops.length]);
+  } else {
+    colors =
+      count === 1
+        ? [sampleStops(stops, 0.5)]
+        : Array.from({ length: count }, (_, i) => sampleStops(stops, i / (count - 1)));
+  }
   return reversed ? reverseRamp(colors) : colors;
 }
 
