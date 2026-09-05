@@ -119,7 +119,7 @@ def _enclosing_function(node: ast.AST) -> ast.AST | None:
     return None
 
 
-def _parameter_names(fn: ast.AST) -> set[str]:
+def _parameter_names(fn: ast.AST | None) -> set[str]:
     args = getattr(fn, "args", None)
     if args is None:
         return set()
@@ -129,6 +129,49 @@ def _parameter_names(fn: ast.AST) -> set[str]:
     if args.kwarg:
         names.add(args.kwarg.arg)
     return names
+
+
+def _rebinding_lines(fn: ast.AST, name: str, before: int) -> list[int]:
+    """Lines at or above ``before`` where ``name`` is bound to something else.
+
+    Every binding form writes an ``ast.Name`` in ``Store`` context, so one walk
+    covers assignment, augmented and annotated assignment, walrus, and ``for``
+    and ``with`` targets, including through tuple unpacking. Nested scopes are
+    walked too, which can only over-report; a flagged site costs a review.
+    """
+    return sorted(
+        node.lineno
+        for node in ast.walk(fn)
+        if isinstance(node, ast.Name)
+        and isinstance(node.ctx, ast.Store)
+        and node.id == name
+        and node.lineno <= before
+    )
+
+
+def _carried_name_rejection(fn: ast.AST | None, name: str, lineno: int) -> str | None:
+    """Why this name cannot be read as the whole line, or None if it can.
+
+    fix(#1857 item 10, codex review): being a parameter was the whole test, and
+    a parameter reassigned before the call is a local again. That is the #1844
+    shape exactly, spelled so it still reads like the signature.
+    """
+    if name not in _parameter_names(fn):
+        return (
+            f"registers the local name {name!r}, which is not a parameter of "
+            "its function. A local can hold anything; a parameter is a "
+            "contract the callers can be read against"
+        )
+    rebound = _rebinding_lines(fn, name, lineno)
+    if rebound:
+        lines = ",".join(str(n) for n in rebound)
+        return (
+            f"registers the parameter {name!r}, which is reassigned at line(s) "
+            f"{lines} before this call, so it no longer holds what the "
+            "signature promises. Splitting the line and registering the value "
+            "half is the #1844 finding this gate exists to catch"
+        )
+    return None
 
 
 def _observed_shape(
@@ -185,16 +228,11 @@ def _collect(
                     "string cannot be read as either at the call site"
                 )
                 continue
-            if shape == CARRIED_LINE and (
-                fn is None or described not in _parameter_names(fn)
-            ):
-                errors.append(
-                    f"{rel}:{node.lineno} ({fn_name}) registers the local name "
-                    f"{described!r}, which is not a parameter of its function. "
-                    "A local can hold anything; a parameter is a contract the "
-                    "callers can be read against"
-                )
-                continue
+            if shape == CARRIED_LINE:
+                reason = _carried_name_rejection(fn, described, node.lineno)
+                if reason is not None:
+                    errors.append(f"{rel}:{node.lineno} ({fn_name}) {reason}")
+                    continue
             sites.setdefault((rel, fn_name), []).append((node.lineno, shape, described))
     return sites, errors
 
@@ -340,6 +378,63 @@ def test_an_aliased_import_of_the_builder_still_reads_as_the_builder():
     assert not errors, errors
     found = sites[("core/_alias_fixture.py", "new_producer")]
     assert [shape for _lineno, shape, _d in found] == [BUILDER_CALL], found
+
+
+# fix(#1857 item 10, codex review): the two halves of "is this name the line".
+_REASSIGNED_PARAMETER = """
+from app.core.service_tokens import register_credential_secret
+
+
+def sanitize(header_line):
+    header_line = header_line.split(": ", 1)[1]
+    register_credential_secret(header_line)
+    return header_line
+"""
+
+_PASSTHROUGH_PARAMETER = """
+from app.core.service_tokens import register_credential_secret
+
+
+def sanitize(header_line):
+    if not header_line:
+        raise ValueError("empty")
+    register_credential_secret(header_line)
+    return header_line
+"""
+
+
+@pytest.mark.architecture
+def test_a_parameter_reassigned_before_the_call_is_not_the_line():
+    """Being a parameter was the whole test, and #1844 is one line away.
+
+    ``header_line = header_line.split(": ", 1)[1]`` registers the value while
+    still reading as the signature, which is the finding this gate exists to
+    catch, spelled so the gate agreed with it.
+    """
+    modules = [("processing/ingest/_reassign.py", ast.parse(_REASSIGNED_PARAMETER))]
+
+    sites, errors = _collect(modules)
+
+    assert not sites, f"the reassigned parameter was accepted as a site: {sites}"
+    assert len(errors) == 1, errors
+    assert "reassigned at line(s) 6" in errors[0], errors[0]
+    assert "#1844" in errors[0], errors[0]
+
+
+@pytest.mark.architecture
+def test_a_parameter_passed_through_untouched_stays_a_carried_line():
+    """The half that keeps this a measurement.
+
+    Refusing every parameter would also pass the test above, and would refuse
+    the one real site that legitimately registers what it was handed.
+    """
+    modules = [("processing/ingest/_passthrough.py", ast.parse(_PASSTHROUGH_PARAMETER))]
+
+    sites, errors = _collect(modules)
+
+    assert not errors, errors
+    found = sites[("processing/ingest/_passthrough.py", "sanitize")]
+    assert [shape for _lineno, shape, _d in found] == [CARRIED_LINE], found
 
 
 @pytest.mark.architecture

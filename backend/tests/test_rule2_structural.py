@@ -2615,6 +2615,33 @@ def _positional_argv_tool(node: ast.AST) -> tuple[str, int, bool] | None:
     return None if tool is None else (tool, index, takes_sequence)
 
 
+def _display_argv_tool(node: ast.AST, rel: str) -> str | None:
+    """The tool a list or tuple DISPLAY names, when the display is an argv site.
+
+    fix(#1857 item 2, audit P3-A): its own predicate so the ``execv*`` skip can
+    ask whether the sequence IS a site rather than whether it is a literal.
+    ``os.execv("ogrinfo", ["-so", path])`` is a literal that this refuses, and
+    skipping the call for it left the spawn seen by neither branch.
+    """
+    if not (isinstance(node, (ast.List, ast.Tuple)) and node.elts):
+        return None
+    first = node.elts[0]
+    tool = _gdal_cli_tool_name(first.value) if isinstance(first, ast.Constant) else None
+    if tool is None:
+        return None
+    # fix(#996): a GDAL-looking sequence is only a command vector if it is one.
+    # Flagging plain data was a false positive that blocked correct code.
+    escape = _argv_escape_kind(node, rel)
+    if escape == _ESCAPE_NONE:
+        return None  # inert: the value never leaves, so it cannot execute
+    if escape != _ESCAPE_CALL and _tool_name_list(node):
+        # A tool-NAME list that is only returned is a choices helper. fix(#996
+        # review): the exemption stops at _ESCAPE_CALL, because a literal handed
+        # into a call is a plausible argv whatever it contains.
+        return None
+    return tool
+
+
 def _iter_argv_sites(rel: str, tree: ast.Module):
     """Yield (tool, argv node, the argv's tail expressions) for one module.
 
@@ -2624,28 +2651,8 @@ def _iter_argv_sites(rel: str, tree: ast.Module):
     program, which callers scan for a literally remote source.
     """
     for node in ast.walk(tree):
-        if isinstance(node, (ast.List, ast.Tuple)) and node.elts:
-            first = node.elts[0]
-            tool = (
-                _gdal_cli_tool_name(first.value)
-                if isinstance(first, ast.Constant)
-                else None
-            )
-            if tool is None:
-                continue
-            # fix(#996): a GDAL-looking sequence is only a command vector if
-            # it is one. Flagging plain data was a false positive that blocked
-            # correct code and offered only misleading ways out.
-            escape = _argv_escape_kind(node, rel)
-            if escape == _ESCAPE_NONE:
-                continue  # inert: the value never leaves, so it cannot execute
-            if escape != _ESCAPE_CALL and _tool_name_list(node):
-                # A tool-NAME list that is only returned is a choices helper.
-                # fix(#996 review): the exemption stops at _ESCAPE_CALL. A
-                # literal handed into a call is a plausible argv whatever it
-                # contains -- a dataset or output path may legitimately be
-                # named `ogrinfo` -- and shape alone cannot tell the two apart.
-                continue
+        tool = _display_argv_tool(node, rel)
+        if tool is not None:
             yield tool, node, node.elts[1:]
             continue
         spawn = _positional_argv_tool(node)
@@ -2654,8 +2661,8 @@ def _iter_argv_sites(rel: str, tree: ast.Module):
         tool, index, takes_sequence = spawn
         if takes_sequence:
             argv_arg = node.args[index + 1] if len(node.args) > index + 1 else None
-            if isinstance(argv_arg, (ast.List, ast.Tuple)):
-                # Already yielded by the display branch above; yielding the call
+            if argv_arg is not None and _display_argv_tool(argv_arg, rel) is not None:
+                # The sequence is a site in its own right, so yielding the call
                 # too would count one subprocess twice.
                 continue
         # No escape test and no name-list exemption: this node is the spawn.
@@ -3122,6 +3129,14 @@ def probe(path, cmd):
     os.execv("ogrinfo", cmd)
 """
 
+_SEQUENCE_SPAWN_UNHEADED = """
+import os
+
+
+def probe(path):
+    os.execv("ogrinfo", ["-so", path])
+"""
+
 
 def test_the_program_index_follows_the_callee_signature():
     """``loop.subprocess_exec`` leads with a protocol factory, not the program.
@@ -3156,6 +3171,20 @@ def test_a_sequence_form_spawn_counts_once():
     )
     assert total == 1, f"a non-literal argv left the spawn unseen: {total}"
     assert len(violations) == 1, violations
+
+
+def test_a_sequence_the_display_rule_refuses_still_leaves_one_site():
+    """fix(#1857 item 2, audit P3-A): a literal is not the same as a site.
+
+    ``os.execv("ogrinfo", ["-so", path])`` builds a real argv whose FIRST
+    element is a flag, so the display rule refuses it. Skipping the call for
+    any literal left this spawn yielded by neither branch, which is the shape
+    the skip was added to avoid double-counting reaching zero instead.
+    """
+    for collect in (_collect_gdal_cli_violations, _collect_vector_driver_violations):
+        violations, total = collect(_fixture_modules(_SEQUENCE_SPAWN_UNHEADED), {})
+        assert total == 1, f"{collect.__name__} counted {total} sites, not 1"
+        assert len(violations) == 1, violations
 
 
 def test_positional_argv_is_seen_by_the_vector_driver_policy():
