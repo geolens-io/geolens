@@ -1,8 +1,10 @@
 """OAuth/OIDC flow endpoints: login redirect, callback, and public provider list."""
 
 import uuid
+from urllib.parse import urlparse
 
 import structlog
+from authlib.integrations.httpx_client import AsyncOAuth2Client
 from authlib.integrations.starlette_client import OAuth
 from authlib.integrations.starlette_client.apps import StarletteOAuth2App
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -41,16 +43,165 @@ logger = structlog.stdlib.get_logger(__name__)
 router = APIRouter(prefix="/auth/oauth", tags=["Auth"], responses=ERROR_RESPONSES_AUTH)
 
 
-class _SSRFSafeOAuth2App(StarletteOAuth2App):
-    """Create a fresh IP-pinning transport for each Authlib HTTP session."""
+class _SSRFSafeOAuth2Client(AsyncOAuth2Client):
+    """Authlib's HTTP client, with the transport decided here and not by a caller.
 
-    def _get_session(self):
+    fix(#1861): the app class below installed the IP-pinning transport in
+    ``_get_session`` alone. In authlib 1.7.2 that hook serves discovery
+    (``base_client/async_app.py:78``) and JWKS
+    (``base_client/async_openid.py:25``); the token exchange
+    (``async_app.py:126``) and the userinfo fetch (``async_app.py:90``, reached
+    from ``async_openid.py:36``) build their client through
+    ``_get_oauth_client`` (``base_client/sync_app.py:236``), which returned a
+    stock httpx transport. Those two requests are the ones carrying the client
+    secret and the access token. All four hooks construct ``self.client_cls``,
+    so this is the single place that reaches every one of them.
+
+    ``_get_oauth_client`` also merges the discovery document into the httpx
+    client kwargs (``sync_app.py:239``, ``client_kwargs.update(metadata)``), so
+    a document carrying a ``transport``, ``mounts``, ``proxy``, ``verify`` or
+    ``follow_redirects`` key would otherwise be choosing the transport security
+    of the request that carries the secret. They are set here, after that
+    merge; ``verify`` and ``cert`` need no entry because httpx reads them only
+    when it builds the transport itself.
+    """
+
+    def __init__(self, *args, **kwargs):
         from app.platform.security import make_safe_transport
 
-        client_kwargs = {**self.client_kwargs, "transport": make_safe_transport()}
-        session = self.client_cls(**client_kwargs)
-        session.headers["User-Agent"] = self._user_agent
-        return session
+        kwargs["transport"] = make_safe_transport()
+        # httpx consults a per-scheme mount before ``transport``, and builds
+        # one from ``proxy``. Both are part of pinning the transport rather
+        # than separate rules, and an empty ``mounts`` does not clear what
+        # ``proxy`` added, so both are set. Passing a transport at all already
+        # stops httpx reading proxies from the environment
+        # (``_client.py``: ``allow_env_proxies = trust_env and transport is None``),
+        # which is why an operator's proxy configuration is unaffected.
+        kwargs["mounts"] = {}
+        kwargs["proxy"] = None
+        # httpx's own default, pinned so that it stays the default: nothing
+        # here follows a redirect, so neither the client secret nor the access
+        # token can cross an origin behind a 302. That is the strongest form of
+        # the rule ``_ALWAYS_CREDENTIAL_HEADERS`` in platform/security.py
+        # applies to the hops that do happen.
+        kwargs["follow_redirects"] = False
+        super().__init__(*args, **kwargs)
+
+
+# The endpoints authlib reads out of a discovery document and then fetches:
+# ``token_endpoint`` (async_app.py:125), ``userinfo_endpoint``
+# (async_openid.py:36), ``jwks_uri`` (async_openid.py:21) and
+# ``authorization_endpoint`` (async_app.py:101, which is handed to the
+# browser). A provider configured by discovery URL leaves the matching columns
+# empty on its row, so validate_provider_server_endpoints never sees the
+# address a request actually goes to. This list stays matched to the calls that
+# exist: refusing a login over an endpoint nothing fetches is a false refusal
+# rather than a defence.
+_DISCOVERY_ENDPOINT_KEYS = (
+    "authorization_endpoint",
+    "token_endpoint",
+    "userinfo_endpoint",
+    "jwks_uri",
+)
+
+_ENDPOINT_REFUSED_DETAIL = "OAuth provider endpoint is not permitted"
+
+
+def _endpoint_refused(
+    provider_slug: str,
+    exc: Exception,
+    *,
+    endpoint: str | None = None,
+    host: str | None = None,
+) -> HTTPException:
+    """Log the operator-facing detail and return the refusal for the caller to raise.
+
+    fix(#1861): one helper for both sources of an endpoint, the provider row
+    and the discovery document, so the two cannot drift into different status
+    codes or different disclosure. The response names no host: these routes are
+    unauthenticated and an SSRFError message carries the hostname it was asked
+    to resolve. The operator log gets the provider, which endpoint was refused
+    and its hostname, which is what fixing the configuration needs.
+    """
+    logger.warning(
+        "OAuth provider endpoint rejected",
+        provider=provider_slug,
+        endpoint=endpoint,
+        host=host,
+        error_type=type(exc).__name__,
+    )
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=_ENDPOINT_REFUSED_DETAIL,
+    )
+
+
+def _loggable_hostname(url: str) -> str | None:
+    """The hostname for the operator log, or None when the URL will not parse.
+
+    fix(#1861 codex r1): the refusal path must not raise. urlparse rejects a
+    malformed authority such as ``http://[invalid/token`` with ValueError, so
+    validate_url_for_ssrf never reaches its own checks and the refusal branch
+    receives exactly the string that cannot be parsed. Parsing it a second time
+    there raised inside the handler, replacing the sanitized 503 with an
+    unhandled 500 on an unauthenticated route. None reads as unparseable in the
+    log line, and error_type carries the reason.
+    """
+    try:
+        return urlparse(url).hostname
+    except ValueError:
+        return None
+
+
+async def _validate_discovery_endpoints(
+    provider_slug: str, metadata: dict[str, object]
+) -> None:
+    """Refuse a discovery document that aims an OAuth request at a private address."""
+    from app.platform.security import validate_url_for_ssrf
+
+    for key in _DISCOVERY_ENDPOINT_KEYS:
+        url = metadata.get(key)
+        if not isinstance(url, str) or not url:
+            continue
+        try:
+            await validate_url_for_ssrf(url)
+        except ValueError as exc:
+            # SSRFError and SSRFResolutionError are both ValueError, which is
+            # also what the row-level check raises, and so is the plain
+            # ValueError urlparse raises on a malformed authority.
+            raise _endpoint_refused(
+                provider_slug, exc, endpoint=key, host=_loggable_hostname(url)
+            ) from exc
+
+
+class _SSRFSafeOAuth2App(StarletteOAuth2App):
+    """Every Authlib session this app builds goes through the safe transport."""
+
+    client_cls = _SSRFSafeOAuth2Client
+
+    # One validation per app instance, and build_oauth_client builds one per
+    # request. Nothing rewrites the endpoints after they are read: authlib
+    # caches the document under ``_loaded_at`` and only ever adds ``jwks``.
+    _endpoints_validated = False
+
+    async def load_server_metadata(self) -> dict:
+        """Validate the endpoints the discovery document supplies, once.
+
+        fix(#1861): this is the policy half, deciding whether an address is
+        one this deployment will talk to at all. The pinning transport on
+        _SSRFSafeOAuth2Client is the enforcement half: it re-resolves at
+        connect time, so a document that passes here and rebinds afterwards
+        still reaches nothing internal.
+        """
+        metadata = await super().load_server_metadata()
+        # Only a discovery document introduces an endpoint the row-level check
+        # in build_oauth_client has not already resolved. Without one, authlib
+        # keeps the registered columns in server_metadata, and re-resolving
+        # them here would refuse a provider that check just passed.
+        if self._server_metadata_url and not self._endpoints_validated:
+            await _validate_discovery_endpoints(self.name, metadata)
+            self._endpoints_validated = True
+        return metadata
 
 
 def _id_token_claims_options(
@@ -94,20 +245,16 @@ async def build_oauth_client(provider_slug: str, db: AsyncSession) -> tuple:
 
     # Validate every persisted endpoint before decrypting the client secret.
     # This protects legacy rows as well as configurations written through CRUD
-    # or config import. Authlib receives the same IP-pinning transport below,
-    # closing the DNS-rebinding gap between validation and request dispatch.
+    # or config import. fix(#1861): it covers the four columns on the row and
+    # nothing else, so a provider configured by discovery URL has its endpoints
+    # checked in _SSRFSafeOAuth2App.load_server_metadata instead. Either way
+    # every Authlib session, whichever hook builds it, then connects through
+    # the IP-pinning transport, which closes the DNS-rebinding gap between the
+    # check and request dispatch.
     try:
         await validate_provider_server_endpoints(provider)
     except ValueError as exc:
-        logger.warning(
-            "OAuth provider endpoint rejected",
-            provider=provider_slug,
-            error_type=type(exc).__name__,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OAuth provider endpoint is not permitted",
-        ) from exc
+        raise _endpoint_refused(provider_slug, exc) from exc
 
     client_secret = decrypt_secret(provider.client_secret_encrypted)
 

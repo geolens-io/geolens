@@ -1,5 +1,6 @@
 """Security regression tests for OAuth endpoint and credential binding."""
 
+import ssl
 import uuid
 from unittest.mock import AsyncMock, patch
 
@@ -21,8 +22,10 @@ from app.modules.auth.oauth.service import (
     update_provider,
     validate_provider_server_endpoints,
 )
+from app.platform import security
 from app.platform.config_ops.exceptions import ConfigValidationError
 from app.platform.config_ops.service import _apply_oauth_providers
+from app.platform.security import SSRFError, _SSRFGuardTransport
 
 
 async def _make_oidc_provider(db: AsyncSession, *, host: str = "idp.example.com"):
@@ -40,6 +43,27 @@ async def _make_oidc_provider(db: AsyncSession, *, host: str = "idp.example.com"
             userinfo_url=f"https://{host}/userinfo",
         ),
     )
+
+
+DISCOVERY_URL = "https://idp.example.com/.well-known/openid-configuration"
+TOKEN_URL = "https://idp.example.com/token"
+ELSEWHERE_TOKEN_URL = "https://elsewhere.example.net/token"
+# A literal address resolves without DNS, so the tests that use the real
+# validator stay hermetic.
+LOOPBACK_TOKEN_URL = "http://127.0.0.1:9/token"
+LOOPBACK_USERINFO_URL = "http://127.0.0.1:9/userinfo"
+# An unclosed bracket in the authority: urlparse refuses this outright, so
+# validate_url_for_ssrf raises before reaching any of its own checks.
+MALFORMED_TOKEN_URL = "http://[invalid/token"
+CALLBACK_URL = "https://app.example.com/callback"
+ISSUER = "https://idp.example.com"
+DISCOVERY_DOCUMENT = {
+    "issuer": "https://idp.example.com",
+    "authorization_endpoint": "https://idp.example.com/authorize",
+    "token_endpoint": TOKEN_URL,
+    "userinfo_endpoint": "https://idp.example.com/userinfo",
+    "jwks_uri": "https://idp.example.com/jwks",
+}
 
 
 @pytest.mark.anyio
@@ -513,6 +537,14 @@ async def test_runtime_validation_checks_all_server_endpoints(
 async def test_authlib_sessions_receive_fresh_safe_transports(
     test_db_session: AsyncSession,
 ) -> None:
+    """Both client hooks, not just the one discovery uses.
+
+    fix(#1861): ``_get_session`` serves discovery and JWKS;
+    ``_get_oauth_client`` serves the token exchange and the userinfo fetch,
+    which are the two requests carrying the client secret and the access
+    token. Before this fix only the first hook was covered, and the assertion
+    below called only that hook, so the gap was invisible here.
+    """
     from app.modules.auth.oauth.router import build_oauth_client
 
     provider = await _make_oidc_provider(test_db_session)
@@ -536,13 +568,340 @@ async def test_authlib_sessions_receive_fresh_safe_transports(
         ),
     ):
         oauth_client, _ = await build_oauth_client(provider.slug, test_db_session)
-        first = oauth_client._get_session()
-        second = oauth_client._get_session()
-        await first.aclose()
-        await second.aclose()
+        sessions = [
+            oauth_client._get_session(),
+            oauth_client._get_session(),
+            oauth_client._get_oauth_client(),
+            oauth_client._get_oauth_client(token_endpoint=TOKEN_URL),
+        ]
+        for session in sessions:
+            await session.aclose()
 
-    assert len(transports) == 2
-    assert transports[0] is not transports[1]
+    assert len(transports) == 4
+    assert len(set(id(transport) for transport in transports)) == 4
+
+
+async def _client_for(db: AsyncSession, provider) -> tuple:
+    """Build the router's authlib client with the row-level check stubbed out.
+
+    The stored endpoints are the subject of the tests above; these ones are
+    about what happens after that check has passed.
+    """
+    from app.modules.auth.oauth.router import build_oauth_client
+
+    with patch(
+        "app.modules.auth.oauth.router.validate_provider_server_endpoints",
+        new=AsyncMock(),
+    ):
+        return await build_oauth_client(provider.slug, db)
+
+
+async def _make_discovery_provider(db: AsyncSession):
+    suffix = uuid.uuid4().hex[:8]
+    return await create_provider(
+        db,
+        OAuthProviderCreate(
+            slug=f"discovery-{suffix}",
+            display_name="Discovery Security",
+            provider_type="oidc",
+            client_id=f"client-{suffix}",
+            client_secret=uuid.uuid4().hex,
+            discovery_url=DISCOVERY_URL,
+        ),
+    )
+
+
+@pytest.fixture
+def authlib_transport(monkeypatch):
+    """Answer every authlib request from a mock transport the factory returns.
+
+    Patching ``make_safe_transport`` rather than reaching into the client keeps
+    the client under test the one the router actually builds: a hook that
+    stopped calling the factory would get a real transport, nothing here would
+    answer it, and the test would fail rather than pass quietly.
+    """
+
+    def install(handler) -> list[httpx.Request]:
+        recorded: list[httpx.Request] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return handler(request)
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(handle)
+        )
+        return recorded
+
+    return install
+
+
+@pytest.mark.anyio
+async def test_token_exchange_refuses_a_private_address(
+    test_db_session: AsyncSession,
+) -> None:
+    """The finding: this request carries the client secret.
+
+    The endpoint validators are stubbed out so the refusal can only come from
+    the transport the client dialled with, which is the half that survives a
+    DNS answer changing between validation and connect.
+    """
+    provider = await _make_oidc_provider(test_db_session)
+    await test_db_session.commit()
+    client, _ = await _client_for(test_db_session, provider)
+    client.access_token_url = LOOPBACK_TOKEN_URL
+
+    with (
+        patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
+        pytest.raises(SSRFError) as raised,
+    ):
+        await client.fetch_access_token(
+            code=uuid.uuid4().hex, redirect_uri="https://app.example.com/callback"
+        )
+
+    assert "private/internal networks" in str(raised.value)
+
+
+@pytest.mark.anyio
+async def test_userinfo_fetch_refuses_a_private_address(
+    test_db_session: AsyncSession,
+) -> None:
+    """The same finding for the request that carries the access token."""
+    provider = await _make_oidc_provider(test_db_session)
+    await test_db_session.commit()
+    client, _ = await _client_for(test_db_session, provider)
+    client.server_metadata["userinfo_endpoint"] = LOOPBACK_USERINFO_URL
+
+    with (
+        patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
+        pytest.raises(SSRFError) as raised,
+    ):
+        await client.userinfo(
+            token={"access_token": uuid.uuid4().hex, "token_type": "Bearer"}
+        )
+
+    assert "private/internal networks" in str(raised.value)
+
+
+@pytest.mark.anyio
+async def test_every_discovered_endpoint_is_ssrf_validated(
+    test_db_session: AsyncSession, authlib_transport
+) -> None:
+    """The four endpoints authlib reads out of the document and then fetches.
+
+    None of them is on the provider row, so ``validate_provider_server_
+    endpoints`` never sees the address any request actually goes to.
+    """
+    provider = await _make_discovery_provider(test_db_session)
+    await test_db_session.commit()
+    authlib_transport(lambda _request: httpx.Response(200, json=DISCOVERY_DOCUMENT))
+    client, _ = await _client_for(test_db_session, provider)
+
+    with patch(
+        "app.platform.security.validate_url_for_ssrf", new=AsyncMock()
+    ) as validate:
+        await client.load_server_metadata()
+
+    assert {call.args[0] for call in validate.await_args_list} == {
+        DISCOVERY_DOCUMENT["authorization_endpoint"],
+        DISCOVERY_DOCUMENT["token_endpoint"],
+        DISCOVERY_DOCUMENT["userinfo_endpoint"],
+        DISCOVERY_DOCUMENT["jwks_uri"],
+    }
+
+
+async def _discovery_refusal(
+    db: AsyncSession, authlib_transport, token_endpoint: str
+) -> tuple:
+    """Drive one login against a document naming *token_endpoint*.
+
+    Returns the refusal, the warning the operator log received, and every
+    request the client actually made. The real validator runs: both addresses
+    used here are literals that need no DNS, so these assert the shipped policy
+    rather than a stand-in for it.
+    """
+    from app.modules.auth.oauth import router as router_module
+
+    provider = await _make_discovery_provider(db)
+    await db.commit()
+    recorded = authlib_transport(
+        lambda _request: httpx.Response(
+            200, json={"issuer": ISSUER, "token_endpoint": token_endpoint}
+        )
+    )
+    client, _ = await _client_for(db, provider)
+
+    with (
+        patch.object(router_module, "logger") as logger,
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        await client.fetch_access_token(
+            code=uuid.uuid4().hex, redirect_uri=CALLBACK_URL
+        )
+
+    return exc_info.value, logger.warning.call_args, recorded
+
+
+@pytest.mark.anyio
+async def test_a_private_discovered_token_endpoint_refuses_the_login(
+    test_db_session: AsyncSession, authlib_transport
+) -> None:
+    """A refusal before the exchange, so the client secret is never sent."""
+    refusal, warning, recorded = await _discovery_refusal(
+        test_db_session, authlib_transport, LOOPBACK_TOKEN_URL
+    )
+
+    assert refusal.status_code == 503
+    # The route is unauthenticated, so the refusal names no address.
+    assert "127.0.0.1" not in refusal.detail
+    # Only the discovery document was fetched; nothing was posted to the
+    # endpoint the document named.
+    assert [str(request.url) for request in recorded] == [DISCOVERY_URL]
+    assert warning.args == ("OAuth provider endpoint rejected",)
+    assert warning.kwargs["endpoint"] == "token_endpoint"
+    assert warning.kwargs["host"] == "127.0.0.1"
+
+
+@pytest.mark.anyio
+async def test_a_malformed_discovered_endpoint_refuses_without_reparsing(
+    test_db_session: AsyncSession, authlib_transport
+) -> None:
+    """fix(#1861 codex r1): the refusal path itself must not raise.
+
+    urlparse rejects a malformed authority with ValueError, so
+    validate_url_for_ssrf raises before reaching its own checks and the refusal
+    branch receives exactly the string that will not parse. Deriving a hostname
+    for the log from it a second time raised inside the handler, which turned
+    the sanitized 503 into an unhandled 500 on an unauthenticated route.
+    """
+    refusal, warning, recorded = await _discovery_refusal(
+        test_db_session, authlib_transport, MALFORMED_TOKEN_URL
+    )
+    private, private_warning, _ = await _discovery_refusal(
+        test_db_session, authlib_transport, LOOPBACK_TOKEN_URL
+    )
+
+    assert refusal.status_code == private.status_code == 503
+    assert refusal.detail == private.detail
+    # Nothing of the offending URL reaches the caller.
+    assert "invalid" not in refusal.detail
+    assert [str(request.url) for request in recorded] == [DISCOVERY_URL]
+    # The same log line as every other refusal, with the one field that cannot
+    # be derived left empty rather than raised over.
+    assert warning.args == private_warning.args
+    assert set(warning.kwargs) == set(private_warning.kwargs)
+    assert warning.kwargs["endpoint"] == "token_endpoint"
+    assert warning.kwargs["host"] is None
+    assert warning.kwargs["error_type"] == "ValueError"
+
+
+@pytest.mark.anyio
+async def test_a_discovery_document_cannot_weaken_the_client(
+    test_db_session: AsyncSession,
+) -> None:
+    """authlib merges the document into the httpx client kwargs.
+
+    ``_get_oauth_client`` does ``client_kwargs.update(metadata)``, so every key
+    in the document is a candidate httpx client argument. A document choosing
+    ``verify``, ``mounts`` or ``follow_redirects`` would be choosing the
+    transport security of the request that carries the client secret.
+    """
+    provider = await _make_oidc_provider(test_db_session)
+    await test_db_session.commit()
+    client, _ = await _client_for(test_db_session, provider)
+
+    built = client._get_oauth_client(
+        token_endpoint=TOKEN_URL,
+        verify=False,
+        follow_redirects=True,
+        max_redirects=20,
+        mounts={"all://": httpx.MockTransport(lambda _r: httpx.Response(200))},
+        proxy="http://elsewhere.example.net:3128",
+    )
+    try:
+        # httpx internals, asserted directly because the claim is about the
+        # client that gets dialled, not about what was passed to it. A mount
+        # and a proxy both take precedence over ``transport``, so the question
+        # is which transport the token endpoint resolves to.
+        assert isinstance(built._transport, _SSRFGuardTransport)
+        assert built._mounts == {}
+        assert built._transport_for_url(httpx.URL(TOKEN_URL)) is built._transport
+        assert built.follow_redirects is False
+        assert built._transport._pool._ssl_context.verify_mode == ssl.CERT_REQUIRED
+        assert built._transport._pool._ssl_context.check_hostname is True
+    finally:
+        await built.aclose()
+
+
+@pytest.mark.anyio
+async def test_the_token_exchange_client_does_not_follow_a_redirect(
+    test_db_session: AsyncSession, authlib_transport
+) -> None:
+    """No hop, so nothing the exchange sends can reach the origin a 302 names.
+
+    httpx drops ``Authorization`` across an origin change by itself, but under
+    ``client_secret_post`` the secret travels in the request body and a 307
+    repeats that body. Not following at all is what makes the question moot,
+    and it is also httpx's default: the assertion is that the default cannot be
+    turned back on from outside, including by the discovery document that
+    authlib merges into these very kwargs.
+
+    The client here is the one ``fetch_access_token`` builds; the positive
+    control below shows the exchange going through it.
+    """
+    provider = await _make_oidc_provider(test_db_session)
+    await test_db_session.commit()
+    recorded = authlib_transport(
+        lambda _request: httpx.Response(302, headers={"Location": ELSEWHERE_TOKEN_URL})
+    )
+    client, _ = await _client_for(test_db_session, provider)
+
+    built = client._get_oauth_client(token_endpoint=TOKEN_URL, follow_redirects=True)
+    try:
+        response = await built.request(
+            "POST", TOKEN_URL, withhold_token=True, data={"code": uuid.uuid4().hex}
+        )
+    finally:
+        await built.aclose()
+
+    assert response.status_code == 302
+    assert [request.url.host for request in recorded] == ["idp.example.com"]
+
+
+@pytest.mark.anyio
+async def test_a_normal_exchange_still_succeeds_through_the_safe_client(
+    test_db_session: AsyncSession, authlib_transport
+) -> None:
+    """Positive control: the transport is pinned, not broken.
+
+    Every request here is answered by a transport the factory produced, so a
+    hook that skipped the factory would reach the network instead and fail.
+    """
+    provider = await _make_discovery_provider(test_db_session)
+    await test_db_session.commit()
+    issued = uuid.uuid4().hex
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("openid-configuration"):
+            return httpx.Response(200, json=DISCOVERY_DOCUMENT)
+        return httpx.Response(
+            200,
+            json={"access_token": issued, "token_type": "Bearer", "expires_in": 3600},
+        )
+
+    recorded = authlib_transport(handle)
+    client, _ = await _client_for(test_db_session, provider)
+
+    with patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()):
+        token = await client.fetch_access_token(
+            code=uuid.uuid4().hex, redirect_uri="https://app.example.com/callback"
+        )
+
+    assert token["access_token"] == issued
+    assert [str(request.url) for request in recorded] == [
+        DISCOVERY_URL,
+        DISCOVERY_DOCUMENT["token_endpoint"],
+    ]
 
 
 @pytest.mark.anyio
