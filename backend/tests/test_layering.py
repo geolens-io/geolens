@@ -1869,9 +1869,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # which invented a delta the size of whichever side was known. The
         # case that reaches it is a service preview whose collection size the
         # service never published.
-        # fix(#1847): the lock order, its gate and its 409 mapping. Cap 507, exact.
-        # fix(#1847): +12. sample_example_values reads the data table on its own so
-        # the reset can sample before it takes the pair. Cap 507 -> 519, exact.
+        # fix(#1847): +31. `sample_example_values` reads the data table on its
+        # own and `reset_attribute` takes the sample as an argument, so the
+        # reset samples before it takes the pair. Cap 488 -> 519, exact.
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 519,
         # fix(#435 codex r1): +6 LOC in get_dataset_rows to probe schema existence
         # before degrading a 42P01 to an empty page. Postgres reports a missing
@@ -3569,7 +3569,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # bodies differed only in the task name in their docstrings.
     # Cap 2551 -> 2581, exact.
     # fix(#1847): the lock order, its gate and its 409 mapping. Cap 2601, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2601,
+    # fix(#1847): the cache-bump docstring states its contract. Cap 2601 -> 2596.
+    "backend/app/processing/ingest/tasks_common.py": 2596,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed

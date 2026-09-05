@@ -2095,11 +2095,6 @@ async def bump_tile_cache_version_atomic(
     ``tile_cache_version = tile_cache_version + 1`` in the database does,
     because the increment is evaluated against the row as it is at write time.
 
-    fix(#1847): the feature-write handlers DO lock the row now, and the
-    conclusion is unchanged anyway: they read the counter off an instance
-    loaded before that lock, and a lock taken after the read does not make a
-    read-modify-write atomic.
-
     Returns the new value, so the caller reports and logs the version it
     actually published rather than the one it hoped for. Still called in the
     same transaction as the tile-content change it describes, which is the

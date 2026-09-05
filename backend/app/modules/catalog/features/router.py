@@ -125,10 +125,8 @@ def _feature_write_db_error(exc: DBAPIError) -> HTTPException:
     read path reports it, and an unrecognized state (our own bad SQL, 42601) is
     an honest 500, not the caller's fault.
 
-    fix(#1847): a lock conflict RAISES, rather than returning a 409 of its own.
-    The acquisition already raises CatalogLockConflict, so returning a second
-    409 body here gave one condition two response shapes depending on which
-    statement hit it. One exception, one mapping in `app/api/main.py`.
+    fix(#1847): a lock conflict raises ``CatalogLockConflict``; the one
+    mapping in ``app/api/main.py`` answers it.
     """
     if is_lock_conflict(exc):
         raise CatalogLockConflict(
