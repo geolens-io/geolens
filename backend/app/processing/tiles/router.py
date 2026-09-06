@@ -2082,8 +2082,9 @@ async def cluster_tile_endpoint(
     dataset needs either valid signature parameters (``sig``, ``exp``,
     ``scope``) or an embed token scoped to it, and answers 403 without one. A
     public dataset that is not yet published is readable by its owner, by an
-    admin, or with an embed token, and answers 404 to other callers, so a
-    refusal keeps its existence undisclosed. An unknown table is 404 too.
+    admin, with an embed token, or with valid signature parameters, and answers
+    404 to other callers, so a refusal keeps its existence undisclosed. An
+    unknown table is 404 too.
 
     A request that no capability authorized and that carried a credential which
     did not resolve is refused with 401 rather than served as an anonymous
@@ -2097,13 +2098,14 @@ async def cluster_tile_endpoint(
     data-driven styling and popups keep working here too.
 
     Requires a vector point dataset; another record type responds 400, as does
-    a malformed table name or an out-of-range tile coordinate.
+    a malformed table path or an out-of-range tile coordinate.
 
     A tile holding no features answers 204, and a repeat request whose
     ``If-None-Match`` matches answers 304. A dataset still being restored from
-    cold storage answers 202 with a job id to poll. Where a per-tenant
-    concurrency limit is configured, exceeding it answers 429 with
-    ``Retry-After``. A failure running the tile query answers 503.
+    cold storage answers 202 with a job id to poll. A request that cannot get a
+    tile-pool connection while the pool is saturated answers 429 with
+    ``Retry-After``, as does exceeding a configured per-tenant concurrency
+    limit. A failure running the tile query answers 503.
     """
     table_name = _parse_vector_tile_table(table_path)
     _validate_tile_coordinates(z, x, y)
@@ -2262,10 +2264,19 @@ async def tile_endpoint(
 ) -> Response:
     """Serve a vector tile as gzipped MVT binary.
 
-    URL pattern: /tiles/data.{table_name}/{z}/{x}/{y}.pbf
+    URL pattern: ``/tiles/data.{table_name}/{z}/{x}/{y}.pbf``
 
-    Non-public datasets require valid HMAC signature params (sig, exp, scope).
-    Public datasets can be accessed without any signature.
+    A public, published dataset is readable without credentials. A non-public
+    dataset needs either valid signature parameters (``sig``, ``exp``,
+    ``scope``) or an embed token scoped to it, and answers 403 without one. A
+    public dataset that is not yet published is readable by its owner, by an
+    admin, with an embed token, or with valid signature parameters, and answers
+    404 to other callers, so a refusal keeps its existence undisclosed. An
+    unknown table is 404 too.
+
+    A request that no capability authorized and that carried a credential which
+    did not resolve is refused with 401 rather than served as an anonymous
+    read. A request sending no credential is served normally.
 
     `cols` is a runtime opt-in for additional attribute columns the client
     needs at all zooms (e.g. data-driven styling columns referenced by
@@ -2275,6 +2286,14 @@ async def tile_endpoint(
     Does not need to be signed — `sig` already authorizes dataset
     access and `cols` can only project columns the caller already has
     REST access to.
+
+    A malformed table path or an out-of-range tile coordinate answers 400. A
+    tile holding no features answers 204, and a repeat request whose
+    ``If-None-Match`` matches answers 304. A dataset still being restored from
+    cold storage answers 202 with a job id to poll. A request that cannot get a
+    tile-pool connection while the pool is saturated answers 429 with
+    ``Retry-After``, as does exceeding a configured per-tenant concurrency
+    limit. A failure running the tile query answers 503.
     """
     table_name = _parse_vector_tile_table(table_path)
     _validate_tile_coordinates(z, x, y)
