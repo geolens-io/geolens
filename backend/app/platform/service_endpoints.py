@@ -1652,8 +1652,9 @@ async def _check_wfs_schemas(
     Reads what the driver reads for the layer it is about to open: one
     DescribeFeatureType naming the layer and then its prefix siblings, fifty
     at most, then one naming the layer alone, which the driver issues whenever
-    the first answer does not cover it. With no layer, or one the driver would
-    not resolve, nothing is read and the check is the capabilities check alone.
+    the first answer does not cover it; the check reads the second whenever it
+    is a different request, without deciding coverage. With no layer, or one
+    the driver would not resolve, nothing is read.
     """
     version, names = _wfs_feature_types(root)
     target = _wfs_layer_name(names, collection) if collection else None
@@ -1666,7 +1667,15 @@ async def _check_wfs_schemas(
     schema = await reads.batch(version, batch, output_format=output_format)
     if schema is not None:
         await reads.check(schema)
-    if schema is None or batch != [target]:
+    # fix(#1828): the driver retries the layer alone whenever the batch answer
+    # does not cover it; the check reads that request unless it is the same URL.
+    single_url = _describe_feature_type_url(
+        url, version, [target], single=True, output_format=output_format
+    )
+    batch_url = _describe_feature_type_url(
+        url, version, batch, single=False, output_format=output_format
+    )
+    if schema is None or single_url != batch_url:
         await reads.check(
             await reads.single(version, target, output_format=output_format)
         )

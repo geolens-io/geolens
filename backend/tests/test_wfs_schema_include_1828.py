@@ -1564,3 +1564,48 @@ class TestTheDriverNegotiatesAsTheCheckDoes:
             ),
         }
         assert gdal_transport_env("oapif") == {"GDAL_HTTP_USERAGENT": "GeoLens"}
+
+
+class TestTheLayerAloneIsReadWheneverItIsADifferentRequest:
+    """A batch that names only the layer still differs from the single request
+    when the submitted URL carries a `COUNT` (or a WFS 2 `MAXFEATURES`), which
+    the single request drops; the driver retries that request when the batch
+    answer does not cover the layer, so the check reads it too."""
+
+    uses_the_real_endpoint_check = True
+
+    async def test_a_count_less_retry_with_an_include_is_refused(
+        self, monkeypatch
+    ) -> None:
+        def describe(names: list[str]) -> str:
+            return _schema(names)
+
+        recorded_urls: list[str] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            params = _params(request)
+            if params.get("request") == "DescribeFeatureType":
+                recorded_urls.append(str(request.url))
+                include = None if "count" in params else f"{_FOREIGN}/inc.xsd"
+                return httpx.Response(200, text=_schema([_LAYER], include=include))
+            return _wfs(_capabilities([_LAYER]), describe)(request)
+
+        recorded = _transport(monkeypatch, handle)
+        with pytest.raises(CrossOriginEndpointError):
+            await assert_endpoints_stay_on_origin(
+                f"{_SVC_WFS}?MAXFEATURES=7",
+                service_format="wfs",
+                credential_line=f"X-Api-Key: {_value()}",
+                collection=_LAYER,
+                deadline=None,
+            )
+
+        assert _described(recorded) == [[_LAYER], [_LAYER]]
+        assert "COUNT=7" in recorded_urls[0] and "COUNT" not in recorded_urls[1]
+
+    async def test_an_identical_request_is_read_once(self, monkeypatch) -> None:
+        handler = _wfs(_capabilities([_LAYER]), lambda names: _schema(names))
+
+        recorded, _value_ = await _check(monkeypatch, handler)
+
+        assert _described(recorded) == [[_LAYER]]
