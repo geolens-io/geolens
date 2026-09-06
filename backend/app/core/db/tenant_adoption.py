@@ -461,8 +461,8 @@ async def list_tenants(conn) -> list[str]:
 
 
 #: ``inherit_option``/``set_option`` arrived in PostgreSQL 16 and GeoLens
-#: supports 13 up, so they are read back out of the row as jsonb.  Before 16 the
-#: guard is ``admin_option`` alone, NOINHERIT's own SET-only guarantee.
+#: supports 13 up, so they are read back out of the row as jsonb.  Before 16
+#: ``admin_option`` alone is correct: NOINHERIT gateway roles are SET-only.
 _MEMBER_OPTIONS_PRESENT = "jsonb_exists(to_jsonb(membership), 'set_option')"
 _MEMBER_INHERIT = "(to_jsonb(membership) ->> 'inherit_option')::boolean"
 _MEMBER_SET = "(to_jsonb(membership) ->> 'set_option')::boolean"

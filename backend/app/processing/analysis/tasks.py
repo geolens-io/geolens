@@ -725,7 +725,8 @@ def analysis_output_table_belongs_to(out_table: str, job_uuid: uuid.UUID) -> boo
 
 
 # How many `_N` walks the scoped-name probe makes before giving up, and how
-# much of the base it probes on. Same bound as `generate_table_name`'s own.
+# much of the base it probes on. Same reason as `generate_table_name`'s own
+# pair: the probe prefix must stay a prefix of every candidate the walk emits.
 _MAX_SCOPED_COLLISION_SUFFIX = 20
 _SCOPED_PROBE_CHARS = 20
 

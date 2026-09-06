@@ -5504,8 +5504,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # self-healing. The tag is reserved for up front, in the same limit
     # computation as the scope, the idiom `generate_table_name`'s own
     # `_with_collision_suffix` already uses. Cap 1702 -> 1725, exact.
-    # chore(#1873): review-history comments trimmed. Cap 1725 -> 1391, exact.
-    "backend/app/processing/analysis/tasks.py": 1391,
+    # chore(#1873): review-history comments trimmed. Cap 1725 -> 1392, exact.
+    "backend/app/processing/analysis/tasks.py": 1392,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.
