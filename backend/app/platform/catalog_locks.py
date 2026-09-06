@@ -145,18 +145,17 @@ async def _install_lock_timeout(
 
 
 def _clear_marker_on_commit(session: AsyncSession) -> None:
-    """Register, once per session, the commit listener that ends the marker.
-
-    The listener runs inside ``commit()`` on the request's own task, so the
-    reset lands in the context that set the marker.
-    """
+    """Register, once per session, the listener that ends the marker at the
+    outermost commit; a savepoint release is not a commit."""
     if session.info.get(_MARKER_LISTENER_KEY):
         return
     session.info[_MARKER_LISTENER_KEY] = True
     event.listen(session.sync_session, "after_commit", _forget_lock_timeout)
 
 
-def _forget_lock_timeout(_session: Any) -> None:
+def _forget_lock_timeout(session: Any) -> None:
+    if session.in_nested_transaction():
+        return
     catalog_timeout_installed.set(False)
 
 

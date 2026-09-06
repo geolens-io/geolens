@@ -868,12 +868,7 @@ class TestMetadataPatchTakesThePairToo:
 
 
 class TestTheMetadataPatchTakesThePairOnEveryBody:
-    """fix(#1881): the body does not decide the order.
-
-    A workflow hook runs on a `record_status` body with the dataset in its
-    context, so a PATCH that names no dataset field can still write the
-    datasets row. Every PATCH takes the pair, before its first write.
-    """
+    """fix(#1881): every PATCH takes the pair before its first write."""
 
     @pytest.mark.parametrize(
         "body",
@@ -2097,10 +2092,7 @@ class TestOnlyThisRequestsTimeoutIsAnswered:
 
 
 class TestTheMarkerEndsWithItsTransaction:
-    """fix(#1890): the marker stands for a `SET LOCAL`, which ends with the
-    transaction that ran it. A conflict after that commit is not a busy
-    catalog row, and a 409 there would have the client re-apply a committed
-    update."""
+    """fix(#1890): the marker ends with the transaction that installed it."""
 
     async def test_commit_clears_the_marker_the_acquisition_set(self, locked_dataset):
         import app.core.db as db_module
@@ -2117,6 +2109,12 @@ class TestTheMarkerEndsWithItsTransaction:
                     record_id=locked_dataset.record_id,
                 )
                 assert catalog_locks.catalog_timeout_installed.get() is True
+                async with session.begin_nested():
+                    await session.execute(text("SELECT 1"))
+                assert catalog_locks.catalog_timeout_installed.get() is True, (
+                    "a savepoint release cleared the marker while the "
+                    "SET LOCAL it stands for is still live"
+                )
                 await session.commit()
                 assert catalog_locks.catalog_timeout_installed.get() is False, (
                     "the transaction that installed the lock timeout has "
@@ -2166,11 +2164,7 @@ class TestTheMarkerEndsWithItsTransaction:
         test_db_session,
         monkeypatch,
     ):
-        """A wait after the acquisition, on a cascade child it does not lock.
-
-        The failed transaction is rolled back before the boundary handler
-        reads the marker, so a rollback-time reset would answer this 503.
-        """
+        """A wait after the acquisition, inside its transaction, is still 409."""
         monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "150ms")
         import app.core.db as db_module
         from app.modules.catalog.maps.models import Map, MapLayer
