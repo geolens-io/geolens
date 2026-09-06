@@ -42,7 +42,7 @@ logger = structlog.stdlib.get_logger(__name__)
 
 # PostgreSQL OID / OID-alias types. The ``reg*`` family resolves an integer OID
 # to a catalog NAME (role, relation, namespace, function, type), and the family
-# is the building block of ``::oid::regrole`` chains (fix(#565 r11/r12)).
+# is the building block of ``::oid::regrole`` chains (fix(#565)).
 _OID_ALIAS_TYPES: frozenset[str] = frozenset(
     {
         "oid",
@@ -429,7 +429,7 @@ _MAX_LINEAGE_HOPS = 4
 
 # The managed 4326 geometry column. Ingest keeps the ORIGINAL `geom` in
 # whatever CRS it arrived in and adds this one alongside, so "reached a base
-# table" is not "reached a bounded geometry" (fix(#1001 r3)).
+# table" is not "reached a bounded geometry" (fix(#1001)).
 _MANAGED_GEOMETRY_COLUMN = "geom_4326"
 
 
@@ -563,7 +563,7 @@ def _derived_select(source: exp.Expression, owner: exp.Select) -> exp.Select | N
     if isinstance(source, exp.Table):
         # Schema-less: a reference to a CTE, resolved by the CTE's OWN name
         # rather than by the binding name — `FROM bad AS x` binds x to bad
-        # (fix(#1001 codex r3)).
+        # (fix(#1001)).
         definition = _cte_definition(owner, source.name)
         return definition if isinstance(definition, exp.Select) else None
     if isinstance(source, exp.Subquery) and isinstance(source.this, exp.Select):
@@ -924,7 +924,7 @@ def _check_function_allowlist(
         if fn_name in _BLOCKED_FUNCTIONS or (
             extra_blocked is not None and fn_name in extra_blocked
         ):
-            # fix(#565 r17): `extra_blocked` lets the raw-SQL endpoint drop
+            # fix(#565): `extra_blocked` lets the raw-SQL endpoint drop
             # output-amplifying functions that neither the SQL-length cap nor
             # row_limit bounds, while AI chat keeps them.
             logger.info("sandbox.blocked_function", sql=sql, function=fn_name)
@@ -1004,7 +1004,7 @@ def validate_sql(
 
     _reject_oversized_values(stmt, sql, max_values_rows)
 
-    # fix(#565 r19): `||` is string concatenation, an output amplifier
+    # fix(#565): `||` is string concatenation, an output amplifier
     # equivalent to concat, and an exp.DPipe operator rather than a Func, so
     # the function blocklist misses it. Blocked when the caller blocks concat.
     if (
@@ -1029,7 +1029,7 @@ def validate_sql(
     # access-checked. Everything left must pass the data.* check.
     tables: set[tuple[str, str]] = set()
     for table in stmt.find_all(exp.Table):
-        # fix(#565 r23): fold unquoted identifiers as PostgreSQL resolves them
+        # fix(#565): fold unquoted identifiers as PostgreSQL resolves them
         # BEFORE the access check -- `FROM DATA.ROADS` resolves to `data.roads`,
         # so comparing the preserved case would 404 a readable table.
         schema = _folded_identifier(table.args.get("db")) or ""
@@ -1085,7 +1085,7 @@ def _resolve_cte(table: exp.Table) -> exp.CTE | None:
                         return c
         elif isinstance(node, _SCOPE_TYPES):
             # The WITH's arg key has drifted across sqlglot releases
-            # ("with" -> "with_"), so find it by type. fix(#565 P2 r5): a WITH
+            # ("with" -> "with_"), so find it by type. fix(#565): a WITH
             # over a UNION attaches to the exp.Union, not to its branches.
             with_clause = next(
                 (c for c in node.iter_expressions() if isinstance(c, exp.With)),
@@ -1144,7 +1144,7 @@ _SCOPE_TYPES: tuple[type[exp.Expression], ...] = (
     exp.Except,
 )
 
-# fix(#565 r20): a synthetic key for the TOTAL cross-product degree.
+# fix(#565): a synthetic key for the TOTAL cross-product degree.
 # Per-base-table exponents catch SELF-join amplification, but three DISTINCT
 # tables cross-joined is N*M*K with each at exponent 1, so the max misses it.
 _XPROD_KEY: tuple[str, str] = ("", "__xprod__")
@@ -1275,7 +1275,7 @@ def _source_fanout(source: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
         # reject) is scanned once.
         return {(source.db or "", source.name): 1}
     if isinstance(source, exp.Lateral):
-        # fix(#565 r6): a LATERAL re-evaluates per outer row and its OUTPUT
+        # fix(#565): a LATERAL re-evaluates per outer row and its OUTPUT
         # rows join into the FROM product, so it is a row source like a derived
         # table. Its INTERNAL per-row work is added in _work_fanout.
         inner = _lateral_inner_scope(source)
@@ -1284,12 +1284,12 @@ def _source_fanout(source: exp.Expression, memo: _FanoutMemo) -> _FanoutMap:
         inner = source.this
         if isinstance(inner, _SCOPE_TYPES):
             return _rows_fanout(inner, memo)
-        # fix(#565 r8): a parenthesized FROM join group is a Subquery wrapping
+        # fix(#565): a parenthesized FROM join group is a Subquery wrapping
         # a Table that carries its joins in `.args["joins"]`, not a SELECT, so
         # cost the head and every joined source rather than reporting 0.
         return _group_fanout(inner, memo)
     if isinstance(source, exp.Values):
-        # fix(#565 r17/r18): a constant VALUES relation contributes rows, and
+        # fix(#565): a constant VALUES relation contributes rows, and
         # ALL VALUES share ONE key -- per-node ids let k distinct VALUES each
         # report 1 and slip 256^k combinations.
         return {("", "__values__"): 1}
@@ -1487,7 +1487,7 @@ def _correlated_scopes(
                 # own per-row predicate.
                 break
             elif isinstance(ancestor, exp.AggFunc):
-                # fix(#565 r15): an aggregate ARGUMENT (or FILTER) is evaluated
+                # fix(#565): an aggregate ARGUMENT (or FILTER) is evaluated
                 # for every INPUT row, so the ungrouped-aggregate reduction
                 # must NOT zero its multiplier.
                 under_aggregate = True
@@ -1495,7 +1495,7 @@ def _correlated_scopes(
             ancestor = ancestor.parent
         if clause is None:
             continue
-        # fix(#565 P2 r14/r16): classified by the clause that runs the scope.
+        # fix(#565): classified by the clause that runs the scope.
         # Only per-output work shrinks when the SELECT aggregates, EXCEPT an
         # aggregate argument; LIMIT / OFFSET are evaluated ONCE.
         if isinstance(clause, (exp.Limit, exp.Offset)):
@@ -1533,7 +1533,7 @@ def _work_fanout(
     out = dict(input_rows)
     if isinstance(node, exp.Select):
         # SIBLING per-row scopes run additively, so combine each group by the
-        # per-table MAX rather than the sum (fix(#565 P2 r13): summing rejects
+        # per-table MAX rather than the sum (fix(#565): summing rejects
         # a legitimate query with two scalar subqueries over one table).
         per_input, per_output, per_statement = _correlated_scopes(node)
         pin: _FanoutMap = {}

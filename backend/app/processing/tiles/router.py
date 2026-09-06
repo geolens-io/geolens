@@ -728,7 +728,7 @@ async def _resolve_raster_meta(
         nodata=row["nodata"],
         tile_cache_version=row["tile_cache_version"] or 1,
     )
-    # fix(#1329 P1): the write key comes from the SNAPSHOT's own version. Under
+    # fix(#1329): the write key comes from the SNAPSHOT's own version. Under
     # the requested one, `v=N+1` against a row at N parks the CURRENT snapshot
     # on that key, and it survives the swap for a full TTL.
     store_key = (
@@ -794,7 +794,7 @@ async def _resolve_raster_access(
     Raises HTTPException on any auth or lookup failure.
     """
     # Metadata comes from cache; auth checks always run per-request.
-    # fix(#1518 P2 r3): a 404 here precedes any capability evaluation, so the
+    # fix(#1518): a 404 here precedes any capability evaluation, so the
     # credential rule applies to the answer.
     try:
         meta = await _resolve_raster_meta(db, dataset_id, requested_version)
@@ -899,7 +899,7 @@ async def raster_auth_check(
         403 if embed token is invalid
         404 if dataset not found, not a raster, or has no raster asset
     """
-    # fix(#1372 r4): nginx keys on the FIRST occurrence of `v` and matches the
+    # fix(#1372): nginx keys on the FIRST occurrence of `v` and matches the
     # name case-insensitively; `QueryParams.get()` returns the LAST occurrence
     # of an exact-case name. Read once, because two decisions below use it.
     v_values = [
@@ -926,7 +926,7 @@ async def raster_auth_check(
         if _is_publicly_cacheable(meta.visibility, meta.record_status)
         else "private"
     )
-    # fix(#1372 r3/r4): a shared-cache entry may only be written under the
+    # fix(#1372): a shared-cache entry may only be written under the
     # CURRENT version, or a caller pre-warms the NEXT key with pre-replace
     # bytes. So: exactly one case-insensitive `v`, or served no-store.
     if (
@@ -1060,7 +1060,7 @@ async def raster_tile_proxy(
     # as "png?stretch=..." and the built URL carries two `?` (Titiler 422s).
     if "?" in fmt:
         # Recover render params that arrived ONLY in the path, so styling is not
-        # silently dropped. fix(#1770 r47b): bounded, because `{fmt}` is
+        # silently dropped. fix(#1770): bounded, because `{fmt}` is
         # attacker-reachable unauthenticated; a ValueError recovers nothing.
         try:
             _buried = parse_qs(fmt.split("?", 1)[1], max_num_fields=MAX_QUERY_FIELDS)
@@ -1098,7 +1098,7 @@ async def raster_tile_proxy(
         )
 
     # Effective bounds resolved ONCE, where activity is decided: an INACTIVE
-    # parameter's value is ALWAYS the absent default. fix(#1778 r8): otherwise
+    # parameter's value is ALWAYS the absent default. fix(#1778): otherwise
     # `?stretch=stddev&pmin=1e309` set eff_pmin=inf and 500'd on `int(pmin)`.
     _pmin_pmax_active = stretch == "percentile"
     _sigma_active = stretch == "stddev"
@@ -1108,7 +1108,7 @@ async def raster_tile_proxy(
 
     # Validated before any Titiler call, and only when the ACTIVE
     # stretch mode reads the value, so a value nginx blanks from the cache key
-    # cannot turn a cached 200 into a 422. fix(#1778 r8): isfinite explicitly.
+    # cannot turn a cached 200 into a 422. fix(#1778): isfinite explicitly.
     if stretch == "percentile" and (pmin is not None or pmax is not None):
         if (
             not math.isfinite(eff_pmin)
@@ -1536,7 +1536,7 @@ async def get_tile_tokens_batch(
             raster_assets_by_dataset_id.get(dataset.id),
         )
 
-    # fix(#1518 P2): the flag above is only set on the FALLBACK arm, which a
+    # fix(#1518): the flag above is only set on the FALLBACK arm, which a
     # batch of public datasets never reaches, so the question is asked again
     # here. Still the real validator against a real id, never header presence.
     if not capability_authorized and embed_token:
@@ -1728,7 +1728,7 @@ async def _assert_dataset_still_registered(
 
     registered = (await db.execute(stmt)).scalar_one_or_none()
 
-    # fix(#1451 P1): hand the API-pool connection back before returning, or
+    # fix(#1451): hand the API-pool connection back before returning, or
     # every tile the pool builds occupies one for its PostGIS query and gzip.
     # Read-only, so the rollback discards nothing.
     await db.rollback()
@@ -2000,8 +2000,8 @@ async def _acquire_and_serve_tile(
             await tile_cache.set(
                 cache_key, z, x, y, b"", ttl=cache_ttl, cols_key=cols_cache_key
             )
-        # fix(#430 V-03): empty tiles were uncacheable — reuse the tile's Cache-Control
-        # from base_headers (drop Content-Encoding; a 204 has no body).
+        # fix(#430) V-03: an empty tile reuses the tile's Cache-Control from
+        # base_headers, minus Content-Encoding, because a 204 has no body.
         return Response(
             status_code=status.HTTP_204_NO_CONTENT,
             headers={k: v for k, v in base_headers.items() if k != "Content-Encoding"},
@@ -2089,7 +2089,7 @@ async def cluster_tile_endpoint(
         scope=scope,
         user=user,
     )
-    # fix(#1518 P2 r4): after authorization, not before. "Not a point dataset"
+    # fix(#1518): after authorization, not before. "Not a point dataset"
     # is a property of the RESOURCE, and it told an unauthorized caller that a
     # private dataset exists and what geometry it holds.
     _ensure_clusterable_dataset(meta)
@@ -2136,7 +2136,7 @@ async def cluster_tile_endpoint(
                         cache_ttl,
                         _cluster_cache_control,
                         empty=True,
-                    ),  # fix(#430 V-03)
+                    ),  # fix(#430) V-03
                 )
             # MVT-04: cache hits also carry an ETag / honor If-None-Match.
             return _tile_response(
@@ -2302,7 +2302,7 @@ async def tile_endpoint(
                         cache_ttl,
                         _tile_cache_control,
                         empty=True,
-                    ),  # fix(#430 V-03)
+                    ),  # fix(#430) V-03
                 )
             # MVT-04: cache hits also carry an ETag / honor If-None-Match.
             return _tile_response(

@@ -1193,20 +1193,12 @@ async def create_fan_out_jobs(
     except (
         Exception
     ) as exc:  # broad: any clone/defer failure returns per-layer error, not a 500
-        logger = None
-        try:
-            import structlog as _structlog
-
-            logger = _structlog.get_logger(__name__)
-        except Exception:  # broad: structlog optional — defer to print if unavailable
-            pass
-        if logger:
-            logger.warning(
-                "Fan-out layer dispatch failed",
-                layer_name=layer.layer_name,
-                original_job_id=str(original_job.id),
-                error=str(exc),
-            )
+        logger.warning(
+            "Fan-out layer dispatch failed",
+            layer_name=layer.layer_name,
+            original_job_id=str(original_job.id),
+            error=str(exc),
+        )
         # fix(#1774 review, codex P2): reset the session before returning. The
         # commit above carries this child's row AND its dispatch marker, and a
         # transactional failure there leaves the session refusing every later
@@ -1232,12 +1224,11 @@ async def create_fan_out_jobs(
             await session.rollback()
             await session.refresh(original_job)
         except Exception:  # broad: a dead connection cannot be reset here
-            if logger:
-                logger.warning(
-                    "Fan-out layer session reset failed",
-                    layer_name=layer.layer_name,
-                    original_job_id=parent_job_id,
-                )
+            logger.warning(
+                "Fan-out layer session reset failed",
+                layer_name=layer.layer_name,
+                original_job_id=parent_job_id,
+            )
         from app.processing.ingest.schemas import FanOutLayerResult
 
         return FanOutLayerResult(
