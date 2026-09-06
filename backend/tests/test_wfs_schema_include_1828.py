@@ -48,11 +48,26 @@ def _value() -> str:
     return uuid.uuid4().hex
 
 
-def _capabilities(names: list[str], *, version: str | None = "2.0.0") -> str:
-    """A WFS capabilities document advertising *names*, on this origin."""
+def _capabilities(
+    names: list[str],
+    *,
+    version: str | None = "2.0.0",
+    formats: dict[str, list[str]] | None = None,
+) -> str:
+    """A WFS capabilities document advertising *names*, on this origin;
+    ``formats`` adds an ``OutputFormats`` list to the named types."""
     version_attr = "" if version is None else f' version="{version}"'
+
+    def outputs(name: str) -> str:
+        listed = (formats or {}).get(name)
+        if not listed:
+            return ""
+        inner = "".join(f"<Format>{fmt}</Format>" for fmt in listed)
+        return f"<OutputFormats>{inner}</OutputFormats>"
+
     types = "".join(
-        f"<FeatureType><Name>{name}</Name><Title>{name}</Title></FeatureType>"
+        f"<FeatureType><Name>{name}</Name><Title>{name}</Title>"
+        f"{outputs(name)}</FeatureType>"
         for name in names
     )
     return f"""<?xml version="1.0"?>
@@ -1352,3 +1367,108 @@ class TestTheSchemeAndHostCaseDoNotDecideTheOrigin:
 
         assert error.origin == _FOREIGN
         assert _hosts(recorded) == {"service.example"}
+
+
+def _output_formats(recorded: list[httpx.Request]) -> list[str | None]:
+    """The ``OUTPUTFORMAT`` of every DescribeFeatureType request, in order."""
+    return [
+        _params(request).get("outputformat")
+        for request in recorded
+        if _params(request).get("request") == "DescribeFeatureType"
+    ]
+
+
+class TestTheRequiredOutputFormatIsMirrored:
+    """On WFS 1.1.0 the driver adds the first advertised ``Format`` of a type
+    whose formats never mention GML 3.1 as ``OUTPUTFORMAT`` on both schema
+    requests, and batches only types that share it; every other case removes
+    the key. The check sends what the driver sends."""
+
+    uses_the_real_endpoint_check = True
+
+    def test_the_builder_adds_the_escaped_format_or_removes_the_key(self) -> None:
+        from app.platform.service_endpoints import _describe_feature_type_url
+
+        submitted = "https://s.example/wfs?outputformat=old&x=1"
+        batch = _describe_feature_type_url(
+            submitted, "1.1.0", ["topp:a", "topp:b"], single=False, output_format="GML2"
+        )
+        single = _describe_feature_type_url(
+            submitted,
+            "1.1.0",
+            ["topp:a"],
+            single=True,
+            output_format="text/xml; subtype=gml/2.1.2",
+        )
+        removed = _describe_feature_type_url(
+            submitted, "1.1.0", ["topp:a"], single=True
+        )
+        assert batch == (
+            "https://s.example/wfs?OUTPUTFORMAT=GML2&x=1"
+            "&SERVICE=WFS&VERSION=1.1.0&REQUEST=DescribeFeatureType&TYPENAME=topp:a,topp:b"
+        )
+        assert single.startswith(
+            "https://s.example/wfs?OUTPUTFORMAT=text%2Fxml%3B%20subtype%3Dgml%2F2.1.2&x=1&"
+        )
+        assert "OUTPUTFORMAT" not in removed and "outputformat" not in removed
+
+    async def test_both_requests_carry_the_format_on_1_1_0(self, monkeypatch) -> None:
+        handler = _wfs(
+            _capabilities(
+                [_LAYER, "topp:roads"],
+                version="1.1.0",
+                formats={_LAYER: ["GML2", "GML3"], "topp:roads": ["GML2"]},
+            ),
+            lambda names: _schema(names),
+        )
+
+        recorded, _value_ = await _check(monkeypatch, handler)
+
+        assert _described(recorded) == [[_LAYER, "topp:roads"], [_LAYER]]
+        assert _output_formats(recorded) == ["GML2", "GML2"]
+
+    @pytest.mark.parametrize(
+        ("version", "formats"),
+        [
+            ("1.1.0", ["text/xml; subtype=gml/3.1.1", "GML2"]),
+            ("2.0.0", ["GML2"]),
+            ("1.0.0", ["GML2"]),
+            ("1.1.0", []),
+        ],
+        ids=["gml31_listed", "wfs_2", "wfs_1_0", "no_formats"],
+    )
+    async def test_every_other_case_removes_the_key(
+        self, monkeypatch, version: str, formats: list[str]
+    ) -> None:
+        handler = _wfs(
+            _capabilities([_LAYER], version=version, formats={_LAYER: formats}),
+            lambda names: _schema(names),
+        )
+
+        recorded, _value_ = await _check(
+            monkeypatch, handler, url=f"{_SVC_WFS}?OUTPUTFORMAT=old"
+        )
+
+        assert _described(recorded) == [[_LAYER]]
+        assert _output_formats(recorded) == [None]
+
+    async def test_the_batch_holds_only_types_that_share_the_format(
+        self, monkeypatch
+    ) -> None:
+        handler = _wfs(
+            _capabilities(
+                [_LAYER, "topp:roads", "topp:blocks", "topp:rivers"],
+                version="1.1.0",
+                formats={
+                    _LAYER: ["GML2"],
+                    "topp:blocks": ["GML2"],
+                    "topp:rivers": ["KML"],
+                },
+            ),
+            lambda names: _schema(names),
+        )
+
+        recorded, _value_ = await _check(monkeypatch, handler)
+
+        assert _described(recorded) == [[_LAYER, "topp:blocks"], [_LAYER]]
+        assert _output_formats(recorded) == ["GML2", "GML2"]

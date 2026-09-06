@@ -1256,15 +1256,63 @@ def _wfs_feature_types(root: Element) -> tuple[str, list[str]]:
     return _WFS_DEFAULT_VERSION if version is None else version, names
 
 
+def _wfs_required_output_formats(root: Element, version: str) -> dict[str, str]:
+    """The ``OUTPUTFORMAT`` the driver adds to a feature type's
+    DescribeFeatureType: on 1.1.0 exactly, the first ``Format`` under its
+    first ``OutputFormats`` when none of them mentions ``3.1``; else none."""
+    required: dict[str, str] = {}
+    if version != "1.1.0":
+        return required
+    seen: set[str] = set()
+    for element in root.iter():
+        if (
+            not isinstance(element.tag, str)
+            or _local_name(element.tag) != "FeatureType"
+        ):
+            continue
+        name = (_xml_value(element, "name") or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        outputs = next(
+            (
+                child
+                for child in element
+                if isinstance(child.tag, str)
+                and _local_name(child.tag) == "OutputFormats"
+            ),
+            None,
+        )
+        if outputs is None:
+            continue
+        formats = [
+            fmt.text
+            for fmt in outputs
+            if isinstance(fmt.tag, str)
+            and _local_name(fmt.tag) == "Format"
+            and fmt.text
+            and fmt.text.strip()
+        ]
+        if formats and not any("3.1" in fmt for fmt in formats):
+            required[name] = formats[0]
+    return required
+
+
 def _wfs_prefix(name: str) -> str:
     return name.split(":", 1)[0] if ":" in name else ""
 
 
-def _wfs_batch(names: list[str], first: str) -> list[str]:
+def _wfs_batch(names: list[str], first: str, required: dict[str, str]) -> list[str]:
     """The names one DescribeFeatureType carries: *first*, then the other
-    members of its prefix in order, fifty at most, as the driver batches."""
+    members of its prefix that share its required output format, in order,
+    fifty at most, as the driver batches."""
     prefix = _wfs_prefix(first)
-    siblings = [n for n in names if n != first and _wfs_prefix(n) == prefix]
+    output_format = required.get(first)
+    siblings = [
+        n
+        for n in names
+        if n != first and _wfs_prefix(n) == prefix and required.get(n) == output_format
+    ]
     return [first, *siblings[: _WFS_SCHEMA_BATCH - 1]]
 
 
@@ -1357,13 +1405,19 @@ def _wfs_base_url(url: str, version: str) -> str:
 
 
 def _describe_feature_type_url(
-    url: str, version: str, names: list[str], *, single: bool
+    url: str,
+    version: str,
+    names: list[str],
+    *,
+    single: bool,
+    output_format: str | None = None,
 ) -> str:
     """The DescribeFeatureType URL the driver builds from the submitted URL,
     byte for byte: the driver's own keys replaced or removed in place, the
     type names escaped as the driver escapes them, every other parameter
     kept as submitted. ``single`` is the one-layer request, which also
-    drops ``COUNT``; the batch request keeps it.
+    drops ``COUNT``; the batch request keeps it. ``output_format`` is the
+    driver's required ``OUTPUTFORMAT``, added escaped; absent, the key goes.
     """
     request = _wfs_base_url(url, version)
     steps: list[tuple[str, str | None]] = [
@@ -1376,7 +1430,10 @@ def _describe_feature_type_url(
     ]
     if single:
         steps.append(("COUNT", None))
-    steps.extend([("FILTER", None), ("OUTPUTFORMAT", None)])
+    steps.append(("FILTER", None))
+    steps.append(
+        ("OUTPUTFORMAT", _wfs_escape(output_format) if output_format else None)
+    )
     for key, value in steps:
         request = _url_add_kvp(request, key, value)
     return request
@@ -1486,18 +1543,33 @@ class _WfsSchemaReads:
             raise EndpointCheckFailedError("schema element budget exceeded")
         return tree
 
-    async def _describe(self, version: str, names: list[str], *, single: bool):
+    async def _describe(
+        self,
+        version: str,
+        names: list[str],
+        *,
+        single: bool,
+        output_format: str | None,
+    ):
         request_url = _describe_feature_type_url(
-            self._url, version, names, single=single
+            self._url, version, names, single=single, output_format=output_format
         )
         schema = _wfs_schema(await self._read(request_url, what="DescribeFeatureType"))
         return None if schema is None else self._counted(schema)
 
-    async def batch(self, version: str, names: list[str]) -> Element | None:
-        return await self._describe(version, names, single=False)
+    async def batch(
+        self, version: str, names: list[str], *, output_format: str | None = None
+    ) -> Element | None:
+        return await self._describe(
+            version, names, single=False, output_format=output_format
+        )
 
-    async def single(self, version: str, name: str) -> Element:
-        schema = await self._describe(version, [name], single=True)
+    async def single(
+        self, version: str, name: str, *, output_format: str | None = None
+    ) -> Element:
+        schema = await self._describe(
+            version, [name], single=True, output_format=output_format
+        )
         if schema is None:
             raise EndpointCheckFailedError("DescribeFeatureType is not a schema")
         return schema
@@ -1548,12 +1620,16 @@ async def _check_wfs_schemas(
     if target is None:
         return
     reads = _WfsSchemaReads(client, url, headers)
-    batch = _wfs_batch(names, target)
-    schema = await reads.batch(version, batch)
+    required = _wfs_required_output_formats(root, version)
+    output_format = required.get(target)
+    batch = _wfs_batch(names, target, required)
+    schema = await reads.batch(version, batch, output_format=output_format)
     if schema is not None:
         await reads.check(schema)
     if schema is None or batch != [target]:
-        await reads.check(await reads.single(version, target))
+        await reads.check(
+            await reads.single(version, target, output_format=output_format)
+        )
 
 
 async def _check_wfs(
