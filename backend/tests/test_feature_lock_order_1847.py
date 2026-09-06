@@ -2450,10 +2450,10 @@ class TestWorkerDoorsAcquireBeforeTheirWrites:
             )
 
     def test_worker_doors_do_not_clamp_their_transaction(self):
-        """`lock_timeout=None` at each, and nowhere on a request path.
+        """`lock_timeout=None` appears at worker doors only, never on a request path.
 
-        `SET LOCAL` applies for the rest of the transaction. A worker that
-        inherited the request budget would fail a multi-minute ingest on
+        `SET LOCAL` applies for the rest of the transaction, so a worker
+        carrying the request budget would fail a multi-minute ingest on
         contention it is supposed to wait out.
         """
         import ast
@@ -2476,12 +2476,12 @@ class TestWorkerDoorsAcquireBeforeTheirWrites:
                         if kw.value.value is None:
                             none_sites.append(str(path.relative_to(app_dir.parent)))
         assert sorted(set(none_sites)) == [
-            "app/processing/ingest/tasks_common.py",
             "app/processing/ingest/tasks_raster_replace.py",
             "app/processing/ingest/tasks_vrt.py",
         ], (
-            "lock_timeout=None belongs to worker tasks only. A request path "
-            f"that passes it waits forever on a contended row. Found: {none_sites}"
+            "lock_timeout=None belongs to worker tasks only, and never to the "
+            "reupload swap, which holds AccessExclusiveLock across its wait and "
+            f"names its own budget (#1921). Found: {none_sites}"
         )
 
 

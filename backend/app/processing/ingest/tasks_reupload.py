@@ -11,6 +11,10 @@ from sqlalchemy import select, update
 from app.core.db.tenant_session import tenant_task
 from app.core.url_redaction import scrub_secret_from_exception
 from app.platform.cache.tiles import invalidate_catalog_cache
+from app.platform.catalog_locks import (
+    CATALOG_LOCK_CONFLICT_CODE,
+    CatalogLockConflict,
+)
 from app.platform.dataset_origin import classify_origin, service_layer_identity
 from app.platform.jobs.heartbeat import (
     attempt_scoped_staging_table,
@@ -561,7 +565,7 @@ async def reupload_file(
             await record_refresh_failure(
                 err_session,
                 ingest_job_id=job_uuid,
-                error_code="file_refresh_failed",
+                error_code=_file_refresh_error_code(exc),
                 error_message=str(exc),
                 contacted_origin=False,
             )
@@ -666,16 +670,27 @@ async def _record_failed_origin_contact(
         await invalidate_catalog_cache()
 
 
+def _file_refresh_error_code(exc: BaseException) -> str:
+    """Map a file-reupload failure onto its run ``error_code``.
+
+    A contended catalog row reports as contention: nothing was written, and
+    the reader's next step is to find the holder, not to inspect the file.
+    """
+    if isinstance(exc, CatalogLockConflict):
+        return CATALOG_LOCK_CONFLICT_CODE
+    return "file_refresh_failed"
+
+
 def _service_refresh_error_code(exc: BaseException) -> str:
     """Map a service-refresh failure onto its run ``error_code``.
 
-    feat(#1220). Three codes, because they send the reader to three different
-    places: a spent or expired credential needs a fresh token, an unreachable
-    credential store needs an operator, and everything else is the origin or
-    the pipeline. ``error_code`` is a closed vocabulary the history UI reads,
-    so the mapping lives in one function rather than as a conditional inside
-    the failure handler where a fourth case would grow another branch.
+    Four codes, because they send the reader to four different places: the
+    holder of a contended catalog row, a fresh token, an operator for an
+    unreachable credential store, or the origin. ``error_code`` is a closed
+    vocabulary the history UI reads, so the mapping lives in one function.
     """
+    if isinstance(exc, CatalogLockConflict):
+        return CATALOG_LOCK_CONFLICT_CODE
     if isinstance(exc, CredentialExpiredError):
         return "credential_expired"
     if isinstance(exc, CredentialStoreUnavailable):
