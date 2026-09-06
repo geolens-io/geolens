@@ -129,12 +129,6 @@ _DATASET_FIELD_MAP: dict[str, str] = {
 }
 
 
-# fix(#1847): request fields that reach the `catalog.datasets` row, so a body
-# carrying one makes this a two-row write. `is_dem` is handled separately: it
-# writes `raster_assets`, which is ordered ahead of the pair, not with it.
-_DATASET_ROW_FIELDS = frozenset(_DATASET_FIELD_MAP) | {"tile_columns"}
-
-
 # Never clearable to NULL via the PATCH: records.title is NOT NULL.
 _NON_CLEARABLE_FIELDS = {"title"}
 
@@ -311,14 +305,13 @@ async def update_user_metadata(
 
     record = dataset.record
 
-    # fix(#1847): BEFORE the first assignment below, and only when the body
-    # reaches beyond the record: one row has no order to get wrong. `is_dem`
-    # writes raster_assets, so it extends the order to that child.
+    # fix(#1881): the pair, before the first write, whatever the body names:
+    # a workflow hook may write the datasets row on a record_status body.
+    # `is_dem` writes raster_assets, so it extends the order to that child.
     touches_raster = "is_dem" in meta.model_fields_set
-    if touches_raster or meta.model_fields_set & _DATASET_ROW_FIELDS:
-        await lock_catalog_rows_for_write(
-            session, dataset, with_raster_asset=touches_raster
-        )
+    await lock_catalog_rows_for_write(
+        session, dataset, with_raster_asset=touches_raster
+    )
 
     if "language" in meta.model_fields_set:
         effective_language = meta.language or "en"

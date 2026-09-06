@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 import uuid
 
 from fastapi import HTTPException
@@ -327,9 +327,17 @@ async def test_metadata_patch_endpoint_uses_overlay_block():
     db = _FakeDB(dataset)
     ext_mod._extensions["workflow"] = BlockingWorkflow()
 
-    with patch(
-        "app.modules.catalog.datasets.domain.service_metadata.get_dataset",
-        return_value=dataset,
+    # fix(#1881): the PATCH takes the catalog pair on every body, and the
+    # fake DB has no rows to lock.
+    with (
+        patch(
+            "app.modules.catalog.datasets.domain.service_metadata.get_dataset",
+            return_value=dataset,
+        ),
+        patch(
+            "app.modules.catalog.features.service.lock_catalog_rows_for_write",
+            new=AsyncMock(return_value=None),
+        ),
     ):
         with pytest.raises(HTTPException) as exc:
             await update_dataset_metadata(
