@@ -2503,8 +2503,8 @@ asset carries everything the upload did, and every re-processing case an
 operator actually has — different overview levels, different compression,
 different internal tiling — starts from the COG just as well as from the
 original. Keeping a second copy of every raster ever uploaded bought nothing and
-cost object storage forever, so in that case it is no longer kept (ADR-002
-Decision 7).
+cost object storage forever, so in that case it is no longer kept
+([ADR-002](.github/ADR-002.md) Decision 7).
 
 ### When the conversion is lossy, the upload is kept
 
