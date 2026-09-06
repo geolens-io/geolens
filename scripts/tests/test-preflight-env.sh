@@ -416,6 +416,32 @@ else
     bad "a tab-holding key's value was never interpolated (exit $STATUS): $(cat "$WORK/out.txt")"
 fi
 
+run_preflight "$(printf 'export\t=${MISSING:?boom}')"
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (?)" "$WORK/out.txt"; then
+    ok "an export prefix before an empty key still leaves the key empty, as Compose reads it"
+else
+    bad "an export-prefixed empty key's value was never interpolated (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+printf '\357\273\277=${MISSING:?boom}\n' > "$FAKE/.env"
+printf '%s\n' "$REQUIRED_LINES" >> "$FAKE/.env"
+bash "$FAKE/scripts/preflight-env.sh" > "$WORK/out.txt" 2>&1
+STATUS=$?
+if [ "$STATUS" -ne 0 ] && grep -q "line 1 (?)" "$WORK/out.txt"; then
+    ok "a BOM before an empty key on the first line does not hide it"
+else
+    bad "a BOM-prefixed empty key's value was never interpolated (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+: > "$FAKE/.env"
+bash "$FAKE/scripts/preflight-env.sh" > "$WORK/out.txt" 2>&1
+STATUS=$?
+if [ "$STATUS" -ne 0 ] && grep -q "JWT_SECRET_KEY" "$WORK/out.txt" && ! grep -q "cannot be loaded" "$WORK/out.txt" && ! grep -q "No such file" "$WORK/out.txt"; then
+    ok "an empty .env loads and fails only on the required vars, with no stray error"
+else
+    bad "an empty .env was misjudged (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
 printf '%s\n' "$REQUIRED_LINES" > "$FAKE/.env"
 printf 'BRACKET[0]=${MISSING:?boom}\n' >> "$FAKE/.env"
 touch "$WORK/BRACKET0"

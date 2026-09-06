@@ -1809,12 +1809,14 @@ env_file_first_refused_line() {
   _efrl_file="$1"
   [ -f "$_efrl_file" ] || return 1
 
-  # fix(#1909): an empty key and a key holding a tab load under Compose but fit
-  # no record, so the file is judged from a copy naming each such key with `-`
-  # (no `${}` can reference it) and a hit on such a line is renamed from FILE.
+  # fix(#1909): an empty key (`export` prefix or not) and a key holding a tab
+  # load under Compose but fit no record, so the file is judged from a copy naming
+  # each such key with `-` (no `${}` can reference it) and a hit is renamed from FILE.
   _efrl_copy="${_ENV_SNAPSHOT_DIR:?}/env-file-copy.$$"
   _efrl_renamed="$(LC_ALL=C awk -v copy="$_efrl_copy" '
-    { line = $0 }
+    BEGIN { printf "" > copy }
+    { line = $0; bom = "" }
+    NR == 1 && substr(line, 1, 3) == "\357\273\277" { bom = substr(line, 1, 3); line = substr(line, 4) }
     match(line, /^[ \t]*(export[ \t]+)?[]A-Za-z0-9_.[\t-]*[=:]/) {
       key = substr(line, 1, RLENGTH - 1)
       rest = substr(line, RLENGTH)
@@ -1831,10 +1833,10 @@ env_file_first_refused_line() {
         line = pre (key == "" ? "-" : key) trail rest
       }
     }
-    { print line > copy }' "$_efrl_file")" || fail "env_file_first_refused_line: could not copy $_efrl_file"
+    { print bom line > copy }' "$_efrl_file")" || fail "env_file_first_refused_line: could not copy $_efrl_file"
   _efrl_hit=""
   _efrl_rc=0
-  _env_file_first_refused_line "$_efrl_copy" || _efrl_rc=$?
+  _env_file_first_refused_line "$_efrl_copy" "$_efrl_file" || _efrl_rc=$?
   rm -f "$_efrl_copy"
   [ "$_efrl_rc" -eq 0 ] || return "$_efrl_rc"
   _efrl_name="$(printf '%s\n' "$_efrl_renamed" | awk -v line="${_efrl_hit%% *}" '$1 == line { print $2; exit }')"
@@ -1842,11 +1844,12 @@ env_file_first_refused_line() {
   printf '%s' "$_efrl_hit"
 }
 
-# Sets _efrl_hit to "LINE KEY REASON" for the first line of FILE that Compose
-# refuses to load with rc 0; rc 1 when every line loads.
+# Sets _efrl_hit to "LINE KEY REASON" for the first line of COPY that Compose
+# refuses to load with rc 0; rc 1 when every line loads. Messages name FILE.
 _env_file_first_refused_line() {
-  _efrl_file="$1"
-  _efrl_records="$(_env_tokenize "$_efrl_file")" || return 1
+  _efrl_read="$1"
+  _efrl_file="$2"
+  _efrl_records="$(_env_tokenize "$_efrl_read")" || return 1
 
   # Compose's parse phase: a key ends at `=` or `:`, holds letters, digits,
   # `_.-[]` or a tab, never a space; a multiline value's continuation lines
@@ -1879,7 +1882,7 @@ _env_file_first_refused_line() {
       for (j = 1; j <= length(bad); j++) {
         if (substr(bad, j, 1) < "\200") { print NR, name, "unexpected-character"; exit }
       }
-    }' "$_efrl_file")" || fail "env_file_first_refused_line: could not scan $_efrl_file"
+    }' "$_efrl_read")" || fail "env_file_first_refused_line: could not scan $_efrl_file"
   [ -z "$_efrl_hit" ] || return 0
 
   _efrl_hit="$(printf '%s' "$_efrl_records" | awk '$1 == "U" { print $2, $4, "unterminated-quote"; exit }')" \
@@ -1897,11 +1900,11 @@ _env_file_first_refused_line() {
       }
     }
     index($0, "$") > 0 { for (i = 1; i <= m; i++) if (NR >= lo[i] && NR <= hi[i]) seen[i] = 1 }
-    END { for (i = 1; i <= m; i++) if (seen[i]) print lo[i], key[i] }' "$_efrl_file")" \
+    END { for (i = 1; i <= m; i++) if (seen[i]) print lo[i], key[i] }' "$_efrl_read")" \
     || fail "env_file_first_refused_line: could not scan the values of $_efrl_file"
   _efrl_hit="$(printf '%s\n' "$_efrl_list" | while read -r _efrl_start _efrl_key; do
       [ -n "$_efrl_start" ] || continue
-      get_env_value "$_efrl_key" "$_efrl_file" "$((_efrl_start + 1))" "$_efrl_records" >/dev/null 2>&1 \
+      get_env_value "$_efrl_key" "$_efrl_read" "$((_efrl_start + 1))" "$_efrl_records" >/dev/null 2>&1 \
         || { printf '%s %s unresolvable' "$_efrl_start" "$_efrl_key"; break; }
     done)"
   [ -z "$_efrl_hit" ] || return 0

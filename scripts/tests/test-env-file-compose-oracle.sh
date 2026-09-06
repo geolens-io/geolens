@@ -636,6 +636,18 @@ _assert_file_like_compose "$FILE_DIR/empty-key" "an empty key whose value Compos
 printf 'CONTROL=ok\nA\tB=${MISSING:?boom}\n' > "$FILE_DIR/tab-key"
 _assert_file_like_compose "$FILE_DIR/tab-key" "a key holding a tab whose value Compose refuses"
 
+printf 'CONTROL=ok\nexport\t=${MISSING:?boom}\n' > "$FILE_DIR/export-empty-key"
+_assert_file_like_compose "$FILE_DIR/export-empty-key" "an export prefix before an empty key whose value Compose refuses"
+
+printf 'export =x\nCONTROL=${export:-unset}\n' > "$FILE_DIR/export-empty-value"
+_assert_matches_compose CONTROL "$FILE_DIR/export-empty-value" "an export prefix before an empty key defines no key named export"
+
+printf '\357\273\277=${MISSING:?boom}\nCONTROL=ok\n' > "$FILE_DIR/bom-empty-key"
+_assert_file_like_compose "$FILE_DIR/bom-empty-key" "a BOM before an empty key on the first line whose value Compose refuses"
+
+: > "$FILE_DIR/empty-file"
+_assert_file_like_compose "$FILE_DIR/empty-file" "an empty file"
+
 printf 'CONTROL=ok\nBRACKET[0]=${MISSING:?boom}\n' > "$FILE_DIR/odd-bracket"
 touch "$FILE_DIR/BRACKET0"
 _afl_pwd="$PWD"
