@@ -2616,7 +2616,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1828): +551. `_check_wfs` reads the layer's DescribeFeatureType,
     # built byte for byte as the driver builds it, and refuses a schema
     # `include` off the origin; `require_wfs_layer` at the spawn points. 1881.
-    "backend/app/platform/service_endpoints.py": 1881,
+    # chore(#1873): review-history comments trimmed. Cap 1881 -> 1385, exact.
+    "backend/app/platform/service_endpoints.py": 1385,
     # fix(#1770 round 42): first entry, crossed _RATCHET_INCLUSION_LOC on the
     # completeness-predicate unification. `_page_proves_complete` is the one
     # function round 41's full-walk-only proof and round 42's sampled-preview
@@ -5719,7 +5720,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # site in this round's sweep (unauthenticated, no source registration
     # needed), with a `try/except ValueError` degrading to "no buried
     # params recovered" rather than a raw 500. Cap 2707 -> 2721, exact.
-    "backend/app/processing/tiles/router.py": 2721,
+    # chore(#1873): review-history comments trimmed, and the route docstrings
+    # rewritten as published API descriptions. Cap 2721 -> 2385, exact.
+    "backend/app/processing/tiles/router.py": 2385,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),
@@ -5780,7 +5783,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # record that parse-shape dependency so a sqlglot bump does not quietly
     # reopen it. The rest is the TokenError note at the parse site. Cap
     # 1871 -> 1934, exact.
-    "backend/app/platform/sandbox/validator.py": 1934,
+    # chore(#1873): review-history comments trimmed. Cap 1934 -> 1673, exact.
+    "backend/app/platform/sandbox/validator.py": 1673,
     # fix(#1778): crossed the 1000-line inclusion threshold, so it joins
     # the ratchet at its exact size. The growth is the token accounting on
     # the two map-generation failure exits (an exhausted or timed-out loop

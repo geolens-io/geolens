@@ -151,17 +151,37 @@ def sync_detailed(
 ) -> Response[Any | ProblemDetail]:
     """Cluster Tile Endpoint
 
-     Serve a server-side clustered vector tile for point datasets.
+     Serve a server-side clustered vector tile for a point dataset.
 
-    URL pattern: /tiles/clusters/data.{table_name}/{z}/{x}/{y}.pbf
+    URL pattern: ``/tiles/clusters/data.{table_name}/{z}/{x}/{y}.pbf``
 
-    This route deliberately reuses the normal vector tile auth model:
-    public datasets are readable directly, non-public datasets require either
-    valid HMAC tile params or a valid embed token scoped to the dataset.
+    Authorization matches the plain vector tile route, in three cases. A
+    public, published dataset is readable without credentials. A non-public
+    dataset needs either valid signature parameters (``sig``, ``exp``,
+    ``scope``) or an embed token scoped to it, and answers 403 without one. A
+    public dataset that is not yet published is readable by its owner, by an
+    admin, or with an embed token, and answers 404 to other callers, so a
+    refusal keeps its existence undisclosed. An unknown table is 404 too.
 
-    fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in;
-    the columns are projected onto UNCLUSTERED features so data-driven
-    styling and popups keep working on the server-cluster path.
+    A request that no capability authorized and that carried a credential which
+    did not resolve is refused with 401 rather than served as an anonymous
+    read, so an expired token is rejected instead of being silently downgraded.
+    A request sending no credential is served normally.
+
+    ``cluster_radius`` is a screen-pixel distance, the same units MapLibre's
+    ``clusterRadius`` uses, and ``cluster_max_zoom`` is the last zoom at which
+    features are grouped. ``cols`` works as it does on the vector route, and
+    the named columns are projected onto the unclustered features, so
+    data-driven styling and popups keep working here too.
+
+    Requires a vector point dataset; another record type responds 400, as does
+    a malformed table name or an out-of-range tile coordinate.
+
+    A tile holding no features answers 204, and a repeat request whose
+    ``If-None-Match`` matches answers 304. A dataset still being restored from
+    cold storage answers 202 with a job id to poll. Where a per-tenant
+    concurrency limit is configured, exceeding it answers 429 with
+    ``Retry-After``. A failure running the tile query answers 503.
 
     Args:
         table_path (str):
@@ -219,17 +239,37 @@ def sync(
 ) -> Any | ProblemDetail | None:
     """Cluster Tile Endpoint
 
-     Serve a server-side clustered vector tile for point datasets.
+     Serve a server-side clustered vector tile for a point dataset.
 
-    URL pattern: /tiles/clusters/data.{table_name}/{z}/{x}/{y}.pbf
+    URL pattern: ``/tiles/clusters/data.{table_name}/{z}/{x}/{y}.pbf``
 
-    This route deliberately reuses the normal vector tile auth model:
-    public datasets are readable directly, non-public datasets require either
-    valid HMAC tile params or a valid embed token scoped to the dataset.
+    Authorization matches the plain vector tile route, in three cases. A
+    public, published dataset is readable without credentials. A non-public
+    dataset needs either valid signature parameters (``sig``, ``exp``,
+    ``scope``) or an embed token scoped to it, and answers 403 without one. A
+    public dataset that is not yet published is readable by its owner, by an
+    admin, or with an embed token, and answers 404 to other callers, so a
+    refusal keeps its existence undisclosed. An unknown table is 404 too.
 
-    fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in;
-    the columns are projected onto UNCLUSTERED features so data-driven
-    styling and popups keep working on the server-cluster path.
+    A request that no capability authorized and that carried a credential which
+    did not resolve is refused with 401 rather than served as an anonymous
+    read, so an expired token is rejected instead of being silently downgraded.
+    A request sending no credential is served normally.
+
+    ``cluster_radius`` is a screen-pixel distance, the same units MapLibre's
+    ``clusterRadius`` uses, and ``cluster_max_zoom`` is the last zoom at which
+    features are grouped. ``cols`` works as it does on the vector route, and
+    the named columns are projected onto the unclustered features, so
+    data-driven styling and popups keep working here too.
+
+    Requires a vector point dataset; another record type responds 400, as does
+    a malformed table name or an out-of-range tile coordinate.
+
+    A tile holding no features answers 204, and a repeat request whose
+    ``If-None-Match`` matches answers 304. A dataset still being restored from
+    cold storage answers 202 with a job id to poll. Where a per-tenant
+    concurrency limit is configured, exceeding it answers 429 with
+    ``Retry-After``. A failure running the tile query answers 503.
 
     Args:
         table_path (str):
@@ -282,17 +322,37 @@ async def asyncio_detailed(
 ) -> Response[Any | ProblemDetail]:
     """Cluster Tile Endpoint
 
-     Serve a server-side clustered vector tile for point datasets.
+     Serve a server-side clustered vector tile for a point dataset.
 
-    URL pattern: /tiles/clusters/data.{table_name}/{z}/{x}/{y}.pbf
+    URL pattern: ``/tiles/clusters/data.{table_name}/{z}/{x}/{y}.pbf``
 
-    This route deliberately reuses the normal vector tile auth model:
-    public datasets are readable directly, non-public datasets require either
-    valid HMAC tile params or a valid embed token scoped to the dataset.
+    Authorization matches the plain vector tile route, in three cases. A
+    public, published dataset is readable without credentials. A non-public
+    dataset needs either valid signature parameters (``sig``, ``exp``,
+    ``scope``) or an embed token scoped to it, and answers 403 without one. A
+    public dataset that is not yet published is readable by its owner, by an
+    admin, or with an embed token, and answers 404 to other callers, so a
+    refusal keeps its existence undisclosed. An unknown table is 404 too.
 
-    fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in;
-    the columns are projected onto UNCLUSTERED features so data-driven
-    styling and popups keep working on the server-cluster path.
+    A request that no capability authorized and that carried a credential which
+    did not resolve is refused with 401 rather than served as an anonymous
+    read, so an expired token is rejected instead of being silently downgraded.
+    A request sending no credential is served normally.
+
+    ``cluster_radius`` is a screen-pixel distance, the same units MapLibre's
+    ``clusterRadius`` uses, and ``cluster_max_zoom`` is the last zoom at which
+    features are grouped. ``cols`` works as it does on the vector route, and
+    the named columns are projected onto the unclustered features, so
+    data-driven styling and popups keep working here too.
+
+    Requires a vector point dataset; another record type responds 400, as does
+    a malformed table name or an out-of-range tile coordinate.
+
+    A tile holding no features answers 204, and a repeat request whose
+    ``If-None-Match`` matches answers 304. A dataset still being restored from
+    cold storage answers 202 with a job id to poll. Where a per-tenant
+    concurrency limit is configured, exceeding it answers 429 with
+    ``Retry-After``. A failure running the tile query answers 503.
 
     Args:
         table_path (str):
@@ -348,17 +408,37 @@ async def asyncio(
 ) -> Any | ProblemDetail | None:
     """Cluster Tile Endpoint
 
-     Serve a server-side clustered vector tile for point datasets.
+     Serve a server-side clustered vector tile for a point dataset.
 
-    URL pattern: /tiles/clusters/data.{table_name}/{z}/{x}/{y}.pbf
+    URL pattern: ``/tiles/clusters/data.{table_name}/{z}/{x}/{y}.pbf``
 
-    This route deliberately reuses the normal vector tile auth model:
-    public datasets are readable directly, non-public datasets require either
-    valid HMAC tile params or a valid embed token scoped to the dataset.
+    Authorization matches the plain vector tile route, in three cases. A
+    public, published dataset is readable without credentials. A non-public
+    dataset needs either valid signature parameters (``sig``, ``exp``,
+    ``scope``) or an embed token scoped to it, and answers 403 without one. A
+    public dataset that is not yet published is readable by its owner, by an
+    admin, or with an embed token, and answers 404 to other callers, so a
+    refusal keeps its existence undisclosed. An unknown table is 404 too.
 
-    fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in;
-    the columns are projected onto UNCLUSTERED features so data-driven
-    styling and popups keep working on the server-cluster path.
+    A request that no capability authorized and that carried a credential which
+    did not resolve is refused with 401 rather than served as an anonymous
+    read, so an expired token is rejected instead of being silently downgraded.
+    A request sending no credential is served normally.
+
+    ``cluster_radius`` is a screen-pixel distance, the same units MapLibre's
+    ``clusterRadius`` uses, and ``cluster_max_zoom`` is the last zoom at which
+    features are grouped. ``cols`` works as it does on the vector route, and
+    the named columns are projected onto the unclustered features, so
+    data-driven styling and popups keep working here too.
+
+    Requires a vector point dataset; another record type responds 400, as does
+    a malformed table name or an out-of-range tile coordinate.
+
+    A tile holding no features answers 204, and a repeat request whose
+    ``If-None-Match`` matches answers 304. A dataset still being restored from
+    cold storage answers 202 with a job id to poll. Where a per-tenant
+    concurrency limit is configured, exceeding it answers 429 with
+    ``Retry-After``. A failure running the tile query answers 503.
 
     Args:
         table_path (str):
