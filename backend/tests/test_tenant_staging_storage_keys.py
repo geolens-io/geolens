@@ -242,8 +242,8 @@ async def test_presigned_completion_reads_physical_and_keeps_logical_job_path(
     with (
         patch.object(router, "get_job_or_404", AsyncMock(return_value=job)),
         patch.object(router, "get_storage", return_value=storage),
-        # The staging delete is `_cleanup_saved_upload`, which resolves the
-        # provider itself.
+        # refactor(#1711): the staging delete is _cleanup_saved_upload, which
+        # resolves the provider itself.
         patch("app.platform.storage.get_storage", return_value=storage),
         # fix(#1207): the completion sequence moved into presigned.py so both
         # doors share it, so verify is patched at its new home.

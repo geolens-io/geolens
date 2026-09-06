@@ -6823,9 +6823,9 @@ _PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN: dict[str, set[str]] = {
     "ingest/tasks_vrt.py": {
         "app.modules.quota.service",
     },
-    # refactor(#1711): the same `get_user_quota_usage` edge ingest/router.py
-    # already carries, following `_effective_stream_cap` into the module the
-    # URL-import staging split gave it. Retargeted, not new.
+    # refactor(#1711): the `get_user_quota_usage` edge follows
+    # `_effective_stream_cap` into the module the URL-import staging split gave
+    # it. The router keeps the same edge for `check_upload_quota`.
     "ingest/url_import_staging.py": {
         "app.modules.quota.service",
     },
