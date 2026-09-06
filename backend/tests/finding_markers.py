@@ -1,4 +1,4 @@
-"""Detector for unscoped finding markers in ``backend/app`` documentation.
+"""Detector for unscoped finding markers in ``backend/app`` comments and docstrings.
 
 Stdlib only and importable without ``app.core.config``, so the pre-commit
 hook runs ``main()`` directly. AGENTS.md > Inline review-comment convention.
@@ -202,7 +202,7 @@ def scan_tree(app_root: Path = APP_ROOT) -> tuple[list[Hit], int, int]:
 
 # Floors, so a collapsed glob or a moved APP_ROOT fails loudly instead of
 # reporting zero findings and passing (#1552). `main` carries 431 modules and
-# 9602 units.
+# 9601 units.
 MIN_SCANNED_MODULES = 350
 MIN_SCANNED_UNITS = 7000
 
