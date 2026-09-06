@@ -198,9 +198,9 @@ router = APIRouter(prefix="/tiles", tags=["Tiles"], responses=ERROR_RESPONSES_PU
 # `_TABLE_NAME_RE` is imported from tiles.service rather
 # than re-declared, so the SQL-injection-defense regex has exactly one definition.
 
-# SEC-OBSV-01: `follow_redirects=True` is safe only while Titiler is internal-
-# only (no `ports:` in docker-compose.yml) and every URL here is server-derived.
-# Expose Titiler, or pass a user URL, and this must move to `make_safe_client`.
+# fix(#1927) SEC-OBSV-01: `follow_redirects=True` holds while Titiler is
+# internal-only (no `ports:` in docker-compose.yml) and every URL here is
+# server-derived; otherwise this must move to `make_safe_client`.
 _titiler_client = httpx.AsyncClient(
     timeout=httpx.Timeout(30.0, connect=10.0),
     follow_redirects=True,
@@ -1049,10 +1049,11 @@ async def raster_tile_proxy(
     own status.
 
     404 covers more than a missing dataset. A dataset that is unknown, is not a
-    raster or has no image answers 404, and so does one the caller may not
-    read: an authorization denial on a non-public raster, and an unpublished
-    raster asked for by a caller who is neither its owner nor an admin. That is
-    deliberate, so a refusal keeps a dataset's existence undisclosed.
+    raster or has no image answers 404. Where no capability authorized the
+    request, so does a dataset the caller may not read: an authorization denial
+    on a non-public raster, and an unpublished raster asked for by a caller who
+    is neither its owner nor an admin. That is deliberate, so a refusal keeps a
+    dataset's existence undisclosed.
     """
     # fix(#315): sanitize `{fmt}` before it reaches the Titiler URL. A proxy
     # rewrite can URL-encode the query string into the PATH, so `{fmt}` arrives

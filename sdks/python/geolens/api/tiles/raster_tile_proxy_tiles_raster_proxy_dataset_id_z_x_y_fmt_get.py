@@ -204,10 +204,11 @@ def sync_detailed(
     own status.
 
     404 covers more than a missing dataset. A dataset that is unknown, is not a
-    raster or has no image answers 404, and so does one the caller may not
-    read: an authorization denial on a non-public raster, and an unpublished
-    raster asked for by a caller who is neither its owner nor an admin. That is
-    deliberate, so a refusal keeps a dataset's existence undisclosed.
+    raster or has no image answers 404. Where no capability authorized the
+    request, so does a dataset the caller may not read: an authorization denial
+    on a non-public raster, and an unpublished raster asked for by a caller who
+    is neither its owner nor an admin. That is deliberate, so a refusal keeps a
+    dataset's existence undisclosed.
 
     Args:
         dataset_id (UUID):
@@ -312,10 +313,11 @@ def sync(
     own status.
 
     404 covers more than a missing dataset. A dataset that is unknown, is not a
-    raster or has no image answers 404, and so does one the caller may not
-    read: an authorization denial on a non-public raster, and an unpublished
-    raster asked for by a caller who is neither its owner nor an admin. That is
-    deliberate, so a refusal keeps a dataset's existence undisclosed.
+    raster or has no image answers 404. Where no capability authorized the
+    request, so does a dataset the caller may not read: an authorization denial
+    on a non-public raster, and an unpublished raster asked for by a caller who
+    is neither its owner nor an admin. That is deliberate, so a refusal keeps a
+    dataset's existence undisclosed.
 
     Args:
         dataset_id (UUID):
@@ -415,10 +417,11 @@ async def asyncio_detailed(
     own status.
 
     404 covers more than a missing dataset. A dataset that is unknown, is not a
-    raster or has no image answers 404, and so does one the caller may not
-    read: an authorization denial on a non-public raster, and an unpublished
-    raster asked for by a caller who is neither its owner nor an admin. That is
-    deliberate, so a refusal keeps a dataset's existence undisclosed.
+    raster or has no image answers 404. Where no capability authorized the
+    request, so does a dataset the caller may not read: an authorization denial
+    on a non-public raster, and an unpublished raster asked for by a caller who
+    is neither its owner nor an admin. That is deliberate, so a refusal keeps a
+    dataset's existence undisclosed.
 
     Args:
         dataset_id (UUID):
@@ -521,10 +524,11 @@ async def asyncio(
     own status.
 
     404 covers more than a missing dataset. A dataset that is unknown, is not a
-    raster or has no image answers 404, and so does one the caller may not
-    read: an authorization denial on a non-public raster, and an unpublished
-    raster asked for by a caller who is neither its owner nor an admin. That is
-    deliberate, so a refusal keeps a dataset's existence undisclosed.
+    raster or has no image answers 404. Where no capability authorized the
+    request, so does a dataset the caller may not read: an authorization denial
+    on a non-public raster, and an unpublished raster asked for by a caller who
+    is neither its owner nor an admin. That is deliberate, so a refusal keeps a
+    dataset's existence undisclosed.
 
     Args:
         dataset_id (UUID):

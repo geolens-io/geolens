@@ -5721,8 +5721,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # needed), with a `try/except ValueError` degrading to "no buried
     # params recovered" rather than a raw 500. Cap 2707 -> 2721, exact.
     # chore(#1873): review-history comments trimmed, and the route docstrings
-    # rewritten as published API descriptions. Cap 2721 -> 2385, exact.
-    "backend/app/processing/tiles/router.py": 2385,
+    # rewritten as published API descriptions. Cap 2721 -> 2386, exact.
+    "backend/app/processing/tiles/router.py": 2386,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),
