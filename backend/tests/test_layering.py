@@ -5764,7 +5764,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1928): +18. The signed-template check moved ahead of the vector
     # path's visibility split, so one minted signature answers the same on
     # every tile route, and the dataset alone decides cache scope. Cap 2404.
-    "backend/app/processing/tiles/router.py": 2404,
+    # fix(#1926): +6. The tile-pool acquire is bounded by the pool's command
+    # timeout, so an exhausted pool reaches the 429 the handler already
+    # carries instead of waiting forever. Cap 2404 -> 2410, exact.
+    "backend/app/processing/tiles/router.py": 2410,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),

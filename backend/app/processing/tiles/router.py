@@ -59,7 +59,11 @@ from app.processing.raster.models import RasterAsset
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
 from app.core.tenancy import is_multi_tenant
-from app.processing.tiles.pool import get_tile_pool, set_tenant_role_for_tile_request
+from app.processing.tiles.pool import (
+    TILE_POOL_ACQUIRE_TIMEOUT_SECONDS,
+    get_tile_pool,
+    set_tenant_role_for_tile_request,
+)
 from app.processing.tiles.responses import (
     _empty_tile_headers as _empty_tile_headers,
     _if_none_match_satisfied as _if_none_match_satisfied,
@@ -1931,7 +1935,7 @@ async def _acquire_and_serve_tile(
 
     Both the vector and cluster endpoints supply a ``query_callable`` (async
     ``(pool, conn) -> bytes | None``) plus a cache key; this helper owns the
-    shared scaffold: the tile-pool acquire (503 on failure), the optional
+    shared scaffold: the bounded tile-pool acquire, the optional
     per-tenant semaphore (a no-op when ``tenant_sem`` is None), the
     single-connection transaction with the per-tenant role/search_path bind,
     error mapping (``asyncio.TimeoutError`` -> 429, broad ``Exception`` ->
@@ -1973,7 +1977,9 @@ async def _acquire_and_serve_tile(
     # SET LOCAL ROLE + SET LOCAL search_path survive for the tile query
     # (PgBouncer transaction-mode: SET LOCAL is valid within one txn; T-1209-10).
     try:
-        async with pool.acquire() as tile_conn:
+        # fix(#1926): bounded, so an exhausted pool sheds through the 429 below
+        # rather than parking the request until the client gives up.
+        async with pool.acquire(timeout=TILE_POOL_ACQUIRE_TIMEOUT_SECONDS) as tile_conn:
             async with tile_conn.transaction():
                 # Bind per-tenant role + search_path BEFORE the tile query.
                 # No-op in single_tenant or when tid is None.
