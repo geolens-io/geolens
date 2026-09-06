@@ -579,8 +579,8 @@ _assert_file_like_compose "$FILE_DIR/unrelated" "an unrelated line with \${MISSI
 printf 'CONTROL=${MISSING:?boom}\nCONTROL=ok\n' > "$FILE_DIR/earlier-dup"
 _assert_file_like_compose "$FILE_DIR/earlier-dup" "an earlier invalid duplicate of a key whose last definition is valid"
 
-printf '# comment\nCONTROL=ok\n\nexport EXPORTED=1\nQUOTED="with # hash" # note\nSINGLE='"'"'lit $x'"'"'\nBARE\nSPACED = value\nREF=${CONTROL}\nODD-KEY=x\n1ODD=x\nDOTTED.KEY=x\nBRACKET[0]=x\nCOLON:sep value\nTAB\t=x\nDOLLAR=$5\nJUNK="a"b\nMULTI="a\nb c\n"\n' > "$FILE_DIR/mixed-valid"
-_assert_file_like_compose "$FILE_DIR/mixed-valid" "a file of comments, export, quotes, a bare key, odd keys, a colon key, a ref, a bare \$ and a multiline value"
+printf '# comment\nCONTROL=ok\n\nexport EXPORTED=1\nQUOTED="with # hash" # note\nSINGLE='"'"'lit $x'"'"'\nBARE\nSPACED = value\nREF=${CONTROL}\nODD-KEY=x\n1ODD=x\nDOTTED.KEY=x\nBRACKET[0]=x\nCOLON:sep value\nTAB\t=x\nDOLLAR=$5\nJUNK="a"b\n=x\nA\tB="d\ne f\n"\nMULTI="a\nb c\n"\n' > "$FILE_DIR/mixed-valid"
+_assert_file_like_compose "$FILE_DIR/mixed-valid" "a file of comments, export, quotes, a bare key, odd keys, an empty key, a tab in a key, a colon key, a ref, a bare \$ and a multiline value"
 
 printf '\357\273\277# bom\nCONTROL=ok\n' > "$FILE_DIR/bom"
 _assert_file_like_compose "$FILE_DIR/bom" "a BOM before a first-line comment"
@@ -628,6 +628,13 @@ _assert_file_like_compose "$FILE_DIR/odd-colon" "a colon-terminated key whose va
 
 printf 'CONTROL=ok\n1ODD=${MISSING:?boom}\n' > "$FILE_DIR/odd-digit"
 _assert_file_like_compose "$FILE_DIR/odd-digit" "a digit-leading key whose value Compose refuses"
+
+# fix(#1909): an empty key and a key holding a tab are records too.
+printf 'CONTROL=ok\n=${MISSING:?boom}\n' > "$FILE_DIR/empty-key"
+_assert_file_like_compose "$FILE_DIR/empty-key" "an empty key whose value Compose refuses"
+
+printf 'CONTROL=ok\nA\tB=${MISSING:?boom}\n' > "$FILE_DIR/tab-key"
+_assert_file_like_compose "$FILE_DIR/tab-key" "a key holding a tab whose value Compose refuses"
 
 printf 'CONTROL=ok\nBRACKET[0]=${MISSING:?boom}\n' > "$FILE_DIR/odd-bracket"
 touch "$FILE_DIR/BRACKET0"

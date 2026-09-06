@@ -1808,6 +1808,44 @@ effective_env_value_into() {
 env_file_first_refused_line() {
   _efrl_file="$1"
   [ -f "$_efrl_file" ] || return 1
+
+  # fix(#1909): an empty key and a key holding a tab load under Compose but fit
+  # no record, so the file is judged from a copy naming each such key with `-`
+  # (no `${}` can reference it) and a hit on such a line is renamed from FILE.
+  _efrl_copy="${_ENV_SNAPSHOT_DIR:?}/env-file-copy.$$"
+  _efrl_renamed="$(LC_ALL=C awk -v copy="$_efrl_copy" '
+    { line = $0 }
+    match(line, /^[ \t]*(export[ \t]+)?[]A-Za-z0-9_.[\t-]*[=:]/) {
+      key = substr(line, 1, RLENGTH - 1)
+      rest = substr(line, RLENGTH)
+      sub(/^[ \t]*(export[ \t]+)?/, "", key)
+      pre = substr(line, 1, RLENGTH - 1 - length(key))
+      trail = key
+      sub(/[ \t]+$/, "", key)
+      trail = substr(trail, length(key) + 1)
+      if (key == "" || index(key, "\t") > 0) {
+        name = key
+        sub(/\t.*$/, "", name)
+        print NR, (name == "" ? "?" : name)
+        gsub(/\t/, "-", key)
+        line = pre (key == "" ? "-" : key) trail rest
+      }
+    }
+    { print line > copy }' "$_efrl_file")" || fail "env_file_first_refused_line: could not copy $_efrl_file"
+  _efrl_hit=""
+  _efrl_rc=0
+  _env_file_first_refused_line "$_efrl_copy" || _efrl_rc=$?
+  rm -f "$_efrl_copy"
+  [ "$_efrl_rc" -eq 0 ] || return "$_efrl_rc"
+  _efrl_name="$(printf '%s\n' "$_efrl_renamed" | awk -v line="${_efrl_hit%% *}" '$1 == line { print $2; exit }')"
+  [ -z "$_efrl_name" ] || _efrl_hit="${_efrl_hit%% *} $_efrl_name ${_efrl_hit##* }"
+  printf '%s' "$_efrl_hit"
+}
+
+# Sets _efrl_hit to "LINE KEY REASON" for the first line of FILE that Compose
+# refuses to load with rc 0; rc 1 when every line loads.
+_env_file_first_refused_line() {
+  _efrl_file="$1"
   _efrl_records="$(_env_tokenize "$_efrl_file")" || return 1
 
   # Compose's parse phase: a key ends at `=` or `:`, holds letters, digits,
@@ -1842,17 +1880,11 @@ env_file_first_refused_line() {
         if (substr(bad, j, 1) < "\200") { print NR, name, "unexpected-character"; exit }
       }
     }' "$_efrl_file")" || fail "env_file_first_refused_line: could not scan $_efrl_file"
-  if [ -n "$_efrl_hit" ]; then
-    printf '%s' "$_efrl_hit"
-    return 0
-  fi
+  [ -z "$_efrl_hit" ] || return 0
 
   _efrl_hit="$(printf '%s' "$_efrl_records" | awk '$1 == "U" { print $2, $4, "unterminated-quote"; exit }')" \
     || fail "env_file_first_refused_line: could not scan the records of $_efrl_file"
-  if [ -n "$_efrl_hit" ]; then
-    printf '%s' "$_efrl_hit"
-    return 0
-  fi
+  [ -z "$_efrl_hit" ] || return 0
 
   # Compose's interpolation phase. Only a value holding `$` can fail it, so
   # only those records are resolved, each bounded by its own start line.
@@ -1872,10 +1904,7 @@ env_file_first_refused_line() {
       get_env_value "$_efrl_key" "$_efrl_file" "$((_efrl_start + 1))" "$_efrl_records" >/dev/null 2>&1 \
         || { printf '%s %s unresolvable' "$_efrl_start" "$_efrl_key"; break; }
     done)"
-  if [ -n "$_efrl_hit" ]; then
-    printf '%s' "$_efrl_hit"
-    return 0
-  fi
+  [ -z "$_efrl_hit" ] || return 0
   return 1
 }
 
