@@ -114,12 +114,14 @@ repos:
         files: '^backend/(app/.*|tests/finding_markers)\.py$'
 
       - id: no-agent-tag-markers
-        name: "AGENTS.md — no `ponytail:` agent-tag marker in any source comment"
+        name: "AGENTS.md — no `ponytail:` literal anywhere in a python/ts/tsx/js/shell file"
         description: >
           The denylist half of the same rule, for the file types the AST
-          detector above does not parse. One literal, case-insensitive tag —
-          this hook checks that tag and claims nothing wider. The general
-          class is enforced for backend/app by no-unscoped-finding-markers.
+          detector above does not parse (frontend/, e2e/, cli/, mcp/). One
+          case-insensitive literal, grepped over the whole file rather than
+          its comments — that is all this hook checks and all it claims. The
+          general class is enforced for backend/app, and only there, by
+          no-unscoped-finding-markers.
         language: system
         entry: >-
           bash -c '

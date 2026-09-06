@@ -61,6 +61,12 @@ class TestTree:
         self._without_floors(monkeypatch, {})
         assert any("ZZTEST-01" in problem for problem in fm.check(tmp_path))
 
+    def test_a_second_marker_on_a_debt_line_fails(self, monkeypatch, tmp_path):
+        (tmp_path / "probe.py").write_text("# CLOUD-02 / ZZNEW-01: one line.\nX = 1\n")
+        self._without_floors(monkeypatch, {"probe.py": 1})
+        problems = fm.check(tmp_path)
+        assert any("2 unanchored finding markers, 1 recorded" in p for p in problems)
+
     def test_a_fixed_marker_must_lower_its_debt_entry(self, monkeypatch, tmp_path):
         self._without_floors(monkeypatch, {"gone.py": 3})
         problems = fm.check(tmp_path)
@@ -115,6 +121,8 @@ class TestDetector:
             "# GHSA-hrf5-v3cq-frx5 covers it; the header is X-Esri-Authorization.\n",
             "# Decode as UTF-8, hash with SHA-256, format dates as ISO-8601.\n",
             "# The link schema requires `method` to match ^[A-Z]+$.\nx = 1\n",
+            "# NIST SP 800-53 AU-5 asks for an alert; AU-5(4) is waived.\nx = 1\n",
+            "# Keys 0..N-1 were already persisted when key N failed.\nx = 1\n",
         ],
     )
     def test_legitimate_text_does_not_trip(self, source):
