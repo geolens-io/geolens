@@ -9239,7 +9239,7 @@ export interface components {
             object_id_field?: string | null;
             /**
              * Kind
-             * @description Backend-classified layer kind. 'vector' = point/line/polygon feature data. 'raster' = imagery/coverage. Classified as 'raster' when geometry_type contains 'raster', the adapter is STAC, or the layer declares coverage_format, bands, or a mediaType of image/*. Everything else, including a layer with no geometry_type at all, defaults to 'vector'.
+             * @description Backend-classified layer kind. 'vector' = point/line/polygon feature data. 'raster' = imagery/coverage. Classified as 'raster' when geometry_type contains 'raster', the adapter is STAC, the layer declares coverage_format or bands, or one of its links has a media type of image/*. Everything else, including a layer with no geometry_type at all, defaults to 'vector'.
              * @default vector
              * @enum {string}
              */
@@ -39649,7 +39649,7 @@ export interface operations {
                 datetime?: string | null;
                 /** @description Maximum number of items returned. Values above 200 are clamped to 200, per the STAC Item Search spec's clamp-don't-reject recommendation. */
                 limit?: number;
-                /** @description Legacy offset-based pagination. The page size is capped at 200; prefer the rel=next link for deep paging, which does not get more expensive as the offset grows. */
+                /** @description Legacy offset-based pagination. The page size is capped at 200; the rel=next link advances one page at a time, and a high offset is costly to serve. */
                 offset?: number;
             };
             header?: never;
@@ -39944,7 +39944,7 @@ export interface operations {
                 collections?: string | null;
                 /** @description Comma-separated item IDs */
                 ids?: string | null;
-                /** @description GeoJSON geometry for spatial intersection. At most 10000 characters, which fits roughly a 150-vertex polygon at 2-decimal-place lat/lon coordinates. */
+                /** @description GeoJSON geometry for spatial intersection. At most 10000 characters, which fits a polygon of several hundred vertices at 2-decimal-place lat/lon coordinates. */
                 intersects?: string | null;
                 /** @description Maximum number of items returned. Values above 200 are clamped to 200, per the STAC Item Search spec's clamp-don't-reject recommendation. */
                 limit?: number;

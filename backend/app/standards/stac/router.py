@@ -999,8 +999,8 @@ async def get_collection_items(
         ge=0,
         description=(
             "Legacy offset-based pagination. The page size is capped at "
-            f"{_STAC_MAX_LIMIT}; prefer the rel=next link for deep paging, "
-            "which does not get more expensive as the offset grows."
+            f"{_STAC_MAX_LIMIT}; the rel=next link advances one page at a "
+            "time, and a high offset is costly to serve."
         ),
     ),
 ) -> JSONResponse:
@@ -1655,8 +1655,8 @@ async def search_get(
         max_length=10000,
         description=(
             "GeoJSON geometry for spatial intersection. At most 10000 characters, "
-            "which fits roughly a 150-vertex polygon at 2-decimal-place lat/lon "
-            "coordinates."
+            "which fits a polygon of several hundred vertices at 2-decimal-place "
+            "lat/lon coordinates."
         ),
     ),
     limit: int = Query(

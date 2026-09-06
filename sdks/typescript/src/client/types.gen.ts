@@ -5163,7 +5163,7 @@ export type LayerInfo = {
     /**
      * Kind
      *
-     * Backend-classified layer kind. 'vector' = point/line/polygon feature data. 'raster' = imagery/coverage. Classified as 'raster' when geometry_type contains 'raster', the adapter is STAC, or the layer declares coverage_format, bands, or a mediaType of image*. Everything else, including a layer with no geometry_type at all, defaults to 'vector'.
+     * Backend-classified layer kind. 'vector' = point/line/polygon feature data. 'raster' = imagery/coverage. Classified as 'raster' when geometry_type contains 'raster', the adapter is STAC, the layer declares coverage_format or bands, or one of its links has a media type of image*. Everything else, including a layer with no geometry_type at all, defaults to 'vector'.
      */
     kind?: 'vector' | 'raster';
 };
@@ -27316,7 +27316,7 @@ export type GetCollectionItemsStacCollectionsCollectionIdItemsGetData = {
         /**
          * Offset
          *
-         * Legacy offset-based pagination. The page size is capped at 200; prefer the rel=next link for deep paging, which does not get more expensive as the offset grows.
+         * Legacy offset-based pagination. The page size is capped at 200; the rel=next link advances one page at a time, and a high offset is costly to serve.
          */
         offset?: number;
     };
@@ -27529,7 +27529,7 @@ export type SearchGetStacSearchGetData = {
         /**
          * Intersects
          *
-         * GeoJSON geometry for spatial intersection. At most 10000 characters, which fits roughly a 150-vertex polygon at 2-decimal-place lat/lon coordinates.
+         * GeoJSON geometry for spatial intersection. At most 10000 characters, which fits a polygon of several hundred vertices at 2-decimal-place lat/lon coordinates.
          */
         intersects?: string | null;
         /**
