@@ -89,13 +89,10 @@ import xml.parsers.expat
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 from urllib.parse import (
-    parse_qs,
     parse_qsl,
     quote,
-    urlencode,
     urljoin,
     urlparse,
-    urlunparse,
 )
 
 import defusedxml.ElementTree as ET
@@ -511,35 +508,21 @@ def _origin_of(url: str) -> str:
 
 
 def _capabilities_url(url: str) -> str:
-    """The GetCapabilities form of a WFS URL, preserving existing parameters.
-
-    Built here rather than imported from the probe adapter, which is in a layer
-    this module may not reach. The two agree on the only thing that matters,
-    which is that the service and request parameters win over whatever the
-    caller's URL carried.
-
-    fix(#1770 round 47c): round 47b's `max_num_fields=MAX_QUERY_FIELDS` here
-    was wrong. This function is the `_check_wfs` capabilities read, reached
-    from `assert_endpoints_stay_on_origin` for EVERY WFS caller --
-    `preview.py`, `sources/router.py`'s `/probe`, and the worker
-    (`processing/ingest/ogr.py`) -- and every one of those three catches
-    only `(CrossOriginEndpointError, EndpointCheckFailedError)`, not a bare
-    `ValueError`. A `ValueError` past the field count therefore escaped
-    preview and `/probe` as an unclassified exception and killed a worker
-    job unclassified, the exact class rounds 44 and 47 both closed
-    elsewhere. On `/probe`, `url` is a fresh `ProbeRequest`/
-    `ServicePreviewRequest.url` field, schema-capped at 2048 chars; on
-    preview and the worker it is `origin_ref["url"]` instead -- caller-
-    derived JSONB persisted from that same submission one hop earlier, not a
-    fresh field itself. Either way it is never a value read out of a
-    THIRD-PARTY response, so `# parse_qs: unbounded` is the correct answer.
-    """
-    parsed = urlparse(url)
-    query = parse_qs(parsed.query)  # parse_qs: unbounded
-    params = {k: v[0] for k, v in query.items()}
-    params["service"] = "WFS"
-    params["request"] = "GetCapabilities"
-    return urlunparse(parsed._replace(query=urlencode(params)))
+    """The GetCapabilities URL the driver builds from the submitted URL, byte
+    for byte: its own two keys replaced in place with its spelling, the layer
+    and query keys removed, every other parameter kept as submitted."""
+    request = _url_add_kvp(url, "SERVICE", "WFS")
+    request = _url_add_kvp(request, "REQUEST", "GetCapabilities")
+    for key in (
+        "TYPENAME",
+        "TYPENAMES",
+        "FILTER",
+        "PROPERTYNAME",
+        "MAXFEATURES",
+        "OUTPUTFORMAT",
+    ):
+        request = _url_add_kvp(request, key, None)
+    return request
 
 
 # The two ways a WFS capabilities document names an operation endpoint.

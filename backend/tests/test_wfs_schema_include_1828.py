@@ -1609,3 +1609,46 @@ class TestTheLayerAloneIsReadWheneverItIsADifferentRequest:
         recorded, _value_ = await _check(monkeypatch, handler)
 
         assert _described(recorded) == [[_LAYER]]
+
+
+class TestTheCapabilitiesRequestIsTheDriversByteForByte:
+    """`Open` builds GetCapabilities with the same in-place, case-insensitive
+    first-match replacement the schema requests use, removing the layer and
+    query keys and keeping everything else, so the capabilities the check reads
+    are the ones the driver reads."""
+
+    uses_the_real_endpoint_check = True
+
+    def test_the_builder_replaces_removes_and_keeps_as_the_driver_does(self) -> None:
+        from app.platform.service_endpoints import _capabilities_url
+
+        submitted = (
+            "https://s.example/wfs?service=wfs&Request=x&TYPENAMES=a"
+            "&foo=bar&request=y&maxfeatures=3"
+        )
+        assert _capabilities_url(submitted) == (
+            "https://s.example/wfs?SERVICE=WFS&REQUEST=GetCapabilities"
+            "&foo=bar&request=y&"
+        )
+        assert _capabilities_url("https://s.example/wfs") == (
+            "https://s.example/wfs?SERVICE=WFS&REQUEST=GetCapabilities"
+        )
+
+    async def test_the_capabilities_read_drops_the_layer_keys_only(
+        self, monkeypatch
+    ) -> None:
+        handler = _wfs(_capabilities([_LAYER]), lambda names: _schema(names))
+
+        recorded, _value_ = await _check(
+            monkeypatch, handler, url=f"{_SVC_WFS}?TYPENAMES=other&foo=bar&filter=x"
+        )
+
+        capabilities = [
+            request
+            for request in recorded
+            if _params(request).get("request") == "GetCapabilities"
+        ]
+        assert len(capabilities) == 1
+        assert str(capabilities[0].url) == (
+            f"{_SVC_WFS}?foo=bar&SERVICE=WFS&REQUEST=GetCapabilities"
+        )

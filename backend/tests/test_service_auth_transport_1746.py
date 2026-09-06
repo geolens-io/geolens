@@ -2431,16 +2431,16 @@ class TestTheCapabilitiesUrlBuilderIsNotFieldCountBounded:
 
         query = "&".join(f"a{n}=1" for n in range(10))
         url = _capabilities_url(f"{_SVC_ORIGIN}/geoserver/wfs?{query}")
-        assert "service=WFS" in url
-        assert "request=GetCapabilities" in url
+        assert "SERVICE=WFS" in url
+        assert "REQUEST=GetCapabilities" in url
 
     def test_a_query_over_the_old_field_count_bound_still_resolves(self) -> None:
         from app.platform.service_endpoints import MAX_QUERY_FIELDS, _capabilities_url
 
         query = "&".join(f"a{n}=1" for n in range(MAX_QUERY_FIELDS + 1))
         url = _capabilities_url(f"{_SVC_ORIGIN}/geoserver/wfs?{query}")
-        assert "service=WFS" in url
-        assert "request=GetCapabilities" in url
+        assert "SERVICE=WFS" in url
+        assert "REQUEST=GetCapabilities" in url
 
     async def test_a_many_param_probe_url_gets_a_coded_result_not_a_500(
         self, monkeypatch
