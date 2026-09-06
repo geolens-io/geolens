@@ -88,9 +88,9 @@ def test_tiles_router_uses_helper():
 
     source = Path(__file__).parent.parent / "app" / "processing" / "tiles" / "router.py"
     text = source.read_text()
-    # Strip comments before checking for literal Titiler hosts. SEC-OBSV-01
-    # docstring/comment references "Titiler" in prose but never the literal
-    # "http://titiler:8000" host string -- verified by static read.
+    # Strip comments before checking for literal Titiler hosts. The
+    # fix(#1927) SEC-OBSV-01 comment names "Titiler" in prose but never the
+    # literal "http://titiler:8000" host string.
     non_comment_lines = [
         line for line in text.splitlines() if not line.strip().startswith("#")
     ]
