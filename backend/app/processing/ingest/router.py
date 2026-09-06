@@ -81,6 +81,7 @@ from app.processing.ingest.service import (
     PART_SIZE,
     _assert_header_token_dispatchable,
     _await_provider_call_draining,
+    _cleanup_saved_upload,
     claim_fan_out_parent,
     create_fan_out_jobs,
     create_ingest_job,
@@ -542,33 +543,6 @@ async def complete_presigned_upload(
         status="pending",
         message="File uploaded and ready for preview",
     )
-
-
-async def _cleanup_saved_upload(
-    saved_path: Path | str,
-    job_id: str,
-) -> None:
-    """Delete a saved upload regardless of storage backend.
-
-    Used to roll back a failed upload (e.g., content validation error) so
-    we don't leave orphaned files in local staging or S3. Never raises —
-    S3 failures are logged instead (KISS-N9).
-    """
-    if isinstance(saved_path, Path):
-        # codeql[py/path-injection] fix(#1708): the Path branch only ever receives a staging-rooted path (save_upload_file, or job.file_path the server itself wrote). The URL-import flow reaches this helper with an S3 KEY STRING and so takes the branch below — it is that call which makes the taint visible here.
-        saved_path.unlink(missing_ok=True)
-        return
-    try:
-        physical_saved_path = resolve_current_storage_key(saved_path)
-        await _await_provider_call_draining(get_storage().delete(physical_saved_path))
-    except (
-        BaseException
-    ):  # broad: cleanup is best-effort and must drain through request cancellation
-        logger.warning(
-            "S3 cleanup failed during validation error — file may be orphaned",
-            s3_key=str(saved_path),
-            job_id=job_id,
-        )
 
 
 def _pending_upload_update(job_id: uuid.UUID):

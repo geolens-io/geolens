@@ -150,7 +150,7 @@ class TestUpload:
                 "app.processing.ingest.router.resolve_file_path",
                 new=AsyncMock(side_effect=RuntimeError("storage unavailable")),
             ),
-            patch("app.processing.ingest.router.get_storage", return_value=storage),
+            patch("app.platform.storage.get_storage", return_value=storage),
         ):
             response = await client.post(
                 "/ingest/upload",

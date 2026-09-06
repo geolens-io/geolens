@@ -3378,7 +3378,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1848): +50. `upload_file` commits the job before the spooled body
     # is staged and binds through a guarded UPDATE that stamps `staged_at`; the
     # lines are the guard helper, the two guarded writes and the 409.
-    "backend/app/processing/ingest/router.py": 2665,
+    # refactor(#1711): -26. `_cleanup_saved_upload` belongs to service.py: it
+    # is a shared staging helper, not a router one. Cap 2665 -> 2639, exact.
+    "backend/app/processing/ingest/router.py": 2639,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -5140,7 +5142,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Cap 1568 -> 1598, exact.
     # chore(#1812): -8, the import door no longer judges a queue on the composed line
     # or configures ingest_service with it. Cap 1598 -> 1590, exact.
-    "backend/app/processing/ingest/service.py": 1590,
+    # refactor(#1711): +32. `_cleanup_saved_upload`, beside the drain it awaits
+    # and the save it undoes, plus the module logger its body reads and the
+    # provider import its S3 branch makes. Cap 1590 -> 1622, exact.
+    "backend/app/processing/ingest/service.py": 1622,
     # fix(#1738): first entry, crossed _RATCHET_INCLUSION_LOC (842 -> 1019) on
     # the change that gave this task a repair phase. What the growth bought:
     # `geom_4326` on a registered table was written once, at registration, and
