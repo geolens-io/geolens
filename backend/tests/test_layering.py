@@ -4621,10 +4621,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1847): the lock order, its gate and its 409 mapping. Cap 1653, exact.
     # fix(#1847): the phase-2 job load locks the row and the lock-order
     # rationale left the source. Cap 1653 -> 1640, exact.
-    # fix(#1938): +69 — the publish's catalog.records wait gets a budget and
-    # events telling an expired budget from a lost deadlock. Cap 1640 -> 1709,
-    # exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1709,
+    # fix(#1938): +58 — the publish's catalog.records wait gets a budget, a
+    # restore after it, and a classified failure report whose SQLSTATE table
+    # lives in catalog_locks instead. Cap 1640 -> 1698, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1698,
+    # --- entered by the inclusion rule, fix(#1937) ------------------------
+    # tasks_raster_replace crossed 1000 bounding its phase-2 catalog wait.
+    # The budget alone is six lines; the rest is what a newly failable wait
+    # owes its reader — a classified warning naming the SQLSTATE, the waited
+    # ms and the budget, an error_code mapper so contention does not report as
+    # a bad raster, and the reset that keeps the quota reservation below it
+    # unbounded. The reporter is a context manager so the acquisition stays a
+    # direct call the #1847 gates can see. Cap 1045, exact.
+    "backend/app/processing/ingest/tasks_raster_replace.py": 1045,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.

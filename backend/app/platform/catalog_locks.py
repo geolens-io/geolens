@@ -15,7 +15,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
-from app.core.db.sqlstate import is_lock_conflict
+from app.core.db.sqlstate import is_lock_conflict, sqlstate
 
 # The budget a REQUEST spends waiting for the pair. A worker passes
 # ``lock_timeout=None``: ``SET LOCAL`` applies for the rest of the transaction,
@@ -30,6 +30,42 @@ _USE_REQUEST_DEFAULT: Any = object()
 # The machine-readable code for a contended row, wherever it is reported: the
 # 409 body, and a bulk-delete item that carries its conflict instead of raising.
 CATALOG_LOCK_CONFLICT_CODE = "catalog_lock_conflict"
+
+
+# fix(#1937, #1938): an expired budget and a lost deadlock end an acquisition
+# alike, and the two send an operator looking for different things.
+_CONFLICT_REPORTS = {
+    "55P03": (
+        "lock_timeout",
+        "The wait expired. Find the holder of this dataset's catalog rows in "
+        "pg_stat_activity.",
+    ),
+    "40P01": (
+        "deadlock",
+        "PostgreSQL chose this transaction as the deadlock victim. Look for "
+        "the other side of the cycle: a holder of this dataset's catalog rows "
+        "that is itself waiting on something this transaction holds.",
+    ),
+}
+_CONFLICT_REPORT_UNKNOWN = (
+    "lock_failed",
+    "The wait failed and reported no SQLSTATE.",
+)
+
+
+def lock_conflict_report(
+    conflict: BaseException, *, event_prefix: str
+) -> tuple[str, str, str | None]:
+    """The log event, operator hint and SQLSTATE for a failed acquisition.
+
+    The event is ``<event_prefix>_lock_timeout``, ``<event_prefix>_deadlock``
+    or ``<event_prefix>_lock_failed``. One definition, because a per-site copy
+    is a per-site drift.
+    """
+    cause = conflict.__cause__
+    code = sqlstate(cause) if isinstance(cause, DBAPIError) else None
+    suffix, hint = _CONFLICT_REPORTS.get(code, _CONFLICT_REPORT_UNKNOWN)
+    return f"{event_prefix}_{suffix}", hint, code
 
 
 # fix(#1847, #1890): true from the SET LOCAL until the transaction that ran it

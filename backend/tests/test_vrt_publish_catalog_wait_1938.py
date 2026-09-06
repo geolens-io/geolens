@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 import structlog
-from asyncpg.exceptions import DeadlockDetectedError
+from asyncpg.exceptions import DeadlockDetectedError, LockNotAvailableError
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 
@@ -41,6 +41,16 @@ def _publish_lock_call() -> ast.Call:
     ]
     assert len(calls) == 1, f"expected one acquisition; found {len(calls)}"
     return calls[0]
+
+
+# Modules an argument may read through; anything else is a live instance.
+_SAFE_ROOTS = frozenset({"time"})
+
+
+def _root_name(node: ast.expr) -> str | None:
+    while isinstance(node, (ast.Attribute, ast.Call, ast.Subscript)):
+        node = node.func if isinstance(node, ast.Call) else node.value
+    return node.id if isinstance(node, ast.Name) else None
 
 
 def _failure_log_call() -> ast.Call:
@@ -98,11 +108,12 @@ class TestPublishCallSite:
         )
 
     def test_the_failure_report_reads_no_orm_attribute(self) -> None:
-        args = _failure_log_call()
         offenders = [
-            kw.arg
-            for kw in args.keywords
-            if kw.arg and isinstance(kw.value, ast.Attribute)
+            f"{kw.arg}={_root_name(sub)}.{sub.attr}"
+            for kw in _failure_log_call().keywords
+            if kw.arg
+            for sub in ast.walk(kw.value)
+            if isinstance(sub, ast.Attribute) and _root_name(sub) not in _SAFE_ROOTS
         ]
         assert not offenders, (
             f"{offenders} are read off a loaded instance after the acquisition "
@@ -115,6 +126,12 @@ class TestPublishCallSite:
         ("cause", "log_event", "code", "needle"),
         [
             (
+                DBAPIError("stmt", {}, LockNotAvailableError("expired")),
+                "vrt_publish_catalog_lock_timeout",
+                "55P03",
+                "pg_stat_activity",
+            ),
+            (
                 DBAPIError("stmt", {}, DeadlockDetectedError("cycle")),
                 "vrt_publish_catalog_deadlock",
                 "40P01",
@@ -122,7 +139,7 @@ class TestPublishCallSite:
             ),
             (None, "vrt_publish_catalog_lock_failed", None, "no SQLSTATE"),
         ],
-        ids=["deadlock", "no_sqlstate"],
+        ids=["expiry", "deadlock", "no_sqlstate"],
     )
     def test_the_cause_picks_the_event(self, cause, log_event, code, needle) -> None:
         conflict = CatalogLockConflict("held")
@@ -202,6 +219,23 @@ class TestPublishWaitAgainstPostgres:
             f"the acquisition ran on lock_timeout {in_force!r}, not the "
             f"{expected!r} PostgreSQL renders "
             f"{tasks_vrt._PUBLISH_CATALOG_TIMEOUT!r} to."
+        )
+
+    def test_the_budget_is_restored_after_the_acquisition(self) -> None:
+        """The UPDATEs after the wait run on the value the transaction arrived with."""
+        source = Path(tasks_vrt.__file__).read_text()
+        restores = [
+            node.lineno
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and "set_config('lock_timeout'" in node.value
+        ]
+        assert len(restores) == 1, f"expected one restore; found {restores}"
+        assert _publish_lock_call().lineno < restores[0], (
+            "the restore runs before the wait it exists for. Those UPDATEs sit "
+            "outside lock_catalog_rows, so a 55P03 there is a bare DBAPIError "
+            "whose str() carries the statement and its bound parameters."
         )
 
     async def test_a_held_records_row_expires_the_budget(

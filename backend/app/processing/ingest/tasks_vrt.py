@@ -54,45 +54,24 @@ from app.processing.ingest.tasks_raster_common import (
 )
 
 # fix(#1938): the budget for the publish transaction's catalog.records wait.
-# Its only holders are record-only writers, whose own acquisition is capped at
-# REQUEST_LOCK_TIMEOUT and which commit a statement or two after taking it.
+# Its only holders are request handlers that dirty the record and hold it from
+# flush to commit; nothing caps that, so this is a stuck-not-queued threshold.
 _PUBLISH_CATALOG_TIMEOUT = "15s"
-
-# fix(#1938): an expired budget and a lost deadlock send an operator looking
-# for different things.
-_PUBLISH_WAIT_FAILURES = {
-    "55P03": (
-        "vrt_publish_catalog_lock_timeout",
-        "The publish's catalog.records wait expired. Find the holder of this "
-        "dataset's catalog.records row in pg_stat_activity.",
-    ),
-    "40P01": (
-        "vrt_publish_catalog_deadlock",
-        "PostgreSQL chose this publish as the deadlock victim. Look for the "
-        "other side of the cycle: a transaction holding this dataset's records "
-        "row and waiting on something this one holds.",
-    ),
-}
-_PUBLISH_WAIT_UNKNOWN = (
-    "vrt_publish_catalog_lock_failed",
-    "The publish's catalog wait failed and reported no SQLSTATE.",
-)
 
 
 def _log_publish_wait_failure(
     conflict: BaseException, *, job_id: str, dataset_id: str, waited_ms: int
 ) -> None:
-    """Report a failed publish catalog wait as expiry, deadlock or no SQLSTATE.
+    """Report a failed publish catalog wait, classified by its SQLSTATE.
 
     ``dataset_id`` must be read BEFORE the acquisition: ``lock_catalog_rows``
     rolls back before it raises, and that expires every loaded instance.
     """
-    from app.core.db.sqlstate import sqlstate
-    from sqlalchemy.exc import DBAPIError
+    from app.platform.catalog_locks import lock_conflict_report
 
-    cause = conflict.__cause__
-    code = sqlstate(cause) if isinstance(cause, DBAPIError) else None
-    log_event, hint = _PUBLISH_WAIT_FAILURES.get(code, _PUBLISH_WAIT_UNKNOWN)
+    log_event, hint, code = lock_conflict_report(
+        conflict, event_prefix="vrt_publish_catalog"
+    )
     structlog.get_logger().warning(
         log_event,
         job_id=job_id,
@@ -1440,6 +1419,9 @@ async def regenerate_vrt(
                     # fix(#1938): read before the wait — the rollback inside a
                     # failed acquisition expires every loaded instance.
                     log_dataset_id = str(vrt_dataset.id)
+                    pre_wait_lock_timeout = await session.scalar(
+                        text("SELECT current_setting('lock_timeout')")
+                    )
                     wait_started = time.perf_counter()
                     try:
                         await lock_catalog_rows(
@@ -1460,6 +1442,13 @@ async def regenerate_vrt(
                             ),
                         )
                         raise
+                    # fix(#1938): the budget ends with the wait it was sized
+                    # for. The UPDATEs below sit outside lock_catalog_rows, so
+                    # an expiry there would raise a bare DBAPIError.
+                    await session.execute(
+                        text("SELECT set_config('lock_timeout', :value, true)"),
+                        {"value": pre_wait_lock_timeout},
+                    )
                     # feat(#1267) / ADR-002 Decision 5a: project the
                     # generation's completion instant into last_refreshed_at,
                     # in the SAME transaction as the generation swap, so
