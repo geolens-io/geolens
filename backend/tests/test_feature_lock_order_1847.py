@@ -2449,8 +2449,8 @@ class TestWorkerDoorsAcquireBeforeTheirWrites:
                 "now false."
             )
 
-    def test_worker_doors_do_not_clamp_their_transaction(self):
-        """`lock_timeout=None` appears at worker doors only, never on a request path.
+    def test_the_raster_replace_door_is_the_only_unclamped_acquisition(self):
+        """`lock_timeout=None` appears there alone, and nowhere on a request path.
 
         `SET LOCAL` applies for the rest of the transaction, so a worker
         carrying the request budget would fail a multi-minute ingest on
@@ -2477,11 +2477,10 @@ class TestWorkerDoorsAcquireBeforeTheirWrites:
                             none_sites.append(str(path.relative_to(app_dir.parent)))
         assert sorted(set(none_sites)) == [
             "app/processing/ingest/tasks_raster_replace.py",
-            "app/processing/ingest/tasks_vrt.py",
         ], (
-            "lock_timeout=None belongs to worker tasks only, and never to the "
-            "reupload swap, which holds AccessExclusiveLock across its wait and "
-            f"names its own budget (#1921). Found: {none_sites}"
+            "the raster-replace door is the one acquisition with no lock_timeout "
+            "of its own, because its phase budget (#1937) covers it. Every other "
+            f"site names a budget. Found: {none_sites}"
         )
 
 
