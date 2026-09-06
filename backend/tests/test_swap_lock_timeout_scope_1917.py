@@ -26,6 +26,7 @@ from tests.test_reupload_swap_lock_retry import (
     _make_dataset_stub,
     _make_port,
     _minimal_metadata,
+    _stub_atomic_bump,
 )
 
 pytestmark = pytest.mark.anyio
@@ -94,7 +95,7 @@ async def swap_target(client, test_db_session):
 
 
 def _stub_downstream(monkeypatch, session) -> None:
-    """Neutralize the metadata/audit writes the swap makes after its lock."""
+    """Neutralize the metadata, audit and tile-bump writes the swap makes after its lock."""
 
     async def _noop(*args, **kwargs):
         return None
@@ -111,6 +112,8 @@ def _stub_downstream(monkeypatch, session) -> None:
     monkeypatch.setattr("app.modules.audit.service.audit_emit", _noop)
     monkeypatch.setattr("app.platform.extensions.get_processing_port", _make_port)
     monkeypatch.setattr(session, "add", lambda *args, **kwargs: None)
+    # The atomic bump itself is covered by test_worker_swap_bump_after_lock_1911.py.
+    _stub_atomic_bump(monkeypatch)
 
 
 async def _run_swap(session, stub, staging):
