@@ -191,7 +191,7 @@ async def fetch_cog_info(url: str) -> dict | None:
     settle: under-stamping a real contact is recoverable, fabricating one
     for a never-contacted origin is not.
 
-    SEC-OBSV-02 (sec-audit 2026-05-21): SSRF protection here is a DUAL GATE.
+    fix(#1927) SEC-OBSV-02: SSRF protection here is a DUAL GATE.
     Both gates MUST be preserved when adding new callers -- bypassing either
     is an SSRF regression:
 

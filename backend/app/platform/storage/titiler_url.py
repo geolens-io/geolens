@@ -20,8 +20,8 @@ under `cog_url.py` would mislead future readers.
 
 NOTE: Titiler is currently internal-only (no `ports:` block in docker-compose).
 If that ever changes, the security stance at tiles/router.py::_titiler_client
-(SEC-OBSV-01) and stac_router.py::_fetch_cog_info (SEC-OBSV-02) must be
-re-audited — see the docstring contracts at those sites.
+(fix(#1927) SEC-OBSV-01) and sources/cog_info.py::fetch_cog_info
+(fix(#1927) SEC-OBSV-02) must be re-audited — see the contracts at those sites.
 """
 
 from urllib.parse import urlencode
