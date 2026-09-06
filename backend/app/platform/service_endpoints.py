@@ -1390,12 +1390,24 @@ def _wfs_escape(value: str) -> str:
     return "".join(escaped)
 
 
+def _wfs_version_is_two_or_more(version: str) -> bool:
+    """``atoi(version) >= 2``, read from the digits so a version of any length
+    is compared without converting it."""
+    match = _C_INT_PREFIX.match(version)
+    if match is None:
+        return False
+    digits = match.group(1)
+    if digits[0] == "-":
+        return False
+    digits = digits.lstrip("+").lstrip("0")
+    return len(digits) > 1 or digits >= "2"
+
+
 def _wfs_base_url(url: str, version: str) -> str:
     """The base URL the driver holds after opening a WFS: for a version whose
     leading integer is 2 or more, a ``MAXFEATURES`` with no ``COUNT`` beside it
     is rewritten to ``COUNT``; everything else is the submitted URL."""
-    match = _C_INT_PREFIX.match(version)
-    if match is None or int(match.group(1)) < 2 or _url_get_value(url, "COUNT"):
+    if not _wfs_version_is_two_or_more(version) or _url_get_value(url, "COUNT"):
         return url
     max_features = _url_get_value(url, "MAXFEATURES")
     if not max_features:

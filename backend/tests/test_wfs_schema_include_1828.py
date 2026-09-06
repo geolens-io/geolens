@@ -1378,6 +1378,36 @@ def _output_formats(recorded: list[httpx.Request]) -> list[str | None]:
     ]
 
 
+class TestTheVersionIsComparedAsTheDriverComparesIt:
+    """``atoi`` on the version decides the ``COUNT`` rewrite; a version of any
+    length, sign or leading zeros is compared without an integer conversion."""
+
+    uses_the_real_endpoint_check = True
+
+    @pytest.mark.parametrize(
+        ("version", "rewritten"),
+        [
+            ("2.0.0", True),
+            ("1.1.0", False),
+            ("+2", True),
+            ("-2", False),
+            ("0002.0.0", True),
+            ("10", True),
+            ("0" * 5000 + "1.0", False),
+            ("9" * 5000, True),
+            ("", False),
+            ("x", False),
+        ],
+    )
+    def test_the_count_rewrite_follows_the_leading_integer(
+        self, version: str, rewritten: bool
+    ) -> None:
+        from app.platform.service_endpoints import _wfs_base_url
+
+        base = _wfs_base_url("https://s.example/wfs?MAXFEATURES=5", version)
+        assert ("COUNT=5" in base) is rewritten
+
+
 class TestTheRequiredOutputFormatIsMirrored:
     """On WFS 1.1.0 the driver adds the first advertised ``Format`` of a type
     whose formats never mention GML 3.1 as ``OUTPUTFORMAT`` on both schema
