@@ -9905,15 +9905,8 @@ class TestASecretDoesNotSurviveInTheChain:
 
 
 class TestAHeaderAuthJobUsesTheTasksOwnQueue:
-    """chore(#1812): nothing produces on the `ingest-auth-v2` queue any more.
-
-    #1770 routed a header-line credentialed job through a dedicated queue so a
-    worker from a release before v1.18.0 never dequeued a header line its own
-    validator could not parse. Every supported worker reads that line now, so
-    the three defer sites dispatch on the task's own queue again, and the
-    worker keeps subscribing to the old queue for one release to drain what a
-    v1.18.0 or v1.18.1 API left there. D9 is untouched: the credential still
-    crosses as one header line under `token`.
+    """fix(#1812): a credentialed job defers on the task's own queue with its
+    header line under `token`; the worker still lists `ingest-auth-v2`.
     """
 
     async def test_a_header_auth_import_defers_on_the_default_queue(

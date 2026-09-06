@@ -844,6 +844,19 @@ async def main() -> None:
         # across all three queues. Both knobs are env-configurable; a second
         # worker service can pin WORKER_QUEUES=raster on multi-core hosts.
         queues = [q.strip() for q in settings.worker_queues.split(",") if q.strip()]
+        # fix(#1812): "ingest-auth-v2" is consumer-only this release; an override
+        # that omits it strands what a v1.18.0/1.18.1 API queued there (RUNBOOK 10).
+        if "ingest-auth-v2" not in queues:
+            log.warning(
+                "worker_queue_missing_drain_queue",
+                configured_queues=queues,
+                missing_queue="ingest-auth-v2",
+                message=(
+                    "This worker does not list ingest-auth-v2, so a credentialed "
+                    "import a v1.18.0 or v1.18.1 API queued there stays todo. Add "
+                    "the queue to WORKER_QUEUES until the count in RUNBOOK 10 is 0."
+                ),
+            )
         async with task_app.open_async():
             # fix(#1778): the only place a job outcome is observable --
             # delete_jobs="successful" removes a succeeded row (and its events,

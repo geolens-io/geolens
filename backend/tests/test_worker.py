@@ -421,6 +421,85 @@ async def test_main_uses_default_shutdown_timeout():
 
 
 @pytest.mark.asyncio
+async def test_main_warns_when_worker_queues_lacks_the_drain_queue():
+    import structlog
+
+    from app.platform.jobs import worker as worker_module
+    from app.platform.jobs.worker import main
+
+    mock_task_app = MagicMock()
+    mock_open = AsyncMock()
+    mock_open.__aenter__ = AsyncMock()
+    mock_open.__aexit__ = AsyncMock(return_value=False)
+    mock_task_app.open_async.return_value = mock_open
+    mock_task_app.run_worker_async = AsyncMock()
+
+    with (
+        patch("app.platform.jobs.worker.recover_stale_jobs", new_callable=AsyncMock),
+        patch("app.core.db.schema_skew.assert_schema_in_sync", new_callable=AsyncMock),
+        patch("app.platform.jobs.worker.ensure_staging_ready"),
+        patch("app.platform.extensions.bootstrap.bootstrap", new_callable=AsyncMock),
+        patch("app.platform.extensions.bootstrap.assert_enterprise_ports_resolved"),
+        patch(
+            "app.observability.metrics.jobs.update_job_metrics", new_callable=AsyncMock
+        ),
+        patch("app.platform.jobs.worker.run_health_server", new_callable=AsyncMock),
+        patch("app.processing.ingest.tasks.task_app", mock_task_app),
+        patch.object(worker_module.settings, "worker_queues", "priority,ingest,raster"),
+        structlog.testing.capture_logs() as captured,
+    ):
+        await main()
+
+    warnings = [
+        e for e in captured if e.get("event") == "worker_queue_missing_drain_queue"
+    ]
+    assert len(warnings) == 1
+    assert warnings[0]["missing_queue"] == "ingest-auth-v2"
+    assert warnings[0]["configured_queues"] == ["priority", "ingest", "raster"]
+    assert warnings[0]["log_level"] == "warning"
+
+
+@pytest.mark.asyncio
+async def test_main_does_not_warn_when_worker_queues_lists_the_drain_queue():
+    import structlog
+
+    from app.platform.jobs import worker as worker_module
+    from app.platform.jobs.worker import main
+
+    mock_task_app = MagicMock()
+    mock_open = AsyncMock()
+    mock_open.__aenter__ = AsyncMock()
+    mock_open.__aexit__ = AsyncMock(return_value=False)
+    mock_task_app.open_async.return_value = mock_open
+    mock_task_app.run_worker_async = AsyncMock()
+
+    with (
+        patch("app.platform.jobs.worker.recover_stale_jobs", new_callable=AsyncMock),
+        patch("app.core.db.schema_skew.assert_schema_in_sync", new_callable=AsyncMock),
+        patch("app.platform.jobs.worker.ensure_staging_ready"),
+        patch("app.platform.extensions.bootstrap.bootstrap", new_callable=AsyncMock),
+        patch("app.platform.extensions.bootstrap.assert_enterprise_ports_resolved"),
+        patch(
+            "app.observability.metrics.jobs.update_job_metrics", new_callable=AsyncMock
+        ),
+        patch("app.platform.jobs.worker.run_health_server", new_callable=AsyncMock),
+        patch("app.processing.ingest.tasks.task_app", mock_task_app),
+        patch.object(
+            worker_module.settings,
+            "worker_queues",
+            "priority,ingest,raster,ingest-auth-v2",
+        ),
+        structlog.testing.capture_logs() as captured,
+    ):
+        await main()
+
+    warnings = [
+        e for e in captured if e.get("event") == "worker_queue_missing_drain_queue"
+    ]
+    assert warnings == []
+
+
+@pytest.mark.asyncio
 async def test_main_passes_install_signal_handlers_true():
     """main() should pass install_signal_handlers=True to run_worker_async."""
     from app.platform.jobs.worker import main

@@ -4169,8 +4169,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # SECRET_ENCRYPTION_KEY. The chain would hold one key twice, so the
     # rotation script would report every row rewritten under the key they
     # already use and then say to retire it. Cap 1659 -> 1674, exact.
-    # chore(#1812): -21, the worker_queues default drops the retired queue and its two
-    # round comments. Cap 1674 -> 1653, exact.
+    # fix(#1812): -21. Production on ingest-auth-v2 stops; the default keeps it
+    # as a consumer for one release and the two round comments go. 1674 -> 1653.
     "backend/app/core/config.py": 1653,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
