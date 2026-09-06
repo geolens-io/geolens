@@ -22,8 +22,9 @@ and releases use semantic versioning.
   briefly held the dataset's catalog row. The lock budget the table swap sets for its own DDL no
   longer carries over to the wait that follows it. (#1917)
 - The import-commit and re-upload-commit doors accepted a service token containing control
-  characters or whitespace, which every other service door already refused. Both now answer 422
-  before the commit reserves or stages anything. (#1755)
+  characters or whitespace when the job was an ArcGIS one, or one whose service type was not
+  recorded. Both now answer 422 before anything is reserved or staged. WFS and OGC API Features
+  commits already refused such a token at the door and are unchanged. (#1755)
 
 ## [1.18.1] - 2026-09-05
 

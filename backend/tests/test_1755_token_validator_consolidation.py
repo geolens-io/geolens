@@ -1,26 +1,16 @@
 """fix(#1755 item 3): one rule for a service-credential token, on every door.
 
-Item 3 asked whether ``_validate_safe_token`` (printable, no whitespace) could
-be folded into the strict header-token policy. It cannot. ``credential_or_422``
-reaches that policy only when ``requires_header_token_policy`` is true, so an
-ArcGIS credential never meets it, and neither does a probe, which has no service
-format yet. On that path the schema rule is the only rule.
-
-What WAS duplicated is the schema rule itself. ``datasets/domain/schemas.py``
-carried a byte-identical private copy under a second name, and while there were
-two copies ``ReuploadCommitRequest.token`` and ``ServiceCommitRequest.token``
-carried neither, so the deprecated flat spelling of a credential was laxer than
-the ``auth`` object beside it on the same door.
-
-These tests pin the consolidated state: every request model that accepts a
-service credential judges its flat ``token`` by the one shared function, and
-the strict header-token policy is unchanged in both directions.
+Every request model accepting a service credential judges its flat ``token`` by
+one shared function, and the door-side header-token policy is unchanged.
 """
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from fastapi import HTTPException
+from httpx import AsyncClient
 from pydantic import ValidationError
 
 from app.core.service_tokens import (
@@ -34,12 +24,21 @@ from app.modules.catalog.datasets.domain.schemas import (
     ReuploadServicePreviewRequest,
 )
 from app.modules.catalog.sources.schemas import ProbeRequest, ServicePreviewRequest
+from app.platform.jobs.models import IngestJob
 from app.platform.service_auth import (
     ServiceAuthRequest,
     _validate_safe_token,
     credential_or_422,
 )
 from app.processing.ingest.schemas import ServiceCommitRequest
+from tests.factories import create_dataset, get_user_id
+
+# The dispatch harnesses #1676 built for these two doors, reused so this suite
+# answers to the same model of a door that the door-policy suite does.
+from tests.test_import_token_lease_1676 import (  # noqa: F401
+    _import_harness,
+    _reupload_harness,
+)
 
 _URL = "https://services.example.test/geoserver/wfs"
 _HEADER_AUTH_FORMAT = "wfs"
@@ -63,12 +62,11 @@ _TOKEN_DOORS = {
     "structured auth": (ServiceAuthRequest, {"method": "bearer"}),
 }
 
-# The rule is printable and whitespace-free, so these are what it refuses. CR
-# and LF are the header-smuggling primitive SEC-021 named.
-# A token holding the two characters base64url refuses, so the schema layer's
-# wider vocabulary is visible. Deliberately low-entropy and obviously synthetic.
+# The two characters base64url refuses, as a low-entropy synthetic value.
 _WIDE_VOCABULARY_TOKEN = "aaaa+bbbb/cccc="
 
+# The rule is printable and whitespace-free, so these are what it refuses.
+# CR and LF are the header-smuggling primitive SEC-021 named.
 _REFUSED_TOKENS = {
     "carriage return": "tok\rX-Injected: yes",
     "line feed": "tok\nX-Injected: yes",
@@ -148,3 +146,108 @@ class TestTheStrictHeaderTokenPolicyIsUnchanged:
         bound = credential_or_422(credential, service_format=service_format)
 
         assert bound is not None
+
+
+# ---------------------------------------------------------------------------
+# The same rule over HTTP, at the two doors this change converted
+# ---------------------------------------------------------------------------
+
+_ARCGIS_URL = "https://example.arcgis.test/rest/services/P/FeatureServer/0"
+
+# Whitespace rather than a control character, so `secret not in resp.text` is a
+# real assertion: JSON escapes a CR, and the raw byte would never appear anyway.
+_UNSAFE_TOKEN_OVER_HTTP = "aaaa bbbb cccc"
+
+
+async def _arcgis_job(session, *, created_by: uuid.UUID, dataset_id=None) -> IngestJob:
+    """A pending ArcGIS service job, bound to a dataset when one is given."""
+    metadata: dict = {"service_type": "ArcGIS FeatureServer", "layer_id": 0}
+    if dataset_id is not None:
+        metadata |= {
+            "reupload": True,
+            "dataset_id": str(dataset_id),
+            "source_type": "service_url",
+        }
+    job = IngestJob(
+        dataset_id=dataset_id,
+        source_filename="Parcels",
+        source_url=_ARCGIS_URL,
+        source_layer="0",
+        created_by=created_by,
+        status="pending",
+        user_metadata=metadata,
+    )
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+    return job
+
+
+def _assert_refused_without_the_token(resp, secret: str, *, loc: str) -> None:
+    """422 naming the token field, and the credential absent from the body.
+
+    ``loc`` differs by door: the import-commit refusal is re-raised by the
+    handler from a subclass validation, so it has no ``body`` prefix.
+    """
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"].startswith(f"{loc}:")
+    # `ValidationError.errors()` carries the raw input; the 422 flattener in
+    # standards/ogc/errors.py renders `loc` and `msg` and drops it.
+    assert secret not in resp.text
+
+
+class TestTheCommitDoorsRefuseOverHttp:
+    """The refusal the schema rule newly performs, exercised end to end."""
+
+    pytestmark = pytest.mark.anyio
+
+    async def test_the_import_commit_door_refuses_and_never_echoes_the_token(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ) -> None:
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _arcgis_job(test_db_session, created_by=admin_id)
+
+        async with _import_harness() as task:
+            resp = await client.post(
+                f"/ingest/commit/{job.id}",
+                json={"title": "Parcels", "token": _UNSAFE_TOKEN_OVER_HTTP},
+                headers=admin_auth_header,
+            )
+
+        _assert_refused_without_the_token(resp, _UNSAFE_TOKEN_OVER_HTTP, loc="token")
+        task.defer_async.assert_not_awaited()
+
+    async def test_the_reupload_commit_door_refuses_and_never_echoes_the_token(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ) -> None:
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="ArcGIS Reupload Dataset",
+            visibility="public",
+            feature_count=100,
+            source_filename="original.geojson",
+            source_url=_ARCGIS_URL,
+        )
+        job = await _arcgis_job(
+            test_db_session, created_by=admin_id, dataset_id=dataset.id
+        )
+
+        async with _reupload_harness() as task:
+            resp = await client.post(
+                f"/datasets/{dataset.id}/reupload/{job.id}/commit",
+                json={"token": _UNSAFE_TOKEN_OVER_HTTP},
+                headers=admin_auth_header,
+            )
+
+        _assert_refused_without_the_token(
+            resp, _UNSAFE_TOKEN_OVER_HTTP, loc="body.token"
+        )
+        task.defer_async.assert_not_awaited()
