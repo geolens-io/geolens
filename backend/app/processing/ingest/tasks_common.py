@@ -2386,7 +2386,7 @@ async def _apply_reupload_swap(
     # fix(#1847): the catalog writes start here, and this function dirties both
     # rows. `lock_timeout=None` so SET LOCAL does not clamp an ingest swap to a
     # request's budget.
-    from app.platform.catalog_locks import lock_catalog_rows
+    from app.platform.catalog_locks import bump_tile_cache_version_on, lock_catalog_rows
     from app.platform.extensions import get_processing_port
 
     _port = get_processing_port()
@@ -2472,10 +2472,9 @@ async def _apply_reupload_swap(
     dataset.source_filename = source_filename
     dataset.original_srid = original_srid
     dataset.current_version = new_version
-    # fix(#525 B-038): tile_version now reads tile_cache_version (not
-    # current_version), so reupload must roll it too or the _v= tile-URL
-    # cache-buster stops changing on the largest content mutation of all.
-    dataset.bump_tile_cache_version()
+    # fix(#1911): evaluated at write time, under the lock, so the counter read
+    # into `dataset` before the wait is never written back over a peer's commit.
+    await bump_tile_cache_version_on(session, dataset)
     dataset.record.updated_by = actor_id
     if source_url is not None:
         dataset.source_url = source_url

@@ -14,6 +14,10 @@ and releases use semantic versioning.
 - `make dev` preflight now judges a `.env` line whose key is empty or holds a tab the way docker
   compose loads it: a value compose cannot resolve is refused before the build instead of at
   compose load, and a multiline value under such a key no longer fails the check. (#1909)
+- A raster replace or a dataset reupload that waited behind a feature edit, column change or
+  tile-columns edit wrote back the tile cache version it had read before waiting, so the edit
+  committed during the wait was served under a stale tile URL. Both worker swaps now roll the
+  version atomically once they hold the catalog row, as the request side has since #1910. (#1911)
 
 ## [1.18.1] - 2026-09-05
 

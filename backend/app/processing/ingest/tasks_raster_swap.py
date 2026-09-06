@@ -45,10 +45,10 @@ def _write_swapped_fields(
 ) -> int:
     """Move every catalog field the swap owns, and return the new version.
 
-    Extracted from ``reupload_raster`` when the round-3 archive step pushed
-    that function back over the McCabe gate. Pure field assignment on two
-    attached ORM instances — the caller's transaction is what makes it atomic
-    with the storage puts and the job's terminal write.
+    Pure field assignment on two attached ORM instances; the caller's
+    transaction is what makes it atomic with the storage puts and the job's
+    terminal write. ``tile_cache_version`` is not among the fields: the caller
+    rolls it through ``bump_tile_cache_version_on`` once it holds the row.
     """
     nodata_val = cog_meta.get("nodata")
     raster_asset.asset_uri = cog_key
@@ -101,10 +101,6 @@ def _write_swapped_fields(
     dataset.original_srid = source_meta.get("epsg")
     dataset.source_filename = source_filename
     dataset.source_format = "geotiff"
-    # fix(#525 B-038): the Valkey purge cannot reach CDN or browser
-    # caches keyed on the tile URL, so the `_v=` buster has to roll in
-    # the same transaction as the pointer it invalidates.
-    dataset.bump_tile_cache_version()
     # feat(#1218) ADR-002 Decision 7: the dataset IS the COG and the
     # upload is a transient input, so the origin restamps to the new
     # file with no remote URI to point at.
