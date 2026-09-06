@@ -1049,9 +1049,8 @@ async def ensure_cluster_roles(conn) -> bool:
     await conn.execute(text(PROVISIONER_DATABASE_GRANT_SQL))
     await conn.execute(text(f"GRANT USAGE ON SCHEMA catalog TO {PROVISIONER}"))
     await conn.execute(text(f"GRANT SELECT ON TABLE catalog.tenants TO {PROVISIONER}"))
-    # fix(#998 codex r45): a grantable entry some third role issued survives
-    # the plain revokes below; refuse it with the grantor named before
-    # pretending to rewrite it.
+    # fix(#998): a grantable entry some third role issued survives the plain revokes
+    # below; refuse it with the grantor named before pretending to rewrite it.
     await conn.execute(text(PROVISIONER_GRANT_OPTION_GUARD_SQL))
     # A re-GRANT adds the privilege and leaves an existing GRANT OPTION alone.
     # These are no-ops on a database that never had one.

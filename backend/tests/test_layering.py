@@ -2642,8 +2642,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `bounded_service_url` catch sites, each getting its own wording
     # distinct from the generic "unparseable" refusal. Cap 1090 -> 1106,
     # exact.
-    # chore(#1873): review-history comments trimmed. Cap 1106 -> 800, exact.
-    "backend/app/platform/service_items.py": 800,
+    # chore(#1873): review-history comments trimmed. Cap 1106 -> 797, exact.
+    "backend/app/platform/service_items.py": 797,
     # fix(#1758): the ArcGIS sign-in protocol, which crossed 1000 lines over
     # nine review rounds. What the growth bought, in order: the two-phase
     # split that resolves WHERE a password would go before any lock or budget
@@ -2842,8 +2842,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # before the plain revokes it protects; mirror the multirange and
     # schema-less default-privilege refusals on the read side so the dry run
     # cannot call adopted what --apply stops on.
-    # chore(#1873): review-history comments trimmed. Cap 1303 -> 1277, exact.
-    "backend/app/core/db/tenant_adoption.py": 1277,
+    # chore(#1873): review-history comments trimmed. Cap 1303 -> 1276, exact.
+    "backend/app/core/db/tenant_adoption.py": 1276,
     # fix(#836): the five path-gated additions. Caps are exact (zero headroom),
     # matching the #435 convention: growth needs a reviewed carve-out here,
     # shrinking must lower the cap in the same commit.

@@ -156,9 +156,9 @@ def _user_error_message(exc: Exception, *, registered: bool = False) -> str:
     if isinstance(exc, SQLAlchemyError):
         exc_text = str(exc).lower()
         if "querycancelederror" in exc_text or "statement timeout" in exc_text:
-            # fix(#813, #1013 review): name the budget that actually fired.
-            # The CTAS transaction carries the materialize one; the commit that
-            # ends it re-arms registration with its own, and both are settings.
+            # fix(#813, #1013): name the budget that actually fired. The CTAS
+            # transaction carries the materialize one; the commit that ends it re-arms
+            # registration with its own, and both are settings.
             budget = registration_timeout() if registered else materialize_timeout()
             return (
                 f"The analysis exceeded its {budget} processing "
@@ -199,9 +199,9 @@ async def _fail_cancelled_job(
     """
     from app.core.db import async_session
 
-    # fix(#700 review): release `working_session`'s job-row lock first, time-
-    # bounded so a wedged connection cannot eat the shield window, or the fenced
-    # update below waits on our own lock and the row strands in 'running'.
+    # fix(#700): release `working_session`'s job-row lock first, time-bounded so a
+    # wedged connection cannot eat the shield window, or the fenced update below
+    # waits on our own lock and the row strands in 'running'.
     try:
         await asyncio.wait_for(working_session.rollback(), timeout=5)
     except Exception:  # broad: cleanup must reach the fenced update regardless
@@ -462,9 +462,9 @@ async def _resolve_layer_table_ref(
         raise ValueError(f"{label.capitalize()} dataset not found")
     if not _SAFE_TABLE.match(layer.table_name):
         raise ValueError(f"Invalid {label} table name")
-    # fix(#1097 review): re-applied here, not just at enqueue, because a
-    # re-upload changes `Dataset.geometry_type` while the job waits. Polygonal
-    # for the mask; "any" for the join layer, where only absence is fatal.
+    # fix(#1097): re-applied here, not just at enqueue, because a re-upload changes
+    # `Dataset.geometry_type` while the job waits. Polygonal for the mask; "any" for the
+    # join layer, where only absence is fatal.
     geometry_type = (layer.geometry_type or "").upper()
     if require_geometry == "polygonal" and geometry_type not in _POLYGONAL:
         raise ValueError(
@@ -662,9 +662,9 @@ def append_analysis_output_record(user_metadata: "dict | None", out_table: str) 
     return {**(user_metadata or {}), ANALYSIS_OUTPUT_TABLE_FIELD: names}
 
 
-# fix(#1778 codex r10): the scope an analysis output table carries, 8 hex
-# characters of the job and 8 of the attempt. A retry keeps `IngestJob.id` and
-# changes only `attempt_id`, so the job half alone does not name one owner.
+# fix(#1778): the scope an analysis output table carries, 8 hex characters of the job
+# and 8 of the attempt. A retry keeps `IngestJob.id` and changes only `attempt_id`, so
+# the job half alone does not name one owner.
 _ANALYSIS_SCOPE_CHARS = 8
 _ANALYSIS_TABLE_MAX_CHARS = 63
 
@@ -786,9 +786,9 @@ async def resolve_analysis_output_table(
 _ANALYSIS_TABLE_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 
 
-# fix(#1778 codex r6): which answers from `drop_unadopted_analysis_output` can
-# never change. A caller may forget the table's name only on one of these,
-# because that name is the last durable pointer to it; "failed" is retryable.
+# fix(#1778): which answers from `drop_unadopted_analysis_output` can never change. A
+# caller may forget the table's name only on one of these, because that name is the last
+# durable pointer to it; "failed" is retryable.
 ANALYSIS_OUTPUT_FINAL_OUTCOMES = frozenset({"adopted", "dropped", "invalid", "skipped"})
 
 AnalysisOutputOutcome = Literal["skipped", "invalid", "adopted", "dropped", "failed"]
@@ -824,9 +824,9 @@ async def drop_unadopted_analysis_output(
     if not _ANALYSIS_TABLE_NAME_RE.match(out_table):
         logger.warning("analysis.output_table_name_rejected", job_id=job_id)
         return "invalid"
-    # fix(#1778 codex r7): a sweep reaping a job's record may only drop the
-    # table THAT job named. "invalid" rather than "failed": a name that is not
-    # this job's can never become this job's, so retrying would pin the row.
+    # fix(#1778): a sweep reaping a job's record may only drop the table THAT job named.
+    # "invalid" rather than "failed": a name that is not this job's can never become
+    # this job's, so retrying would pin the row.
     if not analysis_output_table_belongs_to(out_table, owner_job_uuid):
         logger.warning("analysis.output_table_not_owned", job_id=job_id)
         return "invalid"
@@ -1094,8 +1094,8 @@ async def _materialize(
         # CREATE TABLE loses a race for the same generated name, an
         # unconditional cleanup would destroy the winner's table.
         out_table_created = False
-        # fix(#1013 review): flipped once registration re-arms its own
-        # statement_timeout, so a later failure quotes the budget that fired.
+        # fix(#1013): flipped once registration re-arms its own statement_timeout, so a
+        # later failure quotes the budget that fired.
         registration_started = False
         # Created inside the try so the finally below always reaps it: a
         # heartbeat left running renews a lease for a job nobody is executing,
@@ -1139,8 +1139,8 @@ async def _materialize(
                     require_geometry="polygonal",
                 )
             join_table_ref: str | None = None
-            # fix(#1097 review): the plain name is kept for the live-column
-            # recheck, which information_schema takes rather than a quoted ref.
+            # fix(#1097): the plain name is kept for the live-column recheck, which
+            # information_schema takes rather than a quoted ref.
             join_table_name: str | None = None
             if join_dataset_id is not None:
                 join_table_ref, join_table_name = await _resolve_layer_table_ref(
@@ -1160,9 +1160,9 @@ async def _materialize(
             )
 
             _base_table, collision_warning = await generate_table_name(title, session)
-            # fix(#1778 codex r7/r10): scoped by this job AND this attempt.
-            # `generate_table_name` chooses the readable half; the `_N` walk
-            # that matters for the RELATION is the scoped one below.
+            # fix(#1778): scoped by this job AND this attempt. `generate_table_name`
+            # chooses the readable half; the `_N` walk that matters for the RELATION is
+            # the scoped one below.
             out_table = await resolve_analysis_output_table(
                 session,
                 base=_base_table,
@@ -1170,9 +1170,9 @@ async def _materialize(
                 attempt_uuid=attempt_id,
                 schema=_schema,
             )
-            # fix(#1778 codex r10): the name, on the durable row, in the same
-            # transaction that creates the table (the commit after ANALYZE), as
-            # a LIST each attempt appends to — retry preserves `user_metadata`.
+            # fix(#1778): the name, on the durable row, in the same transaction that
+            # creates the table (the commit after ANALYZE), as a LIST each attempt
+            # appends to — retry preserves `user_metadata`.
             job.user_metadata = append_analysis_output_record(
                 job.user_metadata, out_table
             )
@@ -1248,9 +1248,9 @@ async def _materialize(
             )
             await session.execute(text(f"ALTER TABLE {out_ref} ADD PRIMARY KEY (gid)"))
             await add_4326_column(session, out_table, 4326, schema=_schema)
-            # fix(#701 review): the 4326 rewrite roughly doubles the geometry
-            # payload and adds the GIST index, so the post-CTAS probe
-            # undercounts the final footprint by a multiple.
+            # fix(#701): the 4326 rewrite roughly doubles the geometry payload and adds
+            # the GIST index, so the post-CTAS probe undercounts the final footprint by
+            # a multiple.
             await _enforce_output_size(session, _schema, out_table, operation=operation)
             # fix(#692): in-transaction ANALYZE. The table becomes visible to
             # autovacuum only at the commit below and the first tile queries
@@ -1290,9 +1290,9 @@ async def _materialize(
                 params={
                     "distance_meters": distance_meters,
                     "by_field": by_field,
-                    # fix(#1097 review): every operation that can take a DRAWN
-                    # mask, not clip alone. The drawn geometry is excluded from
-                    # provenance, so this is the only trace an area shaped it.
+                    # fix(#1097): every operation that can take a DRAWN mask, not clip
+                    # alone. The drawn geometry is excluded from provenance, so this is
+                    # the only trace an area shaped it.
                     "mask_source": (
                         ("layer" if mask_dataset_id else "drawn")
                         if operation in _DRAWN_MASK_OPERATIONS

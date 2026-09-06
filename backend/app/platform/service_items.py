@@ -266,12 +266,11 @@ def _advertised_items_href(document: dict, base: str) -> str | None:
         candidates[0],
     )
     try:
-        # fix(#1770 round 47 P1): length-gated before `urljoin`, and again
-        # inside `_with_page_size`, both raising the SAME `ValueError` this
-        # except clause already exists to catch.
+        # fix(#1770): length-gated before `urljoin`, and again inside `_with_page_size`,
+        # both raising the SAME `ValueError` this except clause already exists to catch.
         return urljoin(base, bounded_service_url(str(chosen["href"]), what="items"))
     except HrefTooLongError:
-        # fix(#1770 round 47b): its own wording, matching
+        # fix(#1770): its own wording, matching
         # `service_endpoints.py::_assert_same_origin`.
         raise ItemFetchFailedError("items link exceeds the length limit") from None
     except ValueError:
@@ -320,20 +319,20 @@ def _next_href(document: object, base: str) -> str | None:
     for link in document.get("links", []) or []:
         if isinstance(link, dict) and link.get("rel") == "next" and link.get("href"):
             try:
-                # fix(#1770 round 47 P1): the same length gate
-                # `service_endpoints.py::_next_page` applies, before `urljoin`.
+                # fix(#1770): the same length gate `service_endpoints.py::_next_page`
+                # applies, before `urljoin`.
                 return urljoin(
                     base, bounded_service_url(str(link["href"]), what="next")
                 )
             except HrefTooLongError:
-                # fix(#1770 round 47b): its own wording.
+                # fix(#1770): its own wording.
                 raise ItemFetchFailedError(
                     "next link exceeds the length limit"
                 ) from None
             except ValueError:
-                # fix(#1746 B2b review r16): an address that will not parse
-                # cannot be shown to stay on the origin, so it is refused
-                # rather than read as the end of the chain. Never echoed.
+                # fix(#1746): an address that will not parse cannot be shown to stay on
+                # the origin, so it is refused rather than read as the end of the chain.
+                # Never echoed.
                 raise ItemFetchFailedError("unparseable next page") from None
     return None
 
@@ -358,9 +357,9 @@ async def _fetch_page(
         client,
         url,
         headers,
-        # fix(#1746 B2b review r25): the same Accept the probe and the
-        # endpoint check send, so a service serving HTML for `*/*` cannot
-        # answer one of the three reads differently from the other two.
+        # fix(#1746): the same Accept the probe and the endpoint check send, so a
+        # service serving HTML for `*/*` cannot answer one of the three reads
+        # differently from the other two.
         accept=OGC_JSON_ACCEPT,
         budget=budget,
         # Read at call time for the same reason `fetch_document` does it: a
@@ -372,9 +371,9 @@ async def _fetch_page(
     try:
         return json.loads(body), len(body), final_url
     except (ValueError, RecursionError) as exc:
-        # fix(#1770 round 44 P2): a JSON depth bomb is under both the byte
-        # cap and MAX_STRUCTURAL_TOKENS (which counts brackets, not depth) and
-        # raises RecursionError rather than ValueError.
+        # fix(#1770): a JSON depth bomb is under both the byte cap and
+        # MAX_STRUCTURAL_TOKENS (which counts brackets, not depth) and raises
+        # RecursionError rather than ValueError.
         raise ItemFetchFailedError(str(exc)) from None
 
 
@@ -417,13 +416,13 @@ async def _resolve_items_url(
         # be paid with this credential.
         raise ItemFetchFailedError("items link leaves the origin")
     try:
-        # fix(#1770 round 47 P1): `_with_page_size` re-parses `href`'s query to
-        # replace `limit`, and bounds both its length and its field count; only
-        # a query packed with many short pairs reaches this except in practice.
+        # fix(#1770): `_with_page_size` re-parses `href`'s query to replace `limit`, and
+        # bounds both its length and its field count; only a query packed with many
+        # short pairs reaches this except in practice.
         return _with_page_size(href), size
     except HrefTooLongError:
-        # fix(#1770 round 47b): its own wording, kept for the same reason that
-        # check is defence in depth rather than trusted alone.
+        # fix(#1770): its own wording, kept for the same reason that check is defence in
+        # depth rather than trusted alone.
         raise ItemFetchFailedError("items link exceeds the length limit") from None
     except ValueError:
         raise ItemFetchFailedError("unparseable items link") from None
@@ -521,9 +520,9 @@ def _end_of_chain(
         # different service to be paid with this credential.
         raise ItemFetchFailedError("next page leaves the origin")
     if following is None and feature_limit is None and pages == 1:
-        # fix(#1770 round 41 P1): a FULL walk ending on the FIRST page with
-        # no `next` must be able to PROVE it -- see `_page_proves_complete`.
-        # `has_next=False`: this branch needs `following is None`.
+        # fix(#1770): a FULL walk ending on the FIRST page with no `next` must be able
+        # to PROVE it -- see `_page_proves_complete`. `has_next=False`: this branch
+        # needs `following is None`.
         provably_complete = _page_proves_complete(
             document, has_next=False, observed=observed, number_matched=number_matched
         )
@@ -531,9 +530,9 @@ def _end_of_chain(
             raise ItemFetchFailedError("collection may not be complete")
         return following, truncated
     if following is None and feature_limit is not None:
-        # fix(#1770 round 42): the SAMPLED-walk mirror of the branch above.
-        # Never refuses -- a preview stays usable -- but the total it reports
-        # is honest only where `_page_proves_complete` proves it.
+        # fix(#1770): the SAMPLED-walk mirror of the branch above. Never refuses -- a
+        # preview stays usable -- but the total it reports is honest only where
+        # `_page_proves_complete` proves it.
         return following, _sample_truncated(
             document,
             landed_mid_page=False,
@@ -591,20 +590,19 @@ async def _walk_pages(
     verify it declines.
     """
     written = 0
-    # fix(#1746 B2b round 34): every page counted whole, before
-    # `feature_limit` truncates what gets written -- `written` under-reports a
-    # page's real size once a sample cuts it short.
+    # fix(#1746): every page counted whole, before `feature_limit` truncates what gets
+    # written -- `written` under-reports a page's real size once a sample cuts it short.
     observed = 0
     pages = 0
     on_disk = 0
     number_matched: int | None = None
-    # fix(#1770 round 42): whether the walk STOPPED SHORT, tri-state. Only the
-    # site that breaks out of the loop knows, a FULL walk never touches it, and
-    # `None` means the page proved neither, so the total is unknown.
+    # fix(#1770): whether the walk STOPPED SHORT, tri-state. Only the site that breaks
+    # out of the loop knows, a FULL walk never touches it, and `None` means the page
+    # proved neither, so the total is unknown.
     truncated: bool | None = False
-    # fix(#1746 B2b review r23): the origin is contacted HERE, not by the
-    # subprocess, so this is the moment a caller that dates origin contacts
-    # hears about. `fire_once` means no loop tracks which pass it is on.
+    # fix(#1746): the origin is contacted HERE, not by the subprocess, so this is the
+    # moment a caller that dates origin contacts hears about. `fire_once` means no loop
+    # tracks which pass it is on.
     arm = fire_once(on_first_request)
     first_page, downloaded = await _resolve_items_url(
         client, url=url, collection=collection, headers=headers, on_first_request=arm
@@ -628,40 +626,39 @@ async def _walk_pages(
         # may stop partway through it.
         observed += len(features)
         if "numberMatched" in document:
-            # fix(#1746 B2b review r30): the whole query's match count, read
-            # from EVERY page. Two pages giving different answers describe two
-            # different queries and neither can be checked against the walk.
+            # fix(#1746): the whole query's match count, read from EVERY page. Two pages
+            # giving different answers describe two different queries and neither can be
+            # checked against the walk.
             reported = document["numberMatched"]
             if number_matched is None:
                 number_matched = reported
             elif reported != number_matched:
                 raise ItemFetchFailedError("pages disagree about the size")
         for index, feature in enumerate(features):
-            # fix(#1746 B2b review r19): `ensure_ascii=False` and a binary
-            # file, so non-Latin text is not tripled on disk; what is written
-            # is then counted rather than inferred from the download (r20).
+            # fix(#1746): `ensure_ascii=False` and a binary file, so non-Latin text is
+            # not tripled on disk; what is written is then counted rather than inferred
+            # from the download.
             try:
-                # fix(#1770 round 47 P2): a JSON escape for an unpaired
-                # surrogate is legal and has no UTF-8 encoding, so this
-                # refuses rather than writing bytes GDAL cannot read back.
+                # fix(#1770): a JSON escape for an unpaired surrogate is legal and has
+                # no UTF-8 encoding, so this refuses rather than writing bytes GDAL
+                # cannot read back.
                 encoded = json.dumps(
                     feature, separators=(",", ":"), ensure_ascii=False
                 ).encode("utf-8")
             except UnicodeEncodeError as exc:
                 raise ItemFetchFailedError(f"unencodable feature: {exc}") from None
             chunk = b"," + encoded if written else encoded
-            # fix(#1746 B2b review r21): compared BEFORE the write. Checking
-            # after admits one expanded feature past the cap, which on this
-            # path is the value that expands unboundedly.
+            # fix(#1746): compared BEFORE the write. Checking after admits one expanded
+            # feature past the cap, which on this path is the value that expands
+            # unboundedly.
             if on_disk + len(chunk) > MAX_BYTES:
                 raise ItemFetchFailedError("collection exceeds the cap on disk")
             out.write(chunk)
             on_disk += len(chunk)
             written += 1
             if feature_limit is not None and written >= feature_limit:
-                # fix(#1770 round 42): landing exactly on the page's last
-                # feature asks the same completeness predicate a full walk's
-                # natural end does.
+                # fix(#1770): landing exactly on the page's last feature asks the same
+                # completeness predicate a full walk's natural end does.
                 truncated = _sample_truncated(
                     document,
                     landed_mid_page=index + 1 < len(features),
@@ -682,19 +679,19 @@ async def _walk_pages(
                 truncated=truncated,
             )
     if page_url is not None:
-        # fix(#1746 B2b review r18): the page cap is reached with more to
-        # come. Closing the array here returns a prefix that reads as a
-        # complete collection, and the worker imports it over a dataset.
+        # fix(#1746): the page cap is reached with more to come. Closing the array here
+        # returns a prefix that reads as a complete collection, and the worker imports
+        # it over a dataset.
         raise ItemFetchFailedError("collection exceeds the page cap")
     if number_matched is not None:
-        # fix(#1746 B2b review r31): SAMPLING CAN PRODUCE FEWER ROWS THAN THE
-        # TOTAL, NEVER MORE, so this half holds on every walk. `observed`, not
-        # `written`: a sample masks the page's real size from this check.
+        # fix(#1746): SAMPLING CAN PRODUCE FEWER ROWS THAN THE TOTAL, NEVER MORE, so
+        # this half holds on every walk. `observed`, not `written`: a sample masks the
+        # page's real size from this check.
         if observed > number_matched:
             raise ItemFetchFailedError("more features than the service reported")
-        # fix(#1746 B2b review r30): the chain ends short of the count the
-        # service gives for itself. Equality is a FULL-walk claim only -- a
-        # sampled read is short by design, and `truncated` carries that.
+        # fix(#1746): the chain ends short of the count the service gives for itself.
+        # Equality is a FULL-walk claim only -- a sampled read is short by design, and
+        # `truncated` carries that.
         if feature_limit is None and observed != number_matched:
             raise ItemFetchFailedError("collection is shorter than reported")
     out.write(b"]}")
@@ -738,8 +735,8 @@ async def materialise_oapif_items(
     one over an existing dataset.
     """
     headers = credential_headers(credential_line)
-    # fix(#1746 B2b review r28): prefix and suffix come from the module that
-    # sweeps them, so a file this writes is one that sweep recognises.
+    # fix(#1746): prefix and suffix come from the module that sweeps them, so a file
+    # this writes is one that sweep recognises.
     handle, path = tempfile.mkstemp(
         prefix=OAPIF_ITEMS_SCRATCH_PREFIX,
         suffix=OAPIF_ITEMS_SCRATCH_SUFFIX,
@@ -791,9 +788,9 @@ async def materialise_oapif_items(
         features=written,
     )
     if number_matched is None and truncated is not False:
-        # fix(#1770 round 42): `is not False`. The walk stopped short (`True`)
-        # or the page proved neither (`None`), and neither can name the total,
-        # so it stays unknown rather than reporting the sample size.
+        # fix(#1770): `is not False`. The walk stopped short (`True`) or the page proved
+        # neither (`None`), and neither can name the total, so it stays unknown rather
+        # than reporting the sample size.
         total: int | None = None
     else:
         total = number_matched if number_matched is not None else written
