@@ -427,10 +427,10 @@ class TestTileEndpoint:
         resp = await client.get("/tiles/data.nonexistent_table_xyz/0/0/0.pbf")
         assert resp.status_code == 404
 
-    async def test_missing_data_prefix_returns_404(self, client: AsyncClient):
-        """Table path without 'data.' prefix returns 404."""
+    async def test_missing_data_prefix_returns_400(self, client: AsyncClient):
+        """Table path without 'data.' prefix returns 400."""
         resp = await client.get("/tiles/sometable/0/0/0.pbf")
-        assert resp.status_code == 404
+        assert resp.status_code == 400
 
 
 @pytest.mark.usefixtures("_init_tile_pool_for_tests")

@@ -386,7 +386,7 @@ class _RecordingTilePool:
         self.acquired = 0
         self.connection = _RecordingTileConnection(events)
 
-    def acquire(self):
+    def acquire(self, *, timeout: float | None = None):
         self.acquired += 1
         return _null_async_context(self._events, "pool.acquire", self.connection)
 
