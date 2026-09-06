@@ -242,6 +242,9 @@ async def test_presigned_completion_reads_physical_and_keeps_logical_job_path(
     with (
         patch.object(router, "get_job_or_404", AsyncMock(return_value=job)),
         patch.object(router, "get_storage", return_value=storage),
+        # refactor(#1711): the staging delete is _cleanup_saved_upload, which
+        # resolves the provider itself.
+        patch("app.platform.storage.get_storage", return_value=storage),
         # fix(#1207): the completion sequence moved into presigned.py so both
         # doors share it, so verify is patched at its new home.
         patch.object(presigned_module, "verify_completed_presigned_upload", verify),
@@ -383,16 +386,15 @@ async def test_cleanup_and_retention_reaper_delete_only_tenant_key(
     monkeypatch, tmp_path
 ):
     from app.platform.jobs.router import fail_stale_jobs
-    from app.processing.ingest import router
+    from app.processing.ingest import service
 
     logical = "staging/job-a/roads.geojson"
     physical = f"tenants/{TENANT_A}/{logical}"
     storage = AsyncMock()
     monkeypatch.setattr("app.platform.storage.get_storage", lambda: storage)
-    monkeypatch.setattr(router, "get_storage", lambda: storage)
 
     with _tenant_mode(monkeypatch, "multi_tenant", TENANT_A):
-        await router._cleanup_saved_upload(logical, "job-a")
+        await service._cleanup_saved_upload(logical, "job-a")
     storage.delete.assert_awaited_once_with(physical)
 
     storage.reset_mock()

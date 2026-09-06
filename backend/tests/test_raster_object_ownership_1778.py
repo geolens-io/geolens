@@ -726,7 +726,7 @@ PUT_SITES_WITH_ANOTHER_OWNER: dict[tuple[str, str], tuple[int, str]] = {
         "staging/: owned by the staging reconciler and the presigned-staging "
         "sweep, which start from the objects rather than from a row",
     ),
-    ("processing/ingest/router.py", "_put_staging_object"): (
+    ("processing/ingest/url_import_staging.py", "_put_staging_object"): (
         1,
         "staging/: same two owners as save_upload_file",
     ),

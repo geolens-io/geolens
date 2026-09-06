@@ -14,6 +14,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import structlog
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,6 +53,8 @@ from app.platform.jobs.heartbeat import (
 )
 from app.platform.jobs.models import IngestJob, commit_attempted_marker
 from app.platform.storage.titiler_url import resolve_current_storage_key
+
+logger = structlog.get_logger(__name__)
 
 # Spool threshold for S3 uploads (PERF-001): SpooledTemporaryFile buffers this
 # many bytes in memory before spilling to a real temp file on disk.  16 MiB is
@@ -346,6 +349,35 @@ async def save_upload_file(
         raise
 
     return dest
+
+
+async def _cleanup_saved_upload(
+    saved_path: Path | str,
+    job_id: str,
+) -> None:
+    """Delete a saved upload regardless of storage backend.
+
+    Used to roll back a failed upload (e.g., content validation error) so
+    we don't leave orphaned files in local staging or S3. Never raises —
+    S3 failures are logged instead (KISS-N9).
+    """
+    if isinstance(saved_path, Path):
+        # codeql[py/path-injection] fix(#1708): the Path branch only ever receives a staging-rooted path (save_upload_file, or job.file_path the server itself wrote). The URL-import flow reaches this helper with an S3 KEY STRING and so takes the branch below — it is that call which makes the taint visible here.
+        saved_path.unlink(missing_ok=True)
+        return
+    from app.platform.storage import get_storage
+
+    try:
+        physical_saved_path = resolve_current_storage_key(saved_path)
+        await _await_provider_call_draining(get_storage().delete(physical_saved_path))
+    except (
+        BaseException
+    ):  # broad: cleanup is best-effort and must drain through request cancellation
+        logger.warning(
+            "S3 cleanup failed during validation error — file may be orphaned",
+            s3_key=str(saved_path),
+            job_id=job_id,
+        )
 
 
 async def _download_to_file_draining(storage: Any, key: str, dest: Path) -> None:

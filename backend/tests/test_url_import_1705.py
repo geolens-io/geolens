@@ -110,15 +110,18 @@ def _freeze_router_clock(monkeypatch) -> None:
     ``assert 502 == 413``. Frozen, every check sees the same instant and
     the ordering is the one the test states.
 
-    Only the name bound in the router's module namespace is replaced;
-    the real ``time`` module (which asyncio's timers read) is untouched,
-    so bounded waits still time out on real wall-clock time.
+    Only the names bound in the two module namespaces the flow reads are
+    replaced; the real ``time`` module (which asyncio's timers read) is
+    untouched, so bounded waits still time out on real wall-clock time.
     """
     frozen_at = time.monotonic()
-    monkeypatch.setattr(
-        "app.processing.ingest.router.time",
-        SimpleNamespace(monotonic=lambda: frozen_at),
-    )
+    for module in (
+        "app.processing.ingest.router",
+        "app.processing.ingest.url_import_staging",
+    ):
+        monkeypatch.setattr(
+            f"{module}.time", SimpleNamespace(monotonic=lambda: frozen_at)
+        )
 
 
 async def _get_job(test_db_session, job_id: str) -> IngestJob | None:
@@ -1115,7 +1118,7 @@ class TestUrlImportS3Staging:
             put_calls.append((s3_key, str(local_dest)))
 
         monkeypatch.setattr(
-            "app.processing.ingest.router._put_staging_object", fake_put
+            "app.processing.ingest.url_import_staging._put_staging_object", fake_put
         )
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
@@ -1151,10 +1154,11 @@ class TestUrlImportS3Staging:
             raise RuntimeError("provider exploded")
 
         monkeypatch.setattr(
-            "app.processing.ingest.router._put_staging_object", failing_put
+            "app.processing.ingest.url_import_staging._put_staging_object", failing_put
         )
         monkeypatch.setattr(
-            "app.processing.ingest.router._cleanup_saved_upload", AsyncMock()
+            "app.processing.ingest.url_import_staging._cleanup_saved_upload",
+            AsyncMock(),
         )
         quota_spy = AsyncMock()
         monkeypatch.setattr(
@@ -1194,7 +1198,9 @@ class TestUrlImportS3Staging:
         # is under MIN_FETCH_BUDGET_SECONDS. These put-path tests
         # deliberately run on a tiny budget, so drop the floor to keep the
         # PUT the thing under test.
-        monkeypatch.setattr("app.processing.ingest.router.MIN_FETCH_BUDGET_SECONDS", 0)
+        monkeypatch.setattr(
+            "app.processing.ingest.url_import_staging.MIN_FETCH_BUDGET_SECONDS", 0
+        )
         release = asyncio.Event()
         started = asyncio.Event()
 
@@ -1203,11 +1209,12 @@ class TestUrlImportS3Staging:
             await release.wait()
 
         monkeypatch.setattr(
-            "app.processing.ingest.router._put_staging_object", slow_put
+            "app.processing.ingest.url_import_staging._put_staging_object", slow_put
         )
         reaper_cleanup = AsyncMock()
         monkeypatch.setattr(
-            "app.processing.ingest.router._cleanup_saved_upload", reaper_cleanup
+            "app.processing.ingest.url_import_staging._cleanup_saved_upload",
+            reaper_cleanup,
         )
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
@@ -1251,7 +1258,9 @@ class TestUrlImportPreflightDnsBound:
         returns must now fail cleanly at the (patched) preflight bound, name
         DNS as the cause, and leave no job row — the gate runs before any
         job exists."""
-        monkeypatch.setattr("app.processing.ingest.router.PREFLIGHT_DNS_MAX_SECONDS", 1)
+        monkeypatch.setattr(
+            "app.processing.ingest.url_import_staging.PREFLIGHT_DNS_MAX_SECONDS", 1
+        )
 
         async def stalled_resolve(url: str) -> None:
             await asyncio.sleep(30)  # cancelled by wait_for at the bound
@@ -1280,7 +1289,7 @@ class TestUrlImportPutReaperOnCancel:
         mid-upload and the late-landing object had no deleter. Unit-level:
         cancel the waiter while the put is in flight, let the put land late,
         and the reaper must still re-delete the key."""
-        from app.processing.ingest import router as router_module
+        from app.processing.ingest import url_import_staging as staging_module
 
         release = asyncio.Event()
         started = asyncio.Event()
@@ -1289,12 +1298,12 @@ class TestUrlImportPutReaperOnCancel:
             started.set()
             await release.wait()
 
-        monkeypatch.setattr(router_module, "_put_staging_object", slow_put)
+        monkeypatch.setattr(staging_module, "_put_staging_object", slow_put)
         cleanup = AsyncMock()
-        monkeypatch.setattr(router_module, "_cleanup_saved_upload", cleanup)
+        monkeypatch.setattr(staging_module, "_cleanup_saved_upload", cleanup)
 
         waiter = asyncio.create_task(
-            router_module._stage_put_bounded(
+            staging_module._stage_put_bounded(
                 "staging/jid/late.geojson",
                 Path("/tmp/lane2-nonexistent"),
                 # A generous deadline: the failure mode under test is
@@ -1392,7 +1401,7 @@ class TestUrlImportQuotaCappedStream:
         """fix(#1708 codex r10): zero remaining quota refuses BEFORE any
         fetch — no bandwidth spent, no job row, no request to the origin."""
         monkeypatch.setattr(
-            "app.processing.ingest.router.get_user_quota_usage",
+            "app.processing.ingest.url_import_staging.get_user_quota_usage",
             AsyncMock(return_value=_usage(bytes_used=1000, storage_cap=1000)),
         )
         recorded = _install_transport(
@@ -1423,7 +1432,7 @@ class TestUrlImportQuotaCappedStream:
         Content-Length: the stream must be cut at the quota, with the
         refusal naming the quota rather than the instance limit."""
         monkeypatch.setattr(
-            "app.processing.ingest.router.get_user_quota_usage",
+            "app.processing.ingest.url_import_staging.get_user_quota_usage",
             AsyncMock(
                 return_value=_usage(bytes_used=900 * 1024, storage_cap=1000 * 1024)
             ),
@@ -1458,7 +1467,7 @@ class TestUrlImportQuotaCappedStream:
         """storage_cap == 0 means unlimited: the instance cap applies alone
         and a normal import is untouched by the preflight derivation."""
         monkeypatch.setattr(
-            "app.processing.ingest.router.get_user_quota_usage",
+            "app.processing.ingest.url_import_staging.get_user_quota_usage",
             AsyncMock(return_value=_usage(bytes_used=10**12, storage_cap=0)),
         )
         _install_transport(
@@ -1584,7 +1593,8 @@ class TestUrlImportAmbiguousCommit:
             raise ConnectionError("ack lost after durable commit")
 
         monkeypatch.setattr(
-            "app.processing.ingest.router._commit_staged_transition", ack_lost
+            "app.processing.ingest.url_import_staging._commit_staged_transition",
+            ack_lost,
         )
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
@@ -1621,7 +1631,8 @@ class TestUrlImportAmbiguousCommit:
             raise ConnectionError("commit failed")
 
         monkeypatch.setattr(
-            "app.processing.ingest.router._commit_staged_transition", commit_failed
+            "app.processing.ingest.url_import_staging._commit_staged_transition",
+            commit_failed,
         )
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
@@ -1676,7 +1687,9 @@ class TestUrlImportDegradedS3Failure:
         # is under MIN_FETCH_BUDGET_SECONDS. These put-path tests
         # deliberately run on a tiny budget, so drop the floor to keep the
         # PUT the thing under test.
-        monkeypatch.setattr("app.processing.ingest.router.MIN_FETCH_BUDGET_SECONDS", 0)
+        monkeypatch.setattr(
+            "app.processing.ingest.url_import_staging.MIN_FETCH_BUDGET_SECONDS", 0
+        )
         release = asyncio.Event()
         cleanup_started = asyncio.Event()
         cleanup_calls: list[str] = []
@@ -1690,10 +1703,11 @@ class TestUrlImportDegradedS3Failure:
             await asyncio.sleep(300)  # a degraded endpoint, mid-retry
 
         monkeypatch.setattr(
-            "app.processing.ingest.router._put_staging_object", slow_put
+            "app.processing.ingest.url_import_staging._put_staging_object", slow_put
         )
         monkeypatch.setattr(
-            "app.processing.ingest.router._cleanup_saved_upload", degraded_delete
+            "app.processing.ingest.url_import_staging._cleanup_saved_upload",
+            degraded_delete,
         )
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
@@ -1752,7 +1766,9 @@ class TestUrlImportDegradedS3Failure:
         # is under MIN_FETCH_BUDGET_SECONDS. These put-path tests
         # deliberately run on a tiny budget, so drop the floor to keep the
         # PUT the thing under test.
-        monkeypatch.setattr("app.processing.ingest.router.MIN_FETCH_BUDGET_SECONDS", 0)
+        monkeypatch.setattr(
+            "app.processing.ingest.url_import_staging.MIN_FETCH_BUDGET_SECONDS", 0
+        )
         cleanup_started = asyncio.Event()
 
         async def degraded_delete(saved_path, job_id) -> None:
@@ -1760,10 +1776,11 @@ class TestUrlImportDegradedS3Failure:
             await asyncio.sleep(300)
 
         monkeypatch.setattr(
-            "app.processing.ingest.router._cleanup_saved_upload", degraded_delete
+            "app.processing.ingest.url_import_staging._cleanup_saved_upload",
+            degraded_delete,
         )
         monkeypatch.setattr(
-            "app.processing.ingest.router._put_staging_object", AsyncMock()
+            "app.processing.ingest.url_import_staging._put_staging_object", AsyncMock()
         )
         # Fail AFTER the put, so s3_key is set and cleanup is attempted:
         # a quota race at the post-stage check.
@@ -1860,7 +1877,7 @@ class TestUrlImportJointClock:
         this is what the old fixed FETCH_MAX_SECONDS argument could not do."""
         import time as _time
 
-        from app.processing.ingest.router import _remaining_fetch_budget
+        from app.processing.ingest.url_import_staging import _remaining_fetch_budget
         from app.processing.ingest.url_fetch import (
             FETCH_MAX_SECONDS,
             stage_total_budget_seconds,
@@ -1886,7 +1903,7 @@ class TestUrlImportJointClock:
 
         from fastapi import HTTPException
 
-        from app.processing.ingest.router import _remaining_fetch_budget
+        from app.processing.ingest.url_import_staging import _remaining_fetch_budget
 
         with pytest.raises(HTTPException) as caught:
             _remaining_fetch_budget(_time.monotonic() + 1)
@@ -1988,7 +2005,8 @@ class TestUrlImportSettlementScope:
 
         probe_spy = AsyncMock(return_value=True)
         monkeypatch.setattr(
-            "app.processing.ingest.router._url_import_transition_landed", probe_spy
+            "app.processing.ingest.url_import_staging._url_import_transition_landed",
+            probe_spy,
         )
 
         real_rollback = _AsyncSession.rollback
@@ -2056,7 +2074,8 @@ class TestUrlImportSettlementScope:
             raise ConnectionError("ack lost after durable commit")
 
         monkeypatch.setattr(
-            "app.processing.ingest.router._commit_staged_transition", ack_lost
+            "app.processing.ingest.url_import_staging._commit_staged_transition",
+            ack_lost,
         )
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
@@ -2077,7 +2096,7 @@ class TestUrlImportSettlementScope:
     def test_only_the_commit_seam_marks_its_exception(self):
         """The marker is acquired by the commit seam alone — an exception
         merely passing through settlement never gains it."""
-        from app.processing.ingest.router import _COMMIT_AMBIGUOUS_ATTR
+        from app.processing.ingest.url_import_staging import _COMMIT_AMBIGUOUS_ATTR
 
         assert getattr(ValueError("plain"), _COMMIT_AMBIGUOUS_ATTR, False) is False
 
@@ -2088,10 +2107,10 @@ class TestUrlImportCancelledPutReaper:
         CancelledError, which used to escape the done-callback before the
         delete was scheduled — while the drained provider call could still
         land the object. All three outcomes must schedule cleanup."""
-        from app.processing.ingest import router as router_module
+        from app.processing.ingest import url_import_staging as staging_module
 
         cleanup = AsyncMock()
-        monkeypatch.setattr(router_module, "_cleanup_saved_upload", cleanup)
+        monkeypatch.setattr(staging_module, "_cleanup_saved_upload", cleanup)
 
         started = asyncio.Event()
 
@@ -2102,7 +2121,7 @@ class TestUrlImportCancelledPutReaper:
         task = asyncio.create_task(never_finishes())
         await started.wait()
         task.add_done_callback(
-            router_module._abandoned_put_reaper("staging/jid/cancelled.geojson", "jid")
+            staging_module._abandoned_put_reaper("staging/jid/cancelled.geojson", "jid")
         )
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -2133,11 +2152,11 @@ class TestUrlImportLandedStandDownCleanup:
         it); the local copy must not."""
         monkeypatch.setattr(settings, "storage_provider", "s3")
         monkeypatch.setattr(
-            "app.processing.ingest.router._put_staging_object", AsyncMock()
+            "app.processing.ingest.url_import_staging._put_staging_object", AsyncMock()
         )
         delete_spy = AsyncMock()
         monkeypatch.setattr(
-            "app.processing.ingest.router._cleanup_saved_upload", delete_spy
+            "app.processing.ingest.url_import_staging._cleanup_saved_upload", delete_spy
         )
 
         async def ack_lost(db) -> None:
@@ -2145,7 +2164,8 @@ class TestUrlImportLandedStandDownCleanup:
             raise ConnectionError("ack lost after durable commit")
 
         monkeypatch.setattr(
-            "app.processing.ingest.router._commit_staged_transition", ack_lost
+            "app.processing.ingest.url_import_staging._commit_staged_transition",
+            ack_lost,
         )
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
@@ -2185,7 +2205,8 @@ class TestUrlImportLandedStandDownCleanup:
             raise ConnectionError("ack lost after durable commit")
 
         monkeypatch.setattr(
-            "app.processing.ingest.router._commit_staged_transition", ack_lost
+            "app.processing.ingest.url_import_staging._commit_staged_transition",
+            ack_lost,
         )
         _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
