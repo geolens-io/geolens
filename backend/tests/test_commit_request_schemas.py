@@ -260,7 +260,7 @@ class TestTheFlatUnionPublishesWhatTheSubclassesEnforce:
         for prefix in accepted:
             assert prefix in description, prefix
 
-    def test_the_union_omits_only_strict_cog(self) -> None:
+    def test_the_union_omits_no_subclass_field(self) -> None:
         """A subclass field absent from the union cannot be set by a caller:
         the handler re-validates the subclass from this model's dump."""
         omitted = {
@@ -273,4 +273,27 @@ class TestTheFlatUnionPublishesWhatTheSubclassesEnforce:
             for name in model.model_fields
             if name not in CommitRequest.model_fields
         }
-        assert omitted == {"strict_cog"}
+        assert omitted == set()
+
+    def test_the_union_declares_its_fields_in_the_published_order(self) -> None:
+        """The generated Python SDK gives each field a positional slot in this
+        order, so a field inserted rather than appended moves a caller's
+        argument. Same rule as TestAuthIsDeclaredLast in the #1746 suite."""
+        assert list(CommitRequest.model_fields) == [
+            "title",
+            "summary",
+            "visibility",
+            "srid_override",
+            "token",
+            "temporal_start",
+            "temporal_end",
+            "compression",
+            "resampling",
+            "nodata_override",
+            "layer_name",
+            "x_column",
+            "y_column",
+            "geom_column",
+            "auth",
+            "strict_cog",
+        ]

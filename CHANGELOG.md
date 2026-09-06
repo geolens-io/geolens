@@ -28,6 +28,10 @@ and releases use semantic versioning.
 - The import-commit door accepted a service token with no length limit of its own, while every
   other service door caps one at 1000 characters. An over-long token is now refused with 422
   before anything is reserved or staged. (#1923)
+- The import endpoint published a `strict_cog` raster option no caller could set. The commit
+  request body omitted the field, so it was dropped before the raster path ever read it and every
+  import converted a non-COG GeoTIFF regardless of what was asked for. The field is now part of
+  the published body, and sending `true` fails the job instead of rewriting the file. (#1949)
 - A service token refused for control characters or whitespace now answers with the same
   `invalid_service_token` code the other credential refusals carry, so the app and the CLI show
   the token-specific message on every service door instead of a generic validation error. (#1924)

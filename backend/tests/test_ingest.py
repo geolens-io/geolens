@@ -1505,6 +1505,36 @@ class TestCommitImportDispatch:
         assert job.user_metadata["compression"] == "LZW"
         assert job.user_metadata["resampling"] == "bilinear"
 
+    @pytest.mark.parametrize("sent", [True, False])
+    async def test_strict_cog_sent_by_a_caller_reaches_the_worker(
+        self, client, admin_auth_header, test_db_session, mock_ingest_task, sent
+    ) -> None:
+        """``user_metadata["strict_cog"]`` is what the raster tasks read."""
+        result = await test_db_session.execute(
+            select(User).where(User.username == "admin")
+        )
+        admin = result.scalar_one()
+
+        job = IngestJob(
+            source_filename="dem.tif",
+            file_path="/tmp/fake.tif",
+            created_by=admin.id,
+            status="pending",
+            user_metadata={"file_type": "raster"},
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+
+        resp = await client.post(
+            f"/ingest/commit/{job.id}",
+            json={"title": "Elevation", "strict_cog": sent},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 202, resp.text
+        await test_db_session.refresh(job)
+        assert job.user_metadata["strict_cog"] is sent
+
     async def test_service_job_commits_with_service_body(
         self, client, admin_auth_header, test_db_session, mock_ingest_task
     ) -> None:

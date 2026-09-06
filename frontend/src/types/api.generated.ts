@@ -7091,6 +7091,12 @@ export interface components {
             geom_column?: string | null;
             /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
             auth?: components["schemas"]["ServiceAuthRequest"] | null;
+            /**
+             * Strict Cog
+             * @description Raster only: reject a non-COG TIFF instead of converting it. False (the default) converts the source to a COG during ingest; True fails the job before the conversion runs. Use it when ingesting an externally-produced COG catalog where rewriting is undesirable.
+             * @default false
+             */
+            strict_cog: boolean;
         };
         /** CommitResponse */
         CommitResponse: {

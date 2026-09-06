@@ -3930,6 +3930,12 @@
               }
             ],
             "description": "Structured credential for a protected service. Mutually exclusive with the token field."
+          },
+          "strict_cog": {
+            "default": false,
+            "description": "Raster only: reject a non-COG TIFF instead of converting it. False (the default) converts the source to a COG during ingest; True fails the job before the conversion runs. Use it when ingesting an externally-produced COG catalog where rewriting is undesirable.",
+            "title": "Strict Cog",
+            "type": "boolean"
           }
         },
         "required": [

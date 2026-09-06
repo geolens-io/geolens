@@ -2331,6 +2331,12 @@ export type CommitRequest = {
      * Structured credential for a protected service. Mutually exclusive with the token field.
      */
     auth?: ServiceAuthRequest | null;
+    /**
+     * Strict Cog
+     *
+     * Raster only: reject a non-COG TIFF instead of converting it. False (the default) converts the source to a COG during ingest; True fails the job before the conversion runs. Use it when ingesting an externally-produced COG catalog where rewriting is undesirable.
+     */
+    strict_cog?: boolean;
 };
 
 /**
