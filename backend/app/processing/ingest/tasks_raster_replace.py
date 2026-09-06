@@ -94,6 +94,11 @@ from app.processing.ingest.tasks_raster_swap import (
 
 logger = structlog.get_logger(__name__)
 
+# fix(#1937): the budget every phase-2 statement runs on, the catalog wait
+# included. Its holders are request writers capped at REQUEST_LOCK_TIMEOUT and
+# a sibling upload's quota lock, so a wait past this is stuck, not queued.
+_PHASE2_TIMEOUT_MS = 30_000
+
 
 class RasterReplaceError(Exception):
     """A raster replace that failed for a reason the user can act on."""
@@ -553,6 +558,7 @@ async def reupload_raster(
             phase="phase2",
             attempt_id=attempt_uuid,
             require_status="running",
+            lock_and_statement_timeout_ms=_PHASE2_TIMEOUT_MS,
         ) as (session, job):
             if job is None:
                 return
