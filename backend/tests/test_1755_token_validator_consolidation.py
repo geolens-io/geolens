@@ -197,16 +197,16 @@ async def _arcgis_job(session, *, created_by: uuid.UUID, dataset_id=None) -> Ing
     return job
 
 
-def _assert_refused_without_the_token(resp, secret: str, *, loc: str) -> None:
-    """422 naming the token field, and the credential absent from the body.
-
-    ``loc`` differs by door: the import-commit refusal is re-raised by the
-    handler from a subclass validation, so it has no ``body`` prefix.
-    """
+def _assert_refused_without_the_token(resp, secret: str) -> None:
+    """422 carrying the shared refusal code, and the credential absent."""
     assert resp.status_code == 422, resp.text
-    assert resp.json()["detail"].startswith(f"{loc}:")
-    # `ValidationError.errors()` carries the raw input; the 422 flattener in
-    # standards/ogc/errors.py renders `loc` and `msg` and drops it.
+    detail = resp.json()["detail"]
+    # fix(#1924): a schema-layer refusal publishes the same code a door-layer
+    # one does — the frontend banner and the CLI sentence key on it.
+    assert detail["code"] == "invalid_service_token"
+    assert "whitespace" in detail["message"]
+    # `ValidationError.errors()` carries the raw input; the handler in
+    # standards/ogc/errors.py renders the code and policy and drops it.
     assert secret not in resp.text
 
 
@@ -231,7 +231,7 @@ class TestTheCommitDoorsRefuseOverHttp:
                 headers=admin_auth_header,
             )
 
-        _assert_refused_without_the_token(resp, _UNSAFE_TOKEN_OVER_HTTP, loc="token")
+        _assert_refused_without_the_token(resp, _UNSAFE_TOKEN_OVER_HTTP)
         task.defer_async.assert_not_awaited()
 
     async def test_the_import_commit_door_refuses_a_token_past_the_cap(
@@ -240,6 +240,7 @@ class TestTheCommitDoorsRefuseOverHttp:
         admin_auth_header: dict,
         test_db_session,
     ) -> None:
+        """The cap is not a coded refusal, so it answers with the field list."""
         admin_id = await get_user_id(test_db_session, "admin")
         job = await _arcgis_job(test_db_session, created_by=admin_id)
         over_cap = "a" * (_TOKEN_MAX_LENGTH + 1)
@@ -251,7 +252,11 @@ class TestTheCommitDoorsRefuseOverHttp:
                 headers=admin_auth_header,
             )
 
-        _assert_refused_without_the_token(resp, over_cap, loc="token")
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["detail"]
+        assert isinstance(detail, str)
+        assert detail.startswith("token:")
+        assert over_cap not in resp.text
         task.defer_async.assert_not_awaited()
 
     async def test_the_reupload_commit_door_refuses_and_never_echoes_the_token(
@@ -281,7 +286,40 @@ class TestTheCommitDoorsRefuseOverHttp:
                 headers=admin_auth_header,
             )
 
-        _assert_refused_without_the_token(
-            resp, _UNSAFE_TOKEN_OVER_HTTP, loc="body.token"
+        _assert_refused_without_the_token(resp, _UNSAFE_TOKEN_OVER_HTTP)
+        task.defer_async.assert_not_awaited()
+
+    async def test_a_second_field_error_keeps_the_flattened_list(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ) -> None:
+        """fix(#1924): a second field error keeps the flattened list."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="ArcGIS Reupload Dataset Two",
+            visibility="public",
+            feature_count=100,
+            source_filename="original.geojson",
+            source_url=_ARCGIS_URL,
         )
+        job = await _arcgis_job(
+            test_db_session, created_by=admin_id, dataset_id=dataset.id
+        )
+
+        async with _reupload_harness() as task:
+            resp = await client.post(
+                f"/datasets/{dataset.id}/reupload/{job.id}/commit",
+                json={"token": _UNSAFE_TOKEN_OVER_HTTP, "srid_override": 0},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["detail"]
+        assert isinstance(detail, str)
+        assert "body.token:" in detail and "body.srid_override:" in detail
+        assert _UNSAFE_TOKEN_OVER_HTTP not in resp.text
         task.defer_async.assert_not_awaited()

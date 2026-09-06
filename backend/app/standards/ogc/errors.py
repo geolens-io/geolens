@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.core.coded_errors import CodedValueError
 from app.core.logging_config import safe_access_log_path
 from app.core.url_redaction import redact_query_credentials
 from app.standards.ogc.utils import standards_api_path
@@ -254,6 +255,22 @@ def _allow_header_with_head(headers: dict[str, str] | None) -> dict[str, str] | 
     return updated
 
 
+def _coded_detail(exc: RequestValidationError) -> dict[str, str] | None:
+    """The ``{"code", "message"}`` detail a coded field refusal answers with.
+
+    None unless the coded refusal is the request's only error: a door judges a
+    credential once the whole body validated, so a request carrying other field
+    errors keeps the flattened list instead. Never reads pydantic's ``input``.
+    """
+    errors = exc.errors()
+    if len(errors) != 1:
+        return None
+    cause = (errors[0].get("ctx") or {}).get("error")
+    if not isinstance(cause, CodedValueError):
+        return None
+    return {"code": cause.code, "message": cause.message}
+
+
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(HTTPException)
     async def http_exception_handler(
@@ -303,9 +320,14 @@ def register_error_handlers(app: FastAPI) -> None:
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
         status_code = 400 if _is_standards_path(request) else 422
-        detail = "; ".join(
-            f"{'.'.join(str(loc) for loc in e['loc'])}: {e['msg']}"
-            for e in exc.errors()
+        coded = _coded_detail(exc)
+        detail: str | dict[str, str] = (
+            coded
+            if coded is not None
+            else "; ".join(
+                f"{'.'.join(str(loc) for loc in e['loc'])}: {e['msg']}"
+                for e in exc.errors()
+            )
         )
         return JSONResponse(
             status_code=status_code,

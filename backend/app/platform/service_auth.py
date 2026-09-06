@@ -40,6 +40,7 @@ from typing import Any, Literal
 from fastapi import HTTPException, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.core.coded_errors import CodedValueError
 from app.core.service_tokens import (
     BASIC_USERNAME_POLICY,
     CREDENTIAL_METHOD_POLICY,
@@ -338,15 +339,20 @@ def _validate_safe_token(v: str | None) -> str | None:
     additional outbound HTTP headers through the libcurl pipeline. Legitimate
     JWT / base64url / ArcGIS tokens never contain control characters or
     whitespace, so reject them at the API boundary (422).
+
+    The refusal carries ``invalid_service_token``, the code a door-layer
+    refusal returns and the clients map, so a caller reads the same message
+    whichever layer judges the credential.
     """
     if v is None:
         return v
     if not v.isprintable():
-        raise ValueError(
-            "token contains control characters (possible header injection)"
+        raise CodedValueError(
+            INVALID_SERVICE_TOKEN_CODE,
+            "token contains control characters (possible header injection)",
         )
     if any(c.isspace() for c in v):
-        raise ValueError("token contains whitespace")
+        raise CodedValueError(INVALID_SERVICE_TOKEN_CODE, "token contains whitespace")
     return v
 
 
