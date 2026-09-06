@@ -234,6 +234,13 @@ class TestTheFlatUnionPublishesWhatTheSubclassesEnforce:
                 continue
             assert _constraints(flat[name]) == _constraints(published), name
 
+    def test_the_token_description_states_the_bound_it_declares(self) -> None:
+        """Both SDK generators drop `maxLength`, so the bound reaches a caller
+        of either one only through the prose."""
+        token = CommitRequest.model_json_schema()["properties"]["token"]
+        bound = next(b["maxLength"] for b in token["anyOf"] if "maxLength" in b)
+        assert f"{bound} characters" in token["description"]
+
     def test_the_union_omits_only_strict_cog(self) -> None:
         """A subclass field absent from the union cannot be set by a caller:
         the handler re-validates the subclass from this model's dump."""

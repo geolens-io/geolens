@@ -2270,7 +2270,7 @@ export type CommitRequest = {
     /**
      * Token
      *
-     * Optional auth token for a protected remote service, read only when the job imports a service layer (WFS, ArcGIS FeatureServer). Never persisted to the database. Ignored on file-upload jobs. Deprecated: use the auth object with method bearer.
+     * Optional auth token for a protected remote service, read only when the job imports a service layer (WFS, ArcGIS FeatureServer). At most 1000 characters. Never persisted to the database. Ignored on file-upload jobs. Deprecated: use the auth object with method bearer.
      */
     token?: string | null;
     /**

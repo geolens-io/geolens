@@ -303,8 +303,8 @@ class CommitRequest(BaseModel):
         description=(
             "Optional auth token for a protected remote service, read only "
             "when the job imports a service layer (WFS, ArcGIS FeatureServer). "
-            "Never persisted to the database. Ignored on file-upload jobs."
-            + DEPRECATED_TOKEN_SUFFIX
+            "At most 1000 characters. Never persisted to the database. "
+            "Ignored on file-upload jobs." + DEPRECATED_TOKEN_SUFFIX
         ),
     )
     temporal_start: datetime | None = Field(
