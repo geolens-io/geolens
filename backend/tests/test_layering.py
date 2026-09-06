@@ -3377,8 +3377,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # first meets a whole-file check. Cap 2602 -> 2616, exact.
     # fix(#1848): +50. `upload_file` commits the job before the spooled body
     # is staged and binds through a guarded UPDATE that stamps `staged_at`; the
-    # lines are the guard helper, the two guarded writes and the 409. To 2666.
-    "backend/app/processing/ingest/router.py": 2666,
+    # lines are the guard helper, the two guarded writes and the 409.
+    "backend/app/processing/ingest/router.py": 2665,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

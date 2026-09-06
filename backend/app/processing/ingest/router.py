@@ -1912,10 +1912,9 @@ async def commit_import(
     try:
         commit = Subclass.model_validate(request.model_dump())
     except ValidationError as e:
-        # Preserve FastAPI's standard 422 envelope. Currently a safety net:
-        # the flat CommitRequest already validated 'title' at the signature
-        # level. This branch only fires if a subclass adds stricter
-        # per-field rules in a future phase.
+        # fix(#1755, #1923): the only enforcement of the import-commit door's
+        # stricter token rules — the flat CommitRequest declares neither the
+        # shared safe-token rule nor the 1000-character cap.
         raise RequestValidationError(errors=e.errors())
 
     # fix(#823): dash-guard + all_layers membership check for the commit's

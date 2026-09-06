@@ -237,6 +237,7 @@ class ServiceCommitRequest(BaseCommitRequest):
 
     token: str | None = Field(
         default=None,
+        max_length=1000,
         description=(
             "Optional auth token for protected services. Never persisted to "
             "the database. Deprecated: use the auth object with method bearer."
