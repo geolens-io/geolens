@@ -2642,8 +2642,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `bounded_service_url` catch sites, each getting its own wording
     # distinct from the generic "unparseable" refusal. Cap 1090 -> 1106,
     # exact.
-    # chore(#1873): review-history comments trimmed. Cap 1106 -> 797, exact.
-    "backend/app/platform/service_items.py": 797,
+    # chore(#1873): review-history comments trimmed. Cap 1106 -> 800, exact.
+    "backend/app/platform/service_items.py": 800,
     # fix(#1758): the ArcGIS sign-in protocol, which crossed 1000 lines over
     # nine review rounds. What the growth bought, in order: the two-phase
     # split that resolves WHERE a password would go before any lock or budget

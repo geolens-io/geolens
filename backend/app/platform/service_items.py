@@ -89,11 +89,14 @@ PAGE_SIZE = 1000
 class MaterialisedCollection(NamedTuple):
     """A local extract, and what is known about the collection behind it.
 
+    ``features`` is the number of features written to the local extract. A full
+    walk writes the whole collection, so it equals ``total``; a sampled or
+    truncated read writes fewer.
+
     ``total`` is the collection's own size when it can be known: the service's
     ``numberMatched`` if it published one, otherwise the features written when
     the walk ran to the end. ``None`` when the walk stopped at a sample limit
-    and the service said nothing, so ``features`` is never the collection's row
-    count.
+    and the service said nothing.
     """
 
     path: str
