@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.platform.service_auth import (
+    DEPRECATED_TOKEN_SUFFIX,
     SERVICE_AUTH_FIELD_DESCRIPTION,
     ServiceAuthRequest,
     _validate_safe_token,
@@ -293,9 +294,18 @@ class CommitRequest(BaseModel):
         le=998999,
         description="EPSG code to use when the source CRS is missing or incorrect. Assigns (relabels) the CRS the source is read under rather than reprojecting from it: raster pixel values are unchanged, and vector geometries are reprojected to EPSG:4326 from the assigned CRS as usual.",
     )
+    # fix(#1931): the cap is declared here as well as on ServiceCommitRequest
+    # because only this model's schema is published, and a constraint a caller
+    # cannot read is not part of the contract.
     token: str | None = Field(
         default=None,
-        description="Optional confirmation token returned by the preview step. Required for some workflows.",
+        max_length=1000,
+        description=(
+            "Optional auth token for a protected remote service, read only "
+            "when the job imports a service layer (WFS, ArcGIS FeatureServer). "
+            "Never persisted to the database. Ignored on file-upload jobs."
+            + DEPRECATED_TOKEN_SUFFIX
+        ),
     )
     temporal_start: datetime | None = Field(
         default=None, description="ISO 8601 start of the dataset's temporal extent."

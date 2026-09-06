@@ -35,6 +35,10 @@ and releases use semantic versioning.
   could wait indefinitely, leaving the dataset's table unreadable for as long as the hold lasted.
   That wait is now capped at 60 seconds, and a reupload that gives up reports lock contention and
   logs how long it waited, having rolled the swap back whole. (#1921)
+- The import-commit endpoint published its `token` field as a confirmation token from the preview
+  step, with no length limit, while on a service import the server reads that field as the service
+  credential and caps it at 1000 characters. The API document, both SDKs and the generated
+  TypeScript types now describe and declare what the server reads. (#1931)
 
 ## [1.18.1] - 2026-09-05
 
