@@ -1,52 +1,30 @@
-"""Read a protected OGC API collection ourselves, so GDAL never holds the key.
+"""Read a protected OGC API collection here, so GDAL never holds the key.
 
-fix(#1746 B2b review r16). An OGC API items response chooses the next one: each
-page carries a ``rel=next`` link, and GDAL's OAPIF driver follows it. Because
-``GDAL_HTTP_HEADER_FILE`` applies to every request the process makes, a
-collection whose first page is same-origin can hand the credential to any origin
-it likes on page two, with no redirect and nothing for a redirect hook to see.
+An OAPIF items chain is chosen by the service one page at a time, and
+``GDAL_HTTP_HEADER_FILE`` applies to every request the process makes, so a
+collection whose first page is same-origin can hand the credential to any
+origin it names on page two, with no redirect for a redirect hook to see. GDAL
+offers no scope that would confine it: on 3.10.3 a ``[credentials]`` ``path=``
+prefix applies to nothing at all for http(s) URLs, including the origin it
+names, because ``CPLHTTPFetch`` consults path-specific options only for the
+``/vsi*`` handlers.
 
-Validating the description up front cannot bound that, because the chain is
-chosen at run time, one page at a time. Two ways out, and the first was measured
-before the second was written.
+So the pages are read here instead, with the bounded client that revalidates
+SSRF and refuses to leave the origin, streamed to a local GeoJSON file that
+GDAL is handed in place of the OAPIF source. It follows nothing, because there
+is nothing left to follow.
 
-GDAL 3.10.3, the version in the worker image, was tested for a path-scoped
-header option: two local servers, the credential configured for the first only,
-`ogr2ogr` run against an OAPIF endpoint whose `next` pointed at the second. A
-``[configoptions]`` section of a ``GDAL_CONFIG_FILE`` applied the option and
-proved the file is read; every ``[credentials]`` ``path=`` prefix applied it to
-nothing at all, including the origin it named. ``CPLHTTPFetch``, which both the
-WFS and OAPIF drivers use, does not consult path-specific options for http(s)
-URLs; that section serves the ``/vsi*`` handlers. So the scope does not exist
-and the credential cannot be confined inside GDAL.
+WFS needs none of this: that driver pages by ``STARTINDEX``/``COUNT`` against
+the GetFeature endpoint the capabilities advertise, which is the endpoint
+``service_endpoints`` already validates.
 
-Therefore GDAL is not given the credential for this path at all. The pages are
-read here, with the bounded client that revalidates SSRF and refuses to leave
-the origin, streamed to a local GeoJSON file, and GDAL is handed that file. It
-follows nothing, because there is nothing left to follow.
-
-WFS needs none of this, and that was measured too rather than assumed: served a
-``wfs:FeatureCollection`` carrying ``next="http://other-origin/"``, GDAL fetched
-it never. The WFS driver pages by ``STARTINDEX``/``COUNT`` against the
-GetFeature endpoint the capabilities advertise, which is exactly the endpoint
-``service_endpoints`` validates, so that driver is bounded by the description
-check already.
-
-What a service is allowed to cost, since the whole chain is its to choose:
-
-``MAX_PAGES`` (10,000) requests, ``MAX_BYTES`` (2 GiB) downloaded and the same
-again written to the staging volume, ``MAX_PAGE_BYTES`` (16 MiB) on the wire
-for any one page, and ``MAX_STRUCTURAL_TOKENS`` (2,000,000) values or
-containers in any one page once decoded. Reaching any of them is a refusal,
-never a short answer: a caller cannot tell a prefix from a collection, and the
-worker would import one over an existing dataset.
-
-The last of those is the least obvious and the reason the others are not
-enough. A byte cap bounds the wire, not the object graph, and compact JSON
-expands 4x to 31x depending on shape (measured; the figures are beside the
-constant). The token bound is counted on the raw bytes before anything is
-decoded, so it costs three ``bytes.count`` passes and refuses before the
-memory would have been spent.
+What a collection may cost, since the whole chain is the service's to choose:
+``MAX_PAGES`` requests, ``MAX_BYTES`` downloaded and the same again written to
+the staging volume, ``MAX_PAGE_BYTES`` on the wire for any one page, and
+``MAX_STRUCTURAL_TOKENS`` values or containers in any one page once decoded.
+Reaching any of them is a refusal, never a short answer: a caller cannot tell a
+prefix from a collection, and the worker would import one over an existing
+dataset.
 """
 
 from __future__ import annotations
@@ -88,65 +66,20 @@ from app.platform.service_endpoints import (
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# What one collection may cost. A page chain is chosen by the service, so it is
-# bounded here rather than trusted: an endpoint that keeps answering `next`
-# forever would otherwise be an unbounded fetch holding a credential.
-#
-# Reaching either is a refusal, never a short answer: see `_walk_pages`.
-#
-# `MAX_BYTES` bounds the bytes DOWNLOADED and, separately, the bytes WRITTEN.
-# r17 added the first because a page is decoded before any feature of it is
-# written, so counting the output missed where the memory goes. r19 then
-# removed a written-bytes counter on the reasoning that compact UTF-8 output
-# is a subset of the pages it came from and so cannot be larger. That was
-# wrong, and r20 caught it: a JSON round trip can GROW. `1e15` is four bytes
-# on the wire and parses to a float whose repr is `1000000000000000.0`, which
-# is eighteen. Python only switches to exponent notation at 1e16, so a page of
-# such numbers expands by more than four times on the way to disk, and a chain
-# comfortably inside the download cap could leave many gigabytes on a staging
-# volume shared with every other import. Both counters exist now, and the
-# written one is a real bound on disk rather than an inference from the wire.
+# What one collection may cost. `MAX_BYTES` bounds the bytes DOWNLOADED and,
+# separately, the bytes WRITTEN: a JSON round trip can GROW (`1e15` is four
+# bytes on the wire and eighteen written), so neither figure bounds the other.
 MAX_PAGES = 10_000
 MAX_BYTES = 2 * 1024 * 1024 * 1024
 
-# What one page may cost on the wire, enforced by the shared reader in
-# `service_endpoints` while it streams and before anything is decoded. A page
-# is held whole in memory to be parsed, so this is a per-request bound the
-# total above cannot substitute for: one oversized response would exhaust the
-# process long before a running total noticed.
-#
-# fix(#1746 B2b review r22): 64 MiB down to 16 MiB. The page size is ours
-# (`limit=`), so a well-behaved service never approaches either figure, and
-# the total budget is on disk rather than in memory. 16 MiB against
-# `PAGE_SIZE` features is ~16 KiB of JSON per feature, still far past any
-# honest geometry, and a service wanting more can paginate.
+# What one page may cost on the wire, streamed and enforced before anything is
+# decoded. A page is held whole in memory to be parsed, so one oversized
+# response exhausts the process before the total above notices.
 MAX_PAGE_BYTES = 16 * 1024 * 1024
 
-# What one page may cost DECODED, bounded before `json.loads` runs.
-#
-# fix(#1746 B2b review r22): the wire cap bounds bytes, not the object graph,
-# and compact JSON expands enormously. Measured on this interpreter against
-# 1 MiB pages:
-#
-#     [1.5,1.5,...]     8.2x    (32.8 bytes per structural token)
-#     [1,1,...]         4.5x    ( 8.9 bytes per token)
-#     [{"a":1},...]    24.1x    (96.4 bytes per token)
-#     [[[1]],...]      30.7x    (61.4 bytes per token)
-#
-# So one 16 MiB page of the worst shape is ~490 MiB decoded, and 64 MiB was
-# ~2 GiB: the whole API container, from a single page, with concurrent
-# previews making it worse.
-#
-# `_structural_tokens` counts commas and opening brackets on the RAW bytes,
-# which is an upper bound on the number of values and containers the decoder
-# will build: every value after the first is preceded by a comma, every
-# container opens with a bracket, and commas inside strings only overcount,
-# which is the safe direction. At the worst measured cost of ~96 bytes per
-# token, two million tokens is ~184 MiB decoded, which is the figure this
-# constant is chosen for. A full page of `PAGE_SIZE` polygon features costs
-# about 22,000 tokens (measured, and pinned in the suite), so the bound is
-# roughly ninety times what an honest service asking for the page size it was
-# given would ever produce.
+# What one page may cost DECODED, bounded before `json.loads` runs: compact JSON
+# expands to ~96 bytes per structural token, so this is ~184 MiB. Counted on the
+# RAW bytes, which only ever overcounts what the decoder builds.
 MAX_STRUCTURAL_TOKENS = 2_000_000
 
 # What a page fetch asks for. The service may answer with fewer.
@@ -156,16 +89,11 @@ PAGE_SIZE = 1000
 class MaterialisedCollection(NamedTuple):
     """A local extract, and what is known about the collection behind it.
 
-    fix(#1746 B2b review r24): the path alone was not enough. A preview asks
-    for a handful of features and gets a file holding exactly that many, so
-    everything downstream read the sample size as the collection's row count:
-    the import preview showed it, and re-upload's schema diff turned it into a
-    row-count delta against the real dataset.
-
     ``total`` is the collection's own size when it can be known: the service's
     ``numberMatched`` if it published one, otherwise the features written when
     the walk ran to the end. ``None`` when the walk stopped at a sample limit
-    and the service said nothing, which is the case that was being guessed at.
+    and the service said nothing, so ``features`` is never the collection's row
+    count.
     """
 
     path: str
@@ -176,10 +104,9 @@ class MaterialisedCollection(NamedTuple):
 class ItemFetchFailedError(EndpointCheckFailedError):
     """A page could not be read, or the chain tried to leave the origin.
 
-    Subclasses the description check's refusal so every door that already
-    answers that one answers this the same way: the caller's request named a
-    URL whose collection cannot be read safely, and the field to change is the
-    same.
+    Subclasses the description check's refusal so every door that answers that
+    one answers this the same way: the caller's request named a URL whose
+    collection cannot be read safely, and the field to change is the same.
     """
 
 
@@ -200,10 +127,9 @@ def _items_url(url: str, collection: str) -> str:
 def _require_object(document: object, what: str) -> dict:
     """The document, or a refusal. Never echoes what came back.
 
-    fix(#1746 B2b review r21): every place a fetched document is interpreted
-    goes through here or through `_require_feature_page` below, so a service
-    that answers 200 with something else is refused once rather than
-    reinterpreted differently at each site.
+    Every place a fetched document is interpreted goes through here or through
+    `_require_feature_page` below, so a service that answers 200 with something
+    else is refused once rather than reinterpreted differently at each site.
     """
     if not isinstance(document, dict):
         raise ItemFetchFailedError(f"malformed {what}")
@@ -213,47 +139,31 @@ def _require_object(document: object, what: str) -> dict:
 def _require_feature_page(document: object, *, first_page: bool) -> list:
     """The features of one items page, or a refusal.
 
-    fix(#1746 B2b review r21): `features or []` read an HTTP 200 JSON error
-    envelope as an empty page, and read `"features": null` and
-    `"features": {}` the same way. A preview then succeeded with zero rows and
-    a refresh or re-upload handed an empty FeatureCollection to ogr2ogr, which
-    replaced existing data with nothing: the silent-truncation class of r18,
-    one level up. A page that does not say what it is does not get to say it
-    is empty.
-
-    fix(#1746 B2b review r29): the same rule, applied to every shape the walker
-    could otherwise read as "this was the last page". MALFORMED MEANS REFUSE,
-    AND NEVER MEANS END-OF-COLLECTION. `_has_next` and `_next_href` both answer
-    None for a shape they cannot read, and None is indistinguishable from a
-    service saying there is no more, so anything they would skip has to be
-    refused before they are asked. Enumerated, because the class is what
-    matters and not the instance:
+    MALFORMED MEANS REFUSE, AND NEVER MEANS END-OF-COLLECTION. `_has_next` and
+    `_next_href` both answer None for a shape they cannot read, and None is
+    indistinguishable from a service saying there is no more, so every shape
+    they would silently skip is refused before they are asked:
 
     * ``links`` present but not a list. Iterating an OBJECT yields its keys,
       which are strings, so no link dict is ever found and the chain looks
-      finished. This is the one r29 reported.
-    * an entry of ``links`` that is not an object. Skipped by the same
+      finished.
+    * an entry of ``links`` that is not an object, skipped by the same
       `isinstance` test, so a ``next`` expressed as a list or a bare string
       disappears.
     * a ``rel=next`` entry whose ``href`` is absent, not a string, or blank.
       A falsy href fails the truthiness test and the link vanishes; a
       non-string one would be coerced by `str()` into an address nobody named.
     * ``links`` missing entirely on a page that is NOT the first. Reaching that
-      page means following a link, so the service does emit them; a page that
-      suddenly has none is a truncated response rather than a last page. OGC
-      API Features requires links on every items response, so this is
-      spec-aligned, but it is only enforced from the second page because a
-      single-page collection that omits them is common and harmless -- nothing
-      is being decided from a link there.
-    * ``numberMatched`` present and not a non-negative integer. Not a
-      truncation risk on its own, but it is the number a preview reports as the
-      collection's size and re-upload turns into a row-count delta, so a
-      service that cannot spell it is not one to take counts from.
-    * ``numberReturned`` present and not equal to the length of ``features``
-      (r31). The page carries the means to check itself, and a page claiming a
-      hundred while carrying ten is a truncated response that everything else
-      here reads as well formed.
-    * ``features`` not a list, from r21.
+      page means following a link, so a page that suddenly has none is a
+      truncated response. Tolerated on the first page, where a single-page
+      collection commonly omits them and nothing is decided from a link.
+    * ``numberMatched`` present and not a non-negative integer. It is the
+      number a preview reports as the collection's size.
+    * ``numberReturned`` present and not equal to the length of ``features``.
+      The page carries the means to check itself, and a page claiming a hundred
+      while carrying ten is a truncated response everything else reads as well
+      formed.
+    * ``features`` not a list.
 
     A legitimately empty page is `{"type": "FeatureCollection", "features": []}`
     and still reads as empty, which is what makes the refusal specific.
@@ -274,14 +184,9 @@ def _require_links(page: dict, *, first_page: bool) -> None:
     links = page.get("links")
     if links is None:
         if "links" in page or not first_page:
-            # An explicit null is malformed either way; an absent one is only
-            # tolerated on the first page, where nothing was followed to get
-            # here and nothing is decided from a link -- decided by THIS
-            # function, that is. Whether an absence this lets through, or an
-            # empty list a few lines down, may be read as "the collection is
-            # complete" is `_walk_pages`'s question (fix(#1770 round 38)): a
-            # shape this function accepts as well-formed can still fail there
-            # for lacking proof, on a full walk, that there was nothing left.
+            # An explicit null is malformed either way; an absent one is
+            # tolerated on the first page only. Whether that absence proves the
+            # collection complete is `_walk_pages`'s question, not this one.
             raise ItemFetchFailedError("malformed items page")
         return
     if not isinstance(links, list):
@@ -313,12 +218,9 @@ def _optional_count(page: dict, member: str) -> int | None:
 def _require_counts(page: dict, features: list) -> None:
     """Refuse the count members a page can contradict itself with.
 
-    fix(#1746 B2b review r31): ``numberReturned`` is the count of features IN
-    THIS RESPONSE, so the page carries the means to check itself. A page saying
-    it returned a hundred while carrying ten is a truncated response, and
-    nothing else in the walk would notice: the features array is well formed,
-    the links are well formed, and a full walk that ends there accepts the ten
-    as the whole collection. It is the per-page twin of the r30 check.
+    ``numberReturned`` is the count of features IN THIS RESPONSE, so a page
+    saying it returned a hundred while carrying ten is a truncated response
+    nothing else in the walk would notice.
 
     ``numberMatched`` is validated as a count here; the cross-page and
     whole-walk comparisons live in `_walk_pages`, which is the only place that
@@ -340,13 +242,10 @@ _ITEMS_MEDIA_TYPE = "application/geo+json"
 def _advertised_items_href(document: dict, base: str) -> str | None:
     """The collection's own ``rel=items`` link, resolved, or None.
 
-    fix(#1746 B2b review r20): fabricating ``/collections/{id}/items`` was a
-    regression against the path this replaced. GDAL followed the advertised
-    link, and `service_endpoints` still treats advertised links as the
-    authoritative statement of where a service keeps things, so a valid service
-    with a non-conventional layout passed the probe and then 404ed at preview
-    and import. What the document says wins; the convention is the fallback for
-    a document that says nothing.
+    What the document says wins, the same way `service_endpoints` treats an
+    advertised link as authoritative; the conventional
+    ``/collections/{id}/items`` layout is the fallback for a document that says
+    nothing.
     """
     candidates = [
         link
@@ -364,14 +263,13 @@ def _advertised_items_href(document: dict, base: str) -> str | None:
         candidates[0],
     )
     try:
-        # fix(#1770 round 47 P1): refused before `urljoin`, and again inside
-        # `_with_page_size` below before that function's own `parse_qsl` --
-        # see `bounded_service_url`'s docstring for why both callers reuse
-        # the SAME `ValueError` this except clause already exists to catch.
+        # fix(#1770 round 47 P1): length-gated before `urljoin`, and again
+        # inside `_with_page_size`, both raising the SAME `ValueError` this
+        # except clause already exists to catch.
         return urljoin(base, bounded_service_url(str(chosen["href"]), what="items"))
     except HrefTooLongError:
-        # fix(#1770 round 47b, low-priority): its own wording -- see
-        # `service_endpoints.py::_assert_same_origin`'s matching site.
+        # fix(#1770 round 47b): its own wording, matching
+        # `service_endpoints.py::_assert_same_origin`.
         raise ItemFetchFailedError("items link exceeds the length limit") from None
     except ValueError:
         # Same rule as `next`: an address that will not parse cannot be shown
@@ -382,17 +280,12 @@ def _advertised_items_href(document: dict, base: str) -> str | None:
 def _with_page_size(href: str) -> str:
     """The advertised link, asking for the page size this module wants.
 
-    Every other parameter the service put on its own link is kept: a
-    `f=json` or a fixed filter is part of where it said the items are.
+    Every other parameter the service put on its own link is kept: a `f=json`
+    or a fixed filter is part of where it said the items are.
 
-    fix(#1770 round 47 P1): `href` already passed `bounded_service_url` in
-    `_advertised_items_href` above, but this is also the module's one
-    `parse_qsl` call site on a service-advertised query string, so it gates
-    its own length again (defence in depth against a future second caller)
-    and bounds the field count directly -- see `bounded_service_url`'s and
-    `bounded_parse_qsl`'s own docstrings. Raises `ValueError`, which
-    `_resolve_items_url` below now catches the same way its sibling calls
-    already do.
+    This is the module's one `parse_qsl` call site on a service-advertised
+    query string, so it gates the href's length itself and bounds the field
+    count directly. Raises `ValueError`, which `_resolve_items_url` catches.
     """
     href = bounded_service_url(href, what="items")
     parts = urlsplit(href)
@@ -406,11 +299,9 @@ def _with_page_size(href: str) -> str:
 def _has_next(document: object) -> bool:
     """Whether the page offers another one, without resolving where.
 
-    fix(#1746 B2b review r28): asked when the walk is stopping at the sample
-    limit and is not going to follow the link, so it must not resolve it, must
-    not judge its origin, and must not refuse an unparseable one -- all three
-    would turn "your preview is complete" into a failure. It answers only the
-    question that decides whether the extract is the whole collection.
+    Asked when the walk is stopping at the sample limit and will not follow the
+    link, so it must not resolve it, judge its origin, or refuse an unparseable
+    one -- all three would turn "your preview is complete" into a failure.
     """
     if not isinstance(document, dict):
         return False
@@ -426,23 +317,20 @@ def _next_href(document: object, base: str) -> str | None:
     for link in document.get("links", []) or []:
         if isinstance(link, dict) and link.get("rel") == "next" and link.get("href"):
             try:
-                # fix(#1770 round 47 P1): the same length gate `service_
-                # endpoints.py::_next_page` applies, before `urljoin`.
+                # fix(#1770 round 47 P1): the same length gate
+                # `service_endpoints.py::_next_page` applies, before `urljoin`.
                 return urljoin(
                     base, bounded_service_url(str(link["href"]), what="next")
                 )
             except HrefTooLongError:
-                # fix(#1770 round 47b, low-priority): its own wording.
+                # fix(#1770 round 47b): its own wording.
                 raise ItemFetchFailedError(
                     "next link exceeds the length limit"
                 ) from None
             except ValueError:
-                # fix(#1746 B2b review r16): the page that named this address
-                # is the one this module exists to distrust, and an address
-                # that will not parse cannot be shown to stay on the origin.
-                # Refused rather than treated as the end of the chain, so a
-                # short read is never mistaken for a complete one. The href is
-                # never echoed.
+                # fix(#1746 B2b review r16): an address that will not parse
+                # cannot be shown to stay on the origin, so it is refused
+                # rather than read as the end of the chain. Never echoed.
                 raise ItemFetchFailedError("unparseable next page") from None
     return None
 
@@ -458,19 +346,18 @@ async def _fetch_page(
 ) -> tuple[object, int, str]:
     """One items page, its wire size and its URL, or a refusal.
 
-    fix(#1746 B2b review r23): the request itself is `fetch_document` in
-    `service_endpoints`, shared with the description reads, so the protections
-    the two paths need cannot diverge again. This adds only what is specific to
-    an items page: the caps it is read under, and the decode.
+    The request itself is `fetch_document` in `service_endpoints`, shared with
+    the description reads, so the protections the two paths need cannot
+    diverge. This adds only what is specific to an items page: the caps it is
+    read under, and the decode.
     """
     body, final_url = await fetch_document(
         client,
         url,
         headers,
-        # fix(#1746 B2b review r25): the same value the probe and the endpoint
-        # check ask for. An items page is an OGC API document like the rest,
-        # and a service that serves HTML for `*/*` must not be able to answer
-        # one of the three reads differently from the other two.
+        # fix(#1746 B2b review r25): the same Accept the probe and the
+        # endpoint check send, so a service serving HTML for `*/*` cannot
+        # answer one of the three reads differently from the other two.
         accept=OGC_JSON_ACCEPT,
         budget=budget,
         # Read at call time for the same reason `fetch_document` does it: a
@@ -482,14 +369,9 @@ async def _fetch_page(
     try:
         return json.loads(body), len(body), final_url
     except (ValueError, RecursionError) as exc:
-        # fix(#1770 round 44 P2): a JSON depth bomb (900,000 nested `[`, 1.8
-        # bytes each) is under both the byte cap and MAX_STRUCTURAL_TOKENS
-        # (which counts brackets, not nesting depth) and raises
-        # RecursionError rather than ValueError -- see
-        # `service_endpoints.py::_parsed_json`'s docstring for the same fix
-        # applied to the OGC API description path. Uncaught here, a worker's
-        # OAPIF item-page walk died unclassified instead of surfacing this
-        # module's own coded refusal.
+        # fix(#1770 round 44 P2): a JSON depth bomb is under both the byte
+        # cap and MAX_STRUCTURAL_TOKENS (which counts brackets, not depth) and
+        # raises RecursionError rather than ValueError.
         raise ItemFetchFailedError(str(exc)) from None
 
 
@@ -509,8 +391,7 @@ async def _resolve_items_url(
     and revalidated for SSRF by `_fetch_page` before it is requested.
 
     A document that advertises no items link falls back to the conventional
-    layout, which is what a service following the usual shape would have
-    advertised anyway.
+    layout.
     """
     document, size, from_url = await _fetch_page(
         client,
@@ -533,18 +414,13 @@ async def _resolve_items_url(
         # be paid with this credential.
         raise ItemFetchFailedError("items link leaves the origin")
     try:
-        # fix(#1770 round 47 P1): `_with_page_size` re-parses `href`'s query
-        # to drop/replace `limit`, and now bounds both its length and its
-        # field count -- see that function's own docstring. `href` already
-        # passed the same length gate once in `_advertised_items_href`
-        # above, so only an adversarial query packed with many short pairs
-        # (comfortably under that length) reaches this except in practice.
+        # fix(#1770 round 47 P1): `_with_page_size` re-parses `href`'s query to
+        # replace `limit`, and bounds both its length and its field count; only
+        # a query packed with many short pairs reaches this except in practice.
         return _with_page_size(href), size
     except HrefTooLongError:
-        # fix(#1770 round 47b, low-priority): its own wording, even though
-        # `_advertised_items_href` above already makes this branch
-        # practically unreachable for `href` itself -- kept for the same
-        # reason that check is defence in depth rather than trusted alone.
+        # fix(#1770 round 47b): its own wording, kept for the same reason that
+        # check is defence in depth rather than trusted alone.
         raise ItemFetchFailedError("items link exceeds the length limit") from None
     except ValueError:
         raise ItemFetchFailedError("unparseable items link") from None
@@ -559,18 +435,11 @@ def _sample_truncated(
 ) -> bool | None:
     """Whether a SAMPLED read that just broke out of its loop stopped short.
 
-    fix(#1770 round 42). Split out of `_walk_pages` to keep the branching in
-    one small function rather than pushing `_walk_pages` itself over the
-    complexity ceiling; see `_page_proves_complete` for the actual proof this
-    delegates to once it is worth asking.
-
-    `landed_mid_page` is unambiguous on its own: more sits right there, on
-    the very page just read, so `True` needs no further proof. Landing
-    exactly on the page's last feature is the one case worth asking
-    `_page_proves_complete` about, using `_has_next` (never raises on an
-    unparseable link) rather than `_next_href` (which can, appropriately,
-    when a link is actually about to be followed) since this link is never
-    going to be followed either way.
+    `landed_mid_page` needs no further proof: more sits right there, on the
+    page just read. Landing exactly on the page's last feature delegates to
+    `_page_proves_complete`, asked with `_has_next` (never raises on an
+    unparseable link) rather than `_next_href`, since this link is never going
+    to be followed either way. `None` when the page proves neither.
     """
     if landed_mid_page:
         return True
@@ -593,18 +462,9 @@ def _page_proves_complete(
     """Whether THIS page, with no next page left to follow, proves the walk
     has reached the true end of the collection.
 
-    fix(#1770 round 42). One predicate, used at both places a walk can reach
-    this question: a FULL walk's natural end (round 38 P1, tightened round
-    40 P1, corrected round 41 P1), and a SAMPLED preview that happens to land
-    exactly on a page's last feature -- the same boundary, reached by a
-    different door. Before round 42 the sampled door asked a weaker,
-    page-local question (`index + 1 < len(features) or _has_next(document)`)
-    that could not see a service which omits BOTH `links` and `numberMatched`
-    on a page that also happens to be no bigger than the sample: nothing
-    stopped there noticing more was possible, so the preview reported
-    `written` as the collection's total and re-upload's schema diff turned
-    that into a delta against the real dataset the next time the service
-    changed size.
+    One predicate, used at both places a walk reaches this question: a FULL
+    walk's natural end, and a SAMPLED preview landing exactly on a page's last
+    feature.
 
     `has_next` True means there is more to follow, definitively -- neither
     proof below can override a service that names a next page. `links`
@@ -614,13 +474,11 @@ def _page_proves_complete(
     nothing was said about pagination at all, so the only proof left is
     `numberMatched` equal to what the walk has actually read (`observed`).
 
-    Callers pass `has_next` rather than resolving it here on purpose: the
-    full walk already validated and resolved the link via `_next_href`
-    (which can raise on an unparseable one, appropriately, since it is about
-    to be followed); a sampled preview that will never follow this link uses
-    `_has_next` instead, which only asks whether one is present and never
-    raises on a malformed href -- refusing a preview over a link it was
-    never going to use would turn "your preview is complete" into a failure.
+    Callers pass `has_next` rather than resolving it here: a full walk has it
+    from `_next_href`, which can raise on an unparseable link it is about to
+    follow, while a sampled preview uses `_has_next`, which never raises --
+    refusing a preview over a link it was never going to use would turn "your
+    preview is complete" into a failure.
     """
     if has_next:
         return False
@@ -643,44 +501,26 @@ def _end_of_chain(
     """The page this walk's `for ... else` reaches without breaking early:
     either another page to fetch, or the genuine end of the chain.
 
-    fix(#1770 round 42): extracted out of `_walk_pages` itself so the
-    branching that decides "was this really the end" lives in one place
-    judged on its own terms, rather than pushing `_walk_pages` over ruff's
-    C901 ceiling -- the same reason `_resolve_conformance` was extracted out
-    of `probe_ogcapi` in #1746; extraction is what this repo does about that
-    rather than another exemption.
-
-    Returns `(page_url, truncated)`. `page_url` is `following` unchanged --
-    the caller's own loop reads it exactly as before. `truncated` is the
-    incoming value, passed straight through, EXCEPT in the one case round 42
-    closes: a SAMPLED walk (`feature_limit is not None`) whose chain has
-    just genuinely ended (`following is None`, meaning the page this
-    function was called for held FEWER rows than `feature_limit`, so the
-    for-loop above exhausted it naturally instead of breaking on the sample
-    limit). There, `truncated` becomes this page's own completeness verdict
-    -- `False` if `_page_proves_complete` proves it, `None` (unknown) if it
-    does not -- rather than staying at whatever an EARLIER page's break
-    might have left it, which is what a preview whose walk crosses several
-    pages before naturally ending on the last one needs: the LAST page
-    decides, not a stale value an intermediate one wrote.
+    Returns `(page_url, truncated)`. `truncated` passes straight through
+    EXCEPT for a SAMPLED walk (`feature_limit is not None`) whose chain has
+    just genuinely ended (`following is None`, so the loop above exhausted the
+    page instead of breaking on the sample limit). There it becomes this page's
+    own completeness verdict -- `False` where `_page_proves_complete` proves
+    it, `None` where it does not. The LAST page decides, not a value an
+    intermediate one left behind.
 
     Raises `ItemFetchFailedError` for a `next` that leaves the origin, or
-    (full walks only, first page only) one that cannot prove it is the last
-    one -- both unchanged from round 41.
+    (full walks only, first page only) one that cannot prove it is the last.
     """
     following = _next_href(document, from_url)
     if following is not None and not same_origin(url, following):
-        # The whole reason this module exists. The page chose the next
-        # address; it does not get to choose a different service to be paid
-        # with this credential.
+        # The page chose the next address; it does not get to choose a
+        # different service to be paid with this credential.
         raise ItemFetchFailedError("next page leaves the origin")
     if following is None and feature_limit is None and pages == 1:
-        # fix(#1770 round 38 P1, tightened round 40 P1, corrected round 41
-        # P1): a FULL walk ending on the FIRST page with no `next` must be
-        # able to PROVE it -- see `_page_proves_complete`'s own docstring
-        # for what counts as proof and why. `has_next=False`: this branch is
-        # reached only when `following is None` (the `if` above), i.e. no
-        # next was found.
+        # fix(#1770 round 41 P1): a FULL walk ending on the FIRST page with
+        # no `next` must be able to PROVE it -- see `_page_proves_complete`.
+        # `has_next=False`: this branch needs `following is None`.
         provably_complete = _page_proves_complete(
             document, has_next=False, observed=observed, number_matched=number_matched
         )
@@ -689,17 +529,8 @@ def _end_of_chain(
         return following, truncated
     if following is None and feature_limit is not None:
         # fix(#1770 round 42): the SAMPLED-walk mirror of the branch above.
-        # Never refuses -- a preview stays usable regardless of what this
-        # page can prove -- but the total this walk eventually reports is
-        # honest only when `_page_proves_complete` actually proves it.
-        # `_sample_truncated` with `landed_mid_page=False`: `following is
-        # None` here means exactly what `_has_next(document)` would answer
-        # too, on the same `links` this page carries. No `pages == 1`
-        # restriction: `_require_links` already refuses an absent `links`
-        # member on every page past the first, so the predicate's
-        # `links`-absent branch is only ever reachable here on page one
-        # regardless, and the `links`-present branch needs no restriction
-        # at all.
+        # Never refuses -- a preview stays usable -- but the total it reports
+        # is honest only where `_page_proves_complete` proves it.
         return following, _sample_truncated(
             document,
             landed_mid_page=False,
@@ -722,24 +553,16 @@ async def _walk_pages(
     """Follow the chain, writing features.
 
     Returns pages read, features written, what the service said the whole
-    collection holds (fix(#1746 B2b review r24): a preview writes
-    ``feature_limit`` features and nothing downstream could tell that apart
-    from a collection that small), and whether the walk stopped SHORT --
-    `True`, `False`, or `None` (fix(#1746 B2b review r28): a collection
-    holding exactly the sample size is complete, and counting features could
-    not say so; fix(#1770 round 42): `None` when the page proves neither --
-    landed exactly on the sample size with nothing on the page to prove one
-    way or the other, so the honest answer is that the total is unknown, not
-    that it stopped short).
+    collection holds, and whether the walk stopped SHORT -- `True`, `False`, or
+    `None` where the last page proved neither, in which case the total is
+    unknown rather than short.
 
     The count-shaped invariants, complete
     -------------------------------------
 
-    fix(#1746 B2b review r31). The OGC items schema has exactly two integer
-    members, ``numberMatched`` and ``numberReturned``; the only other member
-    this walk reads is ``timeStamp``, which it does not, and ``links`` and
-    ``features``, which r29 and r21 cover. So this list is closed rather than
-    the current state of a search:
+    The OGC items schema has exactly two integer members, ``numberMatched`` and
+    ``numberReturned``, so this list is closed rather than the current state of
+    a search:
 
     1. ``numberReturned == len(features)``, per page. The page's claim about
        itself, checked in `_require_counts`.
@@ -750,89 +573,35 @@ async def _walk_pages(
        produce fewer rows than the total; nothing can produce more.
     4. ``observed == numberMatched``, on FULL walks only. A sampled read is
        short by construction, so falling below says nothing there.
-    5. fix(#1770 round 38 P1, tightened round 40 P1, corrected round 41 P1).
-       A FULL walk ending on the FIRST page with no `next` must be able to
-       PROVE it. Two shapes reach this branch, and they prove it two
-       different ways:
-
-       - `links` PRESENT (even `[]`, even one carrying only `self`/
-         `alternate`): the service's own unambiguous statement that it
-         considered pagination and chose not to offer a `next`. OGC API
-         Features Part 1 makes `links` optional but `next`'s absence from a
-         `links` array that exists IS the spec's terminal-page signal, so
-         this proves completeness on its own -- no `numberMatched` required.
-       - `links` ABSENT ENTIRELY: `_require_links` tolerates the shape on the
-         first page (nothing was followed to get here, so nothing was
-         decided from a link), but that tolerance is not itself a
-         completeness claim -- nothing was said about pagination at all, so
-         `numberMatched` equal to `observed` is the only proof, same as (3)
-         and (4).
-
-       Round 38 read the two shapes as one and additionally accepted a page
-       SHORTER than `limit=PAGE_SIZE` as proof by itself, reasoning a server
-       with more to give would have filled it -- wrong, since that assumes
-       the server's own page size is at least `PAGE_SIZE`, which is the
-       server's choice, not a floor this module gets to assume. Round 40
-       removed the length-based proof but then required `numberMatched` on
-       the PRESENT-`links` shape too, refusing every conforming server that
-       states no `next` and has nothing else to say -- most of them. Page
-       length proves nothing on its own, on either side of this check,
-       across all three rounds. A later page follows whatever limit the
-       service's own `next` href encoded, and an ordinary multi-page walk of
-       short pages ending in an empty `links` list is not this finding
-       either way.
-
-       fix(#1770 round 42): the two-shape rule above is now `_page_proves_
-       complete`, a single function -- this branch was its only caller
-       before round 42, and a SAMPLED preview landing on exactly this same
-       boundary asks it too, rather than the page-local, weaker question
-       (`index + 1 < len(features) or _has_next(document)`) round 42's own
-       finding is about. See that function's docstring for the full
-       reasoning; nothing about what counts as proof changed here.
+    5. A FULL walk ending on the FIRST page with no `next` must be able to
+       PROVE it -- see `_page_proves_complete` for the two shapes that do.
+       Page length proves nothing on either side of that check: the server's
+       own page size is its choice, not a floor this module gets to assume.
 
     ``observed`` is the sum of ``len(features)`` across every page this walk
-    read, counted before a sample limit truncates what gets written (fix
-    (#1746 B2b round 34)). ``written`` is bounded by ``feature_limit`` and can
-    fall short of ``observed`` on a sampled read, so ``written <= observed``
-    always; checking the invariants above against ``written`` let a page far
-    larger than the collection the service claims to have pass a preview
-    unnoticed, because the sample cut ``written`` down to size before the
-    comparison ever saw the page's real length.
+    read, counted before a sample limit truncates what gets written, so it is
+    the size the service actually sent rather than the size a sample kept.
+    ``written <= observed`` always.
 
-    Each is a refusal, never a quiet correction, for the reason r29 records:
-    the walk cannot tell a service that has finished from one that has been
-    cut off, so anything it cannot verify it declines.
+    Each is a refusal, never a quiet correction: the walk cannot tell a service
+    that has finished from one that has been cut off, so anything it cannot
+    verify it declines.
     """
     written = 0
-    # fix(#1746 B2b round 34): the cumulative length of every page this walk
-    # read, counted whole and before `feature_limit` truncates what actually
-    # gets written. `written` alone under-reports a page's real size once a
-    # sample cuts it short, and the two `numberMatched` checks below need the
-    # real size to catch a service whose page is bigger than its own claimed
-    # total.
+    # fix(#1746 B2b round 34): every page counted whole, before
+    # `feature_limit` truncates what gets written -- `written` under-reports a
+    # page's real size once a sample cuts it short.
     observed = 0
     pages = 0
     on_disk = 0
     number_matched: int | None = None
-    # fix(#1746 B2b review r28): whether the walk STOPPED SHORT, as opposed to
-    # having written as many features as there are. `written >= feature_limit`
-    # cannot tell those apart: a collection holding exactly the sample size
-    # satisfies it while being complete, and r24 then reported its total as
-    # unknown. Only the site that breaks out of the loop knows which happened.
-    #
-    # fix(#1770 round 42): tri-state. Stays `False` for the whole function
-    # unless the sample limit actually breaks the loop -- a FULL walk
-    # (`feature_limit is None`) never touches it, which is what lets the
-    # total computation below read `feature_limit is None` as implying
-    # `not truncated`. `None` means the break happened but the page proved
-    # neither complete nor short: the honest total there is unknown, not a
-    # guess in either direction.
+    # fix(#1770 round 42): whether the walk STOPPED SHORT, tri-state. Only the
+    # site that breaks out of the loop knows, a FULL walk never touches it, and
+    # `None` means the page proved neither, so the total is unknown.
     truncated: bool | None = False
-    # fix(#1746 B2b review r17, moved r20, made once-ness r23): the origin is
-    # contacted HERE, not by the subprocess, so this is the moment a caller
-    # that dates origin contacts has to hear about. `fire_once` means the
-    # request function can fire it on every read and only the first one lands,
-    # so no loop has to remember which pass it is on.
+    # fix(#1746 B2b review r23): the origin is contacted HERE, not by the
+    # subprocess, so this is the moment a caller that dates origin contacts
+    # hears about. `fire_once` means no loop tracks which pass it is on.
     arm = fire_once(on_first_request)
     first_page, downloaded = await _resolve_items_url(
         client, url=url, collection=collection, headers=headers, on_first_request=arm
@@ -849,24 +618,15 @@ async def _walk_pages(
             on_first_request=arm,
         )
         downloaded += size
-        # Both the first page and every page a `next` named. One rule, one
-        # site, so a malformed page cannot mean different things depending on
-        # where in the chain it arrived.
+        # One rule, one site, so a malformed page cannot mean different
+        # things depending on where in the chain it arrived.
         features = _require_feature_page(document, first_page=pages == 1)
-        # The whole page, before the sample loop below may stop partway
-        # through it. `numberReturned == len(features)` is already enforced
-        # per page by `_require_counts`, so this is the page's own claim about
-        # its size, not a re-derivation.
+        # The page's own claim about its size, before the sample loop below
+        # may stop partway through it.
         observed += len(features)
         if "numberMatched" in document:
-            # OGC API Features part 1: the number of features the whole query
-            # matches, as opposed to the number this page returned. Optional,
-            # and already validated as a non-negative integer by
-            # `_require_feature_page` when it is present at all (r29).
-            #
-            # fix(#1746 B2b review r30): read from EVERY page, not just the
-            # first. It is a statement about the whole query, so two pages
-            # giving different answers means the service is describing two
+            # fix(#1746 B2b review r30): the whole query's match count, read
+            # from EVERY page. Two pages giving different answers describe two
             # different queries and neither can be checked against the walk.
             reported = document["numberMatched"]
             if number_matched is None:
@@ -874,34 +634,13 @@ async def _walk_pages(
             elif reported != number_matched:
                 raise ItemFetchFailedError("pages disagree about the size")
         for index, feature in enumerate(features):
-            # fix(#1746 B2b review r19): `ensure_ascii=False`, and the file
-            # opened in binary. The default escapes every non-ASCII character
-            # to `\uXXXX`, so a collection of non-Latin text wrote roughly
-            # three bytes on disk for each one counted against the download
-            # cap: a chain just under 2 GiB downloaded could leave ~6 GiB on a
-            # staging volume shared with every other import.
-            #
-            # fix(#1746 B2b review r20): and counted, because r19 concluded
-            # from this that the file could not exceed the download and that
-            # was wrong. A JSON round trip can grow: `1e15` is four bytes on
-            # the wire and eighteen written. The bound on disk is measured now
-            # rather than inferred.
+            # fix(#1746 B2b review r19): `ensure_ascii=False` and a binary
+            # file, so non-Latin text is not tripled on disk; what is written
+            # is then counted rather than inferred from the download (r20).
             try:
                 # fix(#1770 round 47 P2): a JSON escape for an unpaired
-                # surrogate (`"\ud800"`) is syntactically legal and
-                # `json.loads` accepts it as a Python `str` containing that
-                # lone surrogate code point -- UTF-8 has no representation
-                # for one, so `.encode("utf-8")` below raises
-                # `UnicodeEncodeError`, uncaught here before this round,
-                # which bypassed the `ItemFetchFailedError` handling every
-                # other malformed page gets: preview 500s, imports die with
-                # an internal exception. Not `errors="surrogatepass"`/
-                # `"surrogateescape"`: either would write bytes GDAL/PostGIS
-                # cannot read back as UTF-8, trading a coded refusal for
-                # silent corruption on disk. A refusal is the correct
-                # answer for a service that emits fundamentally
-                # unrepresentable text, the same as any other malformed
-                # page.
+                # surrogate is legal and has no UTF-8 encoding, so this
+                # refuses rather than writing bytes GDAL cannot read back.
                 encoded = json.dumps(
                     feature, separators=(",", ":"), ensure_ascii=False
                 ).encode("utf-8")
@@ -909,20 +648,17 @@ async def _walk_pages(
                 raise ItemFetchFailedError(f"unencodable feature: {exc}") from None
             chunk = b"," + encoded if written else encoded
             # fix(#1746 B2b review r21): compared BEFORE the write. Checking
-            # afterwards let the extract exceed the cap by one expanded
-            # feature, which on this path is exactly the value that expands
-            # unboundedly, so the bound was one feature short of being one.
+            # after admits one expanded feature past the cap, which on this
+            # path is the value that expands unboundedly.
             if on_disk + len(chunk) > MAX_BYTES:
                 raise ItemFetchFailedError("collection exceeds the cap on disk")
             out.write(chunk)
             on_disk += len(chunk)
             written += 1
             if feature_limit is not None and written >= feature_limit:
-                # fix(#1770 round 42): `_sample_truncated` -- landing
-                # exactly on the page's last feature asks the same
-                # completeness predicate a full walk's natural end does,
-                # rather than the page-local, weaker question this used to
-                # ask on its own.
+                # fix(#1770 round 42): landing exactly on the page's last
+                # feature asks the same completeness predicate a full walk's
+                # natural end does.
                 truncated = _sample_truncated(
                     document,
                     landed_mid_page=index + 1 < len(features),
@@ -943,46 +679,19 @@ async def _walk_pages(
                 truncated=truncated,
             )
     if page_url is not None:
-        # fix(#1746 B2b review r18): the page cap was reached and the service
-        # still had more to give. Closing the array here would return a prefix
-        # that reads as a complete collection, and the worker would import it
-        # over an existing dataset: a silent truncation nothing downstream
-        # could detect. A preview that reached its sample size has already set
-        # `page_url` to None, so this only fires on a genuinely short read.
+        # fix(#1746 B2b review r18): the page cap is reached with more to
+        # come. Closing the array here returns a prefix that reads as a
+        # complete collection, and the worker imports it over a dataset.
         raise ItemFetchFailedError("collection exceeds the page cap")
     if number_matched is not None:
         # fix(#1746 B2b review r31): SAMPLING CAN PRODUCE FEWER ROWS THAN THE
-        # TOTAL, NEVER MORE. r30 gated the whole comparison on a full walk,
-        # which let a sampled read of five features past a `numberMatched` of
-        # two: the extract had five rows and reported a total of two, and
-        # re-upload turned that into a schema delta against a real dataset.
-        # This half holds on every walk, because no way of stopping early can
-        # produce more than there are.
-        #
-        # fix(#1746 B2b round 34): `observed`, not `written`. A hundred-feature
-        # page under a `numberMatched` of ten and a five-row preview left
-        # `written == 5`, which is `<= 10` and passed: the sample masked the
-        # page's real size from the one check that exists to catch it.
-        # `observed` is that page counted whole, so this now compares the size
-        # the service actually sent against the size it claims the collection
-        # is, regardless of how much of it a sample kept.
+        # TOTAL, NEVER MORE, so this half holds on every walk. `observed`, not
+        # `written`: a sample masks the page's real size from this check.
         if observed > number_matched:
             raise ItemFetchFailedError("more features than the service reported")
-        # fix(#1746 B2b review r30): and the chain ran out where the service's
-        # own count says it should not have. A `next` link missing when there
-        # are more features to come is the truncation r18 and r29 refuse in
-        # their own ways, in the form the response itself proves: nothing about
-        # the document is malformed, the walk just ended early. Accepting it
-        # handed a re-upload ten features to replace a hundred with.
-        #
-        # Equality is a FULL-walk claim only. A sampled read stops deliberately
-        # and is expected to be short, so falling below the count says nothing
-        # there; `truncated` from r28 carries that judgement instead.
-        # `feature_limit is None` also implies `not truncated`, since only the
-        # sample limit breaks out of the loop. `observed`, for the same reason
-        # as the check above; on a full walk nothing ever breaks a page early,
-        # so `observed == written` there and this is the same comparison
-        # stated in the term the invariant is actually about.
+        # fix(#1746 B2b review r30): the chain ends short of the count the
+        # service gives for itself. Equality is a FULL-walk claim only -- a
+        # sampled read is short by design, and `truncated` carries that.
         if feature_limit is None and observed != number_matched:
             raise ItemFetchFailedError("collection is shorter than reported")
     out.write(b"]}")
@@ -1010,12 +719,9 @@ async def materialise_oapif_items(
 
     ``deadline`` is a :func:`time.monotonic` stamp by which the whole
     materialisation must be done, and it wraps every page rather than every
-    request. fix(#1746 B2b review r17): the client's own timeout is per
-    inactivity, so a service that answers slowly but never stops answering
-    passes it forever, and this loop ran BEFORE the caller's own clock started
-    in both callers. Ten thousand pages of a service trickling inside the read
-    timeout is hours of an API request or an ingest worker. ``None`` means no
-    caller deadline, which is the direct-call and offline case.
+    request, because the client's own timeout is per inactivity and a service
+    that answers slowly but never stops answering passes that forever. ``None``
+    means no caller deadline, which is the direct-call and offline case.
 
     ``on_first_request`` fires once, immediately before the first page is
     requested, for callers that date origin contacts.
@@ -1029,8 +735,8 @@ async def materialise_oapif_items(
     one over an existing dataset.
     """
     headers = credential_headers(credential_line)
-    # fix(#1746 B2b review r28): the prefix and suffix come from the module
-    # that sweeps them, so a file this writes is a file that sweep recognises.
+    # fix(#1746 B2b review r28): prefix and suffix come from the module that
+    # sweeps them, so a file this writes is one that sweep recognises.
     handle, path = tempfile.mkstemp(
         prefix=OAPIF_ITEMS_SCRATCH_PREFIX,
         suffix=OAPIF_ITEMS_SCRATCH_SUFFIX,
@@ -1040,10 +746,9 @@ async def materialise_oapif_items(
     os.chmod(path, 0o600)
 
     try:
-        # Refused before a client is opened when the deadline has already
-        # passed: `asyncio.timeout` on a past deadline only fires at the first
-        # suspension, which a fast enough first page never reaches. Shared with
-        # the endpoint check, which has the same clock and the same trap.
+        # Refused before a client is opened: `asyncio.timeout` on a past
+        # deadline only fires at the first suspension, which a fast enough
+        # first page never reaches. Shared with the endpoint check.
         budget = deadline_budget(deadline, error=ItemFetchFailedError)
     except ItemFetchFailedError:
         _discard(path)
@@ -1056,8 +761,8 @@ async def materialise_oapif_items(
             async with make_safe_client(
                 timeout=PROBE_TIMEOUT, credential_header=next(iter(headers))
             ) as client:
-                # Binary: the features are encoded once, and the count that
-                # bounds the file is then the count that is written.
+                # Binary: the features are encoded once, so the count that
+                # bounds the file is the count that is written.
                 with open(path, "wb") as out:
                     pages, written, number_matched, truncated = await _walk_pages(
                         client,
@@ -1083,23 +788,9 @@ async def materialise_oapif_items(
         features=written,
     )
     if number_matched is None and truncated is not False:
-        # fix(#1746 B2b review r24): the walk stopped short and the service did
-        # not say how many features there are, so the only honest answer is
-        # that the total is unknown. `written` would be the sample size, which
-        # a preview then showed as the collection's row count and re-upload
-        # turned into a delta against the real dataset.
-        #
-        # fix(#1746 B2b review r28): `truncated` rather than
-        # `written >= feature_limit`. The latter is also true of a collection
-        # that holds exactly the sample size and ended, which is a complete
-        # read: its total is known, and it is `written`.
-        #
-        # fix(#1770 round 42): `is not False` rather than truthy, now that
-        # `truncated` is tri-state. `True` (stopped short, unambiguous) and
-        # `None` (the page proved neither way) both mean the same thing
-        # here: nothing here can name the total, so it stays unknown. Only
-        # `False` -- the page itself proved there is nothing left -- lets
-        # `written` stand in for it below.
+        # fix(#1770 round 42): `is not False`. The walk stopped short (`True`)
+        # or the page proved neither (`None`), and neither can name the total,
+        # so it stays unknown rather than reporting the sample size.
         total: int | None = None
     else:
         total = number_matched if number_matched is not None else written
