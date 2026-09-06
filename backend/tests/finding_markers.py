@@ -201,8 +201,8 @@ def scan_tree(app_root: Path = APP_ROOT) -> tuple[list[Hit], int, int]:
 
 
 # Floors, so a collapsed glob or a moved APP_ROOT fails loudly instead of
-# reporting zero findings and passing (#1552). `main` carries 429 modules and
-# 9593 units.
+# reporting zero findings and passing (#1552). `main` carries 431 modules and
+# 9602 units.
 MIN_SCANNED_MODULES = 350
 MIN_SCANNED_UNITS = 7000
 
@@ -377,7 +377,7 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "processing/ai/sql_generator.py": 6,
     "processing/ai/streaming.py": 5,
     "processing/analysis/provenance.py": 2,
-    "processing/analysis/tasks.py": 3,
+    "processing/analysis/tasks.py": 2,
     "processing/embeddings/helpers.py": 3,
     "processing/embeddings/service.py": 7,
     "processing/export/router.py": 5,
@@ -395,9 +395,9 @@ UNANCHORED_MARKER_DEBT: dict[str, int] = {
     "processing/ingest/metadata_sql.py": 1,
     "processing/ingest/ogr.py": 20,
     "processing/ingest/presigned.py": 2,
-    "processing/ingest/router.py": 20,
+    "processing/ingest/router.py": 19,
     "processing/ingest/schemas.py": 1,
-    "processing/ingest/service.py": 19,
+    "processing/ingest/service.py": 20,
     "processing/ingest/tasks_common.py": 47,
     "processing/ingest/tasks_postgis_refresh.py": 2,
     "processing/ingest/tasks_raster.py": 37,
