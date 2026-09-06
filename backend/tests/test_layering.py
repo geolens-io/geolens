@@ -4006,7 +4006,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # instead, aborting the entire batch on one busy row. Most of the growth
     # is the comment stating why a set-based UPDATE cannot use `lock_timeout`
     # the way a single-row write does. Cap 2374 -> 2392, exact.
-    "backend/app/platform/jobs/sweep.py": 2392,
+    # chore(#1873): review-history comments trimmed. Cap 2392 -> 1506, exact.
+    "backend/app/platform/jobs/sweep.py": 1506,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and
@@ -4353,7 +4354,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # remaining catalog racing a successor run. Kept opaque here (the queued
     # caller passes a fenced job-row read) because this module knows records
     # and vectors, not jobs. Cap 1555 -> 1588, exact.
-    "backend/app/processing/embeddings/backfill.py": 1588,
+    # chore(#1873): review-history comments trimmed. Cap 1588 -> 922, exact.
+    "backend/app/processing/embeddings/backfill.py": 922,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The
@@ -5972,7 +5974,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ranges are whole, which is what lets a fresh build honour the leading
     # Range of a cold GDAL open without reopening the splice, on the hit path
     # too. Cap 1020 -> 1090, exact.
-    "backend/app/processing/export/artifact_cache.py": 1090,
+    # chore(#1873): review-history comments trimmed. Cap 1090 -> 616, exact.
+    "backend/app/processing/export/artifact_cache.py": 616,
     # fix(#1548 review P2): crossed the inclusion threshold. The growth is
     # assert_domain_lock_is_enforceable — the write-side precondition that
     # refuses a domain lock this deployment could never enforce, because
