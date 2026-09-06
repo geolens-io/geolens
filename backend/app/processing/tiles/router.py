@@ -1759,7 +1759,12 @@ async def _authorize_vector_tile_request(
     scope: str | None,
     user: Identity | None,
 ) -> str:
-    """Authorize direct vector-tile access and return cache scope."""
+    """Authorize direct vector-tile access and return cache scope.
+
+    A valid signature authorizes ahead of the visibility split, so it carries
+    the minter's access to an unpublished draft as the raster route does. The
+    dataset alone decides cache scope: only public + published is shared.
+    """
     embed_token_header = request.headers.get("X-Embed-Token")
     if embed_token_header:
         is_valid = await validate_embed_token_access(
@@ -1776,6 +1781,30 @@ async def _authorize_vector_tile_request(
             )
         return "private"
 
+    # The expected scope mirrors `_build_tile_token_for_dataset` --
+    # `{tid}:{table_name}` in multi_tenant to prevent cross-tenant replay,
+    # the bare table_name in single_tenant.
+    from app.core.tenancy import tenant_bound_scope
+
+    _expected_scope = (
+        tenant_bound_scope(meta.table_name) if sig and exp and scope else None
+    )
+    if (
+        sig
+        and exp
+        and scope
+        and scope == _expected_scope
+        and verify_tile_signature(scope, exp, sig)
+    ):
+        # fix(#1928): ahead of the visibility split, as on the raster route --
+        # both mint endpoints issue a signature for a draft, and a draft's
+        # bytes stay out of the shared cache on the dataset's own terms.
+        return (
+            "public"
+            if _is_publicly_cacheable(meta.visibility, meta.record_status)
+            else "private"
+        )
+
     if meta.visibility != "public":
         if not sig or not exp or not scope:
             capability_declined(
@@ -1786,12 +1815,6 @@ async def _authorize_vector_tile_request(
                     detail="Signature required for non-public tiles",
                 ),
             )
-        # The expected scope mirrors `_build_tile_token_for_dataset` --
-        # `{tid}:{table_name}` in multi_tenant to prevent cross-tenant replay,
-        # the bare table_name in single_tenant.
-        from app.core.tenancy import tenant_bound_scope
-
-        _expected_scope = tenant_bound_scope(meta.table_name)
         if scope != _expected_scope:
             capability_declined(
                 request,
@@ -1800,19 +1823,14 @@ async def _authorize_vector_tile_request(
                     status_code=status.HTTP_403_FORBIDDEN, detail="Scope mismatch"
                 ),
             )
-        if not verify_tile_signature(scope, exp, sig):
-            capability_declined(
-                request,
-                user,
-                HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Invalid or expired signature",
-                ),
-            )
-        # A valid signature authorizes a single caller for a
-        # non-public dataset, so the bytes must not be retained by a shared
-        # cache. "private" rather than "public" is what says so.
-        return "private"
+        capability_declined(
+            request,
+            user,
+            HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid or expired signature",
+            ),
+        )
 
     # fix(#1518): CAPABILITY obligation. Both capability arms above have
     # declined, so everything from here is decided by WHO is asking and a
