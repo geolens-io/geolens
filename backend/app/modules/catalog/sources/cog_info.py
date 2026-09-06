@@ -191,25 +191,14 @@ async def fetch_cog_info(url: str) -> dict | None:
     settle: under-stamping a real contact is recoverable, fabricating one
     for a never-contacted origin is not.
 
-    fix(#1927) SEC-OBSV-02: SSRF protection here is a DUAL GATE.
-    Both gates MUST be preserved when adding new callers -- bypassing either
-    is an SSRF regression:
-
-    Gate 1 (caller-side): EVERY caller of _fetch_cog_info MUST first call
-    app.platform.security.validate_url_for_ssrf(url) before
-    passing the URL here. The import-flow call at line 454 satisfies this;
-    any new caller MUST add the same pre-validation.
-
-    Gate 2 (Titiler-side): docker-compose's Titiler service sets
-    CPL_VSIL_CURL_ALLOWED_EXTENSIONS=.tif,.tiff,.cog,.vrt -- even if a
-    malicious URL slips past Gate 1, Titiler's own GDAL VSI clamp rejects
-    non-raster file extensions.
-
-    Removing Gate 1 OR loosening Gate 2 must be a deliberate audit-tracked
-    decision, not a refactor side-effect. fix(#1375) added a third request to
-    the same internal Titiler service for the same already-validated ``url``,
-    inside both gates and adding no origin this function did not already
-    reach; a caller that reached a new origin would need its own Gate 1.
+    SEC-OBSV-02: SSRF protection is a dual gate and both halves must hold for
+    every caller. Gate 1 is caller-side: validate the URL with
+    ``app.platform.security.validate_url_for_ssrf`` before calling this
+    function. Gate 2 is Titiler-side: the service sets
+    ``CPL_VSIL_CURL_ALLOWED_EXTENSIONS``, so its own GDAL VSI clamp rejects a
+    non-raster extension even for a URL that slipped past Gate 1. Removing
+    Gate 1 or loosening Gate 2 is an SSRF regression, not a refactor
+    side-effect. Recorded in #1927.
     """
     try:
         async with httpx.AsyncClient(
