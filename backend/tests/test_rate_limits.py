@@ -2,7 +2,7 @@
 
 Phase 1062 Plan 02: per-route @limiter.limit decorators on:
   - /search/datasets/   (SEC-S11, caps OpenAI embedding cost-DoS)
-  - /search/facets/     (SEC-S11, same embedding cache code path)
+  - /search/facets/     (SEC-S11, one bucket shared with /search/datasets/)
   - /datasets/{id}/related/  (SEC-S11, same embedding cost surface)
   - /settings/basemaps/      (SEC-S10, caps commercial-tier basemap key replay)
 
@@ -118,19 +118,14 @@ async def test_semantic_search_rate_limit_returns_429(client: AsyncClient):
         _reset_limiter_storage()
 
 
-async def test_search_facets_not_rate_limited(client: AsyncClient):
-    """GET /search/facets/ is NOT rate-limited — negative-control regression pin.
+async def test_search_facets_rate_limited(client: AsyncClient):
+    """GET /search/facets/?q=<unique-N> returns 429 after threshold is exceeded.
 
-    WR-02 (Phase 1062-review): the @limiter.limit(_semantic_search_rate_limit)
-    decorator was intentionally removed from /search/facets/ because the
-    endpoint performs pure SQL aggregation and never invokes the embedding
-    model. Throttling at 30/min (SEC-S11) incorrectly restricted normal SPA
-    users who refresh the search UI more than 30 times per minute.
-
-    This test verifies that even with the limiter enabled at a low threshold,
-    /search/facets/ never returns 429.
+    fix(#1855): facets embed the query to count over the same candidate set as
+    /search/datasets/, so an unlimited /search/facets/ would be a way around
+    the SEC-S11 embedding-cost cap. The endpoint carries the same limit.
     """
-    _set_cache_limit("semantic_search_rate_limit", 3)
+    _set_cache_limit("semantic_search_rate_limit", 5)
     limiter.enabled = True
     _reset_limiter_storage()
 
@@ -138,14 +133,49 @@ async def test_search_facets_not_rate_limited(client: AsyncClient):
         statuses = []
         for i in range(7):
             resp = await client.get(
-                f"/search/facets/?q=sec-facets-norlimit-{uuid.uuid4().hex}"
+                f"/search/facets/?q=sec-facets-ratelimit-{uuid.uuid4().hex}"
             )
             statuses.append(resp.status_code)
 
         rate_limited = [s for s in statuses if s == 429]
-        assert len(rate_limited) == 0, (
-            f"/search/facets/ must not be rate-limited (WR-02 Phase 1062-review). "
-            f"Got 429 responses: {rate_limited}. All statuses: {statuses}"
+        assert len(rate_limited) >= 2, (
+            f"Expected >= 2 rate-limited responses with threshold=5/7 requests, "
+            f"got {len(rate_limited)}. Statuses: {statuses}"
+        )
+    finally:
+        limiter.enabled = False
+        _clear_cache_limit("semantic_search_rate_limit")
+        _reset_limiter_storage()
+
+
+@pytest.mark.parametrize("first", ["/search/datasets/", "/search/facets/"])
+async def test_search_datasets_and_facets_share_one_bucket(
+    client: AsyncClient, first: str
+):
+    """Alternating the two search routes cannot embed twice the advertised cap.
+
+    fix(#1855): both routes embed a novel ``q``, and slowapi scopes a plain
+    ``@limiter.limit`` to the handler, so two buckets let a caller alternate
+    them for 2x the limit. With one shared bucket the (limit + 1)th call is a
+    429 whichever route it lands on, and the same 429 starting from either.
+    """
+    routes = ["/search/datasets/", "/search/facets/"]
+    if first != routes[0]:
+        routes.reverse()
+    _set_cache_limit("semantic_search_rate_limit", 5)
+    limiter.enabled = True
+    _reset_limiter_storage()
+
+    try:
+        statuses = []
+        for i in range(6):
+            resp = await client.get(
+                f"{routes[i % 2]}?q=sec-shared-bucket-{uuid.uuid4().hex}"
+            )
+            statuses.append(resp.status_code)
+        assert statuses == [200] * 5 + [429], (
+            f"one shared 5/min bucket must 429 the sixth call across both routes "
+            f"(starting from {first}); got {statuses}"
         )
     finally:
         limiter.enabled = False

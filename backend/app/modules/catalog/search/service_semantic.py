@@ -6,14 +6,16 @@ import asyncio
 import time
 import uuid as uuid_mod
 from collections import OrderedDict
+from dataclasses import dataclass
 
 import structlog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlalchemy.sql.elements import Label
+from sqlalchemy.sql.elements import ColumnElement, Label
 from sqlalchemy.sql.selectable import Select
 
+from app.core.persistent_config import SEMANTIC_SEARCH_ENABLED
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.search.service_filters import SearchFilters
@@ -44,10 +46,13 @@ EmbeddingUnavailableError = get_catalog_port().embedding_unavailable_error_class
 _EMBEDDING_CACHE_TTL_SECONDS = 300.0
 _EMBEDDING_CACHE_MAX_SIZE = 512
 
-# fix(#448): above this many stored embeddings, _run_rrf_merge stops running
-# the exact vector-only match COUNT (a full cosine scan) and approximates
-# from the already-fetched top-k ranks instead.
+# fix(#448): above this many stored embeddings the exact vector arm (a full
+# cosine scan) gives way to a nearest-first window.
 _EXACT_SEMANTIC_COUNT_MAX_ROWS = 5000
+
+# fix(#1855): above the row gate results and facets take the same window, so
+# a first page of any size agrees with the facet counts.
+_APPROXIMATE_CANDIDATE_WINDOW = 200
 
 # fix(#625): search-as-you-type spent one paid embedding call per keystroke
 # prefix ("u", "us", "usa"), each missing the 0.7 cutoff and falling back to FTS
@@ -87,11 +92,9 @@ def _embedding_cache_clear() -> None:
     _embedding_cache.clear()
 
 
-# fix(#448): this module embeds INSIDE a search request. The provider default
-# timeout (130s) is sized for background ingest/backfill; a hung embedding
-# provider must not hold a search request when _get_vector_ranks silently
-# falls back to FTS on any error. asyncio.wait_for (rather than a port
-# signature change) keeps enterprise CatalogPort overlays source-compatible.
+# fix(#448): the provider default timeout (130s) is sized for backfill; a hung
+# provider must not hold a search request, and resolve_semantic_arm degrades to
+# FTS on any error. wait_for keeps CatalogPort overlays source-compatible.
 _QUERY_EMBED_TIMEOUT_SECONDS = 8.0
 
 
@@ -189,110 +192,127 @@ async def _attach_updated_actor_identities(
         setattr(record, "_provenance_updated_user", users_by_id.get(actor_id))
 
 
-async def _get_vector_ranks(
-    session: AsyncSession,
-    query_text: str,
-    limit: int,
-    restrict_stmt: Select | None = None,
-) -> tuple[dict[str, int], list[float] | None, tuple[str, str] | None]:
-    """Run vector similarity search.
+@dataclass(frozen=True, slots=True)
+class SemanticArm:
+    """The vector arm of a query's candidate set, resolved once per request.
 
-    ``restrict_stmt`` is a ``select(Record.id)`` carrying the active visibility +
-    search filters; when provided, the cosine top-k is computed ONLY over records
-    in that set, so a nearer but non-visible / filtered-out embedding cannot crowd
-    a valid match out of the top ``limit`` rows.
-
-    Returns ``({record_id_hex: rank}, query_vector, identity)``. The query vector is
-    returned so the caller can run an accurate total-match COUNT (which the
-    ``limit``-bounded ranks cannot provide); fix(#1546) added the identity for the
-    same reason, so that COUNT filters on the configuration these ranks were taken
-    under. Returns ``({}, None, None)`` on any failure (silent fallback).
+    ``ordered_ids`` are the nearest-first vetted record ids within the cosine
+    cutoff: every one of them below the row gate (``exact``), the nearest
+    ``window`` above it. One scan per request; the clause is a list of ids, so
+    the statements it lands in never touch the embeddings table.
     """
-    # Check if any embeddings exist at all
-    if not await get_catalog_port().has_embeddings(session):
-        return {}, None, None
 
-    # Generate query embedding
+    query_vector: list[float]
+    model_name: str
+    config_fingerprint: str
+    ordered_ids: tuple[str, ...]
+    window: int
+    exact: bool
+
+    @property
+    def window_full(self) -> bool:
+        return len(self.ordered_ids) >= self.window
+
+    def ranks(self, depth: int) -> dict[str, int]:
+        """Positional (1-based) ranks of the nearest ``depth`` ids."""
+        return {rid: rank + 1 for rank, rid in enumerate(self.ordered_ids[:depth])}
+
+    def clause(self) -> ColumnElement[bool]:
+        """Record.id predicate for the vector arm; the caller applies vetting."""
+        return Record.id.in_([uuid_mod.UUID(rid) for rid in self.ordered_ids])
+
+
+async def resolve_semantic_arm(
+    session: AsyncSession,
+    filters: SearchFilters,
+    vet_stmt: Select,
+    *,
+    depth: int,
+) -> SemanticArm | None:
+    """Decide whether a query runs in semantic mode and resolve its vector arm.
+
+    Returns None (lexical mode) when semantic search is off, the query is
+    shorter than ``_MIN_SEMANTIC_QUERY_LEN``, no embeddings exist, the
+    configuration cannot be resolved, embedding or the vector query fails, or
+    no row of ``vet_stmt`` (a ``select(Record.id)``) is within the cosine
+    cutoff. ``depth`` is how many nearest ids the caller needs, at least 1;
+    below the row gate every match is fetched regardless.
+    """
+    query_text = (filters.q or "").strip()
+    if len(query_text) < _MIN_SEMANTIC_QUERY_LEN:
+        return None
+    if not await SEMANTIC_SEARCH_ENABLED.get(session):
+        return None
+    if not await get_catalog_port().has_embeddings(session):
+        return None
+
     try:
-        # fix(#1546): the query vector and the row filter must come from ONE
-        # reading of the configuration. Resolved once, here, below the
-        # has_embeddings gate so a catalog with no vectors does not pay for it,
-        # and handed back to the caller so a settings change landing mid-request
-        # cannot rank under one configuration and count under another.
-        #
-        # fix(#1546 review r1, codex P2): INSIDE this guard, not above it.
-        # Resolving reads persistent config, which can raise on a cache miss or
-        # a transient database failure, and above the guard that raise escaped
-        # the whole search request. Model resolution used to happen inside
-        # `generate_embedding`, where it degraded to FTS like every other
-        # failure on this path; hoisting it silently made it fatal. Same
-        # failure, same degradation.
+        # fix(#1546): the query vector and the row filter come from ONE reading
+        # of the configuration, resolved under the fallback guard.
         config = await get_catalog_port().resolve_embedding_config(session)
         if config is None:
             logger.warning(
                 "Embedding configuration unresolved for semantic search, "
                 "falling back to FTS"
             )
-            return {}, None, None
-        query_vector = await generate_embedding(
-            query_text.strip(), session, config=config
-        )
+            return None
+        query_vector = await generate_embedding(query_text, session, config=config)
     except EmbeddingUnavailableError:
         logger.warning("Embedding unavailable for semantic search, falling back to FTS")
-        return {}, None, None
+        return None
     except Exception:  # broad: third-party embedding SDK can throw provider-specific errors; fall back to FTS
         logger.warning(
             "Failed to generate query embedding, falling back to FTS", exc_info=True
         )
-        return {}, None, None
+        return None
 
     model_name, _dimensions, _base_url, config_fingerprint = config
-    identity = (model_name, config_fingerprint)
-
+    RecordEmbedding = get_catalog_port().record_embedding_orm_class()
+    usable = RecordEmbedding.usable_by_config(model_name, config_fingerprint)
     try:
-        # Tune HNSW recall -- default ef_search=40 may miss relevant results
-        await get_catalog_port().set_hnsw_recall(session)
-        RecordEmbedding = get_catalog_port().record_embedding_orm_class()
-
-        # Vector similarity query: cosine distance <= 0.7 means similarity >= 0.3
-        # fix(#1546): scoped to rows the live configuration can be compared
-        # against, not merely to rows carrying its model name. A model served
-        # from two endpoints is two vector spaces under one label, and cosine
-        # distance across them comes back well-formed and meaningless. Rows from
-        # another configuration are now invisible rather than wrong;
-        # `usable_by_config` is where an unstamped legacy row keeps the old
-        # model-name-only guarantee.
-        vector_stmt = select(
-            RecordEmbedding.record_id,
-            RecordEmbedding.embedding.cosine_distance(query_vector).label("distance"),
-        ).where(
-            RecordEmbedding.usable_by_config(model_name, config_fingerprint),
-            RecordEmbedding.embedding.cosine_distance(query_vector) <= 0.7,
-        )
-        if restrict_stmt is not None:
-            # Restrict candidates to the visibility/filter-vetted record set BEFORE
-            # the top-k cut, so private/filtered nearer neighbours can't displace a
-            # valid visible match out of the limit.
-            vector_stmt = vector_stmt.where(
-                RecordEmbedding.record_id.in_(restrict_stmt)
+        # fix(#448): the row gate is measured under the same predicate the
+        # ranks and counts use, so foreign-configuration rows cannot trip it.
+        emb_rows = (
+            await session.execute(
+                select(func.count())
+                .select_from(RecordEmbedding)
+                .join(Record, RecordEmbedding.record_id == Record.id)
+                .where(usable)
             )
-        vector_stmt = vector_stmt.order_by("distance").limit(limit)
-
-        result = await session.execute(vector_stmt)
-        rows = result.all()
-    except Exception:  # broad: pgvector/HNSW failures are diverse — degrade to FTS rather than 500 the search
-        # pgvector extension missing, HNSW SET error, or DB execute failure --
-        # honor the docstring contract and degrade to FTS-only
+        ).scalar_one()
+        exact = emb_rows <= _EXACT_SEMANTIC_COUNT_MAX_ROWS
+        window = depth if exact else max(depth, _APPROXIMATE_CANDIDATE_WINDOW)
+        await get_catalog_port().set_hnsw_recall(session)
+        distance = RecordEmbedding.embedding.cosine_distance(query_vector)
+        # Restricting to the vetted set BEFORE the top-k cut keeps a nearer
+        # private or filtered-out row from displacing a valid match.
+        vector_stmt = (
+            select(RecordEmbedding.record_id)
+            .where(usable, distance <= 0.7, RecordEmbedding.record_id.in_(vet_stmt))
+            .order_by(distance)
+        )
+        # Exact: every match, bounded by the row gate. The one scan per request.
+        if not exact:
+            vector_stmt = vector_stmt.limit(window)
+        rows = (await session.execute(vector_stmt)).all()
+    except Exception:  # broad: pgvector/HNSW failures are diverse; degrade to FTS rather than 500 the search
         logger.warning(
             "Vector similarity query failed, falling back to FTS", exc_info=True
         )
-        return {}, None, None
-
-    # Assign positional ranks (1-based)
-    return (
-        {str(row.record_id): rank + 1 for rank, row in enumerate(rows)},
-        query_vector,
-        identity,
+        return None
+    if not rows:
+        logger.info(
+            "rrf_fallback_to_fts",
+            extra={"reason": "empty_vector_ranks", "q_prefix": query_text[:50]},
+        )
+        return None
+    return SemanticArm(
+        query_vector=query_vector,
+        model_name=model_name,
+        config_fingerprint=config_fingerprint,
+        ordered_ids=tuple(str(row.record_id) for row in rows),
+        window=window,
+        exact=exact,
     )
 
 
@@ -325,60 +345,19 @@ async def _run_rrf_merge(
     stmt: Select,
     rank_col: Label[float],
     total: int,
-    vet_stmt: Select,
-) -> tuple[list[Dataset], int] | None:
-    """Execute hybrid FTS+vector RRF merge and return paginated results.
+    semantic: SemanticArm,
+) -> tuple[list[Dataset], int]:
+    """Merge FTS ranks with the vector arm through RRF and return one page.
 
-    Surfaces vector-only matches (records that are semantically similar but do
-    not lexically match the FTS query) IN ADDITION to re-ranking FTS hits. Since
-    ``_get_vector_ranks`` applies neither RBAC visibility nor the active search
-    filters, ``vet_stmt`` (a ``select(Record.id)`` with the same visibility +
-    bbox/geometry_type/srid/keywords/date/CQL filters as the FTS query, minus the
-    text clause) is passed as the vector query's ``restrict_stmt`` so the cosine
-    top-k is taken only over records the caller may see that satisfy every active
-    filter. This prevents leaking private/restricted datasets, returning records
-    that violate an active filter (e.g. a polygon under ``geometry_type=Point``),
-    AND a nearer non-visible neighbour displacing a valid match out of the top-k.
-
-    Returns ``None`` when RRF doesn't apply (vector backend empty/failed, or the
-    query is shorter than ``_MIN_SEMANTIC_QUERY_LEN``). Caller falls through to
-    the standard sort path on None.
-
-    Returns ``([], total)`` rather than ``None`` when the FTS-cap query
-    yields zero ids -- caller returns that tuple as-is. Preserved from
-    pre-refactor behavior; do not change to ``None`` (would alter
-    observable behavior by falling through to the standard sort path).
+    ``stmt`` is the vetted FTS statement (text clause only) and ``total`` the
+    count over the shared candidate set. Above the row gate a full vector
+    window reports one more than was counted so the router keeps emitting the
+    ``next`` link; a non-full window is the exact tail.
     """
-    if filters.q is None:
-        raise ValueError("_run_rrf_merge requires filters.q to be non-None")
-    q_stripped = filters.q.strip()
-    if len(q_stripped) < _MIN_SEMANTIC_QUERY_LEN:
-        return None
-    # The RRF-ordered list is sliced [skip:skip+limit], so both candidate pools must
-    # reach at least skip+limit deep or a later page comes back empty.
     page_end = filters.skip + filters.limit
-    # Vector similarity ranks, restricted to the visibility/filter-vetted set so the
-    # cosine top-k contains only records the caller may see that satisfy every active
-    # filter (empty dict on any failure = FTS-only). The query vector is returned for
-    # the total-match count below, and fix(#1546) the embedding configuration those
-    # ranks were taken under, so the counts filter on the same one rather than
-    # resolving it a second time and possibly counting rows they did not rank.
-    vector_ranks, query_vector, identity = await _get_vector_ranks(
-        session, q_stripped, page_end, restrict_stmt=vet_stmt
-    )
+    vector_ranks = semantic.ranks(page_end)
 
-    if not vector_ranks or identity is None:
-        logger.info(
-            "rrf_fallback_to_fts",
-            extra={"reason": "empty_vector_ranks", "q_prefix": q_stripped[:50]},
-        )
-        return None
-
-    # Get FTS-ranked record IDs (up to a reasonable cap for merging).
-    # Strip the inherited eager-loads -- only record_id is needed at
-    # this stage, so 4 wasted selectinload queries per request are
-    # avoided (PERF-8). Cap must cover the requested page end (skip+limit) so
-    # offset pages aren't truncated, plus headroom for RRF re-ranking.
+    # FTS-ranked ids, deep enough to cover the requested page plus RRF headroom.
     fts_cap = max(page_end * 3, 100)
     fts_stmt = (
         stmt.with_only_columns(Dataset.record_id)
@@ -388,76 +367,13 @@ async def _run_rrf_merge(
     fts_result = await session.execute(fts_stmt)
     fts_ids = [str(row[0]) for row in fts_result.all()]
 
-    # RRF over FTS results UNION the (already vetted) vector matches. vector_ranks
-    # is pre-filtered for visibility + every active filter via restrict_stmt, so it
-    # can be unioned directly. (Only the top page_end ranks are fetched -- enough to
-    # fill the requested page; the accurate match total is computed separately.)
-    #
-    # numberMatched must count ALL semantic matches, not just the page_end window, or
-    # a semantic-only search drops its `next` link (offset+limit >= total) while later
-    # pages still have results. Count vetted vector matches that are NOT also FTS
-    # matches (those are already in `total`) via a single COUNT -- record_embeddings
-    # holds one row per record, so this scans the catalog, not feature rows.
-    fts_match_subq = (
-        select(Record.id)
-        .select_from(Dataset)
-        .join(Record, Dataset.record_id == Record.id)
-        .where(stmt.whereclause)
-    )
-    model_name, config_fingerprint = identity
-    RecordEmbedding = get_catalog_port().record_embedding_orm_class()
-    # fix(#448): the exact COUNT below re-computes cosine distance against
-    # EVERY stored embedding — a second full O(N)·dims vector scan per search
-    # that no ANN index can serve (aggregate over a distance predicate).
-    # Exact and cheap at today's catalog size; past the row gate, approximate
-    # the vector-only surplus from the vetted top-k ranks already in hand.
-    # numberMatched becomes a lower bound (may under-report distant tail
-    # matches); a full-window sentinel below keeps `next` links alive.
-    # fix(#1546): both counts below use the same predicate the ranks were taken
-    # under. The row gate decides whether the exact count is affordable, so
-    # counting rows the ranking cannot see would push a catalog over the gate on
-    # the strength of vectors no search will ever return.
-    emb_rows = (
-        await session.execute(
-            select(func.count())
-            .select_from(RecordEmbedding)
-            .join(Record, RecordEmbedding.record_id == Record.id)
-            .where(RecordEmbedding.usable_by_config(model_name, config_fingerprint))
-        )
-    ).scalar_one()
-    if emb_rows <= _EXACT_SEMANTIC_COUNT_MAX_ROWS:
-        new_count_stmt = (
-            select(func.count())
-            .select_from(RecordEmbedding)
-            .where(
-                RecordEmbedding.usable_by_config(model_name, config_fingerprint),
-                RecordEmbedding.embedding.cosine_distance(query_vector) <= 0.7,
-                RecordEmbedding.record_id.in_(vet_stmt),
-                RecordEmbedding.record_id.notin_(fts_match_subq),
-            )
-        )
-        total += (await session.execute(new_count_stmt)).scalar_one()
-    else:
-        fts_id_set = set(fts_ids)
-        vector_only = sum(1 for rid in vector_ranks if rid not in fts_id_set)
-        # fix(#448, codex P2): a FULL top-k window means deeper matches may
-        # exist beyond what was fetched, but reporting exactly page_end as the
-        # total makes the router's `offset + limit < total` check suppress the
-        # rel="next" link on a semantic-only page. Report one past the window
-        # so paging continues; each deeper page fetches a deeper window until
-        # a non-full window yields the exact tail. Worst case the final next
-        # link lands on one empty page — acceptable for an approximation.
-        if len(vector_ranks) >= page_end:
-            vector_only += 1
-        total += vector_only
+    if not semantic.exact and semantic.window_full:
+        total += 1
 
     rrf_ordered = _compute_rrf_scores(fts_ids, vector_ranks)
-
-    # Apply pagination to RRF-ordered list
-    page_ids = rrf_ordered[filters.skip : filters.skip + filters.limit]
+    page_ids = rrf_ordered[filters.skip : page_end]
 
     if page_ids:
-        # Fetch full Dataset objects for the final page
         fetch_stmt = (
             select(Dataset)
             .join(Record, Dataset.record_id == Record.id)

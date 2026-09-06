@@ -613,10 +613,10 @@ async def test_semantic_vector_only_does_not_leak_private(
 ):
     """A PRIVATE vector-only match must never surface to an anonymous caller.
 
-    The vector query (_get_vector_ranks) is not visibility-filtered, so the RRF
-    union must run vector-only candidates through apply_visibility_filter. A
-    private record with a near-perfect embedding match + a non-lexical title is
-    the exact leak this guards against.
+    The vector window is taken over the vetted set (apply_visibility_filter)
+    before the top-k cut, and the candidate clause is applied under the same
+    filter. A private record with a near-perfect embedding match and a
+    non-lexical title is the exact leak this guards against.
     """
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
@@ -884,6 +884,12 @@ async def test_semantic_approximate_count_keeps_next_link(
             # Force the approximate branch (as if the catalog held >5000 embeddings).
             patch(
                 "app.modules.catalog.search.service_semantic._EXACT_SEMANTIC_COUNT_MAX_ROWS",
+                0,
+            ),
+            # fix(#1855): the shared window floor would hold all five matches;
+            # drop it so the window is the page and the sentinel is exercised.
+            patch(
+                "app.modules.catalog.search.service_semantic._APPROXIMATE_CANDIDATE_WINDOW",
                 0,
             ),
         ):

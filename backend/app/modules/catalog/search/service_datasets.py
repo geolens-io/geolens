@@ -4,40 +4,36 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from sqlalchemy import Select, and_, case, collate, func, literal, or_, select, text
+from typing import Any
+
+from sqlalchemy import Select, case, collate, func, literal, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement, Label
 
 from app.core.identity import Identity
-from app.core.persistent_config import SEMANTIC_SEARCH_ENABLED
-from app.modules.catalog.authorization import apply_visibility_filter
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
-    DatasetGrant,
     Record,
     RecordTranslation,
 )
-from app.modules.catalog.search.service_filters import (
-    SearchFilters,
-    _apply_common_filters,
-    _build_text_filter,
+from app.modules.catalog.search.service_candidates import (
+    select_candidates,
+    vetting_filters,
 )
+from app.modules.catalog.search.service_filters import SearchFilters
 from app.modules.catalog.search.service_semantic import (
     _attach_updated_actor_identities,
     _run_rrf_merge,
 )
 
 
-def _build_fts_rank_col(
-    filters: SearchFilters,
-) -> tuple[ColumnElement[bool], Label[float]]:
-    """Build the FTS composite rank column + matching WHERE clause.
+def _build_fts_rank_col(parts: dict[str, Any]) -> Label[float]:
+    """Build the FTS composite rank column from ``_build_text_filter`` parts.
 
-    Returns ``(text_clause, rank_col)``. Caller should attach both to the
-    base SELECT via ``.add_columns(rank_col).where(text_clause)``.
+    The caller attaches it next to the text clause the parts came from via
+    ``.add_columns(rank_col).where(text_clause)``.
     """
-    text_clause, parts = _build_text_filter(filters.q)
     ts_query = parts["ts_query"]
     ts_query_simple = parts["ts_query_simple"]
     vector_match = parts["english_vector_match"]
@@ -81,54 +77,7 @@ def _build_fts_rank_col(
         + case((translation_exists, literal(0.3)), else_=literal(0.0))
         + case((translation_partial_exists, literal(0.2)), else_=literal(0.0))
     ).label("rank")
-    return text_clause, rank_col
-
-
-def _apply_search_only_filters(stmt: Select, filters: SearchFilters) -> Select:
-    """Apply filters that belong to /search but NOT to /facets.
-
-    Handles record_type, date_from, date_to, vintage_start, vintage_end,
-    and cql2_filter. Spatial / keyword / org / srid filters are already
-    applied via _apply_common_filters and stay shared.
-    """
-    if filters.record_type:
-        stmt = stmt.where(Record.record_type == filters.record_type)
-    if filters.record_ids is not None:
-        # ``in_`` deliberately receives an empty tuple when a standards type
-        # filter excludes every resource type emitted by this collection;
-        # SQLAlchemy renders a portable false predicate and the response stays
-        # a normal empty FeatureCollection.
-        stmt = stmt.where(Dataset.id.in_(filters.record_ids))
-    if filters.external_ids is not None:
-        # OGC ``externalIds`` identifies the described resource in its source
-        # system; it is distinct from the server-assigned record UUID.  Remote
-        # STAC imports retain the canonical source Item ID in
-        # ``source_filename``. Service imports may store a friendly layer title
-        # there, so WFS/ArcGIS/OAPIF are intentionally excluded until their
-        # canonical layer identifier is persisted on Dataset. Source URLs are
-        # not identifiers because they may contain non-public connection data.
-        remote_formats = ("stac",)
-        stmt = stmt.where(
-            and_(
-                Dataset.source_format.in_(remote_formats),
-                Dataset.source_filename.in_(filters.external_ids),
-            )
-        )
-    if filters.date_from:
-        stmt = stmt.where(Record.created_at >= filters.date_from)
-    if filters.date_to:
-        stmt = stmt.where(Record.created_at <= filters.date_to)
-    if filters.vintage_start:
-        stmt = stmt.where(Record.temporal_start >= filters.vintage_start)
-    if filters.vintage_end:
-        stmt = stmt.where(Record.temporal_end <= filters.vintage_end)
-
-    # CQL2 structured filter (applied AFTER visibility + facets)
-    if filters.cql2_filter:
-        from app.standards.ogc.filtering import apply_cql2_filter
-
-        stmt = apply_cql2_filter(stmt, filters.cql2_filter, filters.cql2_filter_lang)
-    return stmt
+    return rank_col
 
 
 def _resolve_sort_order(
@@ -277,16 +226,29 @@ async def search_datasets(
 ) -> tuple[list[Dataset], int]:
     """Search datasets with combined FTS + spatial + faceted filtering.
 
-    When SEMANTIC_SEARCH_ENABLED is on and a text query is provided,
-    automatically augments FTS results with vector similarity via
-    Reciprocal Rank Fusion (k=60).
+    The candidate set (and so ``total``) comes from ``select_candidates``, the
+    same selection /search/facets/ counts over. In semantic mode the page is
+    the RRF merge of FTS ranks and the vector arm.
 
     Returns a tuple of (matching_datasets, total_count).
     """
-    has_text_search = False
+    candidates = await select_candidates(
+        session,
+        select(func.count())
+        .select_from(Dataset)
+        .join(Record, Dataset.record_id == Record.id),
+        user,
+        user_roles,
+        filters,
+        search_only=True,
+        depth=filters.skip + filters.limit,
+    )
+    total = (await session.execute(candidates.stmt)).scalar_one()
+
+    has_text_search = candidates.text_clause is not None
     rank_col = None
     # Base query always joins Record with eager-loaded keywords/contacts/distributions
-    base_join = (
+    stmt = (
         select(Dataset)
         .join(Record, Dataset.record_id == Record.id)
         .options(
@@ -296,58 +258,18 @@ async def search_datasets(
             selectinload(Dataset.record).selectinload(Record.translations),
         )
     )
-    # 1. Full-text search (search_vector now on Record + child-table EXISTS)
-    if filters.q and filters.q.strip():
-        text_clause, rank_col = _build_fts_rank_col(filters)
-        stmt = base_join.add_columns(rank_col).where(text_clause)
-        has_text_search = True
-    else:
-        stmt = base_join
-    # 2. RBAC visibility filter (uses Record.visibility/created_by)
-    stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
-    # 3. Shared filters (spatial, keywords, geometry_type, srid, org, datetime, etc.)
-    # skip_text=True because text search is already applied above with ranking
-    stmt = _apply_common_filters(stmt, filters, skip_text=True)
-    # 4. Search-only filters (not applied to facet counts)
-    stmt = _apply_search_only_filters(stmt, filters)
-    # 5. Count total matches -- lightweight query without eager loads or ORDER BY.
-    # Re-apply the same WHERE clauses from stmt (stored on the compiled whereclause).
-    count_base = (
-        select(func.count())
-        .select_from(Dataset)
-        .join(Record, Dataset.record_id == Record.id)
-    )
-    if stmt.whereclause is not None:
-        count_base = count_base.where(stmt.whereclause)
-    total = (await session.execute(count_base)).scalar_one()
-    # -- Hybrid semantic search with RRF --
-    semantic_enabled = await SEMANTIC_SEARCH_ENABLED.get(session)
-    if semantic_enabled and has_text_search and filters.q and filters.q.strip():
-        # Vetting query for semantic vector-only candidates: identical visibility +
-        # common + search-only filters as the FTS `stmt`, but WITHOUT the text
-        # clause (vector-only hits match by meaning, not lexically). _run_rrf_merge
-        # constrains it to the candidate ids so a surfaced vector-only match
-        # satisfies every active filter (visibility, bbox, geometry_type, srid,
-        # keywords, dates, CQL) -- never leaking or violating a filter.
-        vet_stmt = (
-            select(Record.id)
-            .select_from(Dataset)
-            .join(Record, Dataset.record_id == Record.id)
+    if has_text_search:
+        rank_col = _build_fts_rank_col(candidates.text_parts)
+        stmt = stmt.add_columns(rank_col).where(candidates.text_clause)
+    stmt = vetting_filters(stmt, user, user_roles, filters, search_only=True)
+
+    if candidates.semantic is not None:
+        return await _run_rrf_merge(
+            session, filters, stmt, rank_col, total, candidates.semantic
         )
-        vet_stmt = apply_visibility_filter(
-            vet_stmt, user, user_roles, Record, DatasetGrant
-        )
-        vet_stmt = _apply_common_filters(vet_stmt, filters, skip_text=True)
-        vet_stmt = _apply_search_only_filters(vet_stmt, filters)
-        if rrf_result := await _run_rrf_merge(
-            session, filters, stmt, rank_col, total, vet_stmt
-        ):
-            return rrf_result
-    # 6. Sort (standard FTS-only path or semantic=False)
     stmt = _resolve_sort_order(
         stmt, filters, has_text_search, rank_col, preferred_languages
     )
-    # 7. Paginate + execute
     stmt = stmt.offset(filters.skip).limit(filters.limit)
     result = await session.execute(stmt)
     if has_text_search:
