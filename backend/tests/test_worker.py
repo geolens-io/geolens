@@ -421,20 +421,11 @@ async def test_main_uses_default_shutdown_timeout():
 
 
 @pytest.mark.asyncio
-async def test_main_warns_when_worker_queues_lacks_the_header_auth_queue():
-    """fix(#1770 round 36): the cheap runtime backstop for a config surface
-    no structural test reaches — the Helm chart's ``worker.extraEnv``.
-
-    A queue this worker never joins produces no Procrastinate failure at
-    all (fetch_job simply never selects a row on it), so this warning is
-    the only signal an operator who has overridden WORKER_QUEUES without
-    the new queue name ever gets.
-    """
+async def test_main_warns_when_worker_queues_lacks_the_drain_queue():
     import structlog
 
     from app.platform.jobs import worker as worker_module
     from app.platform.jobs.worker import main
-    from app.platform.service_auth import HEADER_AUTH_JOB_QUEUE
 
     mock_task_app = MagicMock()
     mock_open = AsyncMock()
@@ -454,25 +445,22 @@ async def test_main_warns_when_worker_queues_lacks_the_header_auth_queue():
         ),
         patch("app.platform.jobs.worker.run_health_server", new_callable=AsyncMock),
         patch("app.processing.ingest.tasks.task_app", mock_task_app),
-        # The pre-round-35 three-queue value: exactly what an unmodified
-        # WORKER_QUEUES override (Compose or the chart's worker.extraEnv)
-        # still carries.
         patch.object(worker_module.settings, "worker_queues", "priority,ingest,raster"),
         structlog.testing.capture_logs() as captured,
     ):
         await main()
 
     warnings = [
-        e for e in captured if e.get("event") == "worker_queue_missing_header_auth"
+        e for e in captured if e.get("event") == "worker_queue_missing_drain_queue"
     ]
     assert len(warnings) == 1
-    assert warnings[0]["missing_queue"] == HEADER_AUTH_JOB_QUEUE
+    assert warnings[0]["missing_queue"] == "ingest-auth-v2"
     assert warnings[0]["configured_queues"] == ["priority", "ingest", "raster"]
     assert warnings[0]["log_level"] == "warning"
 
 
 @pytest.mark.asyncio
-async def test_main_does_not_warn_when_worker_queues_includes_the_header_auth_queue():
+async def test_main_does_not_warn_when_worker_queues_lists_the_drain_queue():
     import structlog
 
     from app.platform.jobs import worker as worker_module
@@ -499,14 +487,14 @@ async def test_main_does_not_warn_when_worker_queues_includes_the_header_auth_qu
         patch.object(
             worker_module.settings,
             "worker_queues",
-            "priority,ingest,ingest-auth-v2,raster",
+            "priority,ingest,raster,ingest-auth-v2",
         ),
         structlog.testing.capture_logs() as captured,
     ):
         await main()
 
     warnings = [
-        e for e in captured if e.get("event") == "worker_queue_missing_header_auth"
+        e for e in captured if e.get("event") == "worker_queue_missing_drain_queue"
     ]
     assert warnings == []
 

@@ -2822,23 +2822,29 @@ Re-pin the previous `GEOLENS_VERSION` in `.env`, restore that dump with
 `scripts/restore.sh` (§2), and bring the stack up. `alembic downgrade` is not a
 supported rollback; see §7 for why.
 
-### Rolling back a release that shipped the header-auth job queue
+### Upgrading past the header-auth job queue (v1.18.2)
 
-fix(#1770 round 48): a release note in this window can say a WFS or OGC API
-Features import now carries a Basic or named-header credential across the job
-queue, on a dedicated queue named `ingest-auth-v2`
-(`app.platform.service_auth.HEADER_AUTH_JOB_QUEUE`). A worker from the release
-*before* that one has no code that reads a job off that queue at all, so
-rolling the API and worker back to that release — following the recipe above
-— leaves any job still sitting there permanently undequeued. Those jobs are
-not merely delayed: the old worker cannot compose the header line either, so
-requeuing them onto an old-release worker's queue would not recover the
-import, it would just move the same failure to a worker that additionally
-cannot log why.
+v1.18.0 and v1.18.1 dispatched a WFS or OGC API Features import that carried
+a Basic or named-header credential on a dedicated queue named
+`ingest-auth-v2`, so a worker from a release before v1.18.0 never dequeued a
+job it could not read. v1.18.2 stops producing on that queue (#1812): those
+jobs go on the default `ingest` queue again. The worker still subscribes to
+`ingest-auth-v2` for this one release, so anything a v1.18.0 or v1.18.1 API
+left queued there is drained by a v1.18.2 worker on its default queues. The
+release after v1.18.2 drops the name.
 
-**Before rolling back**, if you can still reach the release you are leaving:
-pause new service imports (or accept that any submitted after this point will
-need the same treatment) and check whether anything is on the queue —
+Upgrade order:
+
+- From v1.18.0 or v1.18.1: upgrade the API and the worker together, as the
+  recipe above does, or the API first. Both of those workers read the header
+  line and listen on `ingest` as well, so nothing is stranded either way.
+- From a release before v1.18.0: upgrade the worker before or with the API. A
+  worker that old dequeues a header-line job from `ingest`, cannot parse the
+  line, and fails the import after spending its single-use credential.
+
+Rows can still be stranded on `ingest-auth-v2` by a worker that never lists
+it: a rollback to a release before v1.18.0, or a `WORKER_QUEUES` override that
+omits the name. They sit `todo` indefinitely. Count them:
 
 ```bash
 docker compose -f docker-compose.prod.yml exec -T db \
@@ -2846,12 +2852,12 @@ docker compose -f docker-compose.prod.yml exec -T db \
   "SELECT count(*) FROM catalog.procrastinate_jobs WHERE queue_name = 'ingest-auth-v2' AND status = 'todo'"
 ```
 
-(Procrastinate's jobs table lives under the `catalog` schema in this install —
-`Settings.procrastinate_schema`, `core/config.py` — not the bare
+(Procrastinate's jobs table lives under the `catalog` schema in this install,
+`Settings.procrastinate_schema` in `core/config.py`, not the bare
 `procrastinate_jobs` name Procrastinate's own docs default to.)
 
-**After rolling back**, mark every `todo` row on that queue `failed` rather
-than leaving it queued or trying to move it:
+Then either run a worker that lists the queue until the count reaches zero, or
+mark the rows `failed` and have the users resubmit:
 
 ```bash
 docker compose -f docker-compose.prod.yml exec -T db \
@@ -2859,7 +2865,7 @@ docker compose -f docker-compose.prod.yml exec -T db \
   "UPDATE catalog.procrastinate_jobs SET status = 'failed' WHERE queue_name = 'ingest-auth-v2' AND status = 'todo'"
 ```
 
-Two things worth knowing before you run it or read back what it did:
+Three things worth knowing before you run the UPDATE or read back what it did:
 
 - Procrastinate's own `status`-change trigger
   (`procrastinate_trigger_function_status_events_update_v1`, in the installed
@@ -2889,17 +2895,13 @@ Two things worth knowing before you run it or read back what it did:
   `procrastinate_jobs.args`. That purge only ever touches a row whose
   `status` is NOT `todo`/`doing` (its own SQL reads
   `WHERE status NOT IN ('todo', 'doing') AND args ? 'token'`), so a job left
-  queued indefinitely on `ingest-auth-v2` — this rollback scenario, or an
-  operator override that dropped the queue from `WORKER_QUEUES` without
-  draining it first — keeps that credential sitting in the jobs table
-  forever otherwise. It runs in the same background sweep cycle named
-  above, so no separate step is needed beyond the UPDATE itself.
+  queued indefinitely on a queue no worker lists keeps that credential
+  sitting in the jobs table forever otherwise. It runs in the same background
+  sweep cycle named above, so no separate step is needed beyond the UPDATE
+  itself.
 
-Either way, the affected imports do not resume on their own: the credential
-that would have carried them across the queue was never in a form the old
-worker could read, so the user who started each one has to resubmit it once
-the instance is back on a release that supports the format they are
-importing.
+A row you fail this way does not resume on its own: the user who started the
+import resubmits it.
 
 ---
 

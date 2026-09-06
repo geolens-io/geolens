@@ -844,39 +844,17 @@ async def main() -> None:
         # across all three queues. Both knobs are env-configurable; a second
         # worker service can pin WORKER_QUEUES=raster on multi-core hosts.
         queues = [q.strip() for q in settings.worker_queues.split(",") if q.strip()]
-        # fix(#1770 round 36): a queue this worker never joins is not an
-        # error anywhere in Procrastinate -- fetch_job simply never selects a
-        # row on it, so a job the API routes there sits 'todo' forever with
-        # no failure to alert on (the fix(#695) comment at the compose
-        # WORKER_QUEUES line already documents this for the general case).
-        # Cheap and worth checking at boot specifically for the queue this
-        # PR added: a deployment surface that sets WORKER_QUEUES explicitly
-        # without a code change to keep in sync -- namely the Helm chart's
-        # `worker.extraEnv`, the one surface no structural test here can
-        # reach -- is exactly the class of drift the compose comment warns
-        # about, one queue name at a time, at every future queue the API
-        # ever adds. `HEADER_AUTH_JOB_QUEUE` is imported rather than
-        # hardcoded so this warning cannot itself go stale if that constant
-        # is ever renamed.
-        from app.platform.service_auth import HEADER_AUTH_JOB_QUEUE
-
-        if HEADER_AUTH_JOB_QUEUE not in queues:
+        # fix(#1812): "ingest-auth-v2" is consumer-only this release; an override
+        # that omits it strands what a v1.18.0/1.18.1 API queued there (RUNBOOK 10).
+        if "ingest-auth-v2" not in queues:
             log.warning(
-                "worker_queue_missing_header_auth",
+                "worker_queue_missing_drain_queue",
                 configured_queues=queues,
-                missing_queue=HEADER_AUTH_JOB_QUEUE,
+                missing_queue="ingest-auth-v2",
                 message=(
-                    "This worker does not list the header-auth service "
-                    "credential queue. A WFS/OGC API Features import, "
-                    "reupload, or refresh dispatched with a credential will "
-                    "sit pending indefinitely rather than fail -- add it to "
-                    "WORKER_QUEUES (or the chart's worker.extraEnv) to "
-                    "process those jobs. A row left queued this way also "
-                    "keeps its composed credential in procrastinate_jobs.args "
-                    "indefinitely (purge_terminal_job_tokens only touches a "
-                    "terminal row); see RUNBOOK.md section 10, 'Rolling back "
-                    "a release that shipped the header-auth job queue', for "
-                    "the operator SQL to fail and purge it."
+                    "This worker does not list ingest-auth-v2, so a credentialed "
+                    "import a v1.18.0 or v1.18.1 API queued there stays todo. Add "
+                    "the queue to WORKER_QUEUES until the count in RUNBOOK 10 is 0."
                 ),
             )
         async with task_app.open_async():

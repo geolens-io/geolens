@@ -9904,128 +9904,87 @@ class TestASecretDoesNotSurviveInTheChain:
         assert secret not in str(raised.value.__context__)
 
 
-class TestAHeaderAuthJobGoesOnTheVersionedQueue:
-    """fix(#1770 round 35, `service_auth.py` P1 on head 1ad209100).
-
-    A worker running the release before this PR has no notion of a composed
-    header line: its ``_sanitize_authorization_token`` takes no
-    ``service_format`` and applies the bare-bearer charset to whatever
-    ``token`` holds, so the first ``:`` or space in a line this PR composes
-    is refused as a bad character. During a rolling deploy that upgrades the
-    API before every worker, that turns a previously-working bearer WFS/OGC
-    API import into a deterministic failure that still spends the single-use
-    credential.
-
-    `header_auth_job_queue` routes a header-auth job to a queue only a
-    worker from this release listens to, so an old one never dequeues it —
-    the job sits exactly as it would while every worker is busy, and an
-    upgraded worker drains it once one exists. A task-name gate was
-    considered and rejected for the same reason #1689 and #1277 already
-    rejected it at this door: Procrastinate marks a job with no registered
-    task FAILED before the task body runs, so the ``ingest_jobs`` row this
-    codebase owns never updates and sits `pending` until the abandoned-run
-    sweep.
+class TestAHeaderAuthJobUsesTheTasksOwnQueue:
+    """fix(#1812): a credentialed job defers on the task's own queue with its
+    header line under `token`; the worker still lists `ingest-auth-v2`.
     """
 
-    def test_a_header_auth_credential_gets_the_versioned_queue(self) -> None:
-        from app.platform.service_auth import (
-            HEADER_AUTH_JOB_QUEUE,
-            header_auth_job_queue,
+    async def test_a_header_auth_import_defers_on_the_default_queue(
+        self,
+        client,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ) -> None:
+        """The import door hands `ingest_service` its own queue and the composed line."""
+        from app.core.config import settings
+        from app.platform.jobs.models import IngestJob
+        from app.platform.refresh import credentials as creds
+        from tests.factories import get_user_id
+
+        # The stock install: no credential store, so the line itself crosses.
+        creds.set_credential_backend(None)
+        monkeypatch.setattr(settings, "redis_url", None, raising=False)
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = IngestJob(
+            source_filename="Roads",
+            source_url="https://wfs.example.test/wfs",
+            source_layer="roads",
+            created_by=admin_id,
+            status="pending",
+            user_metadata={"service_type": "WFS 2.0.0", "layer_id": None},
         )
+        test_db_session.add(job)
+        await test_db_session.commit()
 
-        assert (
-            header_auth_job_queue("Authorization: Bearer abc", service_format="wfs")
-            == HEADER_AUTH_JOB_QUEUE
-        )
-        assert (
-            header_auth_job_queue(
-                "Authorization: Basic abc", service_format="ogcapi_features"
-            )
-            == HEADER_AUTH_JOB_QUEUE
-        )
-        assert (
-            header_auth_job_queue("X-Api-Key: abc", service_format="wfs")
-            == HEADER_AUTH_JOB_QUEUE
-        )
+        task = MagicMock()
+        task.defer_async = AsyncMock(return_value=None)
+        secret = "tok-" + uuid.uuid4().hex
+        try:
+            with (
+                patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
+                patch("app.processing.ingest.tasks.ingest_service", task),
+            ):
+                resp = await client.post(
+                    f"/ingest/commit/{job.id}",
+                    json={"title": "Roads", "token": secret},
+                    headers=admin_auth_header,
+                )
+        finally:
+            creds.set_credential_backend(None)
 
-    def test_arcgis_and_no_credential_use_the_tasks_own_queue(self) -> None:
-        """ArcGIS's token is a URL query parameter, never a header line — a
-        worker from any generation reads it the same way, so it never needs
-        the versioned queue. No credential at all means no line was composed,
-        so there is nothing an old worker could misread either."""
-        from app.platform.service_auth import header_auth_job_queue
+        assert resp.status_code == 202, resp.text
+        # The task's own queue, as declared on it: nothing reconfigures it.
+        task.configure.assert_not_called()
+        kwargs = task.defer_async.call_args.kwargs
+        assert kwargs["token"] == f"Authorization: Bearer {secret}"
+        assert kwargs["credential_ref"] is None
 
-        assert (
-            header_auth_job_queue(
-                "bare-arcgis-token", service_format="arcgis_featureserver"
-            )
-            is None
-        )
-        assert header_auth_job_queue(None, service_format="wfs") is None
-        assert header_auth_job_queue(None, service_format=None) is None
-
-    def test_every_service_credential_defer_site_routes_through_it(self) -> None:
-        """Structural: the import door, the refresh door and the reupload
-        door each judge the queue on the composed line and configure the
-        task with it — grepped rather than asserted per-branch, so a fourth
-        site added later without the same two calls fails here."""
-        import inspect
-
-        from app.modules.catalog.datasets.api import router_refresh, router_reupload
-        from app.processing.ingest import service as ingest_service_module
-
-        for module in (ingest_service_module, router_refresh, router_reupload):
-            source = inspect.getsource(module)
-            assert "header_auth_job_queue(" in source, (
-                f"{module.__name__} must judge the queue on the composed line"
-            )
-            assert ".configure(queue=" in source, (
-                f"{module.__name__} must apply the verdict to the deferred task"
-            )
-
-    def test_the_shipped_default_worker_queues_include_it(self) -> None:
-        """The class-level default, not the live `settings` singleton — this
-        must hold regardless of what a test or a deployment's env overrides
-        it to."""
+    def test_the_worker_default_keeps_the_legacy_queue_as_a_consumer(self) -> None:
+        """The class default still lists `ingest-auth-v2`, with nothing producing on it."""
         from app.core.config import Settings
-        from app.platform.service_auth import HEADER_AUTH_JOB_QUEUE
 
         default = Settings.model_fields["worker_queues"].default
         queues = [q.strip() for q in default.split(",") if q.strip()]
-        assert HEADER_AUTH_JOB_QUEUE in queues
+        assert "ingest-auth-v2" in queues
 
     def test_docker_compose_and_env_example_name_every_queue_in_the_default(
         self,
     ) -> None:
-        """fix(#1770 round 36): the P1 this round closes.
+        """Both compose fallbacks and .env.example name every queue Settings does.
 
-        Round 35 raised the Settings default and reasoned that neither
-        deployment template SETS ``WORKER_QUEUES``, so the raised default
-        reaches every stock install untouched. True for the Helm chart,
-        false for Compose: both compose files interpolate
-        ``WORKER_QUEUES: "${WORKER_QUEUES:-priority,ingest,raster}"``, and
-        Compose supplying that env var — even as a fallback — shadows the
-        Settings class default inside the container entirely. A stock
-        install never picked up the new queue, and a header-auth WFS/OGC API
-        job sat pending forever (the very case
-        ``TestAHeaderAuthJobGoesOnTheVersionedQueue`` above exists to keep
-        from failing), exactly as the ``fix(#695)`` comment beside both
-        compose lines already warned: a queue no worker listens to is not an
-        error, and nothing ever fails it.
-
-        Reads the files as text rather than parsing YAML: the two compose
-        lines are a fixed ``KEY: "${KEY:-default}"`` shape this asserts on
-        directly, and .env.example's is a commented ``# KEY=default`` — no
-        need for a YAML dependency to read either.
+        Compose supplies `WORKER_QUEUES` as its own fallback, which shadows the
+        Settings default inside the container, so a queue named in one place
+        and not the other is never dequeued and nothing fails the job to say
+        so. Read as text: the compose lines are a fixed `KEY: "${KEY:-default}"`
+        shape and .env.example's is a commented `# KEY=default`.
         """
         from app.core.config import Settings
-        from app.platform.service_auth import HEADER_AUTH_JOB_QUEUE
 
         default = Settings.model_fields["worker_queues"].default
         queues = [q.strip() for q in default.split(",") if q.strip()]
-        assert HEADER_AUTH_JOB_QUEUE in queues, (
-            "fix this test's other assertions first, not this one"
-        )
+        assert queues, "Settings must ship at least one worker queue"
 
         repo_root = None
         for candidate in pathlib.Path(__file__).resolve().parents:
@@ -10043,119 +10002,21 @@ class TestAHeaderAuthJobGoesOnTheVersionedQueue:
             match = compose_pattern.search(text)
             assert match is not None, f"{compose_file}: no WORKER_QUEUES default found"
             compose_queues = [q.strip() for q in match.group(1).split(",") if q.strip()]
-            for queue in queues:
-                assert queue in compose_queues, (
-                    f"{compose_file}'s WORKER_QUEUES default {compose_queues} is "
-                    f"missing {queue!r} that Settings' default now carries — a "
-                    "worker built from this release never dequeues a job Compose "
-                    "routes to it, and nothing ever fails that job to say so"
-                )
+            assert compose_queues == queues, (
+                f"{compose_file}'s WORKER_QUEUES default {compose_queues} does not "
+                f"match Settings' default {queues}; a worker built from this "
+                "release never dequeues a job routed to a queue it does not list"
+            )
 
         env_example_pattern = re.compile(r"^# WORKER_QUEUES=(\S+)$", re.MULTILINE)
         env_text = (repo_root / ".env.example").read_text()
         env_match = env_example_pattern.search(env_text)
         assert env_match is not None, ".env.example: no commented WORKER_QUEUES= line"
         env_queues = [q.strip() for q in env_match.group(1).split(",") if q.strip()]
-        for queue in queues:
-            assert queue in env_queues, (
-                f".env.example's WORKER_QUEUES example {env_queues} is missing "
-                f"{queue!r} that Settings' default now carries"
-            )
-
-    async def test_a_new_shape_job_lands_on_the_versioned_queue(self) -> None:
-        from procrastinate import App, testing
-
-        from app.platform.service_auth import HEADER_AUTH_JOB_QUEUE
-
-        connector = testing.InMemoryConnector()
-        app = App(connector=connector)
-
-        @app.task(name="demo.ingest_service", queue="ingest")
-        async def ingest_service(**kwargs):
-            return "ran"
-
-        async with app.open_async():
-            await ingest_service.configure(queue=HEADER_AUTH_JOB_QUEUE).defer_async(
-                job_id="j1"
-            )
-
-        (row,) = connector.jobs.values()
-        assert row["queue_name"] == HEADER_AUTH_JOB_QUEUE
-
-    async def test_an_old_worker_never_dequeues_it(self) -> None:
-        """The three queues a worker built before this release ships with —
-        `settings.worker_queues`' old default, unchanged — never name it, so
-        `fetch_job` never selects the row and it is never spent on a header
-        line the old worker cannot parse."""
-        from procrastinate import App, testing
-        from procrastinate.worker import Worker
-
-        from app.platform.service_auth import HEADER_AUTH_JOB_QUEUE
-
-        connector = testing.InMemoryConnector()
-        app = App(connector=connector)
-
-        @app.task(name="demo.ingest_service", queue="ingest")
-        async def ingest_service(**kwargs):
-            return "ran"
-
-        async with app.open_async():
-            await ingest_service.configure(queue=HEADER_AUTH_JOB_QUEUE).defer_async(
-                job_id="j1"
-            )
-
-            await Worker(
-                app,
-                queues=["priority", "ingest", "raster"],
-                wait=False,
-                listen_notify=False,
-                install_signal_handlers=False,
-            ).run()
-
-        (row,) = connector.jobs.values()
-        assert row["status"] == "todo", "an old worker must never claim it"
-        assert row["attempts"] == 0
-
-    async def test_an_upgraded_worker_drains_both_the_old_and_new_queue(self) -> None:
-        """The shipped default (`priority,ingest,ingest-auth-v2,raster`)
-        drains a header-auth job alongside an ordinary one on `ingest` — the
-        new queue is additive, not a replacement for the old one."""
-        from procrastinate import App, testing
-        from procrastinate.worker import Worker
-
-        from app.core.config import Settings
-        from app.platform.service_auth import HEADER_AUTH_JOB_QUEUE
-
-        connector = testing.InMemoryConnector()
-        app = App(connector=connector)
-
-        @app.task(name="demo.ingest_service", queue="ingest")
-        async def ingest_service(**kwargs):
-            return "ran"
-
-        @app.task(name="demo.ingest_file", queue="ingest")
-        async def ingest_file(**kwargs):
-            return "ran"
-
-        async with app.open_async():
-            await ingest_service.configure(queue=HEADER_AUTH_JOB_QUEUE).defer_async(
-                job_id="j1"
-            )
-            await ingest_file.defer_async(job_id="j2")
-
-            default = Settings.model_fields["worker_queues"].default
-            queues = [q.strip() for q in default.split(",") if q.strip()]
-
-            await Worker(
-                app,
-                queues=queues,
-                wait=False,
-                listen_notify=False,
-                install_signal_handlers=False,
-            ).run()
-
-        for row in connector.jobs.values():
-            assert row["status"] == "succeeded", row["task_name"]
+        assert env_queues == queues, (
+            f".env.example's WORKER_QUEUES example {env_queues} does not match "
+            f"Settings' default {queues}"
+        )
 
 
 class TestALoneSurrogateFeatureIsAPageRefusalNotA500:

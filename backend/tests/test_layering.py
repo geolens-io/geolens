@@ -3784,7 +3784,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # docstring, which still described the ArcGIS probe reading the layer's
     # `?f=json`; since #1754 round 6 it reads `<layer>/query` via
     # `build_arcgis_count_query_url`. Cap 1374 -> 1376, exact.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1376,
+    # chore(#1812): -9, the refresh door no longer judges a queue on the composed line
+    # or configures the deferred task with it. Cap 1376 -> 1367, exact.
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1367,
     # fix(#1335): stac_resolve.py's 1040 lines were split along their natural
     # seams — verdict taxonomy, identity checks, the asset gate (SSRF + COG
     # probe), and the by-search fallback each moved into a sibling module,
@@ -4185,7 +4187,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # SECRET_ENCRYPTION_KEY. The chain would hold one key twice, so the
     # rotation script would report every row rewritten under the key they
     # already use and then say to retire it. Cap 1659 -> 1674, exact.
-    "backend/app/core/config.py": 1674,
+    # fix(#1812): -21. Production on ingest-auth-v2 stops; the default keeps it
+    # as a consumer for one release and the two round comments go. 1674 -> 1653.
+    "backend/app/core/config.py": 1653,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of
@@ -4467,7 +4471,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1848): +51. The presigned door commits before storage is asked for
     # anything and binds through the guard; the guard, the refusal and the
     # bind are helpers the direct door now shares. Cap 1455 -> 1506, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1506,
+    # chore(#1812): -18, the reupload door and _dispatch_reupload_task lose the
+    # service_queue verdict, its parameter and the configure() branch. Cap 1506 -> 1488, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1488,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
@@ -5114,7 +5120,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # attempt-scoped shape is refused rather than every `_staging`/`_old`
     # name, since `generate_table_name` can produce those from a title.
     # Cap 1568 -> 1598, exact.
-    "backend/app/processing/ingest/service.py": 1598,
+    # chore(#1812): -8, the import door no longer judges a queue on the composed line
+    # or configures ingest_service with it. Cap 1598 -> 1590, exact.
+    "backend/app/processing/ingest/service.py": 1590,
     # fix(#1738): first entry, crossed _RATCHET_INCLUSION_LOC (842 -> 1019) on
     # the change that gave this task a repair phase. What the growth bought:
     # `geom_4326` on a registered table was written once, at registration, and

@@ -57,7 +57,7 @@ from app.modules.catalog.datasets.domain.service import get_dataset
 from app.platform.security import SSRFError, validate_url_for_ssrf
 from app.modules.catalog.sources.schemas import service_credential_from_request
 from app.modules.catalog.sources.stac_resolve import states_verifiable_identity
-from app.platform.service_auth import header_auth_job_queue, wire_credential
+from app.platform.service_auth import wire_credential
 from app.modules.catalog.sources.origin_probe import (
     AUTH_CHALLENGE_DETAILS,
     probe_arcgis_origin,
@@ -1234,13 +1234,6 @@ async def refresh_dataset(
     except HTTPException:
         await db.rollback()
         raise
-    # fix(#1770 round 35): judged on the line just composed, before the
-    # stash below may hand the worker a store reference instead — see
-    # `service_auth.header_auth_job_queue` for why that ordering is what
-    # makes this apply to either spelling.
-    service_queue = header_auth_job_queue(
-        service_token, service_format=origin.source_format
-    )
 
     # Step 4. Refusing on ANY change rather than dispatching the new binding
     # is the deliberate choice: the caller asked to refresh the source they
@@ -1319,8 +1312,6 @@ async def refresh_dataset(
 
     async def _defer_refresh() -> None:
         task = get_catalog_port().reupload_service_task()
-        if service_queue is not None:
-            task = task.configure(queue=service_queue)
         await defer_async_with_tenant(
             task,
             job_id=str(job_id),
