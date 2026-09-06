@@ -1,10 +1,4 @@
-"""The two worker swaps publish N+2 behind an edit that published N+1 (#1911).
-
-The holder stands in for a request-side edit: it holds the datasets row, rolls
-the counter and commits while the swap is parked behind it. Each swap loaded
-its instance before it waited, so an absolute write from that instance would
-publish N+1 a second time and serve the swapped content under the edit's URL.
-"""
+"""Each worker swap publishes N+2 behind an edit that published N+1 (#1911)."""
 
 import asyncio
 from unittest.mock import AsyncMock, patch
@@ -69,8 +63,7 @@ async def _parked_statement(probe, holder_xid: str) -> str:
 async def _overlap(holder, probe, dataset_id, swap_coro):
     """Hold the row, park the swap on its acquisition, bump, commit, finish.
 
-    FOR NO KEY UPDATE: the raster task's job-row writes take KEY SHARE on this
-    row before the swap's FOR UPDATE, and they must pass through the holder.
+    FOR NO KEY UPDATE, so the job-row KEY SHARE does not release the barrier.
     """
     before = await holder.scalar(
         select(Dataset.tile_cache_version)
