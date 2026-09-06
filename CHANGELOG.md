@@ -7,6 +7,11 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Tenant-ownership adoption no longer fails when a role that is a member of a gateway is dropped
+  while the run is validating the cluster; the vanished member is skipped instead. (#1913)
+
 ## [1.18.1] - 2026-09-05
 
 Security release. Upgrade is a plain image pull; there are no migrations.

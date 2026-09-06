@@ -352,6 +352,8 @@ BEGIN
                       '{CONTROL}';
         END IF;
 
+        -- fix(#1913): members are judged by oid, never by name; a role dropped
+        -- since the scan is then no hazard instead of an undefined-object error.
         IF direct_membership_unsafe
            OR membership_row.granted_name = '{PROVISIONER}'
            OR NOT membership_row.rolcanlogin
@@ -371,7 +373,7 @@ BEGIN
                    OR powerful_role.rolbypassrls
                )
                  AND pg_catalog.pg_has_role(
-                     membership_row.member_name, powerful_role.oid, 'MEMBER'
+                     membership_row.member_oid, powerful_role.oid, 'MEMBER'
                  )
            )
            OR (
@@ -383,7 +385,7 @@ BEGIN
                        '{CONTROL}', '{WRITER}', '{SANDBOX}'
                    )
                      AND pg_catalog.pg_has_role(
-                         membership_row.member_name,
+                         membership_row.member_oid,
                          application_gateway.oid,
                          'MEMBER'
                      )
@@ -396,7 +398,7 @@ BEGIN
                    FROM pg_catalog.pg_roles AS tile_gateway
                    WHERE tile_gateway.rolname = '{TILE}'
                      AND pg_catalog.pg_has_role(
-                         membership_row.member_name, tile_gateway.oid, 'MEMBER'
+                         membership_row.member_oid, tile_gateway.oid, 'MEMBER'
                      )
                )
            ) THEN

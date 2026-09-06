@@ -2825,7 +2825,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # three type surfaces; schema-less default privileges counted in the
     # fast-path guard and refused cluster-wide for the provisioner (the
     # per-tenant pass never runs with zero tenants).
-    "backend/app/core/db/tenant_adoption_sql.py": 2102,
+    # fix(#1913): +2 — the anchor on the member-judgement clause, which now
+    # resolves a gateway member by oid so a role dropped since the scan is
+    # skipped rather than raised.
+    "backend/app/core/db/tenant_adoption_sql.py": 2104,
     # fix(#998): the tool the DDL above serves — the catalog reads that decide
     # whether anything is left to do, the steps that close the gap, and the
     # operator CLI. Already decomposed three ways (report types and the success

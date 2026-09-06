@@ -1442,6 +1442,38 @@ class TestReportedStateMatchesWhatApplyEnforces:
         finally:
             await engine.dispose()
 
+    async def test_a_member_dropped_after_the_scan_does_not_fail_validation(self):
+        """fix(#1913): a gateway member the scan enumerated and a peer dropped
+        before it is judged is no hazard; validation completes.
+        """
+        vanishing = f"w1913_member_{uuid.uuid4().hex[:12]}"
+        engine = _make_engine()
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sa.text(
+                        f"CREATE ROLE {vanishing} LOGIN NOSUPERUSER NOCREATEDB "
+                        "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS"
+                    )
+                )
+                await conn.execute(
+                    sa.text(f"GRANT {TILE} TO {vanishing} WITH INHERIT FALSE, SET TRUE")
+                )
+            try:
+                async with engine.connect() as scan:
+                    await scan.execution_options(isolation_level="REPEATABLE READ")
+                    async with scan.begin():
+                        # Pins the scan's snapshot ahead of the drop.
+                        await scan.execute(sa.text("SELECT 1"))
+                        async with engine.begin() as other:
+                            await other.execute(sa.text(f"DROP ROLE {vanishing}"))
+                        await scan.execute(sa.text(CLUSTER_ROLE_VALIDATE_SQL))
+            finally:
+                async with engine.begin() as conn:
+                    await conn.execute(sa.text(f"DROP ROLE IF EXISTS {vanishing}"))
+        finally:
+            await engine.dispose()
+
     async def test_healthy_cluster_topology_reports_no_error(self):
         engine = _make_engine()
         try:
