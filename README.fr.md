@@ -1,6 +1,6 @@
 # GeoLens
 
-[English](README.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md)
+[English](README.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [简体中文](README.zh.md)
 
 **La plateforme de données géospatiales auto-hébergée de votre équipe : recherchez, cartographiez et partagez au même endroit.**
 
@@ -139,7 +139,7 @@ Chaque exemple ci-dessus dispose d’un guide complet dans la [documentation](ht
 - URLs directes de tuiles et clés d’API par utilisateur pour QGIS, ArcGIS, MapLibre et tout client OGC
 - Les tuiles vectorielles omettent les colonnes d’attributs en dessous du zoom 10 afin de limiter leur taille ; ajoutez le paramètre `cols=<column>,<column>` à leur URL pour inclure certaines colonnes à chaque zoom (les noms sont validés par rapport aux colonnes du jeu et les noms inconnus sont ignorés)
 - JWT + OAuth 2.0/OIDC, RBAC avec permissions par jeu de données
-- Interface en anglais, espagnol, français et allemand
+- Interface en anglais, espagnol, français, allemand et chinois
 
 <details>
 <summary>Sécurité</summary>

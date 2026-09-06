@@ -1,0 +1,109 @@
+{
+  "title": "集合",
+  "newCollection": "新建集合",
+  "loading": "正在加载集合...",
+  "empty": {
+    "title": "还没有集合",
+    "description": "集合将相关的数据集分组，便于发现。",
+    "cta": "创建您的第一个集合"
+  },
+  "error": {
+    "title": "加载集合失败",
+    "message": "加载集合失败：{{error}}"
+  },
+  "detail": {
+    "loading": "正在加载集合...",
+    "notFoundTitle": "未找到集合",
+    "notFoundMessage": "无法加载所请求的集合。",
+    "metadataAriaLabel": "集合元数据",
+    "backToCollections": "返回集合列表",
+    "breadcrumb": "集合",
+    "datasets": "数据集",
+    "temporalRange": "时间范围",
+    "created": "创建时间",
+    "lastUpdated": "最后更新",
+    "spatialExtent": "空间范围",
+    "temporalNotAvailable": "N/A",
+    "temporalPresent": "至今"
+  },
+  "search": {
+    "placeholder": "搜索集合...",
+    "empty": "没有匹配的集合",
+    "emptyHint": "没有集合与您的搜索匹配。请尝试其他名称。"
+  },
+  "card": {
+    "datasetCount_one": "{{count}} 个数据集",
+    "datasetCount_other": "{{count}} 个数据集",
+    "created": "创建于 {{date}}",
+    "temporalPresent": "至今",
+    "emptyBadge": "空",
+    "emptyHint": "该集合还没有数据集。"
+  },
+  "sort": {
+    "label": "排序方式",
+    "lastUpdated": "最后更新",
+    "dateCreated": "创建日期",
+    "name": "名称"
+  },
+  "createDialog": {
+    "title": "创建集合",
+    "description": "创建新集合，将相关的数据集分组。",
+    "nameLabel": "名称",
+    "namePlaceholder": "例如：交通数据",
+    "descriptionLabel": "描述",
+    "descriptionPlaceholder": "可选描述...",
+    "creating": "正在创建...",
+    "errorFallback": "创建集合失败"
+  },
+  "editDialog": {
+    "title": "编辑集合",
+    "description": "更新集合名称或描述。",
+    "nameLabel": "名称",
+    "descriptionLabel": "描述",
+    "saving": "正在保存...",
+    "errorFallback": "更新集合失败"
+  },
+  "deleteDialog": {
+    "title": "删除集合",
+    "description": "这将永久删除集合“{{name}}”并移除所有数据集关联。数据集本身不会被删除。此操作无法撤销。",
+    "confirmPrompt": "输入集合名称以确认：",
+    "deleting": "正在删除...",
+    "deleteButton": "删除集合",
+    "errorFallback": "删除集合失败"
+  },
+  "datasetList": {
+    "loading": "正在加载数据集...",
+    "errorMessage": "加载数据集失败：{{error}}",
+    "emptyTitle": "此集合中暂无数据集",
+    "emptyDescription": "可以在管理页面将数据集添加到此集合。",
+    "filterPlaceholder": "按名称筛选数据集...",
+    "noMatch": "没有数据集匹配“{{filter}}”",
+    "featureCount_one": "{{count}} 个要素",
+    "featureCount_other": "{{count}} 个要素",
+    "removeTitle": "从集合中移除"
+  },
+  "membership": {
+    "title": "添加数据集",
+    "searchPlaceholder": "按名称搜索数据集...",
+    "searchButton": "搜索",
+    "addButton": "添加",
+    "allAlreadyAdded": "所有匹配的数据集都已在此集合中。"
+  },
+  "badges": {
+    "label": "集合"
+  },
+  "toasts": {
+    "created": "集合已创建",
+    "createFailed": "创建集合失败",
+    "updated": "集合已更新",
+    "updateFailed": "更新集合失败",
+    "deleted": "集合已删除",
+    "deleteFailed": "删除集合失败",
+    "datasetRemoved": "数据集已从集合中移除",
+    "removeDatasetFailed": "从集合中移除数据集失败",
+    "datasetAdded": "数据集已添加到集合",
+    "addDatasetsFailed": "向集合添加数据集失败",
+    "removeError": "移除数据集失败",
+    "addError": "添加数据集失败"
+  }
+}
