@@ -3607,10 +3607,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1847): the cache-bump docstring states its contract. Cap 2601 -> 2596.
     # fix(#1902): the atomic bump moved to platform/catalog_locks. Cap 2596 -> 2559.
     # fix(#1911): the reupload swap bumps atomically under the lock. Cap 2559 -> 2558.
-    # fix(#1917): +19 — the swap DDL's lock_timeout is captured before the
-    # savepoint and put back after it, so it stops clamping the catalog-lock
-    # wait; its three budget constants moved to module scope to be testable.
-    # Cap 2558 -> 2577, exact.
+    # fix(#1917): +19 — the swap restores the lock_timeout it installed, so it
+    # stops clamping the catalog-lock wait; its budget constants moved to
+    # module scope to be testable. Cap 2558 -> 2577, exact.
     "backend/app/processing/ingest/tasks_common.py": 2577,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
