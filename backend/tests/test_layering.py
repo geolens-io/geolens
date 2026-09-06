@@ -4621,7 +4621,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1847): the lock order, its gate and its 409 mapping. Cap 1653, exact.
     # fix(#1847): the phase-2 job load locks the row and the lock-order
     # rationale left the source. Cap 1653 -> 1640, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1640,
+    # fix(#1938): +69 — the publish's catalog.records wait gets a budget and
+    # events telling an expired budget from a lost deadlock. Cap 1640 -> 1709,
+    # exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1709,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.

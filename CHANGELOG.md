@@ -38,6 +38,9 @@ and releases use semantic versioning.
 - A raster replace could hang indefinitely in its final step when another operation held the
   dataset's catalog row. That step now runs under a 30-second budget, so the job fails and can be
   retried instead of heartbeating until the stale-job sweep reaps it. (#1937)
+- A VRT regeneration could hang indefinitely while publishing if a metadata edit held the
+  dataset's catalog record. That wait is now capped at 15 seconds, and a regeneration that gives
+  up logs how long it waited and whether the budget expired or it lost a deadlock. (#1938)
 
 ## [1.18.1] - 2026-09-05
 
