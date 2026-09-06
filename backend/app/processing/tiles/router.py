@@ -2000,8 +2000,8 @@ async def _acquire_and_serve_tile(
             await tile_cache.set(
                 cache_key, z, x, y, b"", ttl=cache_ttl, cols_key=cols_cache_key
             )
-        # fix(#430) V-03: empty tiles were uncacheable — reuse the tile's Cache-Control
-        # from base_headers (drop Content-Encoding; a 204 has no body).
+        # fix(#430) V-03: an empty tile reuses the tile's Cache-Control from
+        # base_headers, minus Content-Encoding, because a 204 has no body.
         return Response(
             status_code=status.HTTP_204_NO_CONTENT,
             headers={k: v for k, v in base_headers.items() if k != "Content-Encoding"},
