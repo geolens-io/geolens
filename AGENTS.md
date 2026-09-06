@@ -76,6 +76,10 @@ Keep it to the anchor and the invariant, three lines at most. The history behind
 
 Avoid bare, unscoped finding ids that only resolve in a private tracker.
 
+**Enforcement.** `backend/tests/finding_markers.py` parses every module under `backend/app/` and reads its comments and docstrings — never code, so a string literal cannot trip it. It reports a coded finding id (`SEC-002`, `T-1214-17`, `PERF-N5`, `IA-P0-01`) or a denylisted agent tag with no `#issue` anchor within two lines. A published-standard token (`UTF-8`, `ISO-8601`) is exempt by name, in a literal list rather than a prefix family, because `ISO-8601` is vocabulary and `ISO-01` is a finding id. `backend/tests/test_unscoped_finding_markers.py` runs it in CI and pins the detector's behaviour; the `no-unscoped-finding-markers` pre-commit hook runs the same detector.
+
+The markers that were already on `main` when the gate landed are frozen per module in `UNANCHORED_MARKER_DEBT`, EXACT in both directions: a new marker fails, and so does removing one without lowering the number. The gate refuses new debt; those numbers only go down.
+
 ## Testing Guidelines
 
 Backend tests use pytest with AnyIO; files follow `test_*.py`. Coverage in `backend/pyproject.toml` has an 80% minimum (`fail_under`). For DB-backed tests, start Postgres with `docker compose up -d --wait db`; follow `.env.test.example` and `.github/workflows/ci.yml` for CI-style variables.
