@@ -43,6 +43,10 @@ and releases use semantic versioning.
 - A VRT regeneration could hang indefinitely while publishing if a metadata edit held the
   dataset's catalog record. That wait is now capped at 15 seconds, and a regeneration that gives
   up logs how long it waited and whether the budget expired or it lost a deadlock. (#1938)
+- The import-commit endpoint published its `token` field as a confirmation token from the preview
+  step, with no length limit, while on a service import the server reads that field as the service
+  credential and caps it at 1000 characters. The API document, both SDKs and the generated
+  TypeScript types now describe and declare what the server reads. (#1931)
 
 ## [1.18.1] - 2026-09-05
 

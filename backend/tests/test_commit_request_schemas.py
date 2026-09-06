@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from app.processing.ingest.schemas import (
     BaseCommitRequest,
+    CommitRequest,
     RasterCommitRequest,
     ServiceCommitRequest,
     VectorCommitRequest,
@@ -205,3 +206,45 @@ class TestFieldDistribution:
             # feat(#1746 B2b): the structured spelling of the same credential.
             "auth",
         }
+
+
+def _constraints(field_schema: dict) -> dict:
+    """A field's published constraints — everything but its prose and default."""
+    return {
+        key: value
+        for key, value in field_schema.items()
+        if key not in ("title", "default", "description")
+    }
+
+
+class TestTheFlatUnionPublishesWhatTheSubclassesEnforce:
+    """``CommitRequest`` is the only schema a caller of the commit route reads."""
+
+    @pytest.mark.parametrize(
+        "subclass",
+        [VectorCommitRequest, RasterCommitRequest, ServiceCommitRequest],
+        ids=lambda model: model.__name__,
+    )
+    def test_a_shared_field_publishes_the_constraint_it_is_judged_by(
+        self, subclass: type
+    ) -> None:
+        flat = CommitRequest.model_json_schema()["properties"]
+        for name, published in subclass.model_json_schema()["properties"].items():
+            if name not in flat:
+                continue
+            assert _constraints(flat[name]) == _constraints(published), name
+
+    def test_the_union_omits_only_strict_cog(self) -> None:
+        """A subclass field absent from the union cannot be set by a caller:
+        the handler re-validates the subclass from this model's dump."""
+        omitted = {
+            name
+            for model in (
+                VectorCommitRequest,
+                RasterCommitRequest,
+                ServiceCommitRequest,
+            )
+            for name in model.model_fields
+            if name not in CommitRequest.model_fields
+        }
+        assert omitted == {"strict_cog"}

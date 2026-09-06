@@ -48,8 +48,9 @@ class CommitRequest:
             srid_override (int | None | Unset): EPSG code to use when the source CRS is missing or incorrect. Assigns
                 (relabels) the CRS the source is read under rather than reprojecting from it: raster pixel values are unchanged,
                 and vector geometries are reprojected to EPSG:4326 from the assigned CRS as usual.
-            token (None | str | Unset): Optional confirmation token returned by the preview step. Required for some
-                workflows.
+            token (None | str | Unset): Optional auth token for a protected remote service, read only when the job imports a
+                service layer (WFS, ArcGIS FeatureServer). Never persisted to the database. Ignored on file-upload jobs.
+                Deprecated: use the auth object with method bearer.
             temporal_start (datetime.datetime | None | Unset): ISO 8601 start of the dataset's temporal extent.
             temporal_end (datetime.datetime | None | Unset): ISO 8601 end of the dataset's temporal extent.
             compression (None | str | Unset): Raster only: target compression for COG output (e.g. 'LZW', 'DEFLATE').
