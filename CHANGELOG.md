@@ -35,6 +35,14 @@ and releases use semantic versioning.
   could wait indefinitely, leaving the dataset's table unreadable for as long as the hold lasted.
   That wait is now capped at 60 seconds, and a reupload that gives up reports lock contention and
   logs how long it waited, having rolled the swap back whole. (#1921)
+- A raster replace could hang indefinitely in its final step when another operation held the
+  dataset's catalog row. That wait is now capped at 30 seconds, and a replace that gives up
+  reports lock contention and logs how long it waited, rather than heartbeating until the
+  stale-job sweep reaps it. Waiting for storage-quota accounting stays uncapped, so a replace
+  still queues behind another upload by the same owner instead of failing. (#1937)
+- A VRT regeneration could hang indefinitely while publishing if a metadata edit held the
+  dataset's catalog record. That wait is now capped at 15 seconds, and a regeneration that gives
+  up logs how long it waited and whether the budget expired or it lost a deadlock. (#1938)
 
 ## [1.18.1] - 2026-09-05
 

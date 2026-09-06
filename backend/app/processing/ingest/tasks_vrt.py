@@ -12,6 +12,7 @@ Storage portability (STOR-03/04, Phase 1210):
   a provider swap (s3 -> azure -> local) requires no changes to stored VRT XML.
 """
 
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -51,6 +52,35 @@ from app.processing.ingest.tasks_raster_common import (
     publish_commit_landed,
     record_unpublished_storage_keys,
 )
+
+# fix(#1938): the budget for the publish transaction's catalog.records wait.
+# Its only holders are request handlers that dirty the record and hold it from
+# flush to commit; nothing caps that, so this is a stuck-not-queued threshold.
+_PUBLISH_CATALOG_TIMEOUT = "15s"
+
+
+def _log_publish_wait_failure(
+    conflict: BaseException, *, job_id: str, dataset_id: str, waited_ms: int
+) -> None:
+    """Report a failed publish catalog wait, classified by its SQLSTATE.
+
+    ``dataset_id`` must be read BEFORE the acquisition: ``lock_catalog_rows``
+    rolls back before it raises, and that expires every loaded instance.
+    """
+    from app.platform.catalog_locks import lock_conflict_report
+
+    log_event, hint, code = lock_conflict_report(
+        conflict, event_prefix="vrt_publish_catalog"
+    )
+    structlog.get_logger().warning(
+        log_event,
+        job_id=job_id,
+        dataset_id=dataset_id,
+        waited_ms=waited_ms,
+        budget=_PUBLISH_CATALOG_TIMEOUT,
+        sqlstate=code,
+        hint=hint,
+    )
 
 
 def read_vrt_metadata(vrt_path: str) -> dict:
@@ -1378,18 +1408,46 @@ async def regenerate_vrt(
                 )
                 vrt_dataset = dataset_result.scalar_one_or_none()
                 if vrt_dataset is not None:
-                    # fix(#1847): the writes below dirty both rows. The asset
-                    # SELECT above already locks this datasets row through its
-                    # join, incidentally; state it. A no-op re-lock.
-                    from app.platform.catalog_locks import lock_catalog_rows
+                    # fix(#1847, #1938): the writes below dirty both rows. The
+                    # asset SELECT above took the datasets row through its join;
+                    # catalog.records is not in that query, so it is a real wait.
+                    from app.platform.catalog_locks import (
+                        CatalogLockConflict,
+                        lock_catalog_rows,
+                    )
 
-                    await lock_catalog_rows(
-                        session,
-                        dataset_cls=Dataset,
-                        record_cls=type(vrt_dataset.record),
-                        dataset_id=vrt_dataset.id,
-                        record_id=vrt_dataset.record_id,
-                        lock_timeout=None,
+                    # fix(#1938): read before the wait — the rollback inside a
+                    # failed acquisition expires every loaded instance.
+                    log_dataset_id = str(vrt_dataset.id)
+                    pre_wait_lock_timeout = await session.scalar(
+                        text("SELECT current_setting('lock_timeout')")
+                    )
+                    wait_started = time.perf_counter()
+                    try:
+                        await lock_catalog_rows(
+                            session,
+                            dataset_cls=Dataset,
+                            record_cls=type(vrt_dataset.record),
+                            dataset_id=vrt_dataset.id,
+                            record_id=vrt_dataset.record_id,
+                            lock_timeout=_PUBLISH_CATALOG_TIMEOUT,
+                        )
+                    except CatalogLockConflict as conflict:
+                        _log_publish_wait_failure(
+                            conflict,
+                            job_id=job_id,
+                            dataset_id=log_dataset_id,
+                            waited_ms=round(
+                                (time.perf_counter() - wait_started) * 1000
+                            ),
+                        )
+                        raise
+                    # fix(#1938): the budget ends with the wait it was sized
+                    # for. The UPDATEs below sit outside lock_catalog_rows, so
+                    # an expiry there would raise a bare DBAPIError.
+                    await session.execute(
+                        text("SELECT set_config('lock_timeout', :value, true)"),
+                        {"value": pre_wait_lock_timeout},
                     )
                     # feat(#1267) / ADR-002 Decision 5a: project the
                     # generation's completion instant into last_refreshed_at,

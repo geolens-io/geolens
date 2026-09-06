@@ -31,14 +31,21 @@ import io
 import os
 import shutil
 import tempfile
+import time
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.core.db.tenant_session import tenant_task
+from app.platform.catalog_locks import (
+    CATALOG_LOCK_CONFLICT_CODE,
+    CatalogLockConflict,
+    lock_conflict_report,
+)
 from app.platform.jobs.heartbeat import (
     claim_job_attempt_and_start_heartbeat,
     require_ingest_job_update,
@@ -93,6 +100,48 @@ from app.processing.ingest.tasks_raster_swap import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# fix(#1937): bounds the job-row SELECT `_job_phase_session` runs before the
+# caller gets control, then the catalog wait alone. Sized against holders of
+# the catalog rows, which are short writers, not against object-storage work.
+_PHASE2_TIMEOUT_MS = 30_000
+
+
+@contextmanager
+def _reporting_catalog_wait(*, job_id: str, dataset_id: str):
+    """Classify and log a failed catalog acquisition, then re-raise it.
+
+    ``dataset_id`` must be a value read BEFORE the wait: the acquisition rolls
+    back before it raises, and that expires every loaded instance.
+    """
+    wait_started = time.perf_counter()
+    try:
+        yield
+    except CatalogLockConflict as conflict:
+        log_event, hint, code = lock_conflict_report(
+            conflict, event_prefix="raster_replace_catalog"
+        )
+        logger.warning(
+            log_event,
+            job_id=job_id,
+            dataset_id=dataset_id,
+            waited_ms=round((time.perf_counter() - wait_started) * 1000),
+            budget=_PHASE2_TIMEOUT_MS,
+            sqlstate=code,
+            hint=hint,
+        )
+        raise
+
+
+def _raster_refresh_error_code(exc: BaseException) -> str:
+    """Map a raster-replace failure onto its run ``error_code``.
+
+    A contended catalog row reports as contention: nothing was written, and
+    the reader's next step is to find the holder, not to inspect the raster.
+    """
+    if isinstance(exc, CatalogLockConflict):
+        return CATALOG_LOCK_CONFLICT_CODE
+    return "raster_refresh_failed"
 
 
 class RasterReplaceError(Exception):
@@ -553,9 +602,14 @@ async def reupload_raster(
             phase="phase2",
             attempt_id=attempt_uuid,
             require_status="running",
+            lock_and_statement_timeout_ms=_PHASE2_TIMEOUT_MS,
         ) as (session, job):
             if job is None:
                 return
+            # fix(#1937): the kwarg has bounded the SELECT above, which is the
+            # whole of its job. Clearing it leaves the catalog wait below to
+            # lock_timeout, so expiry is 55P03 and maps to CatalogLockConflict.
+            await session.execute(text("SET LOCAL statement_timeout = 0"))
             job.current_step = "finalize"
             job.progress = 0.8
 
@@ -694,14 +748,21 @@ async def reupload_raster(
                 lock_catalog_rows,
             )
 
-            await lock_catalog_rows(
-                session,
-                dataset_cls=Dataset,
-                record_cls=type(dataset.record),
-                dataset_id=dataset.id,
-                record_id=dataset.record_id,
-                lock_timeout=None,
-            )
+            # fix(#1937): the id is read before the wait — the rollback inside
+            # a failed acquisition expires every loaded instance.
+            with _reporting_catalog_wait(job_id=job_id, dataset_id=str(dataset.id)):
+                await lock_catalog_rows(
+                    session,
+                    dataset_cls=Dataset,
+                    record_cls=type(dataset.record),
+                    dataset_id=dataset.id,
+                    record_id=dataset.record_id,
+                    lock_timeout=None,
+                )
+            # fix(#1937): the reservation below waits on a per-user advisory
+            # lock a sibling first ingest holds across a whole COG upload, and
+            # both GUCs clamp an advisory wait. It must be unbounded.
+            await session.execute(text("SET LOCAL lock_timeout = 0"))
             # fix(#1911): evaluated at write time, under the lock, so the counter
             # read into `dataset` before the wait is never written back over a
             # peer's commit.
@@ -900,7 +961,7 @@ async def reupload_raster(
             await record_refresh_failure(
                 err_session,
                 ingest_job_id=job_uuid,
-                error_code="raster_refresh_failed",
+                error_code=_raster_refresh_error_code(exc),
                 error_message=str(exc),
                 contacted_origin=False,
             )
