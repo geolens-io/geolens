@@ -62,7 +62,7 @@ ENDPOINT_CHECK_FAILED_POLICY = (
     "again."
 )
 
-# fix(#1770 r37/r46): only the rels this codebase dereferences, scoped to the
+# fix(#1770): only the rels this codebase dereferences, scoped to the
 # document type each is read FROM -- `conformance` off the LANDING page,
 # `items` off the COLLECTION document. Listing pages and entries read neither.
 _LANDING_RELS = frozenset({"conformance"})
@@ -101,22 +101,22 @@ MAX_DOCUMENT_TOKENS = 1_000_000
 # ~162 MiB at the worst measured 339 bytes each, ten times any real document.
 MAX_DOCUMENT_ELEMENTS = 500_000
 
-# fix(#1770 r43): a single start tag carrying hundreds of thousands of
+# fix(#1770): a single start tag carrying hundreds of thousands of
 # attributes counts as ONE `<`, so the per-element budget never sees it while
 # expat still allocates one dict entry per attribute. Bounded directly.
 MAX_DOCUMENT_ATTRIBUTES = 500_000
 
-# fix(#1770 r47): 256, well under `sys.getrecursionlimit()`'s default of
+# fix(#1770): 256, well under `sys.getrecursionlimit()`'s default of
 # 1,000. A budget at that default admits a document deep enough to blow the
 # interpreter's own stack in whatever walks the parsed tree next.
 MAX_DOCUMENT_DEPTH = 256
 
-# fix(#1770 r47): a service-advertised href's query string is free real estate
+# fix(#1770): a service-advertised href's query string is free real estate
 # no document budget prices -- its separators live inside one JSON string, so
 # `structural_tokens` answers ~0. 8192 is the conventional request-line limit.
 MAX_SERVICE_HREF_BYTES = 8192
 
-# fix(#1770 r47): the second, independent bound -- 8192 bytes still packs over
+# fix(#1770): the second, independent bound -- 8192 bytes still packs over
 # a thousand `a=1&` pairs, and no real operation link carries a few dozen.
 MAX_QUERY_FIELDS = 256
 
@@ -153,7 +153,7 @@ def bounded_parse_qsl(query: str) -> list[tuple[str, str]]:
 # means no caller deadline, which is the direct-call and offline case.
 DEFAULT_CHECK_TIMEOUT = 30.0
 
-# What to ask a service for. fix(#1746 r25): content negotiation belongs to the
+# What to ask a service for. fix(#1746): content negotiation belongs to the
 # read, not to a header a caller may forget -- a service that serves HTML for
 # `*/*` answers the probe with a document and the check with a web page.
 OGC_JSON_ACCEPT = "application/geo+json, application/json"
@@ -266,17 +266,17 @@ def _capabilities_url(url: str) -> str:
 
 # The two ways a WFS capabilities document names an operation endpoint: 1.1/2.0
 # `ows:DCP/ows:HTTP/ows:Get` with `xlink:href`, 1.0 `DCPType/HTTP/Get` with an
-# `onlineResource` attribute and no xlink (fix(#1746 r15)). Matched by LOCAL name.
+# `onlineResource` attribute and no xlink (fix(#1746)). Matched by LOCAL name.
 _WFS_ENDPOINT_ATTRIBUTES = frozenset({"href", "onlineresource"})
 
-# fix(#1770 r36): the operations the read-only ogr2ogr/OGR_WFS path can ever
+# fix(#1770): the operations the read-only ogr2ogr/OGR_WFS path can ever
 # ask for. Transaction, LockFeature and the stored-query operations are never
 # requested, so their advertised endpoint is never contacted. Matched lower-cased.
 _WFS_READ_OPERATIONS = frozenset(
     {"getcapabilities", "describefeaturetype", "getfeature", "getpropertyvalue"}
 )
 
-# fix(#1770 r36): WFS 1.0 has no element naming an operation the way
+# fix(#1770): WFS 1.0 has no element naming an operation the way
 # `ows:Operation name="..."` does -- the operation IS the element under
 # `<Request>`, so this closed vocabulary keeps `Request`/`DCPType`/`HTTP` out.
 _WFS_1_0_OPERATION_TAGS = frozenset(
@@ -299,7 +299,7 @@ def _local_name(tag: str) -> str:
 def _wfs_root(xml_bytes: bytes) -> Element:
     """Parse an untrusted WFS document: bytes so an encoding declaration is
     honoured, DTD refused."""
-    # fix(#1746 r26): `forbid_dtd=True`. defusedxml refuses entity declarations
+    # fix(#1746): `forbid_dtd=True`. defusedxml refuses entity declarations
     # by default but allows a DOCTYPE naming an external subset, which a WFS
     # document has no use for and the element bound cannot see.
     return ET.fromstring(xml_bytes, forbid_dtd=True)
@@ -321,7 +321,7 @@ def _operation_hrefs(root: Element) -> list[str]:
     spell the namespaces differently, and parsed with defusedxml.
     """
     hrefs: list[str] = []
-    # fix(#1770 r47): iterative, not recursive. A recursive walk is bounded by
+    # fix(#1770): iterative, not recursive. A recursive walk is bounded by
     # `sys.getrecursionlimit()` (default 1,000), not by `MAX_DOCUMENT_DEPTH`,
     # so it can blow the stack on a document the preflight admits.
     stack: list[tuple[object, str | None]] = [(root, None)]
@@ -371,12 +371,12 @@ def _next_page(document: object, base: str) -> str | None:
     for link in document.get("links", []) or []:
         if isinstance(link, dict) and link.get("rel") == "next" and link.get("href"):
             try:
-                # fix(#1770 r47): refused before `urljoin` even runs.
+                # fix(#1770): refused before `urljoin` even runs.
                 resolved = urljoin(
                     base, bounded_service_url(str(link["href"]), what="next")
                 )
             except ValueError as exc:
-                # fix(#1746 r16, #1770 r47b): an address the parser cannot read
+                # fix(#1746, #1770): an address the parser cannot read
                 # is not one to walk to, and the stop is warned rather than
                 # silent. The href never reaches the message; it is untrusted.
                 logger.warning(
@@ -399,19 +399,19 @@ def _assert_same_origin(url: str, hrefs: list[str], base: str | None = None) -> 
     """
     for href in hrefs:
         try:
-            # fix(#1770 r47): the shared length gate both the OGC API and the
+            # fix(#1770): the shared length gate both the OGC API and the
             # WFS href sinks feed into, applied before `urljoin`.
             href = bounded_service_url(href, what="operation")
-            # fix(#1746 r19): resolved against the document, which after a
+            # fix(#1746): resolved against the document, which after a
             # canonical redirect is not the URL asked for; the origin compared
             # against is still the submitted one.
             resolved = urljoin(base or url, href)
         except HrefTooLongError:
-            # fix(#1770 r47b): its own wording -- "unparseable" is true of a
+            # fix(#1770): its own wording -- "unparseable" is true of a
             # malformed address but not of one merely too long to be parsed.
             raise CrossOriginEndpointError("href exceeds the length limit") from None
         except ValueError:
-            # fix(#1746 r16): `urljoin` raises on some malformed absolute
+            # fix(#1746): `urljoin` raises on some malformed absolute
             # references. An address that cannot be resolved is not one to send
             # a credential to; the raw href is never echoed.
             raise CrossOriginEndpointError("unparseable") from None
@@ -698,7 +698,7 @@ async def fetch_document(
     try:
         await validate_url_for_ssrf(url)
         if on_first_request is not None:
-            # fix(#1746 r34): only once validation has succeeded.
+            # fix(#1746): only once validation has succeeded.
             on_first_request()
         # The client's transport pins the validated IP and revalidates every
         # redirect hop. The marker below must stay the LAST line before the call.
@@ -709,7 +709,7 @@ async def fetch_document(
                 # exist to distrust is not worth the bytes.
                 raise error(f"HTTP {response.status_code}")
             body = await read_bounded_body(response, budget, error=error)
-            # fix(#1746 r19): the URL the representation actually came from. A
+            # fix(#1746): the URL the representation actually came from. A
             # same-origin canonical redirect changes what a relative href in
             # the body is relative to.
             final_url = str(response.url)
@@ -1261,12 +1261,12 @@ async def _check_wfs(
         root = _wfs_root(xml_bytes)
         hrefs = _operation_hrefs(root)
     except (ET.ParseError, DefusedXmlException) as exc:
-        # fix(#1746 r26): `DefusedXmlException` is a `ValueError`, NOT a
+        # fix(#1746): `DefusedXmlException` is a `ValueError`, NOT a
         # `ParseError`, so catching only the latter lets a document carrying an
         # entity declaration escape as a 500.
         raise EndpointCheckFailedError(str(exc)) from None
     except RecursionError as exc:
-        # fix(#1770 r47): last line of defense -- the walk above is iterative
+        # fix(#1770): last line of defense -- the walk above is iterative
         # now, but `ET.fromstring` is not this module's code. Translated to the
         # coded refusal every other unreadable description gets.
         raise EndpointCheckFailedError(str(exc)) from None
@@ -1282,14 +1282,14 @@ async def _check_ogcapi(
     on_first_request: "Callable[[], None] | None" = None,
 ) -> None:
     body, from_url = await _fetch(client, url, headers, on_first_request)
-    # fix(#1770 r46): the landing page, the only document type `conformance` is
+    # fix(#1770): the landing page, the only document type `conformance` is
     # ever read from.
     _assert_same_origin(
         url, _ogcapi_link_hrefs(_parsed_json(body), _LANDING_RELS), from_url
     )
 
     if collection is not None:
-        # fix(#1746 r14): the collection this import will actually read,
+        # fix(#1746): the collection this import will actually read,
         # fetched directly -- a listing is paginated, so a check that reads
         # only the first page misses a collection chosen from a later one.
         body, from_url = await _fetch(
@@ -1298,7 +1298,7 @@ async def _check_ogcapi(
             headers,
         )
         document = _parsed_json(body)
-        # fix(#1770 r46): the collection document, the only document type
+        # fix(#1770): the collection document, the only document type
         # `items` is ever read from.
         _assert_same_origin(
             url, _ogcapi_link_hrefs(document, _COLLECTION_RELS), from_url
@@ -1307,20 +1307,20 @@ async def _check_ogcapi(
 
     # The probe has no collection yet, so it walks the listing. Bounded, and
     # reaching the bound is recorded rather than treated as a clean pass. The
-    # `collection is not None` branch above has no live caller (fix(#1770 r46b)).
+    # `collection is not None` branch above has no live caller (fix(#1770)).
     page_url: str | None = f"{url.rstrip('/')}/collections"
     for _page in range(_MAX_COLLECTION_PAGES):
         if page_url is None:
             return
         body, from_url = await _fetch(client, page_url, headers)
         listing = _parsed_json(body)
-        # fix(#1770 r46/r46b): the listing page dereferences neither rel, and
+        # fix(#1770): the listing page dereferences neither rel, and
         # `frozenset()` names that at a call site a structural test pins. A
         # deliberate no-op: `_ogcapi_link_hrefs` returns `[]` for any document.
         _assert_same_origin(url, _ogcapi_link_hrefs(listing, frozenset()), from_url)
         collections = listing.get("collections") if isinstance(listing, dict) else None
         for entry in collections or []:
-            # fix(#1770 r46/r46b): an entry's inlined `items` href is never
+            # fix(#1770): an entry's inlined `items` href is never
             # read either -- `_resolve_items_url` re-fetches the collection
             # document. Kept as a call site for the same structural test.
             _assert_same_origin(url, _ogcapi_link_hrefs(entry, frozenset()), from_url)
