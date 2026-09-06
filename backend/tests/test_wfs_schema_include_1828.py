@@ -1394,7 +1394,7 @@ class TestTheVersionIsComparedAsTheDriverComparesIt:
             ("0002.0.0", True),
             ("10", True),
             ("0" * 5000 + "1.0", False),
-            ("9" * 5000, True),
+            ("9" * 5000, False),
             ("", False),
             ("x", False),
             ("\u0662.0.0", False),
