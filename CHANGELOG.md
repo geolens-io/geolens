@@ -25,6 +25,9 @@ and releases use semantic versioning.
   characters or whitespace when the job was an ArcGIS one, or one whose service type was not
   recorded. Both now answer 422 before anything is reserved or staged. WFS and OGC API Features
   commits already refused such a token at the door and are unchanged. (#1755)
+- The import-commit door accepted a service token with no length limit of its own, while every
+  other service door caps one at 1000 characters. An over-long token is now refused with 422
+  before anything is reserved or staged. (#1923)
 
 ## [1.18.1] - 2026-09-05
 

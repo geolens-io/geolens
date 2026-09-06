@@ -65,6 +65,8 @@ _TOKEN_DOORS = {
 # The two characters base64url refuses, as a low-entropy synthetic value.
 _WIDE_VOCABULARY_TOKEN = "aaaa+bbbb/cccc="
 
+_TOKEN_MAX_LENGTH = 1000
+
 # The rule is printable and whitespace-free, so these are what it refuses.
 # CR and LF are the header-smuggling primitive SEC-021 named.
 _REFUSED_TOKENS = {
@@ -93,6 +95,18 @@ def test_every_service_credential_door_keeps_the_wider_vocabulary(door):
     door's job, and only where the credential becomes a header line."""
     model, required = _TOKEN_DOORS[door]
     model(**required, token=_WIDE_VOCABULARY_TOKEN)
+
+
+@pytest.mark.parametrize("door", sorted(_TOKEN_DOORS))
+def test_every_service_credential_door_caps_its_token(door):
+    model, required = _TOKEN_DOORS[door]
+    model(**required, token="a" * _TOKEN_MAX_LENGTH)
+
+    with pytest.raises(ValidationError) as exc_info:
+        model(**required, token="a" * (_TOKEN_MAX_LENGTH + 1))
+
+    fields = {error["loc"][0] for error in exc_info.value.errors()}
+    assert "token" in fields, f"{door} refused the body, but not on the token field"
 
 
 @pytest.mark.parametrize("door", sorted(_TOKEN_DOORS))
@@ -218,6 +232,26 @@ class TestTheCommitDoorsRefuseOverHttp:
             )
 
         _assert_refused_without_the_token(resp, _UNSAFE_TOKEN_OVER_HTTP, loc="token")
+        task.defer_async.assert_not_awaited()
+
+    async def test_the_import_commit_door_refuses_a_token_past_the_cap(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ) -> None:
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _arcgis_job(test_db_session, created_by=admin_id)
+        over_cap = "a" * (_TOKEN_MAX_LENGTH + 1)
+
+        async with _import_harness() as task:
+            resp = await client.post(
+                f"/ingest/commit/{job.id}",
+                json={"title": "Parcels", "token": over_cap},
+                headers=admin_auth_header,
+            )
+
+        _assert_refused_without_the_token(resp, over_cap, loc="token")
         task.defer_async.assert_not_awaited()
 
     async def test_the_reupload_commit_door_refuses_and_never_echoes_the_token(
