@@ -266,6 +266,10 @@ jobs:
               # CodeQL policy.
               - '.github/workflows/codeql.yml'
               - '.github/codeql/**'
+              # fix(#1925): test_unscoped_finding_markers.py reads this config
+              # and asserts the marker hook still runs the detector, so a
+              # config-only PR must run the suite that notices a hook drifting.
+              - '.pre-commit-config.yaml'
               # fix(#1778 review): test_ci_alembic_filter_paths.py's currency
               # scan flagged these two — both are docstring cross-references
               # (test_backup_entrypoint_atomic_writes.py names this script as
