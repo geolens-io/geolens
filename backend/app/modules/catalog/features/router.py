@@ -28,7 +28,10 @@ from app.core.db.sqlstate import (
     sqlstate,
 )
 from app.core.identity import Identity
-from app.platform.catalog_locks import CatalogLockConflict
+from app.platform.catalog_locks import (
+    CatalogLockConflict,
+    bump_tile_cache_version_on,
+)
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.auth.dependencies import (
     get_current_active_user,
@@ -667,9 +670,9 @@ async def create_feature(
             },
         ),
     )
-    # fix(#525 B-038): roll the _v= URL cache-buster in the same transaction —
-    # the post-commit Valkey purge cannot reach CDN/browser caches keyed on the URL.
-    dataset.bump_tile_cache_version()
+    # fix(#1902): evaluated at write time, so a counter read before the lock
+    # wait is never written back over a peer's commit.
+    tile_version = await bump_tile_cache_version_on(db, dataset)
     await db.commit()
 
     # Invalidate cached tiles so the new feature appears immediately
@@ -680,6 +683,7 @@ async def create_feature(
     logger.info(
         "feature.insert",
         dataset_id=str(dataset_id),
+        tile_cache_version=tile_version,
         gid=row["gid"],
         user_id=str(user.id),
     )
@@ -786,8 +790,9 @@ async def replace_single_feature(
             },
         ),
     )
-    # fix(#525 B-038): roll the _v= URL cache-buster (see feature.insert above).
-    dataset.bump_tile_cache_version()
+    # fix(#1902): evaluated at write time, so a counter read before the lock
+    # wait is never written back over a peer's commit.
+    await bump_tile_cache_version_on(db, dataset)
     await db.commit()
 
     # Invalidate cached tiles so the replaced feature renders correctly
@@ -901,8 +906,9 @@ async def patch_single_feature(
             },
         ),
     )
-    # fix(#525 B-038): roll the _v= URL cache-buster (see feature.insert above).
-    dataset.bump_tile_cache_version()
+    # fix(#1902): evaluated at write time, so a counter read before the lock
+    # wait is never written back over a peer's commit.
+    await bump_tile_cache_version_on(db, dataset)
     await db.commit()
 
     # Invalidate cached tiles so the updated feature renders correctly
@@ -978,8 +984,9 @@ async def delete_single_feature(
             details={"gid": gid},
         ),
     )
-    # fix(#525 B-038): roll the _v= URL cache-buster (see feature.insert above).
-    dataset.bump_tile_cache_version()
+    # fix(#1902): evaluated at write time, so a counter read before the lock
+    # wait is never written back over a peer's commit.
+    tile_version = await bump_tile_cache_version_on(db, dataset)
     await db.commit()
 
     # Invalidate cached tiles so the deleted feature disappears immediately
@@ -990,6 +997,7 @@ async def delete_single_feature(
     logger.info(
         "feature.delete",
         dataset_id=str(dataset_id),
+        tile_cache_version=tile_version,
         gid=gid,
         user_id=str(user.id),
     )

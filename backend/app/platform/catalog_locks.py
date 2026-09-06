@@ -10,9 +10,10 @@ from __future__ import annotations
 from contextvars import ContextVar
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.db.sqlstate import is_lock_conflict
 
@@ -148,3 +149,38 @@ async def _raise_rolled_back_conflict(session: AsyncSession, exc: DBAPIError) ->
     raise CatalogLockConflict(
         "Another operation is updating this dataset's catalog entry."
     ) from exc
+
+
+async def bump_tile_cache_version_atomic(
+    session: AsyncSession, *, dataset_cls: Any, dataset_id: Any
+) -> int | None:
+    """Roll ``tile_cache_version`` in the database and return the new value.
+
+    ``coalesce(tile_cache_version, 1) + 1``, evaluated against the row at
+    write time, so a counter read before a lock wait is never written back
+    over a peer's commit. Call it in the same transaction as the tile-content
+    change it describes. None when the row no longer exists.
+    """
+    return await session.scalar(
+        update(dataset_cls)
+        .where(dataset_cls.id == dataset_id)
+        .values(tile_cache_version=func.coalesce(dataset_cls.tile_cache_version, 1) + 1)
+        .returning(dataset_cls.tile_cache_version)
+        .execution_options(synchronize_session=False)
+    )
+
+
+async def bump_tile_cache_version_on(session: AsyncSession, dataset: Any) -> int | None:
+    """:func:`bump_tile_cache_version_atomic` for a loaded ``Dataset`` instance.
+
+    The instance's ``tile_cache_version`` is set to the returned value without
+    marking it dirty, so a later reader sees what was published and the flush
+    does not write it back. The one spelling for a request handler, whose
+    instance was loaded before it waited for the row.
+    """
+    version = await bump_tile_cache_version_atomic(
+        session, dataset_cls=type(dataset), dataset_id=dataset.id
+    )
+    if version is not None:
+        set_committed_value(dataset, "tile_cache_version", version)
+    return version

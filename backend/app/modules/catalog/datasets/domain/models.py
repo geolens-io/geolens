@@ -618,14 +618,14 @@ class Dataset(Base):
     def bump_tile_cache_version(self) -> None:
         """Roll the `_v=` tile-URL cache-buster after a tile-content mutation.
 
-        Call in the same transaction as any change to the dataset's tile
-        content (feature edits, column DDL, tile_columns, reupload) — the
-        post-commit Valkey purge cannot reach CDN/browser caches keyed on the
-        tile URL. fix(#525 B-038)
+        Call in the same transaction as the change to the dataset's tile
+        content; the post-commit Valkey purge cannot reach CDN or browser
+        caches keyed on the tile URL.
 
         Writes an ABSOLUTE value read off this instance, so it is correct only
-        while the caller holds this row; one that does not must use
-        ``bump_tile_cache_version_atomic`` (ingest/tasks_common). #1738 r1
+        for a caller that loaded this row under a lock it still holds. A
+        request handler loads before it waits and must use
+        ``bump_tile_cache_version_on`` (platform/catalog_locks) instead.
         """
         self.tile_cache_version = (self.tile_cache_version or 1) + 1
 
