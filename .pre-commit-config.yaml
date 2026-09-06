@@ -87,17 +87,41 @@ repos:
         files: '^backend/app/(modules/catalog|standards)/.*\.py$'
 
       - id: no-unscoped-finding-markers
-        name: "AGENTS.md — no bare, unscoped finding markers in source comments"
+        name: "AGENTS.md — a finding marker in a backend/app comment or docstring needs a #issue anchor"
         description: >
-          AGENTS.md ("Inline review-comment convention") requires a comment that
-          references a review finding to carry a lookup-able anchor — a PR or
-          issue number — not a bare tag that resolves only in someone's private
-          context. 14 `ponytail:` markers reached main before anyone noticed;
-          they read as a defined term and are not one.
+          AGENTS.md ("Inline review-comment convention") requires a comment or
+          docstring that references a review finding to carry a lookup-able
+          anchor — a PR or issue number — not a bare tag that resolves only in
+          someone's private context.
+
+          This hook runs backend/tests/finding_markers.py over the whole of
+          backend/app. That detector parses each module, reads comments and
+          docstrings only (never code, so a string literal cannot trip it), and
+          reports a coded finding id (SEC-002, T-1214-17, PERF-N5) or a
+          denylisted agent tag with no #issue anchor within two lines. A
+          published-standard token (UTF-8, ISO-8601) is exempt by name, and
+          `# noqa` / `# codeql[...]` carry no marker shape at all.
+          The markers already on main are frozen per module in that file and
+          only go down; backend/tests/test_unscoped_finding_markers.py runs the
+          same check in CI and pins the detector's behaviour.
 
           Write `fix(#1234): <one line>`, or just drop the tag and let the
           sentence stand — a note about a deliberate limitation does not need a
           prefix to be understood.
+        language: system
+        entry: python3 backend/tests/finding_markers.py
+        pass_filenames: false
+        files: '^backend/(app/.*|tests/finding_markers)\.py$'
+
+      - id: no-agent-tag-markers
+        name: "AGENTS.md — no `ponytail:` literal anywhere in a python/ts/tsx/js/shell file"
+        description: >
+          The denylist half of the same rule, for the file types the AST
+          detector above does not parse (frontend/, e2e/, cli/, mcp/). One
+          case-insensitive literal, grepped over the whole file rather than
+          its comments — that is all this hook checks and all it claims. The
+          general class is enforced for backend/app, and only there, by
+          no-unscoped-finding-markers.
         language: system
         entry: >-
           bash -c '
