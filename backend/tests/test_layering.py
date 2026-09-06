@@ -3380,7 +3380,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # lines are the guard helper, the two guarded writes and the 409.
     # refactor(#1711): -26. `_cleanup_saved_upload` belongs to service.py: it
     # is a shared staging helper, not a router one. Cap 2665 -> 2639, exact.
-    "backend/app/processing/ingest/router.py": 2639,
+    # refactor(#1711): -459. The URL-import staging cluster — budget, bounded
+    # put, settlement — lives in url_import_staging.py; the route handler and
+    # its filename/metadata helpers stay. Cap 2639 -> 2180, exact.
+    "backend/app/processing/ingest/router.py": 2180,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -6818,6 +6821,12 @@ _PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN: dict[str, set[str]] = {
         "app.modules.quota.service",
     },
     "ingest/tasks_vrt.py": {
+        "app.modules.quota.service",
+    },
+    # refactor(#1711): the same `get_user_quota_usage` edge ingest/router.py
+    # already carries, following `_effective_stream_cap` into the module the
+    # URL-import staging split gave it. Retargeted, not new.
+    "ingest/url_import_staging.py": {
         "app.modules.quota.service",
     },
     "tiles/router.py": {
