@@ -5352,7 +5352,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1847): +5. BulkDeleteResultItem gained an optional `code`, so a
     # per-item conflict is machine-readable with the same code the
     # single-delete 409 carries. Cap 1536 -> 1540, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1540,
+    # fix(#1755 item 3): -5. The module-local copy of the token rule is gone;
+    # the three models import the shared one. Cap 1540 -> 1535, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1535,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

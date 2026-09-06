@@ -4,11 +4,12 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.platform.service_auth import (
     SERVICE_AUTH_FIELD_DESCRIPTION,
     ServiceAuthRequest,
+    _validate_safe_token,
     reject_service_auth_conflict,
 )
 
@@ -241,6 +242,9 @@ class ServiceCommitRequest(BaseCommitRequest):
             "the database. Deprecated: use the auth object with method bearer."
         ),
     )
+    # fix(#1755 item 3): the deprecated flat spelling of a credential is held
+    # to the same rule as the `auth` object beside it on this door.
+    _validate_token = field_validator("token")(_validate_safe_token)
     # feat(#1746 B2b): declared LAST, like every other model that gained this
     # field, because the generated Python SDK gives each field a positional
     # slot in declaration order and appending cannot move a slot that already

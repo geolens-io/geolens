@@ -21,6 +21,9 @@ and releases use semantic versioning.
 - A reupload could fail with a catalog-lock conflict instead of waiting when another operation
   briefly held the dataset's catalog row. The lock budget the table swap sets for its own DDL no
   longer carries over to the wait that follows it. (#1917)
+- The import-commit and re-upload-commit doors accepted a service token containing control
+  characters or whitespace, which every other service door already refused. Both now answer 422
+  before the commit reserves or stages anything. (#1755)
 
 ## [1.18.1] - 2026-09-05
 
