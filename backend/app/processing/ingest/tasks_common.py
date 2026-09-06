@@ -2208,7 +2208,7 @@ async def _retire_geometry_attribute_row(
 
 
 # The AccessExclusiveLock budget the reupload swap DDL spends: first attempt,
-# the single retry, and the pause between them (ING-06 / P2-08).
+# the single retry, and the pause between them (#1917).
 _SWAP_FIRST_TIMEOUT = "5s"
 _SWAP_RETRY_TIMEOUT = "15s"
 _SWAP_RETRY_SLEEP_MS = 200
