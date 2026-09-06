@@ -3621,7 +3621,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1921): +66 — the post-swap catalog wait gets its own budget, a
     # restore, and events telling an expired budget from a lost deadlock.
     # Cap 2577 -> 2643, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2643,
+    # fix(#1950): +14 — the shared failure helper arms the job-row budget after
+    # its own rollback, which would discard one installed upstream, and the
+    # docstring states what an expired budget leaves behind.
+    # Cap 2643 -> 2657, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2657,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed

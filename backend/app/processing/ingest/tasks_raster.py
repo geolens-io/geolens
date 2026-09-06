@@ -9,6 +9,7 @@ from app.core.db.tenant_session import current_tenant_var, tenant_task
 from app.core.tenancy import is_multi_tenant
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.jobs.heartbeat import (
+    JOB_ERROR_WRITE_TIMEOUT_MS,
     claim_job_attempt_and_start_heartbeat,
     require_ingest_job_update,
     resolve_ingest_attempt_or_skip,
@@ -794,8 +795,15 @@ async def ingest_raster(
         # Write failure status via a fresh session — phase 1/2 sessions are
         # already closed (or rolled back) by the time we get here.
         # REMED-03 / P2-05: route through _job_phase_session.
+        #
+        # fix(#1950): the budget covers the UPDATE below, the statement that
+        # blocks on a contended job row. If it expires the job records nothing
+        # and stays `running` until the stale sweep reaps it.
         async with _job_phase_session(
-            job_uuid, phase="error_write", attempt_id=attempt_uuid
+            job_uuid,
+            phase="error_write",
+            attempt_id=attempt_uuid,
+            lock_and_statement_timeout_ms=JOB_ERROR_WRITE_TIMEOUT_MS,
         ) as (
             err_session,
             _err_job,

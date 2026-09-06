@@ -122,6 +122,12 @@ async def claim_ingest_job_attempt(
     return bool(result.rowcount)  # type: ignore[attr-defined]
 
 
+# fix(#1950): the budget a worker's terminal failure write spends on its own
+# ingest_jobs row. Holders self-cap far below it (`cancel_job` at 2s; the sweep
+# and startup recovery take candidates SKIP LOCKED), so a longer wait is stuck.
+JOB_ERROR_WRITE_TIMEOUT_MS = 10_000
+
+
 async def update_ingest_job_for_attempt(
     session: AsyncSession,
     job_id: uuid.UUID,

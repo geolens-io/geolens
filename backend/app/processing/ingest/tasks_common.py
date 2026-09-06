@@ -1291,10 +1291,15 @@ async def _cleanup_staging_on_failure(
     the job sat `running` with no reason recorded. Anything added here that
     can fail belongs after the commit, in its own guarded block, with a
     rollback of its own wreckage.
+
+    fix(#1950): the failure UPDATE runs under ``JOB_ERROR_WRITE_TIMEOUT_MS``.
+    A contended job row raises out of here rather than waiting, and the job
+    then records nothing: it stays ``running`` until the stale sweep reaps it.
     """
     from sqlalchemy import text
     from sqlalchemy import update as sa_update
 
+    from app.platform.jobs.heartbeat import JOB_ERROR_WRITE_TIMEOUT_MS
     from app.processing.ingest.metadata import _qtable
 
     job_id = job.id
@@ -1309,6 +1314,15 @@ async def _cleanup_staging_on_failure(
     # that dispatch on its type or re-raise it are unaffected.
     error_message = redact_url_credentials(str(exc))
     await session.rollback()
+    # fix(#1950): armed AFTER the rollback that would discard it and before the
+    # UPDATE, which is the statement that blocks on a contended job row. It
+    # expires with the commit below, so the DROP stays unbounded as before.
+    await session.execute(
+        text(f"SET LOCAL lock_timeout = {JOB_ERROR_WRITE_TIMEOUT_MS}")
+    )
+    await session.execute(
+        text(f"SET LOCAL statement_timeout = {JOB_ERROR_WRITE_TIMEOUT_MS}")
+    )
 
     failure_update = sa_update(type(job)).where(type(job).id == job_id)
     if attempt_id is not None:
