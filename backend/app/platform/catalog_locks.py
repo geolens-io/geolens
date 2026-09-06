@@ -10,7 +10,7 @@ from __future__ import annotations
 from contextvars import ContextVar
 from typing import Any
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import event, func, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
@@ -32,11 +32,13 @@ _USE_REQUEST_DEFAULT: Any = object()
 CATALOG_LOCK_CONFLICT_CODE = "catalog_lock_conflict"
 
 
-# fix(#1847): set when THIS request installed the catalog timeout, so the
-# boundary handler does not read an unrelated 40P01 as a busy dataset.
+# fix(#1847, #1890): true from the SET LOCAL until the transaction that ran it
+# commits, so the boundary handler answers 409 only for a wait inside it.
 catalog_timeout_installed: ContextVar[bool] = ContextVar(
     "catalog_timeout_installed", default=False
 )
+
+_MARKER_LISTENER_KEY = "catalog_timeout_marker_listener"
 
 
 class CatalogLockConflict(Exception):
@@ -137,8 +139,25 @@ async def _install_lock_timeout(
         # `SET LOCAL` takes a literal; this value is a constant, never
         # request-supplied.
         await session.execute(text(f"SET LOCAL lock_timeout = '{lock_timeout}'"))
+        _clear_marker_on_commit(session)
         # Each request runs in its own task, so this cannot leak across them.
         catalog_timeout_installed.set(True)
+
+
+def _clear_marker_on_commit(session: AsyncSession) -> None:
+    """Register, once per session, the commit listener that ends the marker.
+
+    The listener runs inside ``commit()`` on the request's own task, so the
+    reset lands in the context that set the marker.
+    """
+    if session.info.get(_MARKER_LISTENER_KEY):
+        return
+    session.info[_MARKER_LISTENER_KEY] = True
+    event.listen(session.sync_session, "after_commit", _forget_lock_timeout)
+
+
+def _forget_lock_timeout(_session: Any) -> None:
+    catalog_timeout_installed.set(False)
 
 
 async def _raise_rolled_back_conflict(session: AsyncSession, exc: DBAPIError) -> None:

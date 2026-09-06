@@ -541,7 +541,11 @@ class _RecordingSession:
     """Captures the statements the lock helper emits, in order."""
 
     def __init__(self):
+        from sqlalchemy.orm import Session
+
         self.statements: list[str] = []
+        self.info: dict = {}
+        self.sync_session = Session()
 
     @property
     def no_autoflush(self):
@@ -861,6 +865,90 @@ class TestMetadataPatchTakesThePairToo:
 
         assert response.status_code == 200, response.text
         assert response.json()["title"] == "Renamed by the metadata patch"
+
+
+class TestTheMetadataPatchTakesThePairOnEveryBody:
+    """fix(#1881): the body does not decide the order.
+
+    A workflow hook runs on a `record_status` body with the dataset in its
+    context, so a PATCH that names no dataset field can still write the
+    datasets row. Every PATCH takes the pair, before its first write.
+    """
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            pytest.param({"summary": "A record field alone"}, id="record-field"),
+            pytest.param({"record_status": "internal"}, id="record-status"),
+        ],
+    )
+    async def test_a_record_only_patch_waits_for_the_datasets_row_holding_nothing(
+        self, body, locked_dataset, client: AsyncClient, admin_auth_header, monkeypatch
+    ):
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "60s")
+
+        import app.core.db as db_module
+
+        async with (
+            db_module.async_session() as holder,
+            db_module.async_session() as probe,
+        ):
+            await holder.execute(
+                select(Dataset.tile_cache_version)
+                .where(Dataset.id == locked_dataset.id)
+                .with_for_update()
+            )
+            holder_xid = await holder.scalar(text("SELECT pg_current_xact_id()::text"))
+
+            patch = asyncio.create_task(
+                client.patch(
+                    f"/datasets/{locked_dataset.id}",
+                    json=body,
+                    headers=admin_auth_header,
+                )
+            )
+            try:
+                await _await_waiter_on(probe, holder_xid)
+                assert not await _holds_record_lock(probe, locked_dataset.record_id), (
+                    "the record-only PATCH is parked on the datasets row while "
+                    "holding catalog.records, which is the inverted order"
+                )
+                await holder.execute(
+                    text(
+                        "UPDATE catalog.records SET updated_at = now() WHERE id = :rid"
+                    ),
+                    {"rid": locked_dataset.record_id},
+                )
+                await holder.commit()
+            except BaseException:
+                await holder.rollback()
+                raise
+            response = await patch
+
+        assert response.status_code == 200, response.text
+        for field, value in body.items():
+            assert response.json()[field] == value
+
+    def test_the_gate_sees_the_acquisition_on_every_path(self):
+        """The structural pin: no exemption, and the walk finds the site."""
+        key = (
+            "app.modules.catalog.datasets.domain.service_metadata.update_user_metadata"
+        )
+        assert key not in _CONDITIONAL_ACQUISITION, (
+            "update_user_metadata is exempt from the every-path rule again; a "
+            "branch around its acquisition is what #1881 removed"
+        )
+        found = [
+            (module, bindings, fn)
+            for _rel, module, bindings, fn in _walk_app_functions()
+            if f"{module}.{fn.name}" == key
+        ]
+        assert found, "the gate walk no longer sees update_user_metadata"
+        module, bindings, fn = found[0]
+        ok, why = acquisition_dominates_writes(
+            fn, bindings, module, _acquiring_functions()
+        )
+        assert ok, why
 
 
 class TestAttributeEditsTakeThePairToo:
@@ -2008,6 +2096,114 @@ class TestOnlyThisRequestsTimeoutIsAnswered:
         )
 
 
+class TestTheMarkerEndsWithItsTransaction:
+    """fix(#1890): the marker stands for a `SET LOCAL`, which ends with the
+    transaction that ran it. A conflict after that commit is not a busy
+    catalog row, and a 409 there would have the client re-apply a committed
+    update."""
+
+    async def test_commit_clears_the_marker_the_acquisition_set(self, locked_dataset):
+        import app.core.db as db_module
+
+        async with db_module.async_session() as session:
+            # Twice: the second acquisition must re-arm the marker and still
+            # register one listener.
+            for _ in range(2):
+                await catalog_locks.lock_catalog_rows(
+                    session,
+                    dataset_cls=Dataset,
+                    record_cls=Record,
+                    dataset_id=locked_dataset.id,
+                    record_id=locked_dataset.record_id,
+                )
+                assert catalog_locks.catalog_timeout_installed.get() is True
+                await session.commit()
+                assert catalog_locks.catalog_timeout_installed.get() is False, (
+                    "the transaction that installed the lock timeout has "
+                    "committed and the marker still says it is installed"
+                )
+            listeners = list(session.sync_session.dispatch.after_commit.listeners)
+            assert listeners.count(catalog_locks._forget_lock_timeout) == 1
+
+    async def test_a_conflict_after_the_commit_keeps_its_operational_answer(
+        self,
+        locked_dataset,
+        client: AsyncClient,
+        admin_auth_header,
+        test_db_session,
+        monkeypatch,
+    ):
+        """The PATCH commits, then reads to build its response."""
+        import app.modules.catalog.datasets.api.router as router_module
+
+        class _Orig:
+            sqlstate = "40P01"
+
+        async def _deadlock_victim(*_args, **_kwargs):
+            raise DBAPIError("SELECT 1", {}, _Orig())
+
+        monkeypatch.setattr(router_module, "_load_actor_identities", _deadlock_victim)
+        response = await client.patch(
+            f"/datasets/{locked_dataset.id}",
+            json={"title": "Committed before the deadlock"},
+            headers=admin_auth_header,
+        )
+        assert response.status_code == 503, (
+            "a deadlock on the response read, after the update committed, was "
+            f"answered as a retryable busy dataset: {response.status_code} "
+            f"{response.text}"
+        )
+        title = await test_db_session.scalar(
+            select(Record.title).where(Record.id == locked_dataset.record_id)
+        )
+        assert title == "Committed before the deadlock"
+
+    async def test_a_conflict_inside_the_transaction_still_answers_409(
+        self,
+        locked_dataset,
+        client: AsyncClient,
+        admin_auth_header,
+        test_db_session,
+        monkeypatch,
+    ):
+        """A wait after the acquisition, on a cascade child it does not lock.
+
+        The failed transaction is rolled back before the boundary handler
+        reads the marker, so a rollback-time reset would answer this 503.
+        """
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "150ms")
+        import app.core.db as db_module
+        from app.modules.catalog.maps.models import Map, MapLayer
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        the_map = Map(name="marker scope map", created_by=admin_id)
+        test_db_session.add(the_map)
+        await test_db_session.flush()
+        layer = MapLayer(map_id=the_map.id, dataset_id=locked_dataset.id, sort_order=0)
+        test_db_session.add(layer)
+        await test_db_session.commit()
+
+        try:
+            async with db_module.async_session() as holder:
+                await holder.execute(
+                    select(MapLayer.id).where(MapLayer.id == layer.id).with_for_update()
+                )
+                response = await client.request(
+                    "DELETE",
+                    f"/datasets/{locked_dataset.id}",
+                    json={"confirm_title": f"Lock order {locked_dataset.table_name}"},
+                    headers=admin_auth_header,
+                )
+                await holder.rollback()
+            assert response.status_code == 409, response.text
+            assert response.json()["detail"]["code"] == "catalog_lock_conflict"
+        finally:
+            await test_db_session.execute(
+                text("DELETE FROM catalog.maps WHERE id = :m"), {"m": the_map.id}
+            )
+            await test_db_session.commit()
+
+
 class TestTheOtherSitesHoldTheOrderToo:
     """The layers DDL, the delete and the metadata PATCH, against a held row.
 
@@ -2364,11 +2560,6 @@ _ORDERS_RASTER_ITSELF = {
 # Functions whose acquisition is deliberately conditional. Every other site
 # must acquire on every path; these carry the reason the unlocked path is safe.
 _CONDITIONAL_ACQUISITION = {
-    "app.modules.catalog.datasets.domain.service_metadata.update_user_metadata": (
-        "the unlocked branch writes the records row ALONE, and a one-row write "
-        "has no order to get wrong. Gated on _DATASET_ROW_FIELDS, which is the "
-        "set of request fields that reach catalog.datasets."
-    ),
     "app.modules.catalog.features.router.patch_single_feature": (
         "both arms acquire, one through the refresh and one directly, which "
         "test_every_write_handler_acquires_on_every_path checks per arm."

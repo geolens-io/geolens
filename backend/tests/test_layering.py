@@ -1877,7 +1877,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#1847): +31. `sample_example_values` reads the data table on its
         # own and `reset_attribute` takes the sample as an argument, so the
         # reset samples before it takes the pair. Cap 488 -> 519, exact.
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 519,
+        # fix(#1881): -7. The PATCH takes the pair on every body, so the
+        # request-field whitelist and its branch are gone. Cap 519 -> 512, exact.
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 512,
         # fix(#435 codex r1): +6 LOC in get_dataset_rows to probe schema existence
         # before degrading a 42P01 to an empty page. Postgres reports a missing
         # tenant data schema with the same code as a raster dataset's synthetic
