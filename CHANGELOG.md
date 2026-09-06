@@ -11,6 +11,9 @@ and releases use semantic versioning.
 
 - Tenant-ownership adoption no longer fails when a role that is a member of a gateway is dropped
   while the run is validating the cluster; the vanished member is skipped instead. (#1913)
+- `make dev` preflight now judges a `.env` line whose key is empty or holds a tab the way docker
+  compose loads it: a value compose cannot resolve is refused before the build instead of at
+  compose load, and a multiline value under such a key no longer fails the check. (#1909)
 
 ## [1.18.1] - 2026-09-05
 

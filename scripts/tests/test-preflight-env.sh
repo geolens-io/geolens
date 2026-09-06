@@ -320,10 +320,10 @@ else
     bad "an earlier invalid duplicate was masked by the last definition (exit $STATUS): $(cat "$WORK/out.txt")"
 fi
 
-MIXED_VALID="$(printf '# comment\n\nexport EXPORTED=1\nQUOTED="with # hash" # note\nSINGLE='"'"'lit $x'"'"'\nBARE\nSPACED = value\nREF=${JWT_SECRET_KEY}\nODD-KEY=x\n1ODD=x\nDOTTED.KEY=x\nCOLON:sep value\nTAB\t=x\nDOLLAR=$5\nJUNK="a"b\nMULTI="a\nb c\n"')"
+MIXED_VALID="$(printf '# comment\n\nexport EXPORTED=1\nQUOTED="with # hash" # note\nSINGLE='"'"'lit $x'"'"'\nBARE\nSPACED = value\nREF=${JWT_SECRET_KEY}\nODD-KEY=x\n1ODD=x\nDOTTED.KEY=x\nCOLON:sep value\nTAB\t=x\nDOLLAR=$5\nJUNK="a"b\n=x\nA\tB="d\ne f\n"\nMULTI="a\nb c\n"')"
 run_preflight "$MIXED_VALID"
 if [ "$STATUS" -eq 0 ]; then
-    ok "a file of lines Compose loads still passes (comments, export, quotes, bare, odd keys, refs, multiline)"
+    ok "a file of lines Compose loads still passes (comments, export, quotes, bare, odd keys, an empty key, a tab in a key, refs, multiline)"
 else
     bad "a valid file was refused by the whole-file check: $(cat "$WORK/out.txt")"
 fi
@@ -399,6 +399,54 @@ if [ "$STATUS" -ne 0 ] && grep -q "line 4 (1ODD)" "$WORK/out.txt"; then
     ok "a digit-leading key with a value Compose refuses is refused"
 else
     bad "a digit-leading key's value was never interpolated (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+# fix(#1909): an empty key and a key holding a tab are records too.
+run_preflight '=${MISSING:?boom}'
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (?)" "$WORK/out.txt"; then
+    ok "an empty key with a value Compose refuses is refused"
+else
+    bad "an empty key's value was never interpolated (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+run_preflight "$(printf 'A\tB=${MISSING:?boom}')"
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (A)" "$WORK/out.txt"; then
+    ok "a key holding a tab with a value Compose refuses is refused, named up to the tab"
+else
+    bad "a tab-holding key's value was never interpolated (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+run_preflight "$(printf 'A\tB =${MISSING:?boom}')"
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (A)" "$WORK/out.txt"; then
+    ok "a separator space after a tab-holding key does not hide its value"
+else
+    bad "a tab-holding key with a separator space was never interpolated (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+run_preflight "$(printf 'export\t=${MISSING:?boom}')"
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (?)" "$WORK/out.txt"; then
+    ok "an export prefix before an empty key still leaves the key empty, as Compose reads it"
+else
+    bad "an export-prefixed empty key's value was never interpolated (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+printf '\357\273\277=${MISSING:?boom}\n' > "$FAKE/.env"
+printf '%s\n' "$REQUIRED_LINES" >> "$FAKE/.env"
+bash "$FAKE/scripts/preflight-env.sh" > "$WORK/out.txt" 2>&1
+STATUS=$?
+if [ "$STATUS" -ne 0 ] && grep -q "line 1 (?)" "$WORK/out.txt"; then
+    ok "a BOM before an empty key on the first line does not hide it"
+else
+    bad "a BOM-prefixed empty key's value was never interpolated (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
+: > "$FAKE/.env"
+bash "$FAKE/scripts/preflight-env.sh" > "$WORK/out.txt" 2>&1
+STATUS=$?
+if [ "$STATUS" -ne 0 ] && grep -q "JWT_SECRET_KEY" "$WORK/out.txt" && ! grep -q "cannot be loaded" "$WORK/out.txt" && ! grep -q "No such file" "$WORK/out.txt"; then
+    ok "an empty .env loads and fails only on the required vars, with no stray error"
+else
+    bad "an empty .env was misjudged (exit $STATUS): $(cat "$WORK/out.txt")"
 fi
 
 printf '%s\n' "$REQUIRED_LINES" > "$FAKE/.env"
