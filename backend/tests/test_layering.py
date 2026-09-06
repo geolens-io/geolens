@@ -3612,9 +3612,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # stops clamping the catalog-lock wait; its budget constants moved to
     # module scope to be testable. Cap 2558 -> 2577, exact.
     # fix(#1921): +66 — the post-swap catalog wait gets its own budget, a
-    # restore of its own, and a log line carrying how long it waited, off an
-    # id captured before the rollback; an expired budget and a lost deadlock
-    # get separate events. Cap 2577 -> 2643, exact.
+    # restore, and events telling an expired budget from a lost deadlock.
+    # Cap 2577 -> 2643, exact.
     "backend/app/processing/ingest/tasks_common.py": 2643,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
