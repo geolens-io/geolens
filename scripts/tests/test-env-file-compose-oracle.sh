@@ -636,6 +636,9 @@ _assert_file_like_compose "$FILE_DIR/empty-key" "an empty key whose value Compos
 printf 'CONTROL=ok\nA\tB=${MISSING:?boom}\n' > "$FILE_DIR/tab-key"
 _assert_file_like_compose "$FILE_DIR/tab-key" "a key holding a tab whose value Compose refuses"
 
+printf 'CONTROL=ok\nA\tB =${MISSING:?boom}\n' > "$FILE_DIR/tab-key-space"
+_assert_file_like_compose "$FILE_DIR/tab-key-space" "a separator space after a tab-holding key whose value Compose refuses"
+
 printf 'CONTROL=ok\nexport\t=${MISSING:?boom}\n' > "$FILE_DIR/export-empty-key"
 _assert_file_like_compose "$FILE_DIR/export-empty-key" "an export prefix before an empty key whose value Compose refuses"
 

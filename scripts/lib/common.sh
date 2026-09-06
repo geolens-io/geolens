@@ -1817,7 +1817,7 @@ env_file_first_refused_line() {
     BEGIN { printf "" > copy }
     { line = $0; bom = "" }
     NR == 1 && substr(line, 1, 3) == "\357\273\277" { bom = substr(line, 1, 3); line = substr(line, 4) }
-    match(line, /^[ \t]*(export[ \t]+)?[]A-Za-z0-9_.[\t-]*[=:]/) {
+    match(line, /^[ \t]*(export[ \t]+)?[]A-Za-z0-9_.[\t-]*[ \t]*[=:]/) {
       key = substr(line, 1, RLENGTH - 1)
       rest = substr(line, RLENGTH)
       sub(/^[ \t]*(export[ \t]+)?/, "", key)

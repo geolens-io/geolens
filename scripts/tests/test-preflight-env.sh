@@ -416,6 +416,13 @@ else
     bad "a tab-holding key's value was never interpolated (exit $STATUS): $(cat "$WORK/out.txt")"
 fi
 
+run_preflight "$(printf 'A\tB =${MISSING:?boom}')"
+if [ "$STATUS" -ne 0 ] && grep -q "line 4 (A)" "$WORK/out.txt"; then
+    ok "a separator space after a tab-holding key does not hide its value"
+else
+    bad "a tab-holding key with a separator space was never interpolated (exit $STATUS): $(cat "$WORK/out.txt")"
+fi
+
 run_preflight "$(printf 'export\t=${MISSING:?boom}')"
 if [ "$STATUS" -ne 0 ] && grep -q "line 4 (?)" "$WORK/out.txt"; then
     ok "an export prefix before an empty key still leaves the key empty, as Compose reads it"
