@@ -3174,3 +3174,231 @@ class TestTheGateRejectsWhatItExistsToCatch:
         tree = ast.parse("async def probe(record):\n    record.title = 'x'\n")
         fn = next(n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef))
         assert _direct_writes(fn) == {"record"}
+
+
+async def _published_version(dataset_id: uuid.UUID) -> int:
+    import app.core.db as db_module
+
+    async with db_module.async_session() as check:
+        return await check.scalar(
+            select(Dataset.tile_cache_version).where(Dataset.id == dataset_id)
+        )
+
+
+class TestOverlappingEditsEachPublishAVersion:
+    """Two edits of one dataset publish N+1 and then N+2 (#1826, #1902).
+
+    The holder stands in for the first edit: it holds the datasets row, rolls
+    the counter and commits while the request is parked behind it. The request
+    loaded its instance before it waited, so an absolute write from that
+    instance would publish N+1 a second time and serve the second edit's tiles
+    under the first edit's URL.
+    """
+
+    async def _overlap(self, holder, probe, dataset_id, request_coro):
+        """Hold the row, park the request, bump, commit, then let it finish."""
+        before = await holder.scalar(
+            select(Dataset.tile_cache_version)
+            .where(Dataset.id == dataset_id)
+            .with_for_update()
+        )
+        holder_xid = await holder.scalar(text("SELECT pg_current_xact_id()::text"))
+        task = asyncio.create_task(request_coro)
+        try:
+            await _await_waiter_on(probe, holder_xid)
+            first = await holder.scalar(
+                text(
+                    "UPDATE catalog.datasets SET tile_cache_version = "
+                    "tile_cache_version + 1 WHERE id = :d RETURNING tile_cache_version"
+                ),
+                {"d": dataset_id},
+            )
+            await holder.commit()
+        except BaseException:
+            await holder.rollback()
+            raise
+        response = await task
+        assert first == before + 1
+        return before, response
+
+    def _message(self, before: int, published: int) -> str:
+        return (
+            f"the second commit published {published}. The first edit committed "
+            f"{before + 1} while this request was parked, so the second must "
+            f"publish {before + 2}: an absolute write from the instance loaded "
+            "before the wait re-publishes the first edit's version."
+        )
+
+    async def test_a_feature_insert_publishes_the_next_version(
+        self, locked_dataset, client: AsyncClient, admin_auth_header, monkeypatch
+    ):
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "60s")
+
+        import app.core.db as db_module
+
+        async with (
+            db_module.async_session() as holder,
+            db_module.async_session() as probe,
+        ):
+            before, response = await self._overlap(
+                holder,
+                probe,
+                locked_dataset.id,
+                client.post(
+                    f"/datasets/{locked_dataset.id}/features/",
+                    json={
+                        "geometry": {"type": "Point", "coordinates": [-73.96, 40.74]},
+                        "properties": {"name": "second"},
+                    },
+                    headers=admin_auth_header,
+                ),
+            )
+        assert response.status_code == 201, response.text
+        published = await _published_version(locked_dataset.id)
+        assert published == before + 2, self._message(before, published)
+
+    async def test_a_column_add_publishes_the_next_version(
+        self, locked_dataset, client: AsyncClient, admin_auth_header, monkeypatch
+    ):
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "60s")
+
+        import app.core.db as db_module
+
+        async with (
+            db_module.async_session() as holder,
+            db_module.async_session() as probe,
+        ):
+            before, response = await self._overlap(
+                holder,
+                probe,
+                locked_dataset.id,
+                client.post(
+                    f"/layers/{locked_dataset.id}/columns/",
+                    json={"column": {"name": "note_v", "type": "text"}},
+                    headers=admin_auth_header,
+                ),
+            )
+        assert response.status_code == 201, response.text
+        published = await _published_version(locked_dataset.id)
+        assert published == before + 2, self._message(before, published)
+
+    async def test_a_tile_columns_patch_publishes_the_next_version(
+        self, locked_dataset, client: AsyncClient, admin_auth_header, monkeypatch
+    ):
+        monkeypatch.setattr(catalog_locks, "REQUEST_LOCK_TIMEOUT", "60s")
+
+        import app.core.db as db_module
+
+        async with (
+            db_module.async_session() as holder,
+            db_module.async_session() as probe,
+        ):
+            before, response = await self._overlap(
+                holder,
+                probe,
+                locked_dataset.id,
+                client.patch(
+                    f"/datasets/{locked_dataset.id}",
+                    json={"title": "Renamed", "tile_columns": ["name"]},
+                    headers=admin_auth_header,
+                ),
+            )
+        assert response.status_code == 200, response.text
+        published = await _published_version(locked_dataset.id)
+        assert published == before + 2, self._message(before, published)
+
+
+class TestTheAtomicBumpReportsWhatItPublished:
+    """The instance carries the returned value and stays clean (#1902)."""
+
+    async def test_the_instance_is_updated_without_being_dirtied(
+        self, locked_dataset, test_db_session
+    ):
+        from sqlalchemy import inspect as sa_inspect
+
+        dataset = await test_db_session.get(Dataset, locked_dataset.id)
+        before = dataset.tile_cache_version
+        version = await catalog_locks.bump_tile_cache_version_on(
+            test_db_session, dataset
+        )
+        assert version == before + 1
+        assert dataset.tile_cache_version == version
+        assert not sa_inspect(dataset).modified, (
+            "the instance is dirty after the atomic bump, so the flush would "
+            "write the value back as an absolute assignment"
+        )
+        await test_db_session.commit()
+        assert await _published_version(locked_dataset.id) == version
+
+    async def test_a_missing_row_answers_none(self, test_db_session):
+        version = await catalog_locks.bump_tile_cache_version_atomic(
+            test_db_session, dataset_cls=Dataset, dataset_id=uuid.uuid4()
+        )
+        assert version is None
+
+
+class TestNoCatalogModuleWritesAnAbsoluteTileVersion:
+    """Nothing under modules/catalog/ calls ``bump_tile_cache_version()``.
+
+    A request handler's instance was loaded before it waited for the row, so
+    the absolute spelling there writes a stale counter (#1902). The atomic
+    spelling is the only one a catalog module may use.
+    """
+
+    CATALOG = Path(__file__).resolve().parents[1] / "app/modules/catalog"
+    ATOMIC = "bump_tile_cache_version_on"
+    ABSOLUTE = "bump_tile_cache_version"
+
+    @staticmethod
+    def _calls_named(tree, name: str) -> list[int]:
+        out = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            called = (
+                func.attr
+                if isinstance(func, ast.Attribute)
+                else func.id
+                if isinstance(func, ast.Name)
+                else None
+            )
+            if called == name:
+                out.append(node.lineno)
+        return out
+
+    def _sites(self, name: str) -> dict[str, int]:
+        sites: dict[str, int] = {}
+        for path in sorted(self.CATALOG.rglob("*.py")):
+            for lineno in self._calls_named(ast.parse(path.read_text()), name):
+                rel = str(path.relative_to(self.CATALOG))
+                sites[f"{rel}:{lineno}"] = lineno
+        return sites
+
+    def test_no_catalog_module_calls_the_absolute_bump(self):
+        offenders = sorted(self._sites(self.ABSOLUTE))
+        assert not offenders, (
+            "absolute tile-version writes under modules/catalog/: "
+            f"{offenders}. Use bump_tile_cache_version_on (platform/catalog_locks), "
+            "which increments the row at write time."
+        )
+
+    def test_the_scan_sees_the_known_request_sites(self):
+        by_file: dict[str, int] = {}
+        for site in self._sites(self.ATOMIC):
+            rel = site.rsplit(":", 1)[0]
+            by_file[rel] = by_file.get(rel, 0) + 1
+        assert by_file == {
+            "features/router.py": 4,
+            "layers/router.py": 4,
+            "datasets/api/router.py": 1,
+        }, by_file
+
+    def test_the_scan_catches_the_absolute_spelling(self):
+        tree = ast.parse(
+            "async def handler(db, dataset):\n"
+            "    dataset.bump_tile_cache_version()\n"
+            "    await db.commit()\n"
+        )
+        assert self._calls_named(tree, self.ABSOLUTE) == [2]
+        assert self._calls_named(tree, self.ATOMIC) == []

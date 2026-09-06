@@ -2075,43 +2075,6 @@ async def invalidate_tile_cache_for_table(table_name: str) -> None:
         await tile_cache.invalidate_table(table_name)
 
 
-async def bump_tile_cache_version_atomic(
-    session: "AsyncSession", Dataset: Any, dataset_id: uuid.UUID
-) -> int | None:
-    """Roll the ``_v=`` cache-buster from a writer that holds no row lock.
-
-    fix(#1738 round 1): the sibling of ``Dataset.bump_tile_cache_version``,
-    for the one case that helper cannot serve. That helper reads the counter
-    off a loaded instance and writes back an absolute value, which is correct
-    only while the caller holds the datasets row — the way
-    ``refresh_postgis``'s phase 3 does, under the ``FOR UPDATE`` it takes for
-    its superseded guard.
-
-    A writer without that lock cannot use it, and taking the lock would not
-    help: the feature-edit routers (``features/router.py``) bump through a
-    plain read-modify-write, so an absolute write computed from a read they
-    took earlier lands on top of anything committed in between. One side
-    locking does not serialize a race the other side is not playing.
-    ``tile_cache_version = tile_cache_version + 1`` in the database does,
-    because the increment is evaluated against the row as it is at write time.
-
-    Returns the new value, so the caller reports and logs the version it
-    actually published rather than the one it hoped for. Still called in the
-    same transaction as the tile-content change it describes, which is the
-    contract on both spellings.
-    """
-    from sqlalchemy import func as sa_func
-    from sqlalchemy import update as sa_update
-
-    return await session.scalar(
-        sa_update(Dataset)
-        .where(Dataset.id == dataset_id)
-        .values(tile_cache_version=sa_func.coalesce(Dataset.tile_cache_version, 1) + 1)
-        .returning(Dataset.tile_cache_version)
-        .execution_options(synchronize_session=False)
-    )
-
-
 # What PostGIS records in ``geometry_columns.type`` for an untyped column.
 # A specific value ("POLYGON", "MULTILINESTRING", ...) describes what the
 # column will accept; this one describes nothing.

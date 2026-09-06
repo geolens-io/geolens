@@ -46,6 +46,7 @@ from sqlalchemy.exc import DBAPIError
 from app.core.db.sqlstate import sqlstate
 from app.core.db.tenant_session import tenant_task
 from app.platform.cache.tiles import invalidate_catalog_cache
+from app.platform.catalog_locks import bump_tile_cache_version_atomic
 from app.platform.jobs.heartbeat import (
     claim_job_attempt_and_start_heartbeat,
     require_ingest_job_update,
@@ -67,7 +68,6 @@ from app.processing.ingest.tasks_common import (
     _derived_record_type,
     _effective_geometry_type,
     _retire_geometry_attribute_row,
-    bump_tile_cache_version_atomic,
     invalidate_tile_cache_for_table,
     stamp_failed_origin_health,
     task_app,
@@ -528,14 +528,10 @@ async def _repair_geom_4326(
                 # would bust every cached tile of every registered dataset on
                 # the first refresh after this ships.
                 #
-                # fix(#1738 round 1): the ATOMIC spelling, because this
-                # transaction holds no lock on the datasets row and the
-                # feature-edit routers write the counter without one either —
-                # see `bump_tile_cache_version_atomic`. It busts browser and
-                # CDN copies through the `_v=` parameter, which the
-                # server-side purge below cannot reach.
+                # fix(#1738): the atomic spelling, because this transaction
+                # holds no lock on the datasets row.
                 tile_version = await bump_tile_cache_version_atomic(
-                    session, Dataset, dataset_uuid
+                    session, dataset_cls=Dataset, dataset_id=dataset_uuid
                 )
                 purge_table = table_name
             await session.commit()

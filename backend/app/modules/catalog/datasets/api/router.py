@@ -22,6 +22,7 @@ from app.core.db.sqlstate import is_lock_conflict
 from app.platform.catalog_locks import (
     CATALOG_LOCK_CONFLICT_CODE,
     CatalogLockConflict,
+    bump_tile_cache_version_on,
 )
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.audit.schemas import AuditLogListResponse, AuditLogResponse
@@ -399,17 +400,16 @@ async def update_dataset_metadata(
             ip_address=request.client.host if request.client else None,
         ),
     )
-    # fix(#525 B-038): a tile_columns change alters the attribute set embedded
-    # in vector tiles — roll the _v= URL cache-buster in the same transaction
-    # (the post-commit Valkey purge cannot reach CDN/browser caches).
-    # fix(#458 E-48): only when the value actually changed — a no-op echo used
-    # to purge every cached tile for the table.
+    # fix(#458 E-48): only when the value actually changed; a no-op echo must
+    # not purge every cached tile for the table.
     tile_columns_changed = (
         "tile_columns" in meta.model_fields_set
         and dataset.tile_columns != tile_columns_before
     )
     if tile_columns_changed:
-        dataset.bump_tile_cache_version()
+        # fix(#1902): evaluated at write time, so a counter read before the
+        # lock wait is never written back over a peer's commit.
+        await bump_tile_cache_version_on(db, dataset)
     await db.commit()
     await db.refresh(dataset)
     await db.refresh(dataset.record)

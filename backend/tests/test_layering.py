@@ -3597,7 +3597,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Cap 2551 -> 2581, exact.
     # fix(#1847): the lock order, its gate and its 409 mapping. Cap 2601, exact.
     # fix(#1847): the cache-bump docstring states its contract. Cap 2601 -> 2596.
-    "backend/app/processing/ingest/tasks_common.py": 2596,
+    # fix(#1902): the atomic bump moved to platform/catalog_locks. Cap 2596 -> 2559.
+    "backend/app/processing/ingest/tasks_common.py": 2559,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -5166,7 +5167,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1847): the lock order, its gate and its 409 mapping. Cap 1134, exact.
     # fix(#1847): phase 3 takes the job row before the datasets row. Cap
     # 1134 -> 1141, exact.
-    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1141,
+    # fix(#1902): the atomic bump comment states its contract. Cap 1141 -> 1137.
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 1137,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.
