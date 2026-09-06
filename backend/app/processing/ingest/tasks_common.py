@@ -2207,6 +2207,13 @@ async def _retire_geometry_attribute_row(
     )
 
 
+# The AccessExclusiveLock budget the reupload swap DDL spends: first attempt,
+# the single retry, and the pause between them (ING-06 / P2-08).
+_SWAP_FIRST_TIMEOUT = "5s"
+_SWAP_RETRY_TIMEOUT = "15s"
+_SWAP_RETRY_SLEEP_MS = 200
+
+
 async def _apply_reupload_swap(
     session,
     *,
@@ -2284,6 +2291,9 @@ async def _apply_reupload_swap(
 
         All three references (live, staging, _old) use the SAME _tenant_schema
         so the RENAME operations are intra-schema (T-1209-07).
+
+        The ``SET LOCAL`` outlives a released savepoint, so the caller restores
+        the previous value once the swap is done.
         """
         await session.execute(text(f"SET LOCAL lock_timeout = '{timeout_str}'"))
         if live_exists:
@@ -2309,13 +2319,16 @@ async def _apply_reupload_swap(
         # give the new live table's PK its final name.
         await rename_pkey_to_match_table(session, table_name)
 
-    _FIRST_TIMEOUT = "5s"
-    _RETRY_TIMEOUT = "15s"
-    _RETRY_SLEEP_MS = 200
+    # fix(#1917): a `SET LOCAL` survives RELEASE SAVEPOINT, so the DDL budget
+    # below outlives its savepoint and would clamp every later wait in this
+    # transaction. Capture what is in effect; it is put back after the swap.
+    pre_swap_lock_timeout = await session.scalar(
+        text("SELECT current_setting('lock_timeout')")
+    )
 
     try:
         async with session.begin_nested():
-            await _swap_with_timeout(_FIRST_TIMEOUT)
+            await _swap_with_timeout(_SWAP_FIRST_TIMEOUT)
     except Exception as first_exc:  # broad: catch any swap failure to inspect for lock-timeout before re-raising
         if not _is_lock_timeout_error(first_exc):
             raise
@@ -2327,18 +2340,18 @@ async def _apply_reupload_swap(
             attempt=1,
             first_timeout_seconds=5,
             retry_timeout_seconds=15,
-            sleep_ms=_RETRY_SLEEP_MS,
+            sleep_ms=_SWAP_RETRY_SLEEP_MS,
             hint=(
                 "AccessExclusiveLock contention on first swap attempt — "
                 "likely autovacuum collision; retrying once with longer "
                 "timeout. Correlate with pg_stat_activity / pg_stat_user_tables."
             ),
         )
-        await asyncio.sleep(_RETRY_SLEEP_MS / 1000.0)
+        await asyncio.sleep(_SWAP_RETRY_SLEEP_MS / 1000.0)
 
         # Retry inside its own SAVEPOINT so a second failure surfaces cleanly.
         async with session.begin_nested():
-            await _swap_with_timeout(_RETRY_TIMEOUT)
+            await _swap_with_timeout(_SWAP_RETRY_TIMEOUT)
 
         structlog.get_logger().info(
             "reupload_swap_retry_succeeded",
@@ -2347,6 +2360,13 @@ async def _apply_reupload_swap(
             attempt=2,
             retry_timeout_seconds=15,
         )
+
+    # fix(#1917): the DDL budget ends here. `set_config(..., true)` is
+    # `SET LOCAL` taking a bind parameter.
+    await session.execute(
+        text("SELECT set_config('lock_timeout', :value, true)"),
+        {"value": pre_swap_lock_timeout},
+    )
 
     # fix(#1373): resolve the geometry type ONCE, from the relation the swap
     # just installed, and use that one value everywhere below.
@@ -2382,10 +2402,9 @@ async def _apply_reupload_swap(
 
         await ensure_geom_4326_gist_index(session, table_name, schema=_tenant_schema)
 
-    # Update dataset metadata in the same transaction as swap
-    # fix(#1847): the catalog writes start here, and this function dirties both
-    # rows. `lock_timeout=None` so SET LOCAL does not clamp an ingest swap to a
-    # request's budget.
+    # fix(#1847, #1917): the catalog writes start here and dirty both rows.
+    # `lock_timeout=None` issues no SET LOCAL, and the swap's DDL budget was
+    # put back above, so this wait carries no request-sized clamp.
     from app.platform.catalog_locks import bump_tile_cache_version_on, lock_catalog_rows
     from app.platform.extensions import get_processing_port
 
