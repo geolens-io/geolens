@@ -1142,8 +1142,8 @@ class TestABlankValueIsNotACredential:
     ) -> None:
         """Refused by `_validate_safe_token`, which runs ahead of the shape rule.
 
-        fix(#1924): the nested `auth.token` spelling publishes the same coded
-        refusal the flat `token` one does.
+        The nested `auth.token` spelling publishes the same coded refusal the
+        flat `token` one does.
         """
         resp, probe = await self._probe(
             client, admin_auth_header, {"auth": {"method": "bearer", "token": "   "}}

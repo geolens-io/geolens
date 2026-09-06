@@ -132,38 +132,52 @@ def test_every_service_credential_door_uses_the_one_shared_rule(door):
 
 
 def test_the_shared_rule_never_interpolates_the_token():
-    """fix(#1924): its messages reach a response body, so they carry no brace."""
+    """Its messages reach a response body, so they carry no brace."""
     assert "{" not in inspect.getsource(_validate_safe_token)
 
 
-def test_two_coded_refusals_that_disagree_fall_back_to_the_field_list():
-    """fix(#1924): two different defects are two things to tell the caller."""
-    whitespace = CodedValueError(
-        INVALID_SERVICE_TOKEN_CODE, "token contains whitespace"
-    )
-    control = CodedValueError(
-        INVALID_SERVICE_TOKEN_CODE, "token contains control chars"
-    )
-    errors = [
+_WHITESPACE_POLICY = "token contains whitespace"
+_CONTROL_POLICY = "token contains control characters"
+
+
+def _coded_errors(*refusals: tuple[str, str]) -> list[dict]:
+    """One coded error per refusal, on the flat then the nested token field."""
+    locs = (("body", "token"), ("body", "auth", "token"))
+    return [
         {
-            "loc": ("body", "token"),
+            "loc": loc,
             "msg": "",
             "type": "value_error",
-            "ctx": {"error": whitespace},
-        },
-        {
-            "loc": ("body", "auth", "token"),
-            "msg": "",
-            "type": "value_error",
-            "ctx": {"error": control},
-        },
+            "ctx": {"error": CodedValueError(INVALID_SERVICE_TOKEN_CODE, policy)},
+            "input": value,
+        }
+        for loc, (policy, value) in zip(locs, refusals)
     ]
 
-    assert _coded_detail(RequestValidationError(errors)) is None
-    assert _coded_detail(RequestValidationError(errors[:1])) == {
+
+def test_the_coded_detail_collapses_only_one_mistake_spelled_twice():
+    """Same policy and same refused value collapse; anything else does not."""
+    one_paste = _coded_errors(
+        (_WHITESPACE_POLICY, "aaa bbb"), (_WHITESPACE_POLICY, "aaa bbb")
+    )
+    detail = _coded_detail(RequestValidationError(one_paste))
+    assert detail == {
         "code": INVALID_SERVICE_TOKEN_CODE,
-        "message": whitespace.message,
+        "message": _WHITESPACE_POLICY,
     }
+    # The collapsed detail publishes the policy alone. Comparing the two
+    # refused values never carries either of them out of memory.
+    assert "aaa bbb" not in str(detail)
+
+    two_defects = _coded_errors(
+        (_WHITESPACE_POLICY, "aaa bbb"), (_CONTROL_POLICY, "aaa bbb")
+    )
+    assert _coded_detail(RequestValidationError(two_defects)) is None
+
+    two_values = _coded_errors(
+        (_WHITESPACE_POLICY, "aaa bbb"), (_WHITESPACE_POLICY, "ccc ddd")
+    )
+    assert _coded_detail(RequestValidationError(two_values)) is None
 
 
 class TestTheStrictHeaderTokenPolicyIsUnchanged:
@@ -335,7 +349,7 @@ class TestTheCommitDoorsRefuseOverHttp:
         admin_auth_header: dict,
         test_db_session,
     ) -> None:
-        """fix(#1924): a second field error keeps the flattened list."""
+        """A second field error keeps the flattened list."""
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await create_dataset(
             test_db_session,
@@ -370,7 +384,7 @@ class TestTheCommitDoorsRefuseOverHttp:
         admin_auth_header: dict,
         test_db_session,
     ) -> None:
-        """fix(#1924): the flat and nested spellings are one mistake, not two."""
+        """The flat and nested spellings are one mistake, not two."""
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await create_dataset(
             test_db_session,

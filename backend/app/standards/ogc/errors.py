@@ -258,18 +258,29 @@ def _allow_header_with_head(headers: dict[str, str] | None) -> dict[str, str] | 
 def _coded_detail(exc: RequestValidationError) -> dict[str, str] | None:
     """The ``{"code", "message"}`` detail a coded field refusal answers with.
 
-    None unless every error is coded and they agree on code and message — one
-    mistake spelled on two fields. Anything else keeps the flattened list, so a
-    caller is still told about each distinct thing. Never reads ``input``.
+    None unless every error is coded and they agree on code, message and the
+    value refused — one mistake spelled on two fields. Anything else keeps the
+    flattened list, so a caller is still told about each distinct thing.
+
+    Two refused values are compared in memory; only the code and the policy
+    reach the body.
     """
-    causes = [(error.get("ctx") or {}).get("error") for error in exc.errors()]
-    if not causes or not all(isinstance(cause, CodedValueError) for cause in causes):
+    errors = exc.errors()
+    if not errors:
         return None
-    first = causes[0]
-    if any(
-        cause.code != first.code or cause.message != first.message for cause in causes
-    ):
+    first = (errors[0].get("ctx") or {}).get("error")
+    if not isinstance(first, CodedValueError):
         return None
+    first_input = errors[0].get("input")
+    for error in errors[1:]:
+        cause = (error.get("ctx") or {}).get("error")
+        if (
+            not isinstance(cause, CodedValueError)
+            or cause.code != first.code
+            or cause.message != first.message
+            or error.get("input") != first_input
+        ):
+            return None
     return {"code": first.code, "message": first.message}
 
 
