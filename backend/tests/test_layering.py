@@ -5767,7 +5767,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1926): +6. The tile-pool acquire is bounded by the pool's command
     # timeout, so an exhausted pool reaches the 429 the handler already
     # carries instead of waiting forever. Cap 2404 -> 2410, exact.
-    "backend/app/processing/tiles/router.py": 2410,
+    # fix(#1929): +4. Every malformed tile path answers 400, and the parser
+    # docstring says why a syntactically invalid path discloses nothing the
+    # route's 404s keep back. Cap 2410 -> 2414, exact.
+    "backend/app/processing/tiles/router.py": 2414,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),

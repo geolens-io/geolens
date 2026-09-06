@@ -1559,17 +1559,21 @@ async def get_tile_tokens_batch(
 
 
 def _parse_vector_tile_table(table_path: str) -> str:
-    """Extract and validate the data-table name from a tile route path."""
+    """Extract and validate the data-table name from a tile route path.
+
+    Every malformed path is 400: it names no dataset, so refusing it discloses
+    nothing that the route's 404s keep back.
+    """
     if not table_path.startswith("data."):
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Table path must start with 'data.'",
         )
 
     table_name = table_path[5:]  # Strip "data." prefix
     if not table_name:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Table name is required"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Table name is required"
         )
     if not _TABLE_NAME_RE.match(table_name):
         raise HTTPException(
