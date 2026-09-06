@@ -9,7 +9,7 @@ from httpx import AsyncClient
 from sqlalchemy import event, select, text, update
 
 from app.core.db.models import AppSetting
-from app.core.persistent_config import EMBEDDING_MODEL
+from app.core.persistent_config import EMBEDDING_MODEL, SEMANTIC_SEARCH_ENABLED
 from app.modules.catalog.collections.models import Collection
 from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordKeyword
 from app.processing.embeddings import helpers as embedding_helpers
@@ -371,6 +371,7 @@ async def semantic_facet_datasets(test_db_session) -> dict:
             await session.commit()
         await _embed(session, ds, _band_vector(0.99 - index * 0.02, dim))
         datasets.append(ds)
+    previous = await SEMANTIC_SEARCH_ENABLED.get(session)
     await _set_semantic_search(session, True)
     yield {
         "datasets": datasets,
@@ -383,6 +384,7 @@ async def semantic_facet_datasets(test_db_session) -> dict:
         {"ids": [ds.record_id for ds in datasets]},
     )
     await session.commit()
+    await _set_semantic_search(session, previous)
 
 
 def _patched_embedding(vector: list[float]):

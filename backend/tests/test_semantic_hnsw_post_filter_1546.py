@@ -70,6 +70,14 @@ _EF_SEARCH = 100
 _FOREIGN_URL = "https://starved-endpoint.invalid/v1"
 
 
+@pytest.fixture
+async def semantic_search_on(test_db_session):
+    previous = await SEMANTIC_SEARCH_ENABLED.get(test_db_session)
+    await SEMANTIC_SEARCH_ENABLED.set(test_db_session, True)
+    yield
+    await SEMANTIC_SEARCH_ENABLED.set(test_db_session, previous)
+
+
 @pytest.fixture(autouse=True)
 def _fresh_has_embeddings_cache():
     helpers._has_embeddings_cache.clear()
@@ -110,12 +118,10 @@ async def _seed(session, name: str, *, fingerprint: str, angle: float) -> uuid.U
 @pytest.mark.anyio
 async def test_foreign_rows_nearer_than_live_ones_do_not_starve_the_scan(
     test_db_session,
+    semantic_search_on,
 ):
     """150 rejected neighbours in front of 5 usable ones, window of 100."""
     session = test_db_session
-    # fix(#1855): resolve_semantic_arm gates on the flag itself, so the test
-    # sets it rather than inheriting whatever an earlier test left cached.
-    await SEMANTIC_SEARCH_ENABLED.set(session, True)
     model_name = await EMBEDDING_MODEL.get(session)
     dimensions = await EMBEDDING_DIMS.get(session)
     base_url = await resolve_embedding_base_url(session)
