@@ -5156,7 +5156,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # refactor(#1711): +32. `_cleanup_saved_upload`, beside the drain it awaits
     # and the save it undoes, plus the module logger its body reads and the
     # provider import its S3 branch makes. Cap 1590 -> 1622, exact.
-    "backend/app/processing/ingest/service.py": 1622,
+    # chore(#1940): -9, the fan-out error path no longer re-imports structlog or
+    # guards on the result; the module binds `logger` unconditionally.
+    # Cap 1622 -> 1613, exact.
+    "backend/app/processing/ingest/service.py": 1613,
     # fix(#1738): first entry, crossed _RATCHET_INCLUSION_LOC (842 -> 1019) on
     # the change that gave this task a repair phase. What the growth bought:
     # `geom_4326` on a registered table was written once, at registration, and
