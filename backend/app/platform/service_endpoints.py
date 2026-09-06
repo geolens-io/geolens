@@ -1390,17 +1390,32 @@ def _wfs_escape(value: str) -> str:
     return "".join(escaped)
 
 
-def _wfs_version_is_two_or_more(version: str) -> bool:
-    """``atoi(version) >= 2``, read from the digits so a version of any length
-    is compared without converting it."""
-    match = _C_INT_PREFIX.match(version)
+_LONG_MAX = (1 << 63) - 1
+_LONG_MIN = -(1 << 63)
+
+
+def _c_atoi(text: str) -> int:
+    """``atoi`` as the worker's C library computes it: ASCII whitespace and
+    sign, digits saturated to a 64-bit ``long``, then truncated to a signed
+    32-bit ``int``. A digit run of any length is handled without conversion."""
+    match = _C_INT_PREFIX.match(text)
     if match is None:
-        return False
-    digits = match.group(1)
-    if digits[0] == "-":
-        return False
-    digits = digits.lstrip("+").lstrip("0")
-    return len(digits) > 1 or digits >= "2"
+        return 0
+    literal = match.group(1)
+    negative = literal[0] == "-"
+    digits = literal.lstrip("+-").lstrip("0")
+    if len(digits) > 19:
+        value = _LONG_MIN if negative else _LONG_MAX
+    else:
+        value = int(digits or "0")
+        value = max(_LONG_MIN, min(_LONG_MAX, -value if negative else value))
+    value &= 0xFFFFFFFF
+    return value - (1 << 32) if value >= (1 << 31) else value
+
+
+def _wfs_version_is_two_or_more(version: str) -> bool:
+    """``atoi(version) >= 2``, the driver's WFS 2 test."""
+    return _c_atoi(version) >= 2
 
 
 def _wfs_base_url(url: str, version: str) -> str:

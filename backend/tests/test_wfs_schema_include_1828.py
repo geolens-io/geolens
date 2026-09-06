@@ -1401,6 +1401,14 @@ class TestTheVersionIsComparedAsTheDriverComparesIt:
             ("\uff12.0.0", False),
             ("\u00a02.0.0", False),
             (" \t2.0.0", True),
+            ("2147483648.0", False),
+            ("4294967298", True),
+            ("4294967297", False),
+            ("9223372036854775807", False),
+            ("9223372036854775808", False),
+            ("99999999999999999999999", False),
+            ("-8589934590", True),
+            ("-4294967294", True),
         ],
     )
     def test_the_count_rewrite_follows_the_leading_integer(
@@ -1410,6 +1418,22 @@ class TestTheVersionIsComparedAsTheDriverComparesIt:
 
         base = _wfs_base_url("https://s.example/wfs?MAXFEATURES=5", version)
         assert ("COUNT=5" in base) is rewritten
+
+    def test_atoi_saturates_to_long_and_truncates_to_int(self) -> None:
+        """The values a 64-bit glibc `atoi` returns, measured in the worker image."""
+        from app.platform.service_endpoints import _c_atoi
+
+        assert _c_atoi("2147483648.0") == -2147483648
+        assert _c_atoi("2147483647") == 2147483647
+        assert _c_atoi("4294967298") == 2
+        assert _c_atoi("9223372036854775807") == -1
+        assert _c_atoi("9223372036854775808") == -1
+        assert _c_atoi("99999999999999999999999") == -1
+        assert _c_atoi("-8589934590") == 2
+        assert _c_atoi("-9223372036854775808") == 0
+        assert _c_atoi("-" + "9" * 5000) == 0
+        assert _c_atoi("0" * 5000 + "7x") == 7
+        assert _c_atoi("x7") == 0
 
 
 class TestTheRequiredOutputFormatIsMirrored:
