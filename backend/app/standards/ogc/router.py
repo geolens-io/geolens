@@ -688,8 +688,8 @@ async def get_collection_items(
         None,
         ge=0,
         description=(
-            "Keyset cursor: returns features with gid > after_gid. Phase 269 H-24 "
-            "primary pagination path; use the rel=next link for follow-up pages."
+            "Keyset cursor: returns features with gid > after_gid. The preferred "
+            "pagination path; use the rel=next link for follow-up pages."
         ),
     ),
     bbox: str | None = Query(None, description="Bounding box: minx,miny,maxx,maxy"),

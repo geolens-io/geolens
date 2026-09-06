@@ -998,9 +998,9 @@ async def get_collection_items(
         0,
         ge=0,
         description=(
-            "Legacy offset-based pagination. Phase 269 H-24 lowered the "
-            f"max limit to {_STAC_MAX_LIMIT} and recommends keyset cursors via "
-            "the rel=next link for deep paging."
+            "Legacy offset-based pagination. The page size is capped at "
+            f"{_STAC_MAX_LIMIT}; prefer the rel=next link for deep paging, "
+            "which does not get more expensive as the offset grows."
         ),
     ),
 ) -> JSONResponse:
@@ -1654,9 +1654,9 @@ async def search_get(
         None,
         max_length=10000,
         description=(
-            "GeoJSON geometry for spatial intersection. SEC-FU-05 (sec-audit-20260519.md): "
-            "max_length=10000 caps a multi-megabyte GeoJSON DoS-amplifier — fits ~150-vertex "
-            "polygons at 2-decimal-place lat/lon coordinates."
+            "GeoJSON geometry for spatial intersection. At most 10000 characters, "
+            "which fits roughly a 150-vertex polygon at 2-decimal-place lat/lon "
+            "coordinates."
         ),
     ),
     limit: int = Query(
@@ -1672,8 +1672,8 @@ async def search_get(
         0,
         ge=0,
         description=(
-            "Legacy offset-based pagination. Phase 269 H-24 lowered the "
-            f"max limit to {_STAC_MAX_LIMIT} from 1000 to bound deep-paging cost."
+            "Legacy offset-based pagination. The page size is capped at "
+            f"{_STAC_MAX_LIMIT}; a high offset is costly to serve."
         ),
     ),
 ) -> JSONResponse:

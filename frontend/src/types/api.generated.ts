@@ -6277,12 +6277,12 @@ export interface components {
             background_color?: string | null;
             /**
              * Sublayer Overrides
-             * @description Per-sublayer style overrides keyed by semantic sublayer ID (e.g. 'road', 'boundary', 'building'). Key set is opaque — unknown future sublayer IDs are accepted without rejection. See CONTEXT.md D-01.
+             * @description Per-sublayer style overrides keyed by semantic sublayer ID (e.g. 'road', 'boundary', 'building'). The key set is opaque: a sublayer ID this release does not know is accepted and stored rather than rejected.
              */
             sublayer_overrides?: {
                 [key: string]: components["schemas"]["SublayerOverride"];
             } | null;
-            /** @description Whether the basemap renders above ('top') or below ('bottom', default) the data layers. null/undefined loads as 'bottom' on the client. Phase 1051 UX-03 (jsonb-additive, no migration). */
+            /** @description Whether the basemap renders above ('top') or below ('bottom', default) the data layers. null/undefined loads as 'bottom' on the client. */
             basemap_position?: components["schemas"]["BasemapPosition"] | null;
             /** @description Map projection: 'mercator' (default) or experimental 'globe'. null/undefined loads as 'mercator' on the client. */
             projection?: components["schemas"]["BasemapProjection"] | null;
@@ -9239,7 +9239,7 @@ export interface components {
             object_id_field?: string | null;
             /**
              * Kind
-             * @description Backend-classified layer kind. 'vector' = point/line/polygon feature data. 'raster' = imagery/coverage. Per Phase 1057 CLASS-07 D-09. Classification rule: raster IFF geometry_type contains 'raster', adapter is STAC, or layer has coverage_format/bands/mediaType:image/*. Everything else (including geometry_type=None after D-05 ogrinfo drop) defaults to 'vector'.
+             * @description Backend-classified layer kind. 'vector' = point/line/polygon feature data. 'raster' = imagery/coverage. Classified as 'raster' when geometry_type contains 'raster', the adapter is STAC, or the layer declares coverage_format, bands, or a mediaType of image/*. Everything else, including a layer with no geometry_type at all, defaults to 'vector'.
              * @default vector
              * @enum {string}
              */
@@ -10069,7 +10069,7 @@ export interface components {
             plugins?: string[] | null;
             /**
              * Legend Title
-             * @description Custom map-level legend title. Null/empty leaves the legend without a heading override (ENH-06).
+             * @description Custom map-level legend title. Null or empty leaves the legend without a heading override. At most 120 characters.
              */
             legend_title?: string | null;
         };
@@ -20941,7 +20941,7 @@ export interface operations {
                 limit?: number;
                 /** @description Legacy offset-based pagination. Prefer `after_gid` keyset cursor (via the `next` link) — offset is retained for backward compatibility but is O(N) at high values. */
                 offset?: number;
-                /** @description Keyset cursor: returns features with gid > after_gid. Phase 269 H-24 primary pagination path; use the rel=next link for follow-up pages. */
+                /** @description Keyset cursor: returns features with gid > after_gid. The preferred pagination path; use the rel=next link for follow-up pages. */
                 after_gid?: number | null;
                 /** @description Bounding box: minx,miny,maxx,maxy */
                 bbox?: string | null;
@@ -24520,7 +24520,7 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
-                /** @description Legacy offset-based pagination. Phase 269 H-24 lowered the max limit to 200 from 1000. */
+                /** @description Legacy offset-based pagination. The companion limit is capped at 200 per page, and a high offset is costly to serve. */
                 offset?: number;
                 /** @description Bounding box: minx,miny,maxx,maxy */
                 bbox?: string | null;
@@ -26287,7 +26287,7 @@ export interface operations {
             query?: {
                 /** @description Number of relationships to skip. */
                 skip?: number;
-                /** @description Maximum number of relationships to return (PERF-N16). */
+                /** @description Maximum number of relationships to return. Capped at 1000. */
                 limit?: number;
             };
             header?: never;
@@ -28558,7 +28558,7 @@ export interface operations {
     discover_tables_ingest_discover__get: {
         parameters: {
             query?: {
-                /** @description Maximum number of tables to return (PERF-11 bound). */
+                /** @description Maximum number of tables to return. Capped at 5000. */
                 limit?: number;
             };
             header?: never;
@@ -39649,7 +39649,7 @@ export interface operations {
                 datetime?: string | null;
                 /** @description Maximum number of items returned. Values above 200 are clamped to 200, per the STAC Item Search spec's clamp-don't-reject recommendation. */
                 limit?: number;
-                /** @description Legacy offset-based pagination. Phase 269 H-24 lowered the max limit to 200 and recommends keyset cursors via the rel=next link for deep paging. */
+                /** @description Legacy offset-based pagination. The page size is capped at 200; prefer the rel=next link for deep paging, which does not get more expensive as the offset grows. */
                 offset?: number;
             };
             header?: never;
@@ -39944,11 +39944,11 @@ export interface operations {
                 collections?: string | null;
                 /** @description Comma-separated item IDs */
                 ids?: string | null;
-                /** @description GeoJSON geometry for spatial intersection. SEC-FU-05 (sec-audit-20260519.md): max_length=10000 caps a multi-megabyte GeoJSON DoS-amplifier — fits ~150-vertex polygons at 2-decimal-place lat/lon coordinates. */
+                /** @description GeoJSON geometry for spatial intersection. At most 10000 characters, which fits roughly a 150-vertex polygon at 2-decimal-place lat/lon coordinates. */
                 intersects?: string | null;
                 /** @description Maximum number of items returned. Values above 200 are clamped to 200, per the STAC Item Search spec's clamp-don't-reject recommendation. */
                 limit?: number;
-                /** @description Legacy offset-based pagination. Phase 269 H-24 lowered the max limit to 200 from 1000 to bound deep-paging cost. */
+                /** @description Legacy offset-based pagination. The page size is capped at 200; a high offset is costly to serve. */
                 offset?: number;
             };
             header?: never;

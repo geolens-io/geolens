@@ -187,10 +187,10 @@ class LayerInfo(BaseModel):
         default="vector",
         description=(
             "Backend-classified layer kind. 'vector' = point/line/polygon feature data. "
-            "'raster' = imagery/coverage. Per Phase 1057 CLASS-07 D-09. "
-            "Classification rule: raster IFF geometry_type contains 'raster', adapter is STAC, "
-            "or layer has coverage_format/bands/mediaType:image/*. Everything else (including "
-            "geometry_type=None after D-05 ogrinfo drop) defaults to 'vector'."
+            "'raster' = imagery/coverage. Classified as 'raster' when geometry_type "
+            "contains 'raster', the adapter is STAC, or the layer declares "
+            "coverage_format, bands, or a mediaType of image/*. Everything else, "
+            "including a layer with no geometry_type at all, defaults to 'vector'."
         ),
     )
 

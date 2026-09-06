@@ -559,17 +559,17 @@ class BasemapConfig(BaseModel):
         default=None,
         description=(
             "Per-sublayer style overrides keyed by semantic sublayer ID "
-            "(e.g. 'road', 'boundary', 'building'). Key set is opaque — "
-            "unknown future sublayer IDs are accepted without rejection. "
-            "See CONTEXT.md D-01."
+            "(e.g. 'road', 'boundary', 'building'). The key set is opaque: "
+            "a sublayer ID this release does not know is accepted and "
+            "stored rather than rejected."
         ),
     )
     basemap_position: BasemapPosition | None = Field(
         default=None,
         description=(
             "Whether the basemap renders above ('top') or below ('bottom', "
-            "default) the data layers. null/undefined loads as 'bottom' on the "
-            "client. Phase 1051 UX-03 (jsonb-additive, no migration)."
+            "default) the data layers. null/undefined loads as 'bottom' on "
+            "the client."
         ),
     )
     projection: BasemapProjection | None = Field(
@@ -961,8 +961,8 @@ class MapUpdate(BaseModel):
         default=None,
         max_length=120,
         description=(
-            "Custom map-level legend title. Null/empty leaves the legend "
-            "without a heading override (ENH-06)."
+            "Custom map-level legend title. Null or empty leaves the legend "
+            "without a heading override. At most 120 characters."
         ),
     )
 

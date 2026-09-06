@@ -422,7 +422,7 @@ async def list_dataset_relationships(
         100,
         ge=1,
         le=1000,
-        description="Maximum number of relationships to return (PERF-N16).",
+        description="Maximum number of relationships to return. Capped at 1000.",
     ),
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),

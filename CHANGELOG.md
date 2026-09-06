@@ -32,6 +32,10 @@ and releases use semantic versioning.
   request body omitted the field, so it was dropped before the raster path ever read it and every
   import converted a non-COG GeoTIFF regardless of what was asked for. The field is now part of
   the published body, and sending `true` fails the job instead of rewriting the file. (#1949)
+- Field and query descriptions in the API document, both SDKs and the generated TypeScript types
+  cited internal tracker ids as the reason for a limit — "Phase 269 H-24" for a page size,
+  "(PERF-N16)" for another — which no reader outside the project can resolve. Those descriptions
+  now state the constraint itself. (#1946)
 - A service token refused for control characters or whitespace now answers with the same
   `invalid_service_token` code the other credential refusals carry, so the app and the CLI show
   the token-specific message on every service door instead of a generic validation error. (#1924)

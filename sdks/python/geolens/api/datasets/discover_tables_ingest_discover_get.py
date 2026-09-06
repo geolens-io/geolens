@@ -117,7 +117,7 @@ def sync_detailed(
     thousands of orphan tables don't blow up the response payload.
 
     Args:
-        limit (int | Unset): Maximum number of tables to return (PERF-11 bound). Default: 1000.
+        limit (int | Unset): Maximum number of tables to return. Capped at 5000. Default: 1000.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -153,7 +153,7 @@ def sync(
     thousands of orphan tables don't blow up the response payload.
 
     Args:
-        limit (int | Unset): Maximum number of tables to return (PERF-11 bound). Default: 1000.
+        limit (int | Unset): Maximum number of tables to return. Capped at 5000. Default: 1000.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -184,7 +184,7 @@ async def asyncio_detailed(
     thousands of orphan tables don't blow up the response payload.
 
     Args:
-        limit (int | Unset): Maximum number of tables to return (PERF-11 bound). Default: 1000.
+        limit (int | Unset): Maximum number of tables to return. Capped at 5000. Default: 1000.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -218,7 +218,7 @@ async def asyncio(
     thousands of orphan tables don't blow up the response payload.
 
     Args:
-        limit (int | Unset): Maximum number of tables to return (PERF-11 bound). Default: 1000.
+        limit (int | Unset): Maximum number of tables to return. Capped at 5000. Default: 1000.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
