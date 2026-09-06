@@ -2219,6 +2219,26 @@ _SWAP_RETRY_SLEEP_MS = 200
 # it, so a holder that outlasts this is stuck, not working.
 _POST_SWAP_CATALOG_TIMEOUT = "60s"
 
+# fix(#1921): `lock_catalog_rows` reports an expired budget and a lost
+# deadlock alike, and the two send an operator looking for different things.
+_POST_SWAP_WAIT_FAILURES = {
+    "55P03": (
+        "reupload_swap_catalog_lock_timeout",
+        "The post-swap catalog wait expired. Find the holder of this "
+        "dataset's catalog.datasets row in pg_stat_activity.",
+    ),
+    "40P01": (
+        "reupload_swap_catalog_deadlock",
+        "PostgreSQL chose this swap as the deadlock victim. Look for the "
+        "other side of the cycle: a transaction holding this dataset's "
+        "catalog row and waiting on its live table.",
+    ),
+}
+_POST_SWAP_WAIT_UNKNOWN = (
+    "reupload_swap_catalog_lock_failed",
+    "The post-swap catalog wait failed and reported no SQLSTATE.",
+)
+
 
 async def _apply_reupload_swap(
     session,
@@ -2411,12 +2431,14 @@ async def _apply_reupload_swap(
     # fix(#1847, #1917, #1921): the catalog writes start here and dirty both
     # rows. The swap's DDL budget was put back above; this wait gets its own,
     # and the value the transaction arrived with is restored after it.
+    from app.core.db.sqlstate import sqlstate
     from app.platform.catalog_locks import (
         CatalogLockConflict,
         bump_tile_cache_version_on,
         lock_catalog_rows,
     )
     from app.platform.extensions import get_processing_port
+    from sqlalchemy.exc import DBAPIError
 
     _port = get_processing_port()
     # fix(#1921): lock_catalog_rows rolls back before it raises, and a
@@ -2432,17 +2454,19 @@ async def _apply_reupload_swap(
             record_id=dataset.record_id,
             lock_timeout=_POST_SWAP_CATALOG_TIMEOUT,
         )
-    except CatalogLockConflict:
+    except CatalogLockConflict as conflict:
+        cause = conflict.__cause__
+        code = sqlstate(cause) if isinstance(cause, DBAPIError) else None
+        event, hint = _POST_SWAP_WAIT_FAILURES.get(code, _POST_SWAP_WAIT_UNKNOWN)
         structlog.get_logger().warning(
-            "reupload_swap_catalog_lock_timeout",
+            event,
             dataset_id=_log_dataset_id,
             table_name=table_name,
             waited_ms=round((time.perf_counter() - _wait_started) * 1000),
             budget=_POST_SWAP_CATALOG_TIMEOUT,
+            sqlstate=code,
             hint=(
-                "The post-swap catalog wait expired; the whole swap rolled "
-                "back, so no half-swapped table is left. Find the holder of "
-                "this dataset's catalog.datasets row in pg_stat_activity."
+                f"{hint} The whole swap rolled back, so no half-swapped table is left."
             ),
         )
         raise

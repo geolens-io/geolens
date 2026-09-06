@@ -10,7 +10,9 @@ import uuid
 
 import pytest
 import structlog
+from asyncpg.exceptions import DeadlockDetectedError
 from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import joinedload
 
 from app.modules.catalog.datasets.domain.models import Dataset
@@ -161,6 +163,10 @@ class TestPostSwapCatalogWaitBudget:
         )
         assert expired[0]["log_level"] == "warning"
         assert expired[0]["budget"] == _TEST_BUDGET
+        assert expired[0]["sqlstate"] == "55P03", (
+            f"the handler read {expired[0]['sqlstate']!r} off the conflict's "
+            "cause, so it cannot tell an expired budget from a deadlock."
+        )
         assert expired[0]["waited_ms"] >= _TEST_BUDGET_MS * 0.8, (
             f"the swap gave up after {expired[0]['waited_ms']}ms against a "
             f"{_TEST_BUDGET} budget, so this run proves nothing about the wait"
@@ -235,6 +241,51 @@ class TestPostSwapCatalogWaitBudget:
         )
         assert expired[0]["dataset_id"] == str(stub.id)
         await test_db_session.rollback()
+
+    @pytest.mark.parametrize(
+        ("cause", "event", "code", "needle"),
+        [
+            (
+                DBAPIError("stmt", {}, DeadlockDetectedError("cycle")),
+                "reupload_swap_catalog_deadlock",
+                "40P01",
+                "deadlock victim",
+            ),
+            (None, "reupload_swap_catalog_lock_failed", None, "no SQLSTATE"),
+        ],
+        ids=["deadlock", "no_sqlstate"],
+    )
+    async def test_the_cause_picks_the_event(
+        self, swap_target, monkeypatch, cause, event, code, needle
+    ) -> None:
+        """A lost deadlock and an unreadable cause are not reported as expiry."""
+        stub, staging = swap_target
+        import app.core.db as db_module
+        import app.platform.catalog_locks as locks_module
+
+        async def _raise_conflict(session, **kwargs):
+            conflict = CatalogLockConflict("held")
+            conflict.__cause__ = cause
+            raise conflict
+
+        monkeypatch.setattr(locks_module, "lock_catalog_rows", _raise_conflict)
+        async with db_module.async_session() as session:
+            _stub_downstream(monkeypatch, session)
+            with structlog.testing.capture_logs() as captured:
+                with pytest.raises(CatalogLockConflict):
+                    await _run_swap(session, stub, staging)
+            await session.rollback()
+
+        assert [
+            r.get("event")
+            for r in captured
+            if r.get("event", "").startswith("reupload_swap_catalog")
+        ] == [event]
+        logged = next(r for r in captured if r.get("event") == event)
+        assert logged["log_level"] == "warning"
+        assert logged["sqlstate"] == code
+        assert needle in logged["hint"]
+        assert isinstance(logged["waited_ms"], int)
 
 
 class TestReuploadErrorCodes:
