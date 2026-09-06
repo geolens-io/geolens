@@ -26,6 +26,10 @@ from app.modules.catalog.sources.schemas import (
 from app.platform.analysis_sql import MAX_SPATIAL_JOIN_FIELDS
 from app.platform.dataset_origin import OriginKind
 
+# fix(#1755 item 3): the shared rule, not a second copy of it. Every request
+# model carrying a service-credential token judges it by this one function.
+from app.platform.service_auth import _validate_safe_token
+
 
 # feat(#1222): built from the probe's own closed vocabulary rather than
 # retyped, so the two cannot drift. The wording matters as much as the list:
@@ -92,16 +96,6 @@ def _validate_http_url_without_credentials(v: str) -> str:
         raise ValueError(
             "url must not include credential query parameters; use the token field instead"
         )
-    return v
-
-
-def _validate_safe_service_token(v: str | None) -> str | None:
-    if v is None:
-        return v
-    if not v.isprintable():
-        raise ValueError("token contains control characters")
-    if any(c.isspace() for c in v):
-        raise ValueError("token contains whitespace")
     return v
 
 
@@ -786,7 +780,7 @@ class ReuploadServicePreviewRequest(BaseModel):
     token: str | None = Field(
         default=None, max_length=1000, description=DEPRECATED_TOKEN_SUFFIX.strip()
     )
-    _validate_token = field_validator("token")(_validate_safe_service_token)
+    _validate_token = field_validator("token")(_validate_safe_token)
     object_id_field: str | None = Field(default=None, max_length=200)
     # feat(#1746): the fifth model to carry the structured credential. #1760
     # left it out because nothing composed a header for the methods it adds;
@@ -826,6 +820,7 @@ class ReuploadCommitRequest(BaseModel):
     token: str | None = Field(
         default=None, max_length=1000, description=DEPRECATED_TOKEN_SUFFIX.strip()
     )
+    _validate_token = field_validator("token")(_validate_safe_token)
     # GPKG-01 Phase 1058: user-chosen layer for multi-layer GPKG files
     layer_name: str | None = Field(default=None, max_length=500)
     auth: ServiceAuthRequest | None = Field(
@@ -859,7 +854,7 @@ class DatasetRefreshRequest(BaseModel):
             "claimed. A retry needs a new token." + DEPRECATED_TOKEN_SUFFIX
         ),
     )
-    _validate_token = field_validator("token")(_validate_safe_service_token)
+    _validate_token = field_validator("token")(_validate_safe_token)
     auth: ServiceAuthRequest | None = Field(
         default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
     )
