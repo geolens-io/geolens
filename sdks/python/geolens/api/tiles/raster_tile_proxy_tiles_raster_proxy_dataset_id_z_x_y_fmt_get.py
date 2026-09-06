@@ -167,41 +167,48 @@ def sync_detailed(
     pmax: float | None | Unset = UNSET,
     sigma: float | None | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
-    r"""Raster Tile Proxy
+    """Raster Tile Proxy
 
-     API-side raster tile proxy: auth check + fetch from Titiler.
+     Render one raster tile and return the image.
 
-    Used by Vite dev proxy and as a fallback for deployments without nginx.
-    Production deployments with nginx should use the nginx raster-tiles path
-    for better caching and performance.
+    Returns the image itself rather than a redirect: the dataset is
+    authorized, then the rendered tile comes back in the response body. Used by
+    the development proxy and by deployments that run without nginx in front.
 
-    colormap_name: Optional Titiler colormap for single-band display. Validated
-    against _ALLOWED_COLORMAPS (T-1140-01). Gray is the Titiler default for
-    single-band — passing gray is a no-op (not forwarded). colormap_name is not
-    forwarded for DEM layers (render_params starts with 'algorithm=').
+    ``colormap_name`` applies a colormap to a single-band raster. Passing
+    ``gray`` leaves the rendering unchanged, and a digital elevation model
+    ignores the parameter, because its terrain encoding cannot be recoloured.
 
-    stretch: Optional stretch strategy. percentile/stddev compute a stats-based
-    rescale from Titiler band statistics. Multi-band rasters produce one rescale=
-    fragment per band (up to 3, RASTER-STRETCH-03).
+    ``stretch`` chooses how pixel values map to the output range. ``minmax``
+    keeps the range the dataset already implies: the recorded per-band minimum
+    and maximum for a raster imported from a remote source that published
+    statistics, a range derived from the data type for most others, and no
+    rescale parameter for 8-bit data, which needs none. ``percentile`` and
+    ``stddev`` instead derive a range from band statistics read at request
+    time, for up to three bands. A digital elevation model ignores the
+    parameter, and so does a request whose band statistics cannot be read,
+    which falls back to ``minmax`` rather than failing.
 
-    pmin/pmax: Configurable percentile clip bounds (default 2/98), read and
-    validated (0 <= pmin < pmax <= 100) only when stretch=percentile. Forwarded
-    as repeated p= params to /cog/statistics. The _band_stats_cache key includes
-    pmin/pmax so different bounds never serve stale cached stats
-    (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
+    ``pmin`` and ``pmax`` (2 and 98 by default) are read when ``stretch`` is
+    ``percentile``, and ``sigma`` (2.0 by default) when it is ``stddev``. A
+    parameter that does not apply to the selected stretch is ignored, and its
+    default is used in place of the value sent.
 
-    sigma: Standard-deviation multiplier for stretch=stddev (default 2.0), read
-    and validated (> 0) only when stretch=stddev.
+    Responds 204 when the tile falls outside the raster, 400 for an
+    unsupported format, 401 when authentication is required, or when a request
+    that no capability authorized carried a credential which did not resolve,
+    403 when the embed token is invalid or expired
+    or a multi-tenant request arrives with no tenant context, 422 for an
+    out-of-range stretch parameter, and 503 when the renderer cannot be
+    reached. A different failure from the renderer is passed through with its
+    own status.
 
-    fix(#1778 codex r2): pmin/pmax/sigma used to be validated whenever present,
-    regardless of the active stretch mode, so an \"inactive\" value could still
-    422. frontend/nginx.conf's raster proxy_cache_key blanks an inactive value
-    out of the cache key to stop it defeating the cache; making that safe on
-    every input (including a repeated query parameter, where nginx's $arg_x
-    reads the FIRST occurrence and this endpoint's scalar Query reads the
-    LAST) needs \"inactive\" to mean the SAME thing on both sides: ignored, not
-    merely unvalidated for some inputs. A cache HIT must never disagree with
-    what an uncached request would answer.
+    404 covers more than a missing dataset. A dataset that is unknown, is not a
+    raster or has no image answers 404. Where no capability authorized the
+    request, so does a dataset the caller may not read: an authorization denial
+    on a non-public raster, and an unpublished raster asked for by a caller who
+    is neither its owner nor an admin. That is deliberate, so a refusal keeps a
+    dataset's existence undisclosed.
 
     Args:
         dataset_id (UUID):
@@ -269,41 +276,48 @@ def sync(
     pmax: float | None | Unset = UNSET,
     sigma: float | None | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
-    r"""Raster Tile Proxy
+    """Raster Tile Proxy
 
-     API-side raster tile proxy: auth check + fetch from Titiler.
+     Render one raster tile and return the image.
 
-    Used by Vite dev proxy and as a fallback for deployments without nginx.
-    Production deployments with nginx should use the nginx raster-tiles path
-    for better caching and performance.
+    Returns the image itself rather than a redirect: the dataset is
+    authorized, then the rendered tile comes back in the response body. Used by
+    the development proxy and by deployments that run without nginx in front.
 
-    colormap_name: Optional Titiler colormap for single-band display. Validated
-    against _ALLOWED_COLORMAPS (T-1140-01). Gray is the Titiler default for
-    single-band — passing gray is a no-op (not forwarded). colormap_name is not
-    forwarded for DEM layers (render_params starts with 'algorithm=').
+    ``colormap_name`` applies a colormap to a single-band raster. Passing
+    ``gray`` leaves the rendering unchanged, and a digital elevation model
+    ignores the parameter, because its terrain encoding cannot be recoloured.
 
-    stretch: Optional stretch strategy. percentile/stddev compute a stats-based
-    rescale from Titiler band statistics. Multi-band rasters produce one rescale=
-    fragment per band (up to 3, RASTER-STRETCH-03).
+    ``stretch`` chooses how pixel values map to the output range. ``minmax``
+    keeps the range the dataset already implies: the recorded per-band minimum
+    and maximum for a raster imported from a remote source that published
+    statistics, a range derived from the data type for most others, and no
+    rescale parameter for 8-bit data, which needs none. ``percentile`` and
+    ``stddev`` instead derive a range from band statistics read at request
+    time, for up to three bands. A digital elevation model ignores the
+    parameter, and so does a request whose band statistics cannot be read,
+    which falls back to ``minmax`` rather than failing.
 
-    pmin/pmax: Configurable percentile clip bounds (default 2/98), read and
-    validated (0 <= pmin < pmax <= 100) only when stretch=percentile. Forwarded
-    as repeated p= params to /cog/statistics. The _band_stats_cache key includes
-    pmin/pmax so different bounds never serve stale cached stats
-    (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
+    ``pmin`` and ``pmax`` (2 and 98 by default) are read when ``stretch`` is
+    ``percentile``, and ``sigma`` (2.0 by default) when it is ``stddev``. A
+    parameter that does not apply to the selected stretch is ignored, and its
+    default is used in place of the value sent.
 
-    sigma: Standard-deviation multiplier for stretch=stddev (default 2.0), read
-    and validated (> 0) only when stretch=stddev.
+    Responds 204 when the tile falls outside the raster, 400 for an
+    unsupported format, 401 when authentication is required, or when a request
+    that no capability authorized carried a credential which did not resolve,
+    403 when the embed token is invalid or expired
+    or a multi-tenant request arrives with no tenant context, 422 for an
+    out-of-range stretch parameter, and 503 when the renderer cannot be
+    reached. A different failure from the renderer is passed through with its
+    own status.
 
-    fix(#1778 codex r2): pmin/pmax/sigma used to be validated whenever present,
-    regardless of the active stretch mode, so an \"inactive\" value could still
-    422. frontend/nginx.conf's raster proxy_cache_key blanks an inactive value
-    out of the cache key to stop it defeating the cache; making that safe on
-    every input (including a repeated query parameter, where nginx's $arg_x
-    reads the FIRST occurrence and this endpoint's scalar Query reads the
-    LAST) needs \"inactive\" to mean the SAME thing on both sides: ignored, not
-    merely unvalidated for some inputs. A cache HIT must never disagree with
-    what an uncached request would answer.
+    404 covers more than a missing dataset. A dataset that is unknown, is not a
+    raster or has no image answers 404. Where no capability authorized the
+    request, so does a dataset the caller may not read: an authorization denial
+    on a non-public raster, and an unpublished raster asked for by a caller who
+    is neither its owner nor an admin. That is deliberate, so a refusal keeps a
+    dataset's existence undisclosed.
 
     Args:
         dataset_id (UUID):
@@ -366,41 +380,48 @@ async def asyncio_detailed(
     pmax: float | None | Unset = UNSET,
     sigma: float | None | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
-    r"""Raster Tile Proxy
+    """Raster Tile Proxy
 
-     API-side raster tile proxy: auth check + fetch from Titiler.
+     Render one raster tile and return the image.
 
-    Used by Vite dev proxy and as a fallback for deployments without nginx.
-    Production deployments with nginx should use the nginx raster-tiles path
-    for better caching and performance.
+    Returns the image itself rather than a redirect: the dataset is
+    authorized, then the rendered tile comes back in the response body. Used by
+    the development proxy and by deployments that run without nginx in front.
 
-    colormap_name: Optional Titiler colormap for single-band display. Validated
-    against _ALLOWED_COLORMAPS (T-1140-01). Gray is the Titiler default for
-    single-band — passing gray is a no-op (not forwarded). colormap_name is not
-    forwarded for DEM layers (render_params starts with 'algorithm=').
+    ``colormap_name`` applies a colormap to a single-band raster. Passing
+    ``gray`` leaves the rendering unchanged, and a digital elevation model
+    ignores the parameter, because its terrain encoding cannot be recoloured.
 
-    stretch: Optional stretch strategy. percentile/stddev compute a stats-based
-    rescale from Titiler band statistics. Multi-band rasters produce one rescale=
-    fragment per band (up to 3, RASTER-STRETCH-03).
+    ``stretch`` chooses how pixel values map to the output range. ``minmax``
+    keeps the range the dataset already implies: the recorded per-band minimum
+    and maximum for a raster imported from a remote source that published
+    statistics, a range derived from the data type for most others, and no
+    rescale parameter for 8-bit data, which needs none. ``percentile`` and
+    ``stddev`` instead derive a range from band statistics read at request
+    time, for up to three bands. A digital elevation model ignores the
+    parameter, and so does a request whose band statistics cannot be read,
+    which falls back to ``minmax`` rather than failing.
 
-    pmin/pmax: Configurable percentile clip bounds (default 2/98), read and
-    validated (0 <= pmin < pmax <= 100) only when stretch=percentile. Forwarded
-    as repeated p= params to /cog/statistics. The _band_stats_cache key includes
-    pmin/pmax so different bounds never serve stale cached stats
-    (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
+    ``pmin`` and ``pmax`` (2 and 98 by default) are read when ``stretch`` is
+    ``percentile``, and ``sigma`` (2.0 by default) when it is ``stddev``. A
+    parameter that does not apply to the selected stretch is ignored, and its
+    default is used in place of the value sent.
 
-    sigma: Standard-deviation multiplier for stretch=stddev (default 2.0), read
-    and validated (> 0) only when stretch=stddev.
+    Responds 204 when the tile falls outside the raster, 400 for an
+    unsupported format, 401 when authentication is required, or when a request
+    that no capability authorized carried a credential which did not resolve,
+    403 when the embed token is invalid or expired
+    or a multi-tenant request arrives with no tenant context, 422 for an
+    out-of-range stretch parameter, and 503 when the renderer cannot be
+    reached. A different failure from the renderer is passed through with its
+    own status.
 
-    fix(#1778 codex r2): pmin/pmax/sigma used to be validated whenever present,
-    regardless of the active stretch mode, so an \"inactive\" value could still
-    422. frontend/nginx.conf's raster proxy_cache_key blanks an inactive value
-    out of the cache key to stop it defeating the cache; making that safe on
-    every input (including a repeated query parameter, where nginx's $arg_x
-    reads the FIRST occurrence and this endpoint's scalar Query reads the
-    LAST) needs \"inactive\" to mean the SAME thing on both sides: ignored, not
-    merely unvalidated for some inputs. A cache HIT must never disagree with
-    what an uncached request would answer.
+    404 covers more than a missing dataset. A dataset that is unknown, is not a
+    raster or has no image answers 404. Where no capability authorized the
+    request, so does a dataset the caller may not read: an authorization denial
+    on a non-public raster, and an unpublished raster asked for by a caller who
+    is neither its owner nor an admin. That is deliberate, so a refusal keeps a
+    dataset's existence undisclosed.
 
     Args:
         dataset_id (UUID):
@@ -466,41 +487,48 @@ async def asyncio(
     pmax: float | None | Unset = UNSET,
     sigma: float | None | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
-    r"""Raster Tile Proxy
+    """Raster Tile Proxy
 
-     API-side raster tile proxy: auth check + fetch from Titiler.
+     Render one raster tile and return the image.
 
-    Used by Vite dev proxy and as a fallback for deployments without nginx.
-    Production deployments with nginx should use the nginx raster-tiles path
-    for better caching and performance.
+    Returns the image itself rather than a redirect: the dataset is
+    authorized, then the rendered tile comes back in the response body. Used by
+    the development proxy and by deployments that run without nginx in front.
 
-    colormap_name: Optional Titiler colormap for single-band display. Validated
-    against _ALLOWED_COLORMAPS (T-1140-01). Gray is the Titiler default for
-    single-band — passing gray is a no-op (not forwarded). colormap_name is not
-    forwarded for DEM layers (render_params starts with 'algorithm=').
+    ``colormap_name`` applies a colormap to a single-band raster. Passing
+    ``gray`` leaves the rendering unchanged, and a digital elevation model
+    ignores the parameter, because its terrain encoding cannot be recoloured.
 
-    stretch: Optional stretch strategy. percentile/stddev compute a stats-based
-    rescale from Titiler band statistics. Multi-band rasters produce one rescale=
-    fragment per band (up to 3, RASTER-STRETCH-03).
+    ``stretch`` chooses how pixel values map to the output range. ``minmax``
+    keeps the range the dataset already implies: the recorded per-band minimum
+    and maximum for a raster imported from a remote source that published
+    statistics, a range derived from the data type for most others, and no
+    rescale parameter for 8-bit data, which needs none. ``percentile`` and
+    ``stddev`` instead derive a range from band statistics read at request
+    time, for up to three bands. A digital elevation model ignores the
+    parameter, and so does a request whose band statistics cannot be read,
+    which falls back to ``minmax`` rather than failing.
 
-    pmin/pmax: Configurable percentile clip bounds (default 2/98), read and
-    validated (0 <= pmin < pmax <= 100) only when stretch=percentile. Forwarded
-    as repeated p= params to /cog/statistics. The _band_stats_cache key includes
-    pmin/pmax so different bounds never serve stale cached stats
-    (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
+    ``pmin`` and ``pmax`` (2 and 98 by default) are read when ``stretch`` is
+    ``percentile``, and ``sigma`` (2.0 by default) when it is ``stddev``. A
+    parameter that does not apply to the selected stretch is ignored, and its
+    default is used in place of the value sent.
 
-    sigma: Standard-deviation multiplier for stretch=stddev (default 2.0), read
-    and validated (> 0) only when stretch=stddev.
+    Responds 204 when the tile falls outside the raster, 400 for an
+    unsupported format, 401 when authentication is required, or when a request
+    that no capability authorized carried a credential which did not resolve,
+    403 when the embed token is invalid or expired
+    or a multi-tenant request arrives with no tenant context, 422 for an
+    out-of-range stretch parameter, and 503 when the renderer cannot be
+    reached. A different failure from the renderer is passed through with its
+    own status.
 
-    fix(#1778 codex r2): pmin/pmax/sigma used to be validated whenever present,
-    regardless of the active stretch mode, so an \"inactive\" value could still
-    422. frontend/nginx.conf's raster proxy_cache_key blanks an inactive value
-    out of the cache key to stop it defeating the cache; making that safe on
-    every input (including a repeated query parameter, where nginx's $arg_x
-    reads the FIRST occurrence and this endpoint's scalar Query reads the
-    LAST) needs \"inactive\" to mean the SAME thing on both sides: ignored, not
-    merely unvalidated for some inputs. A cache HIT must never disagree with
-    what an uncached request would answer.
+    404 covers more than a missing dataset. A dataset that is unknown, is not a
+    raster or has no image answers 404. Where no capability authorized the
+    request, so does a dataset the caller may not read: an authorization denial
+    on a non-public raster, and an unpublished raster asked for by a caller who
+    is neither its owner nor an admin. That is deliberate, so a refusal keeps a
+    dataset's existence undisclosed.
 
     Args:
         dataset_id (UUID):

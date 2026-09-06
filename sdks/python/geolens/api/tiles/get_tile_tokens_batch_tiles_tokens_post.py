@@ -98,20 +98,26 @@ def sync_detailed(
 ) -> Response[ProblemDetail | TileTokenBatchResponse]:
     r"""Get Tile Tokens Batch
 
-     Batch-generate tile tokens for up to 50 datasets in one request.
+     Generate tile tokens for up to 50 datasets in one request.
 
-    Optimization for multi-layer maps: a 20-layer builder map previously
-    fired 20 parallel GET /token/{id}/ requests (20 HTTP + 20 RBAC + 20 HMAC
-    signatures). This endpoint does the same work in a single round trip
-    with one DB query for dataset metadata (PERF-N5).
+    The list must hold between 1 and 50 ids, and a request outside that is 422.
 
-    Per-dataset errors (404, 403) do not fail the batch — instead the
-    response maps the offending dataset_id to ``{\"error\": \"...\"}``. Clients
-    should check each entry for the ``error`` key.
+    One round trip in place of one request per dataset, which is what a map
+    with many layers would otherwise need.
 
-    fix(#394) SH-04: ``X-Embed-Token`` is accepted as per-dataset fallback
-    authorization (same capability check as tile serving), so embed terrain
-    builds its raster-dem source from the real bounds/maxzoom descriptor.
+    A dataset that cannot be found or cannot be authorized does not fail the
+    batch: that id maps to ``{\"error\": \"...\"}`` in the response instead, so
+    check each entry for an ``error`` key before using it. Duplicate ids are
+    collapsed.
+
+    The request as a whole still fails 401 in one case: a request that carried
+    a credential which did not resolve and that no capability authorized
+    answers 401 rather than a body of per-dataset errors. A request carrying no
+    credential is served normally.
+
+    ``X-Embed-Token`` is accepted as a fallback authorization for the datasets
+    inside that token's scope, so an embedded map can build a terrain source
+    from real bounds and zoom limits.
 
     Args:
         x_embed_token (None | str | Unset):
@@ -146,20 +152,26 @@ def sync(
 ) -> ProblemDetail | TileTokenBatchResponse | None:
     r"""Get Tile Tokens Batch
 
-     Batch-generate tile tokens for up to 50 datasets in one request.
+     Generate tile tokens for up to 50 datasets in one request.
 
-    Optimization for multi-layer maps: a 20-layer builder map previously
-    fired 20 parallel GET /token/{id}/ requests (20 HTTP + 20 RBAC + 20 HMAC
-    signatures). This endpoint does the same work in a single round trip
-    with one DB query for dataset metadata (PERF-N5).
+    The list must hold between 1 and 50 ids, and a request outside that is 422.
 
-    Per-dataset errors (404, 403) do not fail the batch — instead the
-    response maps the offending dataset_id to ``{\"error\": \"...\"}``. Clients
-    should check each entry for the ``error`` key.
+    One round trip in place of one request per dataset, which is what a map
+    with many layers would otherwise need.
 
-    fix(#394) SH-04: ``X-Embed-Token`` is accepted as per-dataset fallback
-    authorization (same capability check as tile serving), so embed terrain
-    builds its raster-dem source from the real bounds/maxzoom descriptor.
+    A dataset that cannot be found or cannot be authorized does not fail the
+    batch: that id maps to ``{\"error\": \"...\"}`` in the response instead, so
+    check each entry for an ``error`` key before using it. Duplicate ids are
+    collapsed.
+
+    The request as a whole still fails 401 in one case: a request that carried
+    a credential which did not resolve and that no capability authorized
+    answers 401 rather than a body of per-dataset errors. A request carrying no
+    credential is served normally.
+
+    ``X-Embed-Token`` is accepted as a fallback authorization for the datasets
+    inside that token's scope, so an embedded map can build a terrain source
+    from real bounds and zoom limits.
 
     Args:
         x_embed_token (None | str | Unset):
@@ -189,20 +201,26 @@ async def asyncio_detailed(
 ) -> Response[ProblemDetail | TileTokenBatchResponse]:
     r"""Get Tile Tokens Batch
 
-     Batch-generate tile tokens for up to 50 datasets in one request.
+     Generate tile tokens for up to 50 datasets in one request.
 
-    Optimization for multi-layer maps: a 20-layer builder map previously
-    fired 20 parallel GET /token/{id}/ requests (20 HTTP + 20 RBAC + 20 HMAC
-    signatures). This endpoint does the same work in a single round trip
-    with one DB query for dataset metadata (PERF-N5).
+    The list must hold between 1 and 50 ids, and a request outside that is 422.
 
-    Per-dataset errors (404, 403) do not fail the batch — instead the
-    response maps the offending dataset_id to ``{\"error\": \"...\"}``. Clients
-    should check each entry for the ``error`` key.
+    One round trip in place of one request per dataset, which is what a map
+    with many layers would otherwise need.
 
-    fix(#394) SH-04: ``X-Embed-Token`` is accepted as per-dataset fallback
-    authorization (same capability check as tile serving), so embed terrain
-    builds its raster-dem source from the real bounds/maxzoom descriptor.
+    A dataset that cannot be found or cannot be authorized does not fail the
+    batch: that id maps to ``{\"error\": \"...\"}`` in the response instead, so
+    check each entry for an ``error`` key before using it. Duplicate ids are
+    collapsed.
+
+    The request as a whole still fails 401 in one case: a request that carried
+    a credential which did not resolve and that no capability authorized
+    answers 401 rather than a body of per-dataset errors. A request carrying no
+    credential is served normally.
+
+    ``X-Embed-Token`` is accepted as a fallback authorization for the datasets
+    inside that token's scope, so an embedded map can build a terrain source
+    from real bounds and zoom limits.
 
     Args:
         x_embed_token (None | str | Unset):
@@ -235,20 +253,26 @@ async def asyncio(
 ) -> ProblemDetail | TileTokenBatchResponse | None:
     r"""Get Tile Tokens Batch
 
-     Batch-generate tile tokens for up to 50 datasets in one request.
+     Generate tile tokens for up to 50 datasets in one request.
 
-    Optimization for multi-layer maps: a 20-layer builder map previously
-    fired 20 parallel GET /token/{id}/ requests (20 HTTP + 20 RBAC + 20 HMAC
-    signatures). This endpoint does the same work in a single round trip
-    with one DB query for dataset metadata (PERF-N5).
+    The list must hold between 1 and 50 ids, and a request outside that is 422.
 
-    Per-dataset errors (404, 403) do not fail the batch — instead the
-    response maps the offending dataset_id to ``{\"error\": \"...\"}``. Clients
-    should check each entry for the ``error`` key.
+    One round trip in place of one request per dataset, which is what a map
+    with many layers would otherwise need.
 
-    fix(#394) SH-04: ``X-Embed-Token`` is accepted as per-dataset fallback
-    authorization (same capability check as tile serving), so embed terrain
-    builds its raster-dem source from the real bounds/maxzoom descriptor.
+    A dataset that cannot be found or cannot be authorized does not fail the
+    batch: that id maps to ``{\"error\": \"...\"}`` in the response instead, so
+    check each entry for an ``error`` key before using it. Duplicate ids are
+    collapsed.
+
+    The request as a whole still fails 401 in one case: a request that carried
+    a credential which did not resolve and that no capability authorized
+    answers 401 rather than a body of per-dataset errors. A request carrying no
+    credential is served normally.
+
+    ``X-Embed-Token`` is accepted as a fallback authorization for the datasets
+    inside that token's scope, so an embedded map can build a terrain source
+    from real bounds and zoom limits.
 
     Args:
         x_embed_token (None | str | Unset):

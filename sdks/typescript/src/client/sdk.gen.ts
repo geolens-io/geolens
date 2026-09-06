@@ -5641,17 +5641,37 @@ export const searchPostStacSearchPost = <ThrowOnError extends boolean = false>(o
 /**
  * Cluster Tile Endpoint
  *
- * Serve a server-side clustered vector tile for point datasets.
+ * Serve a server-side clustered vector tile for a point dataset.
  *
- * URL pattern: /tiles/clusters/data.{table_name}/{z}/{x}/{y}.pbf
+ * URL pattern: ``/tiles/clusters/data.{table_name}/{z}/{x}/{y}.pbf``
  *
- * This route deliberately reuses the normal vector tile auth model:
- * public datasets are readable directly, non-public datasets require either
- * valid HMAC tile params or a valid embed token scoped to the dataset.
+ * Authorization matches the plain vector tile route, in three cases. A
+ * public, published dataset is readable without credentials. A non-public
+ * dataset needs either valid signature parameters (``sig``, ``exp``,
+ * ``scope``) or an embed token scoped to it, and answers 403 without one. A
+ * public dataset that is not yet published is readable by its owner, by an
+ * admin, or with an embed token, and answers 404 to other callers, so a
+ * refusal keeps its existence undisclosed. An unknown table is 404 too.
  *
- * fix(#403): `cols` mirrors the vector endpoint's runtime column opt-in;
- * the columns are projected onto UNCLUSTERED features so data-driven
- * styling and popups keep working on the server-cluster path.
+ * A request that no capability authorized and that carried a credential which
+ * did not resolve is refused with 401 rather than served as an anonymous
+ * read, so an expired token is rejected instead of being silently downgraded.
+ * A request sending no credential is served normally.
+ *
+ * ``cluster_radius`` is a screen-pixel distance, the same units MapLibre's
+ * ``clusterRadius`` uses, and ``cluster_max_zoom`` is the last zoom at which
+ * features are grouped. ``cols`` works as it does on the vector route, and
+ * the named columns are projected onto the unclustered features, so
+ * data-driven styling and popups keep working here too.
+ *
+ * Requires a vector point dataset; another record type responds 400, as does
+ * a malformed table name or an out-of-range tile coordinate.
+ *
+ * A tile holding no features answers 204, and a repeat request whose
+ * ``If-None-Match`` matches answers 304. A dataset still being restored from
+ * cold storage answers 202 with a job id to poll. Where a per-tenant
+ * concurrency limit is configured, exceeding it answers 429 with
+ * ``Retry-After``. A failure running the tile query answers 503.
  */
 export const clusterTileEndpointTilesClustersTablePathZXYPbfGet = <ThrowOnError extends boolean = false>(options: Options<ClusterTileEndpointTilesClustersTablePathZxyPbfGetData, ThrowOnError>): RequestResult<ClusterTileEndpointTilesClustersTablePathZxyPbfGetResponses, ClusterTileEndpointTilesClustersTablePathZxyPbfGetErrors, ThrowOnError> => (options.client ?? client).get<ClusterTileEndpointTilesClustersTablePathZxyPbfGetResponses, ClusterTileEndpointTilesClustersTablePathZxyPbfGetErrors, ThrowOnError>({
     security: [
@@ -5670,39 +5690,46 @@ export const clusterTileEndpointTilesClustersTablePathZXYPbfGet = <ThrowOnError 
 /**
  * Raster Tile Proxy
  *
- * API-side raster tile proxy: auth check + fetch from Titiler.
+ * Render one raster tile and return the image.
  *
- * Used by Vite dev proxy and as a fallback for deployments without nginx.
- * Production deployments with nginx should use the nginx raster-tiles path
- * for better caching and performance.
+ * Returns the image itself rather than a redirect: the dataset is
+ * authorized, then the rendered tile comes back in the response body. Used by
+ * the development proxy and by deployments that run without nginx in front.
  *
- * colormap_name: Optional Titiler colormap for single-band display. Validated
- * against _ALLOWED_COLORMAPS (T-1140-01). Gray is the Titiler default for
- * single-band — passing gray is a no-op (not forwarded). colormap_name is not
- * forwarded for DEM layers (render_params starts with 'algorithm=').
+ * ``colormap_name`` applies a colormap to a single-band raster. Passing
+ * ``gray`` leaves the rendering unchanged, and a digital elevation model
+ * ignores the parameter, because its terrain encoding cannot be recoloured.
  *
- * stretch: Optional stretch strategy. percentile/stddev compute a stats-based
- * rescale from Titiler band statistics. Multi-band rasters produce one rescale=
- * fragment per band (up to 3, RASTER-STRETCH-03).
+ * ``stretch`` chooses how pixel values map to the output range. ``minmax``
+ * keeps the range the dataset already implies: the recorded per-band minimum
+ * and maximum for a raster imported from a remote source that published
+ * statistics, a range derived from the data type for most others, and no
+ * rescale parameter for 8-bit data, which needs none. ``percentile`` and
+ * ``stddev`` instead derive a range from band statistics read at request
+ * time, for up to three bands. A digital elevation model ignores the
+ * parameter, and so does a request whose band statistics cannot be read,
+ * which falls back to ``minmax`` rather than failing.
  *
- * pmin/pmax: Configurable percentile clip bounds (default 2/98), read and
- * validated (0 <= pmin < pmax <= 100) only when stretch=percentile. Forwarded
- * as repeated p= params to /cog/statistics. The _band_stats_cache key includes
- * pmin/pmax so different bounds never serve stale cached stats
- * (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
+ * ``pmin`` and ``pmax`` (2 and 98 by default) are read when ``stretch`` is
+ * ``percentile``, and ``sigma`` (2.0 by default) when it is ``stddev``. A
+ * parameter that does not apply to the selected stretch is ignored, and its
+ * default is used in place of the value sent.
  *
- * sigma: Standard-deviation multiplier for stretch=stddev (default 2.0), read
- * and validated (> 0) only when stretch=stddev.
+ * Responds 204 when the tile falls outside the raster, 400 for an
+ * unsupported format, 401 when authentication is required, or when a request
+ * that no capability authorized carried a credential which did not resolve,
+ * 403 when the embed token is invalid or expired
+ * or a multi-tenant request arrives with no tenant context, 422 for an
+ * out-of-range stretch parameter, and 503 when the renderer cannot be
+ * reached. A different failure from the renderer is passed through with its
+ * own status.
  *
- * fix(#1778 codex r2): pmin/pmax/sigma used to be validated whenever present,
- * regardless of the active stretch mode, so an "inactive" value could still
- * 422. frontend/nginx.conf's raster proxy_cache_key blanks an inactive value
- * out of the cache key to stop it defeating the cache; making that safe on
- * every input (including a repeated query parameter, where nginx's $arg_x
- * reads the FIRST occurrence and this endpoint's scalar Query reads the
- * LAST) needs "inactive" to mean the SAME thing on both sides: ignored, not
- * merely unvalidated for some inputs. A cache HIT must never disagree with
- * what an uncached request would answer.
+ * 404 covers more than a missing dataset. A dataset that is unknown, is not a
+ * raster or has no image answers 404. Where no capability authorized the
+ * request, so does a dataset the caller may not read: an authorization denial
+ * on a non-public raster, and an unpublished raster asked for by a caller who
+ * is neither its owner nor an admin. That is deliberate, so a refusal keeps a
+ * dataset's existence undisclosed.
  */
 export const rasterTileProxyTilesRasterProxyDatasetIdZXYFmtGet = <ThrowOnError extends boolean = false>(options: Options<RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetData, ThrowOnError>): RequestResult<RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetResponses, RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetErrors, ThrowOnError> => (options.client ?? client).get<RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetResponses, RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetErrors, ThrowOnError>({
     security: [
@@ -5748,20 +5775,26 @@ export const getTileTokenTilesTokenDatasetIdGet = <ThrowOnError extends boolean 
 /**
  * Get Tile Tokens Batch
  *
- * Batch-generate tile tokens for up to 50 datasets in one request.
+ * Generate tile tokens for up to 50 datasets in one request.
  *
- * Optimization for multi-layer maps: a 20-layer builder map previously
- * fired 20 parallel GET /token/{id}/ requests (20 HTTP + 20 RBAC + 20 HMAC
- * signatures). This endpoint does the same work in a single round trip
- * with one DB query for dataset metadata (PERF-N5).
+ * The list must hold between 1 and 50 ids, and a request outside that is 422.
  *
- * Per-dataset errors (404, 403) do not fail the batch — instead the
- * response maps the offending dataset_id to ``{"error": "..."}``. Clients
- * should check each entry for the ``error`` key.
+ * One round trip in place of one request per dataset, which is what a map
+ * with many layers would otherwise need.
  *
- * fix(#394) SH-04: ``X-Embed-Token`` is accepted as per-dataset fallback
- * authorization (same capability check as tile serving), so embed terrain
- * builds its raster-dem source from the real bounds/maxzoom descriptor.
+ * A dataset that cannot be found or cannot be authorized does not fail the
+ * batch: that id maps to ``{"error": "..."}`` in the response instead, so
+ * check each entry for an ``error`` key before using it. Duplicate ids are
+ * collapsed.
+ *
+ * The request as a whole still fails 401 in one case: a request that carried
+ * a credential which did not resolve and that no capability authorized
+ * answers 401 rather than a body of per-dataset errors. A request carrying no
+ * credential is served normally.
+ *
+ * ``X-Embed-Token`` is accepted as a fallback authorization for the datasets
+ * inside that token's scope, so an embedded map can build a terrain source
+ * from real bounds and zoom limits.
  */
 export const getTileTokensBatchTilesTokensPost = <ThrowOnError extends boolean = false>(options: Options<GetTileTokensBatchTilesTokensPostData, ThrowOnError>): RequestResult<GetTileTokensBatchTilesTokensPostResponses, GetTileTokensBatchTilesTokensPostErrors, ThrowOnError> => (options.client ?? client).post<GetTileTokensBatchTilesTokensPostResponses, GetTileTokensBatchTilesTokensPostErrors, ThrowOnError>({
     security: [
