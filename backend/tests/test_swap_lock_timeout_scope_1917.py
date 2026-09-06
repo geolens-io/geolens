@@ -39,10 +39,7 @@ _PAST_THE_CLAMP_SECONDS = (_TEST_SWAP_MS / 1000.0) * 3
 
 
 async def make_swap_target(client, test_db_session):
-    """A committed dataset row and the live/staging table pair its swap renames.
-
-    An async generator so a sibling suite can wrap it in its own fixture.
-    """
+    """A committed dataset row and the live/staging table pair its swap renames."""
     suffix = uuid.uuid4().hex[:8]
     live = f"swap_scope_{suffix}"
     staging = f"swap_scopes_{suffix}"

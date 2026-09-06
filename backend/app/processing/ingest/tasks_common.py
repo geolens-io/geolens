@@ -2216,7 +2216,7 @@ _SWAP_RETRY_SLEEP_MS = 200
 
 # fix(#1921): the budget for the catalog wait that FOLLOWS the swap. The
 # transaction holds AccessExclusiveLock on the table it just installed across
-# that wait, so its duration is the dataset's unreadable window.
+# it, so a holder that outlasts this is stuck, not working.
 _POST_SWAP_CATALOG_TIMEOUT = "60s"
 
 
@@ -2419,6 +2419,9 @@ async def _apply_reupload_swap(
     from app.platform.extensions import get_processing_port
 
     _port = get_processing_port()
+    # fix(#1921): lock_catalog_rows rolls back before it raises, and a
+    # rolled-back session expires every loaded instance.
+    _log_dataset_id = str(dataset.id)
     _wait_started = time.perf_counter()
     try:
         await lock_catalog_rows(
@@ -2432,7 +2435,7 @@ async def _apply_reupload_swap(
     except CatalogLockConflict:
         structlog.get_logger().warning(
             "reupload_swap_catalog_lock_timeout",
-            dataset_id=str(dataset.id),
+            dataset_id=_log_dataset_id,
             table_name=table_name,
             waited_ms=round((time.perf_counter() - _wait_started) * 1000),
             budget=_POST_SWAP_CATALOG_TIMEOUT,
@@ -2446,7 +2449,7 @@ async def _apply_reupload_swap(
 
     structlog.get_logger().info(
         "reupload_swap_catalog_lock_acquired",
-        dataset_id=str(dataset.id),
+        dataset_id=_log_dataset_id,
         table_name=table_name,
         waited_ms=round((time.perf_counter() - _wait_started) * 1000),
         budget=_POST_SWAP_CATALOG_TIMEOUT,

@@ -6,12 +6,15 @@ back and reports as contention. The DB tests need the Docker test database.
 """
 
 import asyncio
+import uuid
 
 import pytest
 import structlog
 from sqlalchemy import select, text
+from sqlalchemy.orm import joinedload
 
 from app.modules.catalog.datasets.domain.models import Dataset
+from app.processing.ingest.tasks_common import _apply_reupload_swap
 from app.platform.catalog_locks import (
     CATALOG_LOCK_CONFLICT_CODE,
     CatalogLockConflict,
@@ -22,6 +25,7 @@ from app.processing.ingest.tasks_reupload import (
     _service_refresh_error_code,
 )
 
+from tests.test_reupload_swap_lock_retry import _minimal_metadata
 from tests.test_swap_lock_timeout_scope_1917 import (
     _run_swap,
     _stub_downstream,
@@ -41,6 +45,10 @@ async def swap_target(client, test_db_session):
 _TEST_BUDGET = "500ms"
 _TEST_BUDGET_MS = 500
 
+_POST_SWAP_BUDGET = tasks_common._POST_SWAP_CATALOG_TIMEOUT
+# What `current_setting` reports back for the constant above.
+_NORMALIZED_BUDGET = "1min"
+
 
 class TestPostSwapCatalogWaitBudget:
     async def test_the_wait_runs_on_the_swaps_own_budget(
@@ -56,6 +64,10 @@ class TestPostSwapCatalogWaitBudget:
 
         async def _recording_lock(session, **kwargs):
             observed["lock_timeout"] = kwargs.get("lock_timeout")
+            # fix(#1919): the DDL budget is gone by the time this wait starts.
+            observed["on_entry"] = await session.scalar(
+                text("SELECT current_setting('lock_timeout')")
+            )
             await real_lock(session, **kwargs)
             observed["in_force"] = await session.scalar(
                 text("SELECT current_setting('lock_timeout')")
@@ -76,9 +88,15 @@ class TestPostSwapCatalogWaitBudget:
             "An unbounded wait here is an unbounded outage: the transaction "
             "holds AccessExclusiveLock on the table it just installed."
         )
-        assert observed["in_force"] != arrived_with, (
-            f"lock_timeout was still {arrived_with!r} inside the acquisition, "
-            "so the budget the call asked for never reached PostgreSQL."
+        assert observed["on_entry"] == arrived_with, (
+            f"the wait started on {observed['on_entry']!r}, not the "
+            f"{arrived_with!r} the transaction arrived with: the swap's DDL "
+            "budget leaked past the savepoint that set it (#1919)."
+        )
+        assert observed["in_force"] == _NORMALIZED_BUDGET, (
+            f"lock_timeout read {observed['in_force']!r} inside the "
+            f"acquisition, not the {_NORMALIZED_BUDGET!r} PostgreSQL "
+            f"normalizes {_POST_SWAP_BUDGET!r} to."
         )
 
     async def test_an_uncontended_wait_is_recorded(
@@ -163,6 +181,59 @@ class TestPostSwapCatalogWaitBudget:
             {"tn": staging},
         )
         assert staging_survived is True
+        await test_db_session.rollback()
+
+    async def test_the_expiry_handler_survives_the_rollback_that_precedes_it(
+        self, swap_target, monkeypatch, test_db_session
+    ) -> None:
+        """A real ORM instance still reports contention, not a greenlet error."""
+        stub, staging = swap_target
+        monkeypatch.setattr(tasks_common, "_POST_SWAP_CATALOG_TIMEOUT", _TEST_BUDGET)
+        import app.core.db as db_module
+
+        async with (
+            db_module.async_session() as holder,
+            db_module.async_session() as api,
+        ):
+            await holder.execute(
+                select(Dataset.id).where(Dataset.id == stub.id).with_for_update()
+            )
+            _stub_downstream(monkeypatch, api)
+            loaded = (
+                await api.execute(
+                    select(Dataset)
+                    .options(joinedload(Dataset.record))
+                    .where(Dataset.id == stub.id)
+                )
+            ).scalar_one()
+            with structlog.testing.capture_logs() as captured:
+                with pytest.raises(CatalogLockConflict):
+                    await asyncio.wait_for(
+                        _apply_reupload_swap(
+                            api,
+                            dataset=loaded,
+                            staging_table=staging,
+                            metadata=_minimal_metadata(),
+                            sample_values={},
+                            user_id=str(uuid.uuid4()),
+                            source_filename="x.csv",
+                            source_format="csv",
+                            original_srid=4326,
+                        ),
+                        timeout=30,
+                    )
+            await holder.rollback()
+
+        expired = [
+            r
+            for r in captured
+            if r.get("event") == "reupload_swap_catalog_lock_timeout"
+        ]
+        assert len(expired) == 1, (
+            "the expiry warning never emitted, so the handler raised on its "
+            f"own before reaching the log. Captured: {captured}"
+        )
+        assert expired[0]["dataset_id"] == str(stub.id)
         await test_db_session.rollback()
 
 

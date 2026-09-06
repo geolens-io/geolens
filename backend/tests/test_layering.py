@@ -3611,10 +3611,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1917): +19 — the swap restores the lock_timeout it installed, so it
     # stops clamping the catalog-lock wait; its budget constants moved to
     # module scope to be testable. Cap 2558 -> 2577, exact.
-    # fix(#1921): +39 — the post-swap catalog wait gets its own budget, a
-    # restore of its own, and a log line carrying how long it waited.
-    # Cap 2577 -> 2616, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2616,
+    # fix(#1921): +42 — the post-swap catalog wait gets its own budget, a
+    # restore of its own, and a log line carrying how long it waited, off an
+    # id captured before the rollback. Cap 2577 -> 2619, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2619,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
