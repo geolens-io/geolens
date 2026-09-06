@@ -1140,18 +1140,16 @@ class TestABlankValueIsNotACredential:
     async def test_a_whitespace_bearer_token_is_refused(
         self, client: AsyncClient, admin_auth_header: dict
     ) -> None:
-        """Refused by `_validate_safe_token`, which runs before the shape rule.
+        """Refused by `_validate_safe_token`, which runs ahead of the shape rule.
 
-        Field validators run ahead of the model validator, so a token of spaces
-        is answered by the whitespace rule that has always applied to this
-        field rather than by the blank rule above. Recorded rather than
-        asserted as the shape message, because which of the two answers first
-        is a pydantic ordering detail and both are refusals.
+        The nested `auth.token` spelling publishes the same coded refusal the
+        flat `token` one does.
         """
         resp, probe = await self._probe(
             client, admin_auth_header, {"auth": {"method": "bearer", "token": "   "}}
         )
         assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "invalid_service_token"
         assert UNSUPPORTED_AUTH_METHOD_POLICY not in resp.text
         probe.assert_not_awaited()
 

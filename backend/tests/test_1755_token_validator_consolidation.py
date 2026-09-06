@@ -6,13 +6,16 @@ one shared function, and the door-side header-token policy is unchanged.
 
 from __future__ import annotations
 
+import inspect
 import uuid
 
 import pytest
 from fastapi import HTTPException
+from fastapi.exceptions import RequestValidationError
 from httpx import AsyncClient
 from pydantic import ValidationError
 
+from app.core.coded_errors import CodedValueError
 from app.core.service_tokens import (
     ARCGIS_SERVICE_FORMAT,
     CredentialMethod,
@@ -26,11 +29,13 @@ from app.modules.catalog.datasets.domain.schemas import (
 from app.modules.catalog.sources.schemas import ProbeRequest, ServicePreviewRequest
 from app.platform.jobs.models import IngestJob
 from app.platform.service_auth import (
+    INVALID_SERVICE_TOKEN_CODE,
     ServiceAuthRequest,
     _validate_safe_token,
     credential_or_422,
 )
 from app.processing.ingest.schemas import ServiceCommitRequest
+from app.standards.ogc.errors import _coded_detail
 from tests.factories import create_dataset, get_user_id
 
 # The dispatch harnesses #1676 built for these two doors, reused so this suite
@@ -126,6 +131,55 @@ def test_every_service_credential_door_uses_the_one_shared_rule(door):
         )
 
 
+def test_the_shared_rule_never_interpolates_the_token():
+    """Its messages reach a response body, so they carry no brace."""
+    assert "{" not in inspect.getsource(_validate_safe_token)
+
+
+_WHITESPACE_POLICY = "token contains whitespace"
+_CONTROL_POLICY = "token contains control characters"
+
+
+def _coded_errors(*refusals: tuple[str, str]) -> list[dict]:
+    """One coded error per refusal, on the flat then the nested token field."""
+    locs = (("body", "token"), ("body", "auth", "token"))
+    return [
+        {
+            "loc": loc,
+            "msg": "",
+            "type": "value_error",
+            "ctx": {"error": CodedValueError(INVALID_SERVICE_TOKEN_CODE, policy)},
+            "input": value,
+        }
+        for loc, (policy, value) in zip(locs, refusals)
+    ]
+
+
+def test_the_coded_detail_collapses_only_one_mistake_spelled_twice():
+    """Same policy and same refused value collapse; anything else does not."""
+    one_paste = _coded_errors(
+        (_WHITESPACE_POLICY, "aaa bbb"), (_WHITESPACE_POLICY, "aaa bbb")
+    )
+    detail = _coded_detail(RequestValidationError(one_paste))
+    assert detail == {
+        "code": INVALID_SERVICE_TOKEN_CODE,
+        "message": _WHITESPACE_POLICY,
+    }
+    # The collapsed detail publishes the policy alone. Comparing the two
+    # refused values never carries either of them out of memory.
+    assert "aaa bbb" not in str(detail)
+
+    two_defects = _coded_errors(
+        (_WHITESPACE_POLICY, "aaa bbb"), (_CONTROL_POLICY, "aaa bbb")
+    )
+    assert _coded_detail(RequestValidationError(two_defects)) is None
+
+    two_values = _coded_errors(
+        (_WHITESPACE_POLICY, "aaa bbb"), (_WHITESPACE_POLICY, "ccc ddd")
+    )
+    assert _coded_detail(RequestValidationError(two_values)) is None
+
+
 class TestTheStrictHeaderTokenPolicyIsUnchanged:
     """The door-side half, which the schema rule neither replaces nor
     duplicates."""
@@ -197,16 +251,16 @@ async def _arcgis_job(session, *, created_by: uuid.UUID, dataset_id=None) -> Ing
     return job
 
 
-def _assert_refused_without_the_token(resp, secret: str, *, loc: str) -> None:
-    """422 naming the token field, and the credential absent from the body.
-
-    ``loc`` differs by door: the import-commit refusal is re-raised by the
-    handler from a subclass validation, so it has no ``body`` prefix.
-    """
+def _assert_refused_without_the_token(resp, secret: str) -> None:
+    """422 carrying the shared refusal code, and the credential absent."""
     assert resp.status_code == 422, resp.text
-    assert resp.json()["detail"].startswith(f"{loc}:")
-    # `ValidationError.errors()` carries the raw input; the 422 flattener in
-    # standards/ogc/errors.py renders `loc` and `msg` and drops it.
+    detail = resp.json()["detail"]
+    # fix(#1924): a schema-layer refusal publishes the same code a door-layer
+    # one does — the frontend banner and the CLI sentence key on it.
+    assert detail["code"] == "invalid_service_token"
+    assert "whitespace" in detail["message"]
+    # `ValidationError.errors()` carries the raw input; the handler in
+    # standards/ogc/errors.py renders the code and policy and drops it.
     assert secret not in resp.text
 
 
@@ -231,7 +285,7 @@ class TestTheCommitDoorsRefuseOverHttp:
                 headers=admin_auth_header,
             )
 
-        _assert_refused_without_the_token(resp, _UNSAFE_TOKEN_OVER_HTTP, loc="token")
+        _assert_refused_without_the_token(resp, _UNSAFE_TOKEN_OVER_HTTP)
         task.defer_async.assert_not_awaited()
 
     async def test_the_import_commit_door_refuses_a_token_past_the_cap(
@@ -240,6 +294,7 @@ class TestTheCommitDoorsRefuseOverHttp:
         admin_auth_header: dict,
         test_db_session,
     ) -> None:
+        """The cap is not a coded refusal, so it answers with the field list."""
         admin_id = await get_user_id(test_db_session, "admin")
         job = await _arcgis_job(test_db_session, created_by=admin_id)
         over_cap = "a" * (_TOKEN_MAX_LENGTH + 1)
@@ -251,7 +306,11 @@ class TestTheCommitDoorsRefuseOverHttp:
                 headers=admin_auth_header,
             )
 
-        _assert_refused_without_the_token(resp, over_cap, loc="token")
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["detail"]
+        assert isinstance(detail, str)
+        assert detail.startswith("token:")
+        assert over_cap not in resp.text
         task.defer_async.assert_not_awaited()
 
     async def test_the_reupload_commit_door_refuses_and_never_echoes_the_token(
@@ -281,7 +340,74 @@ class TestTheCommitDoorsRefuseOverHttp:
                 headers=admin_auth_header,
             )
 
-        _assert_refused_without_the_token(
-            resp, _UNSAFE_TOKEN_OVER_HTTP, loc="body.token"
+        _assert_refused_without_the_token(resp, _UNSAFE_TOKEN_OVER_HTTP)
+        task.defer_async.assert_not_awaited()
+
+    async def test_a_second_field_error_keeps_the_flattened_list(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ) -> None:
+        """A second field error keeps the flattened list."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="ArcGIS Reupload Dataset Two",
+            visibility="public",
+            feature_count=100,
+            source_filename="original.geojson",
+            source_url=_ARCGIS_URL,
         )
+        job = await _arcgis_job(
+            test_db_session, created_by=admin_id, dataset_id=dataset.id
+        )
+
+        async with _reupload_harness() as task:
+            resp = await client.post(
+                f"/datasets/{dataset.id}/reupload/{job.id}/commit",
+                json={"token": _UNSAFE_TOKEN_OVER_HTTP, "srid_override": 0},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["detail"]
+        assert isinstance(detail, str)
+        assert "body.token:" in detail and "body.srid_override:" in detail
+        assert _UNSAFE_TOKEN_OVER_HTTP not in resp.text
+        task.defer_async.assert_not_awaited()
+
+    async def test_both_spellings_of_one_bad_token_keep_the_code(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ) -> None:
+        """The flat and nested spellings are one mistake, not two."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="ArcGIS Reupload Dataset Three",
+            visibility="public",
+            feature_count=100,
+            source_filename="original.geojson",
+            source_url=_ARCGIS_URL,
+        )
+        job = await _arcgis_job(
+            test_db_session, created_by=admin_id, dataset_id=dataset.id
+        )
+
+        async with _reupload_harness() as task:
+            resp = await client.post(
+                f"/datasets/{dataset.id}/reupload/{job.id}/commit",
+                json={
+                    "token": _UNSAFE_TOKEN_OVER_HTTP,
+                    "auth": {"method": "bearer", "token": _UNSAFE_TOKEN_OVER_HTTP},
+                },
+                headers=admin_auth_header,
+            )
+
+        _assert_refused_without_the_token(resp, _UNSAFE_TOKEN_OVER_HTTP)
         task.defer_async.assert_not_awaited()

@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.core.coded_errors import CodedValueError
 from app.core.logging_config import safe_access_log_path
 from app.core.url_redaction import redact_query_credentials
 from app.standards.ogc.utils import standards_api_path
@@ -254,6 +255,35 @@ def _allow_header_with_head(headers: dict[str, str] | None) -> dict[str, str] | 
     return updated
 
 
+def _coded_detail(exc: RequestValidationError) -> dict[str, str] | None:
+    """The ``{"code", "message"}`` detail a coded field refusal answers with.
+
+    None unless every error is coded and they agree on code, message and the
+    value refused — one mistake spelled on two fields. Anything else keeps the
+    flattened list, so a caller is still told about each distinct thing.
+
+    Two refused values are compared in memory; only the code and the policy
+    reach the body.
+    """
+    errors = exc.errors()
+    if not errors:
+        return None
+    first = (errors[0].get("ctx") or {}).get("error")
+    if not isinstance(first, CodedValueError):
+        return None
+    first_input = errors[0].get("input")
+    for error in errors[1:]:
+        cause = (error.get("ctx") or {}).get("error")
+        if (
+            not isinstance(cause, CodedValueError)
+            or cause.code != first.code
+            or cause.message != first.message
+            or error.get("input") != first_input
+        ):
+            return None
+    return {"code": first.code, "message": first.message}
+
+
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(HTTPException)
     async def http_exception_handler(
@@ -303,9 +333,14 @@ def register_error_handlers(app: FastAPI) -> None:
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
         status_code = 400 if _is_standards_path(request) else 422
-        detail = "; ".join(
-            f"{'.'.join(str(loc) for loc in e['loc'])}: {e['msg']}"
-            for e in exc.errors()
+        coded = _coded_detail(exc)
+        detail: str | dict[str, str] = (
+            coded
+            if coded is not None
+            else "; ".join(
+                f"{'.'.join(str(loc) for loc in e['loc'])}: {e['msg']}"
+                for e in exc.errors()
+            )
         )
         return JSONResponse(
             status_code=status_code,
