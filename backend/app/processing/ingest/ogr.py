@@ -21,6 +21,8 @@ from app.platform.service_items import materialise_oapif_items
 from app.platform.service_endpoints import (
     assert_endpoints_stay_on_origin,
     fire_once,
+    gdal_transport_env,
+    require_wfs_layer,
 )
 from app.core.service_tokens import (
     BEARER_SCHEME,
@@ -1312,6 +1314,11 @@ async def run_ogr2ogr_service(
                 token, service_format=service_type
             )  # SEC-FU-04: raises ValueError before subprocess
 
+            # fix(#1828): a credentialed WFS never reaches GDAL without a
+            # layer, since GDAL opened layerless reads every layer's schema.
+            require_wfs_layer(
+                layer_name, service_format=service_type, credential_line=header_line
+            )
             # fix(#1746 B2b review r13): GDAL applies the header file to the
             # operation endpoints the service's own description advertises,
             # and those are fresh requests no redirect rule can see. Checked
@@ -1365,6 +1372,7 @@ async def run_ogr2ogr_service(
                 os.close(fd)
             os.chmod(header_file_path, 0o600)
             env["GDAL_HTTP_HEADER_FILE"] = header_file_path
+            env.update(gdal_transport_env(service_type))
             # Plan rule A: GDAL forwards `Authorization` only to the host it
             # was given to, and forwards every other header name verbatim even
             # across hosts, so a service-chosen API key is redirect-exposed on

@@ -340,7 +340,9 @@ class TestTheHeaderFileHoldsOneComposedLine:
         credential, _username, password = _basic()
         capture = await _preview_with(monkeypatch, credential)
 
-        assert "GDAL_HTTP_HEADERS" not in capture.env
+        assert capture.env["GDAL_HTTP_HEADERS"] == (
+            "Accept: application/xml, text/xml\r\nAccept-Encoding: identity"
+        )
         assert password not in str(capture.env)
 
 
@@ -2164,6 +2166,25 @@ def _capabilities(get_href: str) -> str:
 </WFS_Capabilities>"""
 
 
+_PLAIN_SCHEMA = """<?xml version="1.0"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+    xmlns:gml="http://www.opengis.net/gml/3.2"
+    xmlns:topp="http://example.test/topp"
+    targetNamespace="http://example.test/topp">
+  <xs:element name="parcels" type="topp:parcelsType"
+      substitutionGroup="gml:AbstractFeature"/>
+</xs:schema>"""
+
+
+def _describe_or(request: httpx.Request, capabilities: str) -> httpx.Response:
+    """fix(#1828): the check reads a DescribeFeatureType after the
+    capabilities, so a double that answered every request with the
+    capabilities document answers that one with a plain schema."""
+    if request.url.params.get("REQUEST") == "DescribeFeatureType":
+        return httpx.Response(200, text=_PLAIN_SCHEMA)
+    return httpx.Response(200, text=capabilities)
+
+
 def _capabilities_ows(operations: dict[str, str]) -> str:
     """A WFS 2.0 capabilities document naming each *operations* entry.
 
@@ -2327,7 +2348,7 @@ class TestAWfsCheckOnlyValidatesTheOperationsTheReadPathUses:
         )
 
         def _handle(request: httpx.Request) -> httpx.Response:
-            return _as_stream(httpx.Response(200, text=document))
+            return _as_stream(_describe_or(request, document))
 
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
@@ -2363,7 +2384,7 @@ class TestAWfsCheckOnlyValidatesTheOperationsTheReadPathUses:
         )
 
         def _handle(request: httpx.Request) -> httpx.Response:
-            return _as_stream(httpx.Response(200, text=document))
+            return _as_stream(_describe_or(request, document))
 
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
@@ -2410,16 +2431,16 @@ class TestTheCapabilitiesUrlBuilderIsNotFieldCountBounded:
 
         query = "&".join(f"a{n}=1" for n in range(10))
         url = _capabilities_url(f"{_SVC_ORIGIN}/geoserver/wfs?{query}")
-        assert "service=WFS" in url
-        assert "request=GetCapabilities" in url
+        assert "SERVICE=WFS" in url
+        assert "REQUEST=GetCapabilities" in url
 
     def test_a_query_over_the_old_field_count_bound_still_resolves(self) -> None:
         from app.platform.service_endpoints import MAX_QUERY_FIELDS, _capabilities_url
 
         query = "&".join(f"a{n}=1" for n in range(MAX_QUERY_FIELDS + 1))
         url = _capabilities_url(f"{_SVC_ORIGIN}/geoserver/wfs?{query}")
-        assert "service=WFS" in url
-        assert "request=GetCapabilities" in url
+        assert "SERVICE=WFS" in url
+        assert "REQUEST=GetCapabilities" in url
 
     async def test_a_many_param_probe_url_gets_a_coded_result_not_a_500(
         self, monkeypatch
@@ -2443,7 +2464,7 @@ class TestTheCapabilitiesUrlBuilderIsNotFieldCountBounded:
         document = _capabilities(_SVC_WFS)
 
         def _handle(request: httpx.Request) -> httpx.Response:
-            return _as_stream(httpx.Response(200, text=document))
+            return _as_stream(_describe_or(request, document))
 
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
@@ -2513,7 +2534,7 @@ class TestADeeplyNestedWfsBranchNeverBecomesARecursionError:
 
     def _transport(self, monkeypatch, document: str) -> None:
         def _handle(request: httpx.Request) -> httpx.Response:
-            return _as_stream(httpx.Response(200, text=document))
+            return _as_stream(_describe_or(request, document))
 
         monkeypatch.setattr(
             security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
@@ -3190,6 +3211,8 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
                 return httpx.Response(401)
             if "GetCapabilities" in str(request.url):
                 return httpx.Response(200, text=_capabilities(get_href))
+            if request.url.params.get("REQUEST") == "DescribeFeatureType":
+                return httpx.Response(200, text=_PLAIN_SCHEMA)
             return httpx.Response(404)
 
         return handle
@@ -3820,6 +3843,8 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
         def handle(request: httpx.Request) -> httpx.Response:
             if "GetCapabilities" in str(request.url):
                 return httpx.Response(200, text=document)
+            if request.url.params.get("REQUEST") == "DescribeFeatureType":
+                return httpx.Response(200, text=_PLAIN_SCHEMA)
             return httpx.Response(404)
 
         value = _value()
@@ -6645,8 +6670,8 @@ class TestAServiceThatServesHtmlToAnyoneWhoAsks:
         assert pair is not None
         recorded = self._transport(
             monkeypatch,
-            lambda request: httpx.Response(
-                200, text=_capabilities(f"{_SVC_ORIGIN}/geoserver/wfs")
+            lambda request: _describe_or(
+                request, _capabilities(f"{_SVC_ORIGIN}/geoserver/wfs")
             ),
         )
 
@@ -6850,7 +6875,9 @@ class TestAnXmlDocumentIsBoundedByItsElements:
         elements = service_endpoints.structural_elements(raw)
         assert elements * 50 < service_endpoints.MAX_DOCUMENT_ELEMENTS, elements
 
-        self._transport(monkeypatch, lambda request: httpx.Response(200, content=raw))
+        self._transport(
+            monkeypatch, lambda request: _describe_or(request, raw.decode())
+        )
 
         await self._check()
 

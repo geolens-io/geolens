@@ -91,10 +91,12 @@ async def test_token_not_in_subprocess_env_via_header_file():
             schema="data",
         )
 
-    # 1) The deprecated GDAL_HTTP_HEADERS var MUST NOT be present.
-    assert "GDAL_HTTP_HEADERS" not in captured_env, (
-        f"Authorization must not appear via env var; got: {captured_env.get('GDAL_HTTP_HEADERS')}"
+    # 1) GDAL_HTTP_HEADERS carries the check's own negotiation and never the token.
+    assert captured_env["GDAL_HTTP_HEADERS"] == (
+        "Accept: application/xml, text/xml\r\nAccept-Encoding: identity"
     )
+    assert captured_env["GDAL_HTTP_USERAGENT"] == "GeoLens"
+    assert all(_BEARER_LINE.split()[-1] not in value for value in captured_env.values())
 
     # 2) GDAL_HTTP_HEADER_FILE points at a path, not a token.
     assert "GDAL_HTTP_HEADER_FILE" in captured_env

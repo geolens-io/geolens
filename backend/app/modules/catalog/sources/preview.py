@@ -30,6 +30,8 @@ from app.platform.service_endpoints import (
     CrossOriginEndpointError,
     EndpointCheckFailedError,
     assert_endpoints_stay_on_origin,
+    gdal_transport_env,
+    require_wfs_layer,
 )
 
 _SUBPROCESS_FLOOR_SECONDS = 1.0
@@ -373,6 +375,13 @@ async def run_service_preview(
             # rule can see. Checked again in the worker: the document can
             # change between a preview and the import it leads to.
             try:
+                # fix(#1828): a credentialed WFS never reaches GDAL without a
+                # layer, since GDAL opened layerless reads every layer's schema.
+                require_wfs_layer(
+                    layer_name,
+                    service_format=_gdal_source_format(gdal_source),
+                    credential_line=credential_header_line(pair),
+                )
                 await assert_endpoints_stay_on_origin(
                     _service_url(gdal_source),
                     service_format=_gdal_source_format(gdal_source),
@@ -448,6 +457,7 @@ async def run_service_preview(
                 os.close(fd)
             os.chmod(header_file_path, 0o600)
             env["GDAL_HTTP_HEADER_FILE"] = header_file_path
+            env.update(gdal_transport_env(_gdal_source_format(gdal_source)))
             # Plan rule A: GDAL forwards `Authorization` only to the host it
             # was given to, and forwards every other header name verbatim even
             # across hosts, so a service-chosen API key is redirect-exposed on

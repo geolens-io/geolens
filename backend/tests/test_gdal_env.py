@@ -1,5 +1,9 @@
-"""fix(#579): GDAL /vsis3/ AWS_* derivation from the app's S3_* settings."""
+"""fix(#579): GDAL /vsis3/ AWS_* derivation from the app's S3_* settings, and
+fix(#1828): the schema-import clamp both vector subprocess envs carry."""
 
+import os
+import pathlib
+import re
 from types import SimpleNamespace
 
 from pydantic import SecretStr
@@ -103,3 +107,83 @@ def test_configure_sets_missing_and_never_clobbers(monkeypatch):
     assert os.environ["AWS_ACCESS_KEY_ID"] == "test-access-key"
     assert os.environ["AWS_HTTPS"] == "NO"
     assert os.environ["AWS_VIRTUAL_HOSTING"] == "FALSE"
+
+
+_SCHEMA_FETCH_KEYS = ("GML_USE_SCHEMA_IMPORT", "GML_DOWNLOAD_SCHEMA")
+
+# The three shapes an assignment of a key can take in Python source: a dict
+# entry or `KEY=value` pair, an `os.environ[...] = ...` store, and a
+# `setenv("KEY", value)` call.
+_ASSIGNMENT_SHAPES = (
+    r'["\']?\]?\s*[:=]\s*["\']([^"\']*)["\']',
+    r'["\']\s*,\s*["\']([^"\']*)["\']',
+)
+_ASSIGNMENTS = [
+    (key, re.compile(key + shape))
+    for key in _SCHEMA_FETCH_KEYS
+    for shape in _ASSIGNMENT_SHAPES
+]
+
+
+def _assigned_values(line: str) -> list[tuple[str, str]]:
+    return [
+        (key, m.group(1))
+        for key, pattern in _ASSIGNMENTS
+        for m in pattern.finditer(line)
+    ]
+
+
+class TestSchemaFetchesStayOffByValue:
+    """fix(#1828): `GML_USE_SCHEMA_IMPORT` and `GML_DOWNLOAD_SCHEMA` are NO in
+    both GDAL vector envs.
+
+    The GML driver reads both from the process env. At YES the first fetches
+    every `xs:import` location of a schema and the second fetches the schema a
+    GetFeature response points at, each with the credential header attached.
+    A value rather than an absence, so an operator's env cannot flip either.
+    """
+
+    def test_both_envs_pin_both_keys_to_no(self) -> None:
+        from app.platform.gdal_env import gdal_service_safe_env, gdal_vector_safe_env
+
+        for env in (gdal_vector_safe_env(), gdal_service_safe_env()):
+            for key in _SCHEMA_FETCH_KEYS:
+                assert env[key] == "NO", key
+
+    def test_a_process_env_value_cannot_flip_either(self, monkeypatch) -> None:
+        from app.platform.gdal_env import gdal_service_safe_env, gdal_vector_safe_env
+
+        for key in _SCHEMA_FETCH_KEYS:
+            monkeypatch.setenv(key, "YES")
+
+        for env in (gdal_vector_safe_env(), gdal_service_safe_env()):
+            for key in _SCHEMA_FETCH_KEYS:
+                assert env[key] == "NO", key
+        assert all(os.environ[key] == "YES" for key in _SCHEMA_FETCH_KEYS)
+
+    def test_the_grep_sees_every_assignment_shape(self) -> None:
+        """Positive control for the tree walk below, for both keys."""
+        for key in _SCHEMA_FETCH_KEYS:
+            assert _assigned_values(f'{{"{key}": "YES"}}') == [(key, "YES")]
+            assert _assigned_values(f'env["{key}"] = "YES"') == [(key, "YES")]
+            assert _assigned_values(f"{key}='YES'") == [(key, "YES")]
+            assert _assigned_values(f'setenv("{key}", "YES")') == [(key, "YES")]
+            assert _assigned_values(f"once {key} is YES anywhere") == []
+
+    def test_nothing_under_backend_app_sets_either_to_anything_else(self) -> None:
+        app_root = pathlib.Path(__file__).resolve().parents[1] / "app"
+        assignments: dict[str, list[tuple[str, str]]] = {}
+        for path in sorted(app_root.rglob("*.py")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                values = _assigned_values(line)
+                if values:
+                    rel = path.relative_to(app_root).as_posix()
+                    assignments.setdefault(rel, []).extend(values)
+
+        # The pins themselves are found, so an empty answer elsewhere means
+        # absence rather than a blind walk.
+        assert sorted(assignments.get("platform/gdal_env.py", [])) == sorted(
+            (key, "NO") for key in _SCHEMA_FETCH_KEYS
+        ), assignments
+        for rel, values in assignments.items():
+            assert all(value == "NO" for _key, value in values), (rel, values)

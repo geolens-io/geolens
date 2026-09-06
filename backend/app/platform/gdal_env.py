@@ -1,4 +1,4 @@
-"""GDAL driver-registration clamps for every vector subprocess, wherever it runs.
+"""GDAL driver-registration and schema clamps for every vector subprocess.
 
 In ``platform/`` because ``modules/catalog/sources/preview.py`` calls these and
 ``modules/catalog/`` may not import ``app.processing.*`` (``test_layering.py``);
@@ -60,9 +60,19 @@ _NETWORK_AND_POINTER_DRIVERS: tuple[str, ...] = (
 _SERVICE_KEPT_DRIVERS = frozenset({"WFS", "OAPIF"})
 
 
+# fix(#1828): at YES the GML driver fetches every `xs:import` location of a
+# schema, and the schema a GetFeature response points at, credential header
+# attached. Both are NO by value here so an operator's env cannot flip them.
+_SCHEMA_FETCH_CLAMP: dict[str, str] = {
+    "GML_USE_SCHEMA_IMPORT": "NO",
+    "GML_DOWNLOAD_SCHEMA": "NO",
+}
+
+
 def _gdal_skip_env(drivers: tuple[str, ...]) -> dict[str, str]:
-    """os.environ overlaid with a GDAL_SKIP clamp for ``drivers``."""
-    return {**os.environ, "GDAL_SKIP": " ".join(drivers)}
+    """os.environ overlaid with a GDAL_SKIP clamp for ``drivers`` and the
+    schema-fetch clamps, all by value."""
+    return {**os.environ, "GDAL_SKIP": " ".join(drivers), **_SCHEMA_FETCH_CLAMP}
 
 
 def gdal_vector_safe_env() -> dict[str, str]:

@@ -111,7 +111,7 @@ def test_no_skipped_driver_name_contains_a_space():
 def test_vector_env_does_not_disturb_the_rest_of_the_environment():
     env = gdal_vector_safe_env()
     for key, value in os.environ.items():
-        if key != "GDAL_SKIP":
+        if key not in ("GDAL_SKIP", "GML_USE_SCHEMA_IMPORT", "GML_DOWNLOAD_SCHEMA"):
             assert env[key] == value
 
 
