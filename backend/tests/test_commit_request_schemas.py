@@ -7,6 +7,9 @@ FastAPI, no fixtures. Fast (< 1 second total). They prove:
   - Field distribution matches D-04 in CONTEXT.md
 """
 
+import inspect
+import re
+
 import pytest
 from pydantic import ValidationError
 
@@ -17,6 +20,7 @@ from app.processing.ingest.schemas import (
     ServiceCommitRequest,
     VectorCommitRequest,
 )
+from app.processing.ingest.tasks_common import resolve_service_type
 
 
 class TestVectorCommitRequest:
@@ -240,6 +244,21 @@ class TestTheFlatUnionPublishesWhatTheSubclassesEnforce:
         token = CommitRequest.model_json_schema()["properties"]["token"]
         bound = next(b["maxLength"] for b in token["anyOf"] if "maxLength" in b)
         assert f"{bound} characters" in token["description"]
+
+    def test_the_token_description_names_every_service_family_it_reaches(
+        self,
+    ) -> None:
+        """`resolve_service_type` is the accepted set; a family missing from the
+        description is one an SDK caller would import anonymously."""
+        accepted = re.findall(
+            r'startswith\("([^"]+)"\)', inspect.getsource(resolve_service_type)
+        )
+        assert accepted, "the accepted prefixes are no longer readable there"
+        description = CommitRequest.model_json_schema()["properties"]["token"][
+            "description"
+        ]
+        for prefix in accepted:
+            assert prefix in description, prefix
 
     def test_the_union_omits_only_strict_cog(self) -> None:
         """A subclass field absent from the union cannot be set by a caller:

@@ -1126,7 +1126,7 @@ async def run_ogr2ogr_service(
         layer_name: Layer name (empty for ESRIJSON)
         table_name: Target table name (without schema prefix)
         db_conn_str: PG connection string for ogr2ogr
-        service_type: "wfs" or "arcgis_featureserver"
+        service_type: "wfs", "ogcapi_features" or "arcgis_featureserver"
         timeout: Seconds before killing subprocess (default 30 min)
         is_non_spatial: When True, omit geometry-specific flags (-nlt, -t_srs,
             GEOMETRY_NAME) to avoid dropping attribute columns for tables with

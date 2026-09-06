@@ -7041,7 +7041,7 @@ export interface components {
             srid_override?: number | null;
             /**
              * Token
-             * @description Optional auth token for a protected remote service, read only when the job imports a service layer (WFS, ArcGIS FeatureServer). At most 1000 characters. Never persisted to the database. Ignored on file-upload jobs. Deprecated: use the auth object with method bearer.
+             * @description Optional auth token for a protected remote service, read only when the job imports a service layer (WFS, OGC API Features, or ArcGIS). At most 1000 characters. Never persisted to the database. Ignored on file-upload jobs. Deprecated: use the auth object with method bearer.
              */
             token?: string | null;
             /**

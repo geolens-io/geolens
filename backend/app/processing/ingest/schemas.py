@@ -234,7 +234,7 @@ class RasterCommitRequest(BaseCommitRequest):
 
 
 class ServiceCommitRequest(BaseCommitRequest):
-    """Commit request for remote service layers (WFS, ArcGIS FeatureServer)."""
+    """Commit request for remote service layers (WFS, OGC API Features, or ArcGIS)."""
 
     token: str | None = Field(
         default=None,
@@ -302,7 +302,7 @@ class CommitRequest(BaseModel):
         max_length=1000,
         description=(
             "Optional auth token for a protected remote service, read only "
-            "when the job imports a service layer (WFS, ArcGIS FeatureServer). "
+            "when the job imports a service layer (WFS, OGC API Features, or ArcGIS). "
             "At most 1000 characters. Never persisted to the database. "
             "Ignored on file-upload jobs." + DEPRECATED_TOKEN_SUFFIX
         ),
