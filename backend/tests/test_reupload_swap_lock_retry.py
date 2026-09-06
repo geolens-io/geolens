@@ -89,12 +89,17 @@ def _make_dataset_stub(table_name: str):
         source_url=None,
         quality_detail=None,
     )
-    # fix(#525 B-038): _apply_reupload_swap now rolls the `_v=` tile
-    # cache-buster alongside current_version.
-    dataset.bump_tile_cache_version = lambda: setattr(
-        dataset, "tile_cache_version", dataset.tile_cache_version + 1
-    )
     return dataset
+
+
+def _stub_atomic_bump(monkeypatch) -> None:
+    """Roll the stub's counter in place of ``bump_tile_cache_version_on``."""
+
+    async def _bump(session, dataset):
+        dataset.tile_cache_version = dataset.tile_cache_version + 1
+        return dataset.tile_cache_version
+
+    monkeypatch.setattr("app.platform.catalog_locks.bump_tile_cache_version_on", _bump)
 
 
 def _make_port():
@@ -221,11 +226,7 @@ class TestSwapLocksBeforeItWrites:
             source_url=None,
             quality_detail=None,
         )
-        object.__setattr__(
-            dataset,
-            "bump_tile_cache_version",
-            lambda: setattr(dataset, "tile_cache_version", 2),
-        )
+        _stub_atomic_bump(monkeypatch)
 
         async def _noop(*args, **kwargs):
             return None
@@ -379,6 +380,7 @@ class TestApplyReuploadSwapRetry:
             "app.platform.extensions.get_processing_port",
             _make_port,
         )
+        _stub_atomic_bump(monkeypatch)
         # ``session.add`` rejects unknown types; swap to a recording shim.
         monkeypatch.setattr(self.session, "add", lambda *a, **kw: None)
 
@@ -438,6 +440,8 @@ class TestApplyReuploadSwapRetry:
         # last_refreshed_at but leaves last_checked_at cleared.
         assert dataset.last_refreshed_at is not None
         assert dataset.last_checked_at is None
+        # The swap rolled the `_v=` cache-buster, through the atomic spelling.
+        assert dataset.tile_cache_version == 2
 
     async def test_service_swap_stamps_last_checked_at(self, monkeypatch) -> None:
         """fix(#1271 review): a service reupload fetched its bytes from the
@@ -472,6 +476,7 @@ class TestApplyReuploadSwapRetry:
             "app.platform.extensions.get_processing_port",
             _make_port,
         )
+        _stub_atomic_bump(monkeypatch)
         monkeypatch.setattr(self.session, "add", lambda *a, **kw: None)
 
         await _apply_reupload_swap(
@@ -527,6 +532,7 @@ class TestApplyReuploadSwapRetry:
             "app.platform.extensions.get_processing_port",
             _make_port,
         )
+        _stub_atomic_bump(monkeypatch)
         monkeypatch.setattr(self.session, "add", lambda *a, **kw: None)
 
         # Record asyncio.sleep durations so we can assert the 200ms gap.
