@@ -1210,7 +1210,7 @@ _WFS_DEFAULT_VERSION = "1.0.0"
 # part of a URI's identity, so it is folded here.
 _HTTP_LOCATION = re.compile(r"https?://", re.IGNORECASE)
 _ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
-_C_INT_PREFIX = re.compile(r"\s*([+-]?\d+)")
+_C_INT_PREFIX = re.compile(r"\s*([+-]?\d+)", re.ASCII)
 
 
 def _xml_value(element: Element, name: str) -> str | None:

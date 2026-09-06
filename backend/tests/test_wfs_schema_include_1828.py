@@ -1397,6 +1397,10 @@ class TestTheVersionIsComparedAsTheDriverComparesIt:
             ("9" * 5000, True),
             ("", False),
             ("x", False),
+            ("\u0662.0.0", False),
+            ("\uff12.0.0", False),
+            ("\u00a02.0.0", False),
+            (" \t2.0.0", True),
         ],
     )
     def test_the_count_rewrite_follows_the_leading_integer(
