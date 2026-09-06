@@ -106,6 +106,11 @@ logger = structlog.get_logger(__name__)
 # the catalog rows, which are short writers, not against object-storage work.
 _PHASE2_TIMEOUT_MS = 30_000
 
+# fix(#1937): the failure write goes through the same ingest_jobs row phase 2
+# contends for. Its holders self-cap far below this (`cancel_job` at 2s; the
+# sweep and startup recovery use SKIP LOCKED), so a wait past it is stuck.
+_ERROR_WRITE_TIMEOUT_MS = 10_000
+
 
 @contextmanager
 def _reporting_catalog_wait(*, job_id: str, dataset_id: str):
@@ -940,8 +945,14 @@ async def reupload_raster(
         # excludes terminal runs). A flag check would be a third fence with
         # nothing left to catch.
         logger.exception("Raster replace failed", job_id=job_id, task="reupload_raster")
+        # fix(#1937): bounding phase 2 made this write reachable under
+        # contention. If it expires the job stays `running` with its heartbeat
+        # stopped below, so the stale sweep settles it instead of a hung worker.
         async with _job_phase_session(
-            job_uuid, phase="error_write", attempt_id=attempt_uuid
+            job_uuid,
+            phase="error_write",
+            attempt_id=attempt_uuid,
+            lock_and_statement_timeout_ms=_ERROR_WRITE_TIMEOUT_MS,
         ) as (err_session, _err_job):
             await update_ingest_job_for_attempt(
                 err_session,

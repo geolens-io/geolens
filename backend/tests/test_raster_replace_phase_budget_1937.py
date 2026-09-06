@@ -23,6 +23,7 @@ from app.platform.catalog_locks import (
     CatalogLockConflict,
     lock_catalog_rows,
 )
+from app.platform.jobs.heartbeat import update_ingest_job_for_attempt
 from app.platform.jobs.models import IngestJob
 from app.processing.ingest import tasks_raster_replace
 from app.processing.ingest.tasks_common import _job_phase_session
@@ -52,8 +53,8 @@ def _reupload_raster_body() -> ast.FunctionDef:
     )
 
 
-def _phase_two_call() -> ast.Call:
-    """The ``_job_phase_session`` call ``reupload_raster`` opens phase 2 with."""
+def _phase_call(phase: str) -> ast.Call:
+    """The ``_job_phase_session`` call ``reupload_raster`` opens *phase* with."""
     calls = [
         node
         for node in ast.walk(_reupload_raster_body())
@@ -62,12 +63,20 @@ def _phase_two_call() -> ast.Call:
         and any(
             kw.arg == "phase"
             and isinstance(kw.value, ast.Constant)
-            and kw.value.value == "phase2"
+            and kw.value.value == phase
             for kw in node.keywords
         )
     ]
-    assert len(calls) == 1, f"expected one phase-2 session bracket; found {len(calls)}"
+    assert len(calls) == 1, f"expected one {phase} bracket; found {len(calls)}"
     return calls[0]
+
+
+def _budget_name(phase: str) -> str | None:
+    """The constant the *phase* bracket names as its budget, if any."""
+    budget = {kw.arg: kw.value for kw in _phase_call(phase).keywords if kw.arg}.get(
+        "lock_and_statement_timeout_ms"
+    )
+    return budget.id if isinstance(budget, ast.Name) else None
 
 
 def _set_local_line(guc: str) -> int:
@@ -160,14 +169,19 @@ class TestPhaseTwoCallSite:
     """Pure AST — no DB."""
 
     def test_the_phase_bracket_names_the_module_budget(self) -> None:
-        budget = {kw.arg: kw.value for kw in _phase_two_call().keywords if kw.arg}.get(
-            "lock_and_statement_timeout_ms"
-        )
-        assert isinstance(budget, ast.Name) and budget.id == "_PHASE2_TIMEOUT_MS", (
+        assert _budget_name("phase2") == "_PHASE2_TIMEOUT_MS", (
             "reupload_raster's phase 2 enters _job_phase_session without "
-            f"lock_and_statement_timeout_ms ({ast.dump(budget) if budget else None}), "
-            "so the helper issues neither SET LOCAL and the job SELECT it runs "
-            "before the caller gets control is unbounded."
+            f"lock_and_statement_timeout_ms ({_budget_name('phase2')}), so the "
+            "helper issues neither SET LOCAL and the job SELECT it runs before "
+            "the caller gets control is unbounded."
+        )
+
+    def test_the_error_write_names_its_own_budget(self) -> None:
+        assert _budget_name("error_write") == "_ERROR_WRITE_TIMEOUT_MS", (
+            "the failure write is unbounded. It UPDATEs the same ingest_jobs "
+            "row phase 2 contends for, so bounding phase 2 alone moves the "
+            "contention onto a wait nothing ends, with the heartbeat still "
+            "reporting the job alive."
         )
 
     def test_the_acquisition_leaves_the_phase_budget_in_force(self) -> None:
@@ -341,6 +355,55 @@ class TestPhaseTwoBudgetAgainstPostgres:
             "the 57014 path no longer carries SQL in str(exc); if that holds, "
             "the statement_timeout reset is no longer load-bearing for the "
             "error surface and this assertion should be revisited"
+        )
+
+    async def test_the_error_write_gives_up_on_a_held_job_row(
+        self, running_job, monkeypatch
+    ) -> None:
+        """The failure write bounds its own UPDATE against the same job row."""
+        job_id, attempt_id = running_job
+        monkeypatch.setattr(
+            tasks_raster_replace, "_ERROR_WRITE_TIMEOUT_MS", _TEST_BUDGET_MS
+        )
+        import app.core.db as db_module
+
+        async def _write_the_failure() -> None:
+            async with _job_phase_session(
+                job_id,
+                phase="error_write",
+                attempt_id=attempt_id,
+                lock_and_statement_timeout_ms=(
+                    tasks_raster_replace._ERROR_WRITE_TIMEOUT_MS
+                ),
+            ) as (err_session, _job):
+                await update_ingest_job_for_attempt(
+                    err_session,
+                    job_id,
+                    attempt_id,
+                    values={"status": "failed", "error_message": "replace failed"},
+                )
+                await err_session.commit()
+
+        async with db_module.async_session() as holder:
+            await holder.execute(
+                select(IngestJob.id).where(IngestJob.id == job_id).with_for_update()
+            )
+            loop = asyncio.get_running_loop()
+            started = loop.time()
+            with pytest.raises(DBAPIError) as excinfo:
+                await asyncio.wait_for(_write_the_failure(), timeout=30)
+            waited_ms = (loop.time() - started) * 1000
+            await holder.rollback()
+
+        assert waited_ms >= _TEST_BUDGET_MS * 0.8, (
+            f"the error write gave up after {round(waited_ms)}ms against a "
+            f"{_TEST_BUDGET_MS}ms budget, so this run proves nothing"
+        )
+        assert sqlstate(excinfo.value) == "57014", (
+            f"the held job row ended the error write with "
+            f"{sqlstate(excinfo.value)!r}. Both GUCs are armed here and the "
+            "blocking statement is the UPDATE, so statement_timeout holds the "
+            "earlier deadline; nothing on this path stores str(exc)."
         )
 
     @pytest.mark.parametrize(

@@ -4632,8 +4632,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ms and the budget, an error_code mapper so contention does not report as
     # a bad raster, and the reset that keeps the quota reservation below it
     # unbounded. The reporter is a context manager so the acquisition stays a
-    # direct call the #1847 gates can see. Cap 1045, exact.
-    "backend/app/processing/ingest/tasks_raster_replace.py": 1045,
+    # direct call the #1847 gates can see, and the failure write carries a bound
+    # of its own so phase 2's contention cannot move onto it. Cap 1056, exact.
+    "backend/app/processing/ingest/tasks_raster_replace.py": 1056,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.
