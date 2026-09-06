@@ -18,6 +18,9 @@ and releases use semantic versioning.
   tile-columns edit wrote back the tile cache version it had read before waiting, so the edit
   committed during the wait was served under a stale tile URL. Both worker swaps now roll the
   version atomically once they hold the catalog row, as the request side has since #1910. (#1911)
+- A reupload could fail with a catalog-lock conflict instead of waiting when another operation
+  briefly held the dataset's catalog row. The lock budget the table swap sets for its own DDL no
+  longer carries over to the wait that follows it. (#1917)
 
 ## [1.18.1] - 2026-09-05
 
