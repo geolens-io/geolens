@@ -31,6 +31,10 @@ and releases use semantic versioning.
 - A service token refused for control characters or whitespace now answers with the same
   `invalid_service_token` code the other credential refusals carry, so the app and the CLI show
   the token-specific message on every service door instead of a generic validation error. (#1924)
+- A reupload whose table swap was finished but whose catalog row was held by another operation
+  could wait indefinitely, leaving the dataset's table unreadable for as long as the hold lasted.
+  That wait is now capped at 60 seconds, and a reupload that gives up reports lock contention and
+  logs how long it waited, having rolled the swap back whole. (#1921)
 
 ## [1.18.1] - 2026-09-05
 

@@ -3611,7 +3611,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1917): +19 — the swap restores the lock_timeout it installed, so it
     # stops clamping the catalog-lock wait; its budget constants moved to
     # module scope to be testable. Cap 2558 -> 2577, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2577,
+    # fix(#1921): +39 — the post-swap catalog wait gets its own budget, a
+    # restore of its own, and a log line carrying how long it waited.
+    # Cap 2577 -> 2616, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2616,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -3712,7 +3715,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # shorter at every call site than passing a coroutine, and `reupload_file`
     # gained the same treatment its service sibling already had (5 steps).
     # Cap 1333 -> 1310, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1310,
+    # fix(#1921): +15 — the file path gets the exception-to-error_code mapper
+    # its service sibling already had, and both name a contended catalog row.
+    # Cap 1310 -> 1325, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1325,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is

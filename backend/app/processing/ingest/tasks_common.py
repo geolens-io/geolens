@@ -8,6 +8,7 @@ and reupload workflows.
 
 import asyncio
 import functools
+import time
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -2213,6 +2214,11 @@ _SWAP_FIRST_TIMEOUT = "5s"
 _SWAP_RETRY_TIMEOUT = "15s"
 _SWAP_RETRY_SLEEP_MS = 200
 
+# fix(#1921): the budget for the catalog wait that FOLLOWS the swap. The
+# transaction holds AccessExclusiveLock on the table it just installed across
+# that wait, so its duration is the dataset's unreadable window.
+_POST_SWAP_CATALOG_TIMEOUT = "60s"
+
 
 async def _apply_reupload_swap(
     session,
@@ -2402,20 +2408,53 @@ async def _apply_reupload_swap(
 
         await ensure_geom_4326_gist_index(session, table_name, schema=_tenant_schema)
 
-    # fix(#1847, #1917): the catalog writes start here and dirty both rows.
-    # `lock_timeout=None` issues no SET LOCAL, and the swap's DDL budget was
-    # put back above, so this wait carries no request-sized clamp.
-    from app.platform.catalog_locks import bump_tile_cache_version_on, lock_catalog_rows
+    # fix(#1847, #1917, #1921): the catalog writes start here and dirty both
+    # rows. The swap's DDL budget was put back above; this wait gets its own,
+    # and the value the transaction arrived with is restored after it.
+    from app.platform.catalog_locks import (
+        CatalogLockConflict,
+        bump_tile_cache_version_on,
+        lock_catalog_rows,
+    )
     from app.platform.extensions import get_processing_port
 
     _port = get_processing_port()
-    await lock_catalog_rows(
-        session,
-        dataset_cls=_port.get_dataset_orm_class(),
-        record_cls=_port.get_record_orm_class(),
-        dataset_id=dataset.id,
-        record_id=dataset.record_id,
-        lock_timeout=None,
+    _wait_started = time.perf_counter()
+    try:
+        await lock_catalog_rows(
+            session,
+            dataset_cls=_port.get_dataset_orm_class(),
+            record_cls=_port.get_record_orm_class(),
+            dataset_id=dataset.id,
+            record_id=dataset.record_id,
+            lock_timeout=_POST_SWAP_CATALOG_TIMEOUT,
+        )
+    except CatalogLockConflict:
+        structlog.get_logger().warning(
+            "reupload_swap_catalog_lock_timeout",
+            dataset_id=str(dataset.id),
+            table_name=table_name,
+            waited_ms=round((time.perf_counter() - _wait_started) * 1000),
+            budget=_POST_SWAP_CATALOG_TIMEOUT,
+            hint=(
+                "The post-swap catalog wait expired; the whole swap rolled "
+                "back, so no half-swapped table is left. Find the holder of "
+                "this dataset's catalog.datasets row in pg_stat_activity."
+            ),
+        )
+        raise
+
+    structlog.get_logger().info(
+        "reupload_swap_catalog_lock_acquired",
+        dataset_id=str(dataset.id),
+        table_name=table_name,
+        waited_ms=round((time.perf_counter() - _wait_started) * 1000),
+        budget=_POST_SWAP_CATALOG_TIMEOUT,
+    )
+    # fix(#1921): this wait's budget ends here, like the DDL's above it.
+    await session.execute(
+        text("SELECT set_config('lock_timeout', :value, true)"),
+        {"value": pre_swap_lock_timeout},
     )
 
     dataset.srid = metadata["srid"]
