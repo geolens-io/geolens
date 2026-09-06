@@ -6,13 +6,16 @@ one shared function, and the door-side header-token policy is unchanged.
 
 from __future__ import annotations
 
+import inspect
 import uuid
 
 import pytest
 from fastapi import HTTPException
+from fastapi.exceptions import RequestValidationError
 from httpx import AsyncClient
 from pydantic import ValidationError
 
+from app.core.coded_errors import CodedValueError
 from app.core.service_tokens import (
     ARCGIS_SERVICE_FORMAT,
     CredentialMethod,
@@ -26,11 +29,13 @@ from app.modules.catalog.datasets.domain.schemas import (
 from app.modules.catalog.sources.schemas import ProbeRequest, ServicePreviewRequest
 from app.platform.jobs.models import IngestJob
 from app.platform.service_auth import (
+    INVALID_SERVICE_TOKEN_CODE,
     ServiceAuthRequest,
     _validate_safe_token,
     credential_or_422,
 )
 from app.processing.ingest.schemas import ServiceCommitRequest
+from app.standards.ogc.errors import _coded_detail
 from tests.factories import create_dataset, get_user_id
 
 # The dispatch harnesses #1676 built for these two doors, reused so this suite
@@ -124,6 +129,41 @@ def test_every_service_credential_door_uses_the_one_shared_rule(door):
         assert validators[name].func is _validate_safe_token, (
             f"{door} judges its token by a second copy of the rule"
         )
+
+
+def test_the_shared_rule_never_interpolates_the_token():
+    """fix(#1924): its messages reach a response body, so they carry no brace."""
+    assert "{" not in inspect.getsource(_validate_safe_token)
+
+
+def test_two_coded_refusals_that_disagree_fall_back_to_the_field_list():
+    """fix(#1924): two different defects are two things to tell the caller."""
+    whitespace = CodedValueError(
+        INVALID_SERVICE_TOKEN_CODE, "token contains whitespace"
+    )
+    control = CodedValueError(
+        INVALID_SERVICE_TOKEN_CODE, "token contains control chars"
+    )
+    errors = [
+        {
+            "loc": ("body", "token"),
+            "msg": "",
+            "type": "value_error",
+            "ctx": {"error": whitespace},
+        },
+        {
+            "loc": ("body", "auth", "token"),
+            "msg": "",
+            "type": "value_error",
+            "ctx": {"error": control},
+        },
+    ]
+
+    assert _coded_detail(RequestValidationError(errors)) is None
+    assert _coded_detail(RequestValidationError(errors[:1])) == {
+        "code": INVALID_SERVICE_TOKEN_CODE,
+        "message": whitespace.message,
+    }
 
 
 class TestTheStrictHeaderTokenPolicyIsUnchanged:
@@ -322,4 +362,38 @@ class TestTheCommitDoorsRefuseOverHttp:
         assert isinstance(detail, str)
         assert "body.token:" in detail and "body.srid_override:" in detail
         assert _UNSAFE_TOKEN_OVER_HTTP not in resp.text
+        task.defer_async.assert_not_awaited()
+
+    async def test_both_spellings_of_one_bad_token_keep_the_code(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ) -> None:
+        """fix(#1924): the flat and nested spellings are one mistake, not two."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="ArcGIS Reupload Dataset Three",
+            visibility="public",
+            feature_count=100,
+            source_filename="original.geojson",
+            source_url=_ARCGIS_URL,
+        )
+        job = await _arcgis_job(
+            test_db_session, created_by=admin_id, dataset_id=dataset.id
+        )
+
+        async with _reupload_harness() as task:
+            resp = await client.post(
+                f"/datasets/{dataset.id}/reupload/{job.id}/commit",
+                json={
+                    "token": _UNSAFE_TOKEN_OVER_HTTP,
+                    "auth": {"method": "bearer", "token": _UNSAFE_TOKEN_OVER_HTTP},
+                },
+                headers=admin_auth_header,
+            )
+
+        _assert_refused_without_the_token(resp, _UNSAFE_TOKEN_OVER_HTTP)
         task.defer_async.assert_not_awaited()

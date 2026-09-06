@@ -1,7 +1,7 @@
 """A validator refusal that carries the error code its response publishes.
 
-In ``core/`` for the reason ``upload_errors.py`` is: the raiser lives in
-``platform/``, the renderer in ``standards/``, and neither may import the other.
+In ``core/`` because it is layer-neutral: the raiser is in ``platform/``, the
+renderer in ``standards/``, and the type carries no logic from either.
 """
 
 

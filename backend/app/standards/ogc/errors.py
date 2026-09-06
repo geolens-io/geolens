@@ -258,17 +258,19 @@ def _allow_header_with_head(headers: dict[str, str] | None) -> dict[str, str] | 
 def _coded_detail(exc: RequestValidationError) -> dict[str, str] | None:
     """The ``{"code", "message"}`` detail a coded field refusal answers with.
 
-    None unless the coded refusal is the request's only error: a door judges a
-    credential once the whole body validated, so a request carrying other field
-    errors keeps the flattened list instead. Never reads pydantic's ``input``.
+    None unless every error is coded and they agree on code and message — one
+    mistake spelled on two fields. Anything else keeps the flattened list, so a
+    caller is still told about each distinct thing. Never reads ``input``.
     """
-    errors = exc.errors()
-    if len(errors) != 1:
+    causes = [(error.get("ctx") or {}).get("error") for error in exc.errors()]
+    if not causes or not all(isinstance(cause, CodedValueError) for cause in causes):
         return None
-    cause = (errors[0].get("ctx") or {}).get("error")
-    if not isinstance(cause, CodedValueError):
+    first = causes[0]
+    if any(
+        cause.code != first.code or cause.message != first.message for cause in causes
+    ):
         return None
-    return {"code": cause.code, "message": cause.message}
+    return {"code": first.code, "message": first.message}
 
 
 def register_error_handlers(app: FastAPI) -> None:
