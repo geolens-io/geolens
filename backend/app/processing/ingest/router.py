@@ -1427,9 +1427,9 @@ async def commit_import(
     try:
         commit = Subclass.model_validate(request.model_dump())
     except ValidationError as e:
-        # fix(#1755, #1923): the only enforcement of the import-commit door's
-        # stricter token rules — the flat CommitRequest declares neither the
-        # shared safe-token rule nor the 1000-character cap.
+        # fix(#1755, #1931): the only enforcement of the import-commit door's
+        # shared safe-token rule. The flat CommitRequest declares the cap the
+        # contract publishes; a charset rule has no JSON Schema spelling.
         raise RequestValidationError(errors=e.errors())
 
     # fix(#823): dash-guard + all_layers membership check for the commit's

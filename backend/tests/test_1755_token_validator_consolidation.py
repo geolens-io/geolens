@@ -309,7 +309,7 @@ class TestTheCommitDoorsRefuseOverHttp:
         assert resp.status_code == 422, resp.text
         detail = resp.json()["detail"]
         assert isinstance(detail, str)
-        assert detail.startswith("token:")
+        assert detail.startswith("body.token:")
         assert over_cap not in resp.text
         task.defer_async.assert_not_awaited()
 
