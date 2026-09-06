@@ -415,6 +415,19 @@ OGC_JSON_ACCEPT = "application/geo+json, application/json"
 # by header, so this states the expectation rather than driving it. No `*/*`
 # term: that is exactly what lets a server answer with HTML.
 WFS_XML_ACCEPT = "application/xml, text/xml"
+# fix(#1828): the check's reads and the driver's requests carry one User-Agent,
+# and for WFS one Accept and Accept-Encoding, so a server keyed on them sees one client.
+SERVICE_CHECK_USER_AGENT = "GeoLens"
+
+
+def gdal_transport_env(service_format: str) -> dict[str, str]:
+    """The env that makes a GDAL subprocess negotiate as this module's reads do."""
+    env = {"GDAL_HTTP_USERAGENT": SERVICE_CHECK_USER_AGENT}
+    if service_format == "wfs":
+        env["GDAL_HTTP_HEADERS"] = (
+            f"Accept: {WFS_XML_ACCEPT}\r\nAccept-Encoding: identity"
+        )
+    return env
 
 
 class EndpointCheckFailedError(Exception):
@@ -1119,7 +1132,7 @@ async def fetch_document(
     element_budget = MAX_DOCUMENT_ELEMENTS if element_budget is None else element_budget
     # Copied rather than mutated: the caller's dict is reused across the pages
     # of a walk, and the negotiation belongs to this read.
-    headers = {**headers, "Accept": accept}
+    headers = {**headers, "Accept": accept, "User-Agent": SERVICE_CHECK_USER_AGENT}
     try:
         await validate_url_for_ssrf(url)
         if on_first_request is not None:

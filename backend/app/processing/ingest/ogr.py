@@ -20,8 +20,9 @@ from app.core.runtime.staging import (
 from app.platform.service_items import materialise_oapif_items
 from app.platform.service_endpoints import (
     assert_endpoints_stay_on_origin,
-    require_wfs_layer,
     fire_once,
+    gdal_transport_env,
+    require_wfs_layer,
 )
 from app.core.service_tokens import (
     BEARER_SCHEME,
@@ -1371,6 +1372,7 @@ async def run_ogr2ogr_service(
                 os.close(fd)
             os.chmod(header_file_path, 0o600)
             env["GDAL_HTTP_HEADER_FILE"] = header_file_path
+            env.update(gdal_transport_env(service_type))
             # Plan rule A: GDAL forwards `Authorization` only to the host it
             # was given to, and forwards every other header name verbatim even
             # across hosts, so a service-chosen API key is redirect-exposed on

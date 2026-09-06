@@ -1530,3 +1530,37 @@ class TestTheRequiredOutputFormatIsMirrored:
 
         assert _described(recorded) == [[_LAYER, "topp:blocks"], [_LAYER]]
         assert _output_formats(recorded) == ["GML2", "GML2"]
+
+
+class TestTheDriverNegotiatesAsTheCheckDoes:
+    """Every read the check makes and every request the driver makes carry the
+    same User-Agent, Accept and Accept-Encoding, so a server keyed on them
+    answers both with one document."""
+
+    uses_the_real_endpoint_check = True
+
+    async def test_every_read_carries_the_pinned_negotiation(self, monkeypatch) -> None:
+        handler = _wfs(
+            _capabilities([_LAYER, "topp:roads"]),
+            lambda names: _schema(names, include="inc.xsd"),
+            files={"/inc.xsd": _schema([_LAYER])},
+        )
+
+        recorded, _value_ = await _check(monkeypatch, handler)
+
+        assert len(recorded) >= 3
+        for request in recorded:
+            assert request.headers["user-agent"] == "GeoLens"
+            assert request.headers["accept"] == "application/xml, text/xml"
+            assert request.headers["accept-encoding"] == "identity"
+
+    def test_the_subprocess_env_pins_the_same_values(self) -> None:
+        from app.platform.service_endpoints import gdal_transport_env
+
+        assert gdal_transport_env("wfs") == {
+            "GDAL_HTTP_USERAGENT": "GeoLens",
+            "GDAL_HTTP_HEADERS": (
+                "Accept: application/xml, text/xml\r\nAccept-Encoding: identity"
+            ),
+        }
+        assert gdal_transport_env("oapif") == {"GDAL_HTTP_USERAGENT": "GeoLens"}

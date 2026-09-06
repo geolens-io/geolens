@@ -120,9 +120,11 @@ async def test_preview_passes_bearer_via_header_file_not_env(monkeypatch, client
     )
 
     env = captured["env"]
-    assert "GDAL_HTTP_HEADERS" not in env, (
-        "SEC-021: bearer token must not be passed via the GDAL_HTTP_HEADERS env var"
+    assert env["GDAL_HTTP_HEADERS"] == (
+        "Accept: application/xml, text/xml\r\nAccept-Encoding: identity"
     )
+    assert env["GDAL_HTTP_USERAGENT"] == "GeoLens"
+    assert token not in env["GDAL_HTTP_HEADERS"]
     # fix(#937): GDAL_HTTP_FOLLOWLOCATION is not a GDAL option and provides no
     # redirect protection; the preview path must not claim it as a defense.
     assert "GDAL_HTTP_FOLLOWLOCATION" not in env

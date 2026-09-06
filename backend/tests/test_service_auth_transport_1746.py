@@ -340,7 +340,9 @@ class TestTheHeaderFileHoldsOneComposedLine:
         credential, _username, password = _basic()
         capture = await _preview_with(monkeypatch, credential)
 
-        assert "GDAL_HTTP_HEADERS" not in capture.env
+        assert capture.env["GDAL_HTTP_HEADERS"] == (
+            "Accept: application/xml, text/xml\r\nAccept-Encoding: identity"
+        )
         assert password not in str(capture.env)
 
 
