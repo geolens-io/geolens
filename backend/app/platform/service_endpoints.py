@@ -1225,30 +1225,52 @@ def _xml_value(element: Element, name: str) -> str | None:
     return None
 
 
+def _wfs_capabilities_node(root: Element) -> Element | None:
+    """``WFSFindNode``: the root, else its first direct child, whose local name
+    is ``WFS_Capabilities`` in any case; the driver opens nothing else."""
+    for node in (root, *root):
+        if (
+            isinstance(node.tag, str)
+            and _local_name(node.tag).lower() == "wfs_capabilities"
+        ):
+            return node
+    return None
+
+
+def _wfs_feature_type_nodes(capabilities: Element) -> list[Element]:
+    """The direct ``FeatureType`` children of the first direct
+    ``FeatureTypeList``, the only ones the driver turns into layers."""
+    for child in capabilities:
+        if (
+            isinstance(child.tag, str)
+            and _local_name(child.tag).lower() == "featuretypelist"
+        ):
+            return [
+                node
+                for node in child
+                if isinstance(node.tag, str) and _local_name(node.tag) == "FeatureType"
+            ]
+    return []
+
+
 def _wfs_feature_types(root: Element) -> tuple[str, list[str]]:
     """The WFS version and the advertised feature type names, in document order.
 
-    Read the way the driver reads them: the ``version`` of the first
-    ``WFS_Capabilities`` element (1.0.0 when absent; an empty value stays
-    empty, as the driver sends it) and the ``Name`` of every ``FeatureType``,
-    each name once.
+    Read the way the driver reads them: the ``version`` of the capabilities
+    node (1.0.0 when absent; an empty value stays empty, as the driver sends
+    it) and the ``Name`` of each ``FeatureType`` the driver lists, once.
     """
-    version: str | None = None
+    capabilities = _wfs_capabilities_node(root)
+    if capabilities is None:
+        return _WFS_DEFAULT_VERSION, []
+    version = _xml_value(capabilities, "version")
     names: list[str] = []
     seen: set[str] = set()
-    for element in root.iter():
-        if not isinstance(element.tag, str):
-            continue
-        tag = _local_name(element.tag)
-        if version is None and tag.lower() == "wfs_capabilities":
-            version = _xml_value(element, "version")
-            if version is None:
-                version = _WFS_DEFAULT_VERSION
-        elif tag == "FeatureType":
-            name = (_xml_value(element, "name") or "").strip()
-            if name and name not in seen:
-                seen.add(name)
-                names.append(name)
+    for element in _wfs_feature_type_nodes(capabilities):
+        name = (_xml_value(element, "name") or "").strip()
+        if name and name not in seen:
+            seen.add(name)
+            names.append(name)
     return _WFS_DEFAULT_VERSION if version is None else version, names
 
 
@@ -1257,15 +1279,11 @@ def _wfs_required_output_formats(root: Element, version: str) -> dict[str, str]:
     DescribeFeatureType: on 1.1.0 exactly, the first ``Format`` under its
     first ``OutputFormats`` when none of them mentions ``3.1``; else none."""
     required: dict[str, str] = {}
-    if version != "1.1.0":
+    capabilities = _wfs_capabilities_node(root)
+    if version != "1.1.0" or capabilities is None:
         return required
     seen: set[str] = set()
-    for element in root.iter():
-        if (
-            not isinstance(element.tag, str)
-            or _local_name(element.tag) != "FeatureType"
-        ):
-            continue
+    for element in _wfs_feature_type_nodes(capabilities):
         name = (_xml_value(element, "name") or "").strip()
         if not name or name in seen:
             continue

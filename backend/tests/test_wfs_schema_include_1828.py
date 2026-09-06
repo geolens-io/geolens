@@ -53,9 +53,11 @@ def _capabilities(
     *,
     version: str | None = "2.0.0",
     formats: dict[str, list[str]] | None = None,
+    extra: str = "",
 ) -> str:
     """A WFS capabilities document advertising *names*, on this origin;
-    ``formats`` adds an ``OutputFormats`` list to the named types."""
+    ``formats`` adds an ``OutputFormats`` list to the named types and
+    ``extra`` is placed after the ``FeatureTypeList``."""
     version_attr = "" if version is None else f' version="{version}"'
 
     def outputs(name: str) -> str:
@@ -81,7 +83,7 @@ def _capabilities(
     <ows:Operation name="GetFeature"><ows:DCP><ows:HTTP>
       <ows:Get xlink:href="{_SVC_WFS}"/></ows:HTTP></ows:DCP></ows:Operation>
   </ows:OperationsMetadata>
-  <FeatureTypeList>{types}</FeatureTypeList>
+  <FeatureTypeList>{types}</FeatureTypeList>{extra}
 </WFS_Capabilities>"""
 
 
@@ -1652,3 +1654,40 @@ class TestTheCapabilitiesRequestIsTheDriversByteForByte:
         assert str(capabilities[0].url) == (
             f"{_SVC_WFS}?foo=bar&SERVICE=WFS&REQUEST=GetCapabilities"
         )
+
+
+class TestOnlyTheDriversFeatureTypesAreLayers:
+    """The driver lists the direct `FeatureType` children of the first direct
+    `FeatureTypeList` of the capabilities node it finds as `WFSFindNode` does;
+    the check enumerates the same nodes and no others."""
+
+    uses_the_real_endpoint_check = True
+
+    async def test_a_feature_type_outside_the_list_is_not_batched(
+        self, monkeypatch
+    ) -> None:
+        stray = (
+            "<Extension><FeatureType><Name>topp:stray</Name></FeatureType>"
+            "</Extension><FeatureTypeList><FeatureType><Name>topp:second</Name>"
+            "</FeatureType></FeatureTypeList>"
+        )
+        handler = _wfs(
+            _capabilities([_LAYER, "topp:roads"], extra=stray),
+            lambda names: _schema(names),
+        )
+
+        recorded, _value_ = await _check(monkeypatch, handler)
+
+        assert _described(recorded) == [[_LAYER, "topp:roads"], [_LAYER]]
+
+    async def test_a_capabilities_node_under_a_wrapper_root_is_found(
+        self, monkeypatch
+    ) -> None:
+        document = _capabilities([_LAYER, "topp:roads"])
+        body, capabilities = document.split("\n", 1)
+        wrapped = f"{body}\n<Wrapper>{capabilities}</Wrapper>"
+        handler = _wfs(wrapped, lambda names: _schema(names))
+
+        recorded, _value_ = await _check(monkeypatch, handler)
+
+        assert _described(recorded) == [[_LAYER, "topp:roads"], [_LAYER]]
