@@ -1215,3 +1215,140 @@ class TestTheRequestCarriesTheSubmittedParametersAsTheDriverDoes:
                 ("REQUEST", "DescribeFeatureType"),
             ]
         ]
+
+
+class TestTheSchemaReadsAreBoundedTogether:
+    """One check parses at most `_MAX_WFS_SCHEMA_BYTES` and
+    `_MAX_WFS_SCHEMA_ELEMENTS` across every document it reads, whatever each
+    document's own size, and reads includes depth first so that one included
+    tree at most is alive beside the root. The budgets are lowered here so the
+    shape fits a unit test; the ratio to the per-document caps is what the
+    tests hold."""
+
+    uses_the_real_endpoint_check = True
+
+    @staticmethod
+    def _handler(count: int, body: str):
+        includes = "".join(
+            f'<xs:include schemaLocation="{_SVC_ORIGIN}/inc{n}.xsd"/>'
+            for n in range(count)
+        )
+        return _wfs(
+            _capabilities([_LAYER]),
+            lambda names: _schema(names, extra=includes),
+            files={f"/inc{n}.xsd": body for n in range(count)},
+        )
+
+    async def test_the_byte_budget_refuses_before_the_read_budget(
+        self, monkeypatch
+    ) -> None:
+        from app.platform import service_endpoints
+
+        monkeypatch.setattr(service_endpoints, "MAX_DOCUMENT_BYTES", 8192)
+        monkeypatch.setattr(service_endpoints, "_MAX_WFS_SCHEMA_BYTES", 3 * 8192)
+        padded = _schema(extra="<!--" + "x" * 6000 + "-->")
+        assert len(padded) < 8192
+        count = service_endpoints._MAX_WFS_SCHEMA_READS
+
+        recorded, error = await _refused(
+            monkeypatch, self._handler(count, padded), EndpointCheckFailedError
+        )
+
+        assert error.code == "endpoint_check_failed"
+        include_reads = [r for r in recorded if r.url.path.startswith("/inc")]
+        assert 0 < len(include_reads) < 5
+        assert len(include_reads) < service_endpoints._MAX_WFS_SCHEMA_READS
+
+    async def test_the_element_budget_refuses_before_the_read_budget(
+        self, monkeypatch
+    ) -> None:
+        from app.platform import service_endpoints
+
+        monkeypatch.setattr(service_endpoints, "MAX_DOCUMENT_ELEMENTS", 400)
+        monkeypatch.setattr(service_endpoints, "_MAX_WFS_SCHEMA_ELEMENTS", 1000)
+        wide = _schema(
+            extra="".join(
+                f'<xs:element name="e{n}" type="xs:string"/>' for n in range(350)
+            )
+        )
+        count = service_endpoints._MAX_WFS_SCHEMA_READS
+
+        recorded, error = await _refused(
+            monkeypatch, self._handler(count, wide), EndpointCheckFailedError
+        )
+
+        assert error.code == "endpoint_check_failed"
+        include_reads = [r for r in recorded if r.url.path.startswith("/inc")]
+        assert 0 < len(include_reads) < 5
+        assert len(include_reads) < service_endpoints._MAX_WFS_SCHEMA_READS
+
+    async def test_a_sibling_include_waits_until_the_previous_one_is_checked(
+        self, monkeypatch
+    ) -> None:
+        siblings = (
+            f'<xs:include schemaLocation="{_SVC_ORIGIN}/a.xsd"/>'
+            f'<xs:include schemaLocation="{_SVC_ORIGIN}/b.xsd"/>'
+        )
+        handler = _wfs(
+            _capabilities([_LAYER]),
+            lambda names: _schema(names, extra=siblings),
+            files={
+                "/a.xsd": _schema(include=f"{_SVC_ORIGIN}/a1.xsd"),
+                "/a1.xsd": _schema(),
+                "/b.xsd": _schema(),
+            },
+        )
+
+        recorded, _value_ = await _check(monkeypatch, handler)
+
+        assert [r.url.path for r in recorded] == [
+            "/geoserver/wfs",
+            "/geoserver/wfs",
+            "/a.xsd",
+            "/a1.xsd",
+            "/b.xsd",
+        ]
+
+
+class TestTheSchemeAndHostCaseDoNotDecideTheOrigin:
+    """A URI's scheme and host are case-insensitive, so a mixed-case spelling
+    of the submitted origin is that origin, and a mixed-case spelling of
+    another origin is still another origin."""
+
+    uses_the_real_endpoint_check = True
+
+    @pytest.mark.parametrize(
+        "location",
+        [
+            "HTTPS://service.example/inc.xsd",
+            "https://SERVICE.EXAMPLE/inc.xsd",
+            "Https://Service.Example/inc.xsd",
+        ],
+        ids=["scheme", "host", "both"],
+    )
+    async def test_a_mixed_case_same_origin_include_is_read_and_passes(
+        self, monkeypatch, location
+    ) -> None:
+        handler = _wfs(
+            _capabilities([_LAYER]),
+            lambda names: _schema(names, include=location),
+            files={"/inc.xsd": _schema()},
+        )
+
+        recorded, _value_ = await _check(monkeypatch, handler)
+
+        assert [r.url.path for r in recorded].count("/inc.xsd") == 1
+        assert _hosts(recorded) == {"service.example"}
+
+    async def test_a_mixed_case_off_origin_include_is_refused(
+        self, monkeypatch
+    ) -> None:
+        handler = _wfs(
+            _capabilities([_LAYER]),
+            lambda names: _schema(names, include="HTTPS://Collector.example/inc.xsd"),
+        )
+
+        recorded, error = await _refused(monkeypatch, handler, CrossOriginEndpointError)
+
+        assert error.origin == _FOREIGN
+        assert _hosts(recorded) == {"service.example"}

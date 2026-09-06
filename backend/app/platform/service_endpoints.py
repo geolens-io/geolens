@@ -1201,7 +1201,14 @@ def _parsed_json(body: bytes) -> object:
 # the driver fetches it with the credential (GDAL 3.10.3, the worker image).
 _WFS_SCHEMA_BATCH = 50
 _MAX_WFS_SCHEMA_READS = 50
+# fix(#1828): aggregate over every document one check parses, two maximum
+# documents each; a real schema and its includes sit an order of magnitude below.
+_MAX_WFS_SCHEMA_BYTES = 2 * MAX_DOCUMENT_BYTES
+_MAX_WFS_SCHEMA_ELEMENTS = 2 * MAX_DOCUMENT_ELEMENTS
 _WFS_DEFAULT_VERSION = "1.0.0"
+# The driver's HTTP branch is `http://` or `https://`; the scheme's case is not
+# part of a URI's identity, so it is folded here.
+_HTTP_LOCATION = re.compile(r"https?://", re.IGNORECASE)
 _ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 _C_INT_PREFIX = re.compile(r"\s*([+-]?\d+)")
 
@@ -1438,8 +1445,12 @@ class _WfsSchemaReads:
     driver has nothing to fall back from, so no schema is a refusal. `check`
     refuses the first include whose location the driver would fetch from
     another origin or open as a path, and reads a same-origin location the way
-    the driver would, once. Every read counts against `_MAX_WFS_SCHEMA_READS`
-    and the check refuses past it.
+    the driver would, once, depth first: an included schema is checked and
+    dropped before its next sibling is fetched, so at most one included tree
+    is alive beside the root. Every read counts against
+    `_MAX_WFS_SCHEMA_READS`, and every document parsed against
+    `_MAX_WFS_SCHEMA_BYTES` and `_MAX_WFS_SCHEMA_ELEMENTS` together; past any
+    of the three the check refuses.
     """
 
     def __init__(
@@ -1449,6 +1460,8 @@ class _WfsSchemaReads:
         self._url = url
         self._headers = headers
         self._reads = 0
+        self._bytes = 0
+        self._elements = 0
         self._visited: set[str] = set()
 
     async def _read(self, request_url: str, *, what: str) -> bytes:
@@ -1462,13 +1475,23 @@ class _WfsSchemaReads:
         body, _from_url = await _fetch(
             self._client, request_url, self._headers, accept=WFS_XML_ACCEPT
         )
+        self._bytes += len(body)
+        if self._bytes > _MAX_WFS_SCHEMA_BYTES:
+            raise EndpointCheckFailedError("schema byte budget exceeded")
         return body
+
+    def _counted(self, tree: Element) -> Element:
+        self._elements += sum(1 for _ in tree.iter())
+        if self._elements > _MAX_WFS_SCHEMA_ELEMENTS:
+            raise EndpointCheckFailedError("schema element budget exceeded")
+        return tree
 
     async def _describe(self, version: str, names: list[str], *, single: bool):
         request_url = _describe_feature_type_url(
             self._url, version, names, single=single
         )
-        return _wfs_schema(await self._read(request_url, what="DescribeFeatureType"))
+        schema = _wfs_schema(await self._read(request_url, what="DescribeFeatureType"))
+        return None if schema is None else self._counted(schema)
 
     async def batch(self, version: str, names: list[str]) -> Element | None:
         return await self._describe(version, names, single=False)
@@ -1480,23 +1503,29 @@ class _WfsSchemaReads:
         return schema
 
     async def check(self, schema: Element) -> None:
-        pending = [schema]
+        pending = [iter(_schema_include_locations(schema))]
         while pending:
-            for location in _schema_include_locations(pending.pop()):
-                if location.startswith(("http://", "https://")):
-                    if not same_origin(self._url, location):
-                        raise CrossOriginEndpointError(_schema_location_label(location))
-                    if location not in self._visited:
-                        self._visited.add(location)
-                        pending.append(await self._include(location))
-                elif not _gdal_relative_filename(location):
+            location = next(pending[-1], None)
+            if location is None:
+                pending.pop()
+                continue
+            if _HTTP_LOCATION.match(location):
+                if not same_origin(self._url, location):
                     raise CrossOriginEndpointError(_schema_location_label(location))
+                if location not in self._visited:
+                    self._visited.add(location)
+                    included = await self._include(location)
+                    pending.append(iter(_schema_include_locations(included)))
+                    del included
+            elif not _gdal_relative_filename(location):
+                raise CrossOriginEndpointError(_schema_location_label(location))
 
     async def _include(self, location: str) -> Element:
         try:
-            return _wfs_root(await self._read(location, what="schemaLocation"))
+            tree = _wfs_root(await self._read(location, what="schemaLocation"))
         except (ET.ParseError, DefusedXmlException, RecursionError) as exc:
             raise EndpointCheckFailedError(str(exc)) from None
+        return self._counted(tree)
 
 
 async def _check_wfs_schemas(
