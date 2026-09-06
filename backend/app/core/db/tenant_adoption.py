@@ -1,40 +1,24 @@
 """Forward-only tenant-ownership adoption at the current schema head.
 
-Migration ``0019_tenant_provisioning_boundary`` is the only place that has ever
-moved restored tenant schemas, roles, and relations under the least-privilege
-provisioning boundary.  Reaching it again meant ``alembic downgrade 0016``,
-which walks back through migrations that either refuse on data the current
-schema legitimately holds or discard state the re-upgrade cannot rebuild.  On a
-populated cluster that is a data-loss event, not a recovery procedure (#998).
+Reconstructs the ownership migration ``0019_tenant_provisioning_boundary``
+installs, against the **current head schema**, so a restored dump never needs
+``alembic downgrade 0016`` to reach the least-privilege provisioning boundary.
 
-This module reconstructs the same ownership against the **current head schema**,
-so the downgrade is never required.  It is deliberately not a replay of 0019:
-
-- 0019 installs its SECURITY DEFINER functions with plain ``CREATE FUNCTION``,
-  which collides with the functions a restored dump already carries.  Adoption
-  never installs a function body.  The migrations own that body; adoption
-  verifies the two functions are present, ``SECURITY DEFINER``, and
-  ``search_path``-pinned, and repairs only the owner and the ACL that
-  ``pg_restore --no-owner --no-acl`` strips.  That repair matters on its own:
-  PostgreSQL's default function ACL is ``EXECUTE`` to ``PUBLIC``, so a restored
-  ``catalog.provision_tenant_data_schema`` is a SECURITY DEFINER function owned
-  by the restoring superuser and callable by every login in the database.
-- 0019 parked tenant relations on the provisioner so its provisioning function
-  could rewrite their ACLs.  Migration 0024 removed that object-ACL pass, so at
-  head the relations move straight to the per-tenant writer and the reader's
-  per-relation ``SELECT`` is granted by the writer itself — the same contract
-  ingest follows.
+Function bodies belong to the migrations and are never installed here.
+Adoption verifies both boundary functions are present, ``SECURITY DEFINER`` and
+``search_path``-pinned, and repairs the owner and the ACL that ``pg_restore
+--no-owner --no-acl`` strips: PostgreSQL's default function ACL is ``EXECUTE``
+to ``PUBLIC``, so a restored ``catalog.provision_tenant_data_schema`` is a
+SECURITY DEFINER function owned by the restoring superuser and callable by
+every login in the database.
 
 Idempotence is keyed on database state, never on a marker or a timestamp: each
-step reads what the cluster currently holds and issues DDL only for the gap.  A
-second run over an adopted tenant issues no DDL at all, and a run interrupted
-partway is resumed by running it again — every tenant is adopted in its own
-transaction, so completed tenants stay completed.
+step reads what the cluster currently holds and issues DDL only for the gap.
+Every tenant is adopted in its own transaction, so a run interrupted partway is
+resumed by running it again.
 
-Adoption rewrites only the grants it is itself the grantor of.  A pre-existing
-anomaly — a membership some third party granted, a duplicate row behind a
-canonical one, a default-privilege entry owned by a role this credential cannot
-assume — is reported with the exact statement to run and the role to run it as,
+Adoption rewrites only the grants it is itself the grantor of.  Any other
+anomaly is reported with the exact statement to run and the role to run it as,
 and the tenant is left for the next run.  See the repair boundary in
 :mod:`app.core.db.tenant_adoption_sql`.
 
@@ -99,13 +83,12 @@ logger = structlog.stdlib.get_logger(__name__)
 async def live_tenant_boundary(conn) -> list[BoundaryTableState]:
     """Read the tenant boundary from the database, never from a constant.
 
-    The boundary is whatever currently carries 0018's insert-stamping trigger.
-    Migration 0018 froze a six-table tuple by design and later migrations
-    widened the live set, so any enumeration copied from a migration is stale
-    the moment a table joins.  Tables holding a ``tenant_id`` column *without*
-    the trigger are reported too: 0037's ``dataset_refresh_runs`` is a
-    deliberately dormant column, and an accidental one should look the same
-    here so it can be told apart on purpose rather than by omission.
+    The boundary is whatever currently carries 0018's insert-stamping trigger,
+    so an enumeration copied from a migration is stale the moment a table
+    joins.  Tables holding a ``tenant_id`` column *without* the trigger are
+    reported too, so a deliberately dormant column (0037's
+    ``dataset_refresh_runs``) and an accidental one are told apart on purpose
+    rather than by omission.
     """
     result = await conn.execute(
         text(
@@ -213,12 +196,9 @@ async def live_tenant_boundary(conn) -> list[BoundaryTableState]:
     ]
 
 
-#: ``prosrc`` with SQL comments removed.  The markers below say what a body
-#: still *does*, and a substituted body could otherwise carry them in a comment
-#: and satisfy the check while executing something else.  Dead code can still
-#: defeat it — see ``BoundaryFunctionState.migration_shaped`` for why this is a
-#: structural check and not a provenance one, and why the residual exposure only
-#: runs in the safe direction.
+#: ``prosrc`` with SQL comments removed: a substituted body could otherwise
+#: carry the markers below in a comment and satisfy the check while executing
+#: something else.  Structural, not provenance — see ``migration_shaped``.
 _EXECUTABLE_BODY = (
     "regexp_replace("
     "regexp_replace(routine.prosrc, '/\\*.*?\\*/', ' ', 'gs'),"
@@ -301,10 +281,9 @@ async def boundary_function_states(conn) -> list[BoundaryFunctionState]:
 async def stamping_function_shape(conn) -> str | None:
     """Why ``catalog.stamp_current_tenant_on_insert`` is not 0018's, if it is not.
 
-    Checking only that a trigger points at this name proves nothing: replace the
-    body with one that returns ``NEW`` untouched and every insert lands
-    tenantless while every structural check still passes.  Same structural
-    approach, and the same honest limits, as
+    A trigger pointing at this name proves nothing on its own: a body that
+    returns ``NEW`` untouched lands every insert tenantless while every
+    structural check passes.  Same structural limits as
     ``BoundaryFunctionState.migration_shaped``.
     """
     result = await conn.execute(
@@ -391,8 +370,8 @@ async def cluster_topology_error(engine) -> str | None:
     """Would ``--apply`` refuse this cluster's fixed role topology?
 
     Runs the identical guard ``ensure_cluster_roles`` runs, minus the half that
-    creates anything, rather than a read-only paraphrase of it that could drift.
-    A raise aborts the transaction, so it gets a connection of its own.
+    creates anything.  A raise aborts the transaction, so it gets a connection
+    of its own.
     """
     try:
         async with engine.begin() as conn:
@@ -405,8 +384,7 @@ async def cluster_topology_error(engine) -> str | None:
 async def missing_provisioner_grants(conn) -> list[str]:
     """Object privileges ``ensure_cluster_roles`` grants and a restore drops.
 
-    Replaying globals brings the role back; it brings none of these with it, and
-    without them ``catalog.provision_tenant_data_schema`` cannot see
+    Without them ``catalog.provision_tenant_data_schema`` cannot see
     ``catalog.tenants`` or create a tenant schema.  Call only once
     :func:`cluster_topology_error` has confirmed the role exists — the
     ``has_*_privilege`` family errors on a role name that is not there.
@@ -482,12 +460,9 @@ async def list_tenants(conn) -> list[str]:
     return [row[0] for row in result]
 
 
-#: ``pg_auth_members.inherit_option``/``set_option`` arrived in PostgreSQL 16 and
-#: GeoLens supports 13 and up (README), so naming those columns directly would be
-#: a parse error on an older server.  Reading them back out of the row as jsonb
-#: parses everywhere, and the guard degrades to ``admin_option`` alone before 16 —
-#: which is correct, because that is where NOINHERIT on the fixed gateway roles
-#: carries the same SET-only guarantee.
+#: ``inherit_option``/``set_option`` arrived in PostgreSQL 16 and GeoLens
+#: supports 13 up, so they are read back out of the row as jsonb.  Before 16
+#: ``admin_option`` alone is correct: NOINHERIT gateway roles are SET-only.
 _MEMBER_OPTIONS_PRESENT = "jsonb_exists(to_jsonb(membership), 'set_option')"
 _MEMBER_INHERIT = "(to_jsonb(membership) ->> 'inherit_option')::boolean"
 _MEMBER_SET = "(to_jsonb(membership) ->> 'set_option')::boolean"
@@ -505,10 +480,10 @@ def _role_secure_sql(
     """SQL for "this per-tenant role has the shape ``--apply`` enforces".
 
     Every clause mirrors a refusal in ``ADOPT_TENANT_SQL`` or in
-    ``catalog.provision_tenant_data_schema``, so a dry run cannot call a topology
-    adopted that ``--apply`` would reject or repair.  Role existence and
-    effective privileges are not enough on their own: a reader carrying
-    ``SUPERUSER`` satisfies every ``has_table_privilege`` check by fiat.
+    ``catalog.provision_tenant_data_schema``, so a dry run cannot call a
+    topology adopted that ``--apply`` would reject or repair.  Effective
+    privileges are not enough on their own: a reader carrying ``SUPERUSER``
+    satisfies every ``has_table_privilege`` check by fiat.
 
     Role names come from the module constants above, never from a caller.
     """
@@ -1064,10 +1039,9 @@ async def ensure_cluster_roles(conn) -> bool:
     """Create the fixed role topology if absent, and refuse an unsafe one.
 
     Returns whether *this* run had to take a usable membership in the
-    provisioner, which is what decides whether the run gives one back.  An
-    operator may have granted the migrator that role by hand — especially before
-    PostgreSQL 16, where CREATEROLE leaves no automatic membership to compare
-    against — and revoking somebody else's grant is not this tool's business.
+    provisioner, which is what decides whether the run gives one back.  A
+    membership an operator granted by hand is left alone: revoking somebody
+    else's grant is not this tool's business.
     """
     held_before = await _holds_provisioner_privileges(conn)
     await conn.execute(text(CLUSTER_ROLE_CREATE_SQL))
@@ -1075,9 +1049,8 @@ async def ensure_cluster_roles(conn) -> bool:
     await conn.execute(text(PROVISIONER_DATABASE_GRANT_SQL))
     await conn.execute(text(f"GRANT USAGE ON SCHEMA catalog TO {PROVISIONER}"))
     await conn.execute(text(f"GRANT SELECT ON TABLE catalog.tenants TO {PROVISIONER}"))
-    # fix(#998 codex r45): a grantable entry some third role issued survives
-    # the plain revokes below; refuse it with the grantor named before
-    # pretending to rewrite it.
+    # fix(#998): a grantable entry some third role issued survives the plain revokes
+    # below; refuse it with the grantor named before pretending to rewrite it.
     await conn.execute(text(PROVISIONER_GRANT_OPTION_GUARD_SQL))
     # A re-GRANT adds the privilege and leaves an existing GRANT OPTION alone.
     # These are no-ops on a database that never had one.
@@ -1097,11 +1070,11 @@ async def ensure_cluster_roles(conn) -> bool:
 async def secure_boundary_functions(conn) -> list[BoundaryFunctionState]:
     """Re-own and re-restrict the two functions a restore left wide open.
 
-    The bodies belong to the migrations and are never rewritten here.  What a
+    The bodies belong to the migrations and are never rewritten here.  What
     ``pg_restore --no-owner --no-acl`` strips is the owner and the ACL, and the
-    PostgreSQL default for a function with no ACL is ``EXECUTE`` to ``PUBLIC``.
-    A SECURITY DEFINER function owned by the restoring superuser and callable by
-    everyone is the state this repairs.
+    PostgreSQL default for a function with no ACL is ``EXECUTE`` to ``PUBLIC``,
+    so the state this repairs is a SECURITY DEFINER function owned by the
+    restoring superuser and callable by everyone.
     """
     states = {state.name: state for state in await boundary_function_states(conn)}
     missing = [name for name in BOUNDARY_FUNCTIONS if name not in states]
@@ -1135,10 +1108,10 @@ async def release_bootstrap_membership(engine, *, took_provisioner_edge: bool) -
 
     From PostgreSQL 16 this runs whatever the flag says: the predicate — granted
     by the current role, carrying no ADMIN — describes the edge adoption takes
-    and nothing an operator would set up by hand, and running it unconditionally
-    is what recovers one a previous run was SIGKILLed before returning.  Before
-    16 there is a single row per pair and no way to tell those apart, so there
-    the flag is the only evidence there is.
+    and nothing an operator would set up by hand, so running it unconditionally
+    also recovers one a previous run was killed before returning.  Before 16
+    there is a single row per pair and no way to tell those apart, so there the
+    flag is the only evidence there is.
     """
     async with engine.begin() as conn:
         modern = await conn.execute(
@@ -1218,9 +1191,9 @@ async def run_adoption(engine, *, apply: bool) -> AdoptionReport:
                     "tenant_adoption: tenant failed", tenant_id=tenant_id, exc_info=True
                 )
     finally:
-        # A bare finally, so a Ctrl-C (CancelledError, a BaseException) hands the
-        # edge back too. From PostgreSQL 16 even a SIGKILL is recoverable: the
-        # next run releases the edge whether or not it took one.
+        # A bare finally, so a Ctrl-C (CancelledError, a BaseException) hands
+        # the edge back too. From PostgreSQL 16 even a SIGKILL is recoverable:
+        # the next run releases the edge whether or not it took one.
         await release_bootstrap_membership(
             engine, took_provisioner_edge=took_provisioner_edge
         )

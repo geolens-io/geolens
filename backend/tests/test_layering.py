@@ -2618,7 +2618,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `include` off the origin; `require_wfs_layer` at the spawn points. 1881.
     # chore(#1873): review-history comments trimmed. Cap 1881 -> 1385, exact.
     "backend/app/platform/service_endpoints.py": 1385,
-    # fix(#1770 round 42): first entry, crossed _RATCHET_INCLUSION_LOC on the
+    # fix(#1770): first entry, crossed _RATCHET_INCLUSION_LOC on the
     # completeness-predicate unification. `_page_proves_complete` is the one
     # function round 41's full-walk-only proof and round 42's sampled-preview
     # mirror of it both call now, and `_end_of_chain`/`_sample_truncated` are
@@ -2627,10 +2627,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `_resolve_conformance` was pulled out of `probe_ogcapi` in #1746).
     # Most of the added lines are the docstrings recording the round 38-42
     # history so a future reader does not re-derive it from the diff.
-    # fix(#1770 round 44 P2): +8. The items-page JSON parse also catches
+    # fix(#1770): +8. The items-page JSON parse also catches
     # `RecursionError` now, same reasoning as `service_endpoints.py::
     # _parsed_json`. Cap 1033 -> 1041, exact.
-    # fix(#1770 round 47): +49. Two closed classes: every advertised-href
+    # fix(#1770): +49. Two closed classes: every advertised-href
     # site (`_advertised_items_href`/`_with_page_size`/`_next_href`) now
     # runs through `bounded_service_url`/`bounded_parse_qsl`, and
     # `_walk_pages`'s per-feature re-serialisation catches `UnicodeEncode
@@ -2638,11 +2638,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # escape as an internal exception. Cap 1041 -> 1090, exact (`ruff
     # format` wrapped one `urljoin(base, bounded_service_url(...))` call
     # onto three lines after the round-47 diff landed).
-    # fix(#1770 round 47b): +16. `HrefTooLongError` handling at the three
+    # fix(#1770): +16. `HrefTooLongError` handling at the three
     # `bounded_service_url` catch sites, each getting its own wording
     # distinct from the generic "unparseable" refusal. Cap 1090 -> 1106,
     # exact.
-    "backend/app/platform/service_items.py": 1106,
+    # chore(#1873): review-history comments trimmed. Cap 1106 -> 797, exact.
+    "backend/app/platform/service_items.py": 797,
     # fix(#1758): the ArcGIS sign-in protocol, which crossed 1000 lines over
     # nine review rounds. What the growth bought, in order: the two-phase
     # split that resolves WHERE a password would go before any lock or budget
@@ -2837,11 +2838,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # tenant_adoption_sql.py); the remainder is one read per object the adoption
     # boundary covers, and each is a single SQL statement that has to see the
     # whole object at once.
-    # fix(#998 codex r45-r49): +130 — read side mirrors every apply-side ownership surface — run the provisioner grant-option guard
+    # fix(#998): +130 — read side mirrors every apply-side ownership surface — run the provisioner grant-option guard
     # before the plain revokes it protects; mirror the multirange and
     # schema-less default-privilege refusals on the read side so the dry run
     # cannot call adopted what --apply stops on.
-    "backend/app/core/db/tenant_adoption.py": 1303,
+    # chore(#1873): review-history comments trimmed. Cap 1303 -> 1276, exact.
+    "backend/app/core/db/tenant_adoption.py": 1276,
     # fix(#836): the five path-gated additions. Caps are exact (zero headroom),
     # matching the #435 convention: growth needs a reviewed carve-out here,
     # shrinking must lower the cap in the same commit.
@@ -5401,7 +5403,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # correct for the tree that produced it and neither is correct for the
     # merge, which is the conflict doing its job.
     #
-    # fix(#1097 review): +40 on top of that, for
+    # fix(#1097): +40 on top of that, for
     # _reject_ungroupable_overlay_columns — the worker half of the overlay type
     # guard. The router validates a catalog SNAPSHOT and a re-upload can
     # replace the overlay before the job runs, the same window
@@ -5409,33 +5411,33 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # names, because the live name list was already read there and would not
     # have caught it: the column that breaks the CTAS has an ordinary name.
     #
-    # fix(#1097 review): +91 for the live-schema rechecks. Two more guards (the
+    # fix(#1097): +91 for the live-schema rechecks. Two more guards (the
     # reserved-alias prefix, and re-checking transferred join fields against the
     # join layer's live columns) plus _resolve_and_validate_columns, which the
     # set moved into rather than raising _materialize's C901 threshold: five
     # checks over two layers share a subject the surrounding job bookkeeping
     # does not.
     #
-    # fix(#1097 review): +21 for re-applying the polygon requirement on the
+    # fix(#1097): +21 for re-applying the polygon requirement on the
     # mask layer at resolve time. The router refuses a non-polygonal mask at
     # enqueue and a re-upload can change that layer's geometry_type while the
     # job waits, and nothing downstream notices: the mask matches no rows and
     # the job dies on "produced no features", pointing the user at their data
     # instead of at the layer that changed.
     #
-    # fix(#1097 review): +22 for the second geometry strength. The mask must
+    # fix(#1097): +22 for the second geometry strength. The mask must
     # still be polygonal; the JOIN layer must only still be spatial, because a
     # join counts in any direction — but a re-upload from a non-spatial source
     # leaves no geom_4326 for render_spatial_join to reference.
     #
-    # fix(#1097 review): +20 for _DRAWN_MASK_OPERATIONS and the note on why
+    # fix(#1097): +20 for _DRAWN_MASK_OPERATIONS and the note on why
     # mask_source belongs to every operation that can take a drawn mask. The
     # drawn geometry is deliberately excluded from provenance, so that
     # discriminator is the only trace a drawn selection leaves — the constant
     # is duplicated from schemas because PROCESS-02 forbids the import, and a
     # test pins the two copies together.
     #
-    # fix(#1097 review): +3 for linearizing the three pass-through CTAS
+    # fix(#1097): +3 for linearizing the three pass-through CTAS
     # geometry columns (measure, spatial_join, select_by_location) so a curved
     # source row is stored linear — a curved geometry written into the derived
     # table would fail that layer's tiles and feature reads later.
@@ -5443,7 +5445,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ingest, so the pass-through columns read the bare column. Cap
     # 1450 -> 1449, exact.
     #
-    # fix(#1097 review): +62 for the array-element half of the ungroupable
+    # fix(#1097): +62 for the array-element half of the ungroupable
     # guards. information_schema stores an array column's data_type as
     # 'ARRAY', so json[]/xml[] passed the exact scalar comparison and failed
     # the CTAS with 42883 after the queue wait; _ungroupable_type_name reads
@@ -5469,14 +5471,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `drop_unadopted_analysis_output` the stale-job sweeps call too. The
     # helper's docstring and its identifier re-validation are most of the net
     # growth; the two inlined copies came out. Cap 1420 -> 1462.
-    # fix(#1778 codex r6): +33. `drop_unadopted_analysis_output` returns what
+    # fix(#1778): +33. `drop_unadopted_analysis_output` returns what
     # it established rather than the same None whether it dropped the table or
     # failed to. The sweep clears the recorded name on the strength of that
     # call, and the name is the table's last durable pointer, so a swallowed
     # failure read as success orphaned the table permanently. The five outcomes
     # and the note on why a raised probe is "failed" and not "adopted" are the
     # growth. Cap 1462 -> 1495.
-    # fix(#1778 codex r7): +79. Output table names are scoped by the job that
+    # fix(#1778): +79. Output table names are scoped by the job that
     # creates them, so two jobs can never hold one physical name and the sweep
     # can verify ownership from the name alone, with no marker, registry or
     # lock. `analysis_output_table_name` and `analysis_output_table_belongs_to`
@@ -5486,7 +5488,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # keyword with no default: the in-worker handlers pass their own id either
     # way, so an optional one would have bought nothing but a way to forget it.
     # Cap 1495 -> 1580, exact.
-    # fix(#1778 codex r10): +122. The scope grows an attempt half — job scoping
+    # fix(#1778): +122. The scope grows an attempt half — job scoping
     # alone left a retry able to derive the same name as its predecessor, since
     # `/jobs/{id}/retry` keeps `IngestJob.id` and only mints a new attempt
     # token. `analysis_output_table_name` takes both now, and the record
@@ -5499,7 +5501,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `generate_table_name`'s own `_N` walk only ever probed the unscoped base,
     # so it could hand back a name that scoped straight onto an orphan a
     # previous attempt of the same job left behind. Cap 1580 -> 1702, exact.
-    # fix(#1778 audit r11): +23. `analysis_output_table_name` takes an
+    # fix(#1778): +23. `analysis_output_table_name` takes an
     # optional `collision_suffix` now instead of the caller pre-pending `_N`
     # to `base` and calling it again -- the second trim of an already-trimmed
     # string threw away the very characters that made one candidate differ
@@ -5508,7 +5510,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # self-healing. The tag is reserved for up front, in the same limit
     # computation as the scope, the idiom `generate_table_name`'s own
     # `_with_collision_suffix` already uses. Cap 1702 -> 1725, exact.
-    "backend/app/processing/analysis/tasks.py": 1725,
+    # chore(#1873): review-history comments trimmed. Cap 1725 -> 1392, exact.
+    "backend/app/processing/analysis/tasks.py": 1392,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.
