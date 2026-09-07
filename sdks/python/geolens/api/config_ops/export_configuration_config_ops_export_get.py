@@ -95,7 +95,7 @@ def sync_detailed(
     Returns a downloadable JSON payload with Content-Disposition header. This is a
     file-download endpoint — the previous ``response_model=ConfigExportResponse``
     was silently ignored because the handler returns a raw JSONResponse with custom
-    headers (TYPE-N3). Using ``response_class=JSONResponse`` is the correct way to
+    headers. Using ``response_class=JSONResponse`` is the correct way to
     document a download endpoint in OpenAPI.
 
     Raises:
@@ -126,7 +126,7 @@ def sync(
     Returns a downloadable JSON payload with Content-Disposition header. This is a
     file-download endpoint — the previous ``response_model=ConfigExportResponse``
     was silently ignored because the handler returns a raw JSONResponse with custom
-    headers (TYPE-N3). Using ``response_class=JSONResponse`` is the correct way to
+    headers. Using ``response_class=JSONResponse`` is the correct way to
     document a download endpoint in OpenAPI.
 
     Raises:
@@ -153,7 +153,7 @@ async def asyncio_detailed(
     Returns a downloadable JSON payload with Content-Disposition header. This is a
     file-download endpoint — the previous ``response_model=ConfigExportResponse``
     was silently ignored because the handler returns a raw JSONResponse with custom
-    headers (TYPE-N3). Using ``response_class=JSONResponse`` is the correct way to
+    headers. Using ``response_class=JSONResponse`` is the correct way to
     document a download endpoint in OpenAPI.
 
     Raises:
@@ -182,7 +182,7 @@ async def asyncio(
     Returns a downloadable JSON payload with Content-Disposition header. This is a
     file-download endpoint — the previous ``response_model=ConfigExportResponse``
     was silently ignored because the handler returns a raw JSONResponse with custom
-    headers (TYPE-N3). Using ``response_class=JSONResponse`` is the correct way to
+    headers. Using ``response_class=JSONResponse`` is the correct way to
     document a download endpoint in OpenAPI.
 
     Raises:

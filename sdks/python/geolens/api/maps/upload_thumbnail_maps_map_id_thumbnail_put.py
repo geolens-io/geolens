@@ -127,9 +127,9 @@ def sync_detailed(
         body (ThumbnailUploadRequest): JSON body for PUT /maps/{map_id}/thumbnail/.
 
             Replaces a previous text/plain body shape that openapi-python-client
-            could not parse (would silently skip endpoint). See Phase 254 / SDK-01.
+            could not parse (would silently skip endpoint).
 
-            Phase 254 IN-02: ``data_uri`` carries explicit length bounds so
+            ``data_uri`` carries explicit length bounds so
             Pydantic surfaces a 422 with field-level detail (better SDK-consumer
             UX than a generic 400) and the OpenAPI schema documents the limit.
             The router still validates the ``data:image/`` prefix and base64
@@ -181,9 +181,9 @@ def sync(
         body (ThumbnailUploadRequest): JSON body for PUT /maps/{map_id}/thumbnail/.
 
             Replaces a previous text/plain body shape that openapi-python-client
-            could not parse (would silently skip endpoint). See Phase 254 / SDK-01.
+            could not parse (would silently skip endpoint).
 
-            Phase 254 IN-02: ``data_uri`` carries explicit length bounds so
+            ``data_uri`` carries explicit length bounds so
             Pydantic surfaces a 422 with field-level detail (better SDK-consumer
             UX than a generic 400) and the OpenAPI schema documents the limit.
             The router still validates the ``data:image/`` prefix and base64
@@ -230,9 +230,9 @@ async def asyncio_detailed(
         body (ThumbnailUploadRequest): JSON body for PUT /maps/{map_id}/thumbnail/.
 
             Replaces a previous text/plain body shape that openapi-python-client
-            could not parse (would silently skip endpoint). See Phase 254 / SDK-01.
+            could not parse (would silently skip endpoint).
 
-            Phase 254 IN-02: ``data_uri`` carries explicit length bounds so
+            ``data_uri`` carries explicit length bounds so
             Pydantic surfaces a 422 with field-level detail (better SDK-consumer
             UX than a generic 400) and the OpenAPI schema documents the limit.
             The router still validates the ``data:image/`` prefix and base64
@@ -282,9 +282,9 @@ async def asyncio(
         body (ThumbnailUploadRequest): JSON body for PUT /maps/{map_id}/thumbnail/.
 
             Replaces a previous text/plain body shape that openapi-python-client
-            could not parse (would silently skip endpoint). See Phase 254 / SDK-01.
+            could not parse (would silently skip endpoint).
 
-            Phase 254 IN-02: ``data_uri`` carries explicit length bounds so
+            ``data_uri`` carries explicit length bounds so
             Pydantic surfaces a 422 with field-level detail (better SDK-consumer
             UX than a generic 400) and the OpenAPI schema documents the limit.
             The router still validates the ``data:image/`` prefix and base64

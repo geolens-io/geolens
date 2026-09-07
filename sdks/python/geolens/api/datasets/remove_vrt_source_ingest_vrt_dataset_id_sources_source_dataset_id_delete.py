@@ -110,7 +110,7 @@ def sync_detailed(
      Remove a COG source from an existing VRT and trigger async regeneration.
 
     Returns 202 Accepted with a job_id for polling.
-    Returns 409 if the VRT is currently regenerating (SRC-05).
+    Returns 409 if the VRT is currently regenerating.
     Returns 422 if removing would leave fewer than 2 sources.
     Returns 404 if the source is not linked to the VRT.
 
@@ -149,7 +149,7 @@ def sync(
      Remove a COG source from an existing VRT and trigger async regeneration.
 
     Returns 202 Accepted with a job_id for polling.
-    Returns 409 if the VRT is currently regenerating (SRC-05).
+    Returns 409 if the VRT is currently regenerating.
     Returns 422 if removing would leave fewer than 2 sources.
     Returns 404 if the source is not linked to the VRT.
 
@@ -183,7 +183,7 @@ async def asyncio_detailed(
      Remove a COG source from an existing VRT and trigger async regeneration.
 
     Returns 202 Accepted with a job_id for polling.
-    Returns 409 if the VRT is currently regenerating (SRC-05).
+    Returns 409 if the VRT is currently regenerating.
     Returns 422 if removing would leave fewer than 2 sources.
     Returns 404 if the source is not linked to the VRT.
 
@@ -220,7 +220,7 @@ async def asyncio(
      Remove a COG source from an existing VRT and trigger async regeneration.
 
     Returns 202 Accepted with a job_id for polling.
-    Returns 409 if the VRT is currently regenerating (SRC-05).
+    Returns 409 if the VRT is currently regenerating.
     Returns 422 if removing would leave fewer than 2 sources.
     Returns 404 if the source is not linked to the VRT.
 

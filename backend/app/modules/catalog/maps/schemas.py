@@ -375,12 +375,12 @@ class SublayerOverride(BaseModel):
     validation time (Pydantic ``ge``/``le`` constraints).
 
     The key set of ``BasemapConfig.sublayer_overrides`` is treated as opaque
-    (forward-compatible with future sublayer IDs) — see CONTEXT.md D-01.
+    (forward-compatible with future sublayer IDs).
 
     Security:
-        extra="forbid" locks the D-14 scope guardrail: unknown style axes such
-        as dash patterns, line caps, halo blur, and text-font are rejected at
-        validation time (T-1059A-03).
+        extra="forbid" locks the scope guardrail: unknown style axes such as
+        dash patterns, line caps, halo blur, and text-font are rejected at
+        validation time.
     """
 
     stroke_color: str | None = Field(
@@ -423,7 +423,7 @@ class SublayerOverride(BaseModel):
             "Per-sublayer opacity (0-1), or null to use the basemap default. "
             "Composes on top of BasemapConfig.opacity (the whole-basemap master "
             "opacity): the rendered opacity is override.opacity * master_opacity "
-            "(builder-audit #338 CORR-01). The UI opacity slider in "
+            "(#338). The UI opacity slider in "
             "BasemapSublayerEditorScene persists through this field: "
             "MapBuilderPage.handleSublayerOpacityChange -> setBasemapSublayerOpacity "
             "-> updateBasemapSublayerOverride writes config.sublayer_overrides[key].opacity."
@@ -1062,7 +1062,7 @@ class MapSpriteEntry(BaseModel):
 
 
 class MapStyleImportRequest(BaseModel):
-    """Typed request body for POST /maps/import — API-01 / M-05.
+    """Typed request body for POST /maps/import.
 
     Mirrors the top-level keys of the MapLibre Style Specification that
     ``parse_maplibre_style_import`` actually reads. ``extra="allow"`` keeps
@@ -1305,9 +1305,9 @@ class ThumbnailUploadRequest(BaseModel):
     """JSON body for PUT /maps/{map_id}/thumbnail/.
 
     Replaces a previous text/plain body shape that openapi-python-client
-    could not parse (would silently skip endpoint). See Phase 254 / SDK-01.
+    could not parse (would silently skip endpoint).
 
-    Phase 254 IN-02: ``data_uri`` carries explicit length bounds so
+    ``data_uri`` carries explicit length bounds so
     Pydantic surfaces a 422 with field-level detail (better SDK-consumer
     UX than a generic 400) and the OpenAPI schema documents the limit.
     The router still validates the ``data:image/`` prefix and base64
@@ -1326,7 +1326,7 @@ class ThumbnailUploadRequest(BaseModel):
 
 
 class OgImageUploadRequest(BaseModel):
-    """JSON body for PUT /maps/{map_id}/og-image/ (SHARE-08 Path A).
+    """JSON body for PUT /maps/{map_id}/og-image/.
 
     Accepts a base64 data URI up to 750 KB (as a string). This generous
     ceiling accommodates a 1200x630 JPEG at quality 0.85, which encodes
@@ -1336,7 +1336,7 @@ class OgImageUploadRequest(BaseModel):
       empty/clearly-malformed URIs without false-positives.
     - ``max_length=750_000``: ~562 KB decoded — generous for 1200x630 JPEG.
       DO NOT raise ThumbnailUploadRequest.max_length to match this value;
-      the 100KB thumbnail cap is a locked contract (Phase 254 / D-03).
+      the 100KB thumbnail cap is a locked contract.
     """
 
     data_uri: str = Field(min_length=22, max_length=750_000)

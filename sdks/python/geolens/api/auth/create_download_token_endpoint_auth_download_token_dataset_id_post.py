@@ -101,7 +101,7 @@ def sync_detailed(
 
      Mint a short-lived download-scoped JWT for a single dataset.
 
-    IA-P0-01 / SEC-04: the existing COG download URL path requires a
+    The COG download URL path requires a
     ``typ='download'`` JWT on the ``?token=`` query parameter — session JWTs
     are rejected. This endpoint issues that token after verifying the caller
     has read access to the dataset.
@@ -140,7 +140,7 @@ def sync(
 
      Mint a short-lived download-scoped JWT for a single dataset.
 
-    IA-P0-01 / SEC-04: the existing COG download URL path requires a
+    The COG download URL path requires a
     ``typ='download'`` JWT on the ``?token=`` query parameter — session JWTs
     are rejected. This endpoint issues that token after verifying the caller
     has read access to the dataset.
@@ -174,7 +174,7 @@ async def asyncio_detailed(
 
      Mint a short-lived download-scoped JWT for a single dataset.
 
-    IA-P0-01 / SEC-04: the existing COG download URL path requires a
+    The COG download URL path requires a
     ``typ='download'`` JWT on the ``?token=`` query parameter — session JWTs
     are rejected. This endpoint issues that token after verifying the caller
     has read access to the dataset.
@@ -211,7 +211,7 @@ async def asyncio(
 
      Mint a short-lived download-scoped JWT for a single dataset.
 
-    IA-P0-01 / SEC-04: the existing COG download URL path requires a
+    The COG download URL path requires a
     ``typ='download'`` JWT on the ``?token=`` query parameter — session JWTs
     are rejected. This endpoint issues that token after verifying the caller
     has read access to the dataset.

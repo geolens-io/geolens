@@ -101,8 +101,7 @@ def sync_detailed(
 
     Audit-log payload contains a ``deleted`` snapshot with the pre-delete
     state — non-secret fields verbatim, secret fields marked ``<redacted>``
-    if they were previously set (T-217-03-AUDIT-LEAK mitigation extends to
-    delete events too).
+    if they were previously set; the same redaction applies to delete events.
 
     Args:
         provider_id (UUID):
@@ -137,8 +136,7 @@ def sync(
 
     Audit-log payload contains a ``deleted`` snapshot with the pre-delete
     state — non-secret fields verbatim, secret fields marked ``<redacted>``
-    if they were previously set (T-217-03-AUDIT-LEAK mitigation extends to
-    delete events too).
+    if they were previously set; the same redaction applies to delete events.
 
     Args:
         provider_id (UUID):
@@ -168,8 +166,7 @@ async def asyncio_detailed(
 
     Audit-log payload contains a ``deleted`` snapshot with the pre-delete
     state — non-secret fields verbatim, secret fields marked ``<redacted>``
-    if they were previously set (T-217-03-AUDIT-LEAK mitigation extends to
-    delete events too).
+    if they were previously set; the same redaction applies to delete events.
 
     Args:
         provider_id (UUID):
@@ -202,8 +199,7 @@ async def asyncio(
 
     Audit-log payload contains a ``deleted`` snapshot with the pre-delete
     state — non-secret fields verbatim, secret fields marked ``<redacted>``
-    if they were previously set (T-217-03-AUDIT-LEAK mitigation extends to
-    delete events too).
+    if they were previously set; the same redaction applies to delete events.
 
     Args:
         provider_id (UUID):

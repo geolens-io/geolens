@@ -114,8 +114,7 @@ def sync_detailed(
     Audit-log payload contains ``details.changes`` with per-field
     ``{\"old\": ..., \"new\": ...}`` diffs. Secret fields (idp_certificate,
     client_secret_encrypted, client_secret) are redacted as
-    ``{\"old\": \"<redacted>\", \"new\": \"<redacted>\"}`` (Pitfall 9 / SAML-12 /
-    T-217-03-AUDIT-LEAK HIGH severity).
+    ``{\"old\": \"<redacted>\", \"new\": \"<redacted>\"}``.
 
     Args:
         provider_id (UUID):
@@ -155,8 +154,7 @@ def sync(
     Audit-log payload contains ``details.changes`` with per-field
     ``{\"old\": ..., \"new\": ...}`` diffs. Secret fields (idp_certificate,
     client_secret_encrypted, client_secret) are redacted as
-    ``{\"old\": \"<redacted>\", \"new\": \"<redacted>\"}`` (Pitfall 9 / SAML-12 /
-    T-217-03-AUDIT-LEAK HIGH severity).
+    ``{\"old\": \"<redacted>\", \"new\": \"<redacted>\"}``.
 
     Args:
         provider_id (UUID):
@@ -191,8 +189,7 @@ async def asyncio_detailed(
     Audit-log payload contains ``details.changes`` with per-field
     ``{\"old\": ..., \"new\": ...}`` diffs. Secret fields (idp_certificate,
     client_secret_encrypted, client_secret) are redacted as
-    ``{\"old\": \"<redacted>\", \"new\": \"<redacted>\"}`` (Pitfall 9 / SAML-12 /
-    T-217-03-AUDIT-LEAK HIGH severity).
+    ``{\"old\": \"<redacted>\", \"new\": \"<redacted>\"}``.
 
     Args:
         provider_id (UUID):
@@ -230,8 +227,7 @@ async def asyncio(
     Audit-log payload contains ``details.changes`` with per-field
     ``{\"old\": ..., \"new\": ...}`` diffs. Secret fields (idp_certificate,
     client_secret_encrypted, client_secret) are redacted as
-    ``{\"old\": \"<redacted>\", \"new\": \"<redacted>\"}`` (Pitfall 9 / SAML-12 /
-    T-217-03-AUDIT-LEAK HIGH severity).
+    ``{\"old\": \"<redacted>\", \"new\": \"<redacted>\"}``.
 
     Args:
         provider_id (UUID):

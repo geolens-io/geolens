@@ -143,7 +143,7 @@ def sync_detailed(
 
      Get paginated GeoJSON features for a dataset.
 
-    Pagination is OFFSET-based (fix(#458 E-40), documented limitation): rows can
+    Pagination is OFFSET-based (fix(#458), documented limitation): rows can
     skip or duplicate across pages under concurrent writes, though feature ids
     stay stable (ORDER BY gid, the primary key). Clients that need stable
     cursoring should use the OGC API Features endpoint, which supports keyset
@@ -197,7 +197,7 @@ def sync(
 
      Get paginated GeoJSON features for a dataset.
 
-    Pagination is OFFSET-based (fix(#458 E-40), documented limitation): rows can
+    Pagination is OFFSET-based (fix(#458), documented limitation): rows can
     skip or duplicate across pages under concurrent writes, though feature ids
     stay stable (ORDER BY gid, the primary key). Clients that need stable
     cursoring should use the OGC API Features endpoint, which supports keyset
@@ -244,7 +244,7 @@ async def asyncio_detailed(
 
      Get paginated GeoJSON features for a dataset.
 
-    Pagination is OFFSET-based (fix(#458 E-40), documented limitation): rows can
+    Pagination is OFFSET-based (fix(#458), documented limitation): rows can
     skip or duplicate across pages under concurrent writes, though feature ids
     stay stable (ORDER BY gid, the primary key). Clients that need stable
     cursoring should use the OGC API Features endpoint, which supports keyset
@@ -296,7 +296,7 @@ async def asyncio(
 
      Get paginated GeoJSON features for a dataset.
 
-    Pagination is OFFSET-based (fix(#458 E-40), documented limitation): rows can
+    Pagination is OFFSET-based (fix(#458), documented limitation): rows can
     skip or duplicate across pages under concurrent writes, though feature ids
     stay stable (ORDER BY gid, the primary key). Clients that need stable
     cursoring should use the OGC API Features endpoint, which supports keyset

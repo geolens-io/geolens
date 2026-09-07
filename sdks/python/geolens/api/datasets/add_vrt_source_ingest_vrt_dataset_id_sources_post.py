@@ -118,7 +118,7 @@ def sync_detailed(
 
     Validates the new source against existing sources synchronously.
     Returns 202 Accepted with a job_id for polling.
-    Returns 409 if the VRT is currently regenerating (SRC-05) or source already linked.
+    Returns 409 if the VRT is currently regenerating or the source is already linked.
     Returns 422 if the source is incompatible with existing sources.
 
     Args:
@@ -157,7 +157,7 @@ def sync(
 
     Validates the new source against existing sources synchronously.
     Returns 202 Accepted with a job_id for polling.
-    Returns 409 if the VRT is currently regenerating (SRC-05) or source already linked.
+    Returns 409 if the VRT is currently regenerating or the source is already linked.
     Returns 422 if the source is incompatible with existing sources.
 
     Args:
@@ -191,7 +191,7 @@ async def asyncio_detailed(
 
     Validates the new source against existing sources synchronously.
     Returns 202 Accepted with a job_id for polling.
-    Returns 409 if the VRT is currently regenerating (SRC-05) or source already linked.
+    Returns 409 if the VRT is currently regenerating or the source is already linked.
     Returns 422 if the source is incompatible with existing sources.
 
     Args:
@@ -228,7 +228,7 @@ async def asyncio(
 
     Validates the new source against existing sources synchronously.
     Returns 202 Accepted with a job_id for polling.
-    Returns 409 if the VRT is currently regenerating (SRC-05) or source already linked.
+    Returns 409 if the VRT is currently regenerating or the source is already linked.
     Returns 422 if the source is incompatible with existing sources.
 
     Args:

@@ -12,7 +12,7 @@ T = TypeVar("T", bound="NotificationStatusResponse")
 
 @_attrs_define
 class NotificationStatusResponse:
-    """Response for GET /settings/notifications/status/ (NOTIF-05 / NOTIF-06).
+    """Response for GET /settings/notifications/status/.
 
     Returns only boolean presence flags — never a secret value (SMTP password,
     webhook URL, or webhook secret).

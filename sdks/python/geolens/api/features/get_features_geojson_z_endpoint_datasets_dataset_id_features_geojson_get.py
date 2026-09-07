@@ -108,7 +108,7 @@ def sync_detailed(
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
     fix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,
-    eligible cluster layers) already sends ``X-Embed-Token``, and the B-023
+    eligible cluster layers) already sends ``X-Embed-Token``, and the
     shared-map union now exposes embed-scoped private layers to embeds — so
     this endpoint accepts the token as fallback authorization via the SAME
     ``validate_embed_token_access`` capability check as tile serving.
@@ -161,7 +161,7 @@ def sync(
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
     fix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,
-    eligible cluster layers) already sends ``X-Embed-Token``, and the B-023
+    eligible cluster layers) already sends ``X-Embed-Token``, and the
     shared-map union now exposes embed-scoped private layers to embeds — so
     this endpoint accepts the token as fallback authorization via the SAME
     ``validate_embed_token_access`` capability check as tile serving.
@@ -209,7 +209,7 @@ async def asyncio_detailed(
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
     fix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,
-    eligible cluster layers) already sends ``X-Embed-Token``, and the B-023
+    eligible cluster layers) already sends ``X-Embed-Token``, and the
     shared-map union now exposes embed-scoped private layers to embeds — so
     this endpoint accepts the token as fallback authorization via the SAME
     ``validate_embed_token_access`` capability check as tile serving.
@@ -260,7 +260,7 @@ async def asyncio(
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
     fix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,
-    eligible cluster layers) already sends ``X-Embed-Token``, and the B-023
+    eligible cluster layers) already sends ``X-Embed-Token``, and the
     shared-map union now exposes embed-scoped private layers to embeds — so
     this endpoint accepts the token as fallback authorization via the SAME
     ``validate_embed_token_access`` capability check as tile serving.

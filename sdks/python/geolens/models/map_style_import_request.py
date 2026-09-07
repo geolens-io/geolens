@@ -31,7 +31,7 @@ T = TypeVar("T", bound="MapStyleImportRequest")
 
 @_attrs_define
 class MapStyleImportRequest:
-    """Typed request body for POST /maps/import — API-01 / M-05.
+    """Typed request body for POST /maps/import.
 
     Mirrors the top-level keys of the MapLibre Style Specification that
     ``parse_maplibre_style_import`` actually reads. ``extra="allow"`` keeps

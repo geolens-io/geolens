@@ -411,7 +411,7 @@ async def list_dataset_relationships(
     Paginated via ``skip`` and ``limit`` to bound response size for datasets
     with large numbers of auto-detected relationships. Returns the standard
     list envelope (``relationships`` + ``total``) so callers can detect whether
-    more pages exist (GAP-033); ``total`` counts the visible relationships before
+    more pages exist; ``total`` counts the visible relationships before
     pagination.
     """
     dataset = await get_dataset(db, dataset_id)

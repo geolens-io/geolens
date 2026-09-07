@@ -153,7 +153,7 @@ class UserUpdate(BaseModel):
 class SamlToLocalConversion(BaseModel):
     """Request body for POST /admin/users/{user_id}/convert-saml-to-local/.
 
-    Per Phase 221 D-01: a dedicated, single-purpose schema kept narrow on
+    A dedicated, single-purpose schema kept narrow on
     purpose -- password is intentionally NOT on the generic UserUpdate schema
     (which has no password field) so this conversion produces a single,
     audit-distinct action ('user.convert_saml_to_local') instead of being

@@ -5615,7 +5615,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # a stale read. Most of the growth is the docstring explaining why the
     # lock has to move rather than just gaining a shorter timeout of its own.
     # Cap 1554 -> 1572, exact.
-    "backend/app/modules/catalog/maps/router.py": 1509,
+    "backend/app/modules/catalog/maps/router.py": 1507,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.

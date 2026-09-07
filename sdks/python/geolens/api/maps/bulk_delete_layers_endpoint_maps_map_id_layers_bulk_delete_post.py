@@ -116,9 +116,8 @@ def sync_detailed(
 
      Batch-delete multiple layers from a map in a single request.
 
-    Milestone exception (v1010 Phase 1047): one additive endpoint permitted
-    per REQUIREMENTS.md Out-of-Scope to reduce N sequential DELETEs to one
-    batched call for bulk-delete UX (PB-03 / PERF-03).
+    One additive endpoint that reduces N sequential DELETEs to a single
+    batched call for bulk-delete UX.
 
     Returns 200 with deleted/failed arrays in all cases (partial failures
     surface inline, not as HTTP errors).  Full rollback is the caller's
@@ -158,9 +157,8 @@ def sync(
 
      Batch-delete multiple layers from a map in a single request.
 
-    Milestone exception (v1010 Phase 1047): one additive endpoint permitted
-    per REQUIREMENTS.md Out-of-Scope to reduce N sequential DELETEs to one
-    batched call for bulk-delete UX (PB-03 / PERF-03).
+    One additive endpoint that reduces N sequential DELETEs to a single
+    batched call for bulk-delete UX.
 
     Returns 200 with deleted/failed arrays in all cases (partial failures
     surface inline, not as HTTP errors).  Full rollback is the caller's
@@ -195,9 +193,8 @@ async def asyncio_detailed(
 
      Batch-delete multiple layers from a map in a single request.
 
-    Milestone exception (v1010 Phase 1047): one additive endpoint permitted
-    per REQUIREMENTS.md Out-of-Scope to reduce N sequential DELETEs to one
-    batched call for bulk-delete UX (PB-03 / PERF-03).
+    One additive endpoint that reduces N sequential DELETEs to a single
+    batched call for bulk-delete UX.
 
     Returns 200 with deleted/failed arrays in all cases (partial failures
     surface inline, not as HTTP errors).  Full rollback is the caller's
@@ -235,9 +232,8 @@ async def asyncio(
 
      Batch-delete multiple layers from a map in a single request.
 
-    Milestone exception (v1010 Phase 1047): one additive endpoint permitted
-    per REQUIREMENTS.md Out-of-Scope to reduce N sequential DELETEs to one
-    batched call for bulk-delete UX (PB-03 / PERF-03).
+    One additive endpoint that reduces N sequential DELETEs to a single
+    batched call for bulk-delete UX.
 
     Returns 200 with deleted/failed arrays in all cases (partial failures
     surface inline, not as HTTP errors).  Full rollback is the caller's

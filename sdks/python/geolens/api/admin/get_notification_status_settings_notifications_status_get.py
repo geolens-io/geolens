@@ -96,7 +96,7 @@ def sync_detailed(
 
     Mirrors get_api_key_status: returns presence flags derived from env/settings
     without ever echoing the SMTP password, webhook URL, or webhook secret
-    (NOTIF-05 / T-1229-09).
+    without secrets.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -125,7 +125,7 @@ def sync(
 
     Mirrors get_api_key_status: returns presence flags derived from env/settings
     without ever echoing the SMTP password, webhook URL, or webhook secret
-    (NOTIF-05 / T-1229-09).
+    without secrets.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -150,7 +150,7 @@ async def asyncio_detailed(
 
     Mirrors get_api_key_status: returns presence flags derived from env/settings
     without ever echoing the SMTP password, webhook URL, or webhook secret
-    (NOTIF-05 / T-1229-09).
+    without secrets.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -177,7 +177,7 @@ async def asyncio(
 
     Mirrors get_api_key_status: returns presence flags derived from env/settings
     without ever echoing the SMTP password, webhook URL, or webhook secret
-    (NOTIF-05 / T-1229-09).
+    without secrets.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

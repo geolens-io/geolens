@@ -12,7 +12,7 @@ T = TypeVar("T", bound="OgImageUploadRequest")
 
 @_attrs_define
 class OgImageUploadRequest:
-    """JSON body for PUT /maps/{map_id}/og-image/ (SHARE-08 Path A).
+    """JSON body for PUT /maps/{map_id}/og-image/.
 
     Accepts a base64 data URI up to 750 KB (as a string). This generous
     ceiling accommodates a 1200x630 JPEG at quality 0.85, which encodes
@@ -22,7 +22,7 @@ class OgImageUploadRequest:
       empty/clearly-malformed URIs without false-positives.
     - ``max_length=750_000``: ~562 KB decoded — generous for 1200x630 JPEG.
       DO NOT raise ThumbnailUploadRequest.max_length to match this value;
-      the 100KB thumbnail cap is a locked contract (Phase 254 / D-03).
+      the 100KB thumbnail cap is a locked contract.
 
         Attributes:
             data_uri (str):

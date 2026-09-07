@@ -19,8 +19,7 @@ class NotificationTestChannelResult:
     """Per-channel result from POST /settings/notifications/test/.
 
     The ``error`` field contains only the exception type name and a short
-    safe message — never the SMTP password, webhook URL, or webhook secret
-    (T-1229-09 / NOTIF-05).
+    safe message — never the SMTP password, webhook URL, or webhook secret.
 
         Attributes:
             channel (str): Channel name, e.g. 'smtp' or 'webhook'.

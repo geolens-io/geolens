@@ -2,7 +2,7 @@
   "components": {
     "schemas": {
       "AIAvailabilityResponse": {
-        "description": "Public-safe AI readiness signal (builder-audit #338 P1-11).\n\nCarries a single boolean and intentionally exposes NO provider name, model,\nor key detail \u2014 it is readable by any non-admin editor holding\n``use_ai_chat`` so the builder can enable/disable chat without the\nadmin-only ``/admin/ai-status`` endpoint (which leaks provider/key info).",
+        "description": "Public-safe AI readiness signal (#338).\n\nCarries a single boolean and intentionally exposes NO provider name, model,\nor key detail \u2014 it is readable by any non-admin editor holding\n``use_ai_chat`` so the builder can enable/disable chat without the\nadmin-only ``/admin/ai-status`` endpoint (which leaks provider/key info).",
         "properties": {
           "available": {
             "title": "Available",
@@ -5415,7 +5415,7 @@
         "type": "object"
       },
       "DatasetRelationshipListResponse": {
-        "description": "Paginated list envelope for dataset FK relationships (GAP-033).\n\nMirrors the ``{<entity>: [...], total: int}`` convention used by every other\npaginated list endpoint (e.g. AttributeMetadataListResponse,\nVrtGenerationListResponse) so callers can detect whether more pages exist.\n``total`` is the count of *visible* relationships before skip/limit.",
+        "description": "Paginated list envelope for dataset FK relationships.\n\nMirrors the ``{<entity>: [...], total: int}`` convention used by every other\npaginated list endpoint (e.g. AttributeMetadataListResponse,\nVrtGenerationListResponse) so callers can detect whether more pages exist.\n``total`` is the count of *visible* relationships before skip/limit.",
         "properties": {
           "relationships": {
             "items": {
@@ -10506,7 +10506,7 @@
       },
       "MapStyleImportRequest": {
         "additionalProperties": true,
-        "description": "Typed request body for POST /maps/import \u2014 API-01 / M-05.\n\nMirrors the top-level keys of the MapLibre Style Specification that\n``parse_maplibre_style_import`` actually reads. ``extra=\"allow\"`` keeps\nforward-compatibility with future MapLibre fields (e.g. ``projection``,\n``light``, ``transition``) so adding a new key on the client side\ndoesn't require a server release.\n\nReplacing the previous bare-``dict`` body parameter removes\n``additionalProperties: true`` from the OpenAPI schema and lets\nopenapi-python-client generate a navigable named model class.",
+        "description": "Typed request body for POST /maps/import.\n\nMirrors the top-level keys of the MapLibre Style Specification that\n``parse_maplibre_style_import`` actually reads. ``extra=\"allow\"`` keeps\nforward-compatibility with future MapLibre fields (e.g. ``projection``,\n``light``, ``transition``) so adding a new key on the client side\ndoesn't require a server release.\n\nReplacing the previous bare-``dict`` body parameter removes\n``additionalProperties: true`` from the OpenAPI schema and lets\nopenapi-python-client generate a navigable named model class.",
         "properties": {
           "version": {
             "anyOf": [
@@ -11141,7 +11141,7 @@
         "type": "object"
       },
       "NotificationStatusResponse": {
-        "description": "Response for GET /settings/notifications/status/ (NOTIF-05 / NOTIF-06).\n\nReturns only boolean presence flags \u2014 never a secret value (SMTP password,\nwebhook URL, or webhook secret).",
+        "description": "Response for GET /settings/notifications/status/.\n\nReturns only boolean presence flags \u2014 never a secret value (SMTP password,\nwebhook URL, or webhook secret).",
         "properties": {
           "notifications_enabled": {
             "description": "Whether the NOTIFICATIONS_ENABLED master toggle is set to true.",
@@ -11168,7 +11168,7 @@
         "type": "object"
       },
       "NotificationTestChannelResult": {
-        "description": "Per-channel result from POST /settings/notifications/test/.\n\nThe ``error`` field contains only the exception type name and a short\nsafe message \u2014 never the SMTP password, webhook URL, or webhook secret\n(T-1229-09 / NOTIF-05).",
+        "description": "Per-channel result from POST /settings/notifications/test/.\n\nThe ``error`` field contains only the exception type name and a short\nsafe message \u2014 never the SMTP password, webhook URL, or webhook secret.",
         "properties": {
           "channel": {
             "description": "Channel name, e.g. 'smtp' or 'webhook'.",
@@ -11201,7 +11201,7 @@
         "type": "object"
       },
       "NotificationTestResponse": {
-        "description": "Response for POST /settings/notifications/test/ (NOTIF-06).\n\nAlways returns HTTP 200 \u2014 a channel delivery failure is captured in the\nper-channel ``channels`` list rather than as a 5xx. Never contains secret\nvalues (T-1229-09 / NOTIF-05).",
+        "description": "Response for POST /settings/notifications/test/.\n\nAlways returns HTTP 200 \u2014 a channel delivery failure is captured in the\nper-channel ``channels`` list rather than as a 5xx. Never contains secret\nvalues.",
         "properties": {
           "sent": {
             "description": "True if at least one channel successfully delivered the test notification.",
@@ -12887,7 +12887,7 @@
         "type": "object"
       },
       "OgImageUploadRequest": {
-        "description": "JSON body for PUT /maps/{map_id}/og-image/ (SHARE-08 Path A).\n\nAccepts a base64 data URI up to 750 KB (as a string). This generous\nceiling accommodates a 1200x630 JPEG at quality 0.85, which encodes\nto roughly 150-400 KB raw and ~200-540 KB as a base64 string.\n\n- ``min_length=22``: same floor as ThumbnailUploadRequest \u2014 rejects\n  empty/clearly-malformed URIs without false-positives.\n- ``max_length=750_000``: ~562 KB decoded \u2014 generous for 1200x630 JPEG.\n  DO NOT raise ThumbnailUploadRequest.max_length to match this value;\n  the 100KB thumbnail cap is a locked contract (Phase 254 / D-03).",
+        "description": "JSON body for PUT /maps/{map_id}/og-image/.\n\nAccepts a base64 data URI up to 750 KB (as a string). This generous\nceiling accommodates a 1200x630 JPEG at quality 0.85, which encodes\nto roughly 150-400 KB raw and ~200-540 KB as a base64 string.\n\n- ``min_length=22``: same floor as ThumbnailUploadRequest \u2014 rejects\n  empty/clearly-malformed URIs without false-positives.\n- ``max_length=750_000``: ~562 KB decoded \u2014 generous for 1200x630 JPEG.\n  DO NOT raise ThumbnailUploadRequest.max_length to match this value;\n  the 100KB thumbnail cap is a locked contract.",
         "properties": {
           "data_uri": {
             "maxLength": 750000,
@@ -17555,7 +17555,7 @@
       },
       "SublayerOverride": {
         "additionalProperties": false,
-        "description": "Per-sublayer style override for a single basemap sublayer.\n\nAll fields are nullable \u2014 a ``None`` value means \"use the basemap default\".\nOnly ``#RRGGBB`` hex strings are accepted for color fields; ``None`` means\nthe basemap default color is preserved.  Numeric ranges are clamped at\nvalidation time (Pydantic ``ge``/``le`` constraints).\n\nThe key set of ``BasemapConfig.sublayer_overrides`` is treated as opaque\n(forward-compatible with future sublayer IDs) \u2014 see CONTEXT.md D-01.\n\nSecurity:\n    extra=\"forbid\" locks the D-14 scope guardrail: unknown style axes such\n    as dash patterns, line caps, halo blur, and text-font are rejected at\n    validation time (T-1059A-03).",
+        "description": "Per-sublayer style override for a single basemap sublayer.\n\nAll fields are nullable \u2014 a ``None`` value means \"use the basemap default\".\nOnly ``#RRGGBB`` hex strings are accepted for color fields; ``None`` means\nthe basemap default color is preserved.  Numeric ranges are clamped at\nvalidation time (Pydantic ``ge``/``le`` constraints).\n\nThe key set of ``BasemapConfig.sublayer_overrides`` is treated as opaque\n(forward-compatible with future sublayer IDs).\n\nSecurity:\n    extra=\"forbid\" locks the scope guardrail: unknown style axes such as\n    dash patterns, line caps, halo blur, and text-font are rejected at\n    validation time.",
         "properties": {
           "stroke_color": {
             "anyOf": [
@@ -17648,7 +17648,7 @@
                 "type": "null"
               }
             ],
-            "description": "Per-sublayer opacity (0-1), or null to use the basemap default. Composes on top of BasemapConfig.opacity (the whole-basemap master opacity): the rendered opacity is override.opacity * master_opacity (builder-audit #338 CORR-01). The UI opacity slider in BasemapSublayerEditorScene persists through this field: MapBuilderPage.handleSublayerOpacityChange -> setBasemapSublayerOpacity -> updateBasemapSublayerOverride writes config.sublayer_overrides[key].opacity.",
+            "description": "Per-sublayer opacity (0-1), or null to use the basemap default. Composes on top of BasemapConfig.opacity (the whole-basemap master opacity): the rendered opacity is override.opacity * master_opacity (#338). The UI opacity slider in BasemapSublayerEditorScene persists through this field: MapBuilderPage.handleSublayerOpacityChange -> setBasemapSublayerOpacity -> updateBasemapSublayerOverride writes config.sublayer_overrides[key].opacity.",
             "title": "Opacity"
           }
         },
@@ -17729,7 +17729,7 @@
         "type": "object"
       },
       "ThumbnailUploadRequest": {
-        "description": "JSON body for PUT /maps/{map_id}/thumbnail/.\n\nReplaces a previous text/plain body shape that openapi-python-client\ncould not parse (would silently skip endpoint). See Phase 254 / SDK-01.\n\nPhase 254 IN-02: ``data_uri`` carries explicit length bounds so\nPydantic surfaces a 422 with field-level detail (better SDK-consumer\nUX than a generic 400) and the OpenAPI schema documents the limit.\nThe router still validates the ``data:image/`` prefix and base64\nencoding; those are content-shape checks Pydantic length cannot\ncover.\n\n- ``min_length=22``: a minimal valid prefix is ``data:image/x;base64,``\n  (20 chars) plus at least one payload byte (e.g.,\n  ``data:image/x;base64,XX``). Use 22 as a pragmatic floor that\n  rejects empty / clearly-malformed values without false-positives\n  on the smallest legitimate payloads.\n- ``max_length=100_000``: matches the previous router-side 100KB cap.",
+        "description": "JSON body for PUT /maps/{map_id}/thumbnail/.\n\nReplaces a previous text/plain body shape that openapi-python-client\ncould not parse (would silently skip endpoint).\n\n``data_uri`` carries explicit length bounds so\nPydantic surfaces a 422 with field-level detail (better SDK-consumer\nUX than a generic 400) and the OpenAPI schema documents the limit.\nThe router still validates the ``data:image/`` prefix and base64\nencoding; those are content-shape checks Pydantic length cannot\ncover.\n\n- ``min_length=22``: a minimal valid prefix is ``data:image/x;base64,``\n  (20 chars) plus at least one payload byte (e.g.,\n  ``data:image/x;base64,XX``). Use 22 as a pragmatic floor that\n  rejects empty / clearly-malformed values without false-positives\n  on the smallest legitimate payloads.\n- ``max_length=100_000``: matches the previous router-side 100KB cap.",
         "properties": {
           "data_uri": {
             "maxLength": 100000,
@@ -23365,7 +23365,7 @@
     },
     "/ai/availability/": {
       "get": {
-        "description": "Report whether builder AI chat is usable (builder-audit #338 P1-11).\n\nPermission-gated on ``use_ai_chat`` so non-admin editors (who cannot read\n``/admin/ai-status``) can learn availability. Returns ``available=false``\nrather than 503 when provider keys are missing, so the builder shows a safe\ndisabled state without console-noise errors. A viewer (no ``use_ai_chat``)\ngets 403.",
+        "description": "Report whether builder AI chat is usable (#338).\n\nPermission-gated on ``use_ai_chat`` so non-admin editors (who cannot read\n``/admin/ai-status``) can learn availability. Returns ``available=false``\nrather than 503 when provider keys are missing, so the builder shows a safe\ndisabled state without console-noise errors. A viewer (no ``use_ai_chat``)\ngets 403.",
         "operationId": "ai_availability_endpoint_ai_availability__get",
         "responses": {
           "200": {
@@ -24801,7 +24801,7 @@
     },
     "/audit/datasets/{dataset_id}/column-ddl": {
       "get": {
-        "description": "Return the column-DDL audit history for a dataset.\n\nSEC-FU-08: Surfaces the column-DDL events written by SEC-S03 (Phase 1061)\nto dataset owners so they can detect editor-initiated schema changes.\n\nAccess control (AGENTS.md Pre-Commit Checklist Rule 1):\n- Owner: 200 with their own dataset's DDL history\n- Admin: 200 (admin access is always allowed)\n- Anyone else \u2014 including authenticated readers of a PUBLIC dataset: 404\n  via check_dataset_write_access. fix(#458 E-37): the feed previously used\n  check_dataset_access (read visibility), which let any logged-in user\n  enumerate editor usernames/user_ids on public datasets, contradicting\n  this owner-facing contract.\n- Anonymous: 401 (get_current_active_user dependency)\n\nThe dataset 404-before-auth-query ordering ensures non-existent datasets\nreturn 404 without leaking audit log details.",
+        "description": "Return the column-DDL audit history for a dataset.\n\nSurfaces the column-DDL events to dataset owners so they can detect\neditor-initiated schema changes.\n\nAccess control (AGENTS.md Pre-Commit Checklist Rule 1):\n- Owner: 200 with their own dataset's DDL history\n- Admin: 200 (admin access is always allowed)\n- Anyone else \u2014 including authenticated readers of a PUBLIC dataset: 404\n  via check_dataset_write_access. fix(#458): the feed previously used\n  check_dataset_access (read visibility), which let any logged-in user\n  enumerate editor usernames/user_ids on public datasets, contradicting\n  this owner-facing contract.\n- Anonymous: 401 (get_current_active_user dependency)\n\nThe dataset 404-before-auth-query ordering ensures non-existent datasets\nreturn 404 without leaking audit log details.",
         "operationId": "get_column_ddl_feed_audit_datasets__dataset_id__column_ddl_get",
         "parameters": [
           {
@@ -25621,7 +25621,7 @@
     },
     "/auth/download-token/{dataset_id}": {
       "post": {
-        "description": "Mint a short-lived download-scoped JWT for a single dataset.\n\nIA-P0-01 / SEC-04: the existing COG download URL path requires a\n``typ='download'`` JWT on the ``?token=`` query parameter \u2014 session JWTs\nare rejected. This endpoint issues that token after verifying the caller\nhas read access to the dataset.\n\nAnonymous callers are allowed for public datasets. The returned token has\n``typ='download'``, ``scope='dataset:{dataset_id}'``, and a TTL of 120s.",
+        "description": "Mint a short-lived download-scoped JWT for a single dataset.\n\nThe COG download URL path requires a\n``typ='download'`` JWT on the ``?token=`` query parameter \u2014 session JWTs\nare rejected. This endpoint issues that token after verifying the caller\nhas read access to the dataset.\n\nAnonymous callers are allowed for public datasets. The returned token has\n``typ='download'``, ``scope='dataset:{dataset_id}'``, and a TTL of 120s.",
         "operationId": "create_download_token_endpoint_auth_download_token__dataset_id__post",
         "parameters": [
           {
@@ -25897,7 +25897,7 @@
     },
     "/auth/logout/": {
       "post": {
-        "description": "Revoke all refresh tokens and bump token_version for the current user.\n\nSEC-S15 (Phase 1062-01): revoke_all_tokens bumps User.token_version so the\naccess JWT used for this logout call (and any other outstanding access JWTs)\nare rejected on the next authenticated request \u2014 closing the\n\"logout doesn't invalidate the access JWT\" gap.\n\nfix(#821): logout deliberately does NOT bump key_epoch \u2014 API keys exist to\noutlive browser sessions (CI, MCP servers, tile URLs), so session hygiene\nmust not revoke them. Security events (password change, role change) do.\n\nfix(#1446): the refresh COOKIE can authenticate this call when the access\ntoken has aged out. Requiring a live bearer token meant a user returning\nafter their 15-minute access token expired got a 401 here while their\nmulti-day refresh cookie stayed valid \u2014 the UI reported a clean logout and\nthe session survived it. CSRF is enforced on that path exactly as it is for\n/auth/refresh, since the cookie is then the credential.",
+        "description": "Revoke all refresh tokens and bump token_version for the current user.\n\nrevoke_all_tokens bumps User.token_version so the\naccess JWT used for this logout call (and any other outstanding access JWTs)\nare rejected on the next authenticated request \u2014 closing the\n\"logout doesn't invalidate the access JWT\" gap.\n\nfix(#821): logout deliberately does NOT bump key_epoch \u2014 API keys exist to\noutlive browser sessions (CI, MCP servers, tile URLs), so session hygiene\nmust not revoke them. Security events (password change, role change) do.\n\nfix(#1446): the refresh COOKIE can authenticate this call when the access\ntoken has aged out. Requiring a live bearer token meant a user returning\nafter their 15-minute access token expired got a 401 here while their\nmulti-day refresh cookie stayed valid \u2014 the UI reported a clean logout and\nthe session survived it. CSRF is enforced on that path exactly as it is for\n/auth/refresh, since the cookie is then the credential.",
         "operationId": "logout_auth_logout__post",
         "parameters": [
           {
@@ -26531,7 +26531,7 @@
     },
     "/auth/oauth/{provider_slug}/callback": {
       "get": {
-        "description": "Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.\n\nPhase 268 H-27: the frontend redirect carries access tokens in the URL\nfragment. Without explicit-config resolution, an attacker controlling\n``X-Forwarded-Host`` could steer the post-callback redirect to\nattacker.com and capture the tokens. Force explicit-config resolution\nby passing ``for_external_use=True``.",
+        "description": "Handle IdP callback: exchange code, find/create user, issue JWT, redirect to frontend.\n\nThe frontend redirect carries access tokens in the URL\nfragment. Without explicit-config resolution, an attacker controlling\n``X-Forwarded-Host`` could steer the post-callback redirect to\nattacker.com and capture the tokens. Force explicit-config resolution\nby passing ``for_external_use=True``.",
         "operationId": "oauth_callback_auth_oauth__provider_slug__callback_get",
         "parameters": [
           {
@@ -26646,7 +26646,7 @@
     },
     "/auth/oauth/{provider_slug}/login": {
       "get": {
-        "description": "Redirect user to the IdP authorization URL with PKCE parameters.\n\nPhase 268 H-27: the redirect_uri is handed to the IdP, where an\nattacker-controlled origin (via ``X-Forwarded-Host``) would otherwise\nenable auth-code theft. We force explicit-config resolution by\npassing ``for_external_use=True``; falling back to the request-origin\nis refused.",
+        "description": "Redirect user to the IdP authorization URL with PKCE parameters.\n\nThe redirect_uri is handed to the IdP, where an\nattacker-controlled origin (via ``X-Forwarded-Host``) would otherwise\nenable auth-code theft. We force explicit-config resolution by\npassing ``for_external_use=True``; falling back to the request-origin\nis refused.",
         "operationId": "oauth_login_auth_oauth__provider_slug__login_get",
         "parameters": [
           {
@@ -27058,7 +27058,7 @@
     },
     "/auth/resend-verification/": {
       "post": {
-        "description": "Re-issue and re-send a verification email.\n\nSIGNUP-05 / T-1231-05 (enumeration-safe): ALWAYS returns the same 200 body\nregardless of whether the email exists, is unknown, or is already verified.\nSend errors are logged server-side only and never branch the HTTP response.",
+        "description": "Re-issue and re-send a verification email.\n\nEnumeration-safe: ALWAYS returns the same 200 body\nregardless of whether the email exists, is unknown, or is already verified.\nSend errors are logged server-side only and never branch the HTTP response.",
         "operationId": "resend_verification_auth_resend_verification__post",
         "requestBody": {
           "content": {
@@ -27179,7 +27179,7 @@
     },
     "/auth/verify-email/": {
       "post": {
-        "description": "Redeem a verification token to activate the account.\n\nSIGNUP-03: a valid single-use expiring token flips email_verified=True,\nis_active=True, and status=\"active\" so the user can log in via the\nexisting auth gate in dependencies.py.\n\nExpired, unknown, and already-consumed tokens all return the same\n\"Invalid or expired\" error (enumeration-safe, SIGNUP-05 / T-1231-06).",
+        "description": "Redeem a verification token to activate the account.\n\nA valid single-use expiring token flips email_verified=True,\nis_active=True, and status=\"active\" so the user can log in via the\nexisting auth gate in dependencies.py.\n\nExpired, unknown, and already-consumed tokens all return the same\n\"Invalid or expired\" error (enumeration-safe).",
         "operationId": "verify_email_auth_verify_email__post",
         "requestBody": {
           "content": {
@@ -30696,7 +30696,7 @@
     },
     "/config-ops/export/": {
       "get": {
-        "description": "Export full configuration as JSON (settings + OAuth providers, secrets redacted).\n\nReturns a downloadable JSON payload with Content-Disposition header. This is a\nfile-download endpoint \u2014 the previous ``response_model=ConfigExportResponse``\nwas silently ignored because the handler returns a raw JSONResponse with custom\nheaders (TYPE-N3). Using ``response_class=JSONResponse`` is the correct way to\ndocument a download endpoint in OpenAPI.",
+        "description": "Export full configuration as JSON (settings + OAuth providers, secrets redacted).\n\nReturns a downloadable JSON payload with Content-Disposition header. This is a\nfile-download endpoint \u2014 the previous ``response_model=ConfigExportResponse``\nwas silently ignored because the handler returns a raw JSONResponse with custom\nheaders. Using ``response_class=JSONResponse`` is the correct way to\ndocument a download endpoint in OpenAPI.",
         "operationId": "export_configuration_config_ops_export__get",
         "responses": {
           "200": {
@@ -34619,7 +34619,7 @@
     },
     "/datasets/{dataset_id}/download/cog": {
       "get": {
-        "description": "Download the Cloud-Optimized GeoTIFF for a raster dataset.\n\nLocal storage: streams the COG file with Content-Type image/tiff.\nS3 storage: returns a 302 redirect to a presigned GET URL (1-hour expiry).\nAccepts standard auth or ?token= JWT query parameter for browser downloads.\n\nKNOWN-01 (Phase 1071): ``user`` may be None when a no-sub anonymous\ndownload token (issued by POST /auth/download-token/{id} for a public\ndataset) is presented on ``?token=``. The function branches on\nuser-None to enforce public visibility and emit the audit row with\nuser_id=NULL.",
+        "description": "Download the Cloud-Optimized GeoTIFF for a raster dataset.\n\nLocal storage: streams the COG file with Content-Type image/tiff.\nS3 storage: returns a 302 redirect to a presigned GET URL (1-hour expiry).\nAccepts standard auth or ?token= JWT query parameter for browser downloads.\n\n``user`` may be None when a no-sub anonymous\ndownload token (issued by POST /auth/download-token/{id} for a public\ndataset) is presented on ``?token=``. The function branches on\nuser-None to enforce public visibility and emit the audit row with\nuser_id=NULL.",
         "operationId": "download_cog_datasets__dataset_id__download_cog_get",
         "parameters": [
           {
@@ -34970,7 +34970,7 @@
     },
     "/datasets/{dataset_id}/features.geojson": {
       "get": {
-        "description": "Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.\n\nfix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,\neligible cluster layers) already sends ``X-Embed-Token``, and the B-023\nshared-map union now exposes embed-scoped private layers to embeds \u2014 so\nthis endpoint accepts the token as fallback authorization via the SAME\n``validate_embed_token_access`` capability check as tile serving.\n\nfix(#390): the non-embed path uses ``check_dataset_access_or_anonymous``\nso public+published datasets serve to anonymous callers (matching vector\ntiles and the dataset-detail read path); private/restricted datasets still\n404 for anon and follow full RBAC for credentialed callers. This unblocks\nclient clustering for anonymous public-map viewers.\n\nfix(#390) codex P2: a request that *supplied* credentials which failed to\nresolve (expired / revoked JWT) gets 401, not the anonymous 404, so the\nfrontend's refresh-on-401 retry fires instead of a private layer\npermanently failing as \"not found\". Truly credentialless requests keep the\nanonymous public path.",
+        "description": "Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.\n\nfix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,\neligible cluster layers) already sends ``X-Embed-Token``, and the\nshared-map union now exposes embed-scoped private layers to embeds \u2014 so\nthis endpoint accepts the token as fallback authorization via the SAME\n``validate_embed_token_access`` capability check as tile serving.\n\nfix(#390): the non-embed path uses ``check_dataset_access_or_anonymous``\nso public+published datasets serve to anonymous callers (matching vector\ntiles and the dataset-detail read path); private/restricted datasets still\n404 for anon and follow full RBAC for credentialed callers. This unblocks\nclient clustering for anonymous public-map viewers.\n\nfix(#390) codex P2: a request that *supplied* credentials which failed to\nresolve (expired / revoked JWT) gets 401, not the anonymous 404, so the\nfrontend's refresh-on-401 retry fires instead of a private layer\npermanently failing as \"not found\". Truly credentialless requests keep the\nanonymous public path.",
         "operationId": "get_features_geojson_z_endpoint_datasets__dataset_id__features_geojson_get",
         "parameters": [
           {
@@ -35122,7 +35122,7 @@
     },
     "/datasets/{dataset_id}/features/": {
       "get": {
-        "description": "Get paginated GeoJSON features for a dataset.\n\nPagination is OFFSET-based (fix(#458 E-40), documented limitation): rows can\nskip or duplicate across pages under concurrent writes, though feature ids\nstay stable (ORDER BY gid, the primary key). Clients that need stable\ncursoring should use the OGC API Features endpoint, which supports keyset\npagination via ``after_gid``.",
+        "description": "Get paginated GeoJSON features for a dataset.\n\nPagination is OFFSET-based (fix(#458), documented limitation): rows can\nskip or duplicate across pages under concurrent writes, though feature ids\nstay stable (ORDER BY gid, the primary key). Clients that need stable\ncursoring should use the OGC API Features endpoint, which supports keyset\npagination via ``after_gid``.",
         "operationId": "list_features_datasets__dataset_id__features__get",
         "parameters": [
           {
@@ -38055,7 +38055,7 @@
     },
     "/datasets/{dataset_id}/relationships/": {
       "get": {
-        "description": "List FK relationships for a dataset.\n\nPaginated via ``skip`` and ``limit`` to bound response size for datasets\nwith large numbers of auto-detected relationships. Returns the standard\nlist envelope (``relationships`` + ``total``) so callers can detect whether\nmore pages exist (GAP-033); ``total`` counts the visible relationships before\npagination.",
+        "description": "List FK relationships for a dataset.\n\nPaginated via ``skip`` and ``limit`` to bound response size for datasets\nwith large numbers of auto-detected relationships. Returns the standard\nlist envelope (``relationships`` + ``total``) so callers can detect whether\nmore pages exist; ``total`` counts the visible relationships before\npagination.",
         "operationId": "list_dataset_relationships_datasets__dataset_id__relationships__get",
         "parameters": [
           {
@@ -41938,7 +41938,7 @@
     },
     "/ingest/register/bulk/": {
       "post": {
-        "description": "Bulk-register multiple existing PostGIS tables as datasets.\n\nEach table is registered independently -- one failure does not block\nothers. Tables are processed in parallel via ``asyncio.gather`` with\na fresh session per task, which keeps transaction isolation while\nremoving the sequential per-table latency (PERF-3).",
+        "description": "Bulk-register multiple existing PostGIS tables as datasets.\n\nEach table is registered independently -- one failure does not block\nothers. Tables are processed in parallel via ``asyncio.gather`` with\na fresh session per task, which keeps transaction isolation while\nremoving the sequential per-table latency.",
         "operationId": "bulk_register_tables_ingest_register_bulk__post",
         "requestBody": {
           "content": {
@@ -43004,7 +43004,7 @@
     },
     "/ingest/vrt/{dataset_id}/sources/": {
       "post": {
-        "description": "Add a COG source to an existing VRT and trigger async regeneration.\n\nValidates the new source against existing sources synchronously.\nReturns 202 Accepted with a job_id for polling.\nReturns 409 if the VRT is currently regenerating (SRC-05) or source already linked.\nReturns 422 if the source is incompatible with existing sources.",
+        "description": "Add a COG source to an existing VRT and trigger async regeneration.\n\nValidates the new source against existing sources synchronously.\nReturns 202 Accepted with a job_id for polling.\nReturns 409 if the VRT is currently regenerating or the source is already linked.\nReturns 422 if the source is incompatible with existing sources.",
         "operationId": "add_vrt_source_ingest_vrt__dataset_id__sources__post",
         "parameters": [
           {
@@ -43158,7 +43158,7 @@
     },
     "/ingest/vrt/{dataset_id}/sources/{source_dataset_id}/": {
       "delete": {
-        "description": "Remove a COG source from an existing VRT and trigger async regeneration.\n\nReturns 202 Accepted with a job_id for polling.\nReturns 409 if the VRT is currently regenerating (SRC-05).\nReturns 422 if removing would leave fewer than 2 sources.\nReturns 404 if the source is not linked to the VRT.",
+        "description": "Remove a COG source from an existing VRT and trigger async regeneration.\n\nReturns 202 Accepted with a job_id for polling.\nReturns 409 if the VRT is currently regenerating.\nReturns 422 if removing would leave fewer than 2 sources.\nReturns 404 if the source is not linked to the VRT.",
         "operationId": "remove_vrt_source_ingest_vrt__dataset_id__sources__source_dataset_id___delete",
         "parameters": [
           {
@@ -44610,7 +44610,7 @@
     },
     "/layers/{dataset_id}/columns/{column_name}/references": {
       "get": {
-        "description": "Count saved maps whose layer config references a column.\n\nfix(#458 E-06): surfaced in the schema editor before a rename/drop so the\neditor knows how many saved maps depend on the column. Count only \u2014 map\ntitles may belong to other users and are not exposed here.",
+        "description": "Count saved maps whose layer config references a column.\n\nfix(#458): surfaced in the schema editor before a rename/drop so the\neditor knows how many saved maps depend on the column. Count only \u2014 map\ntitles may belong to other users and are not exposed here.",
         "operationId": "column_references_endpoint_layers__dataset_id__columns__column_name__references_get",
         "parameters": [
           {
@@ -45557,7 +45557,7 @@
     },
     "/maps/icons/{icon_id}/asset": {
       "get": {
-        "description": "Serve an uploaded or bundled icon asset by stable icon ID.\n\nSEC-01 / M-63: SVG responses carry Content-Security-Policy\n``default-src 'none'; sandbox`` so an uploaded SVG cannot fetch other\norigins, run scripts, or read auth cookies even if validation is bypassed\nin the future. Browsers (Chromium, Firefox) honor the sandbox directive on\nimage/svg+xml responses. PNG responses use the global SecurityHeadersMiddleware\ndefault ``frame-ancestors 'self'``.",
+        "description": "Serve an uploaded or bundled icon asset by stable icon ID.\n\nSVG responses carry Content-Security-Policy\n``default-src 'none'; sandbox`` so an uploaded SVG cannot fetch other\norigins, run scripts, or read auth cookies even if validation is bypassed\nin the future. Browsers (Chromium, Firefox) honor the sandbox directive on\nimage/svg+xml responses. PNG responses use the global SecurityHeadersMiddleware\ndefault ``frame-ancestors 'self'``.",
         "operationId": "get_map_icon_asset_endpoint_maps_icons__icon_id__asset_get",
         "parameters": [
           {
@@ -45687,7 +45687,7 @@
     },
     "/maps/import": {
       "post": {
-        "description": "Import a MapLibre style JSON document into a new GeoLens map.\n\nAPI-01 (M-05): the request body is now a typed Pydantic model instead of\na bare ``dict``. ``MapStyleImportRequest`` mirrors the MapLibre style\nspec top-level keys with ``extra=\"allow\"``, so existing payloads keep\nworking byte-identically while the OpenAPI schema gains a named class\nand the auto-generated SDKs stop emitting an opaque ``Mapping[str, Any]``\nrequest type.",
+        "description": "Import a MapLibre style JSON document into a new GeoLens map.\n\nThe request body is a typed Pydantic model rather than a bare ``dict``. ``MapStyleImportRequest`` mirrors the MapLibre style\nspec top-level keys with ``extra=\"allow\"``, so existing payloads keep\nworking byte-identically while the OpenAPI schema gains a named class\nand the auto-generated SDKs stop emitting an opaque ``Mapping[str, Any]``\nrequest type.",
         "operationId": "import_map_style_endpoint_maps_import_post",
         "requestBody": {
           "content": {
@@ -45829,7 +45829,7 @@
     },
     "/maps/shared/{token}": {
       "get": {
-        "description": "Get a shared map by token. Optionally authenticated for non-public layers.\n\nSEC-S08 (Phase 1062-05): emits ``Content-Security-Policy: frame-ancestors\n'self' [<allowed_origins>...]`` on the response, derived from the active\nEmbedToken for this map. When no EmbedToken exists or allowed_origins is\nempty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware\nrespects this route-level CSP and skips emitting X-Frame-Options: DENY.\n\nfix(#394) SH-01/B-023: accepts ``X-Embed-Token`` so embed viewers get the\nlayers the token's scope authorizes (SEC-022 capability posture).",
+        "description": "Get a shared map by token. Optionally authenticated for non-public layers.\n\nEmits ``Content-Security-Policy: frame-ancestors\n'self' [<allowed_origins>...]`` on the response, derived from the active\nEmbedToken for this map. When no EmbedToken exists or allowed_origins is\nempty, defaults to ``frame-ancestors 'self'``. The SecurityHeadersMiddleware\nrespects this route-level CSP and skips emitting X-Frame-Options: DENY.\n\nfix(#394): accepts ``X-Embed-Token`` so embed viewers get the layers the\ntoken's scope authorizes, as a capability rather than a role.",
         "operationId": "get_shared_map_endpoint_maps_shared__token__get",
         "parameters": [
           {
@@ -48004,7 +48004,7 @@
     },
     "/maps/{map_id}/layers/bulk-delete": {
       "post": {
-        "description": "Batch-delete multiple layers from a map in a single request.\n\nMilestone exception (v1010 Phase 1047): one additive endpoint permitted\nper REQUIREMENTS.md Out-of-Scope to reduce N sequential DELETEs to one\nbatched call for bulk-delete UX (PB-03 / PERF-03).\n\nReturns 200 with deleted/failed arrays in all cases (partial failures\nsurface inline, not as HTTP errors).  Full rollback is the caller's\nresponsibility if all ids fail.",
+        "description": "Batch-delete multiple layers from a map in a single request.\n\nOne additive endpoint that reduces N sequential DELETEs to a single\nbatched call for bulk-delete UX.\n\nReturns 200 with deleted/failed arrays in all cases (partial failures\nsurface inline, not as HTTP errors).  Full rollback is the caller's\nresponsibility if all ids fail.",
         "operationId": "bulk_delete_layers_endpoint_maps__map_id__layers_bulk_delete_post",
         "parameters": [
           {
@@ -48441,7 +48441,7 @@
         ]
       },
       "put": {
-        "description": "Upload a base64 OG social-card image (up to 750KB) for a map.\n\nAccepts a data:image/ URI, decodes the base64 payload, validates the\nbytes are a real image (PIL verify), writes to storage under\n``maps/og-images/{map_id}.{ext}``, and persists the storage key to\n``catalog.maps.og_image_uri``.\n\nIntended for 1200x630 JPEG captures (SHARE-08). The payload cap\n(750KB) is larger than the thumbnail cap (100KB) to accommodate the\nlarger canvas export \u2014 they are separate schemas (OgImageUploadRequest\nvs ThumbnailUploadRequest) to avoid relaxing the locked thumbnail\ncontract. Auth and PIL-verify rules are identical to upload_thumbnail.",
+        "description": "Upload a base64 OG social-card image (up to 750KB) for a map.\n\nAccepts a data:image/ URI, decodes the base64 payload, validates the\nbytes are a real image (PIL verify), writes to storage under\n``maps/og-images/{map_id}.{ext}``, and persists the storage key to\n``catalog.maps.og_image_uri``.\n\nIntended for 1200x630 JPEG captures. The payload cap\n(750KB) is larger than the thumbnail cap (100KB) to accommodate the\nlarger canvas export \u2014 they are separate schemas (OgImageUploadRequest\nvs ThumbnailUploadRequest) to avoid relaxing the locked thumbnail\ncontract. Auth and PIL-verify rules are identical to upload_thumbnail.",
         "operationId": "upload_og_image_maps__map_id__og_image__put",
         "parameters": [
           {
@@ -49636,7 +49636,7 @@
     },
     "/maps/{map_id}/visibility-check/": {
       "get": {
-        "description": "Check if a map has non-public datasets. Informational only.\n\nOwner-or-admin like the other sharing mutations: the response names\nnon-public dataset titles, which read access alone must not reveal.\nRead access is checked first so unreadable maps keep answering 404\n(SEC-007 existence-hiding); readable non-owners get 403.",
+        "description": "Check if a map has non-public datasets. Informational only.\n\nOwner-or-admin like the other sharing mutations: the response names\nnon-public dataset titles, which read access alone must not reveal.\nRead access is checked first so unreadable maps keep answering 404\n(existence-hiding); readable non-owners get 403.",
         "operationId": "visibility_check_endpoint_maps__map_id__visibility_check__get",
         "parameters": [
           {
@@ -55194,7 +55194,7 @@
     },
     "/settings/basemaps/": {
       "get": {
-        "description": "Return the configured basemap list (public, no auth required).\n\nBasemaps with ``{api_key}`` in the URL are filtered out when no key is\nconfigured.  When a key IS set the placeholder is resolved server-side.\nThe response uses ``BasemapPublicResponse`` which excludes ``api_key``.\n\nSEC-S10 (2026-05-20 audit): the resolved ``url`` field intentionally\nincludes the substituted ``api_key`` value when configured. Client-side\ntile-provider keys (Mapbox, Stadia, MapTiler) are designed for browser\nexposure and the frontend MUST receive them to load tiles. Do NOT put a\nbackend-only provider key in this field. Rotate the key in the\nprovider dashboard if it is misused. Rate-limited via\n``_basemap_proxy_rate_limit`` to cap replay-cost from anonymous clients.",
+        "description": "Return the configured basemap list (public, no auth required).\n\nBasemaps with ``{api_key}`` in the URL are filtered out when no key is\nconfigured.  When a key IS set the placeholder is resolved server-side.\nThe response uses ``BasemapPublicResponse`` which excludes ``api_key``.\n\nThe resolved ``url`` field intentionally\nincludes the substituted ``api_key`` value when configured. Client-side\ntile-provider keys (Mapbox, Stadia, MapTiler) are designed for browser\nexposure and the frontend MUST receive them to load tiles. Do NOT put a\nbackend-only provider key in this field. Rotate the key in the\nprovider dashboard if it is misused. Rate-limited via\n``_basemap_proxy_rate_limit`` to cap replay-cost from anonymous clients.",
         "operationId": "get_basemaps_settings_basemaps__get",
         "responses": {
           "200": {
@@ -55920,7 +55920,7 @@
     },
     "/settings/notifications/status/": {
       "get": {
-        "description": "Return which notification channels are configured (booleans only \u2014 no secrets).\n\nMirrors get_api_key_status: returns presence flags derived from env/settings\nwithout ever echoing the SMTP password, webhook URL, or webhook secret\n(NOTIF-05 / T-1229-09).",
+        "description": "Return which notification channels are configured (booleans only \u2014 no secrets).\n\nMirrors get_api_key_status: returns presence flags derived from env/settings\nwithout ever echoing the SMTP password, webhook URL, or webhook secret\nwithout secrets.",
         "operationId": "get_notification_status_settings_notifications_status__get",
         "responses": {
           "200": {
@@ -56042,7 +56042,7 @@
     },
     "/settings/notifications/test/": {
       "post": {
-        "description": "Send a canned test notification through each configured channel (admin only).\n\nMirrors detect_embedding_dims: admin-gated probe that reports per-channel\nreachable/error in a 200 body without leaking secrets or raising 5xx on a\nbad channel (NOTIF-06 / T-1229-08 / T-1229-09 / T-1229-10).\n\nPer-channel approach (not EnvConfiguredNotificationSink.deliver) is used so\neach channel's success/failure is captured in its own\nNotificationTestChannelResult for display in the admin UI.",
+        "description": "Send a canned test notification through each configured channel (admin only).\n\nMirrors detect_embedding_dims: admin-gated probe that reports per-channel\nreachable/error in a 200 body without leaking secrets or raising 5xx on a\nbad channel.\n\nPer-channel approach (not EnvConfiguredNotificationSink.deliver) is used so\neach channel's success/failure is captured in its own\nNotificationTestChannelResult for display in the admin UI.",
         "operationId": "send_test_notification_settings_notifications_test__post",
         "responses": {
           "200": {
@@ -56288,7 +56288,7 @@
         ]
       },
       "post": {
-        "description": "Create a new OAuth or SAML provider (admin only).\n\nAudit-log payload includes the full ``created`` snapshot with non-secret\nfields verbatim and ``<redacted>`` markers for secrets that were submitted\nin the request body (SAML-12 / Pitfall 9 / T-217-03-AUDIT-LEAK).",
+        "description": "Create a new OAuth or SAML provider (admin only).\n\nAudit-log payload includes the full ``created`` snapshot with non-secret\nfields verbatim and ``<redacted>`` markers for secrets that were submitted\nin the request body.",
         "operationId": "create_oauth_provider_settings_oauth_providers__post",
         "requestBody": {
           "content": {
@@ -56420,7 +56420,7 @@
     },
     "/settings/oauth-providers/{provider_id}": {
       "delete": {
-        "description": "Delete an OAuth or SAML provider (admin only).\n\nAudit-log payload contains a ``deleted`` snapshot with the pre-delete\nstate \u2014 non-secret fields verbatim, secret fields marked ``<redacted>``\nif they were previously set (T-217-03-AUDIT-LEAK mitigation extends to\ndelete events too).",
+        "description": "Delete an OAuth or SAML provider (admin only).\n\nAudit-log payload contains a ``deleted`` snapshot with the pre-delete\nstate \u2014 non-secret fields verbatim, secret fields marked ``<redacted>``\nif they were previously set; the same redaction applies to delete events.",
         "operationId": "delete_oauth_provider_settings_oauth_providers__provider_id__delete",
         "parameters": [
           {
@@ -56545,7 +56545,7 @@
         ]
       },
       "put": {
-        "description": "Update an existing OAuth or SAML provider (admin only).\n\nAudit-log payload contains ``details.changes`` with per-field\n``{\"old\": ..., \"new\": ...}`` diffs. Secret fields (idp_certificate,\nclient_secret_encrypted, client_secret) are redacted as\n``{\"old\": \"<redacted>\", \"new\": \"<redacted>\"}`` (Pitfall 9 / SAML-12 /\nT-217-03-AUDIT-LEAK HIGH severity).",
+        "description": "Update an existing OAuth or SAML provider (admin only).\n\nAudit-log payload contains ``details.changes`` with per-field\n``{\"old\": ..., \"new\": ...}`` diffs. Secret fields (idp_certificate,\nclient_secret_encrypted, client_secret) are redacted as\n``{\"old\": \"<redacted>\", \"new\": \"<redacted>\"}``.",
         "operationId": "update_oauth_provider_settings_oauth_providers__provider_id__put",
         "parameters": [
           {

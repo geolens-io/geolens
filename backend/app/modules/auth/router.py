@@ -572,12 +572,12 @@ async def verify_email(
 ) -> RegisterResponse:
     """Redeem a verification token to activate the account.
 
-    SIGNUP-03: a valid single-use expiring token flips email_verified=True,
+    A valid single-use expiring token flips email_verified=True,
     is_active=True, and status="active" so the user can log in via the
     existing auth gate in dependencies.py.
 
     Expired, unknown, and already-consumed tokens all return the same
-    "Invalid or expired" error (enumeration-safe, SIGNUP-05 / T-1231-06).
+    "Invalid or expired" error (enumeration-safe).
     """
     from app.modules.audit.service import (
         AuditEvent,
@@ -643,7 +643,7 @@ async def resend_verification(
 ) -> RegisterResponse:
     """Re-issue and re-send a verification email.
 
-    SIGNUP-05 / T-1231-05 (enumeration-safe): ALWAYS returns the same 200 body
+    Enumeration-safe: ALWAYS returns the same 200 body
     regardless of whether the email exists, is unknown, or is already verified.
     Send errors are logged server-side only and never branch the HTTP response.
     """
@@ -736,7 +736,7 @@ async def logout(
 ) -> Response:
     """Revoke all refresh tokens and bump token_version for the current user.
 
-    SEC-S15 (Phase 1062-01): revoke_all_tokens bumps User.token_version so the
+    revoke_all_tokens bumps User.token_version so the
     access JWT used for this logout call (and any other outstanding access JWTs)
     are rejected on the next authenticated request — closing the
     "logout doesn't invalidate the access JWT" gap.
@@ -820,7 +820,7 @@ async def create_download_token_endpoint(
 ) -> DownloadTokenResponse:
     """Mint a short-lived download-scoped JWT for a single dataset.
 
-    IA-P0-01 / SEC-04: the existing COG download URL path requires a
+    The COG download URL path requires a
     ``typ='download'`` JWT on the ``?token=`` query parameter — session JWTs
     are rejected. This endpoint issues that token after verifying the caller
     has read access to the dataset.

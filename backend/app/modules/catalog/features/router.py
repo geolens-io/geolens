@@ -195,7 +195,7 @@ async def get_features_geojson_z_endpoint(
     """Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
     fix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,
-    eligible cluster layers) already sends ``X-Embed-Token``, and the B-023
+    eligible cluster layers) already sends ``X-Embed-Token``, and the
     shared-map union now exposes embed-scoped private layers to embeds — so
     this endpoint accepts the token as fallback authorization via the SAME
     ``validate_embed_token_access`` capability check as tile serving.
@@ -320,7 +320,7 @@ async def list_features(
 ) -> JSONResponse:
     """Get paginated GeoJSON features for a dataset.
 
-    Pagination is OFFSET-based (fix(#458 E-40), documented limitation): rows can
+    Pagination is OFFSET-based (fix(#458), documented limitation): rows can
     skip or duplicate across pages under concurrent writes, though feature ids
     stay stable (ORDER BY gid, the primary key). Clients that need stable
     cursoring should use the OGC API Features endpoint, which supports keyset

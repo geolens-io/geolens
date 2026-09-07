@@ -907,7 +907,7 @@ async def download_cog(
     S3 storage: returns a 302 redirect to a presigned GET URL (1-hour expiry).
     Accepts standard auth or ?token= JWT query parameter for browser downloads.
 
-    KNOWN-01 (Phase 1071): ``user`` may be None when a no-sub anonymous
+    ``user`` may be None when a no-sub anonymous
     download token (issued by POST /auth/download-token/{id} for a public
     dataset) is presented on ``?token=``. The function branches on
     user-None to enforce public visibility and emit the audit row with

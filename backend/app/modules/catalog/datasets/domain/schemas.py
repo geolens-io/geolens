@@ -1113,7 +1113,7 @@ class DatasetRelationshipResponse(BaseModel):
 
 
 class DatasetRelationshipListResponse(BaseModel):
-    """Paginated list envelope for dataset FK relationships (GAP-033).
+    """Paginated list envelope for dataset FK relationships.
 
     Mirrors the ``{<entity>: [...], total: int}`` convention used by every other
     paginated list endpoint (e.g. AttributeMetadataListResponse,

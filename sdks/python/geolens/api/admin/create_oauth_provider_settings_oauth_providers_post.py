@@ -107,7 +107,7 @@ def sync_detailed(
 
     Audit-log payload includes the full ``created`` snapshot with non-secret
     fields verbatim and ``<redacted>`` markers for secrets that were submitted
-    in the request body (SAML-12 / Pitfall 9 / T-217-03-AUDIT-LEAK).
+    in the request body.
 
     Args:
         body (OAuthProviderCreate): Schema for creating a new OAuth provider.
@@ -142,7 +142,7 @@ def sync(
 
     Audit-log payload includes the full ``created`` snapshot with non-secret
     fields verbatim and ``<redacted>`` markers for secrets that were submitted
-    in the request body (SAML-12 / Pitfall 9 / T-217-03-AUDIT-LEAK).
+    in the request body.
 
     Args:
         body (OAuthProviderCreate): Schema for creating a new OAuth provider.
@@ -172,7 +172,7 @@ async def asyncio_detailed(
 
     Audit-log payload includes the full ``created`` snapshot with non-secret
     fields verbatim and ``<redacted>`` markers for secrets that were submitted
-    in the request body (SAML-12 / Pitfall 9 / T-217-03-AUDIT-LEAK).
+    in the request body.
 
     Args:
         body (OAuthProviderCreate): Schema for creating a new OAuth provider.
@@ -205,7 +205,7 @@ async def asyncio(
 
     Audit-log payload includes the full ``created`` snapshot with non-secret
     fields verbatim and ``<redacted>`` markers for secrets that were submitted
-    in the request body (SAML-12 / Pitfall 9 / T-217-03-AUDIT-LEAK).
+    in the request body.
 
     Args:
         body (OAuthProviderCreate): Schema for creating a new OAuth provider.

@@ -103,7 +103,7 @@ def sync_detailed(
 
      Serve an uploaded or bundled icon asset by stable icon ID.
 
-    SEC-01 / M-63: SVG responses carry Content-Security-Policy
+    SVG responses carry Content-Security-Policy
     ``default-src 'none'; sandbox`` so an uploaded SVG cannot fetch other
     origins, run scripts, or read auth cookies even if validation is bypassed
     in the future. Browsers (Chromium, Firefox) honor the sandbox directive on
@@ -141,7 +141,7 @@ def sync(
 
      Serve an uploaded or bundled icon asset by stable icon ID.
 
-    SEC-01 / M-63: SVG responses carry Content-Security-Policy
+    SVG responses carry Content-Security-Policy
     ``default-src 'none'; sandbox`` so an uploaded SVG cannot fetch other
     origins, run scripts, or read auth cookies even if validation is bypassed
     in the future. Browsers (Chromium, Firefox) honor the sandbox directive on
@@ -174,7 +174,7 @@ async def asyncio_detailed(
 
      Serve an uploaded or bundled icon asset by stable icon ID.
 
-    SEC-01 / M-63: SVG responses carry Content-Security-Policy
+    SVG responses carry Content-Security-Policy
     ``default-src 'none'; sandbox`` so an uploaded SVG cannot fetch other
     origins, run scripts, or read auth cookies even if validation is bypassed
     in the future. Browsers (Chromium, Firefox) honor the sandbox directive on
@@ -210,7 +210,7 @@ async def asyncio(
 
      Serve an uploaded or bundled icon asset by stable icon ID.
 
-    SEC-01 / M-63: SVG responses carry Content-Security-Policy
+    SVG responses carry Content-Security-Policy
     ``default-src 'none'; sandbox`` so an uploaded SVG cannot fetch other
     origins, run scripts, or read auth cookies even if validation is bypassed
     in the future. Browsers (Chromium, Firefox) honor the sandbox directive on

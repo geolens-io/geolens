@@ -16,11 +16,11 @@ T = TypeVar("T", bound="NotificationTestResponse")
 
 @_attrs_define
 class NotificationTestResponse:
-    """Response for POST /settings/notifications/test/ (NOTIF-06).
+    """Response for POST /settings/notifications/test/.
 
     Always returns HTTP 200 — a channel delivery failure is captured in the
     per-channel ``channels`` list rather than as a 5xx. Never contains secret
-    values (T-1229-09 / NOTIF-05).
+    values.
 
         Attributes:
             sent (bool): True if at least one channel successfully delivered the test notification.

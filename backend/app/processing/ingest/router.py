@@ -1547,7 +1547,7 @@ async def bulk_register_tables(
     Each table is registered independently -- one failure does not block
     others. Tables are processed in parallel via ``asyncio.gather`` with
     a fresh session per task, which keeps transaction isolation while
-    removing the sequential per-table latency (PERF-3).
+    removing the sequential per-table latency.
     """
     from app.core.db import async_session
 
@@ -1635,7 +1635,7 @@ async def add_vrt_source(
 
     Validates the new source against existing sources synchronously.
     Returns 202 Accepted with a job_id for polling.
-    Returns 409 if the VRT is currently regenerating (SRC-05) or source already linked.
+    Returns 409 if the VRT is currently regenerating or the source is already linked.
     Returns 422 if the source is incompatible with existing sources.
     """
     # fix(#1327): the resulting member set is STAGED on the VrtGeneration row;
@@ -1835,7 +1835,7 @@ async def remove_vrt_source(
     """Remove a COG source from an existing VRT and trigger async regeneration.
 
     Returns 202 Accepted with a job_id for polling.
-    Returns 409 if the VRT is currently regenerating (SRC-05).
+    Returns 409 if the VRT is currently regenerating.
     Returns 422 if removing would leave fewer than 2 sources.
     Returns 404 if the source is not linked to the VRT.
     """

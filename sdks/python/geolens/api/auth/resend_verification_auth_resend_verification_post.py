@@ -105,7 +105,7 @@ def sync_detailed(
 
      Re-issue and re-send a verification email.
 
-    SIGNUP-05 / T-1231-05 (enumeration-safe): ALWAYS returns the same 200 body
+    Enumeration-safe: ALWAYS returns the same 200 body
     regardless of whether the email exists, is unknown, or is already verified.
     Send errors are logged server-side only and never branch the HTTP response.
 
@@ -140,7 +140,7 @@ def sync(
 
      Re-issue and re-send a verification email.
 
-    SIGNUP-05 / T-1231-05 (enumeration-safe): ALWAYS returns the same 200 body
+    Enumeration-safe: ALWAYS returns the same 200 body
     regardless of whether the email exists, is unknown, or is already verified.
     Send errors are logged server-side only and never branch the HTTP response.
 
@@ -170,7 +170,7 @@ async def asyncio_detailed(
 
      Re-issue and re-send a verification email.
 
-    SIGNUP-05 / T-1231-05 (enumeration-safe): ALWAYS returns the same 200 body
+    Enumeration-safe: ALWAYS returns the same 200 body
     regardless of whether the email exists, is unknown, or is already verified.
     Send errors are logged server-side only and never branch the HTTP response.
 
@@ -203,7 +203,7 @@ async def asyncio(
 
      Re-issue and re-send a verification email.
 
-    SIGNUP-05 / T-1231-05 (enumeration-safe): ALWAYS returns the same 200 body
+    Enumeration-safe: ALWAYS returns the same 200 body
     regardless of whether the email exists, is unknown, or is already verified.
     Send errors are logged server-side only and never branch the HTTP response.
 
