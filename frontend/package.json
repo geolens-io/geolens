@@ -53,7 +53,7 @@
     "pmtiles": "^4.5.0",
     "radix-ui": "^1.6.7",
     "react": "^19.2.8",
-    "react-colorful": "^5.8.0",
+    "react-colorful": "^5.8.1",
     "react-dom": "^19.2.8",
     "react-dropzone": "^20.1.1",
     "react-i18next": "^17.0.12",
