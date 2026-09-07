@@ -1255,6 +1255,46 @@ async def stamp_failed_origin_health(
         await invalidate_catalog_cache()
 
 
+async def load_job_for_error_write(
+    session,
+    job_uuid: uuid.UUID,
+    attempt_uuid: uuid.UUID | None,
+    *,
+    task_name: str,
+):
+    """Load the job row a failure tail is about to settle, under the shared budget.
+
+    Returns ``None`` when the row is gone, when a newer attempt owns it, or when
+    the budget expired: an expiry is logged as its own event and the session is
+    rolled back, so the caller's remaining writes still run and the ingest
+    failure it was handling stays the task's outcome.
+
+    fix(#1950 codex r2): the budget bounds this SELECT, which is what makes the
+    load itself able to fail. Every caller reaches it from inside an ``except``,
+    where a raise here would replace the cause with a lock timeout.
+    """
+    from sqlalchemy import select
+    from sqlalchemy.exc import DBAPIError
+
+    from app.platform.jobs.heartbeat import (
+        arm_job_error_write_budget,
+        log_job_error_write_failure,
+    )
+    from app.platform.jobs.models import IngestJob
+
+    filters = [IngestJob.id == job_uuid]
+    if attempt_uuid is not None:
+        filters.append(IngestJob.attempt_id == attempt_uuid)
+    try:
+        await arm_job_error_write_budget(session)
+        result = await session.execute(select(IngestJob).where(*filters))
+        return result.scalar_one_or_none()
+    except DBAPIError as write_failure:
+        await session.rollback()
+        log_job_error_write_failure(write_failure, job_id=str(job_uuid), task=task_name)
+        return None
+
+
 async def _cleanup_staging_on_failure(
     session,
     *,

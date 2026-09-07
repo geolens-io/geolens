@@ -3624,7 +3624,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1950): +25 — the shared failure helper arms the job-row budget after
     # its own rollback, and an expiry there is logged and swallowed so the caller
     # re-raises the ingest failure instead. Cap 2643 -> 2668, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2668,
+    # fix(#1950 codex r2): +40 — `load_job_for_error_write`, the guarded job load
+    # the two re-upload tails share. Cap 2668 -> 2708, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2708,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -3731,7 +3733,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1950): +4 — both failure tails bound their job-row load, and
     # reupload_file's terminal status moved into a `finally` so a bounded write
     # that raises still reaches the reapers. Cap 1325 -> 1329, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1329,
+    # fix(#1950 codex r2): -12 — each tail's pre-helper job load moved to
+    # `tasks_common.load_job_for_error_write`, which arms the budget and
+    # swallows an expiry there. Cap 1329 -> 1317, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1317,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -4778,7 +4783,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1950): +12 — both error-write brackets pass the job-row budget, and
     # the terminal status moved into a `finally` so a bounded write that raises
     # still reaches the reapers. Cap 1368 -> 1380, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1380,
+    # fix(#1950 codex r2): +17 — the budget also bounds the job load
+    # `_job_phase_session` runs before the helper, so both tails grew the
+    # DBAPIError handler that swallows an expiry. Cap 1380 -> 1397, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1397,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern

@@ -17,7 +17,6 @@ from app.platform.catalog_locks import (
 )
 from app.platform.dataset_origin import classify_origin, service_layer_identity
 from app.platform.jobs.heartbeat import (
-    arm_job_error_write_budget,
     attempt_scoped_staging_table,
     claim_job_attempt_and_start_heartbeat,
     require_ingest_job_update,
@@ -47,6 +46,7 @@ from app.processing.ingest.tasks_common import (
     _archive_original_file,
     _bind_task_log_context,
     _cleanup_staging_on_failure,
+    load_job_for_error_write,
     reap_downloaded_staging_source,
     reap_presigned_staging_object,
     _current_tenant_role,
@@ -544,17 +544,11 @@ async def reupload_file(
         # shared cleanup helper.
         try:
             async with async_session() as err_session:
-                # fix(#1778 r6, #1950): the SELECT can stall behind a table lock
-                # the row's own UPDATE never sees. The helper below rolls back
-                # and re-arms, so this covers the load alone.
-                await arm_job_error_write_budget(err_session)
-                err_job_result = await err_session.execute(
-                    select(IngestJob).where(
-                        IngestJob.id == job_uuid,
-                        IngestJob.attempt_id == attempt_uuid,
-                    )
+                # fix(#1950 codex r2): arms the budget, loads the row, and
+                # swallows an expiry — the failure below is the task's outcome.
+                err_job = await load_job_for_error_write(
+                    err_session, job_uuid, attempt_uuid, task_name="reupload_file"
                 )
-                err_job = err_job_result.scalar_one_or_none()
                 if err_job is not None:
                     await _cleanup_staging_on_failure(
                         err_session,
@@ -1263,17 +1257,11 @@ async def reupload_service(
         scrub_secret_from_exception(exc, token)
         # Phase 1/2 sessions are already closed by the time we get here.
         async with async_session() as err_session:
-            # fix(#1778 r6, #1950): the SELECT can stall behind a table lock the
-            # row's own UPDATE never sees. The helper below rolls back and
-            # re-arms, so this covers the load alone.
-            await arm_job_error_write_budget(err_session)
-            err_job_result = await err_session.execute(
-                select(IngestJob).where(
-                    IngestJob.id == job_uuid,
-                    IngestJob.attempt_id == attempt_uuid,
-                )
+            # fix(#1950 codex r2): arms the budget, loads the row, and
+            # swallows an expiry — the failure below is the task's outcome.
+            err_job = await load_job_for_error_write(
+                err_session, job_uuid, attempt_uuid, task_name="reupload_service"
             )
-            err_job = err_job_result.scalar_one_or_none()
             if err_job is not None:
                 await _cleanup_staging_on_failure(
                     err_session,

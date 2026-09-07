@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 import structlog.testing
+from asyncpg.exceptions import QueryCanceledError
 from sqlalchemy import delete, select, text
 from sqlalchemy.exc import DBAPIError
 
@@ -26,6 +27,7 @@ from app.platform.jobs.models import IngestJob
 from app.processing.ingest.tasks_common import (
     _cleanup_staging_on_failure,
     _job_phase_session,
+    load_job_for_error_write,
 )
 
 pytestmark = pytest.mark.anyio
@@ -213,6 +215,14 @@ class TestTheBoundIsWhereTheBlockingStatementIs:
                 "regenerate_vrt",
                 lambda: _task_source("tasks_vrt", "regenerate_vrt"),
             ),
+            # The four helper-routed tails load the job row BEFORE the helper,
+            # under the same budget, so an expiry there lands in a frame the
+            # helper's own handler cannot reach (#1950 codex r2). The two
+            # vector tails guard that load in place; the two re-upload tails
+            # share `load_job_for_error_write`, whose guard is its own entry.
+            ("ingest_file", lambda: _task_source("tasks_vector", "ingest_file")),
+            ("ingest_service", lambda: _task_source("tasks_vector", "ingest_service")),
+            ("load_job_for_error_write", lambda: load_job_for_error_write),
         ],
     )
     def test_every_error_write_swallows_its_own_failure(self, owner, getter) -> None:
@@ -299,6 +309,16 @@ class TestTheBoundIsWhereTheBlockingStatementIs:
         assert "_cleanup_staging_on_failure" in source, (
             f"{module_name}.{task_name} writes its own terminal failure row "
             "again, so the budget in the shared helper no longer covers it"
+        )
+        loader = (
+            "load_job_for_error_write"
+            if module_name == "tasks_reupload"
+            else "_job_phase_session"
+        )
+        assert loader in source, (
+            f"{module_name}.{task_name} loads the job row for its error write "
+            f"without {loader}, so the guarded load that swallows an expired "
+            "budget is no longer the one it runs"
         )
 
 
@@ -526,6 +546,47 @@ class _IngestFailed(RuntimeError):
 
 class TestTheTimeoutDoesNotReplaceTheCause:
     """The bound must not trade a hang for the wrong diagnosis."""
+
+    async def test_the_shared_loader_swallows_its_own_expiry(self) -> None:
+        """The re-upload tails call it from inside `except`, so it must return."""
+
+        class _Session:
+            def __init__(self) -> None:
+                self.armed = 0
+                self.rolled_back = 0
+
+            async def execute(self, statement):
+                if "SET LOCAL" in str(statement):
+                    self.armed += 1
+                    return None
+                raise DBAPIError(
+                    "SELECT", {}, QueryCanceledError("canceling statement")
+                )
+
+            async def rollback(self) -> None:
+                self.rolled_back += 1
+
+        session = _Session()
+        with structlog.testing.capture_logs() as captured:
+            loaded = await load_job_for_error_write(
+                session, uuid.uuid4(), uuid.uuid4(), task_name="reupload_file"
+            )
+
+        assert session.armed == 2, (
+            f"the loader issued {session.armed} SET LOCALs before its SELECT, so "
+            "the statement this test expires was never under the budget"
+        )
+        assert loaded is None
+        assert session.rolled_back == 1, (
+            "the loader left the session in an aborted transaction, so the run "
+            "row the caller still has to write fails with 25P02"
+        )
+        timeouts = [r for r in captured if r.get("event") == "job_error_write_timeout"]
+        assert len(timeouts) == 1, (
+            f"expected one job_error_write_timeout event; got {captured}"
+        )
+        assert timeouts[0]["task"] == "reupload_file"
+        assert timeouts[0]["sqlstate"] == "57014"
 
     @staticmethod
     async def _tail_shape(session, job, cause: BaseException, seen: list) -> None:
