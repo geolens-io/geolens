@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 import structlog
+from sqlalchemy.exc import DBAPIError
 
 from app.core.db.tenant_session import current_tenant_var, tenant_task
 from app.core.tenancy import is_multi_tenant
@@ -11,6 +12,7 @@ from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.jobs.heartbeat import (
     JOB_ERROR_WRITE_TIMEOUT_MS,
     claim_job_attempt_and_start_heartbeat,
+    log_job_error_write_failure,
     require_ingest_job_update,
     resolve_ingest_attempt_or_skip,
     stop_ingest_job_heartbeat,
@@ -797,8 +799,8 @@ async def ingest_raster(
         # REMED-03 / P2-05: route through _job_phase_session.
         #
         # fix(#1950): the budget covers the UPDATE below, the statement that
-        # blocks on a contended job row. If it expires the job records nothing
-        # and stays `running` until the stale sweep reaps it.
+        # blocks on a contended job row. An expiry leaves the job `running` for
+        # the stale sweep; the handler below keeps the cause as the outcome.
         try:
             async with _job_phase_session(
                 job_uuid,
@@ -825,6 +827,13 @@ async def ingest_raster(
                     )
                 )
                 await err_session.commit()
+        except DBAPIError as write_failure:
+            # fix(#1950): swallowed so the `raise` below re-raises the ingest
+            # failure. Letting an expiry out would hand the operator a lock
+            # timeout in place of the cause, and skip the notification.
+            log_job_error_write_failure(
+                write_failure, job_id=job_id, task="ingest_raster"
+            )
         finally:
             # fix(#1213 review r1, #1950): the `finally` reapers gate on THIS
             # variable, so every exit from this handler sets it — the bounded

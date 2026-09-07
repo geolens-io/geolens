@@ -1292,14 +1292,19 @@ async def _cleanup_staging_on_failure(
     can fail belongs after the commit, in its own guarded block, with a
     rollback of its own wreckage.
 
-    fix(#1950): the failure UPDATE runs under ``JOB_ERROR_WRITE_TIMEOUT_MS``.
-    A contended job row raises out of here rather than waiting, so the job stays
-    ``running`` and whatever a caller writes after this call is skipped too.
+    fix(#1950): the failure UPDATE runs under ``JOB_ERROR_WRITE_TIMEOUT_MS``. On
+    a contended job row it gives up rather than waiting, logs
+    ``job_error_write_timeout``, and returns — the job stays ``running`` and the
+    caller re-raises the failure it was already handling.
     """
     from sqlalchemy import text
     from sqlalchemy import update as sa_update
+    from sqlalchemy.exc import DBAPIError
 
-    from app.platform.jobs.heartbeat import arm_job_error_write_budget
+    from app.platform.jobs.heartbeat import (
+        arm_job_error_write_budget,
+        log_job_error_write_failure,
+    )
     from app.processing.ingest.metadata import _qtable
 
     job_id = job.id
@@ -1331,14 +1336,24 @@ async def _cleanup_staging_on_failure(
             type(job).attempt_id == attempt_id,
             type(job).status.in_(("pending", "running")),
         )
-    result = await session.execute(
-        failure_update.values(
-            status="failed",
-            error_message=error_message,
-            completed_at=completed_at,
+    # fix(#1950): an expired budget must not become the task's outcome. Swallowed
+    # and logged as its own event, so the caller re-raises the ingest failure and
+    # the report below still runs; `written` gates what the write earned.
+    written = False
+    result = None
+    try:
+        result = await session.execute(
+            failure_update.values(
+                status="failed",
+                error_message=error_message,
+                completed_at=completed_at,
+            )
         )
-    )
-    await session.commit()
+        await session.commit()
+        written = True
+    except DBAPIError as write_failure:
+        await session.rollback()
+        log_job_error_write_failure(write_failure, job_id=str(job_id), task=task_name)
 
     # fix(#1778 codex r2): the DROP runs AFTER the failure row is committed,
     # not before it. PostgreSQL aborts the whole transaction on any statement
@@ -1376,11 +1391,12 @@ async def _cleanup_staging_on_failure(
                     task=task_name,
                 )
 
-    if attempt_id is not None and not result.rowcount:
+    if written and attempt_id is not None and not result.rowcount:
         return
-    job.status = "failed"
-    job.error_message = error_message
-    job.completed_at = completed_at
+    if written:
+        job.status = "failed"
+        job.error_message = error_message
+        job.completed_at = completed_at
     structlog.get_logger().exception(
         "Ingest task failed",
         job_id=str(job_id),

@@ -17,6 +17,7 @@ import uuid
 from datetime import datetime, timezone
 
 import structlog
+from sqlalchemy.exc import DBAPIError
 
 from sqlalchemy import select
 
@@ -24,6 +25,7 @@ from app.platform.cache.tiles import invalidate_catalog_cache
 from app.platform.jobs.heartbeat import (
     arm_job_error_write_budget,
     claim_job_attempt_and_start_heartbeat,
+    log_job_error_write_failure,
     maintain_vrt_generation_heartbeat,
     require_ingest_job_update,
     resolve_ingest_attempt_or_skip,
@@ -1588,57 +1590,61 @@ async def regenerate_vrt(
         )
         # Failure handler runs via a fresh session: mark vrt asset failed,
         # mark generation failed, mark job failed.
-        async with async_session() as err_session:
-            from sqlalchemy import update as sa_update
+        try:
+            async with async_session() as err_session:
+                from sqlalchemy import update as sa_update
 
-            # fix(#1950): the publish wait above raises CatalogLockConflict on a
-            # held catalog row, so this handler runs while the job row may be
-            # contended too. All three writes below share the budget.
-            await arm_job_error_write_budget(err_session)
-            await update_ingest_job_for_attempt(
-                err_session,
-                job_uuid,
-                attempt_uuid,
-                values={
-                    "status": "failed",
-                    "error_message": str(exc),
-                    "completed_at": datetime.now(timezone.utc),
-                },
-            )
-            # Mark only the asset that still points at this exact generation.
-            # If a newer retry owns the pointer, leave its status untouched.
-            await err_session.execute(
-                sa_update(RasterAsset)
-                .where(
-                    RasterAsset.dataset_id == vrt_id,
-                    RasterAsset.current_generation_id == generation_uuid,
+                # fix(#1950): the publish wait above gives up on a held
+                # catalog row, so this handler runs while the job row may be
+                # contended too. All three writes below share the budget.
+                await arm_job_error_write_budget(err_session)
+                await update_ingest_job_for_attempt(
+                    err_session,
+                    job_uuid,
+                    attempt_uuid,
+                    values={
+                        "status": "failed",
+                        "error_message": str(exc),
+                        "completed_at": datetime.now(timezone.utc),
+                    },
                 )
-                .values(status="failed", current_generation_id=None)
-            )
-
-            # Update generation record on failure.
-            if generation_uuid is not None:
-                gen_result = await err_session.execute(
-                    select(VrtGeneration).where(VrtGeneration.id == generation_uuid)
+                # Mark only the asset that still points at this exact generation.
+                # If a newer retry owns the pointer, leave its status untouched.
+                await err_session.execute(
+                    sa_update(RasterAsset)
+                    .where(
+                        RasterAsset.dataset_id == vrt_id,
+                        RasterAsset.current_generation_id == generation_uuid,
+                    )
+                    .values(status="failed", current_generation_id=None)
                 )
-                gen = gen_result.scalar_one_or_none()
-                # fix(#1778 codex r1): and the same rule stated at the write
-                # rather than only at the caller. The two guards above are
-                # local flags; this one is a property of the statement, so a
-                # future path into this handler cannot relabel a generation
-                # whose artifact is published, whatever it believes about the
-                # commit. It is the peer of the `current_generation_id` fence
-                # on the asset update and the `running` fence on the job.
-                if gen and gen.status != "completed":
-                    gen.status = "failed"
-                    gen.completed_at = datetime.now(timezone.utc)
-                    if gen.started_at:
-                        gen.duration_seconds = (
-                            gen.completed_at - gen.started_at
-                        ).total_seconds()
-                    gen.error_message = str(exc)
 
-            await err_session.commit()
+                # Update generation record on failure.
+                if generation_uuid is not None:
+                    gen_result = await err_session.execute(
+                        select(VrtGeneration).where(VrtGeneration.id == generation_uuid)
+                    )
+                    gen = gen_result.scalar_one_or_none()
+                    # fix(#1778 codex r1): fenced at the statement, not only
+                    # at the caller — a future path into this handler cannot
+                    # relabel a generation whose artifact is published.
+                    if gen and gen.status != "completed":
+                        gen.status = "failed"
+                        gen.completed_at = datetime.now(timezone.utc)
+                        if gen.started_at:
+                            gen.duration_seconds = (
+                                gen.completed_at - gen.started_at
+                            ).total_seconds()
+                        gen.error_message = str(exc)
+
+                await err_session.commit()
+        except DBAPIError as write_failure:
+            # fix(#1950): swallowed so the `raise` below re-raises the cause
+            # this handler was called for. Letting an expiry out would hand
+            # the operator a lock timeout in place of the build failure.
+            log_job_error_write_failure(
+                write_failure, job_id=job_id, task="regenerate_vrt"
+            )
         raise
     finally:
         async with cleanup_step("regenerate_vrt generation heartbeat", job_id=job_id):

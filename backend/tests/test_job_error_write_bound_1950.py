@@ -14,6 +14,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+import structlog.testing
 from sqlalchemy import delete, select, text
 from sqlalchemy.exc import DBAPIError
 
@@ -42,6 +43,25 @@ def _arm_call_lines(tree: ast.AST) -> list[int]:
         if isinstance(node, ast.Call)
         and getattr(node.func, "id", None) == "arm_job_error_write_budget"
     ]
+
+
+def _task_source(module_name: str, task_name: str) -> str:
+    """The source of a Procrastinate task's undecorated function."""
+    import importlib
+
+    module = importlib.import_module(f"app.processing.ingest.{module_name}")
+    target = getattr(module, task_name)
+    return inspect.getsource(getattr(target, "func", target))
+
+
+def _call_names(nodes) -> set[str]:
+    """Every bare function name called anywhere under *nodes*."""
+    found = set()
+    for node in nodes:
+        for child in ast.walk(node):
+            if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
+                found.add(child.func.id)
+    return found
 
 
 def _method_call_lines(tree: ast.AST, attr: str) -> list[int]:
@@ -185,6 +205,42 @@ class TestTheBoundIsWhereTheBlockingStatementIs:
         )
 
     @pytest.mark.parametrize(
+        ("owner", "getter"),
+        [
+            ("_cleanup_staging_on_failure", lambda: _cleanup_staging_on_failure),
+            ("ingest_raster", lambda: _task_source("tasks_raster", "ingest_raster")),
+            (
+                "regenerate_vrt",
+                lambda: _task_source("tasks_vrt", "regenerate_vrt"),
+            ),
+        ],
+    )
+    def test_every_error_write_swallows_its_own_failure(self, owner, getter) -> None:
+        """A secondary write must never replace the cause its caller is handling."""
+        target = getter()
+        source = target if isinstance(target, str) else inspect.getsource(target)
+        handlers = [
+            node
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.ExceptHandler)
+            and getattr(node.type, "id", None) == "DBAPIError"
+        ]
+        assert len(handlers) == 1, (
+            f"{owner} has {len(handlers)} DBAPIError handlers around its failure "
+            "write. Without exactly one, an expired budget leaves this frame and "
+            "becomes the task's outcome in place of the ingest error"
+        )
+        body = handlers[0].body
+        assert not [n for n in ast.walk(handlers[0]) if isinstance(n, ast.Raise)], (
+            f"{owner} re-raises inside its DBAPIError handler, so the timeout is "
+            "still what the worker reports"
+        )
+        assert _call_names(body) & {"log_job_error_write_failure"}, (
+            f"{owner} swallows the failure without recording it, trading a "
+            "visible hang for an invisible one"
+        )
+
+    @pytest.mark.parametrize(
         ("module_name", "task_name"),
         [
             ("tasks_vector", "ingest_file"),
@@ -296,7 +352,7 @@ class TestAHeldJobRowEndsTheFailureWrite:
                         select(IngestJob).where(IngestJob.id == job_id)
                     )
                 ).scalar_one()
-                with pytest.raises(DBAPIError) as excinfo:
+                with structlog.testing.capture_logs() as captured:
                     await asyncio.wait_for(
                         _cleanup_staging_on_failure(
                             err_session,
@@ -322,8 +378,12 @@ class TestAHeldJobRowEndsTheFailureWrite:
             "reach the budget the code read, so this run measures the shipped "
             "10s constant and would pass with the patch severed entirely"
         )
-        assert sqlstate(excinfo.value) == "57014", (
-            f"the held row ended the failure write with {sqlstate(excinfo.value)!r}. "
+        expired = [r for r in captured if r.get("event") == "job_error_write_timeout"]
+        assert len(expired) == 1, (
+            f"expected one job_error_write_timeout event; got {captured}"
+        )
+        assert expired[0]["sqlstate"] == "57014", (
+            f"the held row ended the failure write with {expired[0]['sqlstate']!r}. "
             "Both GUCs are armed at the same value and the blocking statement is "
             "the UPDATE, so statement_timeout holds the earlier deadline; 55P03 "
             "would mean only lock_timeout was armed"
@@ -458,6 +518,108 @@ class TestWhyTheBoundIsNotOnTheBracket:
                 await holder.rollback()
                 await asyncio.wait_for(blocked, timeout=30)
                 await waiter.rollback()
+
+
+class _IngestFailed(RuntimeError):
+    """A recognisable stand-in for whatever the pipeline actually raised."""
+
+
+class TestTheTimeoutDoesNotReplaceTheCause:
+    """The bound must not trade a hang for the wrong diagnosis."""
+
+    @staticmethod
+    async def _tail_shape(session, job, cause: BaseException, seen: list) -> None:
+        """`ingest_file`'s handler shape: the helper in a try/finally, then raise."""
+        final_status = "pending"
+        try:
+            await _cleanup_staging_on_failure(
+                session,
+                staging_table="",
+                job=job,
+                exc=cause,
+                task_name="ingest_file",
+                attempt_id=None,
+            )
+        finally:
+            final_status = "failed"
+            seen.append(final_status)
+        raise cause
+
+    async def test_the_original_exception_is_what_leaves_the_tail(
+        self, running_job, monkeypatch, test_db_session
+    ) -> None:
+        job_id, _attempt_id = running_job
+        monkeypatch.setattr(
+            "app.platform.jobs.heartbeat.JOB_ERROR_WRITE_TIMEOUT_MS", _TEST_BUDGET_MS
+        )
+        import app.core.db as db_module
+        import app.platform.notifications.events as events_module
+
+        emitted: list[str] = []
+
+        async def _record(*, event_key, build):  # noqa: ANN001 - test double
+            emitted.append(event_key)
+
+        monkeypatch.setattr(events_module, "emit_event_safe", _record)
+        cause = _IngestFailed("ogr2ogr could not read the layer")
+        seen: list[str] = []
+
+        async with db_module.async_session() as holder:
+            await holder.execute(
+                select(IngestJob.id).where(IngestJob.id == job_id).with_for_update()
+            )
+            async with db_module.async_session() as err_session:
+                err_job = (
+                    await err_session.execute(
+                        select(IngestJob).where(IngestJob.id == job_id)
+                    )
+                ).scalar_one()
+                with structlog.testing.capture_logs() as captured:
+                    with pytest.raises(_IngestFailed) as excinfo:
+                        await asyncio.wait_for(
+                            self._tail_shape(err_session, err_job, cause, seen),
+                            timeout=30,
+                        )
+                await err_session.rollback()
+            await holder.rollback()
+
+        assert seen == ["failed"], (
+            "the `finally` that carries the terminal status did not run on the "
+            "timeout route, so the staging reapers would return early"
+        )
+        assert excinfo.value is cause, (
+            "the timed-out error write replaced the ingest failure as the task's "
+            "outcome, so the operator is handed a lock timeout instead of the "
+            "reason the ingest failed"
+        )
+        timeouts = [r for r in captured if r.get("event") == "job_error_write_timeout"]
+        assert len(timeouts) == 1, (
+            f"expected one job_error_write_timeout event; got {captured}"
+        )
+        assert timeouts[0]["log_level"] == "warning"
+        assert timeouts[0]["sqlstate"] == "57014"
+        assert timeouts[0]["budget_ms"] == _TEST_BUDGET_MS
+        assert timeouts[0]["task"] == "ingest_file"
+
+        reported = [r for r in captured if r.get("event") == "Ingest task failed"]
+        assert len(reported) == 1, (
+            "the timeout route skipped the failure logger, so nothing in the log "
+            "says the ingest failed at all"
+        )
+        assert emitted == ["ingest_failed"], (
+            "the timeout route skipped the operator notification, which is the "
+            "only signal an operator with failure mail on would have seen"
+        )
+
+        test_db_session.expire_all()
+        unchanged = (
+            await test_db_session.execute(
+                select(IngestJob).where(IngestJob.id == job_id)
+            )
+        ).scalar_one()
+        assert unchanged.status == "running", (
+            "the write that gave up still recorded a status"
+        )
 
 
 def test_the_shared_budget_is_ten_seconds() -> None:

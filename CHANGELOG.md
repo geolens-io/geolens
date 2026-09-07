@@ -67,8 +67,9 @@ and releases use semantic versioning.
 - A file import, service import, reupload, raster import or VRT regeneration that failed while
   another operation held its job row hung there instead of recording the failure, with the
   heartbeat still reporting the job alive. That write is now capped at 10 seconds. A job whose
-  write gives up records nothing, is settled by the stale-job sweep once its heartbeat stops,
-  and for a refresh leaves its history row to be closed by the refresh sweep instead. (#1950)
+  write gives up still reports the error that actually failed the job, and the timeout is logged
+  separately; the job row itself records nothing and is settled by the stale-job sweep once its
+  heartbeat stops, with a refresh's history row closed by the refresh sweep instead. (#1950)
 
 ## [1.18.1] - 2026-09-05
 

@@ -3621,10 +3621,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1921): +66 — the post-swap catalog wait gets its own budget, a
     # restore, and events telling an expired budget from a lost deadlock.
     # Cap 2577 -> 2643, exact.
-    # fix(#1950): +9 — the shared failure helper arms the job-row budget after
-    # its own rollback, and its docstring states what an expired budget leaves.
-    # Cap 2643 -> 2652, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2652,
+    # fix(#1950): +25 — the shared failure helper arms the job-row budget after
+    # its own rollback, and an expiry there is logged and swallowed so the caller
+    # re-raises the ingest failure instead. Cap 2643 -> 2668, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2668,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -4632,10 +4632,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1938): +58 — the publish's catalog.records wait gets a budget, a
     # restore after it, and a classified failure report whose SQLSTATE table
     # lives in catalog_locks instead. Cap 1640 -> 1698, exact.
-    # fix(#1950): +5 — regenerate_vrt's failure handler bounds its three writes,
-    # which is where its own 15s publish wait lands when it gives up.
-    # Cap 1698 -> 1703, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1703,
+    # fix(#1950): +11 — regenerate_vrt's failure handler bounds its three writes,
+    # which is where its own 15s publish wait lands, and keeps the build failure
+    # as the task's outcome when that bound expires. Cap 1698 -> 1709, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1709,
     # --- entered by the inclusion rule, fix(#1937) ------------------------
     # tasks_raster_replace crossed 1000 bounding its phase-2 catalog wait.
     # The budget alone is six lines; the rest is what a newly failable wait
